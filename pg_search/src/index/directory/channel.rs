@@ -22,11 +22,11 @@ use tantivy::directory::{
     WatchCallback, WatchHandle, WritePtr,
 };
 use tantivy::index::SegmentMetaInventory;
-use tantivy::merge_policy::MergePolicy;
 use tantivy::{Directory, IndexMeta, TantivyError};
 
 pub type Overwrite = bool;
 
+#[derive(Debug)]
 pub enum ChannelRequest {
     RegisterFilesAsManaged(
         Vec<PathBuf>,
@@ -47,13 +47,9 @@ pub enum ChannelRequest {
         SegmentMetaInventory,
         oneshot::Sender<tantivy::Result<IndexMeta>>,
     ),
-    ReconsiderMergePolicy(
-        IndexMeta,
-        IndexMeta,
-        oneshot::Sender<Option<Box<dyn MergePolicy>>>,
-    ),
     Panic(Box<dyn Any + Send>),
     WantsCancel(oneshot::Sender<bool>),
+    Log(String),
 }
 #[derive(Clone, Debug)]
 pub struct ChannelDirectory {
@@ -184,23 +180,6 @@ impl Directory for ChannelDirectory {
             .map_err(|e| io::Error::new(io::ErrorKind::NotConnected, e))?
     }
 
-    fn reconsider_merge_policy(
-        &self,
-        meta: &IndexMeta,
-        previous_meta: &IndexMeta,
-    ) -> Option<Box<dyn MergePolicy>> {
-        let (oneshot_sender, oneshot_receiver) = oneshot::channel();
-        self.sender
-            .send(ChannelRequest::ReconsiderMergePolicy(
-                meta.clone(),
-                previous_meta.clone(),
-                oneshot_sender,
-            ))
-            .unwrap();
-
-        oneshot_receiver.recv().unwrap()
-    }
-
     fn supports_garbage_collection(&self) -> bool {
         false
     }
@@ -208,6 +187,7 @@ impl Directory for ChannelDirectory {
     fn panic_handler(&self) -> Option<DirectoryPanicHandler> {
         let sender = self.sender.clone();
         let panic_handler = move |any| {
+            eprintln!("panic handler got one: {any:?}");
             sender.send(ChannelRequest::Panic(any)).unwrap();
         };
         Some(Arc::new(panic_handler))
@@ -227,6 +207,12 @@ impl Directory for ChannelDirectory {
 
         // similarly, if we had a failure receiving the error we need to go ahead and cancel too
         oneshot_receiver.recv().unwrap_or(true)
+    }
+
+    fn log(&self, message: &str) {
+        self.sender
+            .send(ChannelRequest::Log(message.to_string()))
+            .ok(); // silently ignore errors trying to log
     }
 }
 
@@ -295,9 +281,11 @@ impl ChannelRequestHandler {
 
             // caught a panic so let it continue
             Err(e) => {
+                #[allow(clippy::implicit_saturating_sub)]
                 unsafe {
-                    assert!(pg_sys::InterruptHoldoffCount > 0);
-                    pg_sys::InterruptHoldoffCount -= 1;
+                    if pg_sys::InterruptHoldoffCount > 0 {
+                        pg_sys::InterruptHoldoffCount -= 1;
+                    }
                 }
                 resume_unwind(e)
             }
@@ -391,12 +379,6 @@ impl ChannelRequestHandler {
             ChannelRequest::LoadMetas(inventory, sender) => {
                 sender.send(self.directory.load_metas(&inventory))?;
             }
-            ChannelRequest::ReconsiderMergePolicy(meta, previous_meta, sender) => {
-                let policy = self
-                    .directory
-                    .reconsider_merge_policy(&meta, &previous_meta);
-                sender.send(policy)?;
-            }
             ChannelRequest::Panic(any) => {
                 if let Some(panic_handler) = self.directory.panic_handler() {
                     panic_handler(any);
@@ -407,6 +389,7 @@ impl ChannelRequestHandler {
             ChannelRequest::WantsCancel(sender) => {
                 sender.send(self.directory.wants_cancel())?;
             }
+            ChannelRequest::Log(message) => self.directory.log(&message),
         }
         Ok(false)
     }

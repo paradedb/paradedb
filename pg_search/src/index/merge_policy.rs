@@ -1,5 +1,7 @@
+use std::collections::HashSet;
+use tantivy::index::SegmentId;
 use tantivy::indexer::{MergeCandidate, MergePolicy};
-use tantivy::SegmentMeta;
+use tantivy::{Directory, SegmentMeta};
 macro_rules! my_eprintln {
     () => {
         // eprintln!()
@@ -7,12 +9,6 @@ macro_rules! my_eprintln {
     ($($arg:tt)*) => {{
         // eprintln!($($arg)*);
     }};
-}
-
-#[derive(Debug, Clone)]
-pub enum AllowedMergePolicy {
-    None,
-    NPlusOne,
 }
 
 /// A tantivy [`MergePolicy`] that endeavours to keep a maximum number of segments "N", plus
@@ -33,10 +29,17 @@ pub struct NPlusOneMergePolicy {
     // the size, in bytes, of a segment whereby we will not
     // to merge it at all
     pub segment_freeze_size: usize,
+
+    // segments which are currently being vacuumed -- we cannot merge these
+    pub vacuum_list: HashSet<SegmentId>,
 }
 
 impl MergePolicy for NPlusOneMergePolicy {
-    fn compute_merge_candidates(&self, segments: &[SegmentMeta]) -> Vec<MergeCandidate> {
+    fn compute_merge_candidates(
+        &self,
+        _directory: Option<&dyn Directory>,
+        segments: &[SegmentMeta],
+    ) -> Vec<MergeCandidate> {
         #[derive(Debug)]
         enum MergeBy {
             ByteSize,
@@ -54,6 +57,9 @@ impl MergePolicy for NPlusOneMergePolicy {
         // these segments will live on disk, as-is, until they become smaller through deletes
         let mut segments = segments
             .iter()
+            // filter out segments that are currently being vacuumed
+            .filter(|s| !self.vacuum_list.contains(&s.id()))
+            // filter out segments that are too big
             .filter(|s| {
                 // estimate the byte size of this segment, accounting for only the *live* docs
                 let byte_size = s.num_docs() as f64 * self.avg_byte_size_per_doc;
@@ -201,6 +207,7 @@ impl MergePolicy for NPlusOneMergePolicy {
             break;
         }
         my_eprintln!("---- /compute_merge_candidates ---- ");
+
         candidates
     }
 }

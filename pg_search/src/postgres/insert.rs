@@ -15,12 +15,19 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::gucs::max_mergeable_segment_size;
+use crate::index::merge_policy::NPlusOneMergePolicy;
+use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::SearchIndexWriter;
-use crate::index::{BlockDirectoryType, WriterResources};
+use crate::index::WriterResources;
+use crate::postgres::storage::block::{MVCCEntry, SegmentMetaEntry, SEGMENT_METAS_START};
+use crate::postgres::storage::merge::MergeLock;
+use crate::postgres::storage::LinkedItemList;
 use crate::postgres::utils::{
     categorize_fields, item_pointer_to_u64, row_to_search_document, CategorizedFieldData,
 };
 use crate::schema::SearchField;
+use pgrx::pg_sys::Oid;
 use pgrx::{pg_guard, pg_sys, PgMemoryContexts, PgRelation, PgTupleDesc};
 use std::ffi::CStr;
 use std::panic::{catch_unwind, resume_unwind};
@@ -43,7 +50,7 @@ impl InsertState {
         indexrel: &PgRelation,
         writer_resources: WriterResources,
     ) -> anyhow::Result<Self> {
-        let writer = SearchIndexWriter::open(indexrel, BlockDirectoryType::Mvcc, writer_resources)?;
+        let writer = SearchIndexWriter::open(indexrel, MvccSatisfies::Snapshot, writer_resources)?;
         let tupdesc = unsafe { PgTupleDesc::from_pg_unchecked(indexrel.rd_att) };
         let categorized_fields = categorize_fields(&tupdesc, &writer.schema);
         let key_field_name = writer.schema.key_field().name.0;
@@ -215,8 +222,69 @@ pub unsafe extern "C" fn aminsertcleanup(
 
 pub fn paradedb_aminsertcleanup(mut writer: Option<SearchIndexWriter>) {
     if let Some(writer) = writer.take() {
+        let indexrelid = writer.indexrelid;
+
         writer
             .commit()
-            .expect("must be able to commit inserts in fake_aminsertcleanup");
+            .expect("must be able to commit inserts in paradedb_aminsertcleanup");
+
+        unsafe {
+            do_merge(indexrelid);
+        }
+    }
+}
+
+unsafe fn do_merge(indexrelid: Oid) {
+    let target_segments = std::thread::available_parallelism()
+        .expect("failed to get available_parallelism")
+        .get();
+    let snapshot = pg_sys::GetActiveSnapshot();
+
+    let mut items = LinkedItemList::<SegmentMetaEntry>::open(indexrelid, SEGMENT_METAS_START);
+    let mut nbytes = 0;
+    let mut ndocs = 0;
+    let mut nvisible = 0;
+    for entry in items.list() {
+        if entry.visible(snapshot) {
+            nvisible += 1;
+        }
+        nbytes += entry.byte_size();
+        ndocs += entry.num_docs() + entry.num_deleted_docs();
+    }
+    if nvisible <= target_segments + 1 {
+        // no need to merge if we don't have enough visible segments
+        return;
+    }
+    let avg_byte_size_per_doc = nbytes as f64 / ndocs as f64;
+
+    if let Some(mut merge_lock) = MergeLock::acquire_for_merge(indexrelid) {
+        // Minimum number of segments for the NPlusOneMergePolicy to maintain
+        const MIN_MERGE_COUNT: usize = 2;
+
+        let merge_policy = NPlusOneMergePolicy {
+            n: target_segments,
+            min_merge_count: MIN_MERGE_COUNT,
+
+            avg_byte_size_per_doc,
+            segment_freeze_size: max_mergeable_segment_size(),
+            vacuum_list: merge_lock.list_vacuuming_segments(),
+        };
+
+        let indexrel = PgRelation::with_lock(indexrelid, pg_sys::RowExclusiveLock as _);
+        let mut writer = SearchIndexWriter::open(
+            &indexrel,
+            MvccSatisfies::Snapshot,
+            WriterResources::PostStatementMerge,
+        )
+        .expect("should be able to open a SearchIndexWriter for PostStatementMerge");
+
+        writer.set_merge_policy(merge_policy);
+        writer.merge().expect("index merge should succeed");
+
+        if !merge_lock.is_ambulkdelete_running() {
+            items.garbage_collect(pg_sys::GetAccessStrategy(
+                pg_sys::BufferAccessStrategyType::BAS_VACUUM,
+            ));
+        }
     }
 }

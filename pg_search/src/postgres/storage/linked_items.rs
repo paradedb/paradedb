@@ -145,7 +145,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         items
     }
 
-    pub unsafe fn garbage_collect(&mut self, strategy: pg_sys::BufferAccessStrategy) -> Result<()> {
+    pub unsafe fn garbage_collect(&mut self, strategy: pg_sys::BufferAccessStrategy) {
         // Delete all items that are definitely dead
         let snapshot = pg_sys::GetActiveSnapshot();
         let heap_oid = pg_sys::IndexGetRelation(self.relation_oid, false);
@@ -229,7 +229,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         }
 
         pg_sys::RelationClose(heap_relation);
-        Ok(())
     }
 
     pub unsafe fn add_items(&mut self, items: Vec<T>, buffer: Option<BufferMut>) -> Result<()> {
@@ -391,7 +390,7 @@ mod tests {
 
         list.add_items(entries_to_delete.clone(), None).unwrap();
         list.add_items(entries_to_keep.clone(), None).unwrap();
-        list.garbage_collect(strategy).unwrap();
+        list.garbage_collect(strategy);
 
         assert!(list
             .lookup(|entry| entry.segment_id == entries_to_delete[0].segment_id)
@@ -442,7 +441,7 @@ mod tests {
                 .collect::<Vec<_>>();
 
             list.add_items(entries.clone(), None).unwrap();
-            list.garbage_collect(strategy).unwrap();
+            list.garbage_collect(strategy);
 
             for entry in entries {
                 if entry.xmax == not_deleted_xid {
@@ -487,7 +486,7 @@ mod tests {
             list.add_items(entries_3.clone(), None).unwrap();
 
             let pre_gc_blocks = linked_list_block_numbers(&list);
-            list.garbage_collect(strategy).unwrap();
+            list.garbage_collect(strategy);
 
             for entries in [entries_1, entries_2, entries_3] {
                 for entry in entries {

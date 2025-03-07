@@ -16,17 +16,16 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::utils::{load_metas, save_new_metas, save_schema, save_settings};
-use crate::gucs::max_mergeable_segment_size;
-use crate::index::merge_policy::{AllowedMergePolicy, NPlusOneMergePolicy};
+use crate::index::channel::{ChannelRequest, ChannelRequestHandler};
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::postgres::storage::block::{
     FileEntry, SegmentFileDetails, SegmentMetaEntry, SEGMENT_METAS_START,
 };
-use crate::postgres::storage::merge::MergeLock;
 use crate::postgres::storage::LinkedItemList;
 use anyhow::{anyhow, Result};
+use crossbeam::channel::Receiver;
 use parking_lot::Mutex;
-use pgrx::pg_sys;
+use pgrx::{pg_sys, PgRelation};
 use rustc_hash::FxHashMap;
 use std::any::Any;
 use std::collections::hash_map::Entry;
@@ -42,16 +41,32 @@ use tantivy::directory::error::{DeleteError, LockError, OpenReadError, OpenWrite
 use tantivy::directory::{
     DirectoryLock, DirectoryPanicHandler, FileHandle, Lock, WatchCallback, WatchHandle, WritePtr,
 };
-use tantivy::merge_policy::{MergePolicy, NoMergePolicy};
 use tantivy::{index::SegmentMetaInventory, Directory, IndexMeta};
 
-/// Minimum number of segments for the NPlusOneMergePolicy to maintain
-const MIN_MERGE_COUNT: usize = 2;
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MvccSatisfies {
     Snapshot,
     Any,
+}
+
+impl MvccSatisfies {
+    pub fn directory(self, index_relation: &PgRelation) -> MVCCDirectory {
+        match self {
+            MvccSatisfies::Snapshot => MVCCDirectory::snapshot(index_relation.oid()),
+            MvccSatisfies::Any => MVCCDirectory::any(index_relation.oid()),
+        }
+    }
+    pub fn channel_request_handler(
+        self,
+        index_relation: &PgRelation,
+        receiver: Receiver<ChannelRequest>,
+    ) -> ChannelRequestHandler {
+        ChannelRequestHandler::open(
+            self.directory(index_relation),
+            index_relation.oid(),
+            receiver,
+        )
+    }
 }
 
 /// Tantivy Directory trait implementation over block storage
@@ -61,8 +76,6 @@ pub enum MvccSatisfies {
 pub struct MVCCDirectory {
     relation_oid: pg_sys::Oid,
     mvcc_style: MvccSatisfies,
-    merge_policy: AllowedMergePolicy,
-    lock_holder: Arc<Mutex<Option<MergeLock>>>,
 
     // keep a cache of readers behind an Arc<Mutex<_>> so that if/when this MVCCDirectory is
     // cloned, we don't lose all the work we did originally creating the FileHandler impls.  And
@@ -76,25 +89,19 @@ pub struct MVCCDirectory {
 }
 
 impl MVCCDirectory {
-    pub fn snapshot(relation_oid: pg_sys::Oid, merge_policy: AllowedMergePolicy) -> Self {
-        Self::with_mvcc_style(relation_oid, merge_policy, MvccSatisfies::Snapshot)
+    pub fn snapshot(relation_oid: pg_sys::Oid) -> Self {
+        Self::with_mvcc_style(relation_oid, MvccSatisfies::Snapshot)
     }
 
-    pub fn any(relation_oid: pg_sys::Oid, merge_policy: AllowedMergePolicy) -> Self {
-        Self::with_mvcc_style(relation_oid, merge_policy, MvccSatisfies::Any)
+    pub fn any(relation_oid: pg_sys::Oid) -> Self {
+        Self::with_mvcc_style(relation_oid, MvccSatisfies::Any)
     }
 
-    fn with_mvcc_style(
-        relation_oid: pg_sys::Oid,
-        merge_policy: AllowedMergePolicy,
-        mvcc_style: MvccSatisfies,
-    ) -> Self {
+    fn with_mvcc_style(relation_oid: pg_sys::Oid, mvcc_style: MvccSatisfies) -> Self {
         Self {
             relation_oid,
-            merge_policy,
             mvcc_style,
             readers: Arc::new(Mutex::new(FxHashMap::default())),
-            lock_holder: Default::default(),
             loaded_metas: Default::default(),
         }
     }
@@ -114,7 +121,7 @@ impl MVCCDirectory {
             .expect("path should have a component_type");
         let file_entry = entry.get_file_entry(component_type).ok_or_else(|| {
             anyhow!(format!(
-                "directory lookup failed for path=`{}`.  entry={entry:?}",
+                "directory lookup failed of component type {component_type:?} for path=`{}`.  entry={entry:?}",
                 path.display()
             ))
         })?;
@@ -259,62 +266,10 @@ impl Directory for MVCCDirectory {
                     self.relation_oid,
                     inventory,
                     pg_sys::GetActiveSnapshot(),
-                    self.mvcc_style,
+                    &self.mvcc_style,
                 )
             })
             .clone()
-    }
-
-    fn reconsider_merge_policy(
-        &self,
-        _meta: &IndexMeta,
-        _previous_meta: &IndexMeta,
-    ) -> Option<Box<dyn MergePolicy>> {
-        // we'll only reconsider merging if the merge_policy is our `NPlusOne` policy
-        // all other policies will be converted into [`NoMergePolicy`].
-        if !matches!(self.merge_policy, AllowedMergePolicy::NPlusOne) {
-            return Some(Box::new(NoMergePolicy));
-        }
-
-        // try to acquire our [`MergeLock`].  If we can't, then we can't merge, so just return with
-        // [`NoMergePolicy`].
-        let merge_lock = unsafe {
-            match MergeLock::acquire_for_merge(self.relation_oid) {
-                // we couldn't get the [`MergeLock`] so we can't merge
-                None => return Some(Box::new(NoMergePolicy)),
-
-                Some(merge_lock) => merge_lock,
-            }
-        };
-
-        let target_segments = std::thread::available_parallelism()
-            .expect("failed to get available_parallelism")
-            .get();
-        let avg_byte_size_per_doc = {
-            let items =
-                LinkedItemList::<SegmentMetaEntry>::open(self.relation_oid, SEGMENT_METAS_START);
-            let entries = unsafe { items.list() };
-            let total_byte_size = entries.iter().map(|e| e.byte_size()).sum::<u64>();
-            let total_docs = entries
-                .iter()
-                .map(|e| e.num_docs() + e.num_deleted_docs())
-                .sum::<usize>();
-            total_byte_size as f64 / total_docs as f64
-        };
-
-        let merge_policy = NPlusOneMergePolicy {
-            n: target_segments,
-            min_merge_count: MIN_MERGE_COUNT,
-
-            avg_byte_size_per_doc,
-            segment_freeze_size: max_mergeable_segment_size(),
-        };
-
-        // hold onto the MergeLock for the lifetime of this MVCCDirectory instance, ensuring no
-        // other concurrent backends can merge while we're still alive doing things
-        *self.lock_holder.lock() = Some(merge_lock);
-
-        Some(Box::new(merge_policy))
     }
 
     fn supports_garbage_collection(&self) -> bool {
@@ -363,6 +318,10 @@ impl Directory for MVCCDirectory {
 
     fn wants_cancel(&self) -> bool {
         unsafe { pg_sys::InterruptPending != 0 }
+    }
+
+    fn log(&self, message: &str) {
+        pgrx::warning!("{message}");
     }
 }
 

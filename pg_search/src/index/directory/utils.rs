@@ -182,6 +182,11 @@ pub unsafe fn save_new_metas(
                     panic!("segment id `{id}` should be in the segment meta linked list: {e}")
                 });
 
+            // we need to be in a transaction in order to delete segments
+            // this means (auto)VACUUM can't do this, but that's okay because it doesn't
+            // it only applies .delete files, which we consider as modifications
+            assert!(pg_sys::IsTransactionState());
+
             meta_entry.xmax = pg_sys::GetCurrentTransactionId();
             (meta_entry, blockno)
         })
@@ -208,7 +213,6 @@ pub unsafe fn save_new_metas(
     // delete old entries and their corresponding files
     for (entry, blockno) in &deleted_entries {
         assert!(entry.xmax == pg_sys::GetCurrentTransactionId());
-
         let mut buffer = linked_list.bman_mut().get_buffer_mut(*blockno);
         let mut page = buffer.page_mut();
 
@@ -275,12 +279,8 @@ pub unsafe fn save_new_metas(
     }
 
     // add the new entries
-    linked_list.add_items(created_entries, None)?;
-
-    if !deleted_entries.is_empty() {
-        linked_list.garbage_collect(pg_sys::GetAccessStrategy(
-            pg_sys::BufferAccessStrategyType::BAS_VACUUM,
-        ))?;
+    if !created_entries.is_empty() {
+        linked_list.add_items(created_entries, None)?;
     }
 
     Ok(())
@@ -290,7 +290,7 @@ pub unsafe fn load_metas(
     relation_oid: pg_sys::Oid,
     inventory: &SegmentMetaInventory,
     snapshot: pg_sys::Snapshot,
-    solve_mvcc: MvccSatisfies,
+    solve_mvcc: &MvccSatisfies,
 ) -> tantivy::Result<IndexMeta> {
     let segment_metas = LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START);
     let heap_oid = unsafe { pg_sys::IndexGetRelation(relation_oid, false) };
@@ -309,8 +309,9 @@ pub unsafe fn load_metas(
 
         while offsetno <= max_offset {
             if let Some((entry, _)) = page.read_item::<SegmentMetaEntry>(offsetno) {
-                if (solve_mvcc == MvccSatisfies::Any && !entry.recyclable(snapshot, heap_relation))
-                    || (solve_mvcc == MvccSatisfies::Snapshot && entry.visible(snapshot))
+                if (matches!(solve_mvcc, MvccSatisfies::Any)
+                    && !entry.recyclable(snapshot, heap_relation))
+                    || (matches!(solve_mvcc, MvccSatisfies::Snapshot) && entry.visible(snapshot))
                 {
                     let inner_segment_meta = InnerSegmentMeta {
                         max_doc: entry.max_doc,

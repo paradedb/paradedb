@@ -525,10 +525,7 @@ pub unsafe fn extract_quals(
         }
 
         // we don't understand this clause so we can't do anything
-        _ => {
-            // pgrx::warning!("unsupported qual node kind: {:?}", (*node).type_);
-            None
-        }
+        _ => None,
     }
 }
 

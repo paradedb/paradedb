@@ -19,8 +19,8 @@ mod searchqueryinput;
 mod text;
 
 use crate::api::index::{fieldname_typoid, FieldName};
+use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
-use crate::index::BlockDirectoryType;
 use crate::nodecast;
 use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
@@ -138,7 +138,7 @@ pub(crate) fn estimate_selectivity(
         return None;
     }
 
-    let search_reader = SearchIndexReader::open(indexrel, BlockDirectoryType::default())
+    let search_reader = SearchIndexReader::open(indexrel, MvccSatisfies::Snapshot)
         .expect("estimate_selectivity: should be able to open a SearchIndexReader");
     let estimate = search_reader.estimate_docs(search_query_input).unwrap_or(1) as f64;
     let mut selectivity = estimate / reltuples;

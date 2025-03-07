@@ -18,7 +18,6 @@
 use anyhow::Result;
 use pgrx::{pg_sys, PgRelation};
 use std::collections::HashSet;
-use std::panic::panic_any;
 use std::sync::Arc;
 use tantivy::index::SegmentId;
 use tantivy::indexer::{NoMergePolicy, UserOperation};
@@ -28,7 +27,8 @@ use thiserror::Error;
 
 use crate::index::channel::{ChannelDirectory, ChannelRequestHandler};
 use crate::index::merge_policy::NPlusOneMergePolicy;
-use crate::index::{get_index_schema, setup_tokenizers, BlockDirectoryType, WriterResources};
+use crate::index::mvcc::MvccSatisfies;
+use crate::index::{get_index_schema, setup_tokenizers, WriterResources};
 use crate::{
     postgres::types::TantivyValueError,
     schema::{SearchDocument, SearchIndexSchema},
@@ -56,7 +56,7 @@ pub struct SearchIndexWriter {
 impl SearchIndexWriter {
     pub fn open(
         index_relation: &PgRelation,
-        directory_type: BlockDirectoryType,
+        directory_type: MvccSatisfies,
         resources: WriterResources,
     ) -> Result<Self> {
         let (parallelism, memory_budget) = resources.resources();
@@ -105,8 +105,8 @@ impl SearchIndexWriter {
 
         let (req_sender, req_receiver) = crossbeam::channel::bounded(1);
         let channel_dir = ChannelDirectory::new(req_sender);
-        let mut handler = BlockDirectoryType::Mvcc(Default::default())
-            .channel_request_handler(index_relation, req_receiver);
+        let mut handler =
+            MvccSatisfies::Snapshot.channel_request_handler(index_relation, req_receiver);
 
         let mut index = {
             let schema = schema.clone();
@@ -184,12 +184,10 @@ impl SearchIndexWriter {
     }
 
     pub fn commit(mut self) -> Result<()> {
-        // pgrx::warning!("inserted {} docs", self.cnt);
         self.drain_insert_queue()?;
         let mut writer =
             Arc::into_inner(self.writer).expect("should not have an outstanding Arc<IndexWriter>");
 
-        // pgrx::warning!("waiting for commit");
         let writer = self
             .handler
             .wait_for(move || {
@@ -197,12 +195,10 @@ impl SearchIndexWriter {
                 tantivy::Result::Ok(writer)
             })
             .expect("spawned thread should not fail")?;
-        // pgrx::warning!("commit finished");
 
         let result = self
             .handler
             .wait_for(move || writer.wait_merging_threads())?;
-        // pgrx::warning!("wait_merging_threads() finished");
 
         Ok(result?)
     }
@@ -222,10 +218,6 @@ impl SearchIndexWriter {
 
     fn drain_insert_queue(&mut self) -> Result<Opstamp, TantivyError> {
         let insert_queue = std::mem::take(&mut self.insert_queue);
-        // pgrx::warning!(
-        //     "draining {} operations from insert queue",
-        //     insert_queue.len()
-        // );
         let writer = self.writer.clone();
         self.handler
             .wait_for(move || writer.run(insert_queue))

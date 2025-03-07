@@ -16,16 +16,11 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::gucs;
-use crate::index::channel::{ChannelRequest, ChannelRequestHandler};
-use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::postgres::index::get_fields;
 use crate::schema::{SearchFieldConfig, SearchIndexSchema};
 use anyhow::Result;
-use crossbeam::channel::Receiver;
 use pgrx::PgRelation;
-use std::collections::HashSet;
 use std::num::NonZeroUsize;
-use tantivy::index::SegmentId;
 use tantivy::Index;
 use tokenizers::{create_normalizer_manager, create_tokenizer_manager};
 
@@ -38,40 +33,6 @@ pub enum WriterResources {
 pub type Parallelism = NonZeroUsize;
 pub type MemoryBudget = usize;
 pub type IndexConfig = (Parallelism, MemoryBudget);
-
-pub enum BlockDirectoryType {
-    Mvcc(HashSet<SegmentId>),
-    BulkDelete,
-}
-
-impl Default for BlockDirectoryType {
-    fn default() -> Self {
-        BlockDirectoryType::Mvcc(Default::default())
-    }
-}
-
-impl BlockDirectoryType {
-    pub fn directory(self, index_relation: &PgRelation) -> MVCCDirectory {
-        match self {
-            BlockDirectoryType::Mvcc(excluded) => {
-                MVCCDirectory::snapshot(index_relation.oid(), excluded)
-            }
-            BlockDirectoryType::BulkDelete => MVCCDirectory::any(index_relation.oid()),
-        }
-    }
-
-    pub fn channel_request_handler(
-        self,
-        index_relation: &PgRelation,
-        receiver: Receiver<ChannelRequest>,
-    ) -> ChannelRequestHandler {
-        ChannelRequestHandler::open(
-            self.directory(index_relation),
-            index_relation.oid(),
-            receiver,
-        )
-    }
-}
 
 impl WriterResources {
     pub fn resources(&self) -> IndexConfig {

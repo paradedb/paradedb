@@ -16,8 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::fast_fields_helper::FFType;
+use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::scorer_iter::DeferredScorer;
-use crate::index::{setup_tokenizers, BlockDirectoryType};
+use crate::index::setup_tokenizers;
 use crate::postgres::storage::block::CLEANUP_LOCK;
 use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
 use crate::query::SearchQueryInput;
@@ -255,7 +256,7 @@ pub struct SearchIndexReader {
 }
 
 impl SearchIndexReader {
-    pub fn open(index_relation: &PgRelation, directory_type: BlockDirectoryType) -> Result<Self> {
+    pub fn open(index_relation: &PgRelation, mvcc_style: MvccSatisfies) -> Result<Self> {
         // It is possible for index only scans and custom scans, which only check the visibility map
         // and do not fetch tuples from the heap, to suffer from the concurrent TID recycling problem.
         // This problem occurs due to a race condition: after vacuum is called, a concurrent index only or custom scan
@@ -268,7 +269,7 @@ impl SearchIndexReader {
         // a pinned but unlocked buffer.
         let cleanup_lock = BufferManager::new(index_relation.oid()).pinned_buffer(CLEANUP_LOCK);
 
-        let directory = directory_type.directory(index_relation);
+        let directory = mvcc_style.directory(index_relation);
         let mut index = Index::open(directory)?;
         let schema = SearchIndexSchema::open(index.schema(), index_relation);
 

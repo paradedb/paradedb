@@ -200,28 +200,26 @@ impl MergeLock {
 impl Drop for MergeLock {
     fn drop(&mut self) {
         unsafe {
-            if self.save_xid {
-                if crate::postgres::utils::IsTransactionState() {
-                    let mut current_xid = pg_sys::GetCurrentTransactionIdIfAny();
+            if self.save_xid && crate::postgres::utils::IsTransactionState() {
+                let mut current_xid = pg_sys::GetCurrentTransactionIdIfAny();
 
-                    // if we don't have a transaction id (typically from a parallel vacuum)...
-                    if current_xid == pg_sys::InvalidTransactionId {
-                        // ... then use the next transaction id as ours
-                        #[cfg(feature = "pg13")]
-                        {
-                            current_xid = pg_sys::ReadNewTransactionId()
-                        }
-
-                        #[cfg(not(feature = "pg13"))]
-                        {
-                            current_xid = pg_sys::ReadNextTransactionId()
-                        }
+                // if we don't have a transaction id (typically from a parallel vacuum)...
+                if current_xid == pg_sys::InvalidTransactionId {
+                    // ... then use the next transaction id as ours
+                    #[cfg(feature = "pg13")]
+                    {
+                        current_xid = pg_sys::ReadNewTransactionId()
                     }
 
-                    let mut page = self.buffer.page_mut();
-                    let metadata = page.contents_mut::<MergeLockData>();
-                    metadata.last_merge = current_xid;
+                    #[cfg(not(feature = "pg13"))]
+                    {
+                        current_xid = pg_sys::ReadNextTransactionId()
+                    }
                 }
+
+                let mut page = self.buffer.page_mut();
+                let metadata = page.contents_mut::<MergeLockData>();
+                metadata.last_merge = current_xid;
             }
         }
     }
@@ -332,7 +330,7 @@ impl VacuumList {
             // add all the entries from this page
             segment_ids.extend(
                 contents.segment_ids[..contents.nentries as usize]
-                    .into_iter()
+                    .iter()
                     .map(|bytes| SegmentId::from_bytes(*bytes)),
             );
 

@@ -240,7 +240,6 @@ impl ChannelRequestHandler {
         relation_oid: pg_sys::Oid,
         receiver: Receiver<ChannelRequest>,
     ) -> Self {
-        let xid = unsafe { pg_sys::GetCurrentTransactionIdIfAny() };
         let (action_sender, action_receiver) = crossbeam::channel::bounded(1);
         let (reply_sender, reply_receiver) = crossbeam::channel::bounded(1);
         Self {
@@ -282,6 +281,7 @@ impl ChannelRequestHandler {
 
             // caught a panic so let it continue
             Err(e) => {
+                #[allow(clippy::implicit_saturating_sub)]
                 unsafe {
                     if pg_sys::InterruptHoldoffCount > 0 {
                         pg_sys::InterruptHoldoffCount -= 1;
@@ -332,7 +332,6 @@ impl ChannelRequestHandler {
     }
 
     fn process_message(&mut self, message: ChannelRequest) -> Result<ShouldTerminate> {
-        // pgrx::warning!("message={message:?}");
         match message {
             ChannelRequest::RegisterFilesAsManaged(files, overwrite, sender) => {
                 sender.send(self.directory.register_files_as_managed(files, overwrite))?;

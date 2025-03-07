@@ -16,14 +16,16 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::utils::{load_metas, save_new_metas, save_schema, save_settings};
+use crate::index::channel::{ChannelRequest, ChannelRequestHandler};
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::postgres::storage::block::{
     FileEntry, SegmentFileDetails, SegmentMetaEntry, SEGMENT_METAS_START,
 };
 use crate::postgres::storage::LinkedItemList;
 use anyhow::{anyhow, Result};
+use crossbeam::channel::Receiver;
 use parking_lot::Mutex;
-use pgrx::pg_sys;
+use pgrx::{pg_sys, PgRelation};
 use rustc_hash::FxHashMap;
 use std::any::Any;
 use std::collections::hash_map::Entry;
@@ -39,13 +41,32 @@ use tantivy::directory::error::{DeleteError, LockError, OpenReadError, OpenWrite
 use tantivy::directory::{
     DirectoryLock, DirectoryPanicHandler, FileHandle, Lock, WatchCallback, WatchHandle, WritePtr,
 };
-use tantivy::index::SegmentId;
 use tantivy::{index::SegmentMetaInventory, Directory, IndexMeta};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MvccSatisfies {
-    Snapshot(HashSet<SegmentId>),
+    Snapshot,
     Any,
+}
+
+impl MvccSatisfies {
+    pub fn directory(self, index_relation: &PgRelation) -> MVCCDirectory {
+        match self {
+            MvccSatisfies::Snapshot => MVCCDirectory::snapshot(index_relation.oid()),
+            MvccSatisfies::Any => MVCCDirectory::any(index_relation.oid()),
+        }
+    }
+    pub fn channel_request_handler(
+        self,
+        index_relation: &PgRelation,
+        receiver: Receiver<ChannelRequest>,
+    ) -> ChannelRequestHandler {
+        ChannelRequestHandler::open(
+            self.directory(index_relation),
+            index_relation.oid(),
+            receiver,
+        )
+    }
 }
 
 /// Tantivy Directory trait implementation over block storage
@@ -68,8 +89,8 @@ pub struct MVCCDirectory {
 }
 
 impl MVCCDirectory {
-    pub fn snapshot(relation_oid: pg_sys::Oid, excluded: HashSet<SegmentId>) -> Self {
-        Self::with_mvcc_style(relation_oid, MvccSatisfies::Snapshot(excluded))
+    pub fn snapshot(relation_oid: pg_sys::Oid) -> Self {
+        Self::with_mvcc_style(relation_oid, MvccSatisfies::Snapshot)
     }
 
     pub fn any(relation_oid: pg_sys::Oid) -> Self {
@@ -214,7 +235,6 @@ impl Directory for MVCCDirectory {
         previous_meta: &IndexMeta,
         payload: &mut (dyn Any + '_),
     ) -> tantivy::Result<()> {
-        // pgrx::warning!("MVCCDirectory::save_metas(): enter");
         let payload = payload
             .downcast_mut::<FxHashMap<PathBuf, FileEntry>>()
             .expect("save_metas should have a payload");
@@ -236,7 +256,6 @@ impl Directory for MVCCDirectory {
                 .map_err(|err| tantivy::TantivyError::InternalError(err.to_string()))?;
         }
 
-        // pgrx::warning!("MVCCDirectory::save_metas(): exit");
         Ok(())
     }
 

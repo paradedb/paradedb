@@ -16,16 +16,15 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use pgrx::{pg_sys::ItemPointerData, *};
-use std::collections::HashSet;
 
 use super::storage::block::CLEANUP_LOCK;
 use crate::index::fast_fields_helper::FFType;
+use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::index::writer::index::SearchIndexWriter;
-use crate::index::{BlockDirectoryType, WriterResources};
+use crate::index::WriterResources;
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::merge::MergeLock;
-use crate::postgres::utils::u64_to_item_pointer;
 
 #[pg_guard]
 pub unsafe extern "C" fn ambulkdelete(
@@ -48,13 +47,10 @@ pub unsafe extern "C" fn ambulkdelete(
     // take the MergeLock
     let merge_lock = MergeLock::acquire_for_ambulkdelete(index_relation.oid());
 
-    let mut index_writer = SearchIndexWriter::open(
-        &index_relation,
-        BlockDirectoryType::BulkDelete,
-        WriterResources::Vacuum,
-    )
-    .expect("ambulkdelete: should be able to open a SearchIndexWriter");
-    let reader = SearchIndexReader::open(&index_relation, BlockDirectoryType::BulkDelete)
+    let mut index_writer =
+        SearchIndexWriter::open(&index_relation, MvccSatisfies::Any, WriterResources::Vacuum)
+            .expect("ambulkdelete: should be able to open a SearchIndexWriter");
+    let reader = SearchIndexReader::open(&index_relation, MvccSatisfies::Any)
         .expect("ambulkdelete: should be able to open a SearchIndexReader");
 
     let writer_segment_ids = index_writer.segment_ids();
@@ -87,13 +83,6 @@ pub unsafe extern "C" fn ambulkdelete(
             let ctid = ctid_ff.as_u64(doc_id).expect("ctid should be present");
             if callback(ctid) {
                 did_delete = true;
-                // let mut ipd = pg_sys::ItemPointerData::default();
-                // u64_to_item_pointer(ctid, &mut ipd);
-                // pgrx::warning!(
-                //     "delete {:?} from {}",
-                //     pgrx::itemptr::item_pointer_get_both(ipd),
-                //     segment_reader.segment_id()
-                // );
                 index_writer
                     .delete_document(segment_reader.segment_id(), doc_id)
                     .expect("ambulkdelete: deleting document by segment and id should succeed");

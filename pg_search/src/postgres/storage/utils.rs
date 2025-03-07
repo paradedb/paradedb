@@ -98,10 +98,6 @@ impl BM25BufferCache {
         self.indexrel.as_ptr()
     }
 
-    pub unsafe fn heaprel(&self) -> *mut pg_sys::RelationData {
-        self.heaprel.as_ptr()
-    }
-
     pub unsafe fn new_buffer(&self) -> pg_sys::Buffer {
         // Try to find a recyclable page
         loop {

@@ -19,8 +19,8 @@ pub mod numeric;
 pub mod string;
 
 use crate::index::fast_fields_helper::{FFHelper, FastFieldType, WhichFastField};
+use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{SearchIndexReader, SearchResults};
-use crate::index::BlockDirectoryType;
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -356,7 +356,7 @@ pub fn explain(state: &CustomScanStateWrapper<PdbScan>, explainer: &mut Explaine
 }
 
 pub fn estimate_cardinality(indexrel: &PgRelation, field: &str) -> Option<usize> {
-    let reader = SearchIndexReader::open(indexrel, BlockDirectoryType::default())
+    let reader = SearchIndexReader::open(indexrel, MvccSatisfies::Snapshot)
         .expect("estimate_cardinality: should be able to open SearchIndexReader");
     let searcher = reader.searcher();
     let largest_segment_reader = searcher

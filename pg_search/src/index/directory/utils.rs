@@ -1,7 +1,7 @@
 use crate::index::mvcc::MvccSatisfies;
 use crate::postgres::storage::block::{
     DeleteEntry, FileEntry, LinkedList, MVCCEntry, PgItem, SegmentFileDetails, SegmentMetaEntry,
-    CLEANUP_LOCK, SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
+    SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
 };
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use anyhow::Result;
@@ -45,10 +45,8 @@ pub unsafe fn save_new_metas(
     prev_meta: &IndexMeta,
     directory_entries: &mut FxHashMap<PathBuf, FileEntry>,
 ) -> Result<()> {
-    // pgrx::warning!("SAVE_NEW_METAS(): enter");
     let mut linked_list =
         LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START);
-    let _lock = linked_list.bman_mut().get_buffer_mut(CLEANUP_LOCK);
 
     let incoming_segments = new_meta
         .segments
@@ -229,7 +227,6 @@ pub unsafe fn save_new_metas(
 
         let PgItem(pg_item, size) = (*entry).into();
 
-        // pgrx::warning!("DELETE: {:?}", entry.segment_id);
         let did_replace = page.replace_item(offno, pg_item, size);
         assert!(did_replace);
         drop(buffer);
@@ -265,8 +262,6 @@ pub unsafe fn save_new_metas(
             );
         };
 
-        // pgrx::warning!("REPLACE: {:?}", entry.segment_id);
-
         let PgItem(pg_item, size) = entry.into();
         let did_replace = page.replace_item(offno, pg_item, size);
         if !did_replace {
@@ -284,18 +279,9 @@ pub unsafe fn save_new_metas(
     }
 
     // add the new entries
-    // pgrx::warning!(
-    //     "ADD: {:?}",
-    //     created_entries
-    //         .iter()
-    //         .map(|e| e.segment_id)
-    //         .collect::<Vec<_>>()
-    // );
     if !created_entries.is_empty() {
         linked_list.add_items(created_entries, None)?;
     }
-
-    // pgrx::warning!("SAVE_NEW_METAS(): exit");
 
     Ok(())
 }
@@ -325,8 +311,7 @@ pub unsafe fn load_metas(
             if let Some((entry, _)) = page.read_item::<SegmentMetaEntry>(offsetno) {
                 if (matches!(solve_mvcc, MvccSatisfies::Any)
                     && !entry.recyclable(snapshot, heap_relation))
-                    || (matches!(solve_mvcc, MvccSatisfies::Snapshot(excluded) if excluded.is_empty() || !excluded.contains(&entry.segment_id))
-                        && entry.visible(snapshot))
+                    || (matches!(solve_mvcc, MvccSatisfies::Snapshot) && entry.visible(snapshot))
                 {
                     let inner_segment_meta = InnerSegmentMeta {
                         max_doc: entry.max_doc,

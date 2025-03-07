@@ -3,7 +3,7 @@ use std::ops::Range;
 use std::path::Path;
 use tantivy::directory::FileHandle;
 use tantivy::directory::OwnedBytes;
-use tantivy::{HasLen, TantivyError};
+use tantivy::HasLen;
 
 use crate::index::directory::channel::ChannelRequest;
 use crate::postgres::storage::block::FileEntry;

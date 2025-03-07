@@ -216,7 +216,7 @@ impl Iterator for StringAggResults {
 
 struct StringAggSearcher<'a>(&'a SearchIndexReader);
 
-impl<'a> StringAggSearcher<'a> {
+impl StringAggSearcher<'_> {
     pub fn string_agg(
         &self,
         need_scores: bool,

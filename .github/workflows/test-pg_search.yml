@@ -123,7 +123,6 @@ jobs:
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
           sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
-          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/ /var/lib/postgresql/${{ matrix.pg_version }}/
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
       # Needed for hybrid search unit tests
@@ -155,15 +154,17 @@ jobs:
       - name: Compile & install pg_search extension
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: pg_search/
-        run: cargo pgrx install --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+        run: cargo pgrx install --sudo --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
       - name: Start Postgres via cargo-pgrx
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: pg_search/
         run: |
-          RUST_BACKTRACE=1 cargo pgrx start pg${{ matrix.pg_version }}
           # Necessary for the ephemeral Postgres test to have proper permissions
           sudo chown -R $(whoami) /var/run/postgresql/
+
+          # Start Postgres
+          RUST_BACKTRACE=1 cargo pgrx start pg${{ matrix.pg_version }}
 
       - name: Run pg_search Integration Tests
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
@@ -171,15 +172,19 @@ jobs:
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
           export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
           export PARADEDB_TELEMETRY=false
-          RUST_BACKTRACE=1 cargo test --features icu --package tests --package tokenizers
+          RUST_BACKTRACE=1 cargo test --jobs $(nproc) --features icu --package tests --package tokenizers
 
       - name: Run pg_search Unit Tests
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: pg_search/
         run: |
+          # Necessary for the ephemeral Postgres test to have proper permissions
+          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/ /var/lib/postgresql/${{ matrix.pg_version }}/
+
+          # Run tests
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
           export PARADEDB_TELEMETRY=false
-          RUST_BACKTRACE=1 cargo test --features pg${{ matrix.pg_version }} --no-default-features
+          RUST_BACKTRACE=1 cargo test --jobs $(nproc) --features pg${{ matrix.pg_version }} --no-default-features
 
       - name: Print the Postgres Logs
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && always()
@@ -275,7 +280,7 @@ jobs:
       - name: Compile & install pg_search extension
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: pg_search/
-        run: cargo pgrx install --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config --features=pg${{ matrix.pg_version }},icu
+        run: cargo pgrx install --sudo --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config --features=pg${{ matrix.pg_version }},icu
 
       - name: Start Postgres and create database
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
@@ -286,7 +291,7 @@ jobs:
 
       - name: Run pg_search Integration Tests Against pgrx-managed Postgres
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        run: RUST_BACKTRACE=1 DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/pg_search cargo test --no-default-features --features=icu --package tests --package tokenizers -- --skip replication --skip ephemeral
+        run: RUST_BACKTRACE=1 DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/pg_search cargo test --jobs $(nproc) --no-default-features --features=icu --package tests --package tokenizers -- --skip replication --skip ephemeral
 
       - name: Print the Postgres Logs
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && always()

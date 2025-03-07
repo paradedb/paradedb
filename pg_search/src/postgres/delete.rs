@@ -87,13 +87,13 @@ pub unsafe extern "C" fn ambulkdelete(
             let ctid = ctid_ff.as_u64(doc_id).expect("ctid should be present");
             if callback(ctid) {
                 did_delete = true;
-                let mut ipd = pg_sys::ItemPointerData::default();
-                u64_to_item_pointer(ctid, &mut ipd);
-                pgrx::warning!(
-                    "delete {:?} from {}",
-                    pgrx::itemptr::item_pointer_get_both(ipd),
-                    segment_reader.segment_id()
-                );
+                // let mut ipd = pg_sys::ItemPointerData::default();
+                // u64_to_item_pointer(ctid, &mut ipd);
+                // pgrx::warning!(
+                //     "delete {:?} from {}",
+                //     pgrx::itemptr::item_pointer_get_both(ipd),
+                //     segment_reader.segment_id()
+                // );
                 index_writer
                     .delete_document(segment_reader.segment_id(), doc_id)
                     .expect("ambulkdelete: deleting document by segment and id should succeed");

@@ -259,9 +259,6 @@ impl ChannelRequestHandler {
                         break;
                     }
                 }
-                eprintln!("[{}] [{xid}] _worker finished", unsafe {
-                    pg_sys::MyProcPid
-                });
             }),
         }
     }
@@ -335,7 +332,7 @@ impl ChannelRequestHandler {
     }
 
     fn process_message(&mut self, message: ChannelRequest) -> Result<ShouldTerminate> {
-        pgrx::warning!("message={message:?}");
+        // pgrx::warning!("message={message:?}");
         match message {
             ChannelRequest::RegisterFilesAsManaged(files, overwrite, sender) => {
                 sender.send(self.directory.register_files_as_managed(files, overwrite))?;

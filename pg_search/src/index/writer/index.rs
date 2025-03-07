@@ -184,12 +184,12 @@ impl SearchIndexWriter {
     }
 
     pub fn commit(mut self) -> Result<()> {
-        pgrx::warning!("inserted {} docs", self.cnt);
+        // pgrx::warning!("inserted {} docs", self.cnt);
         self.drain_insert_queue()?;
         let mut writer =
             Arc::into_inner(self.writer).expect("should not have an outstanding Arc<IndexWriter>");
 
-        pgrx::warning!("waiting for commit");
+        // pgrx::warning!("waiting for commit");
         let writer = self
             .handler
             .wait_for(move || {
@@ -197,12 +197,12 @@ impl SearchIndexWriter {
                 tantivy::Result::Ok(writer)
             })
             .expect("spawned thread should not fail")?;
-        pgrx::warning!("commit finished");
+        // pgrx::warning!("commit finished");
 
-        let result = self.handler.wait_for(move || {
-            writer.wait_merging_threads()
-        })?;
-        pgrx::warning!("wait_merging_threads() finished");
+        let result = self
+            .handler
+            .wait_for(move || writer.wait_merging_threads())?;
+        // pgrx::warning!("wait_merging_threads() finished");
 
         Ok(result?)
     }
@@ -222,10 +222,10 @@ impl SearchIndexWriter {
 
     fn drain_insert_queue(&mut self) -> Result<Opstamp, TantivyError> {
         let insert_queue = std::mem::take(&mut self.insert_queue);
-        pgrx::warning!(
-            "draining {} operations from insert queue",
-            insert_queue.len()
-        );
+        // pgrx::warning!(
+        //     "draining {} operations from insert queue",
+        //     insert_queue.len()
+        // );
         let writer = self.writer.clone();
         self.handler
             .wait_for(move || writer.run(insert_queue))

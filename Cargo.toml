@@ -23,7 +23,8 @@ lto = "thin"
 codegen-units = 32
 
 [workspace.dependencies]
-tantivy = { path = "/home/zombodb/_work/tantivy", features = [
+tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "95774868b706123265a1a2cdc6465f78644a8a31", features = [
+
   "quickwit",        # for sstable support
   "stopwords",
   "lz4-compression",

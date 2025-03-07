@@ -45,7 +45,7 @@ pub unsafe fn save_new_metas(
     prev_meta: &IndexMeta,
     directory_entries: &mut FxHashMap<PathBuf, FileEntry>,
 ) -> Result<()> {
-    pgrx::warning!("SAVE_NEW_METAS(): enter");
+    // pgrx::warning!("SAVE_NEW_METAS(): enter");
     let mut linked_list =
         LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START);
     let _lock = linked_list.bman_mut().get_buffer_mut(CLEANUP_LOCK);
@@ -229,7 +229,7 @@ pub unsafe fn save_new_metas(
 
         let PgItem(pg_item, size) = (*entry).into();
 
-        pgrx::warning!("DELETE: {:?}", entry.segment_id);
+        // pgrx::warning!("DELETE: {:?}", entry.segment_id);
         let did_replace = page.replace_item(offno, pg_item, size);
         assert!(did_replace);
         drop(buffer);
@@ -265,7 +265,7 @@ pub unsafe fn save_new_metas(
             );
         };
 
-        pgrx::warning!("REPLACE: {:?}", entry.segment_id);
+        // pgrx::warning!("REPLACE: {:?}", entry.segment_id);
 
         let PgItem(pg_item, size) = entry.into();
         let did_replace = page.replace_item(offno, pg_item, size);
@@ -284,18 +284,18 @@ pub unsafe fn save_new_metas(
     }
 
     // add the new entries
-    pgrx::warning!(
-        "ADD: {:?}",
-        created_entries
-            .iter()
-            .map(|e| e.segment_id)
-            .collect::<Vec<_>>()
-    );
+    // pgrx::warning!(
+    //     "ADD: {:?}",
+    //     created_entries
+    //         .iter()
+    //         .map(|e| e.segment_id)
+    //         .collect::<Vec<_>>()
+    // );
     if !created_entries.is_empty() {
         linked_list.add_items(created_entries, None)?;
     }
 
-    pgrx::warning!("SAVE_NEW_METAS(): exit");
+    // pgrx::warning!("SAVE_NEW_METAS(): exit");
 
     Ok(())
 }

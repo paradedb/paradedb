@@ -52,7 +52,7 @@ impl InsertState {
         indexrel: &PgRelation,
         writer_resources: WriterResources,
     ) -> anyhow::Result<Self> {
-        pgrx::warning!("constructing new SearchIndexWriter");
+        // pgrx::warning!("constructing new SearchIndexWriter");
         let writer =
             SearchIndexWriter::open(indexrel, BlockDirectoryType::default(), writer_resources)?;
         let tupdesc = unsafe { PgTupleDesc::from_pg_unchecked(indexrel.rd_att) };
@@ -181,10 +181,10 @@ unsafe fn aminsert_internal(
 
             let mut search_document = writer.schema.new_document();
 
-            pgrx::warning!(
-                "inserting {:?}",
-                pgrx::itemptr::item_pointer_get_both(*ctid)
-            );
+            // pgrx::warning!(
+            //     "inserting {:?}",
+            //     pgrx::itemptr::item_pointer_get_both(*ctid)
+            // );
 
             row_to_search_document(
                 values,
@@ -232,15 +232,15 @@ pub unsafe extern "C" fn aminsertcleanup(
 pub fn paradedb_aminsertcleanup(mut writer: Option<SearchIndexWriter>) {
     if let Some(writer) = writer.take() {
         let indexrelid = writer.indexrelid;
-        pgrx::warning!("about to commit");
+        // pgrx::warning!("about to commit");
         writer
             .commit()
             .expect("must be able to commit inserts in paradedb_aminsertcleanup");
-        pgrx::warning!("did commit");
+        // pgrx::warning!("did commit");
         unsafe {
-            pgrx::warning!("calling do_merge()");
+            // pgrx::warning!("calling do_merge()");
             do_merge(indexrelid);
-            pgrx::warning!("do_merge() done")
+            // pgrx::warning!("do_merge() done")
         }
     }
 }

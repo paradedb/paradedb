@@ -214,7 +214,7 @@ impl Directory for MVCCDirectory {
         previous_meta: &IndexMeta,
         payload: &mut (dyn Any + '_),
     ) -> tantivy::Result<()> {
-        pgrx::warning!("MVCCDirectory::save_metas(): enter");
+        // pgrx::warning!("MVCCDirectory::save_metas(): enter");
         let payload = payload
             .downcast_mut::<FxHashMap<PathBuf, FileEntry>>()
             .expect("save_metas should have a payload");
@@ -236,7 +236,7 @@ impl Directory for MVCCDirectory {
                 .map_err(|err| tantivy::TantivyError::InternalError(err.to_string()))?;
         }
 
-        pgrx::warning!("MVCCDirectory::save_metas(): exit");
+        // pgrx::warning!("MVCCDirectory::save_metas(): exit");
         Ok(())
     }
 

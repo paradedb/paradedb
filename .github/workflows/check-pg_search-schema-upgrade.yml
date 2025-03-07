@@ -31,8 +31,9 @@ jobs:
     name: Post Schema Change to PR
     runs-on: ubicloud-standard-8
     if: github.event.pull_request.draft == false
-    env:
-      pg_version: 13 # Required by pg-schema-diff
+    strategy:
+      matrix:
+        pg_version: [13] # Required by pg-schema-diff
 
     steps:
       - name: Checkout Git Repository
@@ -63,6 +64,18 @@ jobs:
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |
+          # Stop any existing PostgreSQL clusters
+          pg_dropcluster 14 main --stop
+
+          # Install PostgreSQL
+          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
+          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/ /var/lib/postgresql/${{ matrix.pg_version }}/
+          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
+
+
+
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
           sudo apt-get update && sudo apt-get install -y postgresql-${{ env.pg_version }} postgresql-server-dev-${{ env.pg_version }}

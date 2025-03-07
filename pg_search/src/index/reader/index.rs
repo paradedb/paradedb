@@ -31,6 +31,7 @@ use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tantivy::collector::{Collector, TopDocs};
 use tantivy::index::{Index, SegmentId};
 use tantivy::query::{EnableScoring, QueryClone, QueryParser};
@@ -241,6 +242,7 @@ impl Iterator for SearchResults {
     }
 }
 
+#[derive(Clone)]
 pub struct SearchIndexReader {
     index_oid: pg_sys::Oid,
     searcher: Searcher,
@@ -252,7 +254,7 @@ pub struct SearchIndexReader {
     //
     // also, it's an Arc b/c if we're clone'd (we do derive it, after all), we only want this
     // buffer dropped once
-    _cleanup_lock: PinnedBuffer,
+    _cleanup_lock: Arc<PinnedBuffer>,
 }
 
 impl SearchIndexReader {
@@ -286,7 +288,7 @@ impl SearchIndexReader {
             schema,
             underlying_reader: reader,
             underlying_index: index,
-            _cleanup_lock: cleanup_lock,
+            _cleanup_lock: Arc::new(cleanup_lock),
         })
     }
 

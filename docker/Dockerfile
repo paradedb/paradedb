@@ -87,7 +87,7 @@ RUN ./runConfigureICU Linux --prefix=/usr/local && \
 
 # Build the extension
 WORKDIR /tmp/pg_search
-RUN cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+RUN cargo pgrx package --jobs $(nproc) --features icu --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################
 # pg_analytics
@@ -112,7 +112,7 @@ RUN git clone --branch v0.3.5 https://github.com/paradedb/pg_analytics.git /tmp/
 
 # Build the extension
 WORKDIR /tmp/pg_analytics
-RUN cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+RUN cargo pgrx package --jobs $(nproc) --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################
 # pg_parquet
@@ -137,7 +137,7 @@ RUN git clone --branch pgrx-0.13.0 https://github.com/paradedb/pg_parquet.git /t
 
 # Build the extension
 WORKDIR /tmp/pg_parquet
-RUN cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+RUN cargo pgrx package --jobs $(nproc) --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################
 # pgvector

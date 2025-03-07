@@ -204,7 +204,7 @@ jobs:
         working-directory: pg_search/
         run: |
           PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
-          cargo pgrx package --pg-config $PG_CONFIG_PATH --features icu
+          cargo pgrx package --jobs $(nproc) --pg-config $PG_CONFIG_PATH --features icu
         env:
           POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
           POSTHOG_HOST: ${{ secrets.POSTHOG_HOST }}

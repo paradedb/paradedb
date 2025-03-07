@@ -160,9 +160,11 @@ jobs:
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: pg_search/
         run: |
-          RUST_BACKTRACE=1 cargo pgrx start pg${{ matrix.pg_version }}
           # Necessary for the ephemeral Postgres test to have proper permissions
           sudo chown -R $(whoami) /var/run/postgresql/
+
+          # Start Postgres
+          RUST_BACKTRACE=1 cargo pgrx start pg${{ matrix.pg_version }}
 
       - name: Run pg_search Integration Tests
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
@@ -176,6 +178,10 @@ jobs:
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: pg_search/
         run: |
+          # Necessary for the ephemeral Postgres test to have proper permissions
+          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/ /var/lib/postgresql/${{ matrix.pg_version }}/
+
+          # Run tests
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
           export PARADEDB_TELEMETRY=false
           RUST_BACKTRACE=1 cargo test --jobs $(nproc) --features pg${{ matrix.pg_version }} --no-default-features

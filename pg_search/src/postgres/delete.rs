@@ -50,9 +50,6 @@ pub unsafe extern "C" fn ambulkdelete(
     let mut index_writer =
         SearchIndexWriter::open(&index_relation, MvccSatisfies::Any, WriterResources::Vacuum)
             .expect("ambulkdelete: should be able to open a SearchIndexWriter");
-    let reader = SearchIndexReader::open(&index_relation, MvccSatisfies::Any)
-        .expect("ambulkdelete: should be able to open a SearchIndexReader");
-
     let writer_segment_ids = index_writer.segment_ids();
 
     // write out the list of segment ids we're about to operate on.  Doing so drops the MergeLock
@@ -61,6 +58,9 @@ pub unsafe extern "C" fn ambulkdelete(
     let vacuum_sentinel = merge_lock
         .vacuum_list()
         .write_list(writer_segment_ids.iter());
+
+    let reader = SearchIndexReader::open(&index_relation, MvccSatisfies::Any)
+        .expect("ambulkdelete: should be able to open a SearchIndexReader");
 
     let mut did_delete = false;
     for segment_reader in reader.segment_readers() {

@@ -112,6 +112,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y lsof
 
       - name: Install & Configure Supported PostgreSQL Version
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |
           # Stop any existing PostgreSQL clusters
           pg_dropcluster 14 main --stop

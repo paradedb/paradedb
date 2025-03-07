@@ -220,7 +220,7 @@ impl PageMut<'_> {
             if current_xid == pg_sys::InvalidLocalTransactionId {
                 #[cfg(feature = "pg13")]
                 {
-                    current_id = pg_sys::ReadNewTransactionId();
+                    current_xid = pg_sys::ReadNewTransactionId();
                 }
 
                 #[cfg(not(feature = "pg13"))]

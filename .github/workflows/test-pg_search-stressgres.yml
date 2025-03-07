@@ -76,7 +76,6 @@ jobs:
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
           sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
-          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/ /var/lib/postgresql/${{ matrix.pg_version }}/
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Install cargo-pgrx
@@ -94,7 +93,7 @@ jobs:
 
       - name: Compile & install pg_search extension
         working-directory: paradedb/pg_search/
-        run: cargo pgrx install --sudo --release --pg-config `which pg_config` --features=pg${{ matrix.pg_version }},icu --no-default-features -- --jobs $(nproc)
+        run: cargo pgrx install --sudo --release --pg-config `which pg_config` --features=pg${{ matrix.pg_version }},icu --no-default-features
 
       - name: Run Stressgres Test Suite for 10 minutes
         working-directory: stressgres/

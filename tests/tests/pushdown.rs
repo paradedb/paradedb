@@ -146,3 +146,53 @@ fn pushdown(mut conn: PgConnection) {
         );
     }
 }
+
+#[rstest]
+fn pushdown_is_not_null(mut conn: PgConnection) {
+    let sql = r#"
+        CREATE TABLE test (
+            id SERIAL8 NOT NULL PRIMARY KEY,
+            col_boolean boolean DEFAULT false,
+            col_text text
+        );
+    "#;
+    sql.execute(&mut conn);
+
+    let sql = r#"
+        CREATE INDEX idxtest ON test USING bm25 (id, col_boolean, col_text)
+        WITH (key_field='id', text_fields = '{"col_text": {"fast": true, "tokenizer": {"type":"raw"}}}');
+    "#;
+    sql.execute(&mut conn);
+
+    "INSERT INTO test (id, col_text) VALUES (1, NULL);".execute(&mut conn);
+    "INSERT INTO test (id, col_text) VALUES (2, 'foo');".execute(&mut conn);
+
+    "SET enable_indexscan TO off;".execute(&mut conn);
+    "SET enable_bitmapscan TO off;".execute(&mut conn);
+    "SET max_parallel_workers TO 0;".execute(&mut conn);
+
+    let sql = r#"
+        EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
+        SELECT count(*)
+        FROM test
+        WHERE col_text IS NOT NULL
+        AND id @@@ '1';
+    "#;
+
+    eprintln!("/----------/");
+    eprintln!("{sql}");
+
+    let (plan,) = sql.fetch_one::<(Value,)>(&mut conn);
+    eprintln!("{plan:#?}");
+
+    // Verify that the custom scan is used
+    let plan = plan
+        .pointer("/0/Plan/Plans/0")
+        .unwrap()
+        .as_object()
+        .unwrap();
+    pretty_assertions::assert_eq!(
+        plan.get("Node Type"),
+        Some(&Value::String(String::from("Custom Scan")))
+    );
+}

@@ -355,7 +355,7 @@ checksum = "8c3c1a368f70d6cf7302d78f8f7093da241fb8e8807c05cc9e51a125895a6d5b"
 
 [[package]]
 name = "benchmarks"
-version = "0.15.6"
+version = "0.15.7"
 dependencies = [
  "clap",
 ]
@@ -2813,7 +2813,7 @@ dependencies = [
 
 [[package]]
 name = "pg_search"
-version = "0.15.6"
+version = "0.15.7"
 dependencies = [
  "anyhow",
  "bincode",
@@ -4544,7 +4544,7 @@ dependencies = [
 
 [[package]]
 name = "tests"
-version = "0.15.6"
+version = "0.15.7"
 dependencies = [
  "anyhow",
  "approx",
@@ -4675,7 +4675,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokenizers"
-version = "0.15.6"
+version = "0.15.7"
 dependencies = [
  "anyhow",
  "lindera",

@@ -26,6 +26,7 @@ mod schema;
 #[cfg(test)]
 pub mod github;
 pub mod gucs;
+#[cfg(feature = "telemetry")]
 pub mod telemetry;
 
 use self::postgres::customscan;
@@ -87,11 +88,8 @@ pub unsafe extern "C" fn _PG_init() {
     #[cfg(not(feature = "pg17"))]
     postgres::fake_aminsertcleanup::register();
 
-    if cfg!(feature = "telemetry") {
-        use telemetry::setup_telemetry_background_worker;
-
-        setup_telemetry_background_worker(telemetry::ParadeExtension::PgSearch);
-    }
+    #[cfg(feature = "telemetry")]
+    telemetry::setup_telemetry_background_worker(telemetry::ParadeExtension::PgSearch);
 
     // Register our tracing / logging hook, so that we can ensure that the logger
     // is initialized for all connections.

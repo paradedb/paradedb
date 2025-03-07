@@ -18,7 +18,7 @@ pg16 = ["pgrx/pg16", "pgrx-tests/pg16"]
 pg17 = ["pgrx/pg17", "pgrx-tests/pg17"]
 pg_test = []
 icu = ["tokenizers/icu"]
-telemetry = []
+telemetry = ["dep:reqwest"]
 unsafe-postgres = ["pgrx/unsafe-postgres"]
 
 [dependencies]
@@ -38,7 +38,7 @@ parking_lot = "0.12.3"
 tokenizers = { path = "../tokenizers" }
 pgrx.workspace = true
 rayon = "1.10.0"
-reqwest = { version = "0.12.12", features = ["blocking"] }
+reqwest = { version = "0.12.12", features = ["blocking"], optional = true }
 rustc-hash = "2.1.1"
 serde = "1.0.218"
 serde_json = { version = "1.0.139", features = ["preserve_order"] }

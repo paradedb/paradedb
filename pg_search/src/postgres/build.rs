@@ -70,15 +70,6 @@ pub extern "C" fn ambuild(
     let index_relation = unsafe { PgRelation::from_pg(indexrel) };
     let index_oid = index_relation.oid();
 
-    // Get estimated row count from the heap relation
-    let estimated_rows = unsafe { (*heap_relation.rd_rel).rd_tuples };
-
-    if estimated_rows > 100_000 {
-        warning!("Building a BM25 index with more than 100K rows. Consider increasing maintenance_work_mem \
-        to improve build performance. You can do this by running: \
-        SET maintenance_work_mem = '8GB';");
-    }
-
     // Create the metadata blocks for the index
     unsafe { create_metadata(&index_relation) };
 
@@ -201,6 +192,16 @@ unsafe extern "C" fn build_callback(
         // important to count the number of items we've indexed for proper statistics updates,
         // especially after CREATE INDEX has finished
         build_state.count += 1;
+
+        // If we're building a BM25 index with more than 100K rows, warn the user
+        // that they should increase maintenance_work_mem to improve build performance.
+        if build_state.count > 100_000 {
+            warning!(
+                "Building a BM25 index with more than 100K rows. Consider increasing maintenance_work_mem \
+                to improve build performance. You can do this by running: \
+                SET maintenance_work_mem = '8GB';"
+            );
+        }
 
         if crate::gucs::log_create_index_progress() && build_state.count % 100_000 == 0 {
             let secs = build_state.start.elapsed().as_secs_f64();

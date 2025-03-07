@@ -103,7 +103,7 @@ jobs:
 
       - name: Compile & install pg_search v0.15.0
         working-directory: pg_search/
-        run: cargo pgrx install --jobs $(nproc) --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+        run: cargo pgrx install --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" -- --jobs $(nproc)
 
       - name: Start Postgres via cargo-pgrx
         working-directory: pg_search/
@@ -141,7 +141,7 @@ jobs:
 
       - name: Compile & install pg_search `dev`
         working-directory: pg_search/
-        run: cargo pgrx install --jobs $(nproc) --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+        run: cargo pgrx install --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" -- --jobs $(nproc)
 
       - name: Start Postgres via cargo-pgrx
         working-directory: pg_search/

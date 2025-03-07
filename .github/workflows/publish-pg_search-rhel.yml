@@ -230,7 +230,7 @@ jobs:
         working-directory: pg_search/
         run: |
           PG_CONFIG_PATH="/usr/pgsql-${{ matrix.pg_version }}/bin/pg_config"
-          cargo pgrx package --jobs $(nproc) --pg-config $PG_CONFIG_PATH
+          cargo pgrx package --pg-config $PG_CONFIG_PATH -- --jobs $(nproc)
         env:
           POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
           POSTHOG_HOST: ${{ secrets.POSTHOG_HOST }}

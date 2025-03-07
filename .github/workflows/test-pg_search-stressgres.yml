@@ -94,7 +94,7 @@ jobs:
 
       - name: Compile & install pg_search extension
         working-directory: paradedb/pg_search/
-        run: cargo pgrx install --jobs $(nproc) --sudo --release --pg-config `which pg_config` --features=pg${{ matrix.pg_version }},icu --no-default-features
+        run: cargo pgrx install --sudo --release --pg-config `which pg_config` --features=pg${{ matrix.pg_version }},icu --no-default-features -- --jobs $(nproc)
 
       - name: Run Stressgres Test Suite for 10 minutes
         working-directory: stressgres/

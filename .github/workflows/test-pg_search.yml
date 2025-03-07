@@ -155,7 +155,7 @@ jobs:
       - name: Compile & install pg_search extension
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: pg_search/
-        run: cargo pgrx install --jobs $(nproc) --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+        run: cargo pgrx install --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" -- --jobs $(nproc)
 
       - name: Start Postgres via cargo-pgrx
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
@@ -275,7 +275,7 @@ jobs:
       - name: Compile & install pg_search extension
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: pg_search/
-        run: cargo pgrx install --jobs $(nproc) --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config --features=pg${{ matrix.pg_version }},icu
+        run: cargo pgrx install --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config --features=pg${{ matrix.pg_version }},icu -- --jobs $(nproc)
 
       - name: Start Postgres and create database
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'

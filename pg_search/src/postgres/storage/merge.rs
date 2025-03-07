@@ -310,8 +310,8 @@ impl VacuumList {
             .expect("VacuumList should own the MergeLock in this context")
             .pin_ambulkdelete_sentinel();
 
-        // yes, I know, but this makes it clear that our intention here is to obtain the vacuum_sential
-        // before we, especially our contained MergeLock, is dropped
+        // yes, I know, but this makes it clear that our intention is to obtain the vacuum_sential
+        // before we (and our contained MergeLock) are dropped
         drop(self);
         vacuum_sentinel
     }

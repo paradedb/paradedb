@@ -183,7 +183,7 @@ pub unsafe fn save_new_metas(
                 });
 
             // we need to be in a transaction in order to delete segments
-            // this means (auto)VACCUM can't do this, but that's okay because it doesn't
+            // this means (auto)VACUUM can't do this, but that's okay because it doesn't
             // it only applies .delete files, which we consider as modifications
             assert!(pg_sys::IsTransactionState());
 

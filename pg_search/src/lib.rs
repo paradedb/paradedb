@@ -26,7 +26,6 @@ mod schema;
 #[cfg(test)]
 pub mod github;
 pub mod gucs;
-mod segment_tracker;
 pub mod telemetry;
 
 use self::postgres::customscan;

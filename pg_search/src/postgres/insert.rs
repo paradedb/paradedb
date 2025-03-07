@@ -26,16 +26,13 @@ use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::merge::MergeLock;
 use crate::postgres::storage::LinkedItemList;
 use crate::postgres::utils::{
-    categorize_fields, item_pointer_to_u64, row_to_search_document, u64_to_item_pointer,
-    CategorizedFieldData,
+    categorize_fields, item_pointer_to_u64, row_to_search_document, CategorizedFieldData,
 };
 use crate::schema::SearchField;
-use crate::segment_tracker::track_ctid;
 use pgrx::pg_sys::Oid;
 use pgrx::{pg_guard, pg_sys, PgMemoryContexts, PgRelation, PgTupleDesc};
 use std::ffi::CStr;
 use std::panic::{catch_unwind, resume_unwind};
-use tantivy::indexer::NoMergePolicy;
 
 extern "C" {
     fn IsLogicalWorker() -> bool;
@@ -55,7 +52,9 @@ impl InsertState {
         indexrel: &PgRelation,
         writer_resources: WriterResources,
     ) -> anyhow::Result<Self> {
-        let writer = SearchIndexWriter::open(indexrel, BlockDirectoryType::Mvcc, writer_resources)?;
+        pgrx::warning!("constructing new SearchIndexWriter");
+        let writer =
+            SearchIndexWriter::open(indexrel, BlockDirectoryType::default(), writer_resources)?;
         let tupdesc = unsafe { PgTupleDesc::from_pg_unchecked(indexrel.rd_att) };
         let categorized_fields = categorize_fields(&tupdesc, &writer.schema);
         let key_field_name = writer.schema.key_field().name.0;
@@ -182,7 +181,10 @@ unsafe fn aminsert_internal(
 
             let mut search_document = writer.schema.new_document();
 
-            track_ctid("insert", None, item_pointer_to_u64(*ctid));
+            pgrx::warning!(
+                "inserting {:?}",
+                pgrx::itemptr::item_pointer_get_both(*ctid)
+            );
 
             row_to_search_document(
                 values,
@@ -230,12 +232,15 @@ pub unsafe extern "C" fn aminsertcleanup(
 pub fn paradedb_aminsertcleanup(mut writer: Option<SearchIndexWriter>) {
     if let Some(writer) = writer.take() {
         let indexrelid = writer.indexrelid;
+        pgrx::warning!("about to commit");
         writer
             .commit()
             .expect("must be able to commit inserts in paradedb_aminsertcleanup");
-
+        pgrx::warning!("did commit");
         unsafe {
+            pgrx::warning!("calling do_merge()");
             do_merge(indexrelid);
+            pgrx::warning!("do_merge() done")
         }
     }
 }
@@ -279,7 +284,7 @@ unsafe fn do_merge(indexrelid: Oid) {
         let indexrel = PgRelation::with_lock(indexrelid, pg_sys::RowExclusiveLock as _);
         let mut writer = SearchIndexWriter::open(
             &indexrel,
-            BlockDirectoryType::Mvcc,
+            BlockDirectoryType::Mvcc(merge_policy.vacuum_list.clone()),
             WriterResources::PostStatementMerge,
         )
         .expect("should be able to open a SearchIndexWriter for PostStatementMerge");

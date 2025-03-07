@@ -213,8 +213,14 @@ pub struct PageMut<'a> {
 impl PageMut<'_> {
     pub fn mark_deleted(mut self) {
         unsafe {
-            self.special_mut::<BM25PageSpecialData>().xmax =
-                pg_sys::ReadNextFullTransactionId().value as pg_sys::TransactionId;
+            // this transaction, if we have one, is the one that is deleting this page
+            let mut current_xid = pg_sys::GetCurrentTransactionIdIfAny();
+
+            // however, we could be in some backend that doesn't have a transaction, such as VACUUM
+            if current_xid == pg_sys::InvalidLocalTransactionId {
+                current_xid = pg_sys::ReadNextTransactionId();
+            }
+            self.special_mut::<BM25PageSpecialData>().xmax = current_xid;
         }
         self.buffer.dirty = true;
     }

@@ -30,7 +30,6 @@ use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::path::PathBuf;
-use std::sync::Arc;
 use tantivy::collector::{Collector, TopDocs};
 use tantivy::index::{Index, SegmentId};
 use tantivy::query::{EnableScoring, QueryClone, QueryParser};
@@ -241,7 +240,6 @@ impl Iterator for SearchResults {
     }
 }
 
-#[derive(Clone)]
 pub struct SearchIndexReader {
     index_oid: pg_sys::Oid,
     searcher: Searcher,
@@ -253,15 +251,11 @@ pub struct SearchIndexReader {
     //
     // also, it's an Arc b/c if we're clone'd (we do derive it, after all), we only want this
     // buffer dropped once
-    _cleanup_lock: Arc<Option<PinnedBuffer>>,
+    _cleanup_lock: PinnedBuffer,
 }
 
 impl SearchIndexReader {
-    pub fn open(
-        index_relation: &PgRelation,
-        directory_type: BlockDirectoryType,
-        needs_cleanup_lock: bool,
-    ) -> Result<Self> {
+    pub fn open(index_relation: &PgRelation, directory_type: BlockDirectoryType) -> Result<Self> {
         // It is possible for index only scans and custom scans, which only check the visibility map
         // and do not fetch tuples from the heap, to suffer from the concurrent TID recycling problem.
         // This problem occurs due to a race condition: after vacuum is called, a concurrent index only or custom scan
@@ -272,14 +266,9 @@ impl SearchIndexReader {
         //
         // It's sufficient, and **required** for parallel scans to operate correctly, for us to hold onto
         // a pinned but unlocked buffer.
-        let cleanup_lock = if needs_cleanup_lock {
-            let bman = BufferManager::new(index_relation.oid());
-            Some(bman.pinned_buffer(CLEANUP_LOCK))
-        } else {
-            None
-        };
+        let cleanup_lock = BufferManager::new(index_relation.oid()).pinned_buffer(CLEANUP_LOCK);
 
-        let directory = directory_type.directory(index_relation, false);
+        let directory = directory_type.directory(index_relation);
         let mut index = Index::open(directory)?;
         let schema = SearchIndexSchema::open(index.schema(), index_relation);
 
@@ -296,7 +285,7 @@ impl SearchIndexReader {
             schema,
             underlying_reader: reader,
             underlying_index: index,
-            _cleanup_lock: Arc::new(cleanup_lock),
+            _cleanup_lock: cleanup_lock,
         })
     }
 

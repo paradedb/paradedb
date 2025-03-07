@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use pgrx::{pg_sys::ItemPointerData, *};
+use std::collections::HashSet;
 
 use super::storage::block::CLEANUP_LOCK;
 use crate::index::fast_fields_helper::FFType;
@@ -24,12 +25,7 @@ use crate::index::writer::index::SearchIndexWriter;
 use crate::index::{BlockDirectoryType, WriterResources};
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::merge::MergeLock;
-use crate::segment_tracker::track_ctid;
-
-#[repr(C)]
-pub struct BM25IndexBuildDeleteResult {
-    pub inner: pg_sys::IndexBulkDeleteResult,
-}
+use crate::postgres::utils::u64_to_item_pointer;
 
 #[pg_guard]
 pub unsafe extern "C" fn ambulkdelete(
@@ -39,7 +35,7 @@ pub unsafe extern "C" fn ambulkdelete(
     callback_state: *mut ::std::os::raw::c_void,
 ) -> *mut pg_sys::IndexBulkDeleteResult {
     let info = PgBox::from_pg(info);
-    let mut stats = PgBox::<BM25IndexBuildDeleteResult>::from_pg(stats.cast());
+    let mut stats = PgBox::<pg_sys::IndexBulkDeleteResult>::from_pg(stats.cast());
     let index_relation = PgRelation::from_pg(info.index);
     let callback =
         callback.expect("the ambulkdelete() callback should be a valid function pointer");
@@ -58,7 +54,7 @@ pub unsafe extern "C" fn ambulkdelete(
         WriterResources::Vacuum,
     )
     .expect("ambulkdelete: should be able to open a SearchIndexWriter");
-    let reader = SearchIndexReader::open(&index_relation, BlockDirectoryType::BulkDelete, false)
+    let reader = SearchIndexReader::open(&index_relation, BlockDirectoryType::BulkDelete)
         .expect("ambulkdelete: should be able to open a SearchIndexReader");
 
     let writer_segment_ids = index_writer.segment_ids();
@@ -68,7 +64,7 @@ pub unsafe extern "C" fn ambulkdelete(
     // future concurrent merges, until `vacuum_sentinel` is dropped
     let vacuum_sentinel = merge_lock
         .vacuum_list()
-        .write_active_list(writer_segment_ids.iter());
+        .write_list(writer_segment_ids.iter());
 
     let mut did_delete = false;
     for segment_reader in reader.segment_readers() {
@@ -91,13 +87,22 @@ pub unsafe extern "C" fn ambulkdelete(
             let ctid = ctid_ff.as_u64(doc_id).expect("ctid should be present");
             if callback(ctid) {
                 did_delete = true;
-                track_ctid("vacuum", Some(&segment_reader.segment_id()), ctid);
+                let mut ipd = pg_sys::ItemPointerData::default();
+                u64_to_item_pointer(ctid, &mut ipd);
+                pgrx::warning!(
+                    "delete {:?} from {}",
+                    pgrx::itemptr::item_pointer_get_both(ipd),
+                    segment_reader.segment_id()
+                );
                 index_writer
                     .delete_document(segment_reader.segment_id(), doc_id)
                     .expect("ambulkdelete: deleting document by segment and id should succeed");
             }
         }
     }
+    // no need to keep the reader around.  Also, it holds a pin on the CLEANUP_LOCK, which
+    // will get in the way of our CLEANUP_LOCK barrier below
+    drop(reader);
 
     // this won't merge as the `WriterResources::Vacuum` uses `AllowedMergePolicy::None`
     index_writer
@@ -110,10 +115,10 @@ pub unsafe extern "C" fn ambulkdelete(
     if stats.is_null() {
         stats = unsafe {
             PgBox::from_pg(
-                pg_sys::palloc0(std::mem::size_of::<BM25IndexBuildDeleteResult>()).cast(),
+                pg_sys::palloc0(std::mem::size_of::<pg_sys::IndexBulkDeleteResult>()).cast(),
             )
         };
-        stats.inner.pages_deleted = 0;
+        stats.pages_deleted = 0;
     }
 
     // As soon as ambulkdelete returns, Postgres will update the visibility map
@@ -122,8 +127,8 @@ pub unsafe extern "C" fn ambulkdelete(
     // we acquire a cleanup lock that guarantees that there are no pins on the index,
     // which means that all concurrent scans have completed.
     //
-    // This lock is then immediately released, allowing any queued scans to continue, seeing
-    // the new deleted state of the docs we just marked as deleted
+    // Effectively, we're blocking ambulkdelete from finishing until we know that concurrent
+    // scans have finished too
     if did_delete {
         drop(
             BufferManager::new(index_relation.oid())
@@ -131,5 +136,5 @@ pub unsafe extern "C" fn ambulkdelete(
         );
     }
 
-    stats.into_pg().cast()
+    stats.into_pg()
 }

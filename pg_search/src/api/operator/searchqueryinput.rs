@@ -85,9 +85,8 @@ pub fn search_with_query_input(
         let index_relation = unsafe {
             PgRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE)
         };
-        let search_reader =
-            SearchIndexReader::open(&index_relation, BlockDirectoryType::Mvcc, false)
-                .expect("search_with_query_input: should be able to open a SearchIndexReader");
+        let search_reader = SearchIndexReader::open(&index_relation, BlockDirectoryType::default())
+            .expect("search_with_query_input: should be able to open a SearchIndexReader");
         let key_field = search_reader.key_field();
         let key_field_name = key_field.name.0;
         let key_field_type = key_field.type_.into();

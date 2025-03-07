@@ -130,7 +130,7 @@ fn do_heap_scan<'a>(
             .unwrap_or_else(|e| panic!("failed to commit new tantivy index: {e}"));
 
         // store number of segments created in metadata
-        SearchIndexReader::open(index_relation, BlockDirectoryType::Mvcc, false)
+        SearchIndexReader::open(index_relation, BlockDirectoryType::default())
             .expect("do_heap_scan: should be able to open a SearchIndexReader");
         MergeLock::init(index_relation.oid());
 

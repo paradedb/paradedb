@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::delete::BM25IndexBuildDeleteResult;
 use crate::postgres::storage::buffer::BufferManager;
 use pgrx::*;
 
@@ -29,7 +28,6 @@ pub extern "C" fn amvacuumcleanup(
         return stats;
     }
 
-    let stats = unsafe { PgBox::<BM25IndexBuildDeleteResult>::from_pg(stats.cast()) };
     // return all recyclable pages to the free space map
     unsafe {
         let index_relation = PgRelation::from_pg(info.index);
@@ -56,5 +54,5 @@ pub extern "C" fn amvacuumcleanup(
     }
 
     // TODO: Update stats
-    stats.into_pg().cast()
+    stats
 }

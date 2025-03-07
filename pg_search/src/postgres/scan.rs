@@ -104,10 +104,8 @@ pub extern "C" fn amrescan(
     }
 
     // Create the index and scan state
-    let search_reader = SearchIndexReader::open(&indexrel, BlockDirectoryType::Mvcc, unsafe {
-        (*scan).xs_want_itup
-    })
-    .expect("amrescan: should be able to open a SearchIndexReader");
+    let search_reader = SearchIndexReader::open(&indexrel, BlockDirectoryType::default())
+        .expect("amrescan: should be able to open a SearchIndexReader");
     unsafe {
         parallel::maybe_init_parallel_scan(scan, &search_reader);
 

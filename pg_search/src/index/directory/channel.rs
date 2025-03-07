@@ -22,11 +22,11 @@ use tantivy::directory::{
     WatchCallback, WatchHandle, WritePtr,
 };
 use tantivy::index::SegmentMetaInventory;
-use tantivy::TantivyError;
-use tantivy::{Directory, IndexMeta};
+use tantivy::{Directory, IndexMeta, TantivyError};
 
 pub type Overwrite = bool;
 
+#[derive(Debug)]
 pub enum ChannelRequest {
     RegisterFilesAsManaged(
         Vec<PathBuf>,
@@ -187,6 +187,7 @@ impl Directory for ChannelDirectory {
     fn panic_handler(&self) -> Option<DirectoryPanicHandler> {
         let sender = self.sender.clone();
         let panic_handler = move |any| {
+            eprintln!("panic handler got one: {any:?}");
             sender.send(ChannelRequest::Panic(any)).unwrap();
         };
         Some(Arc::new(panic_handler))
@@ -239,6 +240,7 @@ impl ChannelRequestHandler {
         relation_oid: pg_sys::Oid,
         receiver: Receiver<ChannelRequest>,
     ) -> Self {
+        let xid = unsafe { pg_sys::GetCurrentTransactionIdIfAny() };
         let (action_sender, action_receiver) = crossbeam::channel::bounded(1);
         let (reply_sender, reply_receiver) = crossbeam::channel::bounded(1);
         Self {
@@ -257,6 +259,9 @@ impl ChannelRequestHandler {
                         break;
                     }
                 }
+                eprintln!("[{}] [{xid}] _worker finished", unsafe {
+                    pg_sys::MyProcPid
+                });
             }),
         }
     }
@@ -330,6 +335,7 @@ impl ChannelRequestHandler {
     }
 
     fn process_message(&mut self, message: ChannelRequest) -> Result<ShouldTerminate> {
+        pgrx::warning!("message={message:?}");
         match message {
             ChannelRequest::RegisterFilesAsManaged(files, overwrite, sender) => {
                 sender.send(self.directory.register_files_as_managed(files, overwrite))?;

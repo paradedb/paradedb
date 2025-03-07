@@ -4,7 +4,6 @@ use crate::postgres::storage::block::{
     CLEANUP_LOCK, SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
 };
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
-use crate::segment_tracker::track_segment_meta_entry;
 use anyhow::Result;
 use pgrx::pg_sys;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -46,6 +45,7 @@ pub unsafe fn save_new_metas(
     prev_meta: &IndexMeta,
     directory_entries: &mut FxHashMap<PathBuf, FileEntry>,
 ) -> Result<()> {
+    pgrx::warning!("SAVE_NEW_METAS(): enter");
     let mut linked_list =
         LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START);
     let _lock = linked_list.bman_mut().get_buffer_mut(CLEANUP_LOCK);
@@ -127,10 +127,6 @@ pub unsafe fn save_new_metas(
         })
         .collect::<Vec<_>>();
 
-    created_entries.iter().for_each(|entry| {
-        track_segment_meta_entry("create", entry);
-    });
-
     //
     // process the modified segments
     //
@@ -173,10 +169,6 @@ pub unsafe fn save_new_metas(
         })
         .collect::<Vec<_>>();
 
-    modified_entries.iter().for_each(|(entry, _)| {
-        track_segment_meta_entry("modify", entry);
-    });
-
     //
     // process the deleted segments
     //
@@ -192,14 +184,15 @@ pub unsafe fn save_new_metas(
                     panic!("segment id `{id}` should be in the segment meta linked list: {e}")
                 });
 
+            // we need to be in a transaction in order to delete segments
+            // this means (auto)VACCUM can't do this, but that's okay because it doesn't
+            // it only applies .delete files, which we consider as modifications
+            assert!(pg_sys::IsTransactionState());
+
             meta_entry.xmax = pg_sys::GetCurrentTransactionId();
             (meta_entry, blockno)
         })
         .collect::<Vec<_>>();
-
-    deleted_entries.iter().for_each(|(entry, _)| {
-        track_segment_meta_entry("delete", entry);
-    });
 
     //
     // recycle anything leftover in `new_files` to our input `directory_entries` as they belong to segment(s) we
@@ -222,7 +215,6 @@ pub unsafe fn save_new_metas(
     // delete old entries and their corresponding files
     for (entry, blockno) in &deleted_entries {
         assert!(entry.xmax == pg_sys::GetCurrentTransactionId());
-
         let mut buffer = linked_list.bman_mut().get_buffer_mut(*blockno);
         let mut page = buffer.page_mut();
 
@@ -237,6 +229,7 @@ pub unsafe fn save_new_metas(
 
         let PgItem(pg_item, size) = (*entry).into();
 
+        pgrx::warning!("DELETE: {:?}", entry.segment_id);
         let did_replace = page.replace_item(offno, pg_item, size);
         assert!(did_replace);
         drop(buffer);
@@ -272,6 +265,8 @@ pub unsafe fn save_new_metas(
             );
         };
 
+        pgrx::warning!("REPLACE: {:?}", entry.segment_id);
+
         let PgItem(pg_item, size) = entry.into();
         let did_replace = page.replace_item(offno, pg_item, size);
         if !did_replace {
@@ -289,7 +284,18 @@ pub unsafe fn save_new_metas(
     }
 
     // add the new entries
-    linked_list.add_items(created_entries, None)?;
+    pgrx::warning!(
+        "ADD: {:?}",
+        created_entries
+            .iter()
+            .map(|e| e.segment_id)
+            .collect::<Vec<_>>()
+    );
+    if !created_entries.is_empty() {
+        linked_list.add_items(created_entries, None)?;
+    }
+
+    pgrx::warning!("SAVE_NEW_METAS(): exit");
 
     Ok(())
 }
@@ -298,7 +304,7 @@ pub unsafe fn load_metas(
     relation_oid: pg_sys::Oid,
     inventory: &SegmentMetaInventory,
     snapshot: pg_sys::Snapshot,
-    solve_mvcc: MvccSatisfies,
+    solve_mvcc: &MvccSatisfies,
 ) -> tantivy::Result<IndexMeta> {
     let segment_metas = LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START);
     let heap_oid = unsafe { pg_sys::IndexGetRelation(relation_oid, false) };
@@ -317,8 +323,10 @@ pub unsafe fn load_metas(
 
         while offsetno <= max_offset {
             if let Some((entry, _)) = page.read_item::<SegmentMetaEntry>(offsetno) {
-                if (solve_mvcc == MvccSatisfies::Any && !entry.recyclable(snapshot, heap_relation))
-                    || (solve_mvcc == MvccSatisfies::Snapshot && entry.visible(snapshot))
+                if (matches!(solve_mvcc, MvccSatisfies::Any)
+                    && !entry.recyclable(snapshot, heap_relation))
+                    || (matches!(solve_mvcc, MvccSatisfies::Snapshot(excluded) if excluded.is_empty() || !excluded.contains(&entry.segment_id))
+                        && entry.visible(snapshot))
                 {
                     let inner_segment_meta = InnerSegmentMeta {
                         max_doc: entry.max_doc,

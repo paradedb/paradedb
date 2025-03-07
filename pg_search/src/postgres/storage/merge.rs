@@ -19,7 +19,6 @@ use crate::postgres::storage::block::{bm25_max_free_space, BM25PageSpecialData, 
 use crate::postgres::storage::buffer::{BufferManager, BufferMut, PinnedBuffer};
 use pgrx::pg_sys;
 use std::collections::HashSet;
-use std::mem::ManuallyDrop;
 use tantivy::index::SegmentId;
 
 /// The metadata stored on the [`MergeLock`] page
@@ -39,7 +38,8 @@ pub struct MergeLockData {
     ambulkdelete_sentinel: pg_sys::BlockNumber,
 }
 
-struct VacuumSentinel(PinnedBuffer);
+#[repr(transparent)]
+pub struct VacuumSentinel(PinnedBuffer);
 
 /// Only one merge can happen at a time, so we need to lock the merge process
 #[derive(Debug)]
@@ -88,37 +88,14 @@ impl MergeLock {
                 // or it is from this transaction
                 || pg_sys::TransactionIdIsCurrentTransactionId(last_merge)
 
-                // or the last_merge transaction's effects are known to be visible by all
-                // current/future transactions
-                || {
-                #[cfg(feature = "pg13")]
-                {
-                    let oldest_xmin = pg_sys::TransactionIdLimitedForOldSnapshots(
-                        pg_sys::GetOldestXmin(bman.bm25cache().heaprel(), pg_sys::PROCARRAY_FLAGS_VACUUM as i32), bman.bm25cache().heaprel(),
-                    );
-                    pg_sys::TransactionIdPrecedes(last_merge, oldest_xmin)
-                }
-                #[cfg(any(
-                    feature = "pg14",
-                    feature = "pg15",
-                    feature = "pg16",
-                    feature = "pg17"
-                ))]
-                {
-                    let oldest_xmin = pg_sys::GetOldestNonRemovableTransactionId(bman.bm25cache().heaprel());
-                    pg_sys::TransactionIdPrecedes(last_merge, oldest_xmin)
-                }
-            };
+                // or it's not visible to our snapshot
+                || !pg_sys::XidInMVCCSnapshot(last_merge, pg_sys::GetActiveSnapshot());
 
-        if last_merge_visible {
-            Some(MergeLock {
-                bman,
-                buffer: merge_lock,
-                save_xid: true,
-            })
-        } else {
-            None
-        }
+        last_merge_visible.then(|| MergeLock {
+            bman,
+            buffer: merge_lock,
+            save_xid: true,
+        })
     }
 
     /// This is a blocking operation to acquire the MERGE_LOCK.  
@@ -165,11 +142,7 @@ impl MergeLock {
         // open the VacuumList
         let start_page = metadata.active_vacuum_list;
         let merge_lock = self;
-        VacuumList::open(
-            move || merge_lock.pin_ambulkdelete_sentinel(),
-            relation_oid,
-            start_page,
-        )
+        VacuumList::open(Some(merge_lock), relation_oid, start_page)
     }
 
     pub fn list_vacuuming_segments(&mut self) -> HashSet<SegmentId> {
@@ -187,15 +160,10 @@ impl MergeLock {
             return Default::default();
         }
 
-        VacuumList::open(
-            || panic!("cannot acquire VacuumList sentinel in this context"),
-            self.bman.relation_oid(),
-            metadata.active_vacuum_list,
-        )
-        .list()
+        VacuumList::open(None, self.bman.relation_oid(), metadata.active_vacuum_list).read_list()
     }
 
-    fn pin_ambulkdelete_sentinel(mut self) -> VacuumSentinel {
+    fn pin_ambulkdelete_sentinel(&mut self) -> VacuumSentinel {
         let mut page = self.buffer.page_mut();
         let metadata = page.contents_mut::<MergeLockData>();
         if metadata.ambulkdelete_sentinel == 0
@@ -271,7 +239,7 @@ struct VacuumListData {
 pub struct VacuumList {
     bman: BufferManager,
     start_block_number: pg_sys::BlockNumber,
-    sentinel: Box<dyn FnOnce() -> VacuumSentinel>,
+    merge_lock: Option<MergeLock>,
 }
 
 impl VacuumList {
@@ -287,21 +255,21 @@ impl VacuumList {
     }
 
     fn open(
-        sentinel: impl FnOnce() -> VacuumSentinel + 'static,
+        merge_lock: Option<MergeLock>,
         relation_oid: pg_sys::Oid,
         start_block_number: pg_sys::BlockNumber,
     ) -> VacuumList {
         Self {
             bman: BufferManager::new(relation_oid),
             start_block_number,
-            sentinel: Box::new(sentinel),
+            merge_lock,
         }
     }
 
-    pub fn write_active_list<'s>(
+    pub fn write_list<'s>(
         mut self,
         segment_ids: impl Iterator<Item = &'s SegmentId>,
-    ) -> impl Drop + 'static {
+    ) -> VacuumSentinel {
         let mut segment_ids = segment_ids.collect::<Vec<_>>();
         segment_ids.sort();
 
@@ -338,10 +306,19 @@ impl VacuumList {
             contents.nentries += 1;
         }
 
-        (self.sentinel)().0
+        let vacuum_sentinel = self
+            .merge_lock
+            .as_mut()
+            .expect("VacuumList should own the MergeLock in this context")
+            .pin_ambulkdelete_sentinel();
+
+        // yes, I know, but this makes it clear that our intention here is to obtain the vacuum_sential
+        // before we, especially our contained MergeLock, is dropped
+        drop(self);
+        vacuum_sentinel
     }
 
-    pub fn list(&self) -> HashSet<SegmentId> {
+    pub fn read_list(&self) -> HashSet<SegmentId> {
         let mut segment_ids = HashSet::new();
         let mut buffer = self.bman.get_buffer(self.start_block_number);
         loop {

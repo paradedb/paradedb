@@ -318,7 +318,7 @@ impl From<PgItem> for SegmentMetaEntry {
 impl SegmentMetaEntry {
     /// Fake an opstamp value based on our internal `xmin` and `xmax` values
     pub fn opstamp(&self) -> Opstamp {
-        ((self.xmax as u64) << 32) | (self.xmin as u64)
+        self.xmin.max(self.xmax) as Opstamp // ((self.xmax as u64) << 32) | (self.xmin as u64)
     }
 
     pub fn get_file_entry(&self, segment_component: SegmentComponent) -> Option<FileEntry> {

@@ -17,13 +17,15 @@
 
 use crate::gucs;
 use crate::index::channel::{ChannelRequest, ChannelRequestHandler};
-use crate::index::mvcc::MVCCDirectory;
+use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::postgres::index::get_fields;
 use crate::schema::{SearchFieldConfig, SearchIndexSchema};
 use anyhow::Result;
 use crossbeam::channel::Receiver;
 use pgrx::PgRelation;
+use std::collections::HashSet;
 use std::num::NonZeroUsize;
+use tantivy::index::SegmentId;
 use tantivy::Index;
 use tokenizers::{create_normalizer_manager, create_tokenizer_manager};
 
@@ -38,19 +40,23 @@ pub type MemoryBudget = usize;
 pub type IndexConfig = (Parallelism, MemoryBudget);
 
 pub enum BlockDirectoryType {
-    Mvcc,
+    Mvcc(HashSet<SegmentId>),
     BulkDelete,
 }
 
+impl Default for BlockDirectoryType {
+    fn default() -> Self {
+        BlockDirectoryType::Mvcc(Default::default())
+    }
+}
+
 impl BlockDirectoryType {
-    pub fn directory(self, index_relation: &PgRelation, wants_meta_reloads: bool) -> MVCCDirectory {
+    pub fn directory(self, index_relation: &PgRelation) -> MVCCDirectory {
         match self {
-            BlockDirectoryType::Mvcc => {
-                MVCCDirectory::snapshot(index_relation.oid(), wants_meta_reloads)
+            BlockDirectoryType::Mvcc(excluded) => {
+                MVCCDirectory::snapshot(index_relation.oid(), excluded)
             }
-            BlockDirectoryType::BulkDelete => {
-                MVCCDirectory::any(index_relation.oid(), wants_meta_reloads)
-            }
+            BlockDirectoryType::BulkDelete => MVCCDirectory::any(index_relation.oid()),
         }
     }
 
@@ -60,7 +66,7 @@ impl BlockDirectoryType {
         receiver: Receiver<ChannelRequest>,
     ) -> ChannelRequestHandler {
         ChannelRequestHandler::open(
-            self.directory(index_relation, true),
+            self.directory(index_relation),
             index_relation.oid(),
             receiver,
         )

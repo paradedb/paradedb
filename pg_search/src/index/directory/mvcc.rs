@@ -21,7 +21,6 @@ use crate::postgres::storage::block::{
     FileEntry, SegmentFileDetails, SegmentMetaEntry, SEGMENT_METAS_START,
 };
 use crate::postgres::storage::LinkedItemList;
-use crate::segment_tracker::{track_inner_segment_meta, track_merge_candidates};
 use anyhow::{anyhow, Result};
 use parking_lot::Mutex;
 use pgrx::pg_sys;
@@ -34,19 +33,18 @@ use std::fmt::{Debug, Display};
 use std::panic::panic_any;
 use std::path::Path;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::{io, result};
 use tantivy::directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError};
 use tantivy::directory::{
     DirectoryLock, DirectoryPanicHandler, FileHandle, Lock, WatchCallback, WatchHandle, WritePtr,
 };
-use tantivy::index::InnerSegmentMeta;
-use tantivy::merge_policy::MergePolicy;
+use tantivy::index::SegmentId;
 use tantivy::{index::SegmentMetaInventory, Directory, IndexMeta};
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MvccSatisfies {
-    Snapshot,
+    Snapshot(HashSet<SegmentId>),
     Any,
 }
 
@@ -66,31 +64,24 @@ pub struct MVCCDirectory {
     // a lazily loaded [`IndexMeta`], which is only created once per MVCCDirectory instance
     // we cannot tolerate tantivy calling `load_metas()` multiple times and giving it a different
     // answer
-    loaded_metas: Arc<Mutex<Option<IndexMeta>>>,
-
-    wants_meta_reloads: bool,
+    loaded_metas: OnceLock<tantivy::Result<IndexMeta>>,
 }
 
 impl MVCCDirectory {
-    pub fn snapshot(relation_oid: pg_sys::Oid, wants_meta_reloads: bool) -> Self {
-        Self::with_mvcc_style(relation_oid, wants_meta_reloads, MvccSatisfies::Snapshot)
+    pub fn snapshot(relation_oid: pg_sys::Oid, excluded: HashSet<SegmentId>) -> Self {
+        Self::with_mvcc_style(relation_oid, MvccSatisfies::Snapshot(excluded))
     }
 
-    pub fn any(relation_oid: pg_sys::Oid, wants_meta_reloads: bool) -> Self {
-        Self::with_mvcc_style(relation_oid, wants_meta_reloads, MvccSatisfies::Any)
+    pub fn any(relation_oid: pg_sys::Oid) -> Self {
+        Self::with_mvcc_style(relation_oid, MvccSatisfies::Any)
     }
 
-    fn with_mvcc_style(
-        relation_oid: pg_sys::Oid,
-        wants_meta_reloads: bool,
-        mvcc_style: MvccSatisfies,
-    ) -> Self {
+    fn with_mvcc_style(relation_oid: pg_sys::Oid, mvcc_style: MvccSatisfies) -> Self {
         Self {
             relation_oid,
             mvcc_style,
             readers: Arc::new(Mutex::new(FxHashMap::default())),
             loaded_metas: Default::default(),
-            wants_meta_reloads,
         }
     }
 
@@ -223,6 +214,7 @@ impl Directory for MVCCDirectory {
         previous_meta: &IndexMeta,
         payload: &mut (dyn Any + '_),
     ) -> tantivy::Result<()> {
+        pgrx::warning!("MVCCDirectory::save_metas(): enter");
         let payload = payload
             .downcast_mut::<FxHashMap<PathBuf, FileEntry>>()
             .expect("save_metas should have a payload");
@@ -244,24 +236,21 @@ impl Directory for MVCCDirectory {
                 .map_err(|err| tantivy::TantivyError::InternalError(err.to_string()))?;
         }
 
+        pgrx::warning!("MVCCDirectory::save_metas(): exit");
         Ok(())
     }
 
     fn load_metas(&self, inventory: &SegmentMetaInventory) -> tantivy::Result<IndexMeta> {
-        let mut locked = self.loaded_metas.lock();
-
-        if locked.is_none() {
-            *locked = Some(unsafe {
+        self.loaded_metas
+            .get_or_init(|| unsafe {
                 load_metas(
                     self.relation_oid,
                     inventory,
                     pg_sys::GetActiveSnapshot(),
-                    self.mvcc_style,
-                )?
-            });
-        }
-
-        Ok((*locked).clone().unwrap())
+                    &self.mvcc_style,
+                )
+            })
+            .clone()
     }
 
     fn supports_garbage_collection(&self) -> bool {
@@ -313,15 +302,7 @@ impl Directory for MVCCDirectory {
     }
 
     fn log(&self, message: &str) {
-        match serde_json::from_str::<Vec<Vec<InnerSegmentMeta>>>(message) {
-            Ok(candidates) => {
-                track_merge_candidates("merge", &candidates);
-            }
-            Err(_) => match serde_json::from_str::<(String, InnerSegmentMeta)>(message) {
-                Ok((event, entry)) => track_inner_segment_meta(&event, &entry),
-                Err(_) => pgrx::warning!("{message}"),
-            },
-        }
+        pgrx::warning!("{message}");
     }
 }
 

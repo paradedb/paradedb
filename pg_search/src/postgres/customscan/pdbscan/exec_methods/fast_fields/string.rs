@@ -74,7 +74,7 @@ impl ExecMethod for StringFastFieldExecState {
     fn query(&mut self, state: &mut PdbScanState) -> bool {
         if let Some(parallel_state) = state.parallel_state {
             if let Some(segment_id) = unsafe { checkout_segment(parallel_state) } {
-                let searcher = StringAggSearcher(state.search_reader.as_ref().unwrap().clone());
+                let searcher = StringAggSearcher(state.search_reader.as_ref().unwrap());
                 self.search_results = searcher.string_agg_by_segment(
                     state.need_scores(),
                     &state.search_query_input,
@@ -92,7 +92,7 @@ impl ExecMethod for StringFastFieldExecState {
             false
         } else {
             // not parallel, first time query
-            let searcher = StringAggSearcher(state.search_reader.as_ref().unwrap().clone());
+            let searcher = StringAggSearcher(state.search_reader.as_ref().unwrap());
             self.search_results =
                 searcher.string_agg(state.need_scores(), &state.search_query_input, &self.field);
             self.inner.did_query = true;
@@ -214,9 +214,9 @@ impl Iterator for StringAggResults {
     }
 }
 
-struct StringAggSearcher(SearchIndexReader);
+struct StringAggSearcher<'a>(&'a SearchIndexReader);
 
-impl StringAggSearcher {
+impl<'a> StringAggSearcher<'a> {
     pub fn string_agg(
         &self,
         need_scores: bool,

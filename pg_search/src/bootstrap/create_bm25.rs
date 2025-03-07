@@ -161,7 +161,7 @@ fn index_info(
         .expect("index must have a heap relation");
 
     // open the specified index
-    let search_index = SearchIndexReader::open(&index, BlockDirectoryType::Mvcc, false)?;
+    let search_index = SearchIndexReader::open(&index, BlockDirectoryType::default())?;
     let mut search_readers = search_index
         .segment_readers()
         .iter()
@@ -249,7 +249,7 @@ fn is_merging(index: PgRelation) -> bool {
 fn find_ctid(index: PgRelation, ctid: pg_sys::ItemPointerData) -> Result<Option<Vec<String>>> {
     let index = unsafe { PgRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _) };
 
-    let search_index = SearchIndexReader::open(&index, BlockDirectoryType::Mvcc, true)?;
+    let search_index = SearchIndexReader::open(&index, BlockDirectoryType::default())?;
     let ctid_u64 = item_pointer_to_u64(ctid);
     let results = search_index.search(
         false,
@@ -295,7 +295,7 @@ fn validate_checksum(index: PgRelation) -> Result<SetOfIterator<'static, String>
     let index = unsafe { PgRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _) };
 
     // open the specified index
-    let search_reader = SearchIndexReader::open(&index, BlockDirectoryType::Mvcc, false)?;
+    let search_reader = SearchIndexReader::open(&index, BlockDirectoryType::default())?;
 
     let failed = search_reader.validate_checksum()?;
     Ok(SetOfIterator::new(

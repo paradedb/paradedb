@@ -35,7 +35,7 @@ pub struct MergeLockData {
     active_vacuum_list: pg_sys::BlockNumber,
 
     /// A block for which is pin is held during `ambulkdelete()`
-    ambulkdelete_sentinel: pg_sys::BlockNumber,
+    pub ambulkdelete_sentinel: pg_sys::BlockNumber,
 }
 
 #[repr(transparent)]

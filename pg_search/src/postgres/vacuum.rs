@@ -15,7 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::postgres::storage::block::{FIXED_BLOCK_NUMBERS, MERGE_LOCK};
 use crate::postgres::storage::buffer::BufferManager;
+use crate::postgres::storage::merge::MergeLockData;
 use pgrx::*;
 
 #[pg_guard]
@@ -38,7 +40,19 @@ pub extern "C" fn amvacuumcleanup(
         let heap_oid = pg_sys::IndexGetRelation(index_oid, false);
         let heap_relation = pg_sys::RelationIdGetRelation(heap_oid);
 
-        for blockno in 0..nblocks {
+        let vacuum_sentinel_blockno = {
+            let merge_lock = bman.get_buffer(MERGE_LOCK);
+            let page = merge_lock.page();
+            let metadata = page.contents::<MergeLockData>();
+            metadata.ambulkdelete_sentinel
+        };
+
+        for blockno in FIXED_BLOCK_NUMBERS.last().unwrap() + 1..nblocks {
+            if blockno == vacuum_sentinel_blockno {
+                // don't try to open the vacuum_sentinel_blockno block -- only `ambulkdelete` should ever
+                // have a pin on it.
+                continue;
+            }
             if blockno % 100 == 0 {
                 pg_sys::vacuum_delay_point();
             }

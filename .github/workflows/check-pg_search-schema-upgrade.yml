@@ -57,7 +57,7 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           prefix-key: "v1-rust"
-          key: ${{ env.pg_version }}-${{ steps.pgrx.outputs.version }}
+          key: ${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}
           cache-targets: true
           cache-all-crates: true
           save-if: ${{ github.ref == 'refs/heads/dev' }}
@@ -65,7 +65,9 @@ jobs:
       - name: Install & Configure Supported PostgreSQL Version
         run: |
           # Stop any existing PostgreSQL clusters
-          sudo pg_dropcluster 14 main --stop
+          if [[ ! "${{ matrix.pg_version }}" == "14" ]]; then
+            sudo pg_dropcluster 14 main --stop
+          fi
 
           # Install PostgreSQL
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
@@ -82,13 +84,13 @@ jobs:
       - name: Install cargo-pgrx
         run: |
           cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
-          cargo pgrx init "--pg${{ env.pg_version }}=/usr/lib/postgresql/${{ env.pg_version }}/bin/pg_config"
+          cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
           # Save the pgrx version for comparison later
           echo "FIRST_PGRX_VERSION=${PGRX_VERSION}" >> $GITHUB_ENV
 
       - name: Generate Schema from this git rev
-        run: cargo pgrx schema -p pg_search pg${{ env.pg_version }} > ~/this.sql
+        run: cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/this.sql
 
       - name: Switch to Base git rev and Generate Schema Again
         run: |
@@ -103,11 +105,11 @@ jobs:
             cargo install -j $(nproc) --locked cargo-pgrx --version ${THIS_PGRX_VERSION} --force --debug
 
             # Initialize it (again) -- probably unnecessary, but might as well in case ~/.pgrx/config.toml ever changes
-            cargo pgrx init "--pg${{ env.pg_version }}=/usr/lib/postgresql/${{ env.pg_version }}/bin/pg_config"
+            cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
           fi
 
           # Generate schema
-          cargo pgrx schema -p pg_search pg${{ env.pg_version }} > ~/old.sql
+          cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/old.sql
 
       - name: Generate Schema Diffs
         run: |

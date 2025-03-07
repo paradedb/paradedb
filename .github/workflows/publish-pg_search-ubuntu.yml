@@ -175,7 +175,9 @@ jobs:
       - name: Install & Configure Supported PostgreSQL Version
         run: |
           # Stop any existing PostgreSQL clusters
-          sudo pg_dropcluster 14 main --stop
+          if [[ ! "${{ matrix.pg_version }}" == "14" ]]; then
+            sudo pg_dropcluster 14 main --stop
+          fi
 
           # Install PostgreSQL
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -

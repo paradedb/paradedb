@@ -1,4 +1,3 @@
-use anyhow::Result;
 use crossbeam::channel::Sender;
 use std::ops::Range;
 use std::path::Path;
@@ -16,22 +15,25 @@ pub struct ChannelReader {
 }
 
 impl ChannelReader {
-    pub unsafe fn new(path: &Path, sender: Sender<ChannelRequest>) -> Result<Self> {
+    pub unsafe fn new(path: &Path, sender: Sender<ChannelRequest>) -> tantivy::Result<Self> {
         let (oneshot_sender, oneshot_receiver) = oneshot::channel();
         sender
             .send(ChannelRequest::GetSegmentComponent(
                 path.to_path_buf(),
                 oneshot_sender,
             ))
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::NotConnected, format!("{e:?}")))?;
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::NotConnected, e.to_string()))?;
 
-        let entry = oneshot_receiver.recv()?;
+        let entry = oneshot_receiver
+            .recv()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::NotConnected, e))??;
+
         Ok(Self { entry, sender })
     }
 }
 
 impl FileHandle for ChannelReader {
-    fn read_bytes(&self, range: Range<usize>) -> Result<OwnedBytes, std::io::Error> {
+    fn read_bytes(&self, range: Range<usize>) -> std::io::Result<OwnedBytes> {
         let (oneshot_sender, oneshot_receiver) = oneshot::channel();
         self.sender
             .send(ChannelRequest::SegmentRead(
@@ -43,7 +45,7 @@ impl FileHandle for ChannelReader {
 
         oneshot_receiver
             .recv()
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::NotConnected, e))
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::NotConnected, e))?
     }
 }
 

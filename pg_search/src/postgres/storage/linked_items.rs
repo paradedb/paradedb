@@ -363,16 +363,7 @@ mod tests {
 
         let strategy = pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_VACUUM);
         let snapshot = pg_sys::GetActiveSnapshot();
-        let delete_xid = {
-            #[cfg(feature = "pg13")]
-            {
-                pg_sys::RecentGlobalXmin - 1
-            }
-            #[cfg(not(feature = "pg13"))]
-            {
-                (*snapshot).xmin - 1
-            }
-        };
+        let delete_xid = (*snapshot).xmin - 1;
 
         let mut list = LinkedItemList::<SegmentMetaEntry>::create(relation_oid);
         let entries_to_delete = vec![SegmentMetaEntry {
@@ -411,16 +402,7 @@ mod tests {
 
         let strategy = pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_VACUUM);
         let snapshot = pg_sys::GetActiveSnapshot();
-        let deleted_xid = {
-            #[cfg(feature = "pg13")]
-            {
-                pg_sys::RecentGlobalXmin - 1
-            }
-            #[cfg(not(feature = "pg13"))]
-            {
-                (*snapshot).xmin - 1
-            }
-        };
+        let deleted_xid = (*snapshot).xmin - 1;
         let not_deleted_xid = pg_sys::InvalidTransactionId;
         let xmin = (*snapshot).xmin - 1;
 

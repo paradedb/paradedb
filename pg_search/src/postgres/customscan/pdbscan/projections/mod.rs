@@ -69,7 +69,7 @@ pub unsafe fn placeholder_support(arg: Internal) -> ReturnedNodePointer {
 
         // copy these properties up from the Var to its placeholder
         (*phv).phlevelsup = (*var).varlevelsup;
-        #[cfg(not(any(feature = "pg13", feature = "pg14", feature = "pg15")))]
+        #[cfg(not(any(feature = "pg14", feature = "pg15")))]
         {
             (*phv).phnullingrels = (*var).varnullingrels;
         }

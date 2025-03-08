@@ -32,7 +32,7 @@
   - [x] Dense and sparse vector search with [pgvector](https://github.com/pgvector/pgvector#pgvector)
   - [ ] Distributed search
 - [ ] Analytics
-  - [x] Fast analytics over data lakes (i.e. S3) and table formats (i.e. Iceberg) with [pg_analytics](https://github.com/paradedb/pg_analytics)
+  - [x] Faceted search over Postgres data with [pg_search](https://github.com/paradedb/paradedb/tree/dev/pg_search#overview)
   - [ ] Column-oriented Postgres table access method
 
 For a detailed roadmap, see the [ParadeDB Roadmap for 2025](https://github.com/orgs/paradedb/discussions/2041).

@@ -218,15 +218,7 @@ impl PageMut<'_> {
 
             // however, we could be in some backend that doesn't have a transaction, such as VACUUM
             if current_xid == pg_sys::InvalidLocalTransactionId {
-                #[cfg(feature = "pg13")]
-                {
-                    current_xid = pg_sys::ReadNewTransactionId();
-                }
-
-                #[cfg(not(feature = "pg13"))]
-                {
-                    current_xid = pg_sys::ReadNextTransactionId();
-                }
+                current_xid = pg_sys::ReadNextTransactionId();
             }
             self.special_mut::<BM25PageSpecialData>().xmax = current_xid;
         }

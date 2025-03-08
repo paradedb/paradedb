@@ -51,7 +51,7 @@ pub trait AsCStr {
     unsafe fn as_c_str(&self) -> Option<&std::ffi::CStr>;
 }
 
-#[cfg(any(feature = "pg13", feature = "pg14"))]
+#[cfg(feature = "pg14")]
 impl AsInt for *mut pgrx::pg_sys::Node {
     unsafe fn as_int(&self) -> Option<i32> {
         let node = nodecast!(Value, T_Integer, *self)?;
@@ -59,7 +59,7 @@ impl AsInt for *mut pgrx::pg_sys::Node {
     }
 }
 
-#[cfg(not(any(feature = "pg13", feature = "pg14")))]
+#[cfg(not(feature = "pg14"))]
 impl AsInt for *mut pgrx::pg_sys::Node {
     unsafe fn as_int(&self) -> Option<i32> {
         let node = nodecast!(Integer, T_Integer, *self)?;
@@ -67,7 +67,7 @@ impl AsInt for *mut pgrx::pg_sys::Node {
     }
 }
 
-#[cfg(any(feature = "pg13", feature = "pg14"))]
+#[cfg(feature = "pg14")]
 impl AsBool for *mut pgrx::pg_sys::Node {
     unsafe fn as_bool(&self) -> Option<bool> {
         let node = nodecast!(Value, T_Integer, *self)?;
@@ -75,7 +75,7 @@ impl AsBool for *mut pgrx::pg_sys::Node {
     }
 }
 
-#[cfg(not(any(feature = "pg13", feature = "pg14")))]
+#[cfg(not(feature = "pg14"))]
 impl AsBool for *mut pgrx::pg_sys::Node {
     unsafe fn as_bool(&self) -> Option<bool> {
         let node = nodecast!(Boolean, T_Boolean, *self)?;
@@ -83,7 +83,7 @@ impl AsBool for *mut pgrx::pg_sys::Node {
     }
 }
 
-#[cfg(any(feature = "pg13", feature = "pg14"))]
+#[cfg(feature = "pg14")]
 impl AsCStr for *mut pgrx::pg_sys::Node {
     unsafe fn as_c_str(&self) -> Option<&std::ffi::CStr> {
         let node = nodecast!(Value, T_String, *self)?;
@@ -91,7 +91,7 @@ impl AsCStr for *mut pgrx::pg_sys::Node {
     }
 }
 
-#[cfg(not(any(feature = "pg13", feature = "pg14")))]
+#[cfg(not(feature = "pg14"))]
 impl AsCStr for *mut pgrx::pg_sys::Node {
     unsafe fn as_c_str(&self) -> Option<&std::ffi::CStr> {
         let node = nodecast!(String, T_String, *self)?;

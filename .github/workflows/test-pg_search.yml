@@ -38,9 +38,6 @@ jobs:
       matrix:
         include:
           - runner: ubicloud-standard-8
-            pg_version: 13
-            arch: amd64
-          - runner: ubicloud-standard-8
             pg_version: 14
             arch: amd64
           - runner: ubicloud-standard-8

@@ -9,8 +9,6 @@ on:
   push:
     tags:
       - "v*"
-    branches:
-      - phil/fix-ci
   workflow_dispatch:
     inputs:
       version:

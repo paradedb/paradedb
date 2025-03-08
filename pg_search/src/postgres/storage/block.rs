@@ -375,11 +375,6 @@ pub trait MVCCEntry {
             return false;
         }
 
-        #[cfg(feature = "pg13")]
-        {
-            pg_sys::TransactionIdPrecedes(xmax, pg_sys::RecentGlobalXmin)
-        }
-
         #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
         {
             pg_sys::GlobalVisCheckRemovableXid(heap_relation, xmax)

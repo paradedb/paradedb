@@ -269,8 +269,7 @@ async fn test_ephemeral_postgres_with_pg_basebackup() -> Result<()> {
     Ok(())
 }
 
-#[rstest] // Segfaults on PG13.
-#[ignore = "failing on block storage"]
+#[rstest]
 async fn test_replication_with_pg_search_only_on_replica() -> Result<()> {
     let config = "
         wal_level = logical

@@ -135,20 +135,6 @@ pub unsafe extern "C" fn aminsert(
     aminsert_internal(index_relation, values, isnull, heap_tid, index_info)
 }
 
-#[cfg(feature = "pg13")]
-#[pg_guard]
-pub unsafe extern "C" fn aminsert(
-    index_relation: pg_sys::Relation,
-    values: *mut pg_sys::Datum,
-    isnull: *mut bool,
-    heap_tid: pg_sys::ItemPointer,
-    _heap_relation: pg_sys::Relation,
-    _check_unique: pg_sys::IndexUniqueCheck::Type,
-    index_info: *mut pg_sys::IndexInfo,
-) -> bool {
-    aminsert_internal(index_relation, values, isnull, heap_tid, index_info)
-}
-
 #[inline(always)]
 unsafe fn aminsert_internal(
     index_relation: pg_sys::Relation,

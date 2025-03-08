@@ -114,12 +114,6 @@ jobs:
       - name: Install & Configure Supported PostgreSQL Version
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |
-          # Stop any existing PostgreSQL clusters
-          if [[ ! "${{ matrix.pg_version }}" == "14" ]]; then
-            sudo pg_dropcluster 14 main --stop
-          fi
-
-          # Install PostgreSQL
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
           sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
@@ -179,7 +173,7 @@ jobs:
         working-directory: pg_search/
         run: |
           # Necessary for the ephemeral Postgres test to have proper permissions
-          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/ /var/lib/postgresql/${{ matrix.pg_version }}/
+          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/
 
           # Run tests
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres

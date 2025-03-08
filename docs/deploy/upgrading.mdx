@@ -4,11 +4,8 @@ title: Upgrading ParadeDB
 
 ## Overview
 
-ParadeDB ships all of its functionality via Postgres extensions. All updates to ParadeDB can be
-received by updating one or more of the following extensions:
-
-1. `pg_search` for full text search and facets
-2. `pg_analytics` for querying data lakes
+ParadeDB ships all of its functionality via a Postgres extension. All updates to ParadeDB can be
+received by updating the `pg_search` extension.
 
 ## Getting the Current Version
 
@@ -17,18 +14,15 @@ To inspect the current version of an extension, run the following command.
 ```sql
 -- Get the version of pg_search
 SELECT extversion FROM pg_extension WHERE extname = 'pg_search';
--- Get the version of pg_analytics
-SELECT extversion FROM pg_extension WHERE extname = 'pg_analytics';
 ```
 
 ## Getting the Latest Version
 
-Because `pg_search`, `pg_analytics`, and `pgvector` are independent extensions, they each have their own versions.
+Because `pg_search` and `pgvector` are independent extensions, they each have their own versions.
 For the latest available version, please refer to the respective Github repos:
 
 1. [`pg_search`](https://github.com/paradedb/paradedb/releases) is on version `0.15.8`
-2. [`pg_analytics`](https://github.com/paradedb/pg_analytics/blob/main/pg_analytics.control) is on version `0.3.5`
-3. [`pgvector`](https://github.com/pgvector/pgvector/tags) is on version `0.8.0`
+2. [`pgvector`](https://github.com/pgvector/pgvector/tags) is on version `0.8.0`
 
 ## Updating ParadeDB Docker Image
 
@@ -50,8 +44,12 @@ The latest version of the Docker image should be `0.15.8`.
 4. Run the following commands to upgrade all extensions to their latest version.
 
 ```sql
+<<<<<<< HEAD
 ALTER EXTENSION pg_search UPDATE TO '0.15.8';
 ALTER EXTENSION pg_analytics UPDATE TO '0.3.5';
+=======
+ALTER EXTENSION pg_search UPDATE TO '0.15.7';
+>>>>>>> ed4de839 (Remove pg_analytics and pg_parquet)
 ALTER EXTENSION vector UPDATE TO '0.8.0';
 ```
 

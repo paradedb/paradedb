@@ -57,10 +57,7 @@ impl BM25Page for pg_sys::Page {
             return false;
         }
 
-        #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
-        {
-            pg_sys::GlobalVisCheckRemovableXid(heap_relation, (*special).xmax)
-        }
+        pg_sys::GlobalVisCheckRemovableXid(heap_relation, (*special).xmax)
     }
 }
 
@@ -278,13 +275,10 @@ mod tests {
                 .unwrap();
         let heap_relation = pg_sys::RelationIdGetRelation(heap_oid);
 
-        #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
-        {
-            assert_eq!(
-                vacuum_get_freeze_limit(heap_relation),
-                pg_sys::GetOldestNonRemovableTransactionId(heap_relation),
-            );
-        }
+        assert_eq!(
+            vacuum_get_freeze_limit(heap_relation),
+            pg_sys::GetOldestNonRemovableTransactionId(heap_relation),
+        );
 
         pg_sys::RelationClose(heap_relation);
     }

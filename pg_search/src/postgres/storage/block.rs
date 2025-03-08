@@ -375,10 +375,7 @@ pub trait MVCCEntry {
             return false;
         }
 
-        #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
-        {
-            pg_sys::GlobalVisCheckRemovableXid(heap_relation, xmax)
-        }
+        pg_sys::GlobalVisCheckRemovableXid(heap_relation, xmax)
     }
 
     unsafe fn xmin_needs_freeze(&self, freeze_limit: pg_sys::TransactionId) -> bool {

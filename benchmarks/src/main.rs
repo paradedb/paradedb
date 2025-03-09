@@ -64,7 +64,10 @@ fn write_test_info_csv(args: &Args) {
     writeln!(file, "Prewarm,{}", args.prewarm).unwrap();
 
     if args.r#type == "pg_search" {
-        if let Ok(output) = execute_psql_command(&args.url, "SELECT version, githash, build_mode FROM paradedb.version_info();") {
+        if let Ok(output) = execute_psql_command(
+            &args.url,
+            "SELECT version, githash, build_mode FROM paradedb.version_info();",
+        ) {
             let parts: Vec<&str> = output.trim().split('|').collect();
             if parts.len() == 3 {
                 writeln!(file, "pg_search Version,{}", parts[0].trim()).unwrap();
@@ -201,7 +204,10 @@ fn write_test_info(file: &mut File, args: &Args) {
     writeln!(file, "| Prewarm     | {} |", args.prewarm).unwrap();
 
     if args.r#type == "pg_search" {
-        if let Ok(output) = execute_psql_command(&args.url, "SELECT version, githash, build_mode FROM paradedb.version_info();") {
+        if let Ok(output) = execute_psql_command(
+            &args.url,
+            "SELECT version, githash, build_mode FROM paradedb.version_info();",
+        ) {
             let parts: Vec<&str> = output.trim().split('|').collect();
             if parts.len() == 3 {
                 writeln!(file, "| pg_search Version | {} |", parts[0].trim()).unwrap();

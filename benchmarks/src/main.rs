@@ -20,20 +20,175 @@ struct Args {
 
     #[arg(long, default_value = "3")]
     runs: usize,
+
+    #[arg(long, value_parser = ["md", "csv"], default_value = "md")]
+    output: String,
 }
 
 fn main() {
     let args = Args::parse();
+    generate_test_data(&args.url, args.rows);
+
+    match args.output.as_str() {
+        "md" => generate_markdown_output(&args),
+        "csv" => generate_csv_output(&args),
+        _ => unreachable!("Clap ensures only md or csv are valid"),
+    }
+}
+
+fn generate_markdown_output(args: &Args) {
     let output_file = format!("results_{}.md", args.r#type);
     let mut file = File::create(&output_file).expect("Failed to create output file");
 
     write_benchmark_header(&mut file);
-    write_test_info(&mut file, &args);
+    write_test_info(&mut file, args);
     write_postgres_settings(&mut file, &args.url);
-
-    generate_test_data(&args.url, args.rows);
     process_index_creation(&mut file, &args.url, &args.r#type);
-    run_benchmarks(&mut file, &args);
+    run_benchmarks(&mut file, args);
+}
+
+fn generate_csv_output(args: &Args) {
+    write_test_info_csv(args);
+    write_postgres_settings_csv(&args.url, &args.r#type);
+    process_index_creation_csv(&args.url, &args.r#type);
+    run_benchmarks_csv(args);
+}
+
+fn write_test_info_csv(args: &Args) {
+    let filename = format!("results_{}_test_info.csv", args.r#type);
+    let mut file = File::create(&filename).expect("Failed to create test info CSV");
+
+    writeln!(file, "Key,Value").unwrap();
+    writeln!(file, "Number of Rows,{}", args.rows).unwrap();
+    writeln!(file, "Test Type,{}", args.r#type).unwrap();
+    writeln!(file, "Prewarm,{}", args.prewarm).unwrap();
+
+    if args.r#type == "pg_search" {
+        if let Ok(output) = execute_psql_command(
+            &args.url,
+            "SELECT version, githash, build_mode FROM paradedb.version_info();",
+        ) {
+            let parts: Vec<&str> = output.trim().split('|').collect();
+            if parts.len() == 3 {
+                writeln!(file, "pg_search Version,{}", parts[0].trim()).unwrap();
+                writeln!(file, "pg_search Git Hash,{}", parts[1].trim()).unwrap();
+                writeln!(file, "pg_search Build Mode,{}", parts[2].trim()).unwrap();
+            }
+        }
+    }
+}
+
+fn write_postgres_settings_csv(url: &str, test_type: &str) {
+    let filename = format!("results_{}_postgres_settings.csv", test_type);
+    let mut file = File::create(&filename).expect("Failed to create postgres settings CSV");
+
+    writeln!(file, "Setting,Value").unwrap();
+
+    let settings = vec![
+        "maintenance_work_mem",
+        "shared_buffers",
+        "max_parallel_workers",
+        "max_worker_processes",
+        "max_parallel_workers_per_gather",
+    ];
+
+    for setting in settings {
+        let value = execute_psql_command(url, &format!("SHOW {};", setting))
+            .expect("Failed to get postgres setting")
+            .trim()
+            .to_string();
+        writeln!(file, "{},{}", setting, value).unwrap();
+    }
+}
+
+fn process_index_creation_csv(url: &str, test_type: &str) {
+    let filename = format!("results_{}_index_creation.csv", test_type);
+    let mut file = File::create(&filename).expect("Failed to create index creation CSV");
+
+    writeln!(
+        file,
+        "Index Name,Duration (min),Index Size (MB),Segment Count"
+    )
+    .unwrap();
+
+    let index_sql = format!("create_index/{}.sql", test_type);
+    let index_file = File::open(&index_sql).expect("Failed to open index file");
+    let reader = BufReader::new(index_file);
+
+    for line in reader.lines() {
+        let statement = line.unwrap();
+        if statement.trim().is_empty() {
+            continue;
+        }
+
+        println!("{}", statement);
+
+        let duration_min = execute_sql_with_timing(url, &statement);
+        let index_name = extract_index_name(&statement);
+        let index_size = get_index_size(url, index_name);
+        let segment_count = get_segment_count(url, index_name);
+
+        writeln!(
+            file,
+            "{},{:.2},{},{}",
+            index_name, duration_min, index_size, segment_count
+        )
+        .unwrap();
+    }
+}
+
+fn run_benchmarks_csv(args: &Args) {
+    let filename = format!("results_{}_benchmark_results.csv", args.r#type);
+    let mut file = File::create(&filename).expect("Failed to create benchmark results CSV");
+
+    // Write header
+    let mut header = String::from("Query Type");
+    for i in 1..=args.runs {
+        header.push_str(&format!(",Run {} (ms)", i));
+    }
+    header.push_str(",Rows Returned,Query");
+    writeln!(file, "{}", header).unwrap();
+
+    if args.prewarm {
+        prewarm_indexes(&args.url, &args.r#type);
+    }
+
+    let queries_dir = format!("queries/{}", args.r#type);
+    for entry in std::fs::read_dir(queries_dir).expect("Failed to read queries directory") {
+        let entry = entry.expect("Failed to read directory entry");
+        let path = entry.path();
+
+        if path.extension().and_then(|s| s.to_str()) != Some("sql") {
+            continue;
+        }
+
+        let query_type = path.file_stem().unwrap().to_string_lossy();
+        let query_content = std::fs::read_to_string(&path).expect("Failed to read query file");
+
+        for query in query_content.split(';') {
+            let query = query.trim();
+            if query.is_empty() {
+                continue;
+            }
+
+            println!("Query Type: {}\nQuery: {}", query_type, query);
+
+            let (results, num_results) = execute_query_multiple_times(&args.url, query, args.runs);
+
+            let mut result_line = format!("{}", query_type);
+            for &result in &results {
+                result_line.push_str(&format!(",{:.0}", result));
+            }
+            result_line.push_str(&format!(
+                ",{},\"{}\"",
+                num_results,
+                query.replace("\"", "\"\"")
+            ));
+            writeln!(file, "{}", result_line).unwrap();
+
+            println!("Results: {:?} | Rows Returned: {}\n", results, num_results);
+        }
+    }
 }
 
 fn write_benchmark_header(file: &mut File) {
@@ -47,6 +202,20 @@ fn write_test_info(file: &mut File, args: &Args) {
     writeln!(file, "| Number of Rows | {} |", args.rows).unwrap();
     writeln!(file, "| Test Type   | {} |", args.r#type).unwrap();
     writeln!(file, "| Prewarm     | {} |", args.prewarm).unwrap();
+
+    if args.r#type == "pg_search" {
+        if let Ok(output) = execute_psql_command(
+            &args.url,
+            "SELECT version, githash, build_mode FROM paradedb.version_info();",
+        ) {
+            let parts: Vec<&str> = output.trim().split('|').collect();
+            if parts.len() == 3 {
+                writeln!(file, "| pg_search Version | {} |", parts[0].trim()).unwrap();
+                writeln!(file, "| pg_search Git Hash | {} |", parts[1].trim()).unwrap();
+                writeln!(file, "| pg_search Build Mode | {} |", parts[2].trim()).unwrap();
+            }
+        }
+    }
 }
 
 fn write_postgres_settings(file: &mut File, url: &str) {
@@ -89,8 +258,16 @@ fn generate_test_data(url: &str, rows: u32) {
 
 fn process_index_creation(file: &mut File, url: &str, r#type: &str) {
     writeln!(file, "\n## Index Creation Results").unwrap();
-    writeln!(file, "| Index Name | Duration (min) | Index Size (MB) |").unwrap();
-    writeln!(file, "|------------|----------------|-----------------|").unwrap();
+    writeln!(
+        file,
+        "| Index Name | Duration (min) | Index Size (MB) | Segment Count |"
+    )
+    .unwrap();
+    writeln!(
+        file,
+        "|------------|----------------|-----------------|---------------|"
+    )
+    .unwrap();
 
     let index_sql = format!("create_index/{}.sql", r#type);
     let index_file = File::open(&index_sql).expect("Failed to open index file");
@@ -107,11 +284,12 @@ fn process_index_creation(file: &mut File, url: &str, r#type: &str) {
         let duration_min = execute_sql_with_timing(url, &statement);
         let index_name = extract_index_name(&statement);
         let index_size = get_index_size(url, index_name);
+        let segment_count = get_segment_count(url, index_name);
 
         writeln!(
             file,
-            "| {} | {:.2} | {} |",
-            index_name, duration_min, index_size
+            "| {} | {:.2} | {} | {} |",
+            index_name, duration_min, index_size, segment_count
         )
         .unwrap();
     }
@@ -120,7 +298,6 @@ fn process_index_creation(file: &mut File, url: &str, r#type: &str) {
 fn run_benchmarks(file: &mut File, args: &Args) {
     writeln!(file, "\n## Benchmark Results").unwrap();
 
-    // Dynamically create the header based on the number of runs
     write_benchmark_table_header(file, args.runs);
 
     if args.prewarm {
@@ -250,6 +427,25 @@ fn get_index_size(url: &str, index_name: &str) -> i64 {
         .trim()
         .parse::<i64>()
         .expect("Failed to get index size")
+}
+
+fn get_segment_count(url: &str, index_name: &str) -> i64 {
+    let query = format!(
+        "SELECT count(*) FROM paradedb.index_info('{}');",
+        index_name
+    );
+    let output = Command::new("psql")
+        .arg(url)
+        .arg("-t")
+        .arg("-c")
+        .arg(&query)
+        .output()
+        .expect("Failed to get segment count");
+
+    String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .parse::<i64>()
+        .expect("Failed to parse segment count")
 }
 
 fn prewarm_indexes(url: &str, r#type: &str) {

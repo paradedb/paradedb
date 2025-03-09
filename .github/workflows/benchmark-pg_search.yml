@@ -103,6 +103,6 @@ jobs:
             curl -F "file=@$file" \
               -F "initial_comment=New pg_search benchmark results: $file" \
               -F "channels=${{ secrets.SLACK_GITHUB_CHANNEL_ID }}" \
-              -H "Authorization: Bearer ${{ secrets.SLACK_BOT_TOKEN }}" \
+              -H "Authorization: Bearer ${{ secrets.SLACK_OAUTH_TOKEN }}" \
               https://slack.com/api/files.upload
           done

@@ -92,16 +92,7 @@ jobs:
 
       - name: Run Benchmark
         working-directory: benchmarks/
-        run: cargo run -- --url postgresql://localhost:288${{ matrix.pg_version }}/postgres --rows ${{ matrix.num_rows }} --type pg_search --output md,csv
-
-      - name: Create PR Comment
-        if: github.event_name == 'pull_request'
-        working-directory: benchmarks/
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          COMMENT=$(cat results_pg_search.md)
-          gh pr comment ${{ github.event.pull_request.number }} --body "$COMMENT"
+        run: cargo run -- --url postgresql://localhost:288${{ matrix.pg_version }}/postgres --rows ${{ matrix.num_rows }} --type pg_search --output csv
 
       - name: Send Slack Notification
         env:

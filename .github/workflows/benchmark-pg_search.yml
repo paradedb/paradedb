@@ -8,8 +8,8 @@ name: Benchmark pg_search
 
 on:
   pull_request:
-    paths:
-      - ".github/workflows/benchmark-pg_search.yml"
+    branches:
+      - main
   push:
     branches:
       - dev
@@ -29,7 +29,7 @@ jobs:
       matrix:
         runner: [ubicloud-standard-8]
         pg_version: [17]
-        num_rows: [100000]
+        num_rows: [100000000]
     runs-on: ${{ matrix.runner }}
 
     steps:
@@ -99,9 +99,8 @@ jobs:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         working-directory: benchmarks/
         run: |
-          for file in results_pg_search_{benchmark_results,index_creation,postgres_settings,test_info}.csv; do
+          for file in results_pg_search_{test_info,index_creation,benchmark_results,postgres_settings}.csv; do
             curl -F "file=@$file" \
-              -F "initial_comment=New pg_search benchmark results: $file" \
               -F "channels=${{ secrets.SLACK_GITHUB_CHANNEL_ID }}" \
               -H "Authorization: Bearer ${{ secrets.SLACK_OAUTH_TOKEN }}" \
               https://slack.com/api/files.upload

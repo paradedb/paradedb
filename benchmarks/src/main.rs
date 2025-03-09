@@ -21,7 +21,7 @@ struct Args {
     #[arg(long, default_value = "3")]
     runs: usize,
 
-    #[arg(long, value_parser = ["md", "csv", "md,csv"], default_value = "md")]
+    #[arg(long, value_parser = ["md", "csv"], default_value = "md")]
     output: String,
 }
 
@@ -29,13 +29,10 @@ fn main() {
     let args = Args::parse();
     generate_test_data(&args.url, args.rows);
 
-    let outputs: Vec<&str> = args.output.split(',').collect();
-    for output in outputs {
-        match output {
-            "md" => generate_markdown_output(&args),
-            "csv" => generate_csv_output(&args),
-            _ => unreachable!("Clap ensures only md or csv are valid"),
-        }
+    match args.output.as_str() {
+        "md" => generate_markdown_output(&args),
+        "csv" => generate_csv_output(&args),
+        _ => unreachable!("Clap ensures only md or csv are valid"),
     }
 }
 
@@ -65,6 +62,17 @@ fn write_test_info_csv(args: &Args) {
     writeln!(file, "Number of Rows,{}", args.rows).unwrap();
     writeln!(file, "Test Type,{}", args.r#type).unwrap();
     writeln!(file, "Prewarm,{}", args.prewarm).unwrap();
+
+    if args.r#type == "pg_search" {
+        if let Ok(output) = execute_psql_command(&args.url, "SELECT version, githash, build_mode FROM paradedb.version_info();") {
+            let parts: Vec<&str> = output.trim().split('|').collect();
+            if parts.len() == 3 {
+                writeln!(file, "pg_search Version,{}", parts[0].trim()).unwrap();
+                writeln!(file, "pg_search Git Hash,{}", parts[1].trim()).unwrap();
+                writeln!(file, "pg_search Build Mode,{}", parts[2].trim()).unwrap();
+            }
+        }
+    }
 }
 
 fn write_postgres_settings_csv(url: &str, test_type: &str) {
@@ -191,6 +199,17 @@ fn write_test_info(file: &mut File, args: &Args) {
     writeln!(file, "| Number of Rows | {} |", args.rows).unwrap();
     writeln!(file, "| Test Type   | {} |", args.r#type).unwrap();
     writeln!(file, "| Prewarm     | {} |", args.prewarm).unwrap();
+
+    if args.r#type == "pg_search" {
+        if let Ok(output) = execute_psql_command(&args.url, "SELECT version, githash, build_mode FROM paradedb.version_info();") {
+            let parts: Vec<&str> = output.trim().split('|').collect();
+            if parts.len() == 3 {
+                writeln!(file, "| pg_search Version | {} |", parts[0].trim()).unwrap();
+                writeln!(file, "| pg_search Git Hash | {} |", parts[1].trim()).unwrap();
+                writeln!(file, "| pg_search Build Mode | {} |", parts[2].trim()).unwrap();
+            }
+        }
+    }
 }
 
 fn write_postgres_settings(file: &mut File, url: &str) {

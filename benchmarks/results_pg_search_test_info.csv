@@ -1,4 +1,7 @@
 Key,Value
-Number of Rows,100000
+Number of Rows,1000000
 Test Type,pg_search
 Prewarm,true
+pg_search Version,0.15.7
+pg_search Git Hash,0e800ae82f8c406e209232611e820e5511d848f7
+pg_search Build Mode,debug

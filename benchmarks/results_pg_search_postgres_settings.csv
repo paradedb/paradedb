@@ -1,0 +1,6 @@
+Setting,Value
+maintenance_work_mem,8GB
+shared_buffers,8GB
+max_parallel_workers,8
+max_worker_processes,8
+max_parallel_workers_per_gather,2

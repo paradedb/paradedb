@@ -8,8 +8,8 @@ name: Benchmark pg_search
 
 on:
   pull_request:
-    branches:
-      - main
+    paths:
+      - ".github/workflows/benchmark-pg_search.yml"
   push:
     branches:
       - dev
@@ -92,22 +92,7 @@ jobs:
 
       - name: Run Benchmark
         working-directory: benchmarks/
-        run: cargo run -- --url postgresql://localhost:288${{ matrix.pg_version }}/postgres --rows ${{ matrix.num_rows }} --type pg_search
-
-      - name: Get PostgreSQL Settings
-        id: get_settings
-        run: |
-          maintenance_work_mem=$(psql postgresql://localhost:288${{ matrix.pg_version }}/postgres -t -c "SHOW maintenance_work_mem;" | tr -d ' ')
-          shared_buffers=$(psql postgresql://localhost:288${{ matrix.pg_version }}/postgres -t -c "SHOW shared_buffers;" | tr -d ' ')
-          max_parallel_workers=$(psql postgresql://localhost:288${{ matrix.pg_version }}/postgres -t -c "SHOW max_parallel_workers;" | tr -d ' ')
-          max_worker_processes=$(psql postgresql://localhost:288${{ matrix.pg_version }}/postgres -t -c "SHOW max_worker_processes;" | tr -d ' ')
-          max_parallel_workers_per_gather=$(psql postgresql://localhost:288${{ matrix.pg_version }}/postgres -t -c "SHOW max_parallel_workers_per_gather;" | tr -d ' ')
-
-          echo "maintenance_work_mem=$maintenance_work_mem" >> $GITHUB_OUTPUT
-          echo "shared_buffers=$shared_buffers" >> $GITHUB_OUTPUT
-          echo "max_parallel_workers=$max_parallel_workers" >> $GITHUB_OUTPUT
-          echo "max_worker_processes=$max_worker_processes" >> $GITHUB_OUTPUT
-          echo "max_parallel_workers_per_gather=$max_parallel_workers_per_gather" >> $GITHUB_OUTPUT
+        run: cargo run -- --url postgresql://localhost:288${{ matrix.pg_version }}/postgres --rows ${{ matrix.num_rows }} --type pg_search --output md,csv
 
       - name: Create PR Comment
         if: github.event_name == 'pull_request'
@@ -119,13 +104,14 @@ jobs:
           gh pr comment ${{ github.event.pull_request.number }} --body "$COMMENT"
 
       - name: Send Slack Notification
-        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        working-directory: benchmarks/
         run: |
-          PR_URL="${{ github.event.pull_request.html_url }}"
-          SLACK_MESSAGE="New pg_search benchmark results available on dev branch. View the PR: $PR_URL"
-
-          curl -X POST -H 'Content-type: application/json' \
-            --data "{\"text\":\"$SLACK_MESSAGE\"}" \
-            $SLACK_WEBHOOK_URL
+          for file in results_pg_search_{benchmark_results,index_creation,postgres_settings,test_info}.csv; do
+            curl -F "file=@$file" \
+              -F "initial_comment=New pg_search benchmark results: $file" \
+              -F "channels=${{ secrets.SLACK_GITHUB_CHANNEL_ID }}" \
+              -H "Authorization: Bearer ${{ secrets.SLACK_BOT_TOKEN }}" \
+              https://slack.com/api/files.upload
+          done

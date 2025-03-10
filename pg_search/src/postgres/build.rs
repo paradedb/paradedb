@@ -193,6 +193,16 @@ unsafe extern "C" fn build_callback(
         // especially after CREATE INDEX has finished
         build_state.count += 1;
 
+        // If we're building a BM25 index with more than 100K rows, warn the user
+        // that they should increase maintenance_work_mem to improve build performance.
+        if build_state.count > 100_000 {
+            warning!(
+                "Building a BM25 index with more than 100K rows. Consider increasing maintenance_work_mem \
+                to improve build performance. You can do this by running: \
+                SET maintenance_work_mem = '8GB';"
+            );
+        }
+
         if crate::gucs::log_create_index_progress() && build_state.count % 100_000 == 0 {
             let secs = build_state.start.elapsed().as_secs_f64();
             let rate = build_state.count as f64 / secs;

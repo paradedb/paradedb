@@ -15,6 +15,9 @@ struct Args {
     #[arg(long, default_value = "true")]
     prewarm: bool,
 
+    #[arg(long, default_value = "true")]
+    vacuum: bool,
+
     #[arg(long, default_value = "10000000")]
     rows: u32,
 
@@ -44,6 +47,10 @@ fn generate_markdown_output(args: &Args) {
     write_test_info(&mut file, args);
     write_postgres_settings(&mut file, &args.url);
     process_index_creation(&mut file, &args.url, &args.r#type);
+    if args.vacuum {
+        execute_psql_command(&args.url, "VACUUM ANALYZE benchmark_logs;")
+            .expect("Failed to vacuum");
+    }
     run_benchmarks(&mut file, args);
 }
 
@@ -51,6 +58,10 @@ fn generate_csv_output(args: &Args) {
     write_test_info_csv(args);
     write_postgres_settings_csv(&args.url, &args.r#type);
     process_index_creation_csv(&args.url, &args.r#type);
+    if args.vacuum {
+        execute_psql_command(&args.url, "VACUUM ANALYZE benchmark_logs;")
+            .expect("Failed to vacuum");
+    }
     run_benchmarks_csv(args);
 }
 
@@ -62,6 +73,7 @@ fn write_test_info_csv(args: &Args) {
     writeln!(file, "Number of Rows,{}", args.rows).unwrap();
     writeln!(file, "Test Type,{}", args.r#type).unwrap();
     writeln!(file, "Prewarm,{}", args.prewarm).unwrap();
+    writeln!(file, "Vacuum,{}", args.vacuum).unwrap();
 
     if args.r#type == "pg_search" {
         if let Ok(output) = execute_psql_command(
@@ -202,6 +214,7 @@ fn write_test_info(file: &mut File, args: &Args) {
     writeln!(file, "| Number of Rows | {} |", args.rows).unwrap();
     writeln!(file, "| Test Type   | {} |", args.r#type).unwrap();
     writeln!(file, "| Prewarm     | {} |", args.prewarm).unwrap();
+    writeln!(file, "| Vacuum      | {} |", args.vacuum).unwrap();
 
     if args.r#type == "pg_search" {
         if let Ok(output) = execute_psql_command(

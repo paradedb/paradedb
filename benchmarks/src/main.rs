@@ -47,21 +47,13 @@ fn generate_markdown_output(args: &Args) {
     write_test_info(&mut file, args);
     write_postgres_settings(&mut file, &args.url);
     process_index_creation(&mut file, &args.url, &args.r#type);
-    if args.vacuum {
-        execute_psql_command(&args.url, "VACUUM ANALYZE benchmark_logs;")
-            .expect("Failed to vacuum");
-    }
-    run_benchmarks(&mut file, args);
+    run_benchmarks_md(&mut file, args);
 }
 
 fn generate_csv_output(args: &Args) {
     write_test_info_csv(args);
     write_postgres_settings_csv(&args.url, &args.r#type);
     process_index_creation_csv(&args.url, &args.r#type);
-    if args.vacuum {
-        execute_psql_command(&args.url, "VACUUM ANALYZE benchmark_logs;")
-            .expect("Failed to vacuum");
-    }
     run_benchmarks_csv(args);
 }
 
@@ -160,6 +152,11 @@ fn run_benchmarks_csv(args: &Args) {
     }
     header.push_str(",Rows Returned,Query");
     writeln!(file, "{}", header).unwrap();
+
+    if args.vacuum {
+        execute_psql_command(&args.url, "VACUUM ANALYZE benchmark_logs;")
+            .expect("Failed to vacuum");
+    }
 
     if args.prewarm {
         prewarm_indexes(&args.url, &args.r#type);
@@ -308,10 +305,15 @@ fn process_index_creation(file: &mut File, url: &str, r#type: &str) {
     }
 }
 
-fn run_benchmarks(file: &mut File, args: &Args) {
+fn run_benchmarks_md(file: &mut File, args: &Args) {
     writeln!(file, "\n## Benchmark Results").unwrap();
 
     write_benchmark_table_header(file, args.runs);
+
+    if args.vacuum {
+        execute_psql_command(&args.url, "VACUUM ANALYZE benchmark_logs;")
+            .expect("Failed to vacuum");
+    }
 
     if args.prewarm {
         prewarm_indexes(&args.url, &args.r#type);

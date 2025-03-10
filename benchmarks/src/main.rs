@@ -15,6 +15,9 @@ struct Args {
     #[arg(long, default_value = "true")]
     prewarm: bool,
 
+    #[arg(long, default_value = "true")]
+    vacuum: bool,
+
     #[arg(long, default_value = "10000000")]
     rows: u32,
 
@@ -44,7 +47,7 @@ fn generate_markdown_output(args: &Args) {
     write_test_info(&mut file, args);
     write_postgres_settings(&mut file, &args.url);
     process_index_creation(&mut file, &args.url, &args.r#type);
-    run_benchmarks(&mut file, args);
+    run_benchmarks_md(&mut file, args);
 }
 
 fn generate_csv_output(args: &Args) {
@@ -62,6 +65,7 @@ fn write_test_info_csv(args: &Args) {
     writeln!(file, "Number of Rows,{}", args.rows).unwrap();
     writeln!(file, "Test Type,{}", args.r#type).unwrap();
     writeln!(file, "Prewarm,{}", args.prewarm).unwrap();
+    writeln!(file, "Vacuum,{}", args.vacuum).unwrap();
 
     if args.r#type == "pg_search" {
         if let Ok(output) = execute_psql_command(
@@ -149,6 +153,11 @@ fn run_benchmarks_csv(args: &Args) {
     header.push_str(",Rows Returned,Query");
     writeln!(file, "{}", header).unwrap();
 
+    if args.vacuum {
+        execute_psql_command(&args.url, "VACUUM ANALYZE benchmark_logs;")
+            .expect("Failed to vacuum");
+    }
+
     if args.prewarm {
         prewarm_indexes(&args.url, &args.r#type);
     }
@@ -202,6 +211,7 @@ fn write_test_info(file: &mut File, args: &Args) {
     writeln!(file, "| Number of Rows | {} |", args.rows).unwrap();
     writeln!(file, "| Test Type   | {} |", args.r#type).unwrap();
     writeln!(file, "| Prewarm     | {} |", args.prewarm).unwrap();
+    writeln!(file, "| Vacuum      | {} |", args.vacuum).unwrap();
 
     if args.r#type == "pg_search" {
         if let Ok(output) = execute_psql_command(
@@ -295,10 +305,15 @@ fn process_index_creation(file: &mut File, url: &str, r#type: &str) {
     }
 }
 
-fn run_benchmarks(file: &mut File, args: &Args) {
+fn run_benchmarks_md(file: &mut File, args: &Args) {
     writeln!(file, "\n## Benchmark Results").unwrap();
 
     write_benchmark_table_header(file, args.runs);
+
+    if args.vacuum {
+        execute_psql_command(&args.url, "VACUUM ANALYZE benchmark_logs;")
+            .expect("Failed to vacuum");
+    }
 
     if args.prewarm {
         prewarm_indexes(&args.url, &args.r#type);

@@ -68,6 +68,7 @@ pub extern "C" fn amvacuumcleanup(
 
         pg_sys::UnlockRelationForExtension(info.index, pg_sys::ExclusiveLock as i32);
 
+        // Return the rest to the free space map, if recyclable
         let vacuum_sentinel_blockno = {
             let merge_lock = bman.get_buffer(MERGE_LOCK);
             let page = merge_lock.page();
@@ -91,7 +92,6 @@ pub extern "C" fn amvacuumcleanup(
                 bman.record_free_index_page(buffer);
             }
         }
-
         pg_sys::RelationClose(heap_relation);
         pg_sys::IndexFreeSpaceMapVacuum(info.index);
     }

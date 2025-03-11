@@ -545,14 +545,19 @@ pub unsafe fn extract_quals(
 
         pg_sys::NodeTag::T_NullTest => {
             let nulltest = nodecast!(NullTest, T_NullTest, node)?;
+            let attname = attname_from_var(root, (*nulltest).arg.cast());
             if (*nulltest).nulltesttype == pg_sys::NullTestType::IS_NOT_NULL {
                 Some(Qual::PushdownIsNotNull {
-                    attname: attname_from_var(root, (*nulltest).arg.cast())
+                    attname: attname
                         .1
-                        .expect("var should have an attname"),
+                        .expect("IS NOT NULL expression should have an attname"),
                 })
             } else {
-                None
+                Some(Qual::Not(Box::new(Qual::PushdownIsNotNull {
+                    attname: attname
+                        .1
+                        .expect("IS NULL expression should have an attname"),
+                })))
             }
         }
 

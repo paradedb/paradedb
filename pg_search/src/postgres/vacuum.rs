@@ -75,7 +75,6 @@ pub extern "C" fn amvacuumcleanup(
             metadata.ambulkdelete_sentinel
         };
 
-        let mut last_used_blockno = FIXED_BLOCK_NUMBERS.last().unwrap() + 1;
         for blockno in FIXED_BLOCK_NUMBERS.last().unwrap() + 1..nblocks {
             if blockno == vacuum_sentinel_blockno {
                 // don't try to open the vacuum_sentinel_blockno block -- only `ambulkdelete` should ever
@@ -90,8 +89,6 @@ pub extern "C" fn amvacuumcleanup(
 
             if page.is_recyclable(heap_relation) {
                 bman.record_free_index_page(buffer);
-            } else if blockno >= last_used_blockno {
-                last_used_blockno = blockno;
             }
         }
 

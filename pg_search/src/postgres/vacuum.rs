@@ -45,7 +45,7 @@ pub extern "C" fn amvacuumcleanup(
         // Truncate to the last non-recyclable block
         let first_vacuumable_blockno = FIXED_BLOCK_NUMBERS.last().unwrap() + 1;
         assert!(
-            nblocks > first_vacuumable_blockno,
+            nblocks >= first_vacuumable_blockno,
             "the index has fewer blocks than should be possible"
         );
 

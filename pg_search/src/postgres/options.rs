@@ -51,6 +51,7 @@ pub struct SearchIndexCreateOptions {
     // varlena header (needed bc postgres treats this as bytea)
     vl_len_: i32,
     text_fields_offset: i32,
+    inet_fields_offset: i32,
     numeric_fields_offset: i32,
     boolean_fields_offset: i32,
     json_fields_offset: i32,
@@ -69,6 +70,18 @@ extern "C" fn validate_text_fields(value: *const std::os::raw::c_char) {
     SearchIndexCreateOptions::deserialize_config_fields(
         json_str,
         &SearchFieldConfig::text_from_json,
+    );
+}
+
+#[pg_guard]
+extern "C" fn validate_inet_fields(value: *const std::os::raw::c_char) {
+    let json_str = cstr_to_rust_str(value);
+    if json_str.is_empty() {
+        return;
+    }
+    SearchIndexCreateOptions::deserialize_config_fields(
+        json_str,
+        &SearchFieldConfig::inet_from_json,
     );
 }
 
@@ -204,6 +217,11 @@ pub unsafe extern "C" fn amoptions(
             offset: offset_of!(SearchIndexCreateOptions, text_fields_offset) as i32,
         },
         pg_sys::relopt_parse_elt {
+            optname: "inet_fields".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
+            offset: offset_of!(SearchIndexCreateOptions, inet_fields_offset) as i32,
+        },
+        pg_sys::relopt_parse_elt {
             optname: "numeric_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: offset_of!(SearchIndexCreateOptions, numeric_fields_offset) as i32,
@@ -336,6 +354,19 @@ impl SearchIndexCreateOptions {
         )
     }
 
+    fn get_inet_fields(
+        &self,
+        key_field_name: &str,
+        attributes: &FxHashMap<SearchFieldName, SearchFieldType>,
+    ) -> Vec<(SearchFieldName, SearchFieldConfig, Option<SearchFieldType>)> {
+        self.get_fields_at_offset(
+            self.inet_fields_offset,
+            key_field_name,
+            attributes,
+            &SearchFieldConfig::inet_from_json,
+        )
+    }
+
     fn get_numeric_fields(
         &self,
         key_field_name: &str,
@@ -435,6 +466,7 @@ impl SearchIndexCreateOptions {
                 column: None,
             },
             SearchFieldType::Uuid => SearchFieldConfig::default_uuid(),
+            SearchFieldType::Inet => SearchFieldConfig::default_inet(),
             SearchFieldType::Json => SearchFieldConfig::Json {
                 indexed: true,
                 fast: true,
@@ -524,6 +556,7 @@ impl SearchIndexCreateOptions {
         let mut configured = self
             .get_text_fields(&key_field_name.0, &attributes)
             .into_iter()
+            .chain(self.get_inet_fields(&key_field_name.0, &attributes))
             .chain(self.get_numeric_fields(&key_field_name.0, &attributes))
             .chain(self.get_boolean_fields(&key_field_name.0, &attributes))
             .chain(self.get_json_fields(&key_field_name.0, &attributes))

@@ -34,11 +34,39 @@ pub extern "C" fn amvacuumcleanup(
     unsafe {
         let index_relation = PgRelation::from_pg(info.index);
         let index_oid = index_relation.oid();
-        let nblocks =
-            pg_sys::RelationGetNumberOfBlocksInFork(info.index, pg_sys::ForkNumber::MAIN_FORKNUM);
         let mut bman = BufferManager::new(index_oid);
         let heap_oid = pg_sys::IndexGetRelation(index_oid, false);
         let heap_relation = pg_sys::RelationIdGetRelation(heap_oid);
+
+        pg_sys::LockRelationForExtension(info.index, pg_sys::ExclusiveLock as i32);
+        let mut nblocks =
+            pg_sys::RelationGetNumberOfBlocksInFork(info.index, pg_sys::ForkNumber::MAIN_FORKNUM);
+
+        // Truncate to the last non-recyclable block
+        let first_vacuumable_blockno = FIXED_BLOCK_NUMBERS.last().unwrap() + 1;
+        assert!(
+            nblocks > first_vacuumable_blockno,
+            "the index has fewer blocks than should be possible"
+        );
+
+        for blockno in (first_vacuumable_blockno..nblocks).rev() {
+            if blockno % 100 == 0 {
+                pg_sys::vacuum_delay_point();
+            }
+
+            let buffer = bman.get_buffer(blockno);
+            let page = buffer.page();
+
+            if !page.is_recyclable(heap_relation) {
+                if blockno != (nblocks - 1) {
+                    nblocks = blockno + 1;
+                    pg_sys::RelationTruncate(info.index, nblocks);
+                }
+                break;
+            }
+        }
+
+        pg_sys::UnlockRelationForExtension(info.index, pg_sys::ExclusiveLock as i32);
 
         let vacuum_sentinel_blockno = {
             let merge_lock = bman.get_buffer(MERGE_LOCK);
@@ -47,6 +75,7 @@ pub extern "C" fn amvacuumcleanup(
             metadata.ambulkdelete_sentinel
         };
 
+        let mut last_used_blockno = FIXED_BLOCK_NUMBERS.last().unwrap() + 1;
         for blockno in FIXED_BLOCK_NUMBERS.last().unwrap() + 1..nblocks {
             if blockno == vacuum_sentinel_blockno {
                 // don't try to open the vacuum_sentinel_blockno block -- only `ambulkdelete` should ever
@@ -61,8 +90,11 @@ pub extern "C" fn amvacuumcleanup(
 
             if page.is_recyclable(heap_relation) {
                 bman.record_free_index_page(buffer);
+            } else if blockno >= last_used_blockno {
+                last_used_blockno = blockno;
             }
         }
+
         pg_sys::RelationClose(heap_relation);
         pg_sys::IndexFreeSpaceMapVacuum(info.index);
     }

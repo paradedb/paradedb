@@ -22,7 +22,7 @@ use crate::index::writer::index::SearchIndexWriter;
 use crate::index::WriterResources;
 use crate::postgres::storage::block::{MVCCEntry, SegmentMetaEntry, SEGMENT_METAS_START};
 use crate::postgres::storage::merge::MergeLock;
-use crate::postgres::storage::LinkedItemList;
+use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use crate::postgres::utils::{
     categorize_fields, item_pointer_to_u64, row_to_search_document, CategorizedFieldData,
 };
@@ -234,7 +234,7 @@ pub fn paradedb_aminsertcleanup(mut writer: Option<SearchIndexWriter>) {
     }
 }
 
-unsafe fn do_merge(indexrelid: Oid) {
+unsafe fn do_merge(indexrelid: Oid) -> Option<()> {
     let target_segments = std::thread::available_parallelism()
         .expect("failed to get available_parallelism")
         .get();
@@ -251,40 +251,51 @@ unsafe fn do_merge(indexrelid: Oid) {
         nbytes += entry.byte_size();
         ndocs += entry.num_docs() + entry.num_deleted_docs();
     }
-    if nvisible <= target_segments + 1 {
-        // no need to merge if we don't have enough visible segments
-        return;
-    }
-    let avg_byte_size_per_doc = nbytes as f64 / ndocs as f64;
 
-    if let Some(mut merge_lock) = MergeLock::acquire_for_merge(indexrelid) {
-        // Minimum number of segments for the NPlusOneMergePolicy to maintain
-        const MIN_MERGE_COUNT: usize = 2;
+    let recycled_entries = if nvisible > target_segments + 1 {
+        let avg_byte_size_per_doc = nbytes as f64 / ndocs as f64;
 
-        let merge_policy = NPlusOneMergePolicy {
+        let mut merge_policy = NPlusOneMergePolicy {
             n: target_segments,
-            min_merge_count: MIN_MERGE_COUNT,
+            min_merge_count: 2,
 
             avg_byte_size_per_doc,
             segment_freeze_size: max_mergeable_segment_size(),
-            vacuum_list: merge_lock.list_vacuuming_segments(),
+            vacuum_list: Default::default(),
         };
 
-        let indexrel = PgRelation::with_lock(indexrelid, pg_sys::RowExclusiveLock as _);
+        // acquire the MergeLock here, returning early if we can't.
+        // we endeavor to hold it for as short a time as possible
+        let mut merge_lock = MergeLock::acquire_for_merge(indexrelid)?;
+        merge_policy.vacuum_list = merge_lock.list_vacuuming_segments();
         let mut writer = SearchIndexWriter::open(
-            &indexrel,
+            &PgRelation::open(indexrelid),
             MvccSatisfies::Snapshot,
             WriterResources::PostStatementMerge,
         )
         .expect("should be able to open a SearchIndexWriter for PostStatementMerge");
-
         writer.set_merge_policy(merge_policy);
-        writer.merge().expect("index merge should succeed");
+        writer.merge().expect("should be able to merge");
 
-        if !merge_lock.is_ambulkdelete_running() {
-            items.garbage_collect(pg_sys::GetAccessStrategy(
-                pg_sys::BufferAccessStrategyType::BAS_VACUUM,
-            ));
+        (!merge_lock.is_ambulkdelete_running()).then(|| items.garbage_collect())
+    } else {
+        None
+    };
+
+    if let Some(recycled_entries) = recycled_entries {
+        if !recycled_entries.is_empty() {
+            let indexrel = pg_sys::RelationIdGetRelation(indexrelid);
+            for entry in recycled_entries {
+                assert!(entry.recyclable(snapshot, std::ptr::null_mut()));
+                for (file_entry, type_) in entry.file_entries() {
+                    let bytes = LinkedBytesList::open(indexrelid, file_entry.starting_block);
+                    bytes.return_to_fsm(&entry, type_);
+                    pg_sys::IndexFreeSpaceMapVacuum(indexrel);
+                }
+            }
+            pg_sys::RelationClose(indexrel);
         }
     }
+
+    Some(())
 }

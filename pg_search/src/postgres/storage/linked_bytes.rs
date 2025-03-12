@@ -15,7 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use super::block::{bm25_max_free_space, BM25PageSpecialData, LinkedList, LinkedListData};
+use super::block::{
+    bm25_max_free_space, BM25PageSpecialData, LinkedList, LinkedListData, SegmentMetaEntry,
+    FIXED_BLOCK_NUMBERS,
+};
 use crate::postgres::storage::blocklist;
 use crate::postgres::storage::buffer::{BufferManager, PageHeaderMethods};
 use anyhow::Result;
@@ -25,6 +28,7 @@ use std::cmp::min;
 use std::io::{Cursor, Read, Write};
 use std::ops::{Deref, Range};
 use std::sync::OnceLock;
+use tantivy::index::SegmentComponent;
 // ---------------------------------------------------------------
 // Linked list implementation over block storage,
 // where each node is a page filled with bm25_max_free_space()
@@ -260,24 +264,67 @@ impl LinkedBytesList {
         bytes
     }
 
-    pub unsafe fn mark_deleted(&mut self) {
+    pub unsafe fn mark_deleted(&mut self, deleting_xid: pg_sys::TransactionId) {
         // in addition to the list itself, we also have a secondary list of linked blocks (which
         // contain the blocknumbers of this list) that needs to be marked deleted too
         for starting_blockno in [self.metadata.start_blockno, self.metadata.blocklist_start] {
             let mut blockno = starting_blockno;
             while blockno != pg_sys::InvalidBlockNumber {
+                assert!(
+                    blockno > *FIXED_BLOCK_NUMBERS.last().unwrap(),
+                    "mark_deleted:  blockno {blockno} cannot ever be recycled"
+                );
                 let mut buffer = self.bman.get_buffer_mut(blockno);
                 let page = buffer.page_mut();
                 let special = page.special::<BM25PageSpecialData>();
 
                 blockno = special.next_blockno;
-                page.mark_deleted();
+                page.mark_deleted(deleting_xid);
             }
         }
 
         let mut header_buffer = self.bman.get_buffer_mut(self.header_blockno);
         let lock_page = header_buffer.page_mut();
-        lock_page.mark_deleted();
+        lock_page.mark_deleted(deleting_xid);
+    }
+
+    /// Return all the allocated blocks used by this [`LinkedBytesList`] back to the
+    /// Free Space Map behind this index.
+    ///
+    /// It's the caller's responsibility to later call [`pg_sys::IndexFreeSpaceMapVacuum`]
+    /// if necessary.
+    pub unsafe fn return_to_fsm(mut self, entry: &SegmentMetaEntry, type_: SegmentComponent) {
+        // in addition to the list itself, we also have a secondary list of linked blocks (which
+        // contain the blocknumbers of this list) that needs to freed too
+        for starting_blockno in [self.metadata.start_blockno, self.metadata.blocklist_start] {
+            let mut blockno = starting_blockno;
+            while blockno != pg_sys::InvalidBlockNumber {
+                assert!(
+                    blockno > *FIXED_BLOCK_NUMBERS.last().unwrap(),
+                    "record_free_space:  blockno {blockno} cannot ever be recycled"
+                );
+
+                let buffer = self.bman.get_buffer(blockno);
+                let page = buffer.page();
+                let special = page.special::<BM25PageSpecialData>();
+
+                assert!(
+                    page.is_recyclable(self.bman.bm25cache().heaprel()),
+                    "blockno={blockno} should be recyclable, xmax={}, type={type_:?}, start={}, blocklist={}, header={} entry={:?}",
+                    special.xmax,
+                    { self.metadata.start_blockno },
+                    { self.metadata.blocklist_start} ,
+                    self.header_blockno,
+                    entry
+                );
+
+                blockno = special.next_blockno;
+                self.bman.return_to_fsm(buffer)
+            }
+        }
+
+        let header_buffer = self.bman.get_buffer(self.header_blockno);
+        self.bman.return_to_fsm(header_buffer);
     }
 
     pub fn is_empty(&self) -> bool {
@@ -412,7 +459,7 @@ mod tests {
         let mut linked_list = LinkedBytesList::create(relation_oid);
         let bytes: Vec<u8> = (1..=255).cycle().take(100_000).collect();
         linked_list.write(&bytes).unwrap();
-        linked_list.mark_deleted();
+        linked_list.mark_deleted(pg_sys::GetCurrentTransactionId());
 
         let mut blockno = linked_list.get_start_blockno();
         while blockno != pg_sys::InvalidBlockNumber {

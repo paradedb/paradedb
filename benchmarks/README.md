@@ -5,7 +5,7 @@ with text, numeric, timestamp and JSON columns.
 
 ## Prerequisites
 
-The benchmarking scripts require a Postgres database with [`pg_search`](pg_search) installed. If you are building `pg_search` with
+The benchmarking scripts require a Postgres database with [`pg_search`](/pg_search) installed. If you are building `pg_search` with
 `cargo pgrx`, make sure to build in `--release` mode.
 
 ## Usage

@@ -6,10 +6,8 @@
 name: Test pg_search Stressgres
 
 on:
-  schedule:
-    - cron: "1 0 * * 1,2,3,4,5" # Run once per day on weekdays (days of the week 1-5) at 00:01 UTC
   push:
-    branches: # Also run on `dev` and `main` to fill the GitHub Actions Rust cache in a way that PRs can see it
+    branches:
       - dev
       - main
     paths:
@@ -145,7 +143,7 @@ jobs:
       - name: Notify Slack on Failure
         if: failure() && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
         run: |
           GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           ARTIFACT_URL="${{ steps.artifact-logs.outputs.artifact-url }}"

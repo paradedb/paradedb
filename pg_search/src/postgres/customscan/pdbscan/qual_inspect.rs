@@ -49,6 +49,9 @@ pub enum Qual {
     PushdownVarIsTrue {
         attname: String,
     },
+    PushdownIsNotNull {
+        attname: String,
+    },
     ScoreExpr {
         opoid: pg_sys::Oid,
         value: *mut pg_sys::Node,
@@ -66,6 +69,7 @@ impl Qual {
             Qual::Expr { .. } => false,
             Qual::PushdownExpr { .. } => false,
             Qual::PushdownVarIsTrue { .. } => false,
+            Qual::PushdownIsNotNull { .. } => false,
             Qual::ScoreExpr { .. } => false,
             Qual::And(quals) => quals.iter().any(|q| q.contains_all()),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_all()),
@@ -80,6 +84,7 @@ impl Qual {
             Qual::Expr { node, .. } => contains_exec_param(*node),
             Qual::PushdownExpr { .. } => false,
             Qual::PushdownVarIsTrue { .. } => false,
+            Qual::PushdownIsNotNull { .. } => false,
             Qual::ScoreExpr { .. } => false,
             Qual::And(quals) => quals.iter().any(|q| q.contains_exec_param()),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_exec_param()),
@@ -94,6 +99,7 @@ impl Qual {
             Qual::Expr { .. } => true,
             Qual::PushdownExpr { .. } => false,
             Qual::PushdownVarIsTrue { .. } => true,
+            Qual::PushdownIsNotNull { .. } => false,
             Qual::ScoreExpr { .. } => false,
             Qual::And(quals) => quals.iter().any(|q| q.contains_exprs()),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_exprs()),
@@ -108,6 +114,7 @@ impl Qual {
             Qual::Expr { .. } => false,
             Qual::PushdownExpr { .. } => false,
             Qual::PushdownVarIsTrue { .. } => false,
+            Qual::PushdownIsNotNull { .. } => false,
             Qual::ScoreExpr { .. } => true,
             Qual::And(quals) => quals.iter().any(|q| q.contains_exprs()),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_exprs()),
@@ -122,6 +129,7 @@ impl Qual {
             Qual::Expr { .. } => exprs.push(self),
             Qual::PushdownExpr { .. } => {}
             Qual::PushdownVarIsTrue { .. } => {}
+            Qual::PushdownIsNotNull { .. } => {}
             Qual::ScoreExpr { .. } => {}
             Qual::And(quals) => quals.iter_mut().for_each(|q| q.collect_exprs(exprs)),
             Qual::Or(quals) => quals.iter_mut().for_each(|q| q.collect_exprs(exprs)),
@@ -156,6 +164,9 @@ impl From<&Qual> for SearchQueryInput {
                 field: Some(attname.clone()),
                 value: OwnedValue::Bool(true),
                 is_datetime: false,
+            },
+            Qual::PushdownIsNotNull { attname } => SearchQueryInput::Exists {
+                field: attname.clone(),
             },
             Qual::ScoreExpr { opoid, value } => unsafe {
                 let score_value = {
@@ -322,6 +333,10 @@ impl From<Qual> for PgList<pg_sys::Node> {
                     list.push(makeString(Some("PUSHDOWN_VAR_IS_TRUE")));
                     list.push(makeString(Some(attname)));
                 }
+                Qual::PushdownIsNotNull { attname } => {
+                    list.push(makeString(Some("PUSHDOWN_IS_NOT_NULL")));
+                    list.push(makeString(Some(attname)));
+                }
                 Qual::ScoreExpr { opoid, value } => {
                     list.push(makeString(Some("SCORE")));
                     list.push(makeInteger(Some(opoid)));
@@ -386,6 +401,10 @@ impl From<PgList<pg_sys::Node>> for Qual {
                         "PUSHDOWN_VAR_IS_TRUE" => {
                             let attname = decodeString::<String>(value.get_ptr(1)?)?;
                             Some(Qual::PushdownVarIsTrue { attname })
+                        }
+                        "PUSHDOWN_IS_NOT_NULL" => {
+                            let attname = decodeString::<String>(value.get_ptr(1)?)?;
+                            Some(Qual::PushdownIsNotNull { attname })
                         }
                         "SCORE" => {
                             let (opoid, value) = (
@@ -522,6 +541,24 @@ pub unsafe fn extract_quals(
                     .1
                     .expect("var should have an attname"),
             })
+        }
+
+        pg_sys::NodeTag::T_NullTest => {
+            let nulltest = nodecast!(NullTest, T_NullTest, node)?;
+            let attname = attname_from_var(root, (*nulltest).arg.cast());
+            if (*nulltest).nulltesttype == pg_sys::NullTestType::IS_NOT_NULL {
+                Some(Qual::PushdownIsNotNull {
+                    attname: attname
+                        .1
+                        .expect("IS NOT NULL expression should have an attname"),
+                })
+            } else {
+                Some(Qual::Not(Box::new(Qual::PushdownIsNotNull {
+                    attname: attname
+                        .1
+                        .expect("IS NULL expression should have an attname"),
+                })))
+            }
         }
 
         // we don't understand this clause so we can't do anything

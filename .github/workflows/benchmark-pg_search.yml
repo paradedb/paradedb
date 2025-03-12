@@ -96,12 +96,12 @@ jobs:
 
       - name: Send Slack Notification
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
         working-directory: benchmarks/
         run: |
           for file in results_pg_search_{test_info,index_creation,benchmark_results,postgres_settings}.csv; do
             curl -F "file=@$file" \
-              -F "channels=${{ secrets.SLACK_GITHUB_CHANNEL_ID }}" \
+              -F "channels=${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}" \
               -H "Authorization: Bearer ${{ secrets.SLACK_OAUTH_TOKEN }}" \
               https://slack.com/api/files.upload
           done

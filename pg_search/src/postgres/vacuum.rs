@@ -20,9 +20,6 @@ use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::merge::MergeLockData;
 use pgrx::*;
 
-const VACUUM_TRUNCATE_LOCK_TIMEOUT: u32 = 5000; // ms
-const VACUUM_TRUNCATE_LOCK_WAIT_INTERVAL: u32 = 50; // ms
-
 #[pg_guard]
 pub extern "C" fn amvacuumcleanup(
     info: *mut pg_sys::IndexVacuumInfo,
@@ -40,37 +37,9 @@ pub extern "C" fn amvacuumcleanup(
         let heap_oid = pg_sys::IndexGetRelation(index_oid, false);
         let heap_relation = pg_sys::RelationIdGetRelation(heap_oid);
 
-        // Try to get a lock on the relation, but give up if we time out
-        let mut lock_retry = 0;
-        let mut lock_acquired = false;
-
-        loop {
-            if pg_sys::ConditionalLockRelation(heap_relation, pg_sys::ExclusiveLock as i32) {
-                lock_acquired = true;
-                break;
-            }
-
-            check_for_interrupts!();
-
-            lock_retry += 1;
-            if lock_retry > VACUUM_TRUNCATE_LOCK_TIMEOUT / VACUUM_TRUNCATE_LOCK_WAIT_INTERVAL {
-                pgrx::debug2!(
-                    "stopping truncate due to conflicting lock request on {}",
-                    index_relation.name()
-                );
-                break;
-            }
-
-            pg_sys::WaitLatch(
-                pg_sys::MyLatch,
-                (pg_sys::WL_LATCH_SET | pg_sys::WL_EXIT_ON_PM_DEATH | pg_sys::WL_TIMEOUT) as i32,
-                VACUUM_TRUNCATE_LOCK_WAIT_INTERVAL as i64,
-                pg_sys::WaitEventTimeout::WAIT_EVENT_VACUUM_DELAY,
-            );
-            pg_sys::ResetLatch(pg_sys::MyLatch);
-        }
-
         // If we got a lock, truncate index to the last non-recyclable block
+        let lock_acquired =
+            pg_sys::ConditionalLockRelation(heap_relation, pg_sys::ExclusiveLock as i32);
         let mut nblocks =
             pg_sys::RelationGetNumberOfBlocksInFork(info.index, pg_sys::ForkNumber::MAIN_FORKNUM);
 

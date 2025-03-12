@@ -54,14 +54,16 @@ pub extern "C" fn amvacuumcleanup(
                 pg_sys::vacuum_delay_point();
             }
 
-            let buffer = bman.get_buffer(blockno);
-            let page = buffer.page();
-
-            if !page.is_recyclable(heap_relation) {
-                if blockno != (nblocks - 1) {
-                    nblocks = blockno + 1;
-                    pg_sys::RelationTruncate(info.index, nblocks);
+            if let Some(buffer) = bman.get_buffer_conditional(blockno) {
+                let page = buffer.page();
+                if !page.is_recyclable(heap_relation) {
+                    if blockno != (nblocks - 1) {
+                        nblocks = blockno + 1;
+                        pg_sys::RelationTruncate(info.index, nblocks);
+                    }
+                    break;
                 }
+            } else {
                 break;
             }
         }

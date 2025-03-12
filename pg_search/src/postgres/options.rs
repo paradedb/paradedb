@@ -17,7 +17,7 @@
 
 use anyhow::Result;
 use memoffset::*;
-use pgrx::pg_sys::AsPgCStr;
+use pgrx::pg_sys::{AsPgCStr, PgNode};
 use pgrx::*;
 use rustc_hash::FxHashMap;
 use serde_json::Map;
@@ -446,13 +446,38 @@ impl SearchIndexCreateOptions {
         let index_info = unsafe { pg_sys::BuildIndexInfo(indexrel.as_ptr()) };
 
         let mut attributes: FxHashMap<SearchFieldName, SearchFieldType> = FxHashMap::default();
+        let expressions = unsafe { PgList::<pg_sys::Expr>::from_pg((*index_info).ii_Expressions) };
+        let mut expressions_iter = expressions.iter_ptr();
 
         for i in 0..(*index_info).ii_NumIndexAttrs {
             let heap_attno = (*index_info).ii_IndexAttrNumbers[i as usize];
-            let att = tupdesc
-                .get((heap_attno - 1) as usize)
-                .expect("attribute should exist");
-            let atttypid = att.type_oid().value();
+            let (att_readable, att_name, atttypid) = if heap_attno == 0 {
+                // Is an expression.
+                let Some(expression) = expressions_iter.next() else {
+                    // TODO: Better error handling?
+                    panic!("Expected expression for index attribute {i}.");
+                };
+
+                // TODO: For an expression, the SearchFieldName ends up containing the
+                // expression string.
+                let expression_str = unsafe { (*expression).display_node() };
+                (
+                    format!("expression '{expression_str}'"),
+                    expression_str,
+                    pg_sys::exprType(expression.cast()),
+                )
+            } else {
+                // Is a field.
+                let att = tupdesc
+                    .get((heap_attno - 1) as usize)
+                    .expect("attribute should exist");
+                (
+                    format!("column '{}'", att.name()),
+                    att.name().to_owned(),
+                    att.type_oid().value(),
+                )
+            };
+
             let array_type = pg_sys::get_element_type(atttypid);
             let base_oid = PgOid::from(if array_type != pg_sys::InvalidOid {
                 array_type
@@ -461,12 +486,12 @@ impl SearchIndexCreateOptions {
             });
             let field_type = SearchFieldType::try_from(&base_oid).unwrap_or_else(|err| {
                 panic!(
-                    "cannot index column '{}' with type {base_oid:?}: {err}",
-                    att.name()
+                    "cannot index {} with type {base_oid:?}: {err}",
+                    att_readable
                 )
             });
 
-            attributes.insert(SearchFieldName(att.name().into()), field_type);
+            attributes.insert(SearchFieldName(att_name), field_type);
         }
 
         let (key_field_name, key_field_config, key_field_type) = self

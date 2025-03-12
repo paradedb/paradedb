@@ -242,6 +242,24 @@ fn boolean_field_with_options(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn expression_with_options(mut conn: PgConnection) {
+    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
+        .execute(&mut conn);
+
+    r#"CREATE INDEX index_config_index ON paradedb.index_config
+        USING bm25 (id, lower(description)) WITH (key_field='id')"#
+        .execute(&mut conn);
+
+    let rows: Vec<(String, String)> =
+        "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
+            .fetch(&mut conn);
+
+    assert_eq!(rows[0], ("ctid".into(), "U64".into()));
+    assert_eq!(rows[1], ("id".into(), "I64".into()));
+    assert_eq!(rows[2], ("in_stock".into(), "Bool".into()));
+}
+
+#[rstest]
 fn default_json_field(mut conn: PgConnection) {
     "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);

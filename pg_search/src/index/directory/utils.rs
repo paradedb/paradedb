@@ -287,7 +287,6 @@ pub unsafe fn save_new_metas(
     for deleted_entry in replaced_delete_entries {
         let mut file = LinkedBytesList::open(relation_oid, deleted_entry.file_entry.starting_block);
         file.mark_deleted(deleting_xid);
-        pgrx::warning!("save_new_metas: doing replaced deleted entries");
     }
 
     // add the new entries

@@ -34,12 +34,10 @@ pub extern "C" fn amvacuumcleanup(
         let index_relation = PgRelation::from_pg(info.index);
         let index_oid = index_relation.oid();
         let mut bman = BufferManager::new(index_oid);
-        let heap_oid = pg_sys::IndexGetRelation(index_oid, false);
-        let heap_relation = pg_sys::RelationIdGetRelation(heap_oid);
 
         // If we got a lock, truncate index to the last non-recyclable block
         let lock_acquired =
-            pg_sys::ConditionalLockRelation(heap_relation, pg_sys::ExclusiveLock as i32);
+            pg_sys::ConditionalLockRelation(info.heaprel, pg_sys::ExclusiveLock as i32);
         let mut nblocks =
             pg_sys::RelationGetNumberOfBlocksInFork(info.index, pg_sys::ForkNumber::MAIN_FORKNUM);
 
@@ -59,7 +57,7 @@ pub extern "C" fn amvacuumcleanup(
                 if let Some(buffer) = bman.get_buffer_conditional(blockno) {
                     // If this block is not recyclable but the previous ones were, truncate up to this block
                     let page = buffer.page();
-                    if !page.is_recyclable(heap_relation) {
+                    if !page.is_recyclable(info.heaprel) {
                         if blockno != last_blockno && pg_sys::CritSectionCount == 0 {
                             nblocks = blockno + 1;
                             pg_sys::RelationTruncate(info.index, nblocks);
@@ -77,8 +75,6 @@ pub extern "C" fn amvacuumcleanup(
                     break;
                 }
             }
-
-            pg_sys::UnlockRelation(heap_relation, pg_sys::ExclusiveLock as i32);
         }
 
         // Return the rest to the free space map, if recyclable
@@ -101,11 +97,10 @@ pub extern "C" fn amvacuumcleanup(
             let buffer = bman.get_buffer(blockno);
             let page = buffer.page();
 
-            if page.is_recyclable(heap_relation) {
+            if page.is_recyclable(info.heaprel) {
                 bman.record_free_index_page(buffer);
             }
         }
-        pg_sys::RelationClose(heap_relation);
         pg_sys::IndexFreeSpaceMapVacuum(info.index);
     }
 

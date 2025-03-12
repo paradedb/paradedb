@@ -22,8 +22,6 @@ function isRHEL() {
   cat /etc/redhat-release >/dev/null 2>&1
 }
 
-# TODO: Add an if statement for other versions up to 13 for K8s and Docker
-# TODO: Test this function and see if it can be simplified
 function selectPostgresVersion() {
   echo -e ""
   echo -e "Please select your desired Postgres major version:"
@@ -88,6 +86,9 @@ function installDocker() {
     exit 4
   fi
 
+  # Prompt the user for their desired Postgres major version 
+  selectPostgresVersion
+
   # Prompt the user for their desired database credentials
   echo -e ""
   read -r -p "ParadeDB database user name (default: myuser): " input
@@ -109,7 +110,7 @@ function installDocker() {
       extra_opts="-v paradedb_data:/var/lib/postgresql/data/"
     fi
 
-    # TODO: Add support for asking the user which Postgres version they want to use
+    # TODO: Replace `latest` by pg-major-version and latest tag
     echo -e ""
     echo -e "Running paradedb/paradedb:latest Docker container (${LATEST_RELEASE_TAG})..."
     docker run \
@@ -127,7 +128,7 @@ function installDocker() {
 }
 
 
-installDylib() {
+installMacOS() {
   # Confirm architecture
   if [ "$ARCH" != "arm64" ]; then
     echo -e ""
@@ -158,83 +159,54 @@ installDylib() {
   url="https://github.com/paradedb/paradedb/releases/download/${LATEST_RELEASE_TAG}/"
   curl -L "${url}${filename}" -o "$HOME/Downloads/$filename" || false
   sudo installer -pkg "$HOME/Downloads/$filename" -target /
-  if [[ $? -ne 0 ]]; then
-    # TODO: Provide a better error message here
-    echo -e ""
-    echo -e "Failed to install ParadeDB pg_search. Exiting..."
-    exit 8
-  fi
-
-  echo -e ""
-  echo -e "🚀 ParadeDB pg_search installed! To use ParadeDB, connect to your local Postgres database and execute: 'CREATE EXTENSION pg_search;'"
 }
 
 
-installDeb() {
-  # Confirm architecture
-  if [ "$ARCH" = "x86_64" ]; then
-    ARCH="amd64"
+installLinux() {
+  # Red Hat-based
+  if isRHEL; then
+    # Retrieve the arch
+    if [ "$ARCH" = "x86_64" ]; then
+      ARCH="amd64"
+    else
+      ARCH="aarch64"
+    fi
+    # Retrieve the OS version
+    RHEL_VERSION=$(awk -F'[. ]' '/release/{print $6}' /etc/redhat-release)
+  # Debian-based
   else
-    ARCH="arm64"
+    # Retrieve the arch
+    if [ "$ARCH" = "x86_64" ]; then
+      ARCH="amd64"
+    else
+      ARCH="arm64"
+    fi
+    # Retrieve the OS version
+    DEB_DISTRO_NAME=$(awk -F'[= ]' '/VERSION_CODENAME=/{print $2}'  /etc/os-release)
   fi
 
   # Prompt the user for their desired Postgres major version 
   selectPostgresVersion
 
-  # Retrieve the OS version
-  DEB_DISTRO_NAME=$(awk -F'[= ]' '/VERSION_CODENAME=/{print $2}'  /etc/os-release)
-
-  # TODO: Remove the code duplication here
-  echo -e ""
-  echo -e "Downloading and installing ParadeDB pg_search Postgres extension version $LATEST_RELEASE_VERSION for Postgres $PG_MAJOR_VERSION on $DEB_DISTRO_NAME..."
-  filename="postgresql-${PG_MAJOR_VERSION}-pg-search_${LATEST_RELEASE_VERSION}-1PARADEDB-${DEB_DISTRO_NAME}_${ARCH}.deb"
-  url="https://github.com/paradedb/paradedb/releases/download/${LATEST_RELEASE_TAG}/"
-  curl -L "${url}${filename}" -o "$HOME/Downloads/$filename" || false
-  sudo apt-get install ./"$filename" -y || false
-  if [[ $? -ne 0 ]]; then
-    # TODO: Provide a better error message here
+  # Red Hat-based
+  if isRHEL; then
+    # TODO: Remove the code duplication here
     echo -e ""
-    echo -e "Failed to install ParadeDB pg_search. Exiting..."
-    exit 8
-  fi
-
-  # TODO: Remove the code duplication here
-  echo -e ""
-  echo -e "🚀 ParadeDB pg_search installed! To use ParadeDB, connect to your local Postgres database and execute: 'CREATE EXTENSION pg_search;'"
-}
-
-
-installRPM() {
-  # Confirm architecture
-  if [ "$ARCH" = "x86_64" ]; then
-    ARCH="amd64"
+    echo -e "Downloading and installing ParadeDB pg_search Postgres extension version $LATEST_RELEASE_VERSION for Postgres $PG_MAJOR_VERSION on RHEL $RHEL_VERSION..."
+    filename="pg_search_${PG_MAJOR_VERSION}-$LATEST_RELEASE_VERSION-1PARADEDB.el${RHEL_VERSION}.${ARCH}.rpm"
+    url="https://github.com/paradedb/paradedb/releases/download/${LATEST_RELEASE_TAG}/"
+    curl -L "${url}${filename}" -o "$HOME/Downloads/$filename" || false
+    sudo rpm -i "$filename" || false
+  # Debian-based
   else
-    ARCH="aarch64"
-  fi
-
-  # Prompt the user for their desired Postgres major version 
-  selectPostgresVersion
-
-  # Retrieve the OS version
-  RHEL_VERSION=$(awk -F'[. ]' '/release/{print $6}' /etc/redhat-release)
-
-  # TODO: Remove the code duplication here
-  echo -e ""
-  echo -e "Downloading and installing ParadeDB pg_search Postgres extension version $LATEST_RELEASE_VERSION for Postgres $PG_MAJOR_VERSION on RHEL $RHEL_VERSION..."
-  filename="pg_search_${PG_MAJOR_VERSION}-$LATEST_RELEASE_VERSION-1PARADEDB.el${RHEL_VERSION}.${ARCH}.rpm"
-  url="https://github.com/paradedb/paradedb/releases/download/${LATEST_RELEASE_TAG}/"
-  curl -L "${url}${filename}" -o "$HOME/Downloads/$filename" || false
-  sudo rpm -i "$filename" || false
-  if [[ $? -ne 0 ]]; then
-    # TODO: Provide a better error message here
+    # TODO: Remove the code duplication here
     echo -e ""
-    echo -e "Failed to install ParadeDB pg_search. Exiting..."
-    exit 8
+    echo -e "Downloading and installing ParadeDB pg_search Postgres extension version $LATEST_RELEASE_VERSION for Postgres $PG_MAJOR_VERSION on $DEB_DISTRO_NAME..."
+    filename="postgresql-${PG_MAJOR_VERSION}-pg-search_${LATEST_RELEASE_VERSION}-1PARADEDB-${DEB_DISTRO_NAME}_${ARCH}.deb"
+    url="https://github.com/paradedb/paradedb/releases/download/${LATEST_RELEASE_TAG}/"
+    curl -L "${url}${filename}" -o "$HOME/Downloads/$filename" || false
+    sudo apt-get install ./"$filename" -y || false
   fi
-
-  # TODO: Remove the code duplication here
-  echo -e ""
-  echo -e "🚀 ParadeDB pg_search installed! To use ParadeDB, connect to your local Postgres database and execute: 'CREATE EXTENSION pg_search;'"
 }
 
 ########################################
@@ -290,14 +262,20 @@ select opt in "${OPTIONS[@]}"; do
     break
   elif [[ "$REPLY" == "3" || "$REPLY" == "Prebuilt Binaries" ]]; then
     if [[ "$OSTYPE" = "darwin"* ]]; then
-      installDylib
+      installMacOS
     elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-      if isRHEL; then
-        installRPM
-      else
-        installDeb
-      fi
+      installLinux
     fi
+
+    # Catch errors in install commands
+    if [[ $? -ne 0 ]]; then
+      # TODO: Provide a better error message here
+      echo -e ""
+      echo -e "Failed to install ParadeDB pg_search. Exiting..."
+      exit 8
+    fi
+    echo -e ""
+    echo -e "🚀 ParadeDB pg_search installed! To use ParadeDB, connect to your local Postgres database and execute: 'CREATE EXTENSION pg_search;'"
     break
   else
     echo "Invalid option. You must select one of 'Kubernetes', 'Docker' or 'Prebuilt Binaries'. Exiting..."

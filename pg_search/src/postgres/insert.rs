@@ -286,7 +286,6 @@ unsafe fn do_merge(indexrelid: Oid) -> Option<()> {
         if !recycled_entries.is_empty() {
             let indexrel = pg_sys::RelationIdGetRelation(indexrelid);
             for entry in recycled_entries {
-                assert!(entry.recyclable(snapshot, std::ptr::null_mut()));
                 for (file_entry, type_) in entry.file_entries() {
                     let bytes = LinkedBytesList::open(indexrelid, file_entry.starting_block);
                     bytes.return_to_fsm(&entry, type_);

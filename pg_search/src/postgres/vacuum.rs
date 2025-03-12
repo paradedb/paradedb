@@ -38,12 +38,13 @@ pub extern "C" fn amvacuumcleanup(
         let heap_oid = pg_sys::IndexGetRelation(index_oid, false);
         let heap_relation = pg_sys::RelationIdGetRelation(heap_oid);
 
-        pg_sys::LockRelationForExtension(info.index, pg_sys::ExclusiveLock as i32);
+        pg_sys::LockRelation(heap_relation, pg_sys::ExclusiveLock as i32);
         let mut nblocks =
             pg_sys::RelationGetNumberOfBlocksInFork(info.index, pg_sys::ForkNumber::MAIN_FORKNUM);
 
         // Truncate to the last non-recyclable block
         let first_vacuumable_blockno = FIXED_BLOCK_NUMBERS.last().unwrap() + 1;
+        let last_blockno = nblocks - 1;
         assert!(
             nblocks >= first_vacuumable_blockno,
             "the index has fewer blocks than should be possible"
@@ -55,20 +56,28 @@ pub extern "C" fn amvacuumcleanup(
             }
 
             if let Some(buffer) = bman.get_buffer_conditional(blockno) {
+                // If this block is not recyclable but the previous ones were, truncate up to this block
                 let page = buffer.page();
                 if !page.is_recyclable(heap_relation) {
-                    if blockno != (nblocks - 1) {
+                    if blockno != last_blockno && pg_sys::CritSectionCount == 0 {
                         nblocks = blockno + 1;
                         pg_sys::RelationTruncate(info.index, nblocks);
                     }
                     break;
                 }
             } else {
+                // If we couldn't get a conditional lock on this block, that means another backend is
+                // processing this block and it's not recyclable. However, if it got this far, then the previous
+                // blocks must have been recyclable, so we can truncate up to the previous block.
+                if (blockno + 1) != last_blockno && pg_sys::CritSectionCount == 0 {
+                    nblocks = blockno + 2;
+                    pg_sys::RelationTruncate(info.index, nblocks);
+                }
                 break;
             }
         }
 
-        pg_sys::UnlockRelationForExtension(info.index, pg_sys::ExclusiveLock as i32);
+        pg_sys::UnlockRelation(heap_relation, pg_sys::ExclusiveLock as i32);
 
         // Return the rest to the free space map, if recyclable
         let vacuum_sentinel_blockno = {

@@ -61,6 +61,10 @@ static STATEMENT_MEMORY_BUDGET: GucSetting<i32> = GucSetting::<i32>::new(1024);
 /// The default is 200MB
 static MAX_MERGEABLE_SEGMENT_SIZE: GucSetting<i32> = GucSetting::<i32>::new(200 * 1024 * 1024);
 
+/// Multiplied by the host's "parallelism" value, the resulting value is the segment count after which
+/// we'll consider performing a merge.
+static SEGMENT_MERGE_SCALE_FACTOR: GucSetting<i32> = GucSetting::<i32>::new(1);
+
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
@@ -168,6 +172,16 @@ pub fn init() {
         GucContext::Userset,
         GucFlags::UNIT_BYTE,
     );
+    GucRegistry::define_int_guc(
+        "paradedb.segment_merge_scale_factor",
+        "An integer value multiplied by the host's 'parallelism' value, the resulting value is the segment count after which we'll consider performing a merge.",
+        "Default is `1` (one)",
+        &SEGMENT_MERGE_SCALE_FACTOR,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
 }
 
 pub fn telemetry_enabled() -> bool {
@@ -206,6 +220,10 @@ pub fn statement_memory_budget() -> usize {
 
 pub fn max_mergeable_segment_size() -> usize {
     MAX_MERGEABLE_SEGMENT_SIZE.get() as usize
+}
+
+pub fn segment_merge_scale_factor() -> usize {
+    SEGMENT_MERGE_SCALE_FACTOR.get() as usize
 }
 
 fn adjust_nthreads(nthreads: i32) -> NonZeroUsize {

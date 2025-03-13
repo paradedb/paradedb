@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::gucs::max_mergeable_segment_size;
+use crate::gucs::{max_mergeable_segment_size, segment_merge_scale_factor};
 use crate::index::merge_policy::NPlusOneMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::SearchIndexWriter;
@@ -237,7 +237,8 @@ pub fn paradedb_aminsertcleanup(mut writer: Option<SearchIndexWriter>) {
 unsafe fn do_merge(indexrelid: Oid) -> Option<()> {
     let target_segments = std::thread::available_parallelism()
         .expect("failed to get available_parallelism")
-        .get();
+        .get()
+        * segment_merge_scale_factor();
     let snapshot = pg_sys::GetActiveSnapshot();
 
     let mut items = LinkedItemList::<SegmentMetaEntry>::open(indexrelid, SEGMENT_METAS_START);

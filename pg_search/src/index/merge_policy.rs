@@ -40,12 +40,6 @@ impl MergePolicy for NPlusOneMergePolicy {
         _directory: Option<&dyn Directory>,
         segments: &[SegmentMeta],
     ) -> Vec<MergeCandidate> {
-        #[derive(Debug)]
-        enum MergeBy {
-            ByteSize,
-            DocCount,
-        }
-
         if segments.len() <= self.n {
             // too few segments of interest to merge
             return vec![];
@@ -121,8 +115,6 @@ impl MergePolicy for NPlusOneMergePolicy {
             return vec![];
         }
 
-        let mut merge_by = MergeBy::ByteSize;
-
         if small_segments.len() < self.min_merge_count && segments.len() > self.n {
             // we didn't come up with enough small segments to merge as they're all roughly the same
             // size, but we still have more than N segments.
@@ -147,10 +139,6 @@ impl MergePolicy for NPlusOneMergePolicy {
             mean = new_mean;
             my_eprintln!("new mean={mean}");
 
-            // change our merging strategy to be by DocCount which keeps segments balanced by their
-            // total "live" document count
-            merge_by = MergeBy::DocCount;
-
             my_eprintln!(
                 "more than N segments ({}), taking the first {} smallest which are {:?}",
                 segments.len(),
@@ -172,7 +160,7 @@ impl MergePolicy for NPlusOneMergePolicy {
         //
         // When the estimated byte size of a MergeCandidate crosses our `segment_freeze_size` we
         // start collecting another MergeCandidate
-        my_eprintln!("---- merging, by {merge_by:?} ---- ");
+        my_eprintln!("---- merging ---- ");
         let mut candidates = vec![MergeCandidate(vec![])];
         let mut current_candidate_byte_size = 0;
         let mut current_candidate_docs = 0;
@@ -187,13 +175,9 @@ impl MergePolicy for NPlusOneMergePolicy {
                 segment.num_docs(),
             );
             candidates.last_mut().unwrap().0.push(segment.id());
-            current_candidate_byte_size += byte_size;
-            current_candidate_docs += segment.num_docs();
 
-            if (matches!(merge_by, MergeBy::DocCount)
-                && current_candidate_docs >= mean.ceil() as u32)
-                || (matches!(merge_by, MergeBy::ByteSize)
-                    && current_candidate_byte_size >= self.segment_freeze_size)
+            if current_candidate_docs > mean.ceil() as u32
+                || current_candidate_byte_size >= self.segment_freeze_size
             {
                 my_eprintln!(
                     "{} segments in current candidate, size={current_candidate_byte_size}, docs={current_candidate_docs}",
@@ -205,6 +189,9 @@ impl MergePolicy for NPlusOneMergePolicy {
                 current_candidate_byte_size = 0;
                 current_candidate_docs = 0;
             }
+
+            current_candidate_byte_size += byte_size;
+            current_candidate_docs += segment.num_docs();
         }
         my_eprintln!(
             "{} segments in last candidate, size={current_candidate_byte_size}, docs={current_candidate_docs}",

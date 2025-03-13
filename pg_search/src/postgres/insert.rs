@@ -253,6 +253,7 @@ unsafe fn do_merge(indexrelid: Oid) -> Option<()> {
         ndocs += entry.num_docs() + entry.num_deleted_docs();
     }
 
+    pgrx::warning!("nvisible={nvisible}, target_segments={target_segments}");
     let recycled_entries = if nvisible > target_segments + 1 {
         let avg_byte_size_per_doc = nbytes as f64 / ndocs as f64;
 

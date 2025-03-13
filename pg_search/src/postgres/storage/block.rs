@@ -262,68 +262,19 @@ impl SegmentMetaEntry {
         size
     }
 
-    pub fn get_component_paths(&self) -> Vec<PathBuf> {
-        let mut paths = Vec::with_capacity(8);
-
+    pub fn get_component_paths(&self) -> impl Iterator<Item = PathBuf> + '_ {
         let uuid = self.segment_id.uuid_string();
-        if self.postings.is_some() {
-            paths.push(PathBuf::from(format!(
-                "{}.{}",
-                uuid,
-                SegmentComponent::Postings
-            )));
-        }
-        if self.positions.is_some() {
-            paths.push(PathBuf::from(format!(
-                "{}.{}",
-                uuid,
-                SegmentComponent::Positions
-            )));
-        }
-        if self.fast_fields.is_some() {
-            paths.push(PathBuf::from(format!(
-                "{}.{}",
-                uuid,
-                SegmentComponent::FastFields
-            )));
-        }
-        if self.field_norms.is_some() {
-            paths.push(PathBuf::from(format!(
-                "{}.{}",
-                uuid,
-                SegmentComponent::FieldNorms
-            )));
-        }
-        if self.terms.is_some() {
-            paths.push(PathBuf::from(format!(
-                "{}.{}",
-                uuid,
-                SegmentComponent::Terms
-            )));
-        }
-        if self.store.is_some() {
-            paths.push(PathBuf::from(format!(
-                "{}.{}",
-                uuid,
-                SegmentComponent::Store
-            )));
-        }
-        if self.temp_store.is_some() {
-            paths.push(PathBuf::from(format!(
-                "{}.{}",
-                uuid,
-                SegmentComponent::TempStore
-            )));
-        }
-        if let Some(_entry) = &self.delete {
-            paths.push(PathBuf::from(format!(
-                "{}.0.{}", // we can hardcode zero as the opstamp component of the path as it's not used by anyone
-                uuid,
-                SegmentComponent::Delete
-            )));
-        }
-
-        paths
+        self.file_entries().map(move |(_, component)| {
+            if matches!(component, SegmentComponent::Delete) {
+                PathBuf::from(format!(
+                    "{}.0.{}", // we can hardcode zero as the opstamp component of the path as it's not used by anyone
+                    uuid,
+                    SegmentComponent::Delete
+                ))
+            } else {
+                PathBuf::from(format!("{uuid}.{component}"))
+            }
+        })
     }
 }
 
@@ -362,19 +313,6 @@ impl SegmentMetaEntry {
     /// Fake an opstamp value based on our internal `xmin` and `xmax` values
     pub fn opstamp(&self) -> Opstamp {
         self.xmin.max(self.xmax) as Opstamp // ((self.xmax as u64) << 32) | (self.xmin as u64)
-    }
-
-    pub fn get_file_entry(&self, segment_component: SegmentComponent) -> Option<FileEntry> {
-        match segment_component {
-            SegmentComponent::Postings => self.postings,
-            SegmentComponent::Positions => self.positions,
-            SegmentComponent::FastFields => self.fast_fields,
-            SegmentComponent::FieldNorms => self.field_norms,
-            SegmentComponent::Terms => self.terms,
-            SegmentComponent::Store => self.store,
-            SegmentComponent::TempStore => self.temp_store,
-            SegmentComponent::Delete => self.delete.map(|entry| entry.file_entry),
-        }
     }
 }
 

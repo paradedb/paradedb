@@ -290,6 +290,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub unsafe fn lookup<Cmp: Fn(&T) -> bool>(&self, cmp: Cmp) -> Result<T> {
         self.lookup_ex(cmp).map(|(t, _, _)| t)
     }

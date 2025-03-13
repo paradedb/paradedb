@@ -226,7 +226,8 @@ fn bulk_insert_merge_behavior(mut conn: PgConnection) {
 
 #[rstest]
 fn segment_merge_scale_factor(mut conn: PgConnection) {
-    "CREATE TABLE test_table (id SERIAL PRIMARY KEY, value TEXT NOT NULL);".execute(&mut conn);
+    "CREATE TABLE test_table (id SERIAL PRIMARY KEY, value TEXT NOT NULL) WITH (autovacuum_enabled = off);"
+        .execute(&mut conn);
     "CREATE INDEX idxtest_table ON test_table USING bm25(id, value) WITH (key_field = 'id');"
         .execute(&mut conn);
 

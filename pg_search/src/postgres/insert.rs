@@ -235,6 +235,22 @@ pub fn paradedb_aminsertcleanup(mut writer: Option<SearchIndexWriter>) {
 }
 
 unsafe fn do_merge(indexrelid: Oid) -> Option<()> {
+    /*
+     * Recompute VACUUM XID boundaries.
+     *
+     * We don't actually care about the oldest non-removable XID.  Computing
+     * the oldest such XID has a useful side-effect that we rely on: it
+     * forcibly updates the XID horizon state for this backend.  This step is
+     * essential; GlobalVisCheckRemovableFullXid() will not reliably recognize
+     * that it is now safe to recycle newly deleted pages without this step.
+     */
+    {
+        let heaprelid = pg_sys::IndexGetRelation(indexrelid, false);
+        let heaprel = pg_sys::RelationIdGetRelation(heaprelid);
+        pg_sys::GetOldestNonRemovableTransactionId(heaprel);
+        pg_sys::RelationClose(heaprel);
+    }
+
     let target_segments = std::thread::available_parallelism()
         .expect("failed to get available_parallelism")
         .get()
@@ -253,7 +269,6 @@ unsafe fn do_merge(indexrelid: Oid) -> Option<()> {
         ndocs += entry.num_docs() + entry.num_deleted_docs();
     }
 
-    pgrx::warning!("nvisible={nvisible}, target_segments={target_segments}");
     let recycled_entries = if nvisible > target_segments + 1 {
         let avg_byte_size_per_doc = nbytes as f64 / ndocs as f64;
 

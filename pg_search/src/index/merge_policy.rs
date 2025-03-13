@@ -277,7 +277,7 @@ mod tests {
         // this is expected to merge iteratively as NPlusOneMergePolicy also tries to keep
         // segments balanced by size, so it takes a few iterations before it's able to do so
         // down to the count we expect
-        for expectation in [21, 13, 11, 10, 9] {
+        for expectation in [21, 16, 12, 10, 9] {
             let lookup = segments
                 .iter()
                 .map(|s| (s.id(), s))

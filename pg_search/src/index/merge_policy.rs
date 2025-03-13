@@ -281,7 +281,7 @@ mod tests {
         let policy = NPlusOneMergePolicy {
             n: 8,
             min_merge_count: 2,
-            avg_byte_size_per_doc: 40.8146106352343998,
+            avg_byte_size_per_doc: 40.814_610_635_234_4,
             segment_freeze_size: 200 * 1024 * 1024,
             vacuum_list: HashSet::new(),
         };
@@ -301,7 +301,7 @@ mod tests {
             for (i, candidate) in candidates.iter().enumerate() {
                 eprintln!("CANDIDATE #{i}, count={}", candidate.0.len());
                 for segment_id in &candidate.0 {
-                    let meta = lookup.get(&segment_id).unwrap();
+                    let meta = lookup.get(segment_id).unwrap();
                     eprintln!("{meta:?}");
 
                     total_merged += 1;
@@ -322,7 +322,7 @@ mod tests {
             let mut merged_ids = HashSet::new();
             for candidate in candidates {
                 let inner_segment_meta = InnerSegmentMeta {
-                    segment_id: candidate.0[0].clone(),
+                    segment_id: candidate.0[0],
                     max_doc: candidate
                         .0
                         .iter()
@@ -364,7 +364,7 @@ mod tests {
         let policy = NPlusOneMergePolicy {
             n: 32,
             min_merge_count: 2,
-            avg_byte_size_per_doc: 40.8146106352343998,
+            avg_byte_size_per_doc: 40.814_610_635_234_4,
             segment_freeze_size: 200 * 1024 * 1024,
             vacuum_list: HashSet::new(),
         };

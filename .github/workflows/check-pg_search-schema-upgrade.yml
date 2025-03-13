@@ -17,9 +17,12 @@ on:
       - "!pg_search/README.md"
   workflow_dispatch:
 
-# Required to post a comment to the PR
+# Since we use pull_request_target, we restrict the permissions to the bare minimum
+# required to post a comment to the PR. This is because pull_request_target runs
+# as the target repository's write token, which has more permissions than the
+# source repository's read token.
 permissions:
-  pull-requests: write
+  contents: read
   issues: write
 
 concurrency:

@@ -40,6 +40,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Fetch the entire history
+          ref: ${{ github.head_ref }}
 
       - name: Extract pgrx Version
         id: pgrx

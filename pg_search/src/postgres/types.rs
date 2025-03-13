@@ -31,10 +31,9 @@ use serde_json::Value;
 use std::cmp::Ordering;
 use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::net::{AddrParseError, IpAddr};
 use std::num::ParseFloatError;
 use std::str::FromStr;
-use tantivy::schema::{IntoIpv6Addr, OwnedValue};
+use tantivy::schema::OwnedValue;
 use thiserror::Error;
 
 #[derive(Clone, Debug, Eq, PartialEq, PostgresType)]
@@ -90,7 +89,6 @@ impl TantivyValue {
                         pgrx::datum::TimeWithTimeZone::try_from(self)?.into_datum()
                     }
                     PgBuiltInOids::UUIDOID => pgrx::datum::Uuid::try_from(self)?.into_datum(),
-                    PgBuiltInOids::INETOID => pgrx::datum::Inet::try_from(self)?.into_datum(),
                     _ => return Err(TantivyValueError::UnsupportedOid(oid.value())),
                 };
                 Ok(datum)
@@ -135,8 +133,7 @@ impl TantivyValue {
                 | PgBuiltInOids::TIMESTAMPTZOID
                 | PgBuiltInOids::TIMEOID
                 | PgBuiltInOids::TIMETZOID
-                | PgBuiltInOids::UUIDOID
-                | PgBuiltInOids::INETOID => {
+                | PgBuiltInOids::UUIDOID => {
                     let array: pgrx::Array<Datum> = pgrx::Array::from_datum(datum, false)
                         .ok_or(TantivyValueError::DatumDeref)?;
                     array
@@ -231,10 +228,6 @@ impl TantivyValue {
                     pgrx::datum::Uuid::from_datum(datum, false)
                         .ok_or(TantivyValueError::DatumDeref)?,
                 ),
-                PgBuiltInOids::INETOID => TantivyValue::try_from(
-                    pgrx::datum::Inet::from_datum(datum, false)
-                        .ok_or(TantivyValueError::DatumDeref)?,
-                ),
                 PgBuiltInOids::INT4RANGEOID => TantivyValue::from_range(
                     pgrx::datum::Range::<i32>::from_datum(datum, false)
                         .ok_or(TantivyValueError::DatumDeref)?,
@@ -303,7 +296,6 @@ impl fmt::Display for TantivyValue {
                     String::from_utf8(bytes.clone()).expect("bytes should be valid utf-8")
                 )
             }
-            tantivy::schema::OwnedValue::IpAddr(addr) => write!(f, "{}", addr),
             tantivy::schema::OwnedValue::Object(_) => write!(f, "json object"),
             _ => panic!("tantivy owned value not supported"),
         }
@@ -972,27 +964,10 @@ impl TryFrom<pgrx::pg_sys::ItemPointerData> for TantivyValue {
 impl TryFrom<pgrx::Inet> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: pgrx::Inet) -> Result<Self, Self::Error> {
-        match val.parse::<IpAddr>() {
-            Ok(addr) => Ok(TantivyValue(tantivy::schema::OwnedValue::IpAddr(
-                addr.into_ipv6_addr(),
-            ))),
-            Err(err) => Err(TantivyValueError::InetError(err)),
-        }
-    }
-}
-
-impl TryFrom<TantivyValue> for pgrx::Inet {
-    type Error = TantivyValueError;
-
-    fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::IpAddr(val) = value.0 {
-            Ok(val.to_string().into())
-        } else {
-            Err(TantivyValueError::UnsupportedIntoConversion(
-                "inet".to_string(),
-            ))
-        }
+    fn try_from(_val: pgrx::Inet) -> Result<Self, Self::Error> {
+        Err(TantivyValueError::UnsupportedFromConversion(
+            "inet".to_string(),
+        ))
     }
 }
 
@@ -1009,9 +984,6 @@ pub enum TantivyValueError {
 
     #[error("Failed UUID conversion: {0}")]
     UuidConversionError(String),
-
-    #[error(transparent)]
-    InetError(#[from] AddrParseError),
 
     #[error("Could not dereference postgres datum")]
     DatumDeref,

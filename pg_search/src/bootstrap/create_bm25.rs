@@ -161,12 +161,6 @@ fn index_info(
         .expect("index must have a heap relation");
 
     // open the specified index
-    let search_index = SearchIndexReader::open(&index, MvccSatisfies::Snapshot)?;
-    let mut search_readers = search_index
-        .segment_readers()
-        .iter()
-        .map(|segment_reader| (segment_reader.segment_id(), segment_reader))
-        .collect::<HashMap<_, _>>();
     let all_entries = unsafe {
         LinkedItemList::<SegmentMetaEntry>::open(index.oid(), SEGMENT_METAS_START)
             .list()
@@ -181,53 +175,24 @@ fn index_info(
         if !show_invisible && unsafe { !entry.visible(snapshot) } {
             continue;
         }
-        let segment_reader = search_readers.remove(&segment_id);
-        let space_usage = segment_reader.map(|reader| {
-            reader
-                .space_usage()
-                .expect("should be able to get space usage")
-        });
-        let space_usage = space_usage.as_ref();
         results.push((
             unsafe { entry.visible(snapshot) },
             unsafe { entry.recyclable(snapshot, heap.as_ptr()) },
             entry.xmin.into(),
             entry.xmax.into(),
             segment_id.short_uuid_string(),
-            space_usage
-                .map(|usage| usage.total().get_bytes().into())
-                .or_else(|| Some(entry.byte_size().into())),
-            segment_reader
-                .map(|reader| reader.num_docs().into())
-                .or_else(|| Some(entry.num_docs().into())),
-            segment_reader
-                .map(|reader| reader.num_deleted_docs().into())
-                .or_else(|| Some(entry.num_deleted_docs().into())),
-            space_usage
-                .map(|usage| usage.termdict().total().get_bytes().into())
-                .or_else(|| entry.terms.map(|file| file.total_bytes.into())),
-            space_usage
-                .map(|usage| usage.postings().total().get_bytes().into())
-                .or_else(|| entry.postings.map(|file| file.total_bytes.into())),
-            space_usage
-                .map(|usage| usage.positions().total().get_bytes().into())
-                .or_else(|| entry.positions.map(|file| file.total_bytes.into())),
-            space_usage
-                .map(|usage| usage.fast_fields().total().get_bytes().into())
-                .or_else(|| entry.fast_fields.map(|file| file.total_bytes.into())),
-            space_usage
-                .map(|usage| usage.fieldnorms().total().get_bytes().into())
-                .or_else(|| entry.field_norms.map(|file| file.total_bytes.into())),
-            space_usage
-                .map(|usage| usage.store().total().get_bytes().into())
-                .or_else(|| entry.store.map(|file| file.total_bytes.into())),
-            space_usage
-                .map(|usage| usage.deletes().get_bytes().into())
-                .or_else(|| entry.delete.map(|file| file.file_entry.total_bytes.into())),
+            Some(entry.byte_size().into()),
+            Some(entry.num_docs().into()),
+            Some(entry.num_deleted_docs().into()),
+            entry.terms.map(|file| file.total_bytes.into()),
+            entry.postings.map(|file| file.total_bytes.into()),
+            entry.positions.map(|file| file.total_bytes.into()),
+            entry.fast_fields.map(|file| file.total_bytes.into()),
+            entry.field_norms.map(|file| file.total_bytes.into()),
+            entry.store.map(|file| file.total_bytes.into()),
+            entry.delete.map(|file| file.file_entry.total_bytes.into()),
         ));
     }
-
-    assert!(search_readers.is_empty());
 
     Ok(TableIterator::new(results))
 }

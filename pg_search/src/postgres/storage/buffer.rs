@@ -1,4 +1,6 @@
-use crate::postgres::storage::block::{BM25PageSpecialData, PgItem};
+use crate::postgres::storage::block::{
+    bm25_max_free_space, BM25PageSpecialData, PgItem, FIXED_BLOCK_NUMBERS,
+};
 use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
 use pgrx::pg_sys;
 
@@ -11,6 +13,7 @@ impl Drop for Buffer {
     fn drop(&mut self) {
         unsafe {
             if self.pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer
+                && pg_sys::InterruptHoldoffCount > 0    // if it's not we're likely unwinding the stack due to a panic and unlocking buffers isn't possible anymore
                 && crate::postgres::utils::IsTransactionState()
             {
                 pg_sys::UnlockReleaseBuffer(self.pg_buffer);
@@ -23,18 +26,6 @@ impl Buffer {
     fn new(pg_buffer: pg_sys::Buffer) -> Self {
         assert!(pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
         Self { pg_buffer }
-    }
-
-    #[allow(dead_code)]
-    pub fn unlock(mut self) -> PinnedBuffer {
-        unsafe {
-            let pg_buffer = self.pg_buffer;
-            self.pg_buffer = pg_sys::InvalidBuffer as pg_sys::Buffer;
-
-            // unlock this buffer and convert to a PinnedBuffer
-            pg_sys::LockBuffer(pg_buffer, pg_sys::BUFFER_LOCK_UNLOCK as _);
-            PinnedBuffer::new(pg_buffer)
-        }
     }
 
     pub fn page(&self) -> Page {
@@ -211,30 +202,30 @@ pub struct PageMut<'a> {
 }
 
 impl PageMut<'_> {
-    pub fn mark_deleted(mut self) {
-        unsafe {
-            // this transaction, if we have one, is the one that is deleting this page
-            let mut current_xid = pg_sys::GetCurrentTransactionIdIfAny();
+    pub fn mark_deleted(mut self, deleting_xid: pg_sys::TransactionId) {
+        let blockno = self.buffer.number();
+        let special = self.special_mut::<BM25PageSpecialData>();
 
-            // however, we could be in some backend that doesn't have a transaction, such as VACUUM
-            if current_xid == pg_sys::InvalidLocalTransactionId {
-                #[cfg(feature = "pg13")]
-                {
-                    current_xid = pg_sys::ReadNewTransactionId();
-                }
-
-                #[cfg(not(feature = "pg13"))]
-                {
-                    current_xid = pg_sys::ReadNextTransactionId();
-                }
-            }
-            self.special_mut::<BM25PageSpecialData>().xmax = current_xid;
-        }
+        assert!(
+            special.xmax == pg_sys::InvalidTransactionId || special.xmax == deleting_xid,
+            "page {} is already marked deleted with xid={}, trying to change to {deleting_xid}",
+            blockno,
+            special.xmax
+        );
+        special.xmax = deleting_xid;
         self.buffer.dirty = true;
     }
 
     pub fn max_offset_number(&self) -> pg_sys::OffsetNumber {
         unsafe { pg_sys::PageGetMaxOffsetNumber(self.pg_page) }
+    }
+
+    pub fn mark_item_dead(&mut self, offno: pg_sys::OffsetNumber) {
+        unsafe {
+            let item_id = pg_sys::PageGetItemId(self.pg_page, offno);
+            (*item_id).set_lp_flags(pg_sys::LP_DEAD);
+            self.buffer.dirty = true;
+        }
     }
 
     pub fn read_item<T: From<PgItem>>(
@@ -534,9 +525,33 @@ impl BufferManager {
         self.get_buffer(blockno).page().is_empty()
     }
 
-    pub fn record_free_index_page(&mut self, buffer: Buffer) {
+    /// Return a [`Buffer`] back to the Free Space Map behind this index.
+    ///
+    /// It's the caller's responsibility to later call [`pg_sys::IndexFreeSpaceMapVacuum`]
+    /// if necessary.
+    pub fn return_to_fsm(&mut self, buffer: Buffer) {
         unsafe {
-            self.bcache.record_free_index_page(buffer.number());
+            let blockno = buffer.number();
+            assert!(
+                blockno > *FIXED_BLOCK_NUMBERS.last().unwrap(),
+                "record_free_index_page: blockno {blockno} cannot ever be recycled"
+            );
+            pg_sys::RecordPageWithFreeSpace(self.bcache.indexrel(), blockno, bm25_max_free_space());
+        }
+    }
+
+    /// Return a [`BufferMut`] back to the Free Space Map behind this index.
+    ///
+    /// It's the caller's responsibility to later call [`pg_sys::IndexFreeSpaceMapVacuum`]
+    /// if necessary.
+    pub fn return_to_fsm_mut(&mut self, buffer: BufferMut) {
+        unsafe {
+            let blockno = buffer.number();
+            assert!(
+                blockno > *FIXED_BLOCK_NUMBERS.last().unwrap(),
+                "record_free_index_page: blockno {blockno} cannot ever be recycled"
+            );
+            pg_sys::RecordPageWithFreeSpace(self.bcache.indexrel(), blockno, bm25_max_free_space());
         }
     }
 }

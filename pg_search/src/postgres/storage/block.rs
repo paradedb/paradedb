@@ -31,7 +31,7 @@ pub const SCHEMA_START: pg_sys::BlockNumber = 2;
 pub const SETTINGS_START: pg_sys::BlockNumber = 4;
 pub const SEGMENT_METAS_START: pg_sys::BlockNumber = 6;
 
-// keep this storted, please
+// keep this sorted, please
 // and update it if a new hardcoded block number is added in the future
 pub const FIXED_BLOCK_NUMBERS: [pg_sys::BlockNumber; 5] = [
     MERGE_LOCK,
@@ -181,6 +181,39 @@ impl SegmentMetaEntry {
         self.delete
             .map(|entry| entry.num_deleted_docs as usize)
             .unwrap_or(0)
+    }
+
+    pub fn file_entries(&self) -> impl Iterator<Item = (&FileEntry, SegmentComponent)> {
+        self.postings
+            .iter()
+            .map(|fe| (fe, SegmentComponent::Postings))
+            .chain(
+                self.positions
+                    .iter()
+                    .map(|fe| (fe, SegmentComponent::Positions)),
+            )
+            .chain(
+                self.fast_fields
+                    .iter()
+                    .map(|fe| (fe, SegmentComponent::FastFields)),
+            )
+            .chain(
+                self.field_norms
+                    .iter()
+                    .map(|fe| (fe, SegmentComponent::FieldNorms)),
+            )
+            .chain(self.terms.iter().map(|fe| (fe, SegmentComponent::Terms)))
+            .chain(self.store.iter().map(|fe| (fe, SegmentComponent::Store)))
+            .chain(
+                self.temp_store
+                    .iter()
+                    .map(|fe| (fe, SegmentComponent::TempStore)),
+            )
+            .chain(
+                self.delete
+                    .as_ref()
+                    .map(|d| (&d.file_entry, SegmentComponent::Delete)),
+            )
     }
 
     pub fn byte_size(&self) -> u64 {

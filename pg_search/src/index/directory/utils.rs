@@ -88,6 +88,8 @@ pub unsafe fn save_new_metas(
 
     modified_ids.retain(|id| new_files.contains_key(id));
 
+    let deleting_xid = pg_sys::GetCurrentTransactionIdIfAny();
+
     //
     // process the new segments
     //
@@ -170,7 +172,7 @@ pub unsafe fn save_new_metas(
     //
     // process the deleted segments
     //
-    // find the deleted segment entries and set their `xmax` to this transaction id
+    // find the deleted segment entries and set their `xmax` to the `deleting_xid` calculated above
     // and for each file in each deleted segment, locate its LinkedBytesList and .mark_deleted()
     //
     let deleted_entries = deleted_ids
@@ -187,7 +189,8 @@ pub unsafe fn save_new_metas(
             // it only applies .delete files, which we consider as modifications
             assert!(pg_sys::IsTransactionState());
 
-            meta_entry.xmax = pg_sys::GetCurrentTransactionId();
+            assert!(meta_entry.xmax == pg_sys::InvalidTransactionId);
+            meta_entry.xmax = deleting_xid;
             (meta_entry, blockno)
         })
         .collect::<Vec<_>>();
@@ -212,7 +215,7 @@ pub unsafe fn save_new_metas(
 
     // delete old entries and their corresponding files
     for (entry, blockno) in &deleted_entries {
-        assert!(entry.xmax == pg_sys::GetCurrentTransactionId());
+        assert!(entry.xmax == deleting_xid);
         let mut buffer = linked_list.bman_mut().get_buffer_mut(*blockno);
         let mut page = buffer.page_mut();
 
@@ -229,24 +232,16 @@ pub unsafe fn save_new_metas(
 
         let did_replace = page.replace_item(offno, pg_item, size);
         assert!(did_replace);
-        drop(buffer);
 
-        for file_entry in [
-            entry.postings,
-            entry.positions,
-            entry.fast_fields,
-            entry.field_norms,
-            entry.terms,
-            entry.store,
-            entry.temp_store,
-            entry.delete.map(|de| de.file_entry),
-        ]
-        .into_iter()
-        .flatten()
-        {
+        // we do this while holding an exclusive lock on the `buffer` containing the SegmentMetaEntry
+        // so that when the lock is released and this buffer is readable by others, its xmax value
+        // and the recyclable-status of all its linked files will match
+        for (file_entry, _) in entry.file_entries() {
             let mut file = LinkedBytesList::open(relation_oid, file_entry.starting_block);
-            file.mark_deleted();
+            file.mark_deleted(deleting_xid);
         }
+
+        drop(buffer);
     }
 
     // replace the modified entries
@@ -262,6 +257,22 @@ pub unsafe fn save_new_metas(
             );
         };
 
+        if entry.xmax != pg_sys::InvalidTransactionId {
+            // this entry was already marked with an xmax so we want to carry that same value through
+            // to the `.delete` file that's now attached to it.
+            //
+            // the entry having an xmax means it's been tagged for recycling but hasn't been recycled
+            // yet.  and we want this new delete file to be recycled along with it when that happens
+            //
+            // we also do this while `buffer` has an exclusive lock so that when we're done updating
+            // this entry in the entry list all its files will have the same recyclable setting
+            let mut deletes_file = LinkedBytesList::open(
+                relation_oid,
+                entry.delete.as_ref().unwrap().file_entry.starting_block,
+            );
+            deletes_file.mark_deleted(entry.xmax);
+        }
+
         let PgItem(pg_item, size) = entry.into();
         let did_replace = page.replace_item(offno, pg_item, size);
         if !did_replace {
@@ -275,7 +286,7 @@ pub unsafe fn save_new_metas(
     // chase down the linked lists for any existing deleted entries and mark them as deleted
     for deleted_entry in replaced_delete_entries {
         let mut file = LinkedBytesList::open(relation_oid, deleted_entry.file_entry.starting_block);
-        file.mark_deleted();
+        file.mark_deleted(deleting_xid);
     }
 
     // add the new entries
@@ -309,8 +320,13 @@ pub unsafe fn load_metas(
 
         while offsetno <= max_offset {
             if let Some((entry, _)) = page.read_item::<SegmentMetaEntry>(offsetno) {
-                if (matches!(solve_mvcc, MvccSatisfies::Any)
-                    && !entry.recyclable(snapshot, heap_relation))
+                if entry.recyclable(snapshot, heap_relation) {
+                    // we don't want anyone to see entries that are recyclable
+                    offsetno += 1;
+                    continue;
+                }
+
+                if (matches!(solve_mvcc, MvccSatisfies::Any))
                     || (matches!(solve_mvcc, MvccSatisfies::Snapshot) && entry.visible(snapshot))
                 {
                     let inner_segment_meta = InnerSegmentMeta {

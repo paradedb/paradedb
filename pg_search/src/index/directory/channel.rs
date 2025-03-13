@@ -280,15 +280,7 @@ impl ChannelRequestHandler {
             }
 
             // caught a panic so let it continue
-            Err(e) => {
-                #[allow(clippy::implicit_saturating_sub)]
-                unsafe {
-                    if pg_sys::InterruptHoldoffCount > 0 {
-                        pg_sys::InterruptHoldoffCount -= 1;
-                    }
-                }
-                resume_unwind(e)
-            }
+            Err(e) => resume_unwind(e),
         }
     }
 

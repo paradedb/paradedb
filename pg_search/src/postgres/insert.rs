@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::gucs::max_mergeable_segment_size;
+use crate::gucs::{max_mergeable_segment_size, segment_merge_scale_factor};
 use crate::index::merge_policy::NPlusOneMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::SearchIndexWriter;
@@ -235,9 +235,35 @@ pub fn paradedb_aminsertcleanup(mut writer: Option<SearchIndexWriter>) {
 }
 
 unsafe fn do_merge(indexrelid: Oid) -> Option<()> {
+    /*
+     * Recompute VACUUM XID boundaries.
+     *
+     * We don't actually care about the oldest non-removable XID.  Computing
+     * the oldest such XID has a useful side-effect that we rely on: it
+     * forcibly updates the XID horizon state for this backend.  This step is
+     * essential; GlobalVisCheckRemovableFullXid() will not reliably recognize
+     * that it is now safe to recycle newly deleted pages without this step.
+     */
+    {
+        let heaprelid = pg_sys::IndexGetRelation(indexrelid, false);
+        let heaprel = pg_sys::RelationIdGetRelation(heaprelid);
+
+        #[cfg(feature = "pg13")]
+        {
+            pg_sys::GetOldestXmin(heaprel, pg_sys::PROCARRAY_FLAGS_VACUUM as i32);
+        }
+
+        #[cfg(not(feature = "pg13"))]
+        {
+            pg_sys::GetOldestNonRemovableTransactionId(heaprel);
+        }
+        pg_sys::RelationClose(heaprel);
+    }
+
     let target_segments = std::thread::available_parallelism()
         .expect("failed to get available_parallelism")
-        .get();
+        .get()
+        * segment_merge_scale_factor();
     let snapshot = pg_sys::GetActiveSnapshot();
 
     let mut items = LinkedItemList::<SegmentMetaEntry>::open(indexrelid, SEGMENT_METAS_START);

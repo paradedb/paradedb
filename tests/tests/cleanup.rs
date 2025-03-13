@@ -223,3 +223,35 @@ fn bulk_insert_merge_behavior(mut conn: PgConnection) {
         .0 as usize;
     assert_eq!(nsegments, 2);
 }
+
+#[rstest]
+fn segment_merge_scale_factor(mut conn: PgConnection) {
+    "CREATE TABLE test_table (id SERIAL PRIMARY KEY, value TEXT NOT NULL) WITH (autovacuum_enabled = off);"
+        .execute(&mut conn);
+    "CREATE INDEX idxtest_table ON test_table USING bm25(id, value) WITH (key_field = 'id');"
+        .execute(&mut conn);
+
+    let parallelism = std::thread::available_parallelism().unwrap().get();
+
+    "SET paradedb.segment_merge_scale_factor = 2;".execute(&mut conn);
+    for i in 0..(parallelism * 2) {
+        format!("INSERT INTO test_table (value) VALUES ('{i}')").execute(&mut conn);
+    }
+    let (nsegments,) =
+        "SELECT count(*) FROM paradedb.index_info('idxtest_table')".fetch_one::<(i64,)>(&mut conn);
+    assert_eq!(nsegments as usize, parallelism * 2);
+
+    format!(
+        "INSERT INTO test_table (value) VALUES ('this should create {parallelism}*2+1 segments')"
+    )
+    .execute(&mut conn);
+    let (nsegments,) =
+        "SELECT count(*) FROM paradedb.index_info('idxtest_table')".fetch_one::<(i64,)>(&mut conn);
+    assert_eq!(nsegments as usize, parallelism * 2 + 1);
+
+    format!("INSERT INTO test_table (value) VALUES ('this should cause a merge to {parallelism}')")
+        .execute(&mut conn);
+    let (nsegments,) =
+        "SELECT count(*) FROM paradedb.index_info('idxtest_table')".fetch_one::<(i64,)>(&mut conn);
+    assert_eq!(nsegments as usize, parallelism + 1);
+}

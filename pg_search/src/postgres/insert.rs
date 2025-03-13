@@ -245,19 +245,19 @@ unsafe fn do_merge(indexrelid: Oid) -> Option<()> {
      * that it is now safe to recycle newly deleted pages without this step.
      */
     {
+        let heaprelid = pg_sys::IndexGetRelation(indexrelid, false);
+        let heaprel = pg_sys::RelationIdGetRelation(heaprelid);
+
         #[cfg(feature = "pg13")]
         {
-            pg_sys::GetOldestActiveTransactionId();
+            pg_sys::GetOldestXmin(heaprel, pg_sys::PROCARRAY_FLAGS_VACUUM as i32);
         }
 
         #[cfg(not(feature = "pg13"))]
         {
-            let heaprelid = pg_sys::IndexGetRelation(indexrelid, false);
-            let heaprel = pg_sys::RelationIdGetRelation(heaprelid);
-
             pg_sys::GetOldestNonRemovableTransactionId(heaprel);
-            pg_sys::RelationClose(heaprel);
         }
+        pg_sys::RelationClose(heaprel);
     }
 
     let target_segments = std::thread::available_parallelism()

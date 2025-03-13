@@ -28,8 +28,8 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use tantivy::schema::{
-    DateOptions, DateTimePrecision, Field, JsonObjectOptions, NumericOptions, Schema,
-    TextFieldIndexing, TextOptions,
+    DateOptions, DateTimePrecision, Field, IpAddrOptions, JsonObjectOptions, NumericOptions,
+    Schema, TextFieldIndexing, TextOptions,
 };
 use thiserror::Error;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
@@ -64,6 +64,7 @@ pub enum SearchFieldType {
     Json,
     Date,
     Range,
+    Inet,
 }
 
 impl SearchFieldType {
@@ -72,6 +73,7 @@ impl SearchFieldType {
         match (self, config) {
             (SearchFieldType::Text, SearchFieldConfig::Text { .. }) => true,
             (SearchFieldType::Uuid, SearchFieldConfig::Text { .. }) => true,
+            (SearchFieldType::Inet, SearchFieldConfig::Inet { .. }) => true,
             (SearchFieldType::I64, SearchFieldConfig::Numeric { .. }) => true,
             (SearchFieldType::F64, SearchFieldConfig::Numeric { .. }) => true,
             (SearchFieldType::U64, SearchFieldConfig::Numeric { .. }) => true,
@@ -87,6 +89,7 @@ impl SearchFieldType {
         match self {
             SearchFieldType::Text => SearchFieldConfig::default_text(),
             SearchFieldType::Uuid => SearchFieldConfig::default_uuid(),
+            SearchFieldType::Inet => SearchFieldConfig::default_inet(),
             SearchFieldType::I64 => SearchFieldConfig::default_numeric(),
             SearchFieldType::F64 => SearchFieldConfig::default_numeric(),
             SearchFieldType::U64 => SearchFieldConfig::default_numeric(),
@@ -105,6 +108,7 @@ impl TryFrom<&PgOid> for SearchFieldType {
             PgOid::BuiltIn(builtin) => match builtin {
                 PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => Ok(SearchFieldType::Text),
                 PgBuiltInOids::UUIDOID => Ok(SearchFieldType::Uuid),
+                PgBuiltInOids::INETOID => Ok(SearchFieldType::Inet),
                 PgBuiltInOids::INT2OID | PgBuiltInOids::INT4OID | PgBuiltInOids::INT8OID => {
                     Ok(SearchFieldType::I64)
                 }
@@ -206,6 +210,16 @@ pub enum SearchFieldConfig {
         column: Option<String>,
     },
     Date {
+        #[serde(default = "default_as_true")]
+        indexed: bool,
+        #[serde(default = "default_as_true")]
+        fast: bool,
+        #[serde(default = "default_as_false")]
+        stored: bool,
+        #[serde(default)]
+        column: Option<String>,
+    },
+    Inet {
         #[serde(default = "default_as_true")]
         indexed: bool,
         #[serde(default = "default_as_true")]
@@ -511,6 +525,48 @@ impl SearchFieldConfig {
         })
     }
 
+    pub fn inet_from_json(value: serde_json::Value) -> Result<Self> {
+        let obj = value
+            .as_object()
+            .context("Expected a JSON object for Date configuration")?;
+
+        let indexed = match obj.get("indexed") {
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("'indexed' field should be a boolean")),
+            None => Ok(true),
+        }?;
+
+        let fast = match obj.get("fast") {
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("'fast' field should be a boolean")),
+            None => Ok(true),
+        }?;
+
+        let stored = match obj.get("stored") {
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("'stored' field should be a boolean")),
+            None => Ok(false),
+        }?;
+
+        let column = match obj.get("column") {
+            Some(v) => v
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("'column' field should be a string"))
+                .map(|s| Some(s.to_string())),
+            None => Ok(None),
+        }?;
+
+        Ok(SearchFieldConfig::Inet {
+            indexed,
+            fast,
+            stored,
+            column,
+        })
+    }
+
     pub fn column(&self) -> Option<&String> {
         match self {
             Self::Text { column, .. }
@@ -518,7 +574,8 @@ impl SearchFieldConfig {
             | Self::Range { column, .. }
             | Self::Numeric { column, .. }
             | Self::Boolean { column, .. }
-            | Self::Date { column, .. } => column.as_ref(),
+            | Self::Date { column, .. }
+            | Self::Inet { column, .. } => column.as_ref(),
         }
     }
 }
@@ -544,6 +601,10 @@ impl SearchFieldConfig {
             normalizer: SearchNormalizer::Raw,
             column: None,
         }
+    }
+
+    pub fn default_inet() -> Self {
+        Self::from_json(json!({"Inet": {}}))
     }
 
     pub fn default_numeric() -> Self {
@@ -599,6 +660,34 @@ impl From<SearchFieldConfig> for TextOptions {
             _ => panic!("attempted to convert non-text search field config to tantivy text config"),
         }
         text_options
+    }
+}
+
+impl From<SearchFieldConfig> for IpAddrOptions {
+    fn from(config: SearchFieldConfig) -> Self {
+        let mut inet_options = IpAddrOptions::default();
+        match config {
+            SearchFieldConfig::Inet {
+                indexed,
+                fast,
+                stored,
+                ..
+            } => {
+                if stored {
+                    inet_options = inet_options.set_stored();
+                }
+                if fast {
+                    inet_options = inet_options.set_fast();
+                }
+                if indexed {
+                    inet_options = inet_options.set_indexed();
+                }
+            }
+            _ => {
+                panic!("attempted to convert non-inet search field config to tantivy date config")
+            }
+        }
+        inet_options
     }
 }
 
@@ -781,6 +870,7 @@ impl SearchIndexSchema {
             let id: SearchFieldId = match field_type {
                 SearchFieldType::Text => builder.add_text_field(name.as_ref(), config.clone()),
                 SearchFieldType::Uuid => builder.add_text_field(name.as_ref(), config.clone()),
+                SearchFieldType::Inet => builder.add_ip_addr_field(name.as_ref(), config.clone()),
                 SearchFieldType::I64 => builder.add_i64_field(name.as_ref(), config.clone()),
                 SearchFieldType::U64 => builder.add_u64_field(name.as_ref(), config.clone()),
                 SearchFieldType::F64 => builder.add_f64_field(name.as_ref(), config.clone()),
@@ -905,6 +995,7 @@ impl SearchIndexSchema {
                 normalizer,
                 ..
             } if normalizer == desired_normalizer => Some(()),
+            SearchFieldConfig::Inet { fast: true, .. } => Some(()),
             SearchFieldConfig::Numeric { fast: true, .. } => Some(()),
             SearchFieldConfig::Boolean { fast: true, .. } => Some(()),
             SearchFieldConfig::Date { fast: true, .. } => Some(()),
@@ -1078,7 +1169,7 @@ impl AsFieldType<String> for (&PgRelation, &SearchIndexSchema) {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use tantivy::schema::{JsonObjectOptions, NumericOptions, TextOptions};
+    use tantivy::schema::{IpAddrOptions, JsonObjectOptions, NumericOptions, TextOptions};
 
     use crate::schema::SearchFieldConfig;
 
@@ -1107,6 +1198,22 @@ mod tests {
 
         let text_options = text_options.set_fast(Some("index"));
         assert_ne!(expected.is_fast(), text_options.is_fast());
+    }
+
+    #[rstest]
+    fn test_search_inet_options() {
+        let json = r#"{
+            "indexed": true,
+            "stored": true,
+            "fieldnorms": false,
+            "fast": true
+        }"#;
+        let config: serde_json::Value = serde_json::from_str(json).unwrap();
+        let expected: SearchFieldConfig =
+            serde_json::from_value(serde_json::json!({"Inet": config})).unwrap();
+        let inet_options: IpAddrOptions = SearchFieldConfig::default_inet().into();
+
+        assert_eq!(inet_options, expected.into());
     }
 
     #[rstest]

@@ -125,7 +125,7 @@ jobs:
           short_commit=$(echo "${GITHUB_SHA}" | cut -c1-7)
           echo "short_commit=$short_commit" >> $GITHUB_OUTPUT
 
-      - name: Upload Stressgres Graph to Slack
+      - name: Upload Stressgres Graphs to Slack
         uses: slackapi/slack-github-action@v2.0.0
         with:
           method: files.uploadV2

@@ -20,7 +20,6 @@ mod fixtures;
 use fixtures::*;
 use rstest::*;
 use sqlx::PgConnection;
-use time::format_description::parse;
 
 #[rstest]
 fn validate_checksum(mut conn: PgConnection) {

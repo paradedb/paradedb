@@ -168,10 +168,7 @@ impl MergePolicy for NPlusOneMergePolicy {
                 byte_size,
                 segment.num_docs(),
             );
-            candidates.last_mut().unwrap().0.push(segment.id());
-            current_candidate_byte_size += byte_size;
-
-            if current_candidate_byte_size >= self.segment_freeze_size {
+            if current_candidate_byte_size + byte_size >= self.segment_freeze_size {
                 my_eprintln!(
                     "{} segments in current candidate, size={current_candidate_byte_size}",
                     candidates.last().unwrap().0.len()
@@ -181,6 +178,9 @@ impl MergePolicy for NPlusOneMergePolicy {
                 candidates.push(MergeCandidate(vec![]));
                 current_candidate_byte_size = 0;
             }
+
+            candidates.last_mut().unwrap().0.push(segment.id());
+            current_candidate_byte_size += byte_size;
         }
         my_eprintln!(
             "{} segments in last candidate, size={current_candidate_byte_size}",

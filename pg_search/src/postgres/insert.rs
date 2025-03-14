@@ -262,8 +262,7 @@ unsafe fn do_merge(indexrelid: Oid) -> Option<()> {
 
     let target_segments = std::thread::available_parallelism()
         .expect("failed to get available_parallelism")
-        .get()
-        * segment_merge_scale_factor();
+        .get();
     let snapshot = pg_sys::GetActiveSnapshot();
 
     let mut items = LinkedItemList::<SegmentMetaEntry>::open(indexrelid, SEGMENT_METAS_START);
@@ -278,7 +277,7 @@ unsafe fn do_merge(indexrelid: Oid) -> Option<()> {
         ndocs += entry.num_docs() + entry.num_deleted_docs();
     }
 
-    let recycled_entries = if nvisible > target_segments + 1 {
+    let recycled_entries = if nvisible > target_segments * segment_merge_scale_factor() + 1 {
         let avg_byte_size_per_doc = nbytes as f64 / ndocs as f64;
 
         let mut merge_policy = NPlusOneMergePolicy {
@@ -288,6 +287,7 @@ unsafe fn do_merge(indexrelid: Oid) -> Option<()> {
             avg_byte_size_per_doc,
             segment_freeze_size: max_mergeable_segment_size(),
             vacuum_list: Default::default(),
+            already_processed: Default::default(),
         };
 
         // acquire the MergeLock here, returning early if we can't.

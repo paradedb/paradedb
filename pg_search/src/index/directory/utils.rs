@@ -156,7 +156,7 @@ pub unsafe fn save_new_metas(
 
             if meta_entry.delete.is_some() {
                 // remember the old delete_entry for future action
-                replaced_delete_entries.push(meta_entry.delete.unwrap());
+                replaced_delete_entries.push((meta_entry.xmax, meta_entry.delete.unwrap()));
             }
 
             // replace (or set new) the delete_entry
@@ -284,9 +284,12 @@ pub unsafe fn save_new_metas(
         }
     }
     // chase down the linked lists for any existing deleted entries and mark them as deleted
-    for deleted_entry in replaced_delete_entries {
-        let mut file = LinkedBytesList::open(relation_oid, deleted_entry.file_entry.starting_block);
-        file.mark_deleted(deleting_xid);
+    for (existing_xmax, deleted_entry) in replaced_delete_entries {
+        if existing_xmax == pg_sys::InvalidTransactionId {
+            let mut file =
+                LinkedBytesList::open(relation_oid, deleted_entry.file_entry.starting_block);
+            file.mark_deleted(deleting_xid);
+        }
     }
 
     // add the new entries

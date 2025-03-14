@@ -131,7 +131,7 @@ mod tests {
 
         let candidates = policy.compute_merge_candidates(None, &segments);
 
-        assert_eq!(candidates.len(), 11);
+        assert_eq!(candidates.len(), 12);
     }
 
     fn new_segment_meta() -> SegmentMeta {

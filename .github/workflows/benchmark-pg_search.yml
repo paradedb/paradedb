@@ -101,8 +101,8 @@ jobs:
         working-directory: benchmarks/
         run: |
           for file in results_pg_search_{test_info,index_creation,benchmark_results,postgres_settings}.csv; do
-          curl -F "file=@$file" \
-            -F "channels=${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}" \
-            -H "Authorization: Bearer ${{ secrets.SLACK_OAUTH_TOKEN }}" \
-            https://slack.com/api/files.upload
+            curl -F "file=@$file" \
+              -F "channels=${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}" \
+              -H "Authorization: Bearer ${{ secrets.SLACK_OAUTH_TOKEN }}" \
+              https://slack.com/api/files.upload
           done

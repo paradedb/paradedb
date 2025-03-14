@@ -61,8 +61,9 @@ impl MergePolicy for NPlusOneMergePolicy {
             })
             .collect::<Vec<_>>();
 
-        // sort them smallest-to-largest, by # of alive docs
-        segments.sort_unstable_by_key(|a| a.num_docs());
+        // sort them largest to smallest by # of alive docs b/c we pop this list and want the
+        // smallest ones first
+        segments.sort_unstable_by(|a, b| a.num_docs().cmp(&b.num_docs()).reverse());
 
         let mut candidates = vec![MergeCandidate(vec![])];
         let mut adjusted_segment_count = segments.len() + 1;
@@ -74,6 +75,7 @@ impl MergePolicy for NPlusOneMergePolicy {
                     meta.num_docs() as usize * self.avg_byte_size_per_doc.ceil() as usize;
 
                 if current_candidate_size >= self.segment_freeze_size {
+                    // this MergeCandidate is full.  start a new one
                     candidates.push(MergeCandidate(vec![]));
                     adjusted_segment_count += 1;
                     current_candidate_size = 0;

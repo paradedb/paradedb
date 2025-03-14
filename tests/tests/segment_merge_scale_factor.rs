@@ -52,9 +52,12 @@ fn segment_merge_scale_factor(mut conn: PgConnection) {
         }
     }
 
-    format!("INSERT INTO test_table (value) VALUES ('this should cause a merge to {parallelism}')")
+    "INSERT INTO test_table (value) VALUES ('this should cause a merge to 1 segment')"
         .execute(&mut conn);
     let (nsegments,) =
         "SELECT count(*) FROM paradedb.index_info('idxtest_table')".fetch_one::<(i64,)>(&mut conn);
-    assert_eq!(nsegments as usize, parallelism + 1);
+
+    // the segments will end up merging down to one segment, because their total size is less than
+    // our default `max_mergeable_segment_size` which is 200MB
+    assert_eq!(nsegments as usize, 1);
 }

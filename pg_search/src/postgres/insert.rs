@@ -235,6 +235,9 @@ pub fn paradedb_aminsertcleanup(mut writer: Option<SearchIndexWriter>) {
 }
 
 unsafe fn do_merge(indexrelid: Oid) -> Option<()> {
+    let heaprelid = pg_sys::IndexGetRelation(indexrelid, false);
+    let heaprel = pg_sys::RelationIdGetRelation(heaprelid);
+
     /*
      * Recompute VACUUM XID boundaries.
      *
@@ -245,9 +248,6 @@ unsafe fn do_merge(indexrelid: Oid) -> Option<()> {
      * that it is now safe to recycle newly deleted pages without this step.
      */
     {
-        let heaprelid = pg_sys::IndexGetRelation(indexrelid, false);
-        let heaprel = pg_sys::RelationIdGetRelation(heaprelid);
-
         #[cfg(feature = "pg13")]
         {
             pg_sys::GetOldestXmin(heaprel, pg_sys::PROCARRAY_FLAGS_VACUUM as i32);
@@ -257,28 +257,37 @@ unsafe fn do_merge(indexrelid: Oid) -> Option<()> {
         {
             pg_sys::GetOldestNonRemovableTransactionId(heaprel);
         }
-        pg_sys::RelationClose(heaprel);
     }
 
     let target_segments = std::thread::available_parallelism()
         .expect("failed to get available_parallelism")
-        .get()
-        * segment_merge_scale_factor();
+        .get();
     let snapshot = pg_sys::GetActiveSnapshot();
-
     let mut items = LinkedItemList::<SegmentMetaEntry>::open(indexrelid, SEGMENT_METAS_START);
     let mut nbytes = 0;
     let mut ndocs = 0;
-    let mut nvisible = 0;
+    let mut nlikely_mergable = 0;
+    let max_mergeable_segment_size = max_mergeable_segment_size();
     for entry in items.list() {
-        if entry.visible(snapshot) {
-            nvisible += 1;
+        // only consider segments that are subject to merging.  the 1.25 here is saying that
+        // if the entry's size is within 25% of the max_mergable_segment_size then it's _likely_
+        // not going to merge with another segment, so we won't count it towards calculating
+        // the scale factor
+        if entry.byte_size() as f64 * 1.25  < max_mergeable_segment_size as f64
+
+            // and that are visible and not going to be recycled soon
+            && entry.visible(snapshot)
+            && !entry.recyclable(snapshot, heaprel)
+        {
+            nlikely_mergable += 1;
         }
         nbytes += entry.byte_size();
         ndocs += entry.num_docs() + entry.num_deleted_docs();
     }
+    pg_sys::RelationClose(heaprel);
 
-    let recycled_entries = if nvisible > target_segments + 1 {
+    let recycled_entries = if nlikely_mergable > target_segments * segment_merge_scale_factor() + 1
+    {
         let avg_byte_size_per_doc = nbytes as f64 / ndocs as f64;
 
         let mut merge_policy = NPlusOneMergePolicy {
@@ -286,8 +295,9 @@ unsafe fn do_merge(indexrelid: Oid) -> Option<()> {
             min_merge_count: 2,
 
             avg_byte_size_per_doc,
-            segment_freeze_size: max_mergeable_segment_size(),
+            segment_freeze_size: max_mergeable_segment_size,
             vacuum_list: Default::default(),
+            already_processed: Default::default(),
         };
 
         // acquire the MergeLock here, returning early if we can't.

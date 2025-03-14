@@ -95,76 +95,14 @@ jobs:
         working-directory: benchmarks/
         run: cargo run -- --url postgresql://localhost:288${{ matrix.pg_version }}/postgres --rows ${{ matrix.num_rows }} --type pg_search --output csv
 
-      - name: Derive Short Commit
-        id: commit_info
+      - name: Upload Benchmark Results to Slack
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
+        working-directory: benchmarks/
         run: |
-          short_commit=$(echo "${GITHUB_SHA}" | cut -c1-7)
-          echo "short_commit=$short_commit" >> $GITHUB_OUTPUT
-
-      - name: Upload Benchmark Parameters CSV to Slack
-        uses: slackapi/slack-github-action@v2.0.0
-        with:
-          method: files.uploadV2
-          token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          payload: |
-            channel_id: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-            initial_comment: |
-              *Community Benchmarks Parameters*
-              <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ steps.commit_info.outputs.short_commit }}> | <${{ steps.artifact-logs.outputs.artifact-url }} | Download Logs>
-            file: "benchmarks/test_info.csv"
-            filename: "test_info.csv"
-            request_file_info: true
-          errors: true
-          payload-templated: false
-          retries: 5
-
-      - name: Upload Postgres Settings CSV to Slack
-        uses: slackapi/slack-github-action@v2.0.0
-        with:
-          method: files.uploadV2
-          token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          payload: |
-            channel_id: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-            initial_comment: |
-              *Community Benchmarks Postgres Settings*
-              <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ steps.commit_info.outputs.short_commit }}> | <${{ steps.artifact-logs.outputs.artifact-url }} | Download Logs>
-            file: "benchmarks/postgres_settings.csv"
-            filename: "postgres_settings.csv"
-            request_file_info: true
-          errors: true
-          payload-templated: false
-          retries: 5
-
-      - name: Upload Index Creation Results CSV to Slack
-        uses: slackapi/slack-github-action@v2.0.0
-        with:
-          method: files.uploadV2
-          token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          payload: |
-            channel_id: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-            initial_comment: |
-              *Community Benchmarks Index Creation Results*
-              <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ steps.commit_info.outputs.short_commit }}> | <${{ steps.artifact-logs.outputs.artifact-url }} | Download Logs>
-            file: "benchmarks/index_creation.csv"
-            filename: "index_creation.csv"
-            request_file_info: true
-          errors: true
-          payload-templated: false
-          retries: 5
-
-      - name: Upload Search Results CSV to Slack
-        uses: slackapi/slack-github-action@v2.0.0
-        with:
-          method: files.uploadV2
-          token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          payload: |
-            channel_id: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-            initial_comment: |
-              *Community Benchmarks Search Results*
-              <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ steps.commit_info.outputs.short_commit }}> | <${{ steps.artifact-logs.outputs.artifact-url }} | Download Logs>
-            file: "benchmarks/benchmark_results.csv"
-            filename: "benchmark_results.csv"
-            request_file_info: true
-          errors: true
-          payload-templated: false
-          retries: 5
+          for file in results_pg_search_{test_info,index_creation,benchmark_results,postgres_settings}.csv; do
+          curl -F "file=@$file" \
+            -F "channels=${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}" \
+            -H "Authorization: Bearer ${{ secrets.SLACK_OAUTH_TOKEN }}" \
+            https://slack.com/api/files.upload
+          done

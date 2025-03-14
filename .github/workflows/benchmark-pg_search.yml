@@ -12,7 +12,6 @@ on:
       - main
   push:
     branches:
-      - phil/fix-slack-notifs
       - dev
     paths:
       - ".github/workflows/benchmark-pg_search.yml"

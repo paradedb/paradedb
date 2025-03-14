@@ -6,10 +6,12 @@
 name: Test pg_search Stressgres
 
 on:
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - dev
-      - main
     paths:
       - ".github/workflows/test-pg_search-stressgres.yml"
       - "**/*.rs"
@@ -122,14 +124,13 @@ jobs:
           short_commit=$(echo "${GITHUB_SHA}" | cut -c1-7)
           echo "short_commit=$short_commit" >> $GITHUB_OUTPUT
 
-      - name: Upload Stressgres Graph to Slack
+      - name: Upload Stressgres Graphs to Slack
         uses: slackapi/slack-github-action@v2.0.0
-        id: upload_stressgres_image
         with:
           method: files.uploadV2
           token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           payload: |
-            channel_id: ${{ secrets.SLACK_GITHUB_CHANNEL_ID }}
+            channel_id: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
             initial_comment: |
               *Community Stressgres Results*
               <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ steps.commit_info.outputs.short_commit }}> | <${{ steps.artifact-logs.outputs.artifact-url }} | Download Logs>

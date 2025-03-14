@@ -266,24 +266,28 @@ unsafe fn do_merge(indexrelid: Oid) -> Option<()> {
     let mut items = LinkedItemList::<SegmentMetaEntry>::open(indexrelid, SEGMENT_METAS_START);
     let mut nbytes = 0;
     let mut ndocs = 0;
-    let mut nvisible = 0;
+    let mut nlikely_mergable = 0;
     let max_mergeable_segment_size = max_mergeable_segment_size();
     for entry in items.list() {
-        // only consider segments that are subject to merging
-        if entry.byte_size() < max_mergeable_segment_size as u64
+        // only consider segments that are subject to merging.  the 1.25 here is saying that
+        // if the entry's size is within 25% of the max_mergable_segment_size then it's _likely_
+        // not going to merge with another segment, so we won't count it towards calculating
+        // the scale factor
+        if entry.byte_size() as f64 * 1.25  < max_mergeable_segment_size as f64
 
             // and that are visible and not going to be recycled soon
             && entry.visible(snapshot)
             && !entry.recyclable(snapshot, heaprel)
         {
-            nvisible += 1;
+            nlikely_mergable += 1;
         }
         nbytes += entry.byte_size();
         ndocs += entry.num_docs() + entry.num_deleted_docs();
     }
     pg_sys::RelationClose(heaprel);
 
-    let recycled_entries = if nvisible > target_segments * segment_merge_scale_factor() + 1 {
+    let recycled_entries = if nlikely_mergable > target_segments * segment_merge_scale_factor() + 1
+    {
         let avg_byte_size_per_doc = nbytes as f64 / ndocs as f64;
 
         let mut merge_policy = NPlusOneMergePolicy {

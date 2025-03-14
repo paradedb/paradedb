@@ -74,8 +74,8 @@ impl MergePolicy for NPlusOneMergePolicy {
                 let byte_size =
                     meta.num_docs() as usize * self.avg_byte_size_per_doc.ceil() as usize;
 
-                if current_candidate_size >= self.segment_freeze_size {
-                    // this MergeCandidate is full.  start a new one
+                if current_candidate_size + byte_size >= self.segment_freeze_size {
+                    // this MergeCandidate would be full if added this one too, so start a new one
                     candidates.push(MergeCandidate(vec![]));
                     adjusted_segment_count += 1;
                     current_candidate_size = 0;

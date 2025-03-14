@@ -193,7 +193,7 @@ fn vacuum_restores_segment_count(mut conn: PgConnection) {
     let nsegments = "SELECT COUNT(*) FROM paradedb.index_info('idxtest_table');"
         .fetch_one::<(i64,)>(&mut conn)
         .0 as usize;
-    assert!(nsegments >= expected_segments + 1);
+    assert!(nsegments > expected_segments);
 }
 
 #[rstest]

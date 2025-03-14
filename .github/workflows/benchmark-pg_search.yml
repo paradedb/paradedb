@@ -14,6 +14,7 @@ on:
     branches:
       - dev
     paths:
+      - ".github/workflows/benchmark-pg_search.yml"
       - "**/*.rs"
       - "**/*.toml"
   workflow_dispatch:
@@ -25,12 +26,11 @@ concurrency:
 jobs:
   benchmark-pg_search:
     name: Benchmark pg_search
+    runs-on: ubicloud-standard-8
     strategy:
       matrix:
-        runner: [ubicloud-standard-8]
         pg_version: [17]
         num_rows: [100000000]
-    runs-on: ${{ matrix.runner }}
 
     steps:
       - name: Checkout Git Repository
@@ -94,7 +94,7 @@ jobs:
         working-directory: benchmarks/
         run: cargo run -- --url postgresql://localhost:288${{ matrix.pg_version }}/postgres --rows ${{ matrix.num_rows }} --type pg_search --output csv
 
-      - name: Send Slack Notification
+      - name: Upload Benchmark Results to Slack
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
         working-directory: benchmarks/

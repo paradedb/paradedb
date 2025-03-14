@@ -3,7 +3,7 @@ resolver = "2"
 members = ["pg_search", "tests", "tokenizers", "benchmarks"]
 
 [workspace.package]
-version = "0.15.7"
+version = "0.15.8"
 edition = "2021"
 license = "AGPL-3.0"
 

@@ -1,0 +1,20 @@
+---
+title: 0.15.8
+---
+
+## New Features 🎉
+
+- Implemented pushdown of `IS NOT NULL` into our underlying search engine, Tantivy, to avoid returning NULL values.
+
+## Performance Improvements 🚀
+
+- Improved the transactions per second of `SELECT` queries by around 50%.
+- Improved the transactions per second of `UPDATE` and `INSERT` queries by several orders of magnitude.
+
+## Stability Improvements 💪
+
+- Fixed an issue where BM25 indexes would grow unbounded in size as the underlying table changes.
+
+## Full Changelog
+
+The full changelog is available [here](https://github.com/paradedb/paradedb/releases/tag/v0.15.8).

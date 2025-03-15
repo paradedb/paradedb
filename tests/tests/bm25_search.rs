@@ -379,13 +379,13 @@ fn snippet(mut conn: PgConnection) {
     assert_relative_eq!(row.2, 2.484906, epsilon = 1e-6);
 
     let row: (i32, String, f32) = "
-        SELECT id, paradedb.snippet(description, max_num_chars=>17), paradedb.score(id)
-        FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:shoes' ORDER BY id"
+        SELECT id, paradedb.snippet(description, max_num_chars=>14), paradedb.score(id)
+        FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' ORDER BY id;"
         .fetch_one(&mut conn);
 
-    assert_eq!(row.0, 3);
-    assert_eq!(row.1, "<b>shoes</b>");
-    assert_relative_eq!(row.2, 2.484906, epsilon = 1e-6);
+    assert_eq!(row.0, 1);
+    assert_eq!(row.1, "metal <b>keyboard</b>");
+    assert_relative_eq!(row.2, 2.821378, epsilon = 1e-6);
 
     let row: (i32, String, f32) = "
         SELECT id, paradedb.snippet(description, max_num_chars=>17), paradedb.score(id)

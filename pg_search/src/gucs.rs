@@ -63,7 +63,7 @@ static MAX_MERGEABLE_SEGMENT_SIZE: GucSetting<i32> = GucSetting::<i32>::new(200 
 
 /// Multiplied by the host's "parallelism" value, the resulting value is the segment count after which
 /// we'll consider performing a merge.
-static SEGMENT_MERGE_SCALE_FACTOR: GucSetting<i32> = GucSetting::<i32>::new(1);
+static SEGMENT_MERGE_SCALE_FACTOR: GucSetting<i32> = GucSetting::<i32>::new(5);
 
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
@@ -175,7 +175,7 @@ pub fn init() {
     GucRegistry::define_int_guc(
         "paradedb.segment_merge_scale_factor",
         "An integer value multiplied by the host's 'parallelism' value, the resulting value is the segment count after which we'll consider performing a merge.",
-        "Default is `1` (one)",
+        "Default is `5`",
         &SEGMENT_MERGE_SCALE_FACTOR,
         0,
         i32::MAX,

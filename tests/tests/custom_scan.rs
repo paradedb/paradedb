@@ -569,6 +569,6 @@ fn is_numeric_fast_field_capable(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    let (b, count) = "select assert(count(*), 8), count(*) from (select id from test where message @@@ 'beer' order by severity) limit 8;".fetch_one::<(bool, i64)>(&mut conn);
+    let (b, count) = "select assert(count(*), 8), count(*) from (select id from test where message @@@ 'beer' order by severity) x limit 8;".fetch_one::<(bool, i64)>(&mut conn);
     assert_eq!((b, count), (true, 8));
 }

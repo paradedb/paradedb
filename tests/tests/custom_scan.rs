@@ -516,3 +516,59 @@ fn cte_issue_1951(mut conn: PgConnection) {
     "#.fetch_result::<(i32, )>(&mut conn).expect("query failed");
     assert_eq!(results.len(), 1);
 }
+
+#[rstest]
+fn is_numeric_fast_field_capable(mut conn: PgConnection) {
+    r#"
+        CREATE TABLE test (
+            id SERIAL8 NOT NULL PRIMARY KEY,
+            message TEXT,
+            severity INTEGER
+        ) WITH (autovacuum_enabled = false);
+        
+        INSERT INTO test (message, severity) VALUES ('beer wine cheese a', 1);
+        INSERT INTO test (message, severity) VALUES ('beer wine a', 2);
+        INSERT INTO test (message, severity) VALUES ('beer cheese a', 3);
+        INSERT INTO test (message, severity) VALUES ('beer a', 4);
+        INSERT INTO test (message, severity) VALUES ('wine cheese a', 5);
+        INSERT INTO test (message, severity) VALUES ('wine a', 6);
+        INSERT INTO test (message, severity) VALUES ('cheese a', 7);
+        INSERT INTO test (message, severity) VALUES ('beer wine cheese a', 1);
+        INSERT INTO test (message, severity) VALUES ('beer wine a', 2);
+        INSERT INTO test (message, severity) VALUES ('beer cheese a', 3);
+        INSERT INTO test (message, severity) VALUES ('beer a', 4);
+        INSERT INTO test (message, severity) VALUES ('wine cheese a', 5);
+        INSERT INTO test (message, severity) VALUES ('wine a', 6);
+        INSERT INTO test (message, severity) VALUES ('cheese a', 7);
+        
+        -- INSERT INTO test (message) SELECT 'space fillter ' || x FROM generate_series(1, 10000000) x;
+        
+        CREATE INDEX idxtest ON test USING bm25(id, message, severity) WITH (key_field = 'id');
+        CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool STABLE STRICT LANGUAGE plpgsql AS $$
+        DECLARE
+            current_txid bigint;
+        BEGIN
+            -- Get the current transaction ID
+            current_txid := txid_current();
+        
+            -- Check if the values are not equal
+            IF a <> b THEN
+                RAISE EXCEPTION 'Assertion failed: % <> %. Transaction ID: %', a, b, current_txid;
+            END IF;
+        
+            RETURN true;
+        END;
+        $$;    
+    "#.execute(&mut conn);
+
+    "VACUUM test;".execute(&mut conn);
+
+    r#"
+        SET enable_indexonlyscan to OFF;
+        SET enable_indexscan to OFF;
+    "#
+    .execute(&mut conn);
+
+    let (b, count) = "select assert(count(*), 8), count(*) from (select id from test where message @@@ 'beer' order by severity) x limit 8;".fetch_one::<(bool, i64)>(&mut conn);
+    assert_eq!((b, count), (true, 8));
+}

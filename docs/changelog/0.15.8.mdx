@@ -2,18 +2,28 @@
 title: 0.15.8
 ---
 
-## New Features 🎉
-
-- Implemented pushdown of `IS NOT NULL` into our underlying search engine, Tantivy, to avoid returning NULL values.
-
 ## Performance Improvements 🚀
 
-- Improved the transactions per second of `SELECT` queries by around 50%.
-- Improved the transactions per second of `UPDATE` and `INSERT` queries by several orders of magnitude.
+- We have significantly improved write throughput by optimizing our segment merge policy. We introduced a new setting,
+  [paradedb.segment_merge_scale_factor](/documentation/configuration/write#segment-merge-scale-factor), which allows
+  expensive merge operations to be deferred until a certain number of small segments have accumulated.
+- Implemented pushdown of `IS NOT NULL` into the custom scan
 
 ## Stability Improvements 💪
 
-- Fixed an issue where BM25 indexes would grow unbounded in size as the underlying table changes.
+- We have significantly optimized the size of the BM25 index on disk. Prior to this release, the BM25 index would
+  unconditionally extend the size of the index on disk on every `INSERT`/`UPDATE`/`COPY` if `VACUUM` had not been run.
+  Now, the BM25 index is able to return "dead" space to the Postgres free space map as part of an `INSERT`/`UPDATE`/`COPY`,
+  which means that these statements are able to reclaim existing space.
+
+## New Features 🎉
+
+- Added support for `INET` type to the BM25 index
+
+## New Contributors 👋
+
+- [@YohDeadfall](https://github.com/YohDeadfall) made their first contribution in [#2286](https://github.com/paradedb/paradedb/pull/2286)
+- [@raghunandanbhat](https://github.com/raghunandanbhat) made their first contribution in [#2264](https://github.com/paradedb/paradedb/pull/2264)
 
 ## Full Changelog
 

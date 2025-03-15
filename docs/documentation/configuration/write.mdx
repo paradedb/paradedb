@@ -51,11 +51,8 @@ SET paradedb.max_mergeable_segment_size = 200MB;
 
 ## Segment Merge Scale Factor
 
-`paradedb.segment_merge_scale_factor` is an integer, defaulting to `1` (one), that can be used to defer merging segments util the index has at least `"available parallelism" * paradedb.segment_merge_scale_factor + 1` segments.
-
-This can be helpful for ensuring newly-created small segments aren't always merged together with existing larger segments, but rather merged together at some future point.segment_merge_scale_factor
-
-Determining the proper value will depend on the number of rows typical INSERT/UPDATE statements create along with how having more segments impacts search performance.
+`paradedb.segment_merge_scale_factor` is an integer, defaulting to `5`, that can be used to defer merging segments util the index has at least `"available parallelism" * paradedb.segment_merge_scale_factor + 1` segments.
+The larger the value, the more segments will be merged together at once, which can improve write performance at the cost of search performance.
 
 ```sql
 SET paradedb.segment_merge_scale_factor = 1;

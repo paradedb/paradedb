@@ -789,6 +789,7 @@ impl CustomScan for PdbScan {
                         let slot = match check_visibility(state, ctid, state.scanslot().cast()) {
                             // the ctid is visible
                             Some(slot) => {
+                                exec_method.increment_visible();
                                 state.custom_state_mut().heap_tuple_check_count += 1;
                                 slot
                             }

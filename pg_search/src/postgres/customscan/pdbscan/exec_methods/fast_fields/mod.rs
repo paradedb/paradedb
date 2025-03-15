@@ -301,6 +301,12 @@ pub fn is_string_agg_capable_ex(
         // doing a string_agg when there's a limit is always a loss, performance-wise
         return None;
     }
+    if is_all_junk(which_fast_fields) {
+        // if all the fast fields we have are Junk fields, then we're not actually
+        // projecting fast fields
+        return None;
+    }
+
     let mut string_field = None;
     for ff in which_fast_fields.iter().flatten() {
         match ff {
@@ -328,12 +334,25 @@ fn is_numeric_fast_field_capable(state: &PdbScanState) -> bool {
         return false;
     }
 
+    if is_all_junk(&state.which_fast_fields) {
+        // if all the fast fields we have are Junk fields, then we're not actually
+        // projecting fast fields
+        return false;
+    }
+
     for ff in state.which_fast_fields.iter().flatten() {
         if matches!(ff, WhichFastField::Named(_, FastFieldType::String)) {
             return false;
         }
     }
     true
+}
+
+fn is_all_junk(which_fast_fields: &Option<Vec<WhichFastField>>) -> bool {
+    which_fast_fields
+        .iter()
+        .flatten()
+        .all(|ff| matches!(ff, WhichFastField::Junk(_)))
 }
 
 /// Add nodes to `EXPLAIN` output to describe the "fast fields" being used by the query, if any

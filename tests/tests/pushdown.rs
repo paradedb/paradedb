@@ -147,6 +147,55 @@ fn pushdown(mut conn: PgConnection) {
     }
 }
 
+#[rstest]
+fn issue2301_is_null_with_joins(mut conn: PgConnection) {
+    r#"
+        CREATE TABLE mcp_server (
+            id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            name text NOT NULL,
+            description text NOT NULL,
+            created_at timestamp with time zone NOT NULL DEFAULT now(),
+            attributes jsonb NOT NULL DEFAULT '[]'::jsonb,
+            updated_at timestamp with time zone NOT NULL DEFAULT now(),
+            synced_at timestamp with time zone,
+            removed_at timestamp with time zone
+        );
+        CREATE INDEX mcp_server_search_idx ON mcp_server
+        USING bm25 (id, name, description)
+        WITH (key_field='id');
+    "#
+    .execute(&mut conn);
+
+    let (plan, ) = r#"
+        EXPLAIN (VERBOSE, FORMAT JSON) SELECT ms1.id, ms1.name, paradedb.score (ms1.id)
+        FROM mcp_server ms1
+        WHERE
+          ms1.synced_at IS NOT NULL
+          AND ms1.removed_at IS NULL
+          AND ms1.id @@@ '{
+              "boolean": {
+                "should": [
+                  {"boost": {"factor": 2, "query": {"fuzzy_term": {"field": "name", "value": "cloudflare"}}}},
+                  {"boost": {"factor": 1, "query": {"fuzzy_term": {"field": "description", "value": "cloudflare"}}}}
+                ]
+              }
+            }'::jsonb
+        ORDER BY paradedb.score (ms1.id) DESC;
+    "#.fetch_one::<(Value, )>(&mut conn);
+
+    eprintln!("{plan:#?}");
+
+    let plan = plan
+        .pointer("/0/Plan/Plans/0")
+        .unwrap()
+        .as_object()
+        .unwrap();
+    pretty_assertions::assert_eq!(
+        plan.get("Node Type"),
+        Some(&Value::String(String::from("Custom Scan")))
+    );
+}
+
 #[fixture]
 fn setup_test_table(mut conn: PgConnection) -> PgConnection {
     let sql = r#"

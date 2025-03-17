@@ -394,7 +394,7 @@ fn snippet(mut conn: PgConnection) {
 
     assert_eq!(row.0, 5);
     assert_eq!(row.1, "Generic <b>shoes</b>");
-    assert_relative_eq!(row.2, 2.877260, epsilon = 1e-6);
+    assert_relative_eq!(row.2, 2.877_26, epsilon = 1e-6);
 }
 
 #[rstest]

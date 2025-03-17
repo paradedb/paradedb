@@ -40,10 +40,13 @@ fn setup_test_table(mut conn: PgConnection) -> PgConnection {
     "#;
     sql.execute(&mut conn);
 
-    "INSERT INTO test (id, col_text) VALUES (1, NULL);".execute(&mut conn);
-    "INSERT INTO test (id, col_text) VALUES (2, 'foo');".execute(&mut conn);
-    "INSERT INTO test (id, col_text, col_int8) VALUES (3, 'bar', 333);".execute(&mut conn);
-    "INSERT INTO test (id, col_int8) VALUES (4, 444);".execute(&mut conn);
+    "INSERT INTO test (id, col_boolean, col_text, col_int8) VALUES
+        (1, false, NULL, NULL),
+        (2, false, 'foo', NULL),
+        (3, false, 'bar', 333),
+        (4, false, NULL, 444);
+    "
+    .execute(&mut conn);
 
     "SET enable_indexscan TO off;".execute(&mut conn);
     "SET enable_bitmapscan TO off;".execute(&mut conn);
@@ -83,5 +86,41 @@ mod string_fast_field_exec {
         "#
         .fetch::<(i64, bool, Option<String>, Option<i64>)>(&mut conn);
         assert_eq!(res, vec![(4, false, None, Some(444))]);
+    }
+
+    #[rstest]
+    fn with_multiple_filters(#[from(setup_test_table)] mut conn: PgConnection) {
+        let res = r#"
+            SELECT * FROM test
+            WHERE col_text IS NULL
+            AND col_int8 IS NOT NULL
+            ORDER BY id;
+        "#
+        .fetch::<(i64, bool, Option<String>, Option<i64>)>(&mut conn);
+        assert_eq!(res, vec![(4, false, None, Some(444))]);
+    }
+
+    #[rstest]
+    fn with_not_null(#[from(setup_test_table)] mut conn: PgConnection) {
+        let res = r#"
+            SELECT * FROM test
+            WHERE col_text IS NOT NULL and id @@@ '>2'
+            ORDER BY id;
+        "#
+        .fetch::<(i64, bool, Option<String>, Option<i64>)>(&mut conn);
+        assert_eq!(res, vec![(3, false, Some(String::from("bar")), Some(333))]);
+    }
+
+    #[rstest]
+    fn with_empty_string(#[from(setup_test_table)] mut conn: PgConnection) {
+        "INSERT INTO test (id, col_text) VALUES (5, '');".execute(&mut conn);
+
+        let res = r#"
+            SELECT * FROM test
+            WHERE col_text = ''
+            ORDER BY id;
+        "#
+        .fetch::<(i64, bool, Option<String>, Option<i64>)>(&mut conn);
+        assert_eq!(res, vec![(5, false, Some(String::from("")), None)]);
     }
 }

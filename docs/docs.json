@@ -384,6 +384,10 @@
     "gtm": {
       "tagId": "GTM-KMGRG564"
     },
+    "posthog": {
+      "apiKey": "phc_KiWfPSoxQLmFxY5yOODDBzzP3EcyPbn9oSVtsCBbasj",
+      "apiHost": "https://app.posthog.com"
+    },
     "koala": {
       "publicApiKey": "pk_05f8f4ec527669d1e8f88783a4dccdf37407"
     }

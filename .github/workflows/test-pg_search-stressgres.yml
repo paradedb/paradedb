@@ -7,8 +7,8 @@ name: Test pg_search Stressgres
 
 on:
   pull_request:
-    paths:
-      - ".github/workflows/test-pg_search-stressgres.yml"
+    branches:
+      - main
   push:
     branches:
       - dev

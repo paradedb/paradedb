@@ -236,7 +236,6 @@ jobs:
           POSTHOG_HOST: ${{ secrets.POSTHOG_HOST }}
           COMMIT_SHA: ${{ steps.version.outputs.commit_sha }}
           PARADEDB_VERSION: ${{ steps.version.outputs.tag_version }}
-          PARADEDB_TELEMETRY: true
 
       - name: Create .rpm Package
         run: |

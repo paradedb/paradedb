@@ -60,14 +60,12 @@ ARG POSTHOG_API_KEY
 ARG POSTHOG_HOST
 ARG COMMIT_SHA
 ARG PARADEDB_VERSION
-ARG PARADEDB_TELEMETRY
 
 # Declare compile-time environment variables
 ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
     POSTHOG_HOST=${POSTHOG_HOST} \
     COMMIT_SHA=${COMMIT_SHA} \
-    PARADEDB_VERSION=${PARADEDB_VERSION} \
-    PARADEDB_TELEMETRY=${PARADEDB_TELEMETRY}
+    PARADEDB_VERSION=${PARADEDB_VERSION}
 
 COPY . /tmp/
 
@@ -99,14 +97,12 @@ ARG POSTHOG_API_KEY
 ARG POSTHOG_HOST
 ARG COMMIT_SHA
 ARG PARADEDB_VERSION
-ARG PARADEDB_TELEMETRY
 
 # Declare compile-time environment variables
 ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
     POSTHOG_HOST=${POSTHOG_HOST} \
     COMMIT_SHA=${COMMIT_SHA} \
-    PARADEDB_VERSION=${PARADEDB_VERSION} \
-    PARADEDB_TELEMETRY=${PARADEDB_TELEMETRY}
+    PARADEDB_VERSION=${PARADEDB_VERSION}
 
 RUN git clone --branch v0.3.5 https://github.com/paradedb/pg_analytics.git /tmp/pg_analytics/
 
@@ -124,14 +120,12 @@ ARG POSTHOG_API_KEY
 ARG POSTHOG_HOST
 ARG COMMIT_SHA
 ARG PARADEDB_VERSION
-ARG PARADEDB_TELEMETRY
 
 # Declare compile-time environment variables
 ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
     POSTHOG_HOST=${POSTHOG_HOST} \
     COMMIT_SHA=${COMMIT_SHA} \
-    PARADEDB_VERSION=${PARADEDB_VERSION} \
-    PARADEDB_TELEMETRY=${PARADEDB_TELEMETRY}
+    PARADEDB_VERSION=${PARADEDB_VERSION}
 
 RUN git clone --branch pgrx-0.13.0 https://github.com/paradedb/pg_parquet.git /tmp/pg_parquet/
 
@@ -242,7 +236,7 @@ RUN apt-get update && \
     find /var/log -type f -exec truncate --size 0 {} \;
 
 # Install Postgis and ca-certificates
-# ca-certificates required for TLS connection to PostHog (which is used for telemetry) and PostGIS
+# ca-certificates required for PostGIS
 ENV POSTGIS_VERSION_MAJOR=3
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

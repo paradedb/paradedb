@@ -19,9 +19,6 @@ use crate::index::Parallelism;
 use pgrx::{pg_sys, GucContext, GucFlags, GucRegistry, GucSetting};
 use std::num::NonZeroUsize;
 
-/// Is our telemetry tracking enabled?  Default is `true`.
-static TELEMETRY: GucSetting<bool> = GucSetting::<bool>::new(cfg!(feature = "telemetry"));
-
 /// Allows the user to toggle the use of our "ParadeDB Custom Scan".  The default is `true`.
 static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
@@ -68,22 +65,6 @@ static SEGMENT_MERGE_SCALE_FACTOR: GucSetting<i32> = GucSetting::<i32>::new(5);
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
-    // They cannot have more than one '.' - paradedb.pg_search.telemetry will not work.
-
-    let (telemetry_context, telemetry_flags) = if cfg!(feature = "telemetry") {
-        (GucContext::Userset, GucFlags::default())
-    } else {
-        (GucContext::Internal, GucFlags::DISALLOW_IN_FILE)
-    };
-
-    GucRegistry::define_bool_guc(
-        "paradedb.pg_search_telemetry",
-        "Enable telemetry on the ParadeDB pg_search extension.",
-        "Enable telemetry on the ParadeDB pg_search extension.",
-        &TELEMETRY,
-        telemetry_context,
-        telemetry_flags,
-    );
 
     GucRegistry::define_bool_guc(
         "paradedb.enable_custom_scan",
@@ -182,12 +163,6 @@ pub fn init() {
         GucContext::Userset,
         GucFlags::default(),
     );
-}
-
-pub fn telemetry_enabled() -> bool {
-    // If PARADEDB_TELEMETRY is not 'true' at compile time, then we will never enable.
-    // This is useful for test builds and CI.
-    option_env!("PARADEDB_TELEMETRY") == Some("true") && TELEMETRY.get()
 }
 
 pub fn enable_custom_scan() -> bool {

@@ -120,7 +120,6 @@ pub unsafe fn init_insert_state(
 }
 
 #[allow(clippy::too_many_arguments)]
-#[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
 #[pg_guard]
 pub unsafe extern "C" fn aminsert(
     index_relation: pg_sys::Relation,
@@ -130,20 +129,6 @@ pub unsafe extern "C" fn aminsert(
     _heap_relation: pg_sys::Relation,
     _check_unique: pg_sys::IndexUniqueCheck::Type,
     _index_unchanged: bool,
-    index_info: *mut pg_sys::IndexInfo,
-) -> bool {
-    aminsert_internal(index_relation, values, isnull, heap_tid, index_info)
-}
-
-#[cfg(feature = "pg13")]
-#[pg_guard]
-pub unsafe extern "C" fn aminsert(
-    index_relation: pg_sys::Relation,
-    values: *mut pg_sys::Datum,
-    isnull: *mut bool,
-    heap_tid: pg_sys::ItemPointer,
-    _heap_relation: pg_sys::Relation,
-    _check_unique: pg_sys::IndexUniqueCheck::Type,
     index_info: *mut pg_sys::IndexInfo,
 ) -> bool {
     aminsert_internal(index_relation, values, isnull, heap_tid, index_info)
@@ -247,17 +232,7 @@ unsafe fn do_merge(indexrelid: Oid) -> Option<()> {
      * essential; GlobalVisCheckRemovableFullXid() will not reliably recognize
      * that it is now safe to recycle newly deleted pages without this step.
      */
-    {
-        #[cfg(feature = "pg13")]
-        {
-            pg_sys::GetOldestXmin(heaprel, pg_sys::PROCARRAY_FLAGS_VACUUM as i32);
-        }
-
-        #[cfg(not(feature = "pg13"))]
-        {
-            pg_sys::GetOldestNonRemovableTransactionId(heaprel);
-        }
-    }
+    pg_sys::GetOldestNonRemovableTransactionId(heaprel);
 
     let target_segments = std::thread::available_parallelism()
         .expect("failed to get available_parallelism")

@@ -56,15 +56,11 @@ RUN PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -
 
 FROM builder AS builder-pg_search
 
-ARG POSTHOG_API_KEY
-ARG POSTHOG_HOST
 ARG COMMIT_SHA
 ARG PARADEDB_VERSION
 
 # Declare compile-time environment variables
-ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
-    POSTHOG_HOST=${POSTHOG_HOST} \
-    COMMIT_SHA=${COMMIT_SHA} \
+ENV COMMIT_SHA=${COMMIT_SHA} \
     PARADEDB_VERSION=${PARADEDB_VERSION}
 
 COPY . /tmp/
@@ -93,15 +89,11 @@ RUN cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERS
 
 FROM builder AS builder-pg_analytics
 
-ARG POSTHOG_API_KEY
-ARG POSTHOG_HOST
 ARG COMMIT_SHA
 ARG PARADEDB_VERSION
 
 # Declare compile-time environment variables
-ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
-    POSTHOG_HOST=${POSTHOG_HOST} \
-    COMMIT_SHA=${COMMIT_SHA} \
+ENV COMMIT_SHA=${COMMIT_SHA} \
     PARADEDB_VERSION=${PARADEDB_VERSION}
 
 RUN git clone --branch v0.3.5 https://github.com/paradedb/pg_analytics.git /tmp/pg_analytics/
@@ -116,15 +108,11 @@ RUN cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/
 
 FROM builder AS builder-pg_parquet
 
-ARG POSTHOG_API_KEY
-ARG POSTHOG_HOST
 ARG COMMIT_SHA
 ARG PARADEDB_VERSION
 
 # Declare compile-time environment variables
-ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
-    POSTHOG_HOST=${POSTHOG_HOST} \
-    COMMIT_SHA=${COMMIT_SHA} \
+ENV COMMIT_SHA=${COMMIT_SHA} \
     PARADEDB_VERSION=${PARADEDB_VERSION}
 
 RUN git clone --branch pgrx-0.13.0 https://github.com/paradedb/pg_parquet.git /tmp/pg_parquet/

@@ -19,7 +19,12 @@ SELECT
     (random() * 4 + 1)::int
 FROM generate_series(1, 9000000) as id;
 
-ALTER DATABASE pg_search_stress SET paradedb.max_mergeable_segment_size = '5MB';
+DO $$
+DECLARE
+   dbname text := current_database();
+BEGIN
+   EXECUTE format('ALTER DATABASE %I SET paradedb.max_mergeable_segment_size = %L', dbname, '5MB');
+END $$;
 
 CREATE INDEX idxtest ON test USING bm25(id, message, severity) WITH (key_field = 'id');
 CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool LANGUAGE plpgsql AS $$

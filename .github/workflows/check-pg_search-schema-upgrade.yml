@@ -36,7 +36,7 @@ jobs:
     if: github.event.pull_request.draft == false
     strategy:
       matrix:
-        pg_version: [13] # Required by pg-schema-diff
+        pg_version: [14] # pg_search's minimum supported Postgres version
 
     steps:
       - name: Checkout Git Repository

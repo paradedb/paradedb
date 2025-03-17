@@ -69,9 +69,13 @@ refresh_ms = 100
 title = "Count Query"
 log_tps = true
 log_count = true
-sql = """
-SELECT assert(count(*)::bigint, 3000000::bigint), count(*) FROM test where id @@@ 'message:cheese';
+on_connect = """
+SET enable_indexscan TO off;
 """
+sql = """
+SELECT count(*) FROM test where id @@@ 'message:cheese';
+"""
+assert = "3000000"
 
 [[jobs]]
 refresh_ms = 25

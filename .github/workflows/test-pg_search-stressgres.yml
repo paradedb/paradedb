@@ -7,8 +7,8 @@ name: Test pg_search Stressgres
 
 on:
   pull_request:
-    branches:
-      - main
+    paths:
+      - ".github/workflows/test-pg_search-stressgres.yml"
   push:
     branches:
       - dev
@@ -21,7 +21,7 @@ on:
 
 jobs:
   test-pg_search-stressgres:
-    name: Run Stressgres on pg_search with PostgreSQL ${{ matrix.pg_version }} for ${{ matrix.arch }}
+    name: Run Stressgres ${{ matrix.test_file }} on pg_search with PostgreSQL ${{ matrix.pg_version }} for ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
@@ -29,6 +29,11 @@ jobs:
           - runner: ubicloud-standard-8
             pg_version: 17
             arch: amd64
+            test_file: single-server.toml
+          - runner: ubicloud-standard-8
+            pg_version: 17
+            arch: amd64
+            test_file: bulk-updates.toml
     env:
       default_pg_version: 17
 
@@ -94,29 +99,29 @@ jobs:
         run: |
           sudo chmod a+rwx /var/run/postgresql/ && \
           cargo run --release -- auto \
-          --log-path stressgres.log \
+          --log-path stressgres-${{ matrix.test_file }}.log \
           --runtime 600000 \
           `which pg_config` \
-          /home/runner/work/paradedb/paradedb/paradedb/.github/stressgres/single-server.toml \
-          /tmp/stressgres
+          /home/runner/work/paradedb/paradedb/paradedb/.github/stressgres/${{ matrix.test_file }} \
+          /tmp/stressgres-${{ matrix.test_file }}
 
       - name: Create Stressgres Graph
         working-directory: stressgres/
-        run: cargo run --release -- graph --output stressgres.png stressgres.log
+        run: cargo run --release -- graph --output stressgres-${{ matrix.test_file }}.png stressgres-${{ matrix.test_file }}.log
 
       - name: Upload Stressgres Graph
         id: artifact-graph
         uses: actions/upload-artifact@v4
         with:
-          name: stressgres-graph
-          path: stressgres/stressgres.png
+          name: stressgres-graph-${{ matrix.test_file }}
+          path: stressgres/stressgres-${{ matrix.test_file }}.png
 
       - name: Upload Stressgres Logs
         id: artifact-logs
         uses: actions/upload-artifact@v4
         with:
-          name: stressgres-logs
-          path: stressgres/stressgres.log
+          name: stressgres-logs-${{ matrix.test_file }}
+          path: stressgres/stressgres-${{ matrix.test_file }}.log
 
       - name: Derive Short Commit
         id: commit_info
@@ -132,10 +137,10 @@ jobs:
           payload: |
             channel_id: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
             initial_comment: |
-              *Community Stressgres Results*
+              *Community Stressgres Results (${{ matrix.test_file }})*
               <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ steps.commit_info.outputs.short_commit }}> | <${{ steps.artifact-logs.outputs.artifact-url }} | Download Logs>
-            file: "stressgres/stressgres.png"
-            filename: "stressgres.png"
+            file: "stressgres/stressgres-${{ matrix.test_file }}.png"
+            filename: "stressgres-${{ matrix.test_file }}.png"
             request_file_info: true
           errors: true
           payload-templated: false
@@ -148,10 +153,10 @@ jobs:
         run: |
           GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           ARTIFACT_URL="${{ steps.artifact-logs.outputs.artifact-url }}"
-          MESSAGE="Stressgres pg_search Workflow failed in \`paradedb/paradedb-enterprise\` -- investigate immediately! • GitHub Action Logs: ${GITHUB_RUN_URL} • Stressgres Log: ${ARTIFACT_URL}" echo "Sending failure notification to Slack..."
+          MESSAGE="Stressgres pg_search Workflow (${{ matrix.test_file }}) failed in \`paradedb/paradedb-enterprise\` -- investigate immediately! • GitHub Action Logs: ${GITHUB_RUN_URL} • Stressgres Log: ${ARTIFACT_URL}" echo "Sending failure notification to Slack..."
           curl -X POST -H 'Content-type: application/json' \
           --data "{\"text\": \"${MESSAGE}\"}" \
           ${SLACK_WEBHOOK_URL}
 
       - name: Print Postgres Logs
-        run: cat /tmp/stressgres/stressgres/primary.log
+        run: cat /tmp/stressgres-${{ matrix.test_file }}/stressgres/primary.log

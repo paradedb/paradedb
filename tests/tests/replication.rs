@@ -19,9 +19,6 @@ use tempfile::TempDir;
 static INIT: Once = Once::new();
 static LAST_PORT: AtomicUsize = AtomicUsize::new(49152);
 
-const RETRIES: u32 = 60;
-const RETRY_DELAY: u64 = 1000; // measured in milliseconds
-
 // Function to check if a port can be bound (i.e., is available)
 fn can_bind(port: u16) -> bool {
     std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()

@@ -441,6 +441,14 @@ mod term_ord_collector {
                     .entry(term_ord)
                     .or_default()
                     .push((scored, doc_address));
+            } else {
+                let doc_address = DocAddress::new(self.segment_ord, doc);
+                let ctid = self.ctid_ff.as_u64(doc).expect("ctid should be present");
+                let scored = SearchIndexScore::new(ctid, score);
+                self.results
+                    .entry(0) // testing with 0
+                    .or_default()
+                    .push((scored, doc_address));
             }
         }
 

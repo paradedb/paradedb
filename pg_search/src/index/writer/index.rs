@@ -26,7 +26,7 @@ use tantivy::{DocId, Index, IndexSettings, IndexWriter, Opstamp, TantivyDocument
 use thiserror::Error;
 
 use crate::index::channel::{ChannelDirectory, ChannelRequestHandler};
-use crate::index::merge_policy::NPlusOneMergePolicy;
+use crate::index::merge_policy::{LayeredMergePolicy, NPlusOneMergePolicy};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::{get_index_schema, setup_tokenizers, WriterResources};
 use crate::{
@@ -147,7 +147,7 @@ impl SearchIndexWriter {
 
     /// Our default merge policy is tantivy's [`NoMergePolicy`], and if it's to be changed, we only
     /// support our own [`NPlusOneMergePolicy`]
-    pub fn set_merge_policy(&mut self, merge_policy: NPlusOneMergePolicy) {
+    pub fn set_merge_policy(&mut self, merge_policy: LayeredMergePolicy) {
         self.writer.set_merge_policy(Box::new(merge_policy));
     }
 

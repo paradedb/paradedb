@@ -67,7 +67,10 @@ impl MergeLock {
     /// This lock is acquired by inserts that attempt to merge segments
     /// Merges should only happen if there is no other merge in progress
     /// AND the effects of the previous merge are visible
-    pub unsafe fn acquire_for_merge(relation_oid: pg_sys::Oid) -> Option<Self> {
+    pub unsafe fn acquire_for_merge(
+        relation_oid: pg_sys::Oid,
+        snapshot: pg_sys::Snapshot,
+    ) -> Option<Self> {
         if !crate::postgres::utils::IsTransactionState() {
             return None;
         }
@@ -92,7 +95,7 @@ impl MergeLock {
                 || pg_sys::TransactionIdIsCurrentTransactionId(last_merge)
 
                 // or it's not visible to our snapshot
-                || !pg_sys::XidInMVCCSnapshot(last_merge, pg_sys::GetActiveSnapshot());
+                || !pg_sys::XidInMVCCSnapshot(last_merge, snapshot);
 
         last_merge_visible.then(|| MergeLock {
             bman,
@@ -197,6 +200,12 @@ impl MergeLock {
         self.bman
             .get_buffer_for_cleanup_conditional(metadata.ambulkdelete_sentinel)
             .is_none()
+    }
+
+    pub fn last_merge(&self) -> pg_sys::TransactionId {
+        let page = self.buffer.page();
+        let metadata = page.contents::<MergeLockData>();
+        metadata.last_merge
     }
 }
 

@@ -1,6 +1,6 @@
 # workflows/check-pg_search-schema-upgrade.yml
 #
-# Check pg_search Schema Upgrade pg_search
+# Check pg_search Schema Upgrade
 # Determine if a commit introduces an extension schema change for pg_search.
 
 name: Check pg_search Schema Upgrade

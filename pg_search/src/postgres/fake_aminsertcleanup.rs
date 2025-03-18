@@ -82,7 +82,6 @@ pub unsafe fn register() {
     PREV_EXECUTOR_FINISH_HOOK = pg_sys::ExecutorFinish_hook;
     pg_sys::ExecutorFinish_hook = Some(executor_finish_hook);
 
-    #[cfg(not(feature = "pg13"))]
     #[allow(clippy::too_many_arguments)]
     #[rustfmt::skip]
     #[pg_guard]
@@ -101,29 +100,6 @@ pub unsafe fn register() {
             prev_hook(pstmt, query_string, read_only_tree, context, params, query_env, dest, qc);
         } else {
             pg_sys::standard_ProcessUtility(pstmt, query_string, read_only_tree, context, params, query_env, dest, qc)
-        }
-
-        aminsertcleanup_stack();
-    }
-
-    #[cfg(feature = "pg13")]
-    #[allow(clippy::too_many_arguments)]
-    #[rustfmt::skip]
-    #[pg_guard]
-    unsafe extern "C" fn process_utility_hook(
-        pstmt: *mut pg_sys::PlannedStmt,
-        query_string: *const ::core::ffi::c_char,
-        context: pg_sys::ProcessUtilityContext::Type,
-        params: pg_sys::ParamListInfo,
-        query_env: *mut pg_sys::QueryEnvironment,
-        dest: *mut pg_sys::DestReceiver,
-        qc: *mut pg_sys::QueryCompletion,
-    ) {
-        EXECUTOR_RUN_STACK.push(None);
-        if let Some(prev_hook) = PREV_PROCESS_UTILITY_HOOK {
-            prev_hook(pstmt, query_string, context, params, query_env, dest, qc);
-        } else {
-            pg_sys::standard_ProcessUtility(pstmt, query_string, context, params, query_env, dest, qc)
         }
 
         aminsertcleanup_stack();

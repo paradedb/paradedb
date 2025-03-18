@@ -3,7 +3,7 @@ resolver = "2"
 members = ["pg_search", "tests", "tokenizers", "benchmarks"]
 
 [workspace.package]
-version = "0.15.7"
+version = "0.15.8"
 edition = "2021"
 license = "AGPL-3.0"
 
@@ -28,8 +28,8 @@ tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy"
   "stopwords",
   "lz4-compression",
 ], default-features = false }
-pgrx = "0.13.0"
-pgrx-tests = "0.13.0"
+pgrx = "=0.13.0"
+pgrx-tests = "=0.13.0"
 
 [patch.crates-io]
 rust_icu_sys = { git = "https://github.com/google/rust_icu.git", rev = "53e98c8" }

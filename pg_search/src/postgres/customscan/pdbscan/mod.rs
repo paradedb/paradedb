@@ -125,7 +125,7 @@ impl CustomScan for PdbScan {
             let schema = SearchIndexSchema::open(index.schema(), &bm25_index);
             let pathkey = pullup_orderby_pathkey(&mut builder, rti, &schema, root);
 
-            #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15"))]
+            #[cfg(any(feature = "pg14", feature = "pg15"))]
             let baserels = (*builder.args().root).all_baserels;
             #[cfg(any(feature = "pg16", feature = "pg17"))]
             let baserels = (*builder.args().root).all_query_rels;
@@ -789,6 +789,7 @@ impl CustomScan for PdbScan {
                         let slot = match check_visibility(state, ctid, state.scanslot().cast()) {
                             // the ctid is visible
                             Some(slot) => {
+                                exec_method.increment_visible();
                                 state.custom_state_mut().heap_tuple_check_count += 1;
                                 slot
                             }

@@ -48,3 +48,12 @@ write and search performance is achieved.
 ```sql
 SET paradedb.max_mergeable_segment_size = 200MB;
 ```
+
+## Segment Merge Scale Factor
+
+`paradedb.segment_merge_scale_factor` is an integer, defaulting to `5`, that can be used to defer merging segments util the index has at least `"available parallelism" * paradedb.segment_merge_scale_factor + 1` segments.
+The larger the value, the more segments will be merged together at once, which can improve write performance at the cost of search performance.
+
+```sql
+SET paradedb.segment_merge_scale_factor = 1;
+```

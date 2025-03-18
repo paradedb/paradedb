@@ -44,8 +44,11 @@ pub struct VacuumSentinel(PinnedBuffer);
 /// Only one merge can happen at a time, so we need to lock the merge process
 #[derive(Debug)]
 pub struct MergeLock {
-    bman: BufferManager,
+    // NB:  Rust's struct drop order is how the fields are defined in the source code
+    // and while it _probably_ doesn't matter, we'd prefer to have `buffer`'s drop impl
+    // run before the `bman` from which it originated
     buffer: BufferMut,
+    bman: BufferManager,
     save_xid: bool,
 }
 
@@ -106,8 +109,8 @@ impl MergeLock {
         let mut bman = BufferManager::new(relation_oid);
         let merge_lock = bman.get_buffer_mut(MERGE_LOCK);
         MergeLock {
-            bman,
             buffer: merge_lock,
+            bman,
             save_xid: false,
         }
     }
@@ -206,15 +209,7 @@ impl Drop for MergeLock {
                 // if we don't have a transaction id (typically from a parallel vacuum)...
                 if current_xid == pg_sys::InvalidTransactionId {
                     // ... then use the next transaction id as ours
-                    #[cfg(feature = "pg13")]
-                    {
-                        current_xid = pg_sys::ReadNewTransactionId()
-                    }
-
-                    #[cfg(not(feature = "pg13"))]
-                    {
-                        current_xid = pg_sys::ReadNextTransactionId()
-                    }
+                    current_xid = pg_sys::ReadNextTransactionId()
                 }
 
                 let mut page = self.buffer.page_mut();
@@ -235,7 +230,7 @@ struct VacuumListData {
 }
 
 pub struct VacuumList {
-    bman: BufferManager,
+    relation_oid: pg_sys::Oid,
     start_block_number: pg_sys::BlockNumber,
     merge_lock: Option<MergeLock>,
 }
@@ -258,7 +253,7 @@ impl VacuumList {
         start_block_number: pg_sys::BlockNumber,
     ) -> VacuumList {
         Self {
-            bman: BufferManager::new(relation_oid),
+            relation_oid,
             start_block_number,
             merge_lock,
         }
@@ -271,7 +266,8 @@ impl VacuumList {
         let mut segment_ids = segment_ids.collect::<Vec<_>>();
         segment_ids.sort();
 
-        let mut buffer = self.bman.get_buffer_mut(self.start_block_number);
+        let mut bman = BufferManager::new(self.relation_oid);
+        let mut buffer = bman.get_buffer_mut(self.start_block_number);
         let mut page = buffer.page_mut();
         let mut contents = page.contents_mut::<VacuumListData>();
         contents.nentries = 0;
@@ -283,11 +279,11 @@ impl VacuumList {
                 // or by creating a new page
                 if page.next_blockno() != pg_sys::InvalidBlockNumber {
                     // we want to reuse the next block if we have one
-                    buffer = self.bman.get_buffer_mut(page.next_blockno());
+                    buffer = bman.get_buffer_mut(page.next_blockno());
                     page = buffer.page_mut();
                 } else {
                     // make a new next block and link it in
-                    let next_buffer = self.bman.new_buffer();
+                    let next_buffer = bman.new_buffer();
                     let special = page.special_mut::<BM25PageSpecialData>();
                     special.next_blockno = next_buffer.number();
 
@@ -310,7 +306,7 @@ impl VacuumList {
             .expect("VacuumList should own the MergeLock in this context")
             .pin_ambulkdelete_sentinel();
 
-        // yes, I know, but this makes it clear that our intention is to obtain the vacuum_sential
+        // yes, I know, but this makes it clear that our intention is to obtain the vacuum_sentinel
         // before we (and our contained MergeLock) are dropped
         drop(self);
         vacuum_sentinel
@@ -318,7 +314,9 @@ impl VacuumList {
 
     pub fn read_list(&self) -> HashSet<SegmentId> {
         let mut segment_ids = HashSet::new();
-        let mut buffer = self.bman.get_buffer(self.start_block_number);
+
+        let bman = BufferManager::new(self.relation_oid);
+        let mut buffer = bman.get_buffer(self.start_block_number);
         loop {
             let page = buffer.page();
             let contents = page.contents::<VacuumListData>();
@@ -339,7 +337,7 @@ impl VacuumList {
                 break;
             }
 
-            buffer = self.bman.get_buffer(page.next_blockno());
+            buffer = bman.get_buffer(page.next_blockno());
         }
 
         segment_ids

@@ -18,11 +18,8 @@
 use super::utils::{load_metas, save_new_metas, save_schema, save_settings};
 use crate::index::channel::{ChannelRequest, ChannelRequestHandler};
 use crate::index::reader::segment_component::SegmentComponentReader;
-use crate::postgres::storage::block::{
-    FileEntry, SegmentFileDetails, SegmentMetaEntry, SEGMENT_METAS_START,
-};
+use crate::postgres::storage::block::{FileEntry, SegmentMetaEntry, SEGMENT_METAS_START};
 use crate::postgres::storage::LinkedItemList;
-use anyhow::{anyhow, Result};
 use crossbeam::channel::Receiver;
 use parking_lot::Mutex;
 use pgrx::{pg_sys, PgRelation};
@@ -41,7 +38,7 @@ use tantivy::directory::error::{DeleteError, LockError, OpenReadError, OpenWrite
 use tantivy::directory::{
     DirectoryLock, DirectoryPanicHandler, FileHandle, Lock, WatchCallback, WatchHandle, WritePtr,
 };
-use tantivy::{index::SegmentMetaInventory, Directory, IndexMeta};
+use tantivy::{index::SegmentMetaInventory, Directory, IndexMeta, TantivyError};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MvccSatisfies {
@@ -85,7 +82,9 @@ pub struct MVCCDirectory {
     // a lazily loaded [`IndexMeta`], which is only created once per MVCCDirectory instance
     // we cannot tolerate tantivy calling `load_metas()` multiple times and giving it a different
     // answer
-    loaded_metas: OnceLock<tantivy::Result<IndexMeta>>,
+    loaded_metas: OnceLock<Arc<tantivy::Result<IndexMeta>>>,
+
+    entries_cache: Arc<Mutex<FxHashMap<PathBuf, FileEntry>>>,
 }
 
 impl MVCCDirectory {
@@ -103,30 +102,35 @@ impl MVCCDirectory {
             mvcc_style,
             readers: Arc::new(Mutex::new(FxHashMap::default())),
             loaded_metas: Default::default(),
+            entries_cache: Default::default(),
         }
     }
 
-    pub unsafe fn directory_lookup(&self, path: &Path) -> Result<FileEntry> {
-        let directory =
-            LinkedItemList::<SegmentMetaEntry>::open(self.relation_oid, SEGMENT_METAS_START);
+    pub unsafe fn directory_lookup(&self, path: &Path) -> tantivy::Result<FileEntry> {
+        let mut entries_cache = self.entries_cache.lock();
+        if !entries_cache.contains_key(path) {
+            // segment_id not found in the entries_cache, so (re)populate the cache
+            let all_entries =
+                LinkedItemList::<SegmentMetaEntry>::open(self.relation_oid, SEGMENT_METAS_START)
+                    .list();
 
-        let segment_id = path.segment_id().expect("path should have a segment_id");
+            for meta_entry in all_entries {
+                for (path, (file_entry, _)) in meta_entry
+                    .get_component_paths()
+                    .zip(meta_entry.file_entries())
+                {
+                    entries_cache.insert(path, *file_entry);
+                }
+            }
+        }
 
-        let entry = directory
-            .lookup(|entry| entry.segment_id == segment_id)
-            .map_err(|e| anyhow!(format!("problem looking for `{}`: {e}", path.display())))?;
-
-        let component_type = path
-            .component_type()
-            .expect("path should have a component_type");
-        let file_entry = entry.get_file_entry(component_type).ok_or_else(|| {
-            anyhow!(format!(
-                "directory lookup failed of component type {component_type:?} for path=`{}`.  entry={entry:?}",
+        match entries_cache.get(path) {
+            None => Err(TantivyError::SystemError(format!(
+                "`{}` not found in directory",
                 path.display()
-            ))
-        })?;
-
-        Ok(file_entry)
+            ))),
+            Some(file_entry) => Ok(*file_entry),
+        }
     }
 }
 
@@ -209,7 +213,7 @@ impl Directory for MVCCDirectory {
                 LinkedItemList::<SegmentMetaEntry>::open(self.relation_oid, SEGMENT_METAS_START);
             Ok(segment_metas
                 .list()
-                .into_iter()
+                .iter()
                 .flat_map(|entry| entry.get_component_paths())
                 .collect())
         }
@@ -260,16 +264,14 @@ impl Directory for MVCCDirectory {
     }
 
     fn load_metas(&self, inventory: &SegmentMetaInventory) -> tantivy::Result<IndexMeta> {
-        self.loaded_metas
-            .get_or_init(|| unsafe {
-                load_metas(
-                    self.relation_oid,
-                    inventory,
-                    pg_sys::GetActiveSnapshot(),
-                    &self.mvcc_style,
-                )
-            })
-            .clone()
+        Clone::clone(self.loaded_metas.get_or_init(|| unsafe {
+            Arc::new(load_metas(
+                self.relation_oid,
+                inventory,
+                pg_sys::GetActiveSnapshot(),
+                &self.mvcc_style,
+            ))
+        }))
     }
 
     fn supports_garbage_collection(&self) -> bool {

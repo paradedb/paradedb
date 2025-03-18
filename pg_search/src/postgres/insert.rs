@@ -15,14 +15,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::gucs::max_mergeable_segment_size;
+use crate::gucs::{max_mergeable_segment_size, segment_merge_scale_factor};
 use crate::index::merge_policy::NPlusOneMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::SearchIndexWriter;
 use crate::index::WriterResources;
 use crate::postgres::storage::block::{MVCCEntry, SegmentMetaEntry, SEGMENT_METAS_START};
 use crate::postgres::storage::merge::MergeLock;
-use crate::postgres::storage::LinkedItemList;
+use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use crate::postgres::utils::{
     categorize_fields, item_pointer_to_u64, row_to_search_document, CategorizedFieldData,
 };
@@ -120,7 +120,6 @@ pub unsafe fn init_insert_state(
 }
 
 #[allow(clippy::too_many_arguments)]
-#[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
 #[pg_guard]
 pub unsafe extern "C" fn aminsert(
     index_relation: pg_sys::Relation,
@@ -130,20 +129,6 @@ pub unsafe extern "C" fn aminsert(
     _heap_relation: pg_sys::Relation,
     _check_unique: pg_sys::IndexUniqueCheck::Type,
     _index_unchanged: bool,
-    index_info: *mut pg_sys::IndexInfo,
-) -> bool {
-    aminsert_internal(index_relation, values, isnull, heap_tid, index_info)
-}
-
-#[cfg(feature = "pg13")]
-#[pg_guard]
-pub unsafe extern "C" fn aminsert(
-    index_relation: pg_sys::Relation,
-    values: *mut pg_sys::Datum,
-    isnull: *mut bool,
-    heap_tid: pg_sys::ItemPointer,
-    _heap_relation: pg_sys::Relation,
-    _check_unique: pg_sys::IndexUniqueCheck::Type,
     index_info: *mut pg_sys::IndexInfo,
 ) -> bool {
     aminsert_internal(index_relation, values, isnull, heap_tid, index_info)
@@ -234,57 +219,93 @@ pub fn paradedb_aminsertcleanup(mut writer: Option<SearchIndexWriter>) {
     }
 }
 
-unsafe fn do_merge(indexrelid: Oid) {
+unsafe fn do_merge(indexrelid: Oid) -> Option<()> {
+    let heaprelid = pg_sys::IndexGetRelation(indexrelid, false);
+    let heaprel = pg_sys::RelationIdGetRelation(heaprelid);
+
+    /*
+     * Recompute VACUUM XID boundaries.
+     *
+     * We don't actually care about the oldest non-removable XID.  Computing
+     * the oldest such XID has a useful side-effect that we rely on: it
+     * forcibly updates the XID horizon state for this backend.  This step is
+     * essential; GlobalVisCheckRemovableFullXid() will not reliably recognize
+     * that it is now safe to recycle newly deleted pages without this step.
+     */
+    pg_sys::GetOldestNonRemovableTransactionId(heaprel);
+
     let target_segments = std::thread::available_parallelism()
         .expect("failed to get available_parallelism")
         .get();
     let snapshot = pg_sys::GetActiveSnapshot();
-
     let mut items = LinkedItemList::<SegmentMetaEntry>::open(indexrelid, SEGMENT_METAS_START);
     let mut nbytes = 0;
     let mut ndocs = 0;
-    let mut nvisible = 0;
+    let mut nlikely_mergable = 0;
+    let max_mergeable_segment_size = max_mergeable_segment_size();
     for entry in items.list() {
-        if entry.visible(snapshot) {
-            nvisible += 1;
+        // only consider segments that are subject to merging.  the 1.25 here is saying that
+        // if the entry's size is within 25% of the max_mergable_segment_size then it's _likely_
+        // not going to merge with another segment, so we won't count it towards calculating
+        // the scale factor
+        if entry.byte_size() as f64 * 1.25  < max_mergeable_segment_size as f64
+
+            // and that are visible and not going to be recycled soon
+            && entry.visible(snapshot)
+            && !entry.recyclable(snapshot, heaprel)
+        {
+            nlikely_mergable += 1;
         }
         nbytes += entry.byte_size();
         ndocs += entry.num_docs() + entry.num_deleted_docs();
     }
-    if nvisible <= target_segments + 1 {
-        // no need to merge if we don't have enough visible segments
-        return;
-    }
-    let avg_byte_size_per_doc = nbytes as f64 / ndocs as f64;
+    pg_sys::RelationClose(heaprel);
 
-    if let Some(mut merge_lock) = MergeLock::acquire_for_merge(indexrelid) {
-        // Minimum number of segments for the NPlusOneMergePolicy to maintain
-        const MIN_MERGE_COUNT: usize = 2;
+    let recycled_entries = if nlikely_mergable > target_segments * segment_merge_scale_factor() + 1
+    {
+        let avg_byte_size_per_doc = nbytes as f64 / ndocs as f64;
 
-        let merge_policy = NPlusOneMergePolicy {
+        let mut merge_policy = NPlusOneMergePolicy {
             n: target_segments,
-            min_merge_count: MIN_MERGE_COUNT,
+            min_merge_count: 2,
 
             avg_byte_size_per_doc,
-            segment_freeze_size: max_mergeable_segment_size(),
-            vacuum_list: merge_lock.list_vacuuming_segments(),
+            segment_freeze_size: max_mergeable_segment_size,
+            vacuum_list: Default::default(),
+            already_processed: Default::default(),
         };
 
-        let indexrel = PgRelation::with_lock(indexrelid, pg_sys::RowExclusiveLock as _);
+        // acquire the MergeLock here, returning early if we can't.
+        // we endeavor to hold it for as short a time as possible
+        let mut merge_lock = MergeLock::acquire_for_merge(indexrelid)?;
+        merge_policy.vacuum_list = merge_lock.list_vacuuming_segments();
         let mut writer = SearchIndexWriter::open(
-            &indexrel,
+            &PgRelation::open(indexrelid),
             MvccSatisfies::Snapshot,
             WriterResources::PostStatementMerge,
         )
         .expect("should be able to open a SearchIndexWriter for PostStatementMerge");
-
         writer.set_merge_policy(merge_policy);
-        writer.merge().expect("index merge should succeed");
+        writer.merge().expect("should be able to merge");
 
-        if !merge_lock.is_ambulkdelete_running() {
-            items.garbage_collect(pg_sys::GetAccessStrategy(
-                pg_sys::BufferAccessStrategyType::BAS_VACUUM,
-            ));
+        (!merge_lock.is_ambulkdelete_running()).then(|| items.garbage_collect())
+    } else {
+        None
+    };
+
+    if let Some(recycled_entries) = recycled_entries {
+        if !recycled_entries.is_empty() {
+            let indexrel = pg_sys::RelationIdGetRelation(indexrelid);
+            for entry in recycled_entries {
+                for (file_entry, type_) in entry.file_entries() {
+                    let bytes = LinkedBytesList::open(indexrelid, file_entry.starting_block);
+                    bytes.return_to_fsm(&entry, type_);
+                    pg_sys::IndexFreeSpaceMapVacuum(indexrel);
+                }
+            }
+            pg_sys::RelationClose(indexrel);
         }
     }
+
+    Some(())
 }

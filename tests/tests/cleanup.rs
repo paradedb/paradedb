@@ -65,6 +65,7 @@ fn create_and_drop_builtin_index(mut conn: PgConnection) {
 fn segment_count_matches_available_parallelism(mut conn: PgConnection) {
     // CREATE INDEX should create as many segments as there are available CPUs
     r#"
+        SET paradedb.segment_merge_scale_factor = 1;
         SET maintenance_work_mem = '1GB';
         DROP TABLE IF EXISTS test_table;
         CREATE TABLE test_table (id SERIAL PRIMARY KEY, value TEXT NOT NULL);
@@ -122,6 +123,7 @@ fn segment_count_matches_available_parallelism(mut conn: PgConnection) {
 #[rstest]
 fn segment_count_exceeds_target(mut conn: PgConnection) {
     r#"
+        SET paradedb.segment_merge_scale_factor = 1;
         SET maintenance_work_mem = '16MB';
         DROP TABLE IF EXISTS test_table;
         CREATE TABLE test_table (id SERIAL PRIMARY KEY, value TEXT NOT NULL);
@@ -156,7 +158,7 @@ fn vacuum_restores_segment_count(mut conn: PgConnection) {
         SET paradedb.statement_memory_budget = '15MB';
         DROP TABLE IF EXISTS test_table;
         CREATE TABLE test_table (id SERIAL PRIMARY KEY, value TEXT NOT NULL);
-        
+
         -- insert enough initial rows to ensure we actually get 1 segment per core
         INSERT INTO test_table (value) SELECT md5(random()::text) FROM generate_series(1, 200000);
 
@@ -170,6 +172,12 @@ fn vacuum_restores_segment_count(mut conn: PgConnection) {
         );
     "#
     .execute(&mut conn);
+
+    let expected_segments: usize = std::thread::available_parallelism().unwrap().into();
+    let nsegments = "SELECT COUNT(*) FROM paradedb.index_info('idxtest_table');"
+        .fetch_one::<(i64,)>(&mut conn)
+        .0 as usize;
+    assert_eq!(nsegments, expected_segments);
 
     r#"
         INSERT INTO test_table (value) SELECT md5(random()::text);
@@ -187,7 +195,7 @@ fn vacuum_restores_segment_count(mut conn: PgConnection) {
     let nsegments = "SELECT COUNT(*) FROM paradedb.index_info('idxtest_table');"
         .fetch_one::<(i64,)>(&mut conn)
         .0 as usize;
-    assert_eq!(nsegments, expected_segments + 1);
+    assert!(nsegments > expected_segments);
 }
 
 #[rstest]

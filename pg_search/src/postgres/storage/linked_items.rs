@@ -22,6 +22,7 @@ use anyhow::Result;
 use pgrx::pg_sys;
 use pgrx::pg_sys::BlockNumber;
 use std::fmt::Debug;
+
 // ---------------------------------------------------------------
 // Linked list implementation over block storage,
 // where each node in the list is a pg_sys::Item
@@ -145,8 +146,9 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         items
     }
 
-    pub unsafe fn garbage_collect(&mut self, strategy: pg_sys::BufferAccessStrategy) {
+    pub unsafe fn garbage_collect(&mut self) -> Vec<T> {
         // Delete all items that are definitely dead
+        let strategy = pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_VACUUM);
         let snapshot = pg_sys::GetActiveSnapshot();
         let heap_oid = pg_sys::IndexGetRelation(self.relation_oid, false);
         let heap_relation = pg_sys::RelationIdGetRelation(heap_oid);
@@ -154,6 +156,8 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         let start_blockno = self.get_start_blockno();
         let mut blockno = start_blockno;
         let mut last_filled_blockno = start_blockno;
+
+        let mut recycled_entries = Vec::new();
 
         while blockno != pg_sys::InvalidBlockNumber {
             let mut buffer = self.bman.get_buffer_for_cleanup(blockno, strategy);
@@ -165,6 +169,9 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             while offsetno <= max_offset {
                 if let Some((entry, _)) = page.read_item::<T>(offsetno) {
                     if entry.recyclable(snapshot, heap_relation) {
+                        page.mark_item_dead(offsetno);
+
+                        recycled_entries.push(entry);
                         delete_offsets.push(offsetno);
                     } else {
                         let xmin_needs_freeze = entry.xmin_needs_freeze(freeze_limit);
@@ -193,13 +200,10 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             // Compaction step: If the page is entirely empty, mark as deleted
             // Adjust the pointer from the last known non-empty node to point to the next non-empty node
             if new_max_offset == pg_sys::InvalidOffsetNumber && current_blockno != start_blockno {
-                page.mark_deleted();
-
-                // drop the buffer were holding onto as we might acquire an exclusive lock on another
-                // one below and we don't want concurrent backends that are otherwise racing through
-                // this linked list to end up causing a lock inversion where they've locked the page
-                // we want while we have this page locked
-                drop(buffer);
+                page.mark_deleted(pg_sys::GetCurrentTransactionId());
+                // this page is no longer useful to us so go ahead and return it to the FSM.  Doing
+                // so will also drop the lock
+                self.bman.return_to_fsm_mut(buffer);
 
                 // We've reached the end of the list, which means the last filled block is now the
                 // last entry in the list
@@ -229,6 +233,8 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         }
 
         pg_sys::RelationClose(heap_relation);
+
+        recycled_entries
     }
 
     pub unsafe fn add_items(&mut self, items: Vec<T>, buffer: Option<BufferMut>) -> Result<()> {
@@ -284,6 +290,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub unsafe fn lookup<Cmp: Fn(&T) -> bool>(&self, cmp: Cmp) -> Result<T> {
         self.lookup_ex(cmp).map(|(t, _, _)| t)
     }
@@ -361,18 +368,8 @@ mod tests {
                 .expect("spi should succeed")
                 .unwrap();
 
-        let strategy = pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_VACUUM);
         let snapshot = pg_sys::GetActiveSnapshot();
-        let delete_xid = {
-            #[cfg(feature = "pg13")]
-            {
-                pg_sys::RecentGlobalXmin - 1
-            }
-            #[cfg(not(feature = "pg13"))]
-            {
-                (*snapshot).xmin - 1
-            }
-        };
+        let delete_xid = (*snapshot).xmin - 1;
 
         let mut list = LinkedItemList::<SegmentMetaEntry>::create(relation_oid);
         let entries_to_delete = vec![SegmentMetaEntry {
@@ -390,7 +387,7 @@ mod tests {
 
         list.add_items(entries_to_delete.clone(), None).unwrap();
         list.add_items(entries_to_keep.clone(), None).unwrap();
-        list.garbage_collect(strategy);
+        list.garbage_collect();
 
         assert!(list
             .lookup(|entry| entry.segment_id == entries_to_delete[0].segment_id)
@@ -409,18 +406,8 @@ mod tests {
                 .expect("spi should succeed")
                 .unwrap();
 
-        let strategy = pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_VACUUM);
         let snapshot = pg_sys::GetActiveSnapshot();
-        let deleted_xid = {
-            #[cfg(feature = "pg13")]
-            {
-                pg_sys::RecentGlobalXmin - 1
-            }
-            #[cfg(not(feature = "pg13"))]
-            {
-                (*snapshot).xmin - 1
-            }
-        };
+        let deleted_xid = (*snapshot).xmin - 1;
         let not_deleted_xid = pg_sys::InvalidTransactionId;
         let xmin = (*snapshot).xmin - 1;
 
@@ -441,7 +428,7 @@ mod tests {
                 .collect::<Vec<_>>();
 
             list.add_items(entries.clone(), None).unwrap();
-            list.garbage_collect(strategy);
+            list.garbage_collect();
 
             for entry in entries {
                 if entry.xmax == not_deleted_xid {
@@ -486,7 +473,7 @@ mod tests {
             list.add_items(entries_3.clone(), None).unwrap();
 
             let pre_gc_blocks = linked_list_block_numbers(&list);
-            list.garbage_collect(strategy);
+            list.garbage_collect();
 
             for entries in [entries_1, entries_2, entries_3] {
                 for entry in entries {

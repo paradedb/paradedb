@@ -21,7 +21,7 @@ use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::query::SearchQueryInput;
-use pgrx::{direct_function_call, pg_sys, IntoDatum};
+use pgrx::{check_for_interrupts, direct_function_call, pg_sys, IntoDatum};
 use tantivy::index::SegmentId;
 
 // TODO:  should these be GUCs?  I think yes, probably
@@ -41,6 +41,7 @@ pub struct TopNScanExecState {
     search_reader: Option<SearchIndexReader>,
     sort_field: Option<String>,
     search_results: SearchResults,
+    nresults: usize,
     did_query: bool,
 
     // state tracking
@@ -87,7 +88,7 @@ impl TopNScanExecState {
                     self.search_query_input.as_ref().unwrap(),
                     self.sort_field.clone(),
                     self.sort_direction.into(),
-                    self.limit,
+                    self.limit.max(self.chunk_size),
                     self.need_scores,
                 )
             } else {
@@ -100,21 +101,15 @@ impl TopNScanExecState {
         } else {
             // not parallel, first time query
             let search_reader = &self.search_reader.as_ref().unwrap();
+            self.did_query = true;
             search_reader.search_top_n(
                 self.search_query_input.as_ref().unwrap(),
                 self.sort_field.clone(),
                 self.sort_direction.into(),
-                self.limit,
+                self.limit.max(self.chunk_size),
                 self.need_scores,
             )
         }
-    }
-
-    fn reset(&mut self) {
-        self.found = 0;
-        self.last_ctid = 0;
-        self.chunk_size = 0;
-        self.retry_count = 0;
     }
 }
 
@@ -136,12 +131,17 @@ impl ExecMethod for TopNScanExecState {
             false
         } else {
             self.search_results = search_results;
-            self.reset();
             true
         }
     }
 
+    fn increment_visible(&mut self) {
+        self.found += 1;
+    }
+
     fn internal_next(&mut self, state: &mut PdbScanState) -> ExecState {
+        check_for_interrupts!();
+
         unsafe {
             let mut next = self.search_results.next();
             loop {
@@ -151,12 +151,14 @@ impl ExecMethod for TopNScanExecState {
                         return ExecState::Eof;
                     }
                     None => {
-                        if self.found <= self.limit {
+                        if self.found >= self.limit || self.nresults < self.limit {
                             // we found all the matching rows
                             return ExecState::Eof;
                         }
                     }
                     Some((scored, doc_address)) => {
+                        self.nresults += 1;
+                        self.last_ctid = scored.ctid;
                         return ExecState::RequiresVisibilityCheck {
                             ctid: scored.ctid,
                             score: scored.bm25,
@@ -196,6 +198,7 @@ impl ExecMethod for TopNScanExecState {
                     .max(self.limit * factor)
                     .min(MAX_CHUNK_SIZE);
 
+                self.did_query = false;
                 let mut results = self.query_more_results(state, Some(self.current_segment));
 
                 // fast forward and stop on the ctid we last found
@@ -206,16 +209,8 @@ impl ExecMethod for TopNScanExecState {
                     }
                 }
 
-                // this should be the next valid tuple after that
-                next = match results.next() {
-                    // ... and there it is!
-                    Some(next) => Some(next),
-
-                    // there wasn't one, so we've now read all possible matches
-                    None => {
-                        return ExecState::Eof;
-                    }
-                };
+                // this should be the next valid tuple after that, or None if `results` are now empty
+                next = results.next();
 
                 // we now have a new iterator of results to use going forward
                 self.search_results = results;

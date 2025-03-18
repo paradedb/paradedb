@@ -71,7 +71,7 @@ pub unsafe extern "C" fn aminitparallelscan(target: *mut ::core::ffi::c_void) {
 #[pg_guard]
 pub unsafe extern "C" fn amparallelrescan(_scan: pg_sys::IndexScanDesc) {}
 
-#[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
+#[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
 #[pg_guard]
 pub unsafe extern "C" fn amestimateparallelscan() -> pg_sys::Size {
     ParallelScanState::size_of(u16::MAX as usize, &[])

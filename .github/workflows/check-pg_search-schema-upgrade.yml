@@ -6,7 +6,7 @@
 name: Check pg_search Schema Upgrade
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
     branches:
       - dev
@@ -17,9 +17,12 @@ on:
       - "!pg_search/README.md"
   workflow_dispatch:
 
-# Required to post a comment to the PR
+# Since we use pull_request_target, we restrict the permissions to the bare minimum
+# required to post a comment to the PR. This is because pull_request_target runs
+# as the target repository's write token, which has more permissions than the
+# source repository's read token.
 permissions:
-  pull-requests: write
+  contents: read
   issues: write
 
 concurrency:
@@ -33,13 +36,15 @@ jobs:
     if: github.event.pull_request.draft == false
     strategy:
       matrix:
-        pg_version: [13] # Required by pg-schema-diff
+        pg_version: [14] # pg_search's minimum supported Postgres version
 
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Fetch the entire history
+          ref: ${{ github.event.pull_request.head.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
 
       - name: Extract pgrx Version
         id: pgrx

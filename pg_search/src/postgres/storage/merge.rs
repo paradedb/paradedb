@@ -272,7 +272,7 @@ impl VacuumList {
         segment_ids: impl Iterator<Item = &'s SegmentId>,
     ) -> VacuumSentinel {
         let mut segment_ids = segment_ids.collect::<Vec<_>>();
-        segment_ids.sort();
+        segment_ids.sort_unstable();
 
         let mut bman = BufferManager::new(self.relation_oid);
         let mut buffer = bman.get_buffer_mut(self.start_block_number);

@@ -70,13 +70,18 @@ impl MergeLock {
     pub unsafe fn acquire_for_merge(
         relation_oid: pg_sys::Oid,
         snapshot: pg_sys::Snapshot,
+        should_block: bool,
     ) -> Option<Self> {
         if !crate::postgres::utils::IsTransactionState() {
             return None;
         }
 
         let mut bman = BufferManager::new(relation_oid);
-        let merge_lock = bman.get_buffer_conditional(MERGE_LOCK)?;
+        let merge_lock = if should_block {
+            bman.get_buffer_mut(MERGE_LOCK)
+        } else {
+            bman.get_buffer_conditional(MERGE_LOCK)?
+        };
         let page = merge_lock.page();
         let metadata = page.contents::<MergeLockData>();
         let last_merge = metadata.last_merge;
@@ -200,12 +205,6 @@ impl MergeLock {
         self.bman
             .get_buffer_for_cleanup_conditional(metadata.ambulkdelete_sentinel)
             .is_none()
-    }
-
-    pub fn last_merge(&self) -> pg_sys::TransactionId {
-        let page = self.buffer.page();
-        let metadata = page.contents::<MergeLockData>();
-        metadata.last_merge
     }
 }
 

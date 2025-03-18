@@ -15,12 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::gucs::{max_mergeable_segment_size, segment_merge_scale_factor};
-use crate::index::merge_policy::{LayeredMergePolicy, NPlusOneMergePolicy};
+use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::SearchIndexWriter;
 use crate::index::WriterResources;
-use crate::postgres::storage::block::{MVCCEntry, SegmentMetaEntry, SEGMENT_METAS_START};
+use crate::postgres::storage::block::{SegmentMetaEntry, SEGMENT_METAS_START};
 use crate::postgres::storage::merge::MergeLock;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use crate::postgres::utils::{
@@ -209,17 +208,17 @@ pub fn paradedb_aminsertcleanup(mut writer: Option<SearchIndexWriter>) {
     if let Some(writer) = writer.take() {
         let indexrelid = writer.indexrelid;
 
-        writer
+        let doc_count = writer
             .commit()
             .expect("must be able to commit inserts in paradedb_aminsertcleanup");
 
         unsafe {
-            do_merge(indexrelid);
+            do_merge(indexrelid, doc_count);
         }
     }
 }
 
-unsafe fn do_merge(indexrelid: Oid) -> Option<()> {
+unsafe fn do_merge(indexrelid: Oid, doc_count: usize) -> Option<()> {
     let heaprelid = pg_sys::IndexGetRelation(indexrelid, false);
     let heaprel = pg_sys::RelationIdGetRelation(heaprelid);
 
@@ -242,12 +241,17 @@ unsafe fn do_merge(indexrelid: Oid) -> Option<()> {
     let mut items = LinkedItemList::<SegmentMetaEntry>::open(indexrelid, SEGMENT_METAS_START);
     let segment_meta_entries = items.list();
 
-    const LAYER_SIZES: &[u64] = &[200 * 1024 * 1024, 1 * 1024 * 1024];
+    const LAYER_SIZES: &[u64] = &[
+        10 * 1024,
+        1 * 1024 * 1024,
+        10 * 1024 * 1024,
+        100 * 1024 * 1024,
+        1000 * 1024 * 1024,
+    ];
 
     let recycled_entries = {
         let mut merge_policy = LayeredMergePolicy {
             n: target_segments,
-            last_merge: pg_sys::InvalidTransactionId,
             min_merge_count: 2,
 
             layer_sizes: LAYER_SIZES.to_vec(),
@@ -261,9 +265,8 @@ unsafe fn do_merge(indexrelid: Oid) -> Option<()> {
 
         // acquire the MergeLock here, returning early if we can't.
         // we endeavor to hold it for as short a time as possible
-        let mut merge_lock = MergeLock::acquire_for_merge(indexrelid, snapshot)?;
+        let mut merge_lock = MergeLock::acquire_for_merge(indexrelid, snapshot, false)?;
         merge_policy.vacuum_list = merge_lock.list_vacuuming_segments();
-        merge_policy.last_merge = merge_lock.last_merge();
         let mut writer = SearchIndexWriter::open(
             &PgRelation::open(indexrelid),
             MvccSatisfies::Snapshot,

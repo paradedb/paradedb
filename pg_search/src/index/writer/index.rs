@@ -26,7 +26,7 @@ use tantivy::{DocId, Index, IndexSettings, IndexWriter, Opstamp, TantivyDocument
 use thiserror::Error;
 
 use crate::index::channel::{ChannelDirectory, ChannelRequestHandler};
-use crate::index::merge_policy::{LayeredMergePolicy, NPlusOneMergePolicy};
+use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::{get_index_schema, setup_tokenizers, WriterResources};
 use crate::{
@@ -146,7 +146,7 @@ impl SearchIndexWriter {
     }
 
     /// Our default merge policy is tantivy's [`NoMergePolicy`], and if it's to be changed, we only
-    /// support our own [`NPlusOneMergePolicy`]
+    /// support our own [`LayeredMergePolicy`]
     pub fn set_merge_policy(&mut self, merge_policy: LayeredMergePolicy) {
         self.writer.set_merge_policy(Box::new(merge_policy));
     }
@@ -183,7 +183,7 @@ impl SearchIndexWriter {
         Ok(())
     }
 
-    pub fn commit(mut self) -> Result<()> {
+    pub fn commit(mut self) -> Result<usize> {
         self.drain_insert_queue()?;
         let mut writer =
             Arc::into_inner(self.writer).expect("should not have an outstanding Arc<IndexWriter>");
@@ -196,11 +196,10 @@ impl SearchIndexWriter {
             })
             .expect("spawned thread should not fail")?;
 
-        let result = self
-            .handler
-            .wait_for(move || writer.wait_merging_threads())?;
+        self.handler
+            .wait_for(move || writer.wait_merging_threads())??;
 
-        Ok(result?)
+        Ok(self.cnt)
     }
 
     /// Causes the index to perform a merge.
@@ -213,7 +212,8 @@ impl SearchIndexWriter {
     /// channels with tantivy fail for some reason.
     pub fn merge(self) -> Result<()> {
         assert!(self.insert_queue.is_empty());
-        self.commit()
+        self.commit()?;
+        Ok(())
     }
 
     fn drain_insert_queue(&mut self) -> Result<Opstamp, TantivyError> {

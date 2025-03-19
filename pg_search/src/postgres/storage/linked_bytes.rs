@@ -16,8 +16,8 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::block::{
-    bm25_max_free_space, BM25PageSpecialData, LinkedList, LinkedListData, SegmentMetaEntry,
-    FIXED_BLOCK_NUMBERS,
+    bm25_max_free_space, BM25PageSpecialData, LinkedList, LinkedListData, MVCCEntry,
+    SegmentMetaEntry, FIXED_BLOCK_NUMBERS,
 };
 use crate::postgres::storage::blocklist;
 use crate::postgres::storage::buffer::{BufferManager, PageHeaderMethods};
@@ -25,6 +25,7 @@ use anyhow::Result;
 use pgrx::pg_sys::BlockNumber;
 use pgrx::{check_for_interrupts, pg_sys};
 use std::cmp::min;
+use std::fmt::Debug;
 use std::io::{Cursor, Read, Write};
 use std::ops::{Deref, Range};
 use std::sync::OnceLock;
@@ -196,6 +197,12 @@ impl LinkedBytesList {
         }
     }
 
+    pub unsafe fn xmax(&self) -> pg_sys::TransactionId {
+        let buffer = self.bman.get_buffer(self.header_blockno);
+        let page = buffer.page();
+        page.special::<BM25PageSpecialData>().xmax
+    }
+
     pub unsafe fn write(&mut self, bytes: &[u8]) -> Result<usize> {
         let mut data_cursor = Cursor::new(bytes);
         let mut bytes_written = 0;
@@ -293,7 +300,7 @@ impl LinkedBytesList {
     ///
     /// It's the caller's responsibility to later call [`pg_sys::IndexFreeSpaceMapVacuum`]
     /// if necessary.
-    pub unsafe fn return_to_fsm(mut self, entry: &SegmentMetaEntry, type_: SegmentComponent) {
+    pub unsafe fn return_to_fsm(mut self, entry: &impl Debug, type_: Option<SegmentComponent>) {
         // in addition to the list itself, we also have a secondary list of linked blocks (which
         // contain the blocknumbers of this list) that needs to freed too
         for starting_blockno in [self.metadata.start_blockno, self.metadata.blocklist_start] {
@@ -317,6 +324,40 @@ impl LinkedBytesList {
                     self.header_blockno,
                     entry
                 );
+
+                blockno = special.next_blockno;
+                self.bman.return_to_fsm(buffer)
+            }
+        }
+
+        let header_buffer = self.bman.get_buffer(self.header_blockno);
+        self.bman.return_to_fsm(header_buffer);
+    }
+
+    /// Return all the allocated blocks used by this [`LinkedBytesList`] back to the
+    /// Free Space Map behind this index.  It does not matter if the underlying pages have
+    /// been marked as recyclable.
+    ///
+    /// It's the caller's responsibility to later call [`pg_sys::IndexFreeSpaceMapVacuum`]
+    /// if necessary.
+    pub unsafe fn return_to_fsm_unchecked(
+        mut self,
+        entry: &impl Debug,
+        type_: Option<SegmentComponent>,
+    ) {
+        // in addition to the list itself, we also have a secondary list of linked blocks (which
+        // contain the blocknumbers of this list) that needs to freed too
+        for starting_blockno in [self.metadata.start_blockno, self.metadata.blocklist_start] {
+            let mut blockno = starting_blockno;
+            while blockno != pg_sys::InvalidBlockNumber {
+                assert!(
+                    blockno > *FIXED_BLOCK_NUMBERS.last().unwrap(),
+                    "record_free_space:  blockno {blockno} cannot ever be recycled"
+                );
+
+                let buffer = self.bman.get_buffer(blockno);
+                let page = buffer.page();
+                let special = page.special::<BM25PageSpecialData>();
 
                 blockno = special.next_blockno;
                 self.bman.return_to_fsm(buffer)

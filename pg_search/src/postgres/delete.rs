@@ -45,7 +45,12 @@ pub unsafe extern "C" fn ambulkdelete(
     };
 
     // take the MergeLock
-    let merge_lock = MergeLock::acquire_for_ambulkdelete(index_relation.oid());
+    let cleanup_lock = BufferManager::new(index_relation.oid()).get_buffer_mut(CLEANUP_LOCK);
+    let merge_lock = MergeLock::acquire(index_relation.oid());
+    assert!(merge_lock
+        .in_progress_merge_entries(pg_sys::GetActiveSnapshot())
+        .next()
+        .is_none());
 
     let mut index_writer =
         SearchIndexWriter::open(&index_relation, MvccSatisfies::Any, WriterResources::Vacuum)
@@ -58,6 +63,7 @@ pub unsafe extern "C" fn ambulkdelete(
     let vacuum_sentinel = merge_lock
         .vacuum_list()
         .write_list(writer_segment_ids.iter());
+    drop(cleanup_lock);
 
     let reader = SearchIndexReader::open(&index_relation, MvccSatisfies::Any)
         .expect("ambulkdelete: should be able to open a SearchIndexReader");
@@ -67,9 +73,9 @@ pub unsafe extern "C" fn ambulkdelete(
         if !writer_segment_ids.contains(&segment_reader.segment_id()) {
             // the writer doesn't have this segment reader, and that's fine
             // we open the writer and reader in separate calls so it's possible
-            // for the reader, which is opened second, to see a different view of
-            // the segment entries on disk, but we only need to concern ourselves with
-            // the ones the writer is aware of
+            // for the reader, which is opened second and outside of the MergeLock,
+            // to see a different view of the segment entries on disk, but we only
+            // need to concern ourselves with the ones the writer is aware of
             continue;
         }
         let ctid_ff = FFType::new_ctid(segment_reader.fast_fields());
@@ -98,9 +104,6 @@ pub unsafe extern "C" fn ambulkdelete(
         .commit()
         .expect("ambulkdelete: commit should succeed");
 
-    // we're done, no need to hold onto the sentinel any longer
-    drop(vacuum_sentinel);
-
     if stats.is_null() {
         stats = unsafe {
             PgBox::from_pg(
@@ -125,5 +128,7 @@ pub unsafe extern "C" fn ambulkdelete(
         );
     }
 
+    // we're done, no need to hold onto the sentinel any longer
+    drop(vacuum_sentinel);
     stats.into_pg()
 }

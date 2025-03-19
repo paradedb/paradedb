@@ -19,7 +19,10 @@ use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::SearchIndexWriter;
 use crate::index::WriterResources;
-use crate::postgres::storage::block::{SegmentMetaEntry, SEGMENT_METAS_START};
+use crate::postgres::storage::block::{
+    MVCCEntry, SegmentMetaEntry, CLEANUP_LOCK, SEGMENT_METAS_START,
+};
+use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::merge::MergeLock;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use crate::postgres::utils::{
@@ -28,6 +31,7 @@ use crate::postgres::utils::{
 use crate::schema::SearchField;
 use pgrx::pg_sys::Oid;
 use pgrx::{pg_guard, pg_sys, PgMemoryContexts, PgRelation, PgTupleDesc};
+use std::collections::HashSet;
 use std::ffi::CStr;
 use std::panic::{catch_unwind, resume_unwind};
 
@@ -218,7 +222,7 @@ pub fn paradedb_aminsertcleanup(mut writer: Option<SearchIndexWriter>) {
     }
 }
 
-unsafe fn do_merge(indexrelid: Oid, doc_count: usize) -> Option<()> {
+unsafe fn do_merge(indexrelid: Oid, doc_count: usize) {
     let heaprelid = pg_sys::IndexGetRelation(indexrelid, false);
     let heaprel = pg_sys::RelationIdGetRelation(heaprelid);
 
@@ -238,45 +242,81 @@ unsafe fn do_merge(indexrelid: Oid, doc_count: usize) -> Option<()> {
         .expect("failed to get available_parallelism")
         .get();
     let snapshot = pg_sys::GetActiveSnapshot();
-    let mut items = LinkedItemList::<SegmentMetaEntry>::open(indexrelid, SEGMENT_METAS_START);
-    let segment_meta_entries = items.list();
 
     const LAYER_SIZES: &[u64] = &[
         10 * 1024,
+        100 * 1024,
         1 * 1024 * 1024,
         10 * 1024 * 1024,
         100 * 1024 * 1024,
-        1000 * 1024 * 1024,
+        500 * 1024 * 1024,
     ];
 
+    let mut items = LinkedItemList::<SegmentMetaEntry>::open(indexrelid, SEGMENT_METAS_START);
+    let segment_meta_entries = items.list();
+    let mut merge_policy = LayeredMergePolicy {
+        n: target_segments,
+        min_merge_count: 2,
+
+        layer_sizes: LAYER_SIZES.to_vec(),
+        possibly_mergeable_segments: Default::default(),
+        segment_entries: segment_meta_entries
+            .into_iter()
+            .map(|entry| (entry.segment_id, entry))
+            .collect(),
+        already_processed: Default::default(),
+    };
+
+    let _cleanup_lock = BufferManager::new(indexrelid).get_buffer(CLEANUP_LOCK);
     let recycled_entries = {
-        let mut merge_policy = LayeredMergePolicy {
-            n: target_segments,
-            min_merge_count: 2,
+        let mut merge_lock = MergeLock::acquire(indexrelid);
 
-            layer_sizes: LAYER_SIZES.to_vec(),
-            vacuum_list: Default::default(),
-            segment_entries: segment_meta_entries
-                .into_iter()
-                .map(|entry| (entry.segment_id, entry))
-                .collect(),
-            already_processed: Default::default(),
-        };
-
-        // acquire the MergeLock here, returning early if we can't.
-        // we endeavor to hold it for as short a time as possible
-        let mut merge_lock = MergeLock::acquire_for_merge(indexrelid, snapshot, false)?;
-        merge_policy.vacuum_list = merge_lock.list_vacuuming_segments();
         let mut writer = SearchIndexWriter::open(
             &PgRelation::open(indexrelid),
-            MvccSatisfies::Snapshot,
+            MvccSatisfies::Mergable,
             WriterResources::PostStatementMerge,
         )
         .expect("should be able to open a SearchIndexWriter for PostStatementMerge");
-        writer.set_merge_policy(merge_policy);
-        writer.merge().expect("should be able to merge");
 
-        (!merge_lock.is_ambulkdelete_running()).then(|| items.garbage_collect())
+        // the non_mergeable_segments are those that are concurrently being vacuumed *and* merged
+        let mut non_mergable_segments = merge_lock.list_vacuuming_segments();
+        non_mergable_segments.extend(merge_lock.in_progress_segment_ids(snapshot));
+        let writer_segment_ids = &writer.segment_ids();
+
+        let possibly_mergeable = writer_segment_ids
+            .difference(&non_mergable_segments)
+            .collect::<HashSet<_>>();
+
+        if possibly_mergeable.len() > 2 {
+            // record all the segments the IndexWriter can see, as those are the ones that
+            // could be merged
+            let xid = merge_lock
+                .record_in_progress_segment_ids(&possibly_mergeable)
+                .expect("should be able to write current merge segment_id list");
+            drop(merge_lock);
+
+            merge_policy.possibly_mergeable_segments = possibly_mergeable
+                .iter()
+                .map(|segment_id| **segment_id)
+                .collect();
+
+            writer.set_merge_policy(merge_policy);
+
+            writer.merge().expect("should be able to merge");
+
+            // re-acquire the MergeLock so we can garbage collect below
+            let mut merge_lock = MergeLock::acquire(indexrelid);
+            merge_lock
+                .remove_entry(xid)
+                .expect("should be able to remove MergeEntry");
+            merge_lock.garbage_collect();
+            (!merge_lock.is_ambulkdelete_running()).then(|| {
+                assert!(merge_lock.list_vacuuming_segments().is_empty());
+                items.garbage_collect()
+            })
+        } else {
+            None
+        }
     };
 
     if let Some(recycled_entries) = recycled_entries {
@@ -285,13 +325,11 @@ unsafe fn do_merge(indexrelid: Oid, doc_count: usize) -> Option<()> {
             for entry in recycled_entries {
                 for (file_entry, type_) in entry.file_entries() {
                     let bytes = LinkedBytesList::open(indexrelid, file_entry.starting_block);
-                    bytes.return_to_fsm(&entry, type_);
+                    bytes.return_to_fsm(&entry, Some(type_));
                     pg_sys::IndexFreeSpaceMapVacuum(indexrel);
                 }
             }
             pg_sys::RelationClose(indexrel);
         }
     }
-
-    Some(())
 }

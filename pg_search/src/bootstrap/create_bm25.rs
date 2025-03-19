@@ -120,6 +120,36 @@ pub unsafe fn index_fields(index: PgRelation) -> anyhow::Result<JsonB> {
     Ok(JsonB(serde_json::to_value(name_and_config)?))
 }
 
+#[pg_extern]
+unsafe fn merge_info(
+    index: PgRelation,
+) -> anyhow::Result<
+    TableIterator<
+        'static,
+        (
+            name!(pid, i32),
+            name!(xmin, AnyNumeric),
+            name!(xmax, AnyNumeric),
+            name!(segno, String),
+        ),
+    >,
+> {
+    let merge_lock = MergeLock::acquire(index.oid());
+    let in_progress = merge_lock.in_progress_merge_entries(pg_sys::GetActiveSnapshot());
+    drop(merge_lock);
+
+    Ok(TableIterator::new(in_progress.map(
+        |(merge_entry, segment_id)| {
+            (
+                merge_entry.pid,
+                merge_entry.xmin.into(),
+                merge_entry.xmax.into(),
+                segment_id.short_uuid_string(),
+            )
+        },
+    )))
+}
+
 #[allow(clippy::type_complexity)]
 #[pg_extern]
 fn index_info(

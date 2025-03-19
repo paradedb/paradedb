@@ -44,6 +44,7 @@ use tantivy::{index::SegmentMetaInventory, Directory, IndexMeta, TantivyError};
 pub enum MvccSatisfies {
     Snapshot,
     Any,
+    Mergable,
 }
 
 impl MvccSatisfies {
@@ -51,6 +52,7 @@ impl MvccSatisfies {
         match self {
             MvccSatisfies::Snapshot => MVCCDirectory::snapshot(index_relation.oid()),
             MvccSatisfies::Any => MVCCDirectory::any(index_relation.oid()),
+            MvccSatisfies::Mergable => MVCCDirectory::mergable(index_relation.oid()),
         }
     }
     pub fn channel_request_handler(
@@ -94,6 +96,10 @@ impl MVCCDirectory {
 
     pub fn any(relation_oid: pg_sys::Oid) -> Self {
         Self::with_mvcc_style(relation_oid, MvccSatisfies::Any)
+    }
+
+    pub fn mergable(relation_oid: pg_sys::Oid) -> Self {
+        Self::with_mvcc_style(relation_oid, MvccSatisfies::Mergable)
     }
 
     fn with_mvcc_style(relation_oid: pg_sys::Oid, mvcc_style: MvccSatisfies) -> Self {

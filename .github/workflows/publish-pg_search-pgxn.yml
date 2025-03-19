@@ -1,0 +1,31 @@
+# workflows/publish-pg_search-pgxn.yml
+#
+# Publish pg_search (PGXN)
+# Build and publish the pg_search extension to the PostgreSQL Extension Network (PGXN).
+
+name: Publish pg_search (PGXN)
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  publish-pg_search:
+    name: Publish pg_search to PGXN
+    runs-on: ubuntu-latest
+    container: pgxn/pgxn-tools
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v4
+
+      - name: Bundle the Release
+        run: make dist
+
+      - name: Release on PGXN
+        env:
+          PGXN_USERNAME: ${{ secrets.PGXN_USERNAME }}
+          PGXN_PASSWORD: ${{ secrets.PGXN_PASSWORD }}
+        run: pgxn-release

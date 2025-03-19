@@ -1,0 +1,11 @@
+.codespellignore export-ignore
+.dockerignore export-ignore
+.gitignore export-ignore
+.gitattributes export-ignore
+.github export-ignorei
+.hadolint.yaml export-ignore
+.markdownlint.yaml export-ignore
+.pre-commit-config.yaml export-ignore
+.prettierignore export-ignore
+.prettierrc export-ignore
+META.json.in export-ignore

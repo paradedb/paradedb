@@ -1,0 +1,47 @@
+
+{
+   "name": "pg_search",
+   "abstract": "Full-text search for Postgres",
+   "description": "pg_search is a Postgres extension that enables full text search over heap tables using the BM25 algorithm. It is built on top of Tantivy, the Rust-based alternative to Apache Lucene, using pgrx.",
+   "version": "@CARGO_VERSION@",
+   "maintainer": [
+      "ParadeDB <support@paradedb.com>"
+   ],
+   "license": "agpl-3.0",
+   "provides": {
+      "pg_search": {
+         "abstract": "Full-text search for Postgres",
+         "file": "pg_search/src/lib.rs",
+         "docfile": "pg_search/README.md",
+         "version": "@CARGO_VERSION@"
+      }
+   },
+   "prereqs": {
+      "runtime": {
+         "requires": {
+            "PostgreSQL": "14.0.0"
+         }
+      }
+   },
+   "resources": {
+      "bugtracker": {
+         "web": "https://github.com/paradedb/paradedb/issues/"
+      },
+      "repository": {
+         "url": "git://github.com/paradedb/paradedb.git",
+         "web": "https://github.com/paradedb/paradedb/",
+         "type": "git"
+      }
+   },
+   "generated_by": "Yoh Deadfall",
+   "meta-spec": {
+      "version": "1.0.0",
+      "url": "https://pgxn.org/meta/spec.txt"
+   },
+   "tags": [
+      "paradedb",
+      "full text",
+      "full text search",
+      "full-text search",
+   ]
+}

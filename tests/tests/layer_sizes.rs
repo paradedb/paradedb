@@ -92,7 +92,7 @@ fn default_layer_sizes(mut conn: PgConnection) {
         layer_sizes,
         vec![
             BigDecimal::from(100 * 1024),
-            BigDecimal::from(1 * 1024 * 1024),
+            BigDecimal::from(1024 * 1024),
             BigDecimal::from(100 * 1024 * 1024)
         ]
     );

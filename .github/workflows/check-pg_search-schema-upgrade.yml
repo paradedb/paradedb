@@ -22,6 +22,7 @@ on:
 # as the target repository's write token, which has more permissions than the
 # source repository's read token.
 permissions:
+  pull-requests: write
   contents: read
   issues: write
 

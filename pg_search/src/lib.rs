@@ -27,8 +27,6 @@ mod schema;
 #[cfg(test)]
 pub mod github;
 pub mod gucs;
-#[cfg(feature = "telemetry")]
-pub mod telemetry;
 
 use self::postgres::customscan;
 use pgrx::*;
@@ -74,7 +72,7 @@ pub fn MyDatabaseId() -> u32 {
     }
 }
 
-/// Initializes option parsing and telemetry
+/// Initializes option parsing
 #[allow(clippy::missing_safety_doc)]
 #[allow(non_snake_case)]
 #[pg_guard]
@@ -89,11 +87,6 @@ pub unsafe extern "C" fn _PG_init() {
     #[cfg(not(feature = "pg17"))]
     postgres::fake_aminsertcleanup::register();
 
-    #[cfg(feature = "telemetry")]
-    telemetry::setup_telemetry_background_worker(telemetry::ParadeExtension::PgSearch);
-
-    // Register our tracing / logging hook, so that we can ensure that the logger
-    // is initialized for all connections.
     #[allow(static_mut_refs)]
     #[allow(deprecated)]
     customscan::register_rel_pathlist(customscan::pdbscan::PdbScan);

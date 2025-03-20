@@ -162,7 +162,6 @@ jobs:
         run: |
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
           export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
-          export PARADEDB_TELEMETRY=false
           RUST_BACKTRACE=1 cargo test --jobs $(nproc) --features icu
 
       - name: Print the Postgres Logs

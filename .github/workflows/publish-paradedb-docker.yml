@@ -92,8 +92,6 @@ jobs:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
-      # We don't need to use secret mounts for the build-args here because
-      # the PostHog secrets are public-facing and don't need to be kept secret.
       - name: Build and Push Docker Image to Docker Hub
         id: build-push
         uses: depot/build-push-action@v1
@@ -101,11 +99,8 @@ jobs:
           context: .
           build-args: |
             PG_VERSION_MAJOR=${{ matrix.pg_version }}
-            POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}
-            POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
             COMMIT_SHA=${{ steps.version.outputs.commit_sha }}
             PARADEDB_VERSION=${{ steps.version.outputs.version }}
-            PARADEDB_TELEMETRY=true
           platforms: linux/amd64,linux/arm64
           file: docker/Dockerfile
           push: true

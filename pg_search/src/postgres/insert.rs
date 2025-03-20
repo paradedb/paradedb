@@ -19,6 +19,7 @@ use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::SearchIndexWriter;
 use crate::index::WriterResources;
+use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::storage::block::{SegmentMetaEntry, CLEANUP_LOCK, SEGMENT_METAS_START};
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::merge::MergeLock;
@@ -27,7 +28,6 @@ use crate::postgres::utils::{
     categorize_fields, item_pointer_to_u64, row_to_search_document, CategorizedFieldData,
 };
 use crate::schema::SearchField;
-use pgrx::pg_sys::Oid;
 use pgrx::{pg_guard, pg_sys, PgMemoryContexts, PgRelation, PgTupleDesc};
 use std::collections::HashSet;
 use std::ffi::CStr;
@@ -220,9 +220,18 @@ pub fn paradedb_aminsertcleanup(mut writer: Option<SearchIndexWriter>) {
     }
 }
 
-unsafe fn do_merge(indexrelid: Oid, _doc_count: usize) {
-    let heaprelid = pg_sys::IndexGetRelation(indexrelid, false);
-    let heaprel = pg_sys::RelationIdGetRelation(heaprelid);
+#[allow(clippy::identity_op)]
+pub(crate) const DEFAULT_LAYER_SIZES: &[u64] = &[
+    100 * 1024,        // 100KB
+    1 * 1024 * 1024,   // 1MB
+    100 * 1024 * 1024, // 100MB
+];
+
+unsafe fn do_merge(indexrelid: pg_sys::Oid, _doc_count: usize) {
+    let indexrel = PgRelation::open(indexrelid);
+    let heaprel = indexrel
+        .heap_relation()
+        .expect("index should belong to a heap relation");
 
     /*
      * Recompute VACUUM XID boundaries.
@@ -233,23 +242,13 @@ unsafe fn do_merge(indexrelid: Oid, _doc_count: usize) {
      * essential; GlobalVisCheckRemovableFullXid() will not reliably recognize
      * that it is now safe to recycle newly deleted pages without this step.
      */
-    pg_sys::GetOldestNonRemovableTransactionId(heaprel);
-    pg_sys::RelationClose(heaprel);
+    pg_sys::GetOldestNonRemovableTransactionId(heaprel.as_ptr());
 
     let target_segments = std::thread::available_parallelism()
         .expect("failed to get available_parallelism")
         .get();
 
-    #[allow(clippy::identity_op)]
-    const LAYER_SIZES: &[u64] = &[
-        10 * 1024,
-        100 * 1024,
-        1 * 1024 * 1024,
-        10 * 1024 * 1024,
-        100 * 1024 * 1024,
-        500 * 1024 * 1024,
-    ];
-
+    let index_options = SearchIndexCreateOptions::from_relation(&indexrel);
     let mut segment_meta_entries_list =
         LinkedItemList::<SegmentMetaEntry>::open(indexrelid, SEGMENT_METAS_START);
     let segment_meta_entries = segment_meta_entries_list.list();
@@ -257,7 +256,7 @@ unsafe fn do_merge(indexrelid: Oid, _doc_count: usize) {
         n: target_segments,
         min_merge_count: 2,
 
-        layer_sizes: LAYER_SIZES.to_vec(),
+        layer_sizes: index_options.layer_sizes(DEFAULT_LAYER_SIZES),
         possibly_mergeable_segments: Default::default(),
         segment_entries: segment_meta_entries
             .into_iter()
@@ -325,15 +324,13 @@ unsafe fn do_merge(indexrelid: Oid, _doc_count: usize) {
 
     if let Some(recycled_entries) = recycled_entries {
         if !recycled_entries.is_empty() {
-            let indexrel = pg_sys::RelationIdGetRelation(indexrelid);
             for entry in recycled_entries {
                 for (file_entry, type_) in entry.file_entries() {
                     let bytes = LinkedBytesList::open(indexrelid, file_entry.starting_block);
                     bytes.return_to_fsm(&entry, Some(type_));
-                    pg_sys::IndexFreeSpaceMapVacuum(indexrel);
+                    pg_sys::IndexFreeSpaceMapVacuum(indexrel.as_ptr());
                 }
             }
-            pg_sys::RelationClose(indexrel);
         }
     }
 }

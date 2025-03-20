@@ -121,6 +121,16 @@ pub unsafe fn index_fields(index: PgRelation) -> anyhow::Result<JsonB> {
 }
 
 #[pg_extern]
+pub unsafe fn layer_sizes(index: PgRelation) -> Vec<AnyNumeric> {
+    let options = SearchIndexCreateOptions::from_relation(&index);
+    options
+        .layer_sizes(crate::postgres::insert::DEFAULT_LAYER_SIZES)
+        .into_iter()
+        .map(|layer_size| layer_size.into())
+        .collect()
+}
+
+#[pg_extern]
 unsafe fn merge_info(
     index: PgRelation,
 ) -> anyhow::Result<

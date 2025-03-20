@@ -57,6 +57,7 @@ pub struct SearchIndexCreateOptions {
     range_fields_offset: i32,
     datetime_fields_offset: i32,
     key_field_offset: i32,
+    layer_sizes_offset: i32,
 }
 
 #[pg_guard]
@@ -148,6 +149,36 @@ extern "C" fn validate_key_field(value: *const std::os::raw::c_char) {
     cstr_to_rust_str(value);
 }
 
+#[pg_guard]
+extern "C" fn validate_layer_sizes(value: *const std::os::raw::c_char) {
+    if value.is_null() {
+        // a NULL value means we're to use whatever our defaults are
+        return;
+    }
+    let cstr = unsafe { CStr::from_ptr(value) };
+    let str = cstr.to_str().expect("`layer_sizes` must be valid UTF-8");
+
+    let mut cnt = 0;
+    for part in str.split(",") {
+        // just make sure postgres can parse this byte size
+        unsafe {
+            let byte_size: u64 =
+                direct_function_call::<i64>(pg_sys::pg_size_bytes, &[part.into_datum()])
+                    .expect("`pg_size_bytes()` should not return NULL")
+                    .try_into()
+                    .expect("the layer size must fit in an `u64`");
+            assert!(
+                byte_size > 0,
+                "a single layer size must be greater than zero"
+            )
+        }
+        cnt += 1;
+    }
+
+    // we require at least two layers
+    assert!(cnt >= 2, "There must be at least 2 layers in `layer_sizes`");
+}
+
 #[inline]
 fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
     if value.is_null() {
@@ -160,7 +191,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
         .to_string()
 }
 
-const NUM_REL_OPTS: usize = 7;
+const NUM_REL_OPTS: usize = 8;
 #[pg_guard]
 pub unsafe extern "C" fn amoptions(
     reloptions: pg_sys::Datum,
@@ -202,6 +233,11 @@ pub unsafe extern "C" fn amoptions(
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: offset_of!(SearchIndexCreateOptions, key_field_offset) as i32,
         },
+        pg_sys::relopt_parse_elt {
+            optname: "layer_sizes".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
+            offset: offset_of!(SearchIndexCreateOptions, layer_sizes_offset) as i32,
+        },
     ];
     build_relopts(reloptions, validate, options)
 }
@@ -230,6 +266,33 @@ impl SearchIndexCreateOptions {
             ptr = pg_sys::palloc0(std::mem::size_of::<Self>()) as *const Self;
         }
         ptr.as_ref().unwrap()
+    }
+
+    /// Returns the configured `layer_sizes`, split into a [`Vec<u64>`] of byte sizes.
+    ///
+    /// If none is applied to the index, the specified `default` sizes are used.
+    pub fn layer_sizes(&self, default: &[u64]) -> Vec<u64> {
+        let layer_sizes_str = self.get_str(self.layer_sizes_offset, Default::default());
+        if layer_sizes_str.trim().is_empty() {
+            return default.to_vec();
+        }
+
+        let mut layer_sizes = Vec::new();
+        for part in layer_sizes_str.split(",") {
+            // just make sure postgres can parse this byte size
+            unsafe {
+                let byte_size =
+                    direct_function_call::<i64>(pg_sys::pg_size_bytes, &[part.into_datum()])
+                        .expect("`pg_size_bytes()` should not return NULL");
+
+                layer_sizes.push(
+                    byte_size
+                        .try_into()
+                        .expect("the layer size must fit in an `u64`"),
+                )
+            }
+        }
+        layer_sizes
     }
 
     /// As a SearchFieldConfig is an enum, for it to be correctly serialized the variant needs
@@ -629,6 +692,14 @@ pub unsafe fn init() {
         "Column name as a string specify the unique identifier for a row".as_pg_cstr(),
         std::ptr::null(),
         Some(validate_key_field),
+        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
+    );
+    pg_sys::add_string_reloption(
+        RELOPT_KIND_PDB,
+        "layer_sizes".as_pg_cstr(),
+        "The sizes of each segment merge layer".as_pg_cstr(),
+        std::ptr::null(),
+        Some(validate_layer_sizes),
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
 }

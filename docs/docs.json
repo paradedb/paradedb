@@ -51,8 +51,7 @@
                           {
                             "group": "Index Settings",
                             "pages": [
-                              "documentation/configuration/scan",
-                              "documentation/configuration/telemetry"
+                              "documentation/configuration/scan"
                             ]
                           }
                         ]

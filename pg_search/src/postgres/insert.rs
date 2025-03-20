@@ -15,20 +15,21 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::gucs::{max_mergeable_segment_size, segment_merge_scale_factor};
-use crate::index::merge_policy::NPlusOneMergePolicy;
+use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::SearchIndexWriter;
 use crate::index::WriterResources;
-use crate::postgres::storage::block::{MVCCEntry, SegmentMetaEntry, SEGMENT_METAS_START};
+use crate::postgres::options::SearchIndexCreateOptions;
+use crate::postgres::storage::block::{SegmentMetaEntry, CLEANUP_LOCK, SEGMENT_METAS_START};
+use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::merge::MergeLock;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use crate::postgres::utils::{
     categorize_fields, item_pointer_to_u64, row_to_search_document, CategorizedFieldData,
 };
 use crate::schema::SearchField;
-use pgrx::pg_sys::Oid;
 use pgrx::{pg_guard, pg_sys, PgMemoryContexts, PgRelation, PgTupleDesc};
+use std::collections::HashSet;
 use std::ffi::CStr;
 use std::panic::{catch_unwind, resume_unwind};
 
@@ -209,19 +210,28 @@ pub fn paradedb_aminsertcleanup(mut writer: Option<SearchIndexWriter>) {
     if let Some(writer) = writer.take() {
         let indexrelid = writer.indexrelid;
 
-        writer
+        let doc_count = writer
             .commit()
             .expect("must be able to commit inserts in paradedb_aminsertcleanup");
 
         unsafe {
-            do_merge(indexrelid);
+            do_merge(indexrelid, doc_count);
         }
     }
 }
 
-unsafe fn do_merge(indexrelid: Oid) -> Option<()> {
-    let heaprelid = pg_sys::IndexGetRelation(indexrelid, false);
-    let heaprel = pg_sys::RelationIdGetRelation(heaprelid);
+#[allow(clippy::identity_op)]
+pub(crate) const DEFAULT_LAYER_SIZES: &[u64] = &[
+    100 * 1024,        // 100KB
+    1 * 1024 * 1024,   // 1MB
+    100 * 1024 * 1024, // 100MB
+];
+
+unsafe fn do_merge(indexrelid: pg_sys::Oid, _doc_count: usize) {
+    let indexrel = PgRelation::open(indexrelid);
+    let heaprel = indexrel
+        .heap_relation()
+        .expect("index should belong to a heap relation");
 
     /*
      * Recompute VACUUM XID boundaries.
@@ -232,80 +242,95 @@ unsafe fn do_merge(indexrelid: Oid) -> Option<()> {
      * essential; GlobalVisCheckRemovableFullXid() will not reliably recognize
      * that it is now safe to recycle newly deleted pages without this step.
      */
-    pg_sys::GetOldestNonRemovableTransactionId(heaprel);
+    pg_sys::GetOldestNonRemovableTransactionId(heaprel.as_ptr());
 
     let target_segments = std::thread::available_parallelism()
         .expect("failed to get available_parallelism")
         .get();
-    let snapshot = pg_sys::GetActiveSnapshot();
-    let mut items = LinkedItemList::<SegmentMetaEntry>::open(indexrelid, SEGMENT_METAS_START);
-    let mut nbytes = 0;
-    let mut ndocs = 0;
-    let mut nlikely_mergable = 0;
-    let max_mergeable_segment_size = max_mergeable_segment_size();
-    for entry in items.list() {
-        // only consider segments that are subject to merging.  the 1.25 here is saying that
-        // if the entry's size is within 25% of the max_mergable_segment_size then it's _likely_
-        // not going to merge with another segment, so we won't count it towards calculating
-        // the scale factor
-        if entry.byte_size() as f64 * 1.25  < max_mergeable_segment_size as f64
 
-            // and that are visible and not going to be recycled soon
-            && entry.visible(snapshot)
-            && !entry.recyclable(snapshot, heaprel)
-        {
-            nlikely_mergable += 1;
-        }
-        nbytes += entry.byte_size();
-        ndocs += entry.num_docs() + entry.num_deleted_docs();
-    }
-    pg_sys::RelationClose(heaprel);
+    let index_options = SearchIndexCreateOptions::from_relation(&indexrel);
+    let mut segment_meta_entries_list =
+        LinkedItemList::<SegmentMetaEntry>::open(indexrelid, SEGMENT_METAS_START);
+    let segment_meta_entries = segment_meta_entries_list.list();
+    let mut merge_policy = LayeredMergePolicy {
+        n: target_segments,
+        min_merge_count: 2,
 
-    let recycled_entries = if nlikely_mergable > target_segments * segment_merge_scale_factor() + 1
-    {
-        let avg_byte_size_per_doc = nbytes as f64 / ndocs as f64;
+        layer_sizes: index_options.layer_sizes(DEFAULT_LAYER_SIZES),
+        possibly_mergeable_segments: Default::default(),
+        segment_entries: segment_meta_entries
+            .into_iter()
+            .map(|entry| (entry.segment_id, entry))
+            .collect(),
+        already_processed: Default::default(),
+    };
 
-        let mut merge_policy = NPlusOneMergePolicy {
-            n: target_segments,
-            min_merge_count: 2,
+    // pin the CLEANUP_LOCK and hold it until this function is done.  We keep a pin here
+    // so we can cause `ambulkdelete()` to block, waiting for all merging to finish before it
+    // decides to find the segments it should vacuum.  The reason is that it needs to see the
+    // final merged segment, not the original segments that will be deleted
+    let _cleanup_lock = BufferManager::new(indexrelid).pinned_buffer(CLEANUP_LOCK);
+    let recycled_entries = {
+        let mut merge_lock = MergeLock::acquire(indexrelid);
 
-            avg_byte_size_per_doc,
-            segment_freeze_size: max_mergeable_segment_size,
-            vacuum_list: Default::default(),
-            already_processed: Default::default(),
-        };
-
-        // acquire the MergeLock here, returning early if we can't.
-        // we endeavor to hold it for as short a time as possible
-        let mut merge_lock = MergeLock::acquire_for_merge(indexrelid)?;
-        merge_policy.vacuum_list = merge_lock.list_vacuuming_segments();
         let mut writer = SearchIndexWriter::open(
             &PgRelation::open(indexrelid),
-            MvccSatisfies::Snapshot,
+            MvccSatisfies::Mergeable,
             WriterResources::PostStatementMerge,
         )
         .expect("should be able to open a SearchIndexWriter for PostStatementMerge");
-        writer.set_merge_policy(merge_policy);
-        writer.merge().expect("should be able to merge");
 
-        (!merge_lock.is_ambulkdelete_running()).then(|| items.garbage_collect())
-    } else {
-        None
+        // the non_mergeable_segments are those that are concurrently being vacuumed *and* merged
+        let mut non_mergeable_segments = merge_lock.list_vacuuming_segments();
+        non_mergeable_segments.extend(merge_lock.in_progress_segment_ids());
+        let writer_segment_ids = &writer.segment_ids();
+
+        let possibly_mergeable = writer_segment_ids
+            .difference(&non_mergeable_segments)
+            .collect::<HashSet<_>>();
+
+        if possibly_mergeable.len() > 2 {
+            // record all the segments the IndexWriter can see, as those are the ones that
+            // could be merged.  This also drops the MergeLock
+            let merge_entry = merge_lock
+                .record_in_progress_segment_ids(&possibly_mergeable)
+                .expect("should be able to write current merge segment_id list");
+
+            // tell the MergePolicy which segments it's allowed to consider for merging
+            merge_policy.possibly_mergeable_segments = possibly_mergeable
+                .iter()
+                .map(|segment_id| **segment_id)
+                .collect();
+
+            // and do the merge
+            writer.set_merge_policy(merge_policy);
+            writer.merge().expect("should be able to merge");
+
+            // re-acquire the MergeLock to remove the entry we made above
+            // we also can't concurrently garbage collect our segment meta entries list
+            let mut merge_lock = MergeLock::acquire(indexrelid);
+            merge_lock
+                .remove_entry(merge_entry)
+                .expect("should be able to remove MergeEntry");
+
+            (!merge_lock.is_ambulkdelete_running()).then(|| {
+                assert!(merge_lock.list_vacuuming_segments().is_empty());
+                segment_meta_entries_list.garbage_collect()
+            })
+        } else {
+            None
+        }
     };
 
     if let Some(recycled_entries) = recycled_entries {
         if !recycled_entries.is_empty() {
-            let indexrel = pg_sys::RelationIdGetRelation(indexrelid);
             for entry in recycled_entries {
                 for (file_entry, type_) in entry.file_entries() {
                     let bytes = LinkedBytesList::open(indexrelid, file_entry.starting_block);
-                    bytes.return_to_fsm(&entry, type_);
-                    pg_sys::IndexFreeSpaceMapVacuum(indexrel);
+                    bytes.return_to_fsm(&entry, Some(type_));
+                    pg_sys::IndexFreeSpaceMapVacuum(indexrel.as_ptr());
                 }
             }
-            pg_sys::RelationClose(indexrel);
         }
     }
-
-    Some(())
 }

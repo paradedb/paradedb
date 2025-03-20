@@ -188,7 +188,7 @@ impl Directory for ChannelDirectory {
         let sender = self.sender.clone();
         let panic_handler = move |any| {
             eprintln!("panic handler got one: {any:?}");
-            sender.send(ChannelRequest::Panic(any)).unwrap();
+            sender.send(ChannelRequest::Panic(any)).ok();
         };
         Some(Arc::new(panic_handler))
     }

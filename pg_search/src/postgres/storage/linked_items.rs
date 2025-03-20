@@ -146,9 +146,28 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         items
     }
 
+    pub unsafe fn is_empty(&self) -> bool {
+        let mut blockno = self.get_start_blockno();
+
+        while blockno != pg_sys::InvalidBlockNumber {
+            let buffer = self.bman.get_buffer(blockno);
+            let page = buffer.page();
+            let mut offsetno = pg_sys::FirstOffsetNumber;
+            let max_offset = page.max_offset_number();
+            while offsetno <= max_offset {
+                if let Some((_, _)) = page.read_item::<T>(offsetno) {
+                    return false;
+                }
+                offsetno += 1;
+            }
+            blockno = page.next_blockno();
+        }
+
+        true
+    }
+
     pub unsafe fn garbage_collect(&mut self) -> Vec<T> {
         // Delete all items that are definitely dead
-        let strategy = pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_VACUUM);
         let snapshot = pg_sys::GetActiveSnapshot();
         let heap_oid = pg_sys::IndexGetRelation(self.relation_oid, false);
         let heap_relation = pg_sys::RelationIdGetRelation(heap_oid);
@@ -160,7 +179,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         let mut recycled_entries = Vec::new();
 
         while blockno != pg_sys::InvalidBlockNumber {
-            let mut buffer = self.bman.get_buffer_for_cleanup(blockno, strategy);
+            let mut buffer = self.bman.get_buffer_for_cleanup(blockno);
             let mut page = buffer.page_mut();
             let mut offsetno = pg_sys::FirstOffsetNumber;
             let max_offset = page.max_offset_number();
@@ -237,7 +256,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         recycled_entries
     }
 
-    pub unsafe fn add_items(&mut self, items: Vec<T>, buffer: Option<BufferMut>) -> Result<()> {
+    pub unsafe fn add_items(&mut self, items: &[T], buffer: Option<BufferMut>) -> Result<()> {
         let need_hold = buffer.is_some();
         let mut buffer =
             buffer.unwrap_or_else(|| self.bman.get_buffer_mut(self.get_start_blockno()));
@@ -248,7 +267,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         let mut hold_open = None;
 
         for item in items {
-            let PgItem(pg_item, size) = item.into();
+            let PgItem(pg_item, size) = item.clone().into();
 
             'append_loop: loop {
                 let mut page = buffer.page_mut();
@@ -290,6 +309,16 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         Ok(())
     }
 
+    pub unsafe fn remove_item<Cmp: Fn(&T) -> bool>(&mut self, cmp: Cmp) -> Result<T> {
+        let (entry, blockno, offsetno) = self.lookup_ex(cmp)?;
+
+        let mut buffer = self.bman.get_buffer_for_cleanup(blockno);
+        let mut page = buffer.page_mut();
+        page.delete_item(offsetno);
+
+        Ok(entry)
+    }
+
     #[allow(dead_code)]
     pub unsafe fn lookup<Cmp: Fn(&T) -> bool>(&self, cmp: Cmp) -> Result<T> {
         self.lookup_ex(cmp).map(|(t, _, _)| t)
@@ -300,7 +329,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         cmp: Cmp,
     ) -> Result<(T, pg_sys::BlockNumber, pg_sys::OffsetNumber)> {
         let mut blockno = self.get_start_blockno();
-
         while blockno != pg_sys::InvalidBlockNumber {
             let buffer = self.bman.get_buffer(blockno);
             let page = buffer.page();
@@ -385,8 +413,8 @@ mod tests {
             ..Default::default()
         }];
 
-        list.add_items(entries_to_delete.clone(), None).unwrap();
-        list.add_items(entries_to_keep.clone(), None).unwrap();
+        list.add_items(&entries_to_delete, None).unwrap();
+        list.add_items(&entries_to_keep, None).unwrap();
         list.garbage_collect();
 
         assert!(list
@@ -427,7 +455,7 @@ mod tests {
                 })
                 .collect::<Vec<_>>();
 
-            list.add_items(entries.clone(), None).unwrap();
+            list.add_items(&entries, None).unwrap();
             list.garbage_collect();
 
             for entry in entries {
@@ -449,7 +477,7 @@ mod tests {
                     ..Default::default()
                 })
                 .collect::<Vec<_>>();
-            list.add_items(entries_1.clone(), None).unwrap();
+            list.add_items(&entries_1, None).unwrap();
 
             let entries_2 = (1..1000)
                 .map(|_| SegmentMetaEntry {
@@ -459,7 +487,7 @@ mod tests {
                     ..Default::default()
                 })
                 .collect::<Vec<_>>();
-            list.add_items(entries_2.clone(), None).unwrap();
+            list.add_items(&entries_2, None).unwrap();
 
             let entries_3 = (1..500)
                 .map(|_| SegmentMetaEntry {
@@ -470,7 +498,7 @@ mod tests {
                 })
                 .collect::<Vec<_>>();
 
-            list.add_items(entries_3.clone(), None).unwrap();
+            list.add_items(&entries_3, None).unwrap();
 
             let pre_gc_blocks = linked_list_block_numbers(&list);
             list.garbage_collect();

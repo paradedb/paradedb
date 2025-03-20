@@ -15,10 +15,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::storage::block::{bm25_max_free_space, BM25PageSpecialData, MERGE_LOCK};
+use crate::postgres::storage::block::{
+    bm25_max_free_space, BM25PageSpecialData, LinkedList, MVCCEntry, PgItem, MERGE_LOCK,
+};
 use crate::postgres::storage::buffer::{BufferManager, BufferMut, PinnedBuffer};
+use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use pgrx::pg_sys;
+use pgrx::pg_sys::TransactionId;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::slice::from_raw_parts;
 use tantivy::index::SegmentId;
 
 /// The metadata stored on the [`MergeLock`] page
@@ -36,6 +42,9 @@ pub struct MergeLockData {
 
     /// A block for which is pin is held during `ambulkdelete()`
     pub ambulkdelete_sentinel: pg_sys::BlockNumber,
+
+    /// The starting block for a [`LinkedItemsList<MergeEntry>]`
+    pub merge_list: pg_sys::BlockNumber,
 }
 
 #[repr(transparent)]
@@ -53,59 +62,8 @@ pub struct MergeLock {
 }
 
 impl MergeLock {
-    pub unsafe fn is_merging(relation_oid: pg_sys::Oid) -> bool {
-        if !crate::postgres::utils::IsTransactionState() {
-            return false;
-        }
-
-        // a merge is happening if we're unable to obtain the MERGE_LOCK
-        // means some other backend has it
-        let mut bman = BufferManager::new(relation_oid);
-        bman.get_buffer_conditional(MERGE_LOCK).is_none()
-    }
-
-    /// This lock is acquired by inserts that attempt to merge segments
-    /// Merges should only happen if there is no other merge in progress
-    /// AND the effects of the previous merge are visible
-    pub unsafe fn acquire_for_merge(relation_oid: pg_sys::Oid) -> Option<Self> {
-        if !crate::postgres::utils::IsTransactionState() {
-            return None;
-        }
-
-        let mut bman = BufferManager::new(relation_oid);
-        let merge_lock = bman.get_buffer_conditional(MERGE_LOCK)?;
-        let page = merge_lock.page();
-        let metadata = page.contents::<MergeLockData>();
-        let last_merge = metadata.last_merge;
-
-        // in order to return the MergeLock we need to make sure we can see the effects of the
-        // last merge that ran.
-        //
-        // We already know we're the only backend with the Buffer-level lock, because the
-        // `.get_buffer_conditional()` call above gave us the Buffer, so now we need to ensure
-        // we're allowed to touch the segments that may have been modified by the last merge
-        let last_merge_visible =
-            // the last_merge value is zero b/c we've never done a merge
-            last_merge == pg_sys::InvalidTransactionId
-
-                // or it is from this transaction
-                || pg_sys::TransactionIdIsCurrentTransactionId(last_merge)
-
-                // or it's not visible to our snapshot
-                || !pg_sys::XidInMVCCSnapshot(last_merge, pg_sys::GetActiveSnapshot());
-
-        last_merge_visible.then(|| MergeLock {
-            bman,
-            buffer: merge_lock,
-            save_xid: true,
-        })
-    }
-
     /// This is a blocking operation to acquire the MERGE_LOCK.  
-    ///
-    /// It should only be called from [`ambulkdelete`] and will block
-    /// until concurrent merges in other backends complete.
-    pub unsafe fn acquire_for_ambulkdelete(relation_oid: pg_sys::Oid) -> Self {
+    pub unsafe fn acquire(relation_oid: pg_sys::Oid) -> Self {
         let mut bman = BufferManager::new(relation_oid);
         let merge_lock = bman.get_buffer_mut(MERGE_LOCK);
         MergeLock {
@@ -124,6 +82,11 @@ impl MergeLock {
         metadata.last_merge = pg_sys::InvalidTransactionId;
         metadata.active_vacuum_list = pg_sys::InvalidBlockNumber;
         metadata.ambulkdelete_sentinel = pg_sys::InvalidBlockNumber;
+    }
+
+    pub fn metadata(&self) -> MergeLockData {
+        let page = self.buffer.page();
+        page.contents::<MergeLockData>()
     }
 
     pub fn vacuum_list(mut self) -> VacuumList {
@@ -197,6 +160,120 @@ impl MergeLock {
         self.bman
             .get_buffer_for_cleanup_conditional(metadata.ambulkdelete_sentinel)
             .is_none()
+    }
+
+    pub unsafe fn in_progress_segment_ids(&self) -> impl Iterator<Item = SegmentId> {
+        let metadata = self.metadata();
+        if metadata.merge_list == 0 || metadata.merge_list == pg_sys::InvalidBlockNumber {
+            // our merge_list has never been initialized
+            let iter: Box<dyn Iterator<Item = SegmentId>> = Box::new(std::iter::empty());
+            return iter;
+        }
+
+        let relation_id = (*self.bman.bm25cache().indexrel()).rd_id;
+        let entries = LinkedItemList::<MergeEntry>::open(relation_id, metadata.merge_list);
+        Box::new(
+            entries
+                .list()
+                .into_iter()
+                .flat_map(move |merge_entry| merge_entry.segment_ids(relation_id).into_iter()),
+        )
+    }
+
+    pub unsafe fn in_progress_merge_entries(&self) -> Vec<MergeEntry> {
+        let metadata = self.metadata();
+        if metadata.merge_list == 0 || metadata.merge_list == pg_sys::InvalidBlockNumber {
+            // our merge_list has never been initialized
+            return Vec::new();
+        }
+        let relation_id = (*self.bman.bm25cache().indexrel()).rd_id;
+        LinkedItemList::<MergeEntry>::open(relation_id, metadata.merge_list).list()
+    }
+
+    pub unsafe fn is_merge_in_progress(&self) -> bool {
+        let metadata = self.metadata();
+        if metadata.merge_list == 0 || metadata.merge_list == pg_sys::InvalidBlockNumber {
+            return false;
+        }
+        let relation_id = (*self.bman.bm25cache().indexrel()).rd_id;
+        !LinkedItemList::<MergeEntry>::open(relation_id, metadata.merge_list).is_empty()
+    }
+
+    pub unsafe fn record_in_progress_segment_ids<'a>(
+        mut self,
+        segment_ids: impl IntoIterator<Item = &'a &'a SegmentId>,
+    ) -> anyhow::Result<MergeEntry> {
+        assert!(pg_sys::IsTransactionState());
+
+        let relation_id = (*self.bman.bm25cache().indexrel()).rd_id;
+        let merge_list_blockno = {
+            let mut page = self.buffer.page_mut();
+            let metadata = page.contents_mut::<MergeLockData>();
+
+            if metadata.merge_list == 0 || metadata.merge_list == pg_sys::InvalidBlockNumber {
+                let merge_list = LinkedItemList::<MergeEntry>::create(relation_id);
+                metadata.merge_list = merge_list.get_header_blockno();
+            }
+
+            metadata.merge_list
+        };
+
+        // write the SegmentIds to disk
+        let segment_id_bytes = segment_ids
+            .into_iter()
+            .flat_map(|segment_id| segment_id.uuid_bytes().iter().copied())
+            .collect::<Vec<_>>();
+        let mut segment_ids_list = LinkedBytesList::create(relation_id);
+        segment_ids_list.write(&segment_id_bytes)?;
+
+        // fabricate and write the [`MergeEntry`] itself
+        let xid = pg_sys::GetCurrentTransactionId();
+        let merge_entry = MergeEntry {
+            pid: pg_sys::MyProcPid,
+            xmin: xid, // the entry is transient
+            xmax: xid, // so it will be considered deleted by this transaction
+            segment_ids_start_blockno: segment_ids_list.get_header_blockno(),
+        };
+
+        let mut entries_list = LinkedItemList::<MergeEntry>::open(relation_id, merge_list_blockno);
+        entries_list.add_items(&[merge_entry], None)?;
+        Ok(merge_entry)
+    }
+
+    pub unsafe fn remove_entry(&mut self, merge_entry: MergeEntry) -> anyhow::Result<MergeEntry> {
+        let page = self.buffer.page();
+        let metadata = page.contents::<MergeLockData>();
+        if metadata.merge_list == 0 || metadata.merge_list == pg_sys::InvalidBlockNumber {
+            panic!("merge_list should have been initialized by now");
+        }
+
+        let relation_id = (*self.bman.bm25cache().indexrel()).rd_id;
+        let mut entries_list = LinkedItemList::<MergeEntry>::open(relation_id, metadata.merge_list);
+        let removed_entry = entries_list.remove_item(|entry| entry == &merge_entry)?;
+
+        let mut bytes_list =
+            LinkedBytesList::open(relation_id, removed_entry.segment_ids_start_blockno);
+        bytes_list.mark_deleted(merge_entry.xmin);
+        bytes_list.return_to_fsm_unchecked();
+        Ok(removed_entry)
+    }
+
+    pub unsafe fn garbage_collect(&mut self) {
+        let page = self.buffer.page();
+        let metadata = page.contents::<MergeLockData>();
+        if metadata.merge_list == 0 || metadata.merge_list == pg_sys::InvalidBlockNumber {
+            return;
+        }
+
+        let relation_id = (*self.bman.bm25cache().indexrel()).rd_id;
+        let mut entries_list = LinkedItemList::<MergeEntry>::open(relation_id, metadata.merge_list);
+        let recycled_entries = entries_list.garbage_collect();
+        for recycled_entry in recycled_entries {
+            let mut bytes_list =
+                LinkedBytesList::open(relation_id, recycled_entry.segment_ids_start_blockno);
+            bytes_list.mark_deleted(recycled_entry.xmax);
+            bytes_list.return_to_fsm(&recycled_entry, None);
+        }
     }
 }
 
@@ -341,5 +418,75 @@ impl VacuumList {
         }
 
         segment_ids
+    }
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct MergeEntry {
+    pub pid: i32,
+    pub xmin: pg_sys::TransactionId,
+    pub xmax: pg_sys::TransactionId,
+    pub segment_ids_start_blockno: pg_sys::BlockNumber,
+}
+
+impl From<PgItem> for MergeEntry {
+    fn from(value: PgItem) -> Self {
+        let PgItem(item, size) = value;
+        let decoded: MergeEntry = unsafe {
+            bincode::deserialize(from_raw_parts(item as *const u8, size))
+                .expect("expected to deserialize valid MergeEntry")
+        };
+        decoded
+    }
+}
+
+impl From<MergeEntry> for PgItem {
+    fn from(value: MergeEntry) -> Self {
+        let bytes: Vec<u8> =
+            bincode::serialize(&value).expect("expected to serialize valid MergeEntry");
+        let pg_bytes = unsafe { pg_sys::palloc(bytes.len()) as *mut u8 };
+        unsafe {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), pg_bytes, bytes.len());
+        }
+        PgItem(pg_bytes as pg_sys::Item, bytes.len() as pg_sys::Size)
+    }
+}
+
+impl MVCCEntry for MergeEntry {
+    fn get_xmin(&self) -> TransactionId {
+        self.xmin
+    }
+
+    fn get_xmax(&self) -> TransactionId {
+        self.xmax
+    }
+
+    fn into_frozen(self, should_freeze_xmin: bool, should_freeze_xmax: bool) -> Self {
+        Self {
+            xmin: if should_freeze_xmin {
+                pg_sys::FrozenTransactionId
+            } else {
+                self.xmin
+            },
+            xmax: if should_freeze_xmax {
+                pg_sys::FrozenTransactionId
+            } else {
+                self.xmax
+            },
+            ..self
+        }
+    }
+}
+
+impl MergeEntry {
+    pub unsafe fn segment_ids(&self, relation_id: pg_sys::Oid) -> Vec<SegmentId> {
+        let bytes = LinkedBytesList::open(relation_id, self.segment_ids_start_blockno);
+        let bytes = bytes.read_all();
+        bytes
+            .chunks(size_of::<SegmentIdBytes>())
+            .map(|entry| {
+                SegmentId::from_bytes(entry.try_into().expect("malformed SegmentId entry"))
+            })
+            .collect()
     }
 }

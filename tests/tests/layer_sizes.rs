@@ -38,6 +38,21 @@ fn one_layer_size(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn negative_layer_size(mut conn: PgConnection) {
+    let result = r#"
+        CREATE TABLE layer_sizes (id serial8 not null primary key);
+        CREATE INDEX idxlayer_sizes ON layer_sizes USING bm25(id) WITH (key_field='id', layer_sizes = '-1kb');
+    "#.execute_result(&mut conn);
+
+    assert!(result.is_err());
+    let err = result.err().unwrap();
+    assert_eq!(
+        err.into_database_error().unwrap().to_string(),
+        "a single layer size must be positive: TryFromIntError(())"
+    );
+}
+
+#[rstest]
 fn zero_layer_size(mut conn: PgConnection) {
     let result = r#"
         CREATE TABLE layer_sizes (id serial8 not null primary key);

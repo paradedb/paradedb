@@ -166,7 +166,7 @@ extern "C" fn validate_layer_sizes(value: *const std::os::raw::c_char) {
                 direct_function_call::<i64>(pg_sys::pg_size_bytes, &[part.into_datum()])
                     .expect("`pg_size_bytes()` should not return NULL")
                     .try_into()
-                    .expect("the layer size must fit in an `u64`");
+                    .expect("a single layer size must be positive");
             assert!(
                 byte_size > 0,
                 "a single layer size must be greater than zero"
@@ -279,17 +279,19 @@ impl SearchIndexCreateOptions {
 
         let mut layer_sizes = Vec::new();
         for part in layer_sizes_str.split(",") {
-            // just make sure postgres can parse this byte size
             unsafe {
                 let byte_size =
                     direct_function_call::<i64>(pg_sys::pg_size_bytes, &[part.into_datum()])
-                        .expect("`pg_size_bytes()` should not return NULL");
-
-                layer_sizes.push(
-                    byte_size
+                        .expect("`pg_size_bytes()` should not return NULL")
                         .try_into()
-                        .expect("the layer size must fit in an `u64`"),
-                )
+                        .expect("a single layer size must be positive");
+
+                assert!(
+                    byte_size > 0,
+                    "a single layer size must be greater than zero"
+                );
+
+                layer_sizes.push(byte_size);
             }
         }
         layer_sizes

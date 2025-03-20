@@ -340,11 +340,7 @@ impl LinkedBytesList {
     ///
     /// It's the caller's responsibility to later call [`pg_sys::IndexFreeSpaceMapVacuum`]
     /// if necessary.
-    pub unsafe fn return_to_fsm_unchecked(
-        mut self,
-        entry: &impl Debug,
-        type_: Option<SegmentComponent>,
-    ) {
+    pub unsafe fn return_to_fsm_unchecked(mut self) {
         // in addition to the list itself, we also have a secondary list of linked blocks (which
         // contain the blocknumbers of this list) that needs to freed too
         for starting_blockno in [self.metadata.start_blockno, self.metadata.blocklist_start] {

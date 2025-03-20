@@ -329,7 +329,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         cmp: Cmp,
     ) -> Result<(T, pg_sys::BlockNumber, pg_sys::OffsetNumber)> {
         let mut blockno = self.get_start_blockno();
-
         while blockno != pg_sys::InvalidBlockNumber {
             let buffer = self.bman.get_buffer(blockno);
             let page = buffer.page();

@@ -135,19 +135,28 @@ unsafe fn merge_info(
     >,
 > {
     let merge_lock = MergeLock::acquire(index.oid());
-    let in_progress = merge_lock.in_progress_merge_entries();
+    let merge_entries = merge_lock.in_progress_merge_entries();
+    let table = TableIterator::new(
+        merge_entries
+            .into_iter()
+            .map(move |merge_entry| {
+                merge_entry
+                    .segment_ids(index.oid())
+                    .into_iter()
+                    .map(move |segment_id| {
+                        (
+                            merge_entry.pid,
+                            merge_entry.xmin.into(),
+                            merge_entry.xmax.into(),
+                            segment_id.short_uuid_string(),
+                        )
+                    })
+            })
+            .flatten(),
+    );
     drop(merge_lock);
 
-    Ok(TableIterator::new(in_progress.map(
-        |(merge_entry, segment_id)| {
-            (
-                merge_entry.pid,
-                merge_entry.xmin.into(),
-                merge_entry.xmax.into(),
-                segment_id.short_uuid_string(),
-            )
-        },
-    )))
+    Ok(table)
 }
 
 #[allow(clippy::type_complexity)]
@@ -225,11 +234,6 @@ fn index_info(
     }
 
     Ok(TableIterator::new(results))
-}
-
-#[pg_extern]
-fn is_merging(index: PgRelation) -> bool {
-    unsafe { MergeLock::is_merging(index.oid()) }
 }
 
 /// Returns the list of segments that contain the specified [`pg_sys::ItemPointerData]` heap tuple

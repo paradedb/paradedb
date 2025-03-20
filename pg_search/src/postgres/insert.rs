@@ -252,8 +252,9 @@ unsafe fn do_merge(indexrelid: Oid, doc_count: usize) {
         500 * 1024 * 1024,
     ];
 
-    let mut items = LinkedItemList::<SegmentMetaEntry>::open(indexrelid, SEGMENT_METAS_START);
-    let segment_meta_entries = items.list();
+    let mut segment_meta_entries_list =
+        LinkedItemList::<SegmentMetaEntry>::open(indexrelid, SEGMENT_METAS_START);
+    let segment_meta_entries = segment_meta_entries_list.list();
     let mut merge_policy = LayeredMergePolicy {
         n: target_segments,
         min_merge_count: 2,
@@ -290,10 +291,9 @@ unsafe fn do_merge(indexrelid: Oid, doc_count: usize) {
         if possibly_mergeable.len() > 2 {
             // record all the segments the IndexWriter can see, as those are the ones that
             // could be merged
-            let xid = merge_lock
+            let merge_entry = merge_lock
                 .record_in_progress_segment_ids(&possibly_mergeable)
                 .expect("should be able to write current merge segment_id list");
-            drop(merge_lock);
 
             merge_policy.possibly_mergeable_segments = possibly_mergeable
                 .iter()
@@ -303,15 +303,16 @@ unsafe fn do_merge(indexrelid: Oid, doc_count: usize) {
             writer.set_merge_policy(merge_policy);
             writer.merge().expect("should be able to merge");
 
-            // re-acquire the MergeLock so we can garbage collect below
+            // re-acquire the MergeLock to remove the entry we made above
+            // we also can't concurrently garbage collect our segment meta entries list
             let mut merge_lock = MergeLock::acquire(indexrelid);
             merge_lock
-                .remove_entry(xid)
+                .remove_entry(merge_entry)
                 .expect("should be able to remove MergeEntry");
-            merge_lock.garbage_collect();
+
             (!merge_lock.is_ambulkdelete_running()).then(|| {
                 assert!(merge_lock.list_vacuuming_segments().is_empty());
-                items.garbage_collect()
+                segment_meta_entries_list.garbage_collect()
             })
         } else {
             None

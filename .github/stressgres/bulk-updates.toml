@@ -1,0 +1,89 @@
+[setup]
+sql = """
+DROP EXTENSION IF EXISTS pg_search CASCADE;
+DROP TABLE IF EXISTS test CASCADE;
+CREATE EXTENSION pg_search;
+CREATE TABLE test (
+    id SERIAL8 NOT NULL PRIMARY KEY,
+    message TEXT,
+    severity INTEGER
+);
+
+INSERT INTO test (message, severity)
+SELECT
+    CASE id % 3
+    WHEN 0 THEN 'drink some beer'
+    WHEN 1 THEN 'sip some wine'
+    WHEN 2 THEN 'eat some cheese'
+    END,
+    (random() * 4 + 1)::int
+FROM generate_series(1, 9000000) as id;
+
+DO $$
+DECLARE
+   dbname text := current_database();
+BEGIN
+   EXECUTE format('ALTER DATABASE %I SET paradedb.max_mergeable_segment_size = %L', dbname, '5MB');
+END $$;
+
+CREATE INDEX idxtest ON test USING bm25(id, message, severity) WITH (key_field = 'id');
+CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool LANGUAGE plpgsql AS $$
+DECLARE
+    current_txid bigint;
+BEGIN
+    -- Get the current transaction ID
+    current_txid := txid_current();
+
+    -- Check if the values are not equal
+    IF a <> b THEN
+        RAISE EXCEPTION 'Assertion failed: % <> %. Transaction ID: %', a, b, current_txid;
+    END IF;
+
+    RETURN true;
+END;
+$$;
+"""
+
+[teardown]
+sql = """
+DROP TABLE test CASCADE;
+DROP EXTENSION pg_search CASCADE;
+"""
+[monitor]
+refresh_ms = 10
+title = "Monitor Index Size"
+log_columns = ["block_count", "segment_count"]
+
+# Combined query returning both columns
+sql = """
+SELECT
+    pg_relation_size('idxtest') / current_setting('block_size')::int AS block_count,
+    (
+      SELECT COUNT(*)::bigint
+      FROM paradedb.index_info('idxtest')
+    ) AS segment_count
+"""
+
+[[jobs]]
+refresh_ms = 100
+title = "Count Query"
+log_tps = true
+log_count = true
+on_connect = """
+SET enable_indexscan TO off;
+"""
+sql = """
+SELECT count(*) FROM test where id @@@ 'message:cheese';
+"""
+assert = "3000000"
+
+[[jobs]]
+refresh_ms = 25
+title = "Bulk Update"
+log_tps = true
+log_count = true
+sql = """
+UPDATE test
+SET severity = (severity + 1) % 5
+WHERE id < 10000;
+"""

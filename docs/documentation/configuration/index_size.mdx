@@ -28,8 +28,7 @@ When rows are updated/deleted or [segments](/documentation/concepts/index#segmen
 `VACUUM`s, which can either be run manually or automatically by Postgres [autovacuum](https://www.postgresql.org/docs/current/runtime-config-autovacuum.html),
 are responsible for marking the space occupied by dead segments as "free for reuse" by future `INSERT`/`UPDATE`/`COPY` statements.
 
-Normal `UPDATE` or `DELETE` statements do **not** create free space on their own. This means that, if a table were never vacuumed, the BM25 index size would
-grow unbounded as rows are updated or additional rows are inserted. To control the index size, it is important to either:
+A `DELETE` statement does **not** create free space on its own. To control the index size, it is important to either:
 
 1. Tune autovacuum in `postgresql.conf` such that vacuums occur at a frequency that is acceptable for your write patterns. Please refer to the [Postgres documentation](https://www.postgresql.org/docs/current/runtime-config-autovacuum.html) for guidance.
 2. Manually run `VACUUM` between large `INSERT`/`UPDATE`/`DELETE`/`COPY` statements.

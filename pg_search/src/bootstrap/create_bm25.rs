@@ -162,11 +162,10 @@ unsafe fn merge_info(
 
 #[pg_extern]
 unsafe fn vacuum_info(index: PgRelation) -> SetOfIterator<'static, String> {
-    let merge_lock = MergeLock::acquire(index.oid());
-    let vacuum_list = merge_lock.vacuum_list();
+    let mut merge_lock = MergeLock::acquire(index.oid());
+    let vacuum_list = merge_lock.list_vacuuming_segments();
     SetOfIterator::new(
         vacuum_list
-            .read_list()
             .iter()
             .map(|segment_id| segment_id.short_uuid_string())
             .collect::<Vec<_>>(),

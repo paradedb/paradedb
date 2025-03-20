@@ -133,16 +133,14 @@ pub unsafe fn layer_sizes(index: PgRelation) -> Vec<AnyNumeric> {
 #[pg_extern]
 unsafe fn merge_info(
     index: PgRelation,
-) -> anyhow::Result<
-    TableIterator<
-        'static,
-        (
-            name!(pid, i32),
-            name!(xmin, AnyNumeric),
-            name!(xmax, AnyNumeric),
-            name!(segno, String),
-        ),
-    >,
+) -> TableIterator<
+    'static,
+    (
+        name!(pid, i32),
+        name!(xmin, AnyNumeric),
+        name!(xmax, AnyNumeric),
+        name!(segno, String),
+    ),
 > {
     let merge_lock = MergeLock::acquire(index.oid());
     let merge_entries = merge_lock.in_progress_merge_entries();
@@ -159,9 +157,20 @@ unsafe fn merge_info(
                 )
             })
     }));
-    drop(merge_lock);
+    table
+}
 
-    Ok(table)
+#[pg_extern]
+unsafe fn vacuum_info(index: PgRelation) -> SetOfIterator<'static, String> {
+    let merge_lock = MergeLock::acquire(index.oid());
+    let vacuum_list = merge_lock.vacuum_list();
+    SetOfIterator::new(
+        vacuum_list
+            .read_list()
+            .iter()
+            .map(|segment_id| segment_id.short_uuid_string())
+            .collect::<Vec<_>>(),
+    )
 }
 
 #[allow(clippy::type_complexity)]

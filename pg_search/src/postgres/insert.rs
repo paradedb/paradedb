@@ -268,6 +268,10 @@ unsafe fn do_merge(indexrelid: Oid, doc_count: usize) {
         already_processed: Default::default(),
     };
 
+    // pin the CLEANUP_LOCK and hold it until this function is done.  We keep a pin here
+    // so we can cause `ambulkdelete()` to block, waiting for all merging to finish before it
+    // decides to find the segments it should vacuum.  The reason is that it needs to see the
+    // final merged segment, not the original segments that will be deleted
     let _cleanup_lock = BufferManager::new(indexrelid).pinned_buffer(CLEANUP_LOCK);
     let recycled_entries = {
         let mut merge_lock = MergeLock::acquire(indexrelid);

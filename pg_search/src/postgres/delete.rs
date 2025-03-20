@@ -46,12 +46,19 @@ pub unsafe extern "C" fn ambulkdelete(
 
     // take the MergeLock
     let merge_lock = loop {
+        // acquire the CLEANUP_LOCK (for cleanup).  This will block us until the lock has no concurrent
+        // pins.  That means there are no readers and no merging happening
         let cleanup_lock =
             BufferManager::new(index_relation.oid()).get_buffer_for_cleanup(CLEANUP_LOCK);
         drop(cleanup_lock);
+
+        // next we acquire the MergeLock.  This too is a blocking operation.  The hope here is that
+        // because of the waiting we did above to get the CLEANUP_LOCK, we'll be the next to acquire
+        // the MergeLock before another merge begins
         let merge_lock = MergeLock::acquire(index_relation.oid());
         if merge_lock.is_merge_in_progress() {
-            pgrx::warning!("retrying MergeLock");
+            // but if another merge did begin we need to wait it out and retry.
+            check_for_interrupts!();
             continue;
         }
         break merge_lock;

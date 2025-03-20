@@ -534,8 +534,10 @@ mod pushdown_is_null {
         assert_eq!(
             res,
             vec![
+                (1, false, None, None),
                 (2, false, Some(String::from("foo")), None),
-                (3, false, Some(String::from("bar")), Some(333))
+                (3, false, Some(String::from("bar")), Some(333)),
+                (4, false, None, Some(444))
             ]
         );
     }

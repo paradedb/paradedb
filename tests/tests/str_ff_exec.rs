@@ -40,13 +40,10 @@ fn setup_test_table(mut conn: PgConnection) -> PgConnection {
     "#;
     sql.execute(&mut conn);
 
-    "INSERT INTO test (id, col_boolean, col_text, col_int8) VALUES
-        (1, false, NULL, NULL),
-        (2, false, 'foo', NULL),
-        (3, false, 'bar', 333),
-        (4, false, NULL, 444);
-    "
-    .execute(&mut conn);
+    "INSERT INTO test (id) VALUES (1);".execute(&mut conn);
+    "INSERT INTO test (id, col_text) VALUES (2, 'foo');".execute(&mut conn);
+    "INSERT INTO test (id, col_text, col_int8) VALUES (3, 'bar', 333);".execute(&mut conn);
+    "INSERT INTO test (id, col_int8) VALUES (4, 444);".execute(&mut conn);
 
     "SET enable_indexscan TO off;".execute(&mut conn);
     "SET enable_bitmapscan TO off;".execute(&mut conn);
@@ -94,6 +91,7 @@ mod string_fast_field_exec {
             SELECT * FROM test
             WHERE col_text IS NULL
             AND col_int8 IS NOT NULL
+            AND id @@@ paradedb.range(field => 'id', range => int8range(1, 5, '[]'))
             ORDER BY id;
         "#
         .fetch::<(i64, bool, Option<String>, Option<i64>)>(&mut conn);
@@ -112,6 +110,34 @@ mod string_fast_field_exec {
     }
 
     #[rstest]
+    fn with_null(#[from(setup_test_table)] mut conn: PgConnection) {
+        let res = r#"
+            SELECT * FROM test
+            WHERE col_text IS NULL and id @@@ '<=2'
+            ORDER BY id;
+        "#
+        .fetch::<(i64, bool, Option<String>, Option<i64>)>(&mut conn);
+        assert_eq!(res, vec![(1, false, None, None)]);
+    }
+
+    #[rstest]
+    fn with_count(#[from(setup_test_table)] mut conn: PgConnection) {
+        let count = r#"
+            SELECT count(*) FROM test
+            WHERE col_text IS NOT NULL and id @@@ '>2';
+        "#
+        .fetch::<(i64,)>(&mut conn);
+        assert_eq!(count, vec![(1,)]);
+
+        let count = r#"
+            SELECT count(*) FROM test
+            WHERE col_text IS NULL and id @@@ '>2';
+        "#
+        .fetch::<(i64,)>(&mut conn);
+        assert_eq!(count, vec![(1,)]);
+    }
+
+    #[rstest]
     fn with_empty_string(#[from(setup_test_table)] mut conn: PgConnection) {
         "INSERT INTO test (id, col_text) VALUES (5, '');".execute(&mut conn);
 
@@ -122,5 +148,67 @@ mod string_fast_field_exec {
         "#
         .fetch::<(i64, bool, Option<String>, Option<i64>)>(&mut conn);
         assert_eq!(res, vec![(5, false, Some(String::from("")), None)]);
+    }
+
+    #[rstest]
+    fn with_all_null_segment(mut conn: PgConnection) {
+        let sql = r#"
+            CREATE TABLE another_test (
+                id SERIAL8 NOT NULL PRIMARY KEY,
+                col_boolean boolean DEFAULT false,
+                col_text text,
+                col_int8 int8
+            );
+        "#;
+        sql.execute(&mut conn);
+
+        let sql = r#"
+            CREATE INDEX another_idxtest ON another_test USING bm25 (id, col_boolean, col_text, col_int8)
+            WITH (key_field='id', text_fields = '{"col_text": {"fast": true, "tokenizer": {"type":"raw"}}}');
+        "#;
+        sql.execute(&mut conn);
+
+        "INSERT INTO another_test (id) VALUES (1);".execute(&mut conn);
+        "INSERT INTO another_test (id, col_int8) VALUES (3, 333);".execute(&mut conn);
+        "INSERT INTO another_test (id, col_int8) VALUES (4, 444);".execute(&mut conn);
+        "INSERT INTO another_test (id, col_text) VALUES (6, NULL), (7, NULL), (8, NULL);"
+            .execute(&mut conn);
+
+        "SET enable_indexscan TO off;".execute(&mut conn);
+        "SET enable_bitmapscan TO off;".execute(&mut conn);
+        "SET max_parallel_workers TO 0;".execute(&mut conn);
+
+        let count = r#"
+            SELECT count(*) FROM another_test
+            WHERE col_text IS NULL and id @@@ '>2';
+        "#
+        .fetch::<(i64,)>(&mut conn);
+        assert_eq!(count, vec![(5,)]);
+
+        let res = r#"
+            SELECT * FROM another_test
+            WHERE id @@@ paradedb.range(field => 'id', range => int8range(1, 8, '[]'))
+            ORDER BY id;
+        "#
+        .fetch::<(i64, bool, Option<String>, Option<i64>)>(&mut conn);
+        assert_eq!(
+            res,
+            vec![
+                (1, false, None, None),
+                (3, false, None, Some(333)),
+                (4, false, None, Some(444)),
+                (6, false, None, None),
+                (7, false, None, None),
+                (8, false, None, None)
+            ]
+        );
+
+        let count = r#"
+            SELECT count(*) FROM another_test
+            WHERE id @@@ paradedb.range(field => 'id', range => int8range(1, 8, '[]'))
+            AND col_text IS NOT NULL
+        "#
+        .fetch::<(i64,)>(&mut conn);
+        assert_eq!(count, vec![(0,)])
     }
 }

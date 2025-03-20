@@ -16,8 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::block::{
-    bm25_max_free_space, BM25PageSpecialData, LinkedList, LinkedListData, MVCCEntry,
-    SegmentMetaEntry, FIXED_BLOCK_NUMBERS,
+    bm25_max_free_space, BM25PageSpecialData, LinkedList, LinkedListData, FIXED_BLOCK_NUMBERS,
 };
 use crate::postgres::storage::blocklist;
 use crate::postgres::storage::buffer::{BufferManager, PageHeaderMethods};
@@ -195,12 +194,6 @@ impl LinkedBytesList {
             blocklist_builder: Default::default(),
             blocklist_reader: Default::default(),
         }
-    }
-
-    pub unsafe fn xmax(&self) -> pg_sys::TransactionId {
-        let buffer = self.bman.get_buffer(self.header_blockno);
-        let page = buffer.page();
-        page.special::<BM25PageSpecialData>().xmax
     }
 
     pub unsafe fn write(&mut self, bytes: &[u8]) -> Result<usize> {

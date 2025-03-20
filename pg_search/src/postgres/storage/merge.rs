@@ -16,8 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::storage::block::{
-    bm25_max_free_space, BM25PageSpecialData, LinkedList, MVCCEntry, PgItem, SegmentFileDetails,
-    MERGE_LOCK,
+    bm25_max_free_space, BM25PageSpecialData, LinkedList, MVCCEntry, PgItem, MERGE_LOCK,
 };
 use crate::postgres::storage::buffer::{BufferManager, BufferMut, PinnedBuffer};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
@@ -25,8 +24,6 @@ use pgrx::pg_sys;
 use pgrx::pg_sys::TransactionId;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::io::Write;
-use std::ops::Deref;
 use std::slice::from_raw_parts;
 use tantivy::index::SegmentId;
 
@@ -179,8 +176,7 @@ impl MergeLock {
             entries
                 .list()
                 .into_iter()
-                .map(move |merge_entry| merge_entry.segment_ids(relation_id).into_iter())
-                .flatten(),
+                .flat_map(move |merge_entry| merge_entry.segment_ids(relation_id).into_iter()),
         )
     }
 
@@ -225,8 +221,7 @@ impl MergeLock {
         // write the SegmentIds to disk
         let segment_id_bytes = segment_ids
             .into_iter()
-            .map(|segment_id| segment_id.uuid_bytes().into_iter().cloned())
-            .flatten()
+            .flat_map(|segment_id| segment_id.uuid_bytes().iter().copied())
             .collect::<Vec<_>>();
         let mut segment_ids_list = LinkedBytesList::create(relation_id);
         segment_ids_list.write(&segment_id_bytes)?;

@@ -19,9 +19,7 @@ use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::SearchIndexWriter;
 use crate::index::WriterResources;
-use crate::postgres::storage::block::{
-    MVCCEntry, SegmentMetaEntry, CLEANUP_LOCK, SEGMENT_METAS_START,
-};
+use crate::postgres::storage::block::{SegmentMetaEntry, CLEANUP_LOCK, SEGMENT_METAS_START};
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::merge::MergeLock;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
@@ -222,7 +220,7 @@ pub fn paradedb_aminsertcleanup(mut writer: Option<SearchIndexWriter>) {
     }
 }
 
-unsafe fn do_merge(indexrelid: Oid, doc_count: usize) {
+unsafe fn do_merge(indexrelid: Oid, _doc_count: usize) {
     let heaprelid = pg_sys::IndexGetRelation(indexrelid, false);
     let heaprel = pg_sys::RelationIdGetRelation(heaprelid);
 
@@ -241,8 +239,8 @@ unsafe fn do_merge(indexrelid: Oid, doc_count: usize) {
     let target_segments = std::thread::available_parallelism()
         .expect("failed to get available_parallelism")
         .get();
-    let snapshot = pg_sys::GetActiveSnapshot();
 
+    #[allow(clippy::identity_op)]
     const LAYER_SIZES: &[u64] = &[
         10 * 1024,
         100 * 1024,
@@ -294,16 +292,18 @@ unsafe fn do_merge(indexrelid: Oid, doc_count: usize) {
 
         if possibly_mergeable.len() > 2 {
             // record all the segments the IndexWriter can see, as those are the ones that
-            // could be merged
+            // could be merged.  This also drops the MergeLock
             let merge_entry = merge_lock
                 .record_in_progress_segment_ids(&possibly_mergeable)
                 .expect("should be able to write current merge segment_id list");
 
+            // tell the MergePolicy which segments it's allowed to consider for merging
             merge_policy.possibly_mergeable_segments = possibly_mergeable
                 .iter()
                 .map(|segment_id| **segment_id)
                 .collect();
 
+            // and do the merge
             writer.set_merge_policy(merge_policy);
             writer.merge().expect("should be able to merge");
 

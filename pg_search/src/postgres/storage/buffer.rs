@@ -471,6 +471,7 @@ impl BufferManager {
         }
     }
 
+    #[allow(dead_code)]
     pub fn get_buffer_conditional(&mut self, blockno: pg_sys::BlockNumber) -> Option<BufferMut> {
         unsafe {
             let pg_buffer = self.bcache.get_buffer(blockno, None);

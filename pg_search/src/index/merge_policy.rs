@@ -8,6 +8,7 @@ use tantivy::{Directory, SegmentMeta};
 
 #[derive(Debug)]
 pub struct LayeredMergePolicy {
+    #[allow(dead_code)]
     pub n: usize,
     pub min_merge_count: usize,
     pub layer_sizes: Vec<u64>,
@@ -19,7 +20,7 @@ pub struct LayeredMergePolicy {
 impl MergePolicy for LayeredMergePolicy {
     fn compute_merge_candidates(
         &self,
-        directory: Option<&dyn Directory>,
+        _directory: Option<&dyn Directory>,
         original_segments: &[SegmentMeta],
     ) -> Vec<MergeCandidate> {
         if original_segments.is_empty() {
@@ -40,9 +41,8 @@ impl MergePolicy for LayeredMergePolicy {
         let mut merged_segments = HashSet::new();
         let mut layer_sizes = self.layer_sizes.clone();
         layer_sizes.sort_by_key(|size| Reverse(*size)); // largest to smallest
-        let mut layer_sizes = layer_sizes.iter().cloned().peekable();
 
-        while let Some(layer_size) = layer_sizes.next() {
+        for layer_size in layer_sizes {
             // collect the list of mergeable segments so that we can combine those that fit in the next layer
             let segments = collect_mergable_segments(original_segments, self, &merged_segments);
 
@@ -94,7 +94,8 @@ impl MergePolicy for LayeredMergePolicy {
             break;
         }
 
-        // // pop off merge candidates until we'll have at least `self.n` segments remaining
+        // // pop off merge candidates until we have at least `self.n` segments remaining
+        // // this ensures we generally keep as many segments as "N", which is typically the CPU count
         // let mut ndropped = 0;
         // let mut ndropped_segments = 0;
         // while !candidates.is_empty()
@@ -110,11 +111,6 @@ impl MergePolicy for LayeredMergePolicy {
         //     if let Some(dropped) = candidates.pop() {
         //         ndropped_segments += dropped.1 .0.len();
         //     }
-        // }
-        // if ndropped > 0 {
-        //     directory.unwrap().log(&format!(
-        //         "dropped {ndropped} candidates covering {ndropped_segments} segments"
-        //     ));
         // }
 
         if !candidates.is_empty() {
@@ -133,7 +129,7 @@ fn collect_mergable_segments<'a>(
     exclude: &HashSet<SegmentId>,
 ) -> Vec<&'a SegmentMeta> {
     let mut segments = segments
-        .into_iter()
+        .iter()
         .filter(|meta| {
             merge_policy
                 .possibly_mergeable_segments

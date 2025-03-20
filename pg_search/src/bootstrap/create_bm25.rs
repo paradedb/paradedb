@@ -136,24 +136,19 @@ unsafe fn merge_info(
 > {
     let merge_lock = MergeLock::acquire(index.oid());
     let merge_entries = merge_lock.in_progress_merge_entries();
-    let table = TableIterator::new(
-        merge_entries
+    let table = TableIterator::new(merge_entries.into_iter().flat_map(move |merge_entry| {
+        merge_entry
+            .segment_ids(index.oid())
             .into_iter()
-            .map(move |merge_entry| {
-                merge_entry
-                    .segment_ids(index.oid())
-                    .into_iter()
-                    .map(move |segment_id| {
-                        (
-                            merge_entry.pid,
-                            merge_entry.xmin.into(),
-                            merge_entry.xmax.into(),
-                            segment_id.short_uuid_string(),
-                        )
-                    })
+            .map(move |segment_id| {
+                (
+                    merge_entry.pid,
+                    merge_entry.xmin.into(),
+                    merge_entry.xmax.into(),
+                    segment_id.short_uuid_string(),
+                )
             })
-            .flatten(),
-    );
+    }));
     drop(merge_lock);
 
     Ok(table)

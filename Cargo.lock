@@ -1742,15 +1742,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
 
 [[package]]
-name = "humansize"
-version = "2.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6cb51c9a029ddc91b07a787f1d86b53ccfa49b0e86688c946ebe8d3555685dd7"
-dependencies = [
- "libm",
-]
-
-[[package]]
 name = "humantime"
 version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2665,16 +2656,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "os_info"
-version = "3.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a604e53c24761286860eba4e2c8b23a0161526476b1de520139d69cdb85a6b5"
-dependencies = [
- "log",
- "windows-sys 0.52.0",
-]
-
-[[package]]
 name = "os_pipe"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2833,20 +2814,17 @@ dependencies = [
  "chrono",
  "crossbeam",
  "derive_more",
- "humansize",
  "itertools 0.14.0",
  "json5",
  "memoffset",
  "once_cell",
  "oneshot",
  "ordered-float",
- "os_info",
  "parking_lot",
  "pgrx",
  "pgrx-tests",
  "rand 0.8.5",
  "rayon",
- "reqwest",
  "rstest",
  "rustc-hash 2.1.1",
  "serde",
@@ -2860,7 +2838,6 @@ dependencies = [
  "uuid",
  "vergen",
  "vergen-git2",
- "walkdir",
 ]
 
 [[package]]
@@ -3419,7 +3396,6 @@ dependencies = [
  "base64",
  "bytes",
  "encoding_rs",
- "futures-channel",
  "futures-core",
  "futures-util",
  "h2",

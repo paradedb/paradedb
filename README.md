@@ -92,12 +92,6 @@ You can then connect to the database using `psql`:
 docker exec -it paradedb psql -U <user> -d <dbname> -p 5432 -W
 ```
 
-ParadeDB collects anonymous telemetry to help us understand how many people are using the project. You can opt out of telemetry using configuration variables within Postgres:
-
-```sql
-ALTER SYSTEM SET paradedb.pg_search_telemetry TO 'off';
-```
-
 ### Helm Chart
 
 ParadeDB is also available for Kubernetes via our Helm chart. You can find our Helm chart in the [ParadeDB Helm Chart GitHub repository](https://github.com/paradedb/charts) or download it directly from [Artifact Hub](https://artifacthub.io/packages/helm/paradedb/paradedb).

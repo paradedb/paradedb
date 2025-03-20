@@ -29,7 +29,7 @@ To pick the right layer sizes, we recommend the following approach:
 2. Do not create too many layers. Every additional layer introduces the write amplication of merging up to the next layer.
 3. The larger the layer size, the more time it takes to merge into a segment of that size, and the lower the write throughput.
 
-To view the current layer sizes, use `paradedb.layer_sizes`.
+To view the current layer sizes, use `paradedb.layer_sizes`. This function returns the size of each layer in bytes.
 
 ```sql
 SELECT paradedb.layer_sizes('search_idx');

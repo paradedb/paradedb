@@ -49,9 +49,9 @@ In order for the index to maintain an optimal segment count, the index must have
 
 ## Index Debugging
 
-These functions are useful for debugging index issues.
+These functions are typically used by ParadeDB developers for debugging index issues.
 
-### Segment Merging
+### Merge Info
 
 `paradedb.merge_info` returns a table containing information about any ongoing segment merge operations.
 If writes to the index seem to be hanging, this function can be used to determine if a merge is occurring.
@@ -60,7 +60,7 @@ If writes to the index seem to be hanging, this function can be used to determin
 SELECT paradedb.merge_info('search_idx');
 ```
 
-### Segment Vacuuming
+### Vacuum Info
 
 `paradedb.vacuum_info` returns a list of segment IDs that are currently being vacuumed.
 

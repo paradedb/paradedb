@@ -267,7 +267,7 @@ unsafe fn do_merge(indexrelid: Oid, doc_count: usize) {
         already_processed: Default::default(),
     };
 
-    let _cleanup_lock = BufferManager::new(indexrelid).get_buffer(CLEANUP_LOCK);
+    let _cleanup_lock = BufferManager::new(indexrelid).pinned_buffer(CLEANUP_LOCK);
     let recycled_entries = {
         let mut merge_lock = MergeLock::acquire(indexrelid);
 
@@ -280,7 +280,7 @@ unsafe fn do_merge(indexrelid: Oid, doc_count: usize) {
 
         // the non_mergeable_segments are those that are concurrently being vacuumed *and* merged
         let mut non_mergable_segments = merge_lock.list_vacuuming_segments();
-        non_mergable_segments.extend(merge_lock.in_progress_segment_ids(snapshot));
+        non_mergable_segments.extend(merge_lock.in_progress_segment_ids());
         let writer_segment_ids = &writer.segment_ids();
 
         let possibly_mergeable = writer_segment_ids
@@ -301,7 +301,6 @@ unsafe fn do_merge(indexrelid: Oid, doc_count: usize) {
                 .collect();
 
             writer.set_merge_policy(merge_policy);
-
             writer.merge().expect("should be able to merge");
 
             // re-acquire the MergeLock so we can garbage collect below

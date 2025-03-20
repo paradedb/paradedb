@@ -135,7 +135,7 @@ unsafe fn merge_info(
     >,
 > {
     let merge_lock = MergeLock::acquire(index.oid());
-    let in_progress = merge_lock.in_progress_merge_entries(pg_sys::GetActiveSnapshot());
+    let in_progress = merge_lock.in_progress_merge_entries();
     drop(merge_lock);
 
     Ok(TableIterator::new(in_progress.map(

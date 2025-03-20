@@ -146,9 +146,28 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         items
     }
 
+    pub unsafe fn is_empty(&self) -> bool {
+        let mut blockno = self.get_start_blockno();
+
+        while blockno != pg_sys::InvalidBlockNumber {
+            let buffer = self.bman.get_buffer(blockno);
+            let page = buffer.page();
+            let mut offsetno = pg_sys::FirstOffsetNumber;
+            let max_offset = page.max_offset_number();
+            while offsetno <= max_offset {
+                if let Some((_, _)) = page.read_item::<T>(offsetno) {
+                    return false;
+                }
+                offsetno += 1;
+            }
+            blockno = page.next_blockno();
+        }
+
+        true
+    }
+
     pub unsafe fn garbage_collect(&mut self) -> Vec<T> {
         // Delete all items that are definitely dead
-        let strategy = pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_VACUUM);
         let snapshot = pg_sys::GetActiveSnapshot();
         let heap_oid = pg_sys::IndexGetRelation(self.relation_oid, false);
         let heap_relation = pg_sys::RelationIdGetRelation(heap_oid);
@@ -160,7 +179,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         let mut recycled_entries = Vec::new();
 
         while blockno != pg_sys::InvalidBlockNumber {
-            let mut buffer = self.bman.get_buffer_for_cleanup(blockno, strategy);
+            let mut buffer = self.bman.get_buffer_for_cleanup(blockno);
             let mut page = buffer.page_mut();
             let mut offsetno = pg_sys::FirstOffsetNumber;
             let max_offset = page.max_offset_number();
@@ -293,10 +312,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
     pub unsafe fn remove_item<Cmp: Fn(&T) -> bool>(&mut self, cmp: Cmp) -> Result<T> {
         let (entry, blockno, offsetno) = self.lookup_ex(cmp)?;
 
-        let mut buffer = self.bman.get_buffer_for_cleanup(
-            blockno,
-            pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_VACUUM),
-        );
+        let mut buffer = self.bman.get_buffer_for_cleanup(blockno);
         let mut page = buffer.page_mut();
         page.delete_item(offsetno);
 

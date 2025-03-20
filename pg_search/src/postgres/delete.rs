@@ -45,12 +45,17 @@ pub unsafe extern "C" fn ambulkdelete(
     };
 
     // take the MergeLock
-    let cleanup_lock = BufferManager::new(index_relation.oid()).get_buffer_mut(CLEANUP_LOCK);
-    let merge_lock = MergeLock::acquire(index_relation.oid());
-    assert!(merge_lock
-        .in_progress_merge_entries(pg_sys::GetActiveSnapshot())
-        .next()
-        .is_none());
+    let merge_lock = loop {
+        let cleanup_lock =
+            BufferManager::new(index_relation.oid()).get_buffer_for_cleanup(CLEANUP_LOCK);
+        drop(cleanup_lock);
+        let merge_lock = MergeLock::acquire(index_relation.oid());
+        if merge_lock.is_merge_in_progress() {
+            pgrx::warning!("retrying MergeLock");
+            continue;
+        }
+        break merge_lock;
+    };
 
     let mut index_writer =
         SearchIndexWriter::open(&index_relation, MvccSatisfies::Any, WriterResources::Vacuum)
@@ -63,7 +68,6 @@ pub unsafe extern "C" fn ambulkdelete(
     let vacuum_sentinel = merge_lock
         .vacuum_list()
         .write_list(writer_segment_ids.iter());
-    drop(cleanup_lock);
 
     let reader = SearchIndexReader::open(&index_relation, MvccSatisfies::Any)
         .expect("ambulkdelete: should be able to open a SearchIndexReader");
@@ -122,10 +126,7 @@ pub unsafe extern "C" fn ambulkdelete(
     // Effectively, we're blocking ambulkdelete from finishing until we know that concurrent
     // scans have finished too
     if did_delete {
-        drop(
-            BufferManager::new(index_relation.oid())
-                .get_buffer_for_cleanup(CLEANUP_LOCK, pg_sys::ReadBufferMode::RBM_NORMAL as _),
-        );
+        drop(BufferManager::new(index_relation.oid()).get_buffer_for_cleanup(CLEANUP_LOCK));
     }
 
     // we're done, no need to hold onto the sentinel any longer

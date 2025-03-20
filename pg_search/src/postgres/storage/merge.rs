@@ -175,10 +175,7 @@ impl MergeLock {
             .is_none()
     }
 
-    pub unsafe fn in_progress_segment_ids(
-        &self,
-        snapshot: pg_sys::Snapshot,
-    ) -> impl Iterator<Item = SegmentId> {
+    pub unsafe fn in_progress_segment_ids(&self) -> impl Iterator<Item = SegmentId> {
         let metadata = self.metadata();
         if metadata.merge_list == 0 || metadata.merge_list == pg_sys::InvalidBlockNumber {
             // our merge_list has never been initialized
@@ -199,7 +196,6 @@ impl MergeLock {
 
     pub unsafe fn in_progress_merge_entries(
         &self,
-        snapshot: pg_sys::Snapshot,
     ) -> impl Iterator<Item = (MergeEntry, SegmentId)> {
         let metadata = self.metadata();
         if metadata.merge_list == 0 || metadata.merge_list == pg_sys::InvalidBlockNumber {
@@ -222,6 +218,15 @@ impl MergeLock {
                 })
                 .flatten(),
         )
+    }
+
+    pub unsafe fn is_merge_in_progress(&self) -> bool {
+        let metadata = self.metadata();
+        if metadata.merge_list == 0 || metadata.merge_list == pg_sys::InvalidBlockNumber {
+            return false;
+        }
+        let relation_id = (*self.bman.bm25cache().indexrel()).rd_id;
+        !LinkedItemList::<MergeEntry>::open(relation_id, metadata.merge_list).is_empty()
     }
 
     pub unsafe fn record_in_progress_segment_ids<'a>(

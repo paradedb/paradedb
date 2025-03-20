@@ -286,21 +286,21 @@ impl Directory for MVCCDirectory {
 
     fn panic_handler(&self) -> Option<DirectoryPanicHandler> {
         let panic_handler = move |any: Box<dyn Any + Send>| {
-            fn downcast_to_panic(any: Box<dyn Any + Send>, depth: usize) -> ! {
+            fn downcast_to_panic(any: Box<dyn Any + Send>, depth: usize) {
                 // NB:  the `any` error could be other types too, but lord knows what they might be
 
                 if let Some(message) = any.downcast_ref::<String>() {
-                    panic!("{message}");
+                    pgrx::warning!("{message}");
                 } else if let Some(message) = any.downcast_ref::<&str>() {
-                    panic!("{message}");
+                    pgrx::warning!("{message}");
                 } else if let Some(message) = any.downcast_ref::<tantivy::TantivyError>() {
-                    panic!("{message:?}");
+                    pgrx::warning!("{message:?}");
                 } else if let Some(message) = any.downcast_ref::<&dyn Display>() {
-                    panic!("{message}");
+                    pgrx::warning!("{message}");
                 } else if let Some(message) = any.downcast_ref::<&dyn Debug>() {
-                    panic!("{message:?}")
+                    pgrx::warning!("{message:?}")
                 } else if let Some(message) = any.downcast_ref::<&dyn Error>() {
-                    panic!("{message}");
+                    pgrx::warning!("{message}");
                 } else {
                     if depth >= 10 {
                         // just to avoid recursing forever if we always end up downcasting to another

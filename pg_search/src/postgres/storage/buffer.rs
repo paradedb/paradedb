@@ -471,6 +471,7 @@ impl BufferManager {
         }
     }
 
+    #[allow(dead_code)]
     pub fn get_buffer_conditional(&mut self, blockno: pg_sys::BlockNumber) -> Option<BufferMut> {
         unsafe {
             let pg_buffer = self.bcache.get_buffer(blockno, None);
@@ -486,15 +487,13 @@ impl BufferManager {
         }
     }
 
-    pub fn get_buffer_for_cleanup(
-        &mut self,
-        blockno: pg_sys::BlockNumber,
-        strategy: pg_sys::BufferAccessStrategy,
-    ) -> BufferMut {
+    pub fn get_buffer_for_cleanup(&mut self, blockno: pg_sys::BlockNumber) -> BufferMut {
         unsafe {
-            let buffer = self
-                .bcache
-                .get_buffer_with_strategy(blockno, strategy, None);
+            let buffer = self.bcache.get_buffer_with_strategy(
+                blockno,
+                pg_sys::ReadBufferMode::RBM_NORMAL as _,
+                None,
+            );
             pg_sys::LockBufferForCleanup(buffer);
             BufferMut {
                 dirty: false,

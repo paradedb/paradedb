@@ -189,8 +189,13 @@ pub unsafe fn save_new_metas(
             // it only applies .delete files, which we consider as modifications
             assert!(pg_sys::IsTransactionState());
 
-            assert!(meta_entry.xmax == pg_sys::InvalidTransactionId);
+            assert!(
+                meta_entry.xmax == pg_sys::InvalidTransactionId,
+                "SegmentMetaEntry {} should not already be deleted",
+                meta_entry.segment_id
+            );
             meta_entry.xmax = deleting_xid;
+
             (meta_entry, blockno)
         })
         .collect::<Vec<_>>();
@@ -280,7 +285,7 @@ pub unsafe fn save_new_metas(
             page.delete_item(offno);
 
             // ... and add it to somewhere in the list, starting on this page
-            linked_list.add_items(vec![entry], Some(buffer))?;
+            linked_list.add_items(&[entry], Some(buffer))?;
         }
     }
     // chase down the linked lists for any existing deleted entries and mark them as deleted
@@ -294,7 +299,7 @@ pub unsafe fn save_new_metas(
 
     // add the new entries
     if !created_entries.is_empty() {
-        linked_list.add_items(created_entries, None)?;
+        linked_list.add_items(&created_entries, None)?;
     }
 
     Ok(())
@@ -331,6 +336,9 @@ pub unsafe fn load_metas(
 
                 if (matches!(solve_mvcc, MvccSatisfies::Any))
                     || (matches!(solve_mvcc, MvccSatisfies::Snapshot) && entry.visible(snapshot))
+                    || (matches!(solve_mvcc, MvccSatisfies::Mergeable)
+                        && entry.visible(snapshot)
+                        && entry.xmax == pg_sys::InvalidTransactionId)
                 {
                     let inner_segment_meta = InnerSegmentMeta {
                         max_doc: entry.max_doc,

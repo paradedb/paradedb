@@ -44,6 +44,7 @@ use tantivy::{index::SegmentMetaInventory, Directory, IndexMeta, TantivyError};
 pub enum MvccSatisfies {
     Snapshot,
     Any,
+    Mergeable,
 }
 
 impl MvccSatisfies {
@@ -51,6 +52,7 @@ impl MvccSatisfies {
         match self {
             MvccSatisfies::Snapshot => MVCCDirectory::snapshot(index_relation.oid()),
             MvccSatisfies::Any => MVCCDirectory::any(index_relation.oid()),
+            MvccSatisfies::Mergeable => MVCCDirectory::mergeable(index_relation.oid()),
         }
     }
     pub fn channel_request_handler(
@@ -94,6 +96,10 @@ impl MVCCDirectory {
 
     pub fn any(relation_oid: pg_sys::Oid) -> Self {
         Self::with_mvcc_style(relation_oid, MvccSatisfies::Any)
+    }
+
+    pub fn mergeable(relation_oid: pg_sys::Oid) -> Self {
+        Self::with_mvcc_style(relation_oid, MvccSatisfies::Mergeable)
     }
 
     fn with_mvcc_style(relation_oid: pg_sys::Oid, mvcc_style: MvccSatisfies) -> Self {
@@ -280,21 +286,21 @@ impl Directory for MVCCDirectory {
 
     fn panic_handler(&self) -> Option<DirectoryPanicHandler> {
         let panic_handler = move |any: Box<dyn Any + Send>| {
-            fn downcast_to_panic(any: Box<dyn Any + Send>, depth: usize) -> ! {
+            fn downcast_to_panic(any: Box<dyn Any + Send>, depth: usize) {
                 // NB:  the `any` error could be other types too, but lord knows what they might be
 
                 if let Some(message) = any.downcast_ref::<String>() {
-                    panic!("{message}");
+                    pgrx::warning!("{message}");
                 } else if let Some(message) = any.downcast_ref::<&str>() {
-                    panic!("{message}");
+                    pgrx::warning!("{message}");
                 } else if let Some(message) = any.downcast_ref::<tantivy::TantivyError>() {
-                    panic!("{message:?}");
+                    pgrx::warning!("{message:?}");
                 } else if let Some(message) = any.downcast_ref::<&dyn Display>() {
-                    panic!("{message}");
+                    pgrx::warning!("{message}");
                 } else if let Some(message) = any.downcast_ref::<&dyn Debug>() {
-                    panic!("{message:?}")
+                    pgrx::warning!("{message:?}")
                 } else if let Some(message) = any.downcast_ref::<&dyn Error>() {
-                    panic!("{message}");
+                    pgrx::warning!("{message}");
                 } else {
                     if depth >= 10 {
                         // just to avoid recursing forever if we always end up downcasting to another

@@ -2823,6 +2823,7 @@ dependencies = [
  "parking_lot",
  "pgrx",
  "pgrx-tests",
+ "rand 0.8.5",
  "rayon",
  "rstest",
  "rustc-hash 2.1.1",

@@ -160,6 +160,12 @@ unsafe fn merge_info(
     table
 }
 
+/// Deprecated: Use `paradedb.merge_info` instead.
+#[pg_extern]
+fn is_merging(index: PgRelation) -> bool {
+    unsafe { merge_info(index).next().is_some() }
+}
+
 #[pg_extern]
 unsafe fn vacuum_info(index: PgRelation) -> SetOfIterator<'static, String> {
     let mut merge_lock = MergeLock::acquire(index.oid());

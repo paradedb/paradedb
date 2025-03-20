@@ -15,11 +15,11 @@ charts. This decision was made because our work on Postgres analytics is being d
 
 ## Performance Improvements 🚀
 
-- We have significantly improved write throughput by optimizing our segment merge policy. As a result, we deprecated the
+- We have significantly improved write throughput by optimizing our segment merge policy. As a result, we removed the
   `paradedb.max_mergeable_segment_size` and `paradedb.segment_merge_scale_factor` settings, which are no longer necessary
   under this new merge policy. We instead introduced a new index `WITH` option, `layer_sizes`, which which defaults to 100KB,
   1MB, 100MB, but can be set by the user either at `CREATE INDEX` time or later by `ALTER INDEX`.
-- We added support for concurrent merging, which further contributes to write throughput improvements. As a result, we deprecated
+- We added support for concurrent merging, which further contributes to write throughput improvements. As a result, we removed
   the `paradedb.is_merging()` function. We instead introduced the `paradedb.merge_info()`and`paradedb.vacuum_info()` functions.
 
 ## Stability Improvements 💪

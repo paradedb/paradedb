@@ -276,18 +276,18 @@ unsafe fn do_merge(indexrelid: Oid, _doc_count: usize) {
 
         let mut writer = SearchIndexWriter::open(
             &PgRelation::open(indexrelid),
-            MvccSatisfies::Mergable,
+            MvccSatisfies::Mergeable,
             WriterResources::PostStatementMerge,
         )
         .expect("should be able to open a SearchIndexWriter for PostStatementMerge");
 
         // the non_mergeable_segments are those that are concurrently being vacuumed *and* merged
-        let mut non_mergable_segments = merge_lock.list_vacuuming_segments();
-        non_mergable_segments.extend(merge_lock.in_progress_segment_ids());
+        let mut non_mergeable_segments = merge_lock.list_vacuuming_segments();
+        non_mergeable_segments.extend(merge_lock.in_progress_segment_ids());
         let writer_segment_ids = &writer.segment_ids();
 
         let possibly_mergeable = writer_segment_ids
-            .difference(&non_mergable_segments)
+            .difference(&non_mergeable_segments)
             .collect::<HashSet<_>>();
 
         if possibly_mergeable.len() > 2 {

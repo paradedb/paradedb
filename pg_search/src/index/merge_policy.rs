@@ -44,7 +44,7 @@ impl MergePolicy for LayeredMergePolicy {
 
         for layer_size in layer_sizes {
             // collect the list of mergeable segments so that we can combine those that fit in the next layer
-            let segments = collect_mergable_segments(original_segments, self, &merged_segments);
+            let segments = collect_mergeable_segments(original_segments, self, &merged_segments);
 
             let mut candidate_byte_size = 0;
             candidates.push((layer_size, MergeCandidate(vec![])));
@@ -123,7 +123,7 @@ impl MergePolicy for LayeredMergePolicy {
     }
 }
 
-fn collect_mergable_segments<'a>(
+fn collect_mergeable_segments<'a>(
     segments: &'a [SegmentMeta],
     merge_policy: &LayeredMergePolicy,
     exclude: &HashSet<SegmentId>,

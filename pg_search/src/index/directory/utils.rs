@@ -336,7 +336,7 @@ pub unsafe fn load_metas(
 
                 if (matches!(solve_mvcc, MvccSatisfies::Any))
                     || (matches!(solve_mvcc, MvccSatisfies::Snapshot) && entry.visible(snapshot))
-                    || (matches!(solve_mvcc, MvccSatisfies::Mergable)
+                    || (matches!(solve_mvcc, MvccSatisfies::Mergeable)
                         && entry.visible(snapshot)
                         && entry.xmax == pg_sys::InvalidTransactionId)
                 {

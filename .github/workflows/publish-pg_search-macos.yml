@@ -67,9 +67,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Homebrew
-        run: brew tap homebrew/services
-
       # We force reinstall icu4c to make sure it is in PATH
       - name: Install Dependencies
         run: brew reinstall icu4c
@@ -110,7 +107,6 @@ jobs:
       - name: Install PostgreSQL
         run: |
           brew install postgresql@${{ matrix.pg_version }}
-          brew services start postgresql@${{ matrix.pg_version }}
           echo "/opt/homebrew/opt/postgresql@${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Extract pgrx Version

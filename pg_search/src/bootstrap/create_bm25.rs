@@ -120,6 +120,64 @@ pub unsafe fn index_fields(index: PgRelation) -> anyhow::Result<JsonB> {
     Ok(JsonB(serde_json::to_value(name_and_config)?))
 }
 
+#[pg_extern]
+pub unsafe fn layer_sizes(index: PgRelation) -> Vec<AnyNumeric> {
+    let options = SearchIndexCreateOptions::from_relation(&index);
+    options
+        .layer_sizes(crate::postgres::insert::DEFAULT_LAYER_SIZES)
+        .into_iter()
+        .map(|layer_size| layer_size.into())
+        .collect()
+}
+
+#[pg_extern]
+unsafe fn merge_info(
+    index: PgRelation,
+) -> TableIterator<
+    'static,
+    (
+        name!(pid, i32),
+        name!(xmin, AnyNumeric),
+        name!(xmax, AnyNumeric),
+        name!(segno, String),
+    ),
+> {
+    let merge_lock = MergeLock::acquire(index.oid());
+    let merge_entries = merge_lock.in_progress_merge_entries();
+    let table = TableIterator::new(merge_entries.into_iter().flat_map(move |merge_entry| {
+        merge_entry
+            .segment_ids(index.oid())
+            .into_iter()
+            .map(move |segment_id| {
+                (
+                    merge_entry.pid,
+                    merge_entry.xmin.into(),
+                    merge_entry.xmax.into(),
+                    segment_id.short_uuid_string(),
+                )
+            })
+    }));
+    table
+}
+
+/// Deprecated: Use `paradedb.merge_info` instead.
+#[pg_extern]
+fn is_merging(index: PgRelation) -> bool {
+    unsafe { merge_info(index).next().is_some() }
+}
+
+#[pg_extern]
+unsafe fn vacuum_info(index: PgRelation) -> SetOfIterator<'static, String> {
+    let mut merge_lock = MergeLock::acquire(index.oid());
+    let vacuum_list = merge_lock.list_vacuuming_segments();
+    SetOfIterator::new(
+        vacuum_list
+            .iter()
+            .map(|segment_id| segment_id.short_uuid_string())
+            .collect::<Vec<_>>(),
+    )
+}
+
 #[allow(clippy::type_complexity)]
 #[pg_extern]
 fn index_info(
@@ -195,11 +253,6 @@ fn index_info(
     }
 
     Ok(TableIterator::new(results))
-}
-
-#[pg_extern]
-fn is_merging(index: PgRelation) -> bool {
-    unsafe { MergeLock::is_merging(index.oid()) }
 }
 
 /// Returns the list of segments that contain the specified [`pg_sys::ItemPointerData]` heap tuple

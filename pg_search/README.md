@@ -10,7 +10,7 @@
 
 `pg_search` is a Postgres extension that enables full text search over heap tables using the BM25 algorithm. It is built on top of Tantivy, the Rust-based alternative to Apache Lucene, using `pgrx`. Please refer to the [ParadeDB documentation](https://docs.paradedb.com/documentation/getting-started/quickstart) to get started.
 
-`pg_search` is supported on all versions supported by the PostgreSQL Global Development Group, which includes PostgreSQL 13+.
+`pg_search` is supported on official PostgreSQL Global Development Group Postgres versions, starting at v14.
 
 Check out the `pg_search` benchmarks [here](../benchmarks/README.md).
 
@@ -63,8 +63,6 @@ sudo apt-get install -y libicu74
 ```
 
 Or, you can compile the extension from source without `--features icu` to build without the ICU tokenizer.
-
-ParadeDB collects anonymous telemetry to help us understand how many people are using the project. You can opt out of telemetry by setting `export PARADEDB_TELEMETRY=false` (or unsetting the variable) in your shell or in your `~/.bashrc` file before running the extension.
 
 #### macOS
 

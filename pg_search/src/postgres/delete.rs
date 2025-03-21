@@ -45,7 +45,24 @@ pub unsafe extern "C" fn ambulkdelete(
     };
 
     // take the MergeLock
-    let merge_lock = MergeLock::acquire_for_ambulkdelete(index_relation.oid());
+    let merge_lock = loop {
+        // acquire the CLEANUP_LOCK (for cleanup).  This will block us until the lock has no concurrent
+        // pins.  That means there are no readers and no merging happening
+        let cleanup_lock =
+            BufferManager::new(index_relation.oid()).get_buffer_for_cleanup(CLEANUP_LOCK);
+        drop(cleanup_lock);
+
+        // next we acquire the MergeLock.  This too is a blocking operation.  The hope here is that
+        // because of the waiting we did above to get the CLEANUP_LOCK, we'll be the next to acquire
+        // the MergeLock before another merge begins
+        let merge_lock = MergeLock::acquire(index_relation.oid());
+        if merge_lock.is_merge_in_progress() {
+            // but if another merge did begin we need to wait it out and retry.
+            check_for_interrupts!();
+            continue;
+        }
+        break merge_lock;
+    };
 
     let mut index_writer =
         SearchIndexWriter::open(&index_relation, MvccSatisfies::Any, WriterResources::Vacuum)
@@ -67,9 +84,9 @@ pub unsafe extern "C" fn ambulkdelete(
         if !writer_segment_ids.contains(&segment_reader.segment_id()) {
             // the writer doesn't have this segment reader, and that's fine
             // we open the writer and reader in separate calls so it's possible
-            // for the reader, which is opened second, to see a different view of
-            // the segment entries on disk, but we only need to concern ourselves with
-            // the ones the writer is aware of
+            // for the reader, which is opened second and outside of the MergeLock,
+            // to see a different view of the segment entries on disk, but we only
+            // need to concern ourselves with the ones the writer is aware of
             continue;
         }
         let ctid_ff = FFType::new_ctid(segment_reader.fast_fields());
@@ -98,9 +115,6 @@ pub unsafe extern "C" fn ambulkdelete(
         .commit()
         .expect("ambulkdelete: commit should succeed");
 
-    // we're done, no need to hold onto the sentinel any longer
-    drop(vacuum_sentinel);
-
     if stats.is_null() {
         stats = unsafe {
             PgBox::from_pg(
@@ -119,11 +133,10 @@ pub unsafe extern "C" fn ambulkdelete(
     // Effectively, we're blocking ambulkdelete from finishing until we know that concurrent
     // scans have finished too
     if did_delete {
-        drop(
-            BufferManager::new(index_relation.oid())
-                .get_buffer_for_cleanup(CLEANUP_LOCK, pg_sys::ReadBufferMode::RBM_NORMAL as _),
-        );
+        drop(BufferManager::new(index_relation.oid()).get_buffer_for_cleanup(CLEANUP_LOCK));
     }
 
+    // we're done, no need to hold onto the sentinel any longer
+    drop(vacuum_sentinel);
     stats.into_pg()
 }

@@ -57,15 +57,7 @@ impl BM25Page for pg_sys::Page {
             return false;
         }
 
-        #[cfg(feature = "pg13")]
-        {
-            pg_sys::TransactionIdPrecedes((*special).xmax, pg_sys::RecentGlobalXmin)
-        }
-
-        #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
-        {
-            pg_sys::GlobalVisCheckRemovableXid(heap_relation, (*special).xmax)
-        }
+        pg_sys::GlobalVisCheckRemovableXid(heap_relation, (*special).xmax)
     }
 }
 
@@ -206,19 +198,7 @@ pub unsafe fn vacuum_get_freeze_limit(heap_relation: pg_sys::Relation) -> pg_sys
         pub static mut autovacuum_freeze_max_age: ::std::os::raw::c_int;
     }
 
-    let oldest_xmin = {
-        #[cfg(feature = "pg13")]
-        {
-            pg_sys::TransactionIdLimitedForOldSnapshots(
-                pg_sys::GetOldestXmin(heap_relation, pg_sys::PROCARRAY_FLAGS_VACUUM as i32),
-                heap_relation,
-            )
-        }
-        #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
-        {
-            pg_sys::GetOldestNonRemovableTransactionId(heap_relation)
-        }
-    };
+    let oldest_xmin = pg_sys::GetOldestNonRemovableTransactionId(heap_relation);
 
     assert!(pg_sys::TransactionIdIsNormal(oldest_xmin));
     assert!(pg_sys::vacuum_freeze_min_age >= 0);
@@ -295,23 +275,10 @@ mod tests {
                 .unwrap();
         let heap_relation = pg_sys::RelationIdGetRelation(heap_oid);
 
-        #[cfg(feature = "pg13")]
-        {
-            assert_eq!(
-                vacuum_get_freeze_limit(heap_relation),
-                pg_sys::TransactionIdLimitedForOldSnapshots(
-                    pg_sys::GetOldestXmin(heap_relation, pg_sys::PROCARRAY_FLAGS_VACUUM as i32),
-                    heap_relation,
-                )
-            );
-        }
-        #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
-        {
-            assert_eq!(
-                vacuum_get_freeze_limit(heap_relation),
-                pg_sys::GetOldestNonRemovableTransactionId(heap_relation),
-            );
-        }
+        assert_eq!(
+            vacuum_get_freeze_limit(heap_relation),
+            pg_sys::GetOldestNonRemovableTransactionId(heap_relation),
+        );
 
         pg_sys::RelationClose(heap_relation);
     }

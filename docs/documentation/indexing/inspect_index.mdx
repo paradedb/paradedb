@@ -47,14 +47,23 @@ that a single segment is split into multiple segments.
 
 In order for the index to maintain an optimal segment count, the index must have enough memory and threads for [creating](/documentation/configuration/index) and [writing](/documentation/configuration/write) to the index.
 
-## Segment Merging
+## Index Debugging
 
-`paradedb.is_merging` returns true if the specified index is currently merging segments, false if not.
+These functions are typically used by ParadeDB developers to debug the index.
+
+### Merge Info
+
+`paradedb.merge_info` returns a table containing information about any ongoing segment merge operations.
+If writes to the index seem to be hanging, this function can be used to determine if a merge is occurring.
 
 ```sql
-SELECT paradedb.is_merging('search_idx');
+SELECT paradedb.merge_info('search_idx');
 ```
 
-An index only merges segments at the end of an `INSERT`/`UPDATE`/`COPY` statement. Depending on how the index is organized
-at the time of the statement, segment merging could take a bit of time. This function provides insight into if merging
-is happening, which might present itself as the `INSERT`/`UPDATE`/`COPY` being "hung".
+### Vacuum Info
+
+`paradedb.vacuum_info` returns a list of segment IDs that are currently being vacuumed.
+
+```sql
+SELECT paradedb.vacuum_info('search_idx');
+```

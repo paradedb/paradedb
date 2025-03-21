@@ -47,7 +47,7 @@ pub struct FastFieldExecState {
     ffhelper: FFHelper,
 
     slot: *mut pg_sys::TupleTableSlot,
-    strbuf: String,
+    strbuf: Option<String>,
     vmbuff: pg_sys::Buffer,
     which_fast_fields: Vec<WhichFastField>,
     search_results: SearchResults,
@@ -78,7 +78,7 @@ impl FastFieldExecState {
 
             ffhelper: Default::default(),
             slot: std::ptr::null_mut(),
-            strbuf: String::with_capacity(256),
+            strbuf: Some(String::with_capacity(256)),
             vmbuff: pg_sys::InvalidBuffer as pg_sys::Buffer,
             which_fast_fields,
             search_results: Default::default(),
@@ -95,7 +95,7 @@ unsafe fn ff_to_datum(
     score: f32,
     doc_address: DocAddress,
     ff_helper: &mut FFHelper,
-    strbuf: &mut String,
+    strbuf: &mut Option<String>,
     slot: *const pg_sys::TupleTableSlot,
 ) -> Option<pg_sys::Datum> {
     let field_index = which_fast_field.1;
@@ -116,13 +116,21 @@ unsafe fn ff_to_datum(
         which_fast_field,
         WhichFastField::Named(_, FastFieldType::String)
     ) {
-        strbuf.as_str().into_datum()
+        if let Some(s) = strbuf {
+            s.as_str().into_datum()
+        } else {
+            None
+        }
     } else if typid == pg_sys::TEXTOID || typid == pg_sys::VARCHAROID {
         // NB:  we don't actually support text-based fast fields... yet
         // but if we did, we'd want to do it this way
-        ff_helper
-            .string(field_index, doc_address, strbuf)
-            .and_then(|s| strbuf.as_str().into_datum())
+        if let Some(s) = strbuf {
+            ff_helper
+                .string(field_index, doc_address, s)
+                .and_then(|_| s.as_str().into_datum())
+        } else {
+            None
+        }
     } else {
         match ff_helper.value(field_index, doc_address) {
             None => None,

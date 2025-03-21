@@ -105,7 +105,6 @@ jobs:
       - name: Install PostgreSQL
         run: |
           brew install postgresql@${{ matrix.pg_version }}
-          brew services start postgresql@${{ matrix.pg_version }}
           echo "/opt/homebrew/opt/postgresql@${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Extract pgrx Version
@@ -132,11 +131,8 @@ jobs:
           export PATH="/opt/homebrew/bin:$PATH"
           cargo pgrx package --features icu --pg-config $PG_CONFIG_PATH
         env:
-          POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
-          POSTHOG_HOST: ${{ secrets.POSTHOG_HOST }}
           COMMIT_SHA: ${{ steps.version.outputs.commit_sha }}
           PARADEDB_VERSION: ${{ steps.version.outputs.tag_version }}
-          PARADEDB_TELEMETRY: true
 
       - name: Create .pkg Package
         run: |

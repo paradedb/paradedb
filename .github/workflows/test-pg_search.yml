@@ -38,9 +38,6 @@ jobs:
       matrix:
         include:
           - runner: ubicloud-standard-8
-            pg_version: 13
-            arch: amd64
-          - runner: ubicloud-standard-8
             pg_version: 14
             arch: amd64
           - runner: ubicloud-standard-8
@@ -165,7 +162,6 @@ jobs:
         run: |
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
           export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
-          export PARADEDB_TELEMETRY=false
           RUST_BACKTRACE=1 cargo test --jobs $(nproc) --features icu --package tests --package tokenizers
 
       - name: Run pg_search Unit Tests
@@ -177,7 +173,6 @@ jobs:
 
           # Run tests
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
-          export PARADEDB_TELEMETRY=false
           RUST_BACKTRACE=1 cargo test --jobs $(nproc) --features pg${{ matrix.pg_version }} --no-default-features
 
       - name: Print the Postgres Logs

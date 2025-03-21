@@ -11,7 +11,7 @@
   "navigation": {
     "versions": [
       {
-        "version": "v0.15.8",
+        "version": "v0.15.9",
         "anchors": [
           {
             "anchor": "Documentation",
@@ -44,6 +44,7 @@
                               "documentation/configuration/overview",
                               "documentation/configuration/index",
                               "documentation/configuration/index_size",
+                              "documentation/configuration/segment_size",
                               "documentation/configuration/write",
                               "documentation/configuration/parallel"
                             ]
@@ -51,8 +52,7 @@
                           {
                             "group": "Index Settings",
                             "pages": [
-                              "documentation/configuration/scan",
-                              "documentation/configuration/telemetry"
+                              "documentation/configuration/scan"
                             ]
                           }
                         ]

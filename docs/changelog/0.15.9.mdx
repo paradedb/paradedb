@@ -1,0 +1,34 @@
+---
+title: 0.15.9
+---
+
+## Deprecation Notice 🗄️
+
+- As of this release, we have deprecated `pg_search` support for PostgreSQL 13. This decision was taken to enable our team to better serve our
+  existing customers on other PostgreSQL major versions and in anticipation of the upcoming release of PostgreSQL 18 later this year and subsequent
+  deprecation of PostgreSQL 13 later this year.
+- On April 2, 2025, we will be deprecating `pg_analytics`, our extension for reading data from external data lakes into Postgres. The
+  `pg_analytics`repository will be archived and will no longer be maintained. The extension will be removed from our Dockerfile and Helm
+  charts. This decision was made because our work on Postgres analytics is being done in our primary extension,`pg_search`. Additionally,
+  while `pg_analytics` was an exciting proof of concept, there now exist other tools in the ecosystem that can be used to read from object stores,
+  and we would like to help consolidate usage around those tools rather than compete with them.
+
+## Performance Improvements 🚀
+
+- We have significantly improved write throughput by optimizing our segment merge policy. As a result, we removed the
+  `paradedb.max_mergeable_segment_size` and `paradedb.segment_merge_scale_factor` settings, which are no longer necessary
+  under this new merge policy. We instead introduced a new index `WITH` option, `layer_sizes`, which which defaults to 100KB,
+  1MB, 100MB, but can be set by the user either at `CREATE INDEX` time or later by `ALTER INDEX`.
+- We added support for concurrent merging, which further contributes to write throughput improvements. As a result, we removed
+  the `paradedb.is_merging()` function. We instead introduced the `paradedb.merge_info()` and `paradedb.vacuum_info()` functions.
+
+## Stability Improvements 💪
+
+- Fixed an issue where certain queries could come out without a BM25 score
+- Fixed an issue where `REFRESH MATERIALIZED VIEW CONCURRENTLY` failed with `pg_search` installed
+- Fixed an issue where the `max_num_chars` parameter was not being respected while querying for highlights using the snippets function
+- Fixed an issue where certain queries would have missing rows when querying data with `NULL` values in a string fast field
+
+## Full Changelog
+
+The full changelog is available [here](https://github.com/paradedb/paradedb/releases/tag/v0.15.9).

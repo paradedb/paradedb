@@ -56,18 +56,12 @@ RUN PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -
 
 FROM builder AS builder-pg_search
 
-ARG POSTHOG_API_KEY
-ARG POSTHOG_HOST
 ARG COMMIT_SHA
 ARG PARADEDB_VERSION
-ARG PARADEDB_TELEMETRY
 
 # Declare compile-time environment variables
-ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
-    POSTHOG_HOST=${POSTHOG_HOST} \
-    COMMIT_SHA=${COMMIT_SHA} \
-    PARADEDB_VERSION=${PARADEDB_VERSION} \
-    PARADEDB_TELEMETRY=${PARADEDB_TELEMETRY}
+ENV COMMIT_SHA=${COMMIT_SHA} \
+    PARADEDB_VERSION=${PARADEDB_VERSION}
 
 COPY . /tmp/
 
@@ -188,7 +182,7 @@ RUN apt-get update && \
     find /var/log -type f -exec truncate --size 0 {} \;
 
 # Install Postgis and ca-certificates
-# ca-certificates required for TLS connection to PostHog (which is used for telemetry) and PostGIS
+# ca-certificates required for PostGIS
 ENV POSTGIS_VERSION_MAJOR=3
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

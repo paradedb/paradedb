@@ -1,12 +1,12 @@
 # workflows/check-pg_search-schema-upgrade.yml
 #
-# Check pg_search Schema Upgrade pg_search
+# Check pg_search Schema Upgrade
 # Determine if a commit introduces an extension schema change for pg_search.
 
 name: Check pg_search Schema Upgrade
 
 on:
-  pull_request_target:
+  pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches:
       - dev
@@ -17,12 +17,9 @@ on:
       - "!pg_search/README.md"
   workflow_dispatch:
 
-# Since we use pull_request_target, we restrict the permissions to the bare minimum
-# required to post a comment to the PR. This is because pull_request_target runs
-# as the target repository's write token, which has more permissions than the
-# source repository's read token.
+# Required to post a comment to the PR
 permissions:
-  contents: read
+  pull-requests: write
   issues: write
 
 concurrency:
@@ -36,15 +33,13 @@ jobs:
     if: github.event.pull_request.draft == false
     strategy:
       matrix:
-        pg_version: [13] # Required by pg-schema-diff
+        pg_version: [14] # pg_search's minimum supported Postgres version
 
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Fetch the entire history
-          ref: ${{ github.event.pull_request.head.ref }}
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
 
       - name: Extract pgrx Version
         id: pgrx

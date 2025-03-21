@@ -19,9 +19,6 @@ use tempfile::TempDir;
 static INIT: Once = Once::new();
 static LAST_PORT: AtomicUsize = AtomicUsize::new(49152);
 
-const RETRIES: u32 = 60;
-const RETRY_DELAY: u64 = 1000; // measured in milliseconds
-
 // Function to check if a port can be bound (i.e., is available)
 fn can_bind(port: u16) -> bool {
     std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
@@ -265,84 +262,6 @@ async fn test_ephemeral_postgres_with_pg_basebackup() -> Result<()> {
         .await?;
 
     assert_eq!(source_count, target_count);
-
-    Ok(())
-}
-
-#[rstest] // Segfaults on PG13.
-#[ignore = "failing on block storage"]
-async fn test_replication_with_pg_search_only_on_replica() -> Result<()> {
-    let config = "
-        wal_level = logical
-        max_replication_slots = 4
-        max_wal_senders = 4
-        # Adding pg_search to shared_preload_libraries in 17 doesn't do anything
-        # but simplifies testing
-        shared_preload_libraries = 'pg_search'
-    ";
-
-    let source_postgres = EphemeralPostgres::new(Some(config), None);
-    let target_postgres = EphemeralPostgres::new(Some(config), None);
-
-    let mut source_conn = source_postgres.connection().await?;
-    let mut target_conn = target_postgres.connection().await?;
-
-    // Do not install pg_search on the source database
-
-    // Create the mock_items table schema on the source
-    let schema = "
-        CREATE TABLE mock_items (
-          id SERIAL PRIMARY KEY,
-          description TEXT,
-          rating INTEGER CHECK (rating BETWEEN 1 AND 5),
-          category VARCHAR(255),
-          in_stock BOOLEAN,
-          metadata JSONB,
-          created_at TIMESTAMP,
-          last_updated_date DATE,
-          latest_available_time TIME
-        )
-    ";
-    schema.execute(&mut source_conn);
-
-    // Create publication for replication
-    "CREATE PUBLICATION mock_items_pub FOR TABLE mock_items".execute(&mut source_conn);
-
-    // Install pg_search on the replica and create the same table schema
-    "CREATE EXTENSION pg_search".execute(&mut target_conn);
-    schema.execute(&mut target_conn);
-
-    // Create the bm25 index on the description field on the replica
-    "
-    CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description)
-    WITH (key_field = 'id');
-    "
-    .execute(&mut target_conn);
-
-    // Create subscription on the replica
-    format!(
-        "CREATE SUBSCRIPTION mock_items_sub
-         CONNECTION 'host={} port={} dbname={}'
-         PUBLICATION mock_items_pub;",
-        source_postgres.host, source_postgres.port, source_postgres.dbname
-    )
-    .execute(&mut target_conn);
-
-    // Insert a new item into the source database
-    "INSERT INTO mock_items (description, category, in_stock, latest_available_time, last_updated_date, metadata, created_at, rating)
-    VALUES ('Green hiking shoes', 'Footwear', true, '16:00:00', '2024-07-11', '{}', '2024-07-11 16:00:00', 3)"
-    .execute(&mut source_conn);
-
-    // Verify the insert is replicated to the target database and can be searched using pg_search
-    let target_results: Vec<(String,)> =
-        "SELECT description FROM mock_items WHERE mock_items @@@ 'description:shoes' ORDER BY id"
-            .fetch_retry(&mut target_conn, RETRIES, RETRY_DELAY, |result| {
-                !result.is_empty()
-            });
-
-    assert_eq!(target_results.len(), 1);
-    assert_eq!(target_results[0].0, "Green hiking shoes");
 
     Ok(())
 }

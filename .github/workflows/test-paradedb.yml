@@ -67,7 +67,7 @@ jobs:
       - name: Start the ParadeDB Docker Image via Docker Compose (dev only)
         if: steps.env.outputs.environment == 'dev'
         working-directory: docker/
-        run: PARADEDB_TELEMETRY=false docker compose -f docker-compose.yml up -d && sleep 10
+        run: docker compose -f docker-compose.yml up -d && sleep 10
 
       # On PRs to `main`, we start the ParadeDB Docker image using `docker run` to test the
       # standalone Docker image. We add a --tmpfs mount as a test of compatibility with the

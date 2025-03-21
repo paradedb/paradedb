@@ -1,0 +1,36 @@
+---
+title: Segment Size
+---
+
+During every `INSERT`/`UPDATE`/`COPY` statement, the BM25 index will look for opportunities to merge [segments](/documentation/concepts/index#segment) together.
+This is done to optimize search performance by reducing the number of segments that need to be scanned.
+
+The segment merge policy is a configurable policy that attempts to merge segments into layers of different sizes.
+
+## Segment Layer Size
+
+By default, the BM25 index will attempt to merge segments into layers of size `100KB`, `1MB`, and `100MB`. This means
+that, if there are ten segments each `10KB` each in size, they will be merged into a single segment that is `100KB`. However,
+if there are only eight segments that are `10KB` each, they will not be merged together because they are not enough to meet the size
+of the next layer.
+
+The segment layer size can be changed at index creation time or afterward:
+
+```sql
+CREATE INDEX search_idx ON mock_items USING bm25 (id, description, rating) WITH (key_field = 'id', layer_sizes = '1kb, 10kb, 100MB');
+ALTER INDEX search_idx SET (layer_sizes = '100kb, 1mb, 100mb');
+```
+
+To pick the right layer sizes, we recommend the following approach:
+
+1. Monitor the size of your index's [segments](/documentation/indexing/inspect_index#index-segments) over time to determine the size of the smallest segment that's created
+   by typical writes to the index. The smallest layer should be 10-100x the size of this smallest segment - a higher layer size generally improves write throughput
+   and the expense of search performance.
+2. Do not create too many layers. Every additional layer introduces the write amplication of merging up to the next layer.
+3. The larger the layer size, the more time it takes to merge into a segment of that size, and the lower the write throughput.
+
+To view the current layer sizes, use `paradedb.layer_sizes`. This function returns the size of each layer in bytes.
+
+```sql
+SELECT paradedb.layer_sizes('search_idx');
+```

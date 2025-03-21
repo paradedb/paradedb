@@ -105,7 +105,6 @@ jobs:
       - name: Install PostgreSQL
         run: |
           brew install postgresql@${{ matrix.pg_version }}
-          brew services start postgresql@${{ matrix.pg_version }}
           echo "/opt/homebrew/opt/postgresql@${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Extract pgrx Version

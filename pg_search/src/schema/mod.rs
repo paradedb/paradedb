@@ -184,6 +184,8 @@ pub enum SearchFieldConfig {
         stored: bool,
         #[serde(default)]
         column: Option<String>,
+        #[serde(default)]
+        fast: bool,
     },
     Numeric {
         #[serde(default = "default_as_true")]
@@ -382,7 +384,18 @@ impl SearchFieldConfig {
             None => Ok(None),
         }?;
 
-        Ok(SearchFieldConfig::Range { stored, column })
+        let fast = match obj.get("fast") {
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("'fast' field should be a boolean")),
+            None => Ok(true),
+        }?;
+
+        Ok(SearchFieldConfig::Range {
+            stored,
+            column,
+            fast,
+        })
     }
 
     pub fn numeric_from_json(value: serde_json::Value) -> Result<Self> {
@@ -908,6 +921,18 @@ impl SearchIndexSchema {
             SearchFieldConfig::Numeric { fast: true, .. } => Some(()),
             SearchFieldConfig::Boolean { fast: true, .. } => Some(()),
             SearchFieldConfig::Date { fast: true, .. } => Some(()),
+            _ => None,
+        }
+    }
+
+    pub fn is_range_sortable(&self, name: &str) -> bool {
+        self.is_range_sortable_ex(name).is_some()
+    }
+
+    fn is_range_sortable_ex(&self, name: &str) -> Option<()> {
+        let search_filed = self.get_search_field(&SearchFieldName(name.to_string()))?;
+        match search_filed.config {
+            SearchFieldConfig::Range { fast: true, .. } => Some(()),
             _ => None,
         }
     }

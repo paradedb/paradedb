@@ -81,7 +81,9 @@ impl PrivateData {
         if let Some(style) = pathkey {
             match style {
                 OrderByStyle::Score(_) => {}
-                OrderByStyle::Field(_, name) => self.sort_field = Some(name.clone()),
+                OrderByStyle::Field(_, name)
+                | OrderByStyle::RangeLower(_, name)
+                | OrderByStyle::RangeUpper(_, name) => self.sort_field = Some(name.clone()),
             }
             self.sort_direction = Some(style.direction())
         }

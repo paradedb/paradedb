@@ -48,7 +48,7 @@ fn negative_layer_size(mut conn: PgConnection) {
     let err = result.err().unwrap();
     assert_eq!(
         err.into_database_error().unwrap().to_string(),
-        "a single layer size must be positive: TryFromIntError(())"
+        "a single layer size must be greater than zero"
     );
 }
 

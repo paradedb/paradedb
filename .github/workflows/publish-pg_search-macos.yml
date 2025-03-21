@@ -9,8 +9,6 @@ on:
   push:
     tags:
       - "v*"
-    branches:
-      - "phil/fix-macos-deploys"
   workflow_dispatch:
     inputs:
       version:

@@ -184,7 +184,7 @@ pub enum SearchFieldConfig {
         stored: bool,
         #[serde(default)]
         column: Option<String>,
-        #[serde(default)]
+        #[serde(default = "default_as_false")]
         fast: bool,
     },
     Numeric {

@@ -12,10 +12,7 @@ title: Extensions
 If you already self-manage Postgres, you may prefer to install ParadeDB directly within your self-managed
 Postgres instead of deploying the ParadeDB Helm chart.
 
-This can be done by installing the two extensions that ParadeDB uses:
-
-- The `pg_search` extension powers all of ParadeDB's [full text search and analytics](/documentation).
-- The `pg_analytics` extension powers ParadeDB's [integrations](/integrations).
+This can be done by installing the `pg_search` extension, which powers all of ParadeDB's [full text search and analytics](/documentation):
 
 ## Prerequisites
 
@@ -103,61 +100,6 @@ sudo installer -pkg ~/Downloads/pg_search.pkg -target /
 
 </CodeGroup>
 
-#### pg_analytics
-
-The prebuilt releases can be found in [GitHub Releases](https://github.com/paradedb/pg_analytics/releases/latest).
-
-<Note>
-  You can replace `0.3.5` with the `pg_analytics` version you wish to install
-  and `17` with the version of Postgres you are using.
-</Note>
-
-<CodeGroup>
-
-```bash Ubuntu 24.04
-# Available arch versions are amd64, arm64
-curl -L "https://github.com/paradedb/pg_analytics/releases/download/v0.3.5/postgresql-17-pg-analytics_0.3.5-1PARADEDB-noble_amd64.deb" -o /tmp/pg_analytics.deb
-sudo apt-get install -y /tmp/*.deb
-```
-
-```bash Ubuntu 22.04
-# Available arch versions are amd64, arm64
-curl -L "https://github.com/paradedb/pg_analytics/releases/download/v0.3.5/postgresql-17-pg-analytics_0.3.5-1PARADEDB-jammy_amd64.deb" -o /tmp/pg_analytics.deb
-sudo apt-get install -y /tmp/*.deb
-```
-
-```bash Debian 12
-# Available arch versions are amd64, arm64
-curl -L "https://github.com/paradedb/pg_analytics/releases/download/v0.3.5/postgresql-17-pg-analytics_0.3.5-1PARADEDB-bookworm_amd64.deb" -o /tmp/pg_analytics.deb
-sudo apt-get install -y /tmp/*.deb
-```
-
-```bash RHEL 9
-# Available arch versions are x86_64, aarch64
-curl -L "https://github.com/paradedb/pg_analytics/releases/download/v0.3.5/pg_analytics_17-0.3.5-1PARADEDB.el9.x86_64.rpm" -o /tmp/pg_analytics.rpm
-sudo dnf install -y /tmp/*.rpm
-```
-
-```bash RHEL 8
-# Available arch versions are x86_64, aarch64
-curl -L "https://github.com/paradedb/pg_analytics/releases/download/v0.3.5/pg_analytics_17-0.3.5-1PARADEDB.el8.x86_64.rpm" -o /tmp/pg_analytics.rpm
-sudo dnf install -y /tmp/*.rpm
-```
-
-```bash macOS 15 (Sequoia)
-# Available arch version is arm64
-curl -L "https://github.com/paradedb/pg_analytics/releases/download/v0.3.5/pg_analytics@17--0.3.5.arm64_sequoia.pkg" -o ~/Downloads/pg_analytics.pkg
-sudo installer -pkg ~/Downloads/pg_analytics.pkg -target /
-```
-
-```bash macOS 14 (Sonoma)
-# Available arch version is arm64
-curl -L "https://github.com/paradedb/pg_analytics/releases/download/v0.3.5/pg_analytics@17--0.3.5.arm64_sonoma.pkg" -o ~/Downloads/pg_analytics.pkg
-sudo installer -pkg ~/Downloads/pg_analytics.pkg -target /
-```
-
-</CodeGroup>
-
 ### ParadeDB Enterprise
 
 If you are a [ParadeDB Enterprise](/deploy/enterprise) user, you should have received a copy of the enterprise binaries. Please [contact sales](mailto:sales@paradedb.com) for access.
@@ -167,7 +109,7 @@ If you are a [ParadeDB Enterprise](/deploy/enterprise) user, you should have rec
 Next, add the extension(s) to `shared_preload_libraries` in `postgresql.conf`. Adding `pg_search` to `shared_preload_libraries` is unnecessary if your Postgres version is 17 or higher.
 
 ```ini
-shared_preload_libraries = 'pg_search,pg_analytics'
+shared_preload_libraries = 'pg_search'
 ```
 
 Reload the Postgres server for these changes to take effect.
@@ -178,7 +120,6 @@ Finally, connect to your Postgres database via your client of choice (e.g. `psql
 
 ```sql
 CREATE EXTENSION pg_search;
-CREATE EXTENSION pg_analytics;
 ```
 
 <Note>

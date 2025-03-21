@@ -329,7 +329,7 @@ impl Directory for MVCCDirectory {
     }
 
     fn log(&self, message: &str) {
-        pgrx::warning!("{message}");
+        pgrx::debug1!("{message}");
     }
 }
 

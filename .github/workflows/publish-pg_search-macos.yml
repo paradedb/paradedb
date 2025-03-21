@@ -67,6 +67,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set up Homebrew
+        run: brew tap homebrew/services
+
       # We force reinstall icu4c to make sure it is in PATH
       - name: Install Dependencies
         run: brew reinstall icu4c

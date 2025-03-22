@@ -11,6 +11,8 @@ on:
   push:
     tags:
       - "v*"
+    branches:
+      - phil/point-updates
   workflow_dispatch:
     inputs:
       version:

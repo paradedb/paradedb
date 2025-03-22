@@ -20,13 +20,17 @@ pub struct LayeredMergePolicy {
 impl MergePolicy for LayeredMergePolicy {
     fn compute_merge_candidates(
         &self,
-        _directory: Option<&dyn Directory>,
+        directory: Option<&dyn Directory>,
         original_segments: &[SegmentMeta],
     ) -> Vec<MergeCandidate> {
+        let directory = directory.expect("Directory should be provided to MergePolicy");
+
         if original_segments.is_empty() {
+            directory.log("compute_merge_candidates: no segments to merge");
             return Vec::new();
         }
         if self.already_processed.load(Ordering::Relaxed) {
+            directory.log("compute_merge_candidates: already processed segments, skipping merge");
             return Vec::new();
         }
 
@@ -45,7 +49,6 @@ impl MergePolicy for LayeredMergePolicy {
         for layer_size in layer_sizes {
             // collect the list of mergeable segments so that we can combine those that fit in the next layer
             let segments = collect_mergeable_segments(original_segments, self, &merged_segments);
-
             let mut candidate_byte_size = 0;
             candidates.push((layer_size, MergeCandidate(vec![])));
 
@@ -83,6 +86,11 @@ impl MergePolicy for LayeredMergePolicy {
             }
         }
 
+        directory.log(&format!(
+            "compute_merge_candidates: candidates before min merge count are {:?}",
+            candidates
+        ));
+
         // remove short candidate lists
         'outer: while !candidates.is_empty() {
             for i in 0..candidates.len() {
@@ -116,6 +124,12 @@ impl MergePolicy for LayeredMergePolicy {
         if !candidates.is_empty() {
             self.already_processed.store(true, Ordering::Relaxed);
         }
+
+        directory.log(&format!(
+            "compute_merge_candidates: final candidates are {:?}",
+            candidates
+        ));
+
         candidates
             .into_iter()
             .map(|(_, candidate)| candidate)

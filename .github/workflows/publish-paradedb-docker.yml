@@ -39,7 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        pg_version: ${{ github.event.inputs.version }}
+        pg_version: ${{ fromJson(github.event.inputs.pg_version || '[14, 15, 16, 17]') }}
     env:
       default_pg_version: 17
 

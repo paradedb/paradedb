@@ -1,0 +1,69 @@
+[setup]
+sql = """
+CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool LANGUAGE plpgsql AS $$
+DECLARE
+    current_txid bigint;
+BEGIN
+    -- Get the current transaction ID
+    current_txid := txid_current();
+
+    -- Check if the values are not equal
+    IF a <> b THEN
+        RAISE EXCEPTION 'Assertion failed: % <> %. Transaction ID: %', a, b, current_txid;
+    END IF;
+
+    RETURN true;
+END;
+$$;
+"""
+
+[teardown]
+sql = """
+"""
+
+[monitor]
+refresh_ms = 10
+title = "Monitor Index Size"
+log_columns = ["block_count", "segment_count"]
+
+# Combined query returning both columns
+sql = """
+SELECT pg_relation_size('benchmark_logs_idx') / current_setting('block_size')::int AS block_count,
+    (
+      SELECT COUNT(*)::bigint
+      FROM paradedb.index_info('benchmark_logs_idx')
+    ) AS segment_count
+"""
+
+[[jobs]]
+refresh_ms = 100
+title = "Monitor Replication Lag"
+log_columns = ["communication_lag"]
+sql = """
+SELECT EXTRACT(EPOCH FROM (last_msg_receipt_time - last_msg_send_time)) AS communication_lag
+FROM pg_stat_subscription;
+"""
+
+[[jobs]]
+refresh_ms = 1000
+title = "Count Query"
+log_tps = true
+log_count = true
+on_connect = """
+SET enable_indexscan TO off;
+"""
+sql = """
+SELECT count(*) FROM benchmark_logs where id @@@ paradedb.all();
+"""
+assert = "100"
+
+[[jobs]]
+refresh_ms = 25
+title = "Single Update"
+log_tps = true
+log_count = true
+sql = """
+UPDATE benchmark_logs
+SET severity = (severity + 1) % 5
+WHERE id = 1;
+"""

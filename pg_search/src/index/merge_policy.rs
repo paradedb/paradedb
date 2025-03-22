@@ -49,16 +49,6 @@ impl MergePolicy for LayeredMergePolicy {
         for layer_size in layer_sizes {
             // collect the list of mergeable segments so that we can combine those that fit in the next layer
             let segments = collect_mergeable_segments(original_segments, self, &merged_segments);
-
-            directory.log(&format!(
-                "segments for layer size {:?}: {:?}",
-                layer_size,
-                segments
-                    .iter()
-                    .map(|segment| segment.id())
-                    .collect::<Vec<_>>()
-            ));
-
             let mut candidate_byte_size = 0;
             candidates.push((layer_size, MergeCandidate(vec![])));
 

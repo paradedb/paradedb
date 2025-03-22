@@ -294,8 +294,11 @@ unsafe fn do_merge(indexrelid: pg_sys::Oid, _doc_count: usize) {
         non_mergeable_segments.extend(merge_lock.in_progress_segment_ids());
         let writer_segment_ids = &writer.segment_ids();
 
-        pgrx::debug1!("non_mergeable_segments: {:?}", non_mergeable_segments);
-        pgrx::debug1!("writer_segment_ids: {:?}", writer_segment_ids);
+        pgrx::debug1!(
+            "do_merge: non mergeable segments are {:?}",
+            non_mergeable_segments
+        );
+        pgrx::debug1!("do_merge: writer segment ids are {:?}", writer_segment_ids);
 
         let possibly_mergeable = writer_segment_ids
             .difference(&non_mergeable_segments)
@@ -314,7 +317,10 @@ unsafe fn do_merge(indexrelid: pg_sys::Oid, _doc_count: usize) {
                 .map(|segment_id| **segment_id)
                 .collect();
 
-            pgrx::debug1!("possibly mergeable: {:?}", possibly_mergeable);
+            pgrx::debug1!(
+                "do_merge: possibly mergeable segments are {:?}",
+                possibly_mergeable
+            );
 
             // and do the merge
             writer.set_merge_policy(merge_policy);

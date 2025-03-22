@@ -26,11 +26,11 @@ impl MergePolicy for LayeredMergePolicy {
         let directory = directory.expect("Directory should be provided to MergePolicy");
 
         if original_segments.is_empty() {
-            directory.log("no segments to merge");
+            directory.log("compute_merge_candidates: no segments to merge");
             return Vec::new();
         }
         if self.already_processed.load(Ordering::Relaxed) {
-            directory.log("already processed segments, skipping merge");
+            directory.log("compute_merge_candidates: already processed segments, skipping merge");
             return Vec::new();
         }
 
@@ -87,7 +87,7 @@ impl MergePolicy for LayeredMergePolicy {
         }
 
         directory.log(&format!(
-            "candidates before min merge count: {:?}",
+            "compute_merge_candidates: candidates before min merge count are {:?}",
             candidates
         ));
 
@@ -125,7 +125,10 @@ impl MergePolicy for LayeredMergePolicy {
             self.already_processed.store(true, Ordering::Relaxed);
         }
 
-        directory.log(&format!("final candidates: {:?}", candidates));
+        directory.log(&format!(
+            "compute_merge_candidates: final candidates are {:?}",
+            candidates
+        ));
 
         candidates
             .into_iter()

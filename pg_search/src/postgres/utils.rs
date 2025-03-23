@@ -113,11 +113,22 @@ pub fn categorize_fields(
                 .into_iter()
                 .map(|search_field| {
                     let array_type = unsafe { pg_sys::get_element_type(attribute_type_oid) };
-                    let (base_oid, is_array) = if array_type != pg_sys::InvalidOid {
+                    let (mut base_oid, is_array) = if array_type != pg_sys::InvalidOid {
                         (array_type, true)
                     } else {
                         (attribute_type_oid, false)
                     };
+                    if unsafe { pg_sys::get_typtype(base_oid) as u8 == pg_sys::TYPTYPE_DOMAIN } {
+                        let domain_typoid = unsafe { pg_sys::getBaseType(base_oid) };
+                        if domain_typoid != pg_sys::InvalidOid {
+                            base_oid = domain_typoid;
+                        } else {
+                            pgrx::warning!(
+                                "Failed to resolve base type for domain type in column {}",
+                                attname
+                            );
+                        }
+                    }
 
                     let base_oid = PgOid::from(base_oid);
                     let is_json = matches!(

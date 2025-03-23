@@ -92,11 +92,19 @@ impl TryFrom<&PgOid> for SearchFieldType {
     type Error = SearchIndexSchemaError;
     fn try_from(pg_oid: &PgOid) -> Result<Self, Self::Error> {
         let array_type = unsafe { pg_sys::get_element_type(pg_oid.value()) };
-        let base_oid = if array_type != pg_sys::InvalidOid {
+        let mut base_oid = if array_type != pg_sys::InvalidOid {
             PgOid::from(array_type)
         } else {
             *pg_oid
         };
+        if unsafe { pg_sys::get_typtype(base_oid.value()) as u8 == pg_sys::TYPTYPE_DOMAIN } {
+            let domain_typoid = unsafe { pg_sys::getBaseType(base_oid.value()) };
+            if domain_typoid != pg_sys::InvalidOid {
+                base_oid = PgOid::from(domain_typoid);
+            } else {
+                pgrx::warning!("Failed to resolve base type for domain type");
+            }
+        }
         match &base_oid {
             PgOid::BuiltIn(builtin) => match builtin {
                 PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => {

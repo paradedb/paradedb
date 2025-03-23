@@ -252,6 +252,15 @@ unsafe fn do_merge(indexrelid: pg_sys::Oid, _doc_count: usize) {
     let mut segment_meta_entries_list =
         LinkedItemList::<SegmentMetaEntry>::open(indexrelid, SEGMENT_METAS_START);
     let segment_meta_entries = segment_meta_entries_list.list();
+
+    pgrx::debug1!(
+        "segment meta entries: {:?}",
+        segment_meta_entries
+            .iter()
+            .map(|entry| (entry.segment_id, entry.xmin, entry.xmax))
+            .collect::<Vec<_>>()
+    );
+
     let mut merge_policy = LayeredMergePolicy {
         n: target_segments,
         min_merge_count: 2,
@@ -285,6 +294,12 @@ unsafe fn do_merge(indexrelid: pg_sys::Oid, _doc_count: usize) {
         non_mergeable_segments.extend(merge_lock.in_progress_segment_ids());
         let writer_segment_ids = &writer.segment_ids();
 
+        pgrx::debug1!(
+            "do_merge: non mergeable segments are {:?}",
+            non_mergeable_segments
+        );
+        pgrx::debug1!("do_merge: writer segment ids are {:?}", writer_segment_ids);
+
         let possibly_mergeable = writer_segment_ids
             .difference(&non_mergeable_segments)
             .collect::<HashSet<_>>();
@@ -301,6 +316,11 @@ unsafe fn do_merge(indexrelid: pg_sys::Oid, _doc_count: usize) {
                 .iter()
                 .map(|segment_id| **segment_id)
                 .collect();
+
+            pgrx::debug1!(
+                "do_merge: possibly mergeable segments are {:?}",
+                possibly_mergeable
+            );
 
             // and do the merge
             writer.set_merge_policy(merge_policy);

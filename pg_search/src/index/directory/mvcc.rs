@@ -271,6 +271,18 @@ impl Directory for MVCCDirectory {
 
     fn load_metas(&self, inventory: &SegmentMetaInventory) -> tantivy::Result<IndexMeta> {
         Clone::clone(self.loaded_metas.get_or_init(|| unsafe {
+            let snapshot = pg_sys::GetActiveSnapshot();
+            pgrx::debug1!(
+                "load_metas: xmin {:?}, xmax {:?}, xip {:?}",
+                (*snapshot).xmin,
+                (*snapshot).xmax,
+                if (*snapshot).xip.is_null() {
+                    vec![]
+                } else {
+                    std::slice::from_raw_parts((*snapshot).xip, (*snapshot).xcnt as usize).to_vec()
+                }
+            );
+
             Arc::new(load_metas(
                 self.relation_oid,
                 inventory,
@@ -329,7 +341,7 @@ impl Directory for MVCCDirectory {
     }
 
     fn log(&self, message: &str) {
-        pgrx::warning!("{message}");
+        pgrx::debug1!("{message}");
     }
 }
 

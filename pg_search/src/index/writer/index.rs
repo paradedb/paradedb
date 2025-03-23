@@ -213,7 +213,9 @@ impl SearchIndexWriter {
     /// channels with tantivy fail for some reason.
     pub fn merge(self) -> Result<()> {
         assert!(self.insert_queue.is_empty());
+        let start = std::time::Instant::now();
         self.commit()?;
+        pgrx::debug1!("merge complete in {:?}", start.elapsed());
         Ok(())
     }
 

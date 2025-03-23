@@ -28,7 +28,7 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use tantivy::schema::{
-    DateOptions, DateTimePrecision, Field, JsonObjectOptions, NumericOptions, Schema,
+    BytesOptions, DateOptions, DateTimePrecision, Field, JsonObjectOptions, NumericOptions, Schema,
     TextFieldIndexing, TextOptions,
 };
 use thiserror::Error;
@@ -71,7 +71,7 @@ impl SearchFieldType {
     pub fn is_compatible_with(&self, config: &SearchFieldConfig) -> bool {
         match (self, config) {
             (SearchFieldType::Text, SearchFieldConfig::Text { .. }) => true,
-            (SearchFieldType::Uuid, SearchFieldConfig::Text { .. }) => true,
+            (SearchFieldType::Uuid, SearchFieldConfig::Uuid { .. }) => true,
             (SearchFieldType::I64, SearchFieldConfig::Numeric { .. }) => true,
             (SearchFieldType::F64, SearchFieldConfig::Numeric { .. }) => true,
             (SearchFieldType::U64, SearchFieldConfig::Numeric { .. }) => true,
@@ -156,6 +156,18 @@ pub enum SearchFieldConfig {
         record: IndexRecordOption,
         #[serde(default)]
         normalizer: SearchNormalizer,
+        #[serde(default)]
+        column: Option<String>,
+    },
+    Uuid {
+        #[serde(default = "default_as_true")]
+        indexed: bool,
+        #[serde(default)]
+        fast: bool,
+        #[serde(default = "default_as_false")]
+        stored: bool,
+        #[serde(default = "default_as_true")]
+        fieldnorms: bool,
         #[serde(default)]
         column: Option<String>,
     },
@@ -282,6 +294,56 @@ impl SearchFieldConfig {
             tokenizer,
             record,
             normalizer,
+            column,
+        })
+    }
+
+    pub fn uuid_from_json(value: serde_json::Value) -> Result<Self> {
+        let obj = value
+            .as_object()
+            .context("Expected a JSON object for Uuid configuration")?;
+
+        let indexed = match obj.get("indexed") {
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("'indexed' field should be a boolean")),
+            None => Ok(true),
+        }?;
+
+        let fast = match obj.get("fast") {
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("'fast' field should be a boolean")),
+            None => Ok(false),
+        }?;
+
+        let stored = match obj.get("stored") {
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("'stored' field should be a boolean")),
+            None => Ok(false),
+        }?;
+
+        let fieldnorms = match obj.get("fieldnorms") {
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("'fieldnorms' field should be a boolean")),
+            None => Ok(true),
+        }?;
+
+        let column = match obj.get("column") {
+            Some(v) => v
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("'column' field should be a string"))
+                .map(|s| Some(s.to_string())),
+            None => Ok(None),
+        }?;
+
+        Ok(SearchFieldConfig::Uuid {
+            indexed,
+            fast,
+            stored,
+            fieldnorms,
             column,
         })
     }
@@ -514,6 +576,7 @@ impl SearchFieldConfig {
     pub fn column(&self) -> Option<&String> {
         match self {
             Self::Text { column, .. }
+            | Self::Uuid { column, .. }
             | Self::Json { column, .. }
             | Self::Range { column, .. }
             | Self::Numeric { column, .. }
@@ -534,14 +597,11 @@ impl SearchFieldConfig {
     }
 
     pub fn default_uuid() -> Self {
-        SearchFieldConfig::Text {
+        SearchFieldConfig::Uuid {
             indexed: true,
             fast: true,
             stored: false,
             fieldnorms: false,
-            tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::raw()),
-            record: IndexRecordOption::Basic,
-            normalizer: SearchNormalizer::Raw,
             column: None,
         }
     }
@@ -599,6 +659,36 @@ impl From<SearchFieldConfig> for TextOptions {
             _ => panic!("attempted to convert non-text search field config to tantivy text config"),
         }
         text_options
+    }
+}
+
+impl From<SearchFieldConfig> for BytesOptions {
+    fn from(config: SearchFieldConfig) -> Self {
+        if let SearchFieldConfig::Uuid {
+            indexed,
+            fast,
+            stored,
+            fieldnorms,
+            ..
+        } = config
+        {
+            let mut options = BytesOptions::default();
+            if indexed {
+                options = options.set_indexed();
+            }
+            if stored {
+                options = options.set_stored();
+            }
+            if fast {
+                options = options.set_fast();
+            }
+            if fieldnorms {
+                options = options.set_fieldnorms();
+            }
+            options
+        } else {
+            panic!("attempted to convert non-text search field config to tantivy bytes config")
+        }
     }
 }
 
@@ -780,7 +870,7 @@ impl SearchIndexSchema {
         for (name, config, field_type) in fields {
             let id: SearchFieldId = match field_type {
                 SearchFieldType::Text => builder.add_text_field(name.as_ref(), config.clone()),
-                SearchFieldType::Uuid => builder.add_text_field(name.as_ref(), config.clone()),
+                SearchFieldType::Uuid => builder.add_bytes_field(name.as_ref(), config.clone()),
                 SearchFieldType::I64 => builder.add_i64_field(name.as_ref(), config.clone()),
                 SearchFieldType::U64 => builder.add_u64_field(name.as_ref(), config.clone()),
                 SearchFieldType::F64 => builder.add_f64_field(name.as_ref(), config.clone()),

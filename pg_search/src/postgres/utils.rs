@@ -154,7 +154,7 @@ pub unsafe fn row_to_search_document(
         let datum = *values.add(*attno);
         let isnull = *isnull.add(*attno);
 
-        if key_field_name == search_field.name.as_ref() && isnull {
+        if isnull && key_field_name == search_field.name.as_ref() {
             return Err(IndexError::KeyIdNull(key_field_name.to_string()));
         }
 

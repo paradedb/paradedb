@@ -11,7 +11,7 @@ use rustc_hash::FxHashMap;
 use std::any::Any;
 use std::collections::HashSet;
 use std::fmt::Debug;
-use std::panic::{panic_any, resume_unwind, AssertUnwindSafe};
+use std::panic::panic_any;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread::JoinHandle;
@@ -232,8 +232,6 @@ pub struct ChannelRequestHandler {
     _worker: JoinHandle<()>,
 }
 
-pub type ShouldTerminate = bool;
-
 impl ChannelRequestHandler {
     pub fn open(
         directory: MVCCDirectory,
@@ -262,33 +260,35 @@ impl ChannelRequestHandler {
         }
     }
 
+    #[track_caller]
     pub fn wait_for<T: Send + Sync + 'static, F: FnOnce() -> T + Send + Sync + 'static>(
         &mut self,
         func: F,
     ) -> Result<T> {
-        unsafe {
-            pg_sys::InterruptHoldoffCount += 1;
-        }
-        match std::panic::catch_unwind(AssertUnwindSafe(move || self.wait_for_internal(func))) {
-            // no panic caught
-            Ok(result) => {
-                unsafe {
-                    assert!(pg_sys::InterruptHoldoffCount > 0);
-                    pg_sys::InterruptHoldoffCount -= 1;
-                }
-                result
-            }
-
-            // caught a panic so let it continue
-            Err(e) => resume_unwind(e),
-        }
+        self.wait_for_internal(func, false)
     }
 
-    fn wait_for_internal<T: Send + Sync + 'static, F: FnOnce() -> T + Send + Sync + 'static>(
-        &mut self,
+    #[track_caller]
+    pub fn wait_for_final<T: Send + Sync + 'static, F: FnOnce() -> T + Send + Sync + 'static>(
+        mut self,
         func: F,
     ) -> Result<T> {
-        let func: Action = Box::new(move || Box::new(func()));
+        self.wait_for_internal(func, true)
+    }
+
+    #[track_caller]
+    fn wait_for_internal<T: Send + Sync + 'static, F: FnOnce() -> T + Send + Sync + 'static>(
+        &mut self,
+        action_func: F,
+        sync: bool,
+    ) -> Result<T> {
+        // Before we fire off the caller's action we should ensure there are no unprocessed messages
+        let receiver = self.receiver.clone();
+        for message in receiver.try_iter() {
+            self.process_message(message)?;
+        }
+
+        let func: Action = Box::new(move || Box::new(action_func()));
         self.action.0.send(func)?;
         loop {
             match self.reply.1.try_recv() {
@@ -296,7 +296,19 @@ impl ChannelRequestHandler {
                 Ok(reply) => {
                     return match reply.downcast::<T>() {
                         // the reply is exactly what we hoped for
-                        Ok(reply) => Ok(*reply),
+                        Ok(reply) => {
+                            if sync {
+                                // in sync mode we need to ensure we've waited for all possible messages
+                                // before we return control back to the caller, which will be dropping
+                                // this channel
+                                let receiver = self.receiver.clone();
+                                for message in receiver {
+                                    pgrx::debug1!("finalization message={message:?}");
+                                    self.process_message(message)?;
+                                }
+                            }
+                            Ok(*reply)
+                        }
 
                         // it's something else, so transform into a generic error
                         Err(e) => Err(anyhow::anyhow!("unexpected reply {:?}", e)),
@@ -307,11 +319,7 @@ impl ChannelRequestHandler {
                 Err(TryRecvError::Empty) => {
                     let receiver = self.receiver.clone();
                     for message in receiver.try_iter() {
-                        match self.process_message(message) {
-                            Ok(should_terminate) if should_terminate => break,
-                            Ok(_) => continue,
-                            Err(e) => return Err(e),
-                        }
+                        self.process_message(message)?;
                     }
                 }
 
@@ -323,7 +331,7 @@ impl ChannelRequestHandler {
         }
     }
 
-    fn process_message(&mut self, message: ChannelRequest) -> Result<ShouldTerminate> {
+    fn process_message(&mut self, message: ChannelRequest) -> Result<()> {
         match message {
             ChannelRequest::RegisterFilesAsManaged(files, overwrite, sender) => {
                 sender.send(self.directory.register_files_as_managed(files, overwrite))?;
@@ -385,6 +393,6 @@ impl ChannelRequestHandler {
             }
             ChannelRequest::Log(message) => self.directory.log(&message),
         }
-        Ok(false)
+        Ok(())
     }
 }

@@ -49,7 +49,7 @@ ParadeDB's public-facing documentation is stored in the `docs` folder. If you ar
 
 ### Contributor License Agreement
 
-In order for us, Retake, Inc. (dba ParadeDB) to accept patches and other contributions from you, you need to adopt our ParadeDB Contributor License Agreement (the "**CLA**"). The current version of the CLA can be found [here](https://cla-assistant.io/paradedb/paradedb).
+In order for us, ParadeDB, Inc., to accept patches and other contributions from you, you need to adopt our ParadeDB Contributor License Agreement (the "**CLA**"). The current version of the CLA can be found [here](https://cla-assistant.io/paradedb/paradedb).
 
 ParadeDB uses a tool called CLA Assistant to help us track contributors' CLA status. CLA Assistant will post a comment to your pull request indicating whether you have signed the CLA. If you have not signed the CLA, you must do so before we can accept your contribution. Signing the CLA is a one-time process, is valid for all future contributions to ParadeDB, and can be done in under a minute by signing in with your GitHub account.
 

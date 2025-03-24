@@ -355,6 +355,8 @@ impl ChannelRequestHandler {
             ChannelRequest::SegmentFlush(path, sender) => {
                 if let Some(writer) = self.writers.get_mut(&path) {
                     sender.send(writer.flush())?
+                } else {
+                    sender.send(Ok(()))?
                 }
             }
             ChannelRequest::SegmentWriteTerminate(path, sender) => {

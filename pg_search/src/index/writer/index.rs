@@ -197,7 +197,8 @@ impl SearchIndexWriter {
             .expect("spawned thread should not fail")?;
 
         self.handler
-            .wait_for(move || writer.wait_merging_threads())??;
+            .wait_for(move || writer.wait_merging_threads())
+            .expect("spawned thread should not fail")?;
 
         Ok(self.cnt)
     }

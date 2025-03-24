@@ -337,7 +337,7 @@ impl Directory for MVCCDirectory {
     }
 
     fn wants_cancel(&self) -> bool {
-        unsafe { pg_sys::InterruptPending != 0 }
+        unsafe { pg_sys::QueryCancelPending != 0 }
     }
 
     fn log(&self, message: &str) {

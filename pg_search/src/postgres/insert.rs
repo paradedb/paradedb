@@ -324,7 +324,10 @@ unsafe fn do_merge(indexrelid: pg_sys::Oid, _doc_count: usize) {
 
             // and do the merge
             writer.set_merge_policy(merge_policy);
-            writer.merge().expect("should be able to merge");
+
+            // we defer raising a panic in the face of a merge error as we still need to
+            // remove the `merge_entry` that was created
+            let merge_result = writer.merge();
 
             // re-acquire the MergeLock to remove the entry we made above
             // we also can't concurrently garbage collect our segment meta entries list
@@ -332,6 +335,10 @@ unsafe fn do_merge(indexrelid: pg_sys::Oid, _doc_count: usize) {
             merge_lock
                 .remove_entry(merge_entry)
                 .expect("should be able to remove MergeEntry");
+
+            if let Err(e) = merge_result {
+                panic!("failed to merge: {:?}", e);
+            }
 
             (!merge_lock.is_ambulkdelete_running()).then(|| {
                 assert!(merge_lock.list_vacuuming_segments().is_empty());

@@ -6,7 +6,7 @@ Welcome! We're excited that you're interested in contributing to ParadeDB and wa
 
 Before submitting a pull request, please review this document, which outlines what
 conventions to follow when submitting changes. If you have any questions not covered
-in this document, please reach out to us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-2lkzdsetw-OiIgbyFeiibd1DG~6wFgTQ)
+in this document, please reach out to us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-32abtyjg4-yoYoi~RPh9MSW8tDbl0BQw)
 or via [email](mailto:support@paradedb.com).
 
 ### Claiming GitHub Issues
@@ -21,7 +21,7 @@ from a maintainer to pick an issue.
 
 2. To claim an unassigned issue, comment `/take` on the issue. This will automatically assign the issue to you.
 
-If you find yourself unable to make progress, don't hesitate to seek help in the issue comments or the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-2lkzdsetw-OiIgbyFeiibd1DG~6wFgTQ). If you no longer wish to
+If you find yourself unable to make progress, don't hesitate to seek help in the issue comments or the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-32abtyjg4-yoYoi~RPh9MSW8tDbl0BQw). If you no longer wish to
 work on the issue(s) you self-assigned, please use the `unassign me` link at the top of the issue(s) page to release it.
 
 ### Development Workflow
@@ -53,7 +53,7 @@ In order for us, ParadeDB, Inc., to accept patches and other contributions from 
 
 ParadeDB uses a tool called CLA Assistant to help us track contributors' CLA status. CLA Assistant will post a comment to your pull request indicating whether you have signed the CLA. If you have not signed the CLA, you must do so before we can accept your contribution. Signing the CLA is a one-time process, is valid for all future contributions to ParadeDB, and can be done in under a minute by signing in with your GitHub account.
 
-If you have any questions about the CLA, please reach out to us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-2lkzdsetw-OiIgbyFeiibd1DG~6wFgTQ) or via email at [legal@paradedb.com](mailto:legal@paradedb.com).
+If you have any questions about the CLA, please reach out to us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-32abtyjg4-yoYoi~RPh9MSW8tDbl0BQw) or via email at [legal@paradedb.com](mailto:legal@paradedb.com).
 
 ### License
 

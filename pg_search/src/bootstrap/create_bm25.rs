@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 Retake, Inc.
+// Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -14,8 +14,6 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
-
-use std::collections::HashMap;
 
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -220,25 +218,21 @@ fn index_info(
 
     // open the specified index
     let all_entries = unsafe {
-        LinkedItemList::<SegmentMetaEntry>::open(index.oid(), SEGMENT_METAS_START)
-            .list()
-            .into_iter()
-            .map(|entry| (entry.segment_id, entry))
-            .collect::<HashMap<_, _>>()
+        LinkedItemList::<SegmentMetaEntry>::open(index.oid(), SEGMENT_METAS_START).list()
     };
 
     let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
     let mut results = Vec::new();
-    for (segment_id, entry) in all_entries {
+    for entry in all_entries {
         if !show_invisible && unsafe { !entry.visible(snapshot) } {
             continue;
         }
         results.push((
             unsafe { entry.visible(snapshot) },
-            unsafe { entry.recyclable(snapshot, heap.as_ptr()) },
+            unsafe { entry.recyclable(heap.as_ptr()) },
             entry.xmin.into(),
             entry.xmax.into(),
-            segment_id.short_uuid_string(),
+            entry.segment_id.short_uuid_string(),
             Some(entry.byte_size().into()),
             Some(entry.num_docs().into()),
             Some(entry.num_deleted_docs().into()),
@@ -386,7 +380,7 @@ fn page_info(
                     offsetno as i32,
                     size as i32,
                     entry.visible(snapshot),
-                    entry.recyclable(snapshot, heap_relation),
+                    entry.recyclable(heap_relation),
                     JsonB(serde_json::to_value(entry)?),
                 ))
             } else {
@@ -424,3 +418,37 @@ fn version_info() -> TableIterator<
 
     TableIterator::once((version, git_sha, build_mode))
 }
+
+extension_sql!(
+    r#"
+create view paradedb.index_layer_info as
+select relname::text,
+       layer_size,
+       case when segments = ARRAY [NULL] then 0 else count end       as count,
+       case when segments = ARRAY [NULL] then NULL else segments end as segments
+from (select relname,
+             coalesce(pg_size_pretty(case when low = 0 then null else low end), '') || '..' ||
+             coalesce(pg_size_pretty(case when high = 9223372036854775807 then null else high end), '') as layer_size,
+             count(*),
+             array_agg(segno) as segments
+      from (with indexes as (select oid::regclass as relname
+                             from pg_class
+                             where relam = (select oid from pg_am where amname = 'bm25')),
+                 segments as (select relname, index_info.*
+                              from indexes
+                                       inner join paradedb.index_info(indexes.relname, true) on true),
+                 layer_sizes as (select relname, coalesce(lead(unnest) over (), 0) low, unnest as high
+                                 from indexes
+                                          inner join lateral (select unnest(0 || paradedb.layer_sizes(indexes.relname) || 9223372036854775807)
+                                                              order by 1 desc) x on true)
+            select layer_sizes.relname, layer_sizes.low, layer_sizes.high, segments.segno
+            from layer_sizes
+                     left join segments on layer_sizes.relname = segments.relname and
+                                           (byte_size * 1.33)::bigint between low and high) x
+      where low < high
+      group by relname, low, high
+      order by relname, low desc) x;
+"#,
+    name = "index_layer_info",
+    requires = [index_info, layer_sizes]
+);

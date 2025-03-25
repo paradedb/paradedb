@@ -141,7 +141,7 @@ installMacBinary(){
 
   # Select postgres version
   pg_version=
-  echo "Select postgres version[Please use 1 for v14, 2 for v15 and 3 for v16](Note: ParadeDB is supported on PG12-16. For other postgres versions, you will need to compile from source.)"
+  echo "Select postgres version[Please use 1 for v14, 2 for v15, 3 for v16 and 4 for v17](Note: ParadeDB is supported on PG14-17. For other postgres versions, you will need to compile from source.)"
   versions=("14" "15" "16" "17")
 
   select vers in "${versions[@]}"
@@ -160,7 +160,7 @@ installMacBinary(){
         pg_version="17"
         break ;;
       *)
-        echo "Invalid Choice! Please use 1 for v14, 2 for v15 and 3 for v16"
+        echo "Invalid Choice! Please use 1 for v14, 2 for v15, 3 for v16 and 4 for v17"
     esac
   done
 
@@ -250,7 +250,7 @@ installBinary(){
 
   # Select postgres version
   pg_version=
-  echo "Select postgres version[Please use 1 for v14, 2 for v15 and 3 for v16](Note: ParadeDB is supported on PG12-16. For other postgres versions, you will need to compile from source.)"
+  echo "Select postgres version[Please use 1 for v14, 2 for v15, 3 for v16 and 4 for v17](Note: ParadeDB is supported on PG14-17. For other postgres versions, you will need to compile from source.)"
   versions=("14" "15" "16" "17")
 
   select vers in "${versions[@]}"
@@ -269,7 +269,7 @@ installBinary(){
         pg_version="17"
         break ;;
       *)
-        echo "Invalid Choice! Please use 1 for v14, 2 for v15 and 3 for v16"
+        echo "Invalid Choice! Please use 1 for v14, 2 for v15, 3 for v16 and 4 for v17"
     esac
   done
 
@@ -337,6 +337,6 @@ echo -e "✅ Installation complete."
 echo -e ""
 echo -e "Thank you for installing ParadeDB! 🎉"
 echo -e "To get started, please refer to our quickstart tutorial: https://docs.paradedb.com/documentation/getting-started/quickstart"
-echo -e "To stay up to date and get help, please join our Slack community: https://join.slack.com/t/paradedbcommunity/shared_invite/zt-2lkzdsetw-OiIgbyFeiibd1DG~6wFgTQ"
+echo -e "To stay up to date and get help, please join our Slack community: https://join.slack.com/t/paradedbcommunity/shared_invite/zt-32abtyjg4-yoYoi~RPh9MSW8tDbl0BQw"
 echo -e "And don't forget to star us on GitHub: https://github.com/paradedb/paradedb"
 echo -e ""

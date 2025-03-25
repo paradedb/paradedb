@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 Retake, Inc.
+// Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -197,7 +197,8 @@ impl SearchIndexWriter {
             .expect("spawned thread should not fail")?;
 
         self.handler
-            .wait_for(move || writer.wait_merging_threads())??;
+            .wait_for_final(move || writer.wait_merging_threads())
+            .expect("spawned thread should not fail")?;
 
         Ok(self.cnt)
     }
@@ -212,7 +213,9 @@ impl SearchIndexWriter {
     /// channels with tantivy fail for some reason.
     pub fn merge(self) -> Result<()> {
         assert!(self.insert_queue.is_empty());
+        let start = std::time::Instant::now();
         self.commit()?;
+        pgrx::debug1!("merge complete in {:?}", start.elapsed());
         Ok(())
     }
 

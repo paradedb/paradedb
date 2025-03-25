@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 Retake, Inc.
+// Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -49,11 +49,6 @@ impl BM25Page for pg_sys::Page {
 
         let special = pg_sys::PageGetSpecialPointer(self) as *mut BM25PageSpecialData;
         if (*special).xmax == pg_sys::InvalidTransactionId {
-            return false;
-        }
-
-        let snapshot = pg_sys::GetActiveSnapshot();
-        if pg_sys::XidInMVCCSnapshot((*special).xmax, snapshot) {
             return false;
         }
 

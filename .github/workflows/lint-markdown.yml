@@ -21,7 +21,7 @@ concurrency:
 jobs:
   lint-markdown:
     name: Lint Markdown Files
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     if: github.event.pull_request.draft == false
 
     steps:

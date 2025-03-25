@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 Retake, Inc.
+// Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -31,11 +31,9 @@ use tantivy::index::SegmentId;
 #[derive(Debug, Copy, Clone)]
 #[repr(C, packed)]
 pub struct MergeLockData {
-    pub last_merge: pg_sys::TransactionId,
-
     /// This space was once used but no longer is.  As such, it needs to remain dead forever
     #[allow(dead_code)]
-    pub _dead_space: u32,
+    pub _dead_space: [u32; 2],
 
     /// Contains the [`pg_sys::BlockNumber`] of the active merge list
     active_vacuum_list: pg_sys::BlockNumber,
@@ -58,7 +56,6 @@ pub struct MergeLock {
     // run before the `bman` from which it originated
     buffer: BufferMut,
     bman: BufferManager,
-    save_xid: bool,
 }
 
 impl MergeLock {
@@ -69,7 +66,6 @@ impl MergeLock {
         MergeLock {
             buffer: merge_lock,
             bman,
-            save_xid: false,
         }
     }
 
@@ -79,7 +75,6 @@ impl MergeLock {
         let mut page = merge_lock.page_mut();
         let metadata = page.contents_mut::<MergeLockData>();
 
-        metadata.last_merge = pg_sys::InvalidTransactionId;
         metadata.active_vacuum_list = pg_sys::InvalidBlockNumber;
         metadata.ambulkdelete_sentinel = pg_sys::InvalidBlockNumber;
     }
@@ -201,7 +196,7 @@ impl MergeLock {
 
     pub unsafe fn record_in_progress_segment_ids<'a>(
         mut self,
-        segment_ids: impl IntoIterator<Item = &'a &'a SegmentId>,
+        segment_ids: impl IntoIterator<Item = &'a SegmentId>,
     ) -> anyhow::Result<MergeEntry> {
         assert!(pg_sys::IsTransactionState());
 
@@ -273,26 +268,6 @@ impl MergeLock {
                 LinkedBytesList::open(relation_id, recycled_entry.segment_ids_start_blockno);
             bytes_list.mark_deleted(recycled_entry.xmax);
             bytes_list.return_to_fsm(&recycled_entry, None);
-        }
-    }
-}
-
-impl Drop for MergeLock {
-    fn drop(&mut self) {
-        unsafe {
-            if self.save_xid && crate::postgres::utils::IsTransactionState() {
-                let mut current_xid = pg_sys::GetCurrentTransactionIdIfAny();
-
-                // if we don't have a transaction id (typically from a parallel vacuum)...
-                if current_xid == pg_sys::InvalidTransactionId {
-                    // ... then use the next transaction id as ours
-                    current_xid = pg_sys::ReadNextTransactionId()
-                }
-
-                let mut page = self.buffer.page_mut();
-                let metadata = page.contents_mut::<MergeLockData>();
-                metadata.last_merge = current_xid;
-            }
         }
     }
 }

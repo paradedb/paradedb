@@ -11,8 +11,6 @@ on:
   push:
     tags:
       - "v*"
-    branches:
-      - phil/point-updates
   workflow_dispatch:
     inputs:
       version:
@@ -90,8 +88,8 @@ jobs:
             type=raw,value=${{ matrix.pg_version }}-${{ steps.version.outputs.tag }}
             type=raw,value=${{ steps.version.outputs.tag }}-pg${{ matrix.pg_version }}
             type=raw,value=${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}
-            type=raw,value=latest-pg${{ matrix.pg_version }},enable=${{ github.event.inputs.version == '' }}
-            type=raw,value=latest,enable=${{ matrix.pg_version == env.default_pg_version && github.event.inputs.version == '' }}
+            type=raw,value=latest-pg${{ matrix.pg_version }}
+            type=raw,value=latest,enable=${{ matrix.pg_version == env.default_pg_version }}
             type=raw,value=${{ steps.version.outputs.tag }},enable=${{ matrix.pg_version == env.default_pg_version }}
             type=raw,value=${{ steps.version.outputs.version }},enable=${{ matrix.pg_version == env.default_pg_version }}
 

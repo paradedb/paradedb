@@ -72,6 +72,31 @@ pub extern "C" fn ambuild(
     // Create the metadata blocks for the index
     unsafe { create_metadata(&index_relation) };
 
+    let mut sysinfo = sysinfo::System::new_all();
+
+    let me = sysinfo
+        .process(unsafe { sysinfo::Pid::from_u32(pg_sys::MyProcPid as _) })
+        .unwrap();
+    let before_memory = me.memory() as i64;
+    let before_virtual_memory = me.virtual_memory() as i64;
+
+    unsafe {
+        pgrx::warning!(
+            "before: memory usage: {}, virtual memory usage: {}",
+            pgrx::direct_function_call::<String>(
+                pg_sys::pg_size_pretty,
+                &[before_memory.into_datum()]
+            )
+            .unwrap(),
+            pgrx::direct_function_call::<String>(
+                pg_sys::pg_size_pretty,
+                &[before_virtual_memory.into_datum()]
+            )
+            .unwrap(),
+        );
+        pg_sys::MemoryContextStats(pg_sys::TopMemoryContext);
+    }
+
     // ensure we only allow one `USING bm25` index on this relation, accounting for a REINDEX
     // and accounting for CONCURRENTLY.
     unsafe {
@@ -99,6 +124,27 @@ pub extern "C" fn ambuild(
     let mut result = unsafe { PgBox::<pg_sys::IndexBuildResult>::alloc0() };
     result.heap_tuples = tuple_count as f64;
     result.index_tuples = tuple_count as f64;
+
+    sysinfo.refresh_all();
+    let me = sysinfo
+        .process(unsafe { sysinfo::Pid::from_u32(pg_sys::MyProcPid as _) })
+        .unwrap();
+    let after_memory = me.memory() as i64;
+    let after_virtual_memory = me.virtual_memory() as i64;
+
+    unsafe {
+        pgrx::warning!(
+            "after: memory usage: {}, virtual memory usage: {}, memory delta: {}, virtual memory delta: {}",
+            pgrx::direct_function_call::<String>(pg_sys::pg_size_pretty, &[after_memory.into_datum()]).unwrap(),
+            pgrx::direct_function_call::<String>(pg_sys::pg_size_pretty, &[after_virtual_memory.into_datum()]).unwrap(),
+            pgrx::direct_function_call::<String>(pg_sys::pg_size_pretty, &[(after_memory - before_memory).into_datum()]).unwrap(),
+            pgrx::direct_function_call::<String>(pg_sys::pg_size_pretty, &[(after_virtual_memory - before_virtual_memory).into_datum()]).unwrap(),
+
+        );
+
+        pg_sys::MemoryContextStats(pg_sys::TopMemoryContext);
+    }
+
     result.into_pg()
 }
 

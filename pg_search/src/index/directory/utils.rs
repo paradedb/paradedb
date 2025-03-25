@@ -319,7 +319,7 @@ pub unsafe fn load_metas(
     let mut blockno = segment_metas.get_start_blockno();
 
     let bman = segment_metas.bman();
-    let current_xid = pg_sys::GetCurrentTransactionId();
+    let current_xid = pg_sys::GetCurrentTransactionIdIfAny();
     while blockno != pg_sys::InvalidBlockNumber {
         let buffer = bman.get_buffer(blockno);
         let page = buffer.page();

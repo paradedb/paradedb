@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 Retake, Inc.
+// Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -24,8 +24,6 @@ mod postgres;
 mod query;
 mod schema;
 
-#[cfg(test)]
-pub mod github;
 pub mod gucs;
 
 use self::postgres::customscan;
@@ -78,6 +76,13 @@ pub fn MyDatabaseId() -> u32 {
 #[allow(non_snake_case)]
 #[pg_guard]
 pub unsafe extern "C" fn _PG_init() {
+    // initialize environment logging (to stderr) for dependencies that do logging
+    // we can't implement our own logger that sends messages to Postgres `ereport()` because
+    // of threading concerns
+    std::env::set_var("RUST_LOG", "warn");
+    std::env::set_var("RUST_LOG_STYLE", "never");
+    env_logger::init();
+
     if cfg!(not(feature = "pg17")) && !pg_sys::process_shared_preload_libraries_in_progress {
         error!("pg_search must be loaded via shared_preload_libraries. Add 'pg_search' to shared_preload_libraries in postgresql.conf and restart Postgres.");
     }

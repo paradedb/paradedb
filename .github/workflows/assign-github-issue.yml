@@ -20,7 +20,7 @@ concurrency:
 jobs:
   assign-github-issue:
     name: Assign GitHub Issue to Commenter
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     if: |
       !github.event.issue.pull_request &&
       contains(github.event.comment.body, '/take')

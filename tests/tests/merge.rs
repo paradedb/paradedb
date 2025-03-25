@@ -17,22 +17,28 @@
 
 mod fixtures;
 
-use fixtures::db::Query;
 use fixtures::*;
 use rstest::*;
 use sqlx::PgConnection;
 
 #[rstest]
-fn custom_scan_on_key_field(mut conn: PgConnection) {
-    use serde_json::Value;
+fn merge_with_no_positions(mut conn: PgConnection) {
+    r#"
+        CREATE TABLE test (
+            id serial8,
+            message text
+        );
+        CREATE INDEX idxtest ON test USING bm25 (id, message) WITH (key_field = 'id');
+    "#
+    .execute(&mut conn);
 
-    SimpleProductsTable::setup().execute(&mut conn);
+    // this will merge on the 12th insert
+    for _ in 0..12 {
+        "insert into test (message) select null from generate_series(1, 1000);".execute(&mut conn);
+    }
 
-    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT id FROM paradedb.bm25_search WHERE id @@@ 'description:keyboard'".fetch_one::<(Value,)>(&mut conn);
-    eprintln!("{plan:#?}");
-    let plan = plan.pointer("/0/Plan/Plans/0").unwrap();
-    pretty_assertions::assert_eq!(
-        plan.get("Custom Plan Provider"),
-        Some(&Value::String(String::from("ParadeDB Scan")))
-    );
+    // and we should have 1 segment after it merges
+    let (count,) =
+        "select count(*) from paradedb.index_info('idxtest')".fetch_one::<(i64,)>(&mut conn);
+    assert_eq!(count, 1);
 }

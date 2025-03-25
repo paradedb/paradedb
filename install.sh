@@ -290,12 +290,11 @@ done
 # Exit message
 echo -e ""
 echo -e ""
-echo -e ""
 echo -e "🎉 Thank you for installing ParadeDB! 🎉"
 echo -e ""
 echo -e "To get started, we recommend our quickstart tutorial: https://docs.paradedb.com/documentation/getting-started/quickstart"
 echo -e ""
-echo -e "To stay up to date and get help, please join our Slack community: https://join.slack.com/t/paradedbcommunity/shared_invite/zt-2lkzdsetw-OiIgbyFeiibd1DG~6wFgTQ"
+echo -e "To stay up to date and get help, please join our Slack community: https://join.slack.com/t/paradedbcommunity/shared_invite/zt-32abtyjg4-yoYoi~RPh9MSW8tDbl0BQw"
 echo -e "And of course, don't forget to star us on GitHub: https://github.com/paradedb/paradedb"
 echo -e ""
 echo -e "Here's a happy elephant to celebrate your installation: 🐘"

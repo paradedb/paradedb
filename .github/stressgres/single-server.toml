@@ -49,8 +49,6 @@ DROP EXTENSION pg_search CASCADE;
 [monitor]
 refresh_ms = 10
 title = "Monitor Index Size"
-log_tps = true
-log_count = true
 log_columns = ["block_count", "segment_count"]
 
 # Combined query returning both columns
@@ -67,7 +65,6 @@ SELECT
 refresh_ms = 100
 title = "Index Scan"
 log_tps = true
-log_count = true
 on_connect = """
 SET enable_indexonlyscan to OFF;
 """
@@ -79,7 +76,6 @@ SELECT assert(count(*)::bigint, 8::bigint), count(*) FROM test where id @@@ 'mes
 refresh_ms = 5
 title = "Custom Scan"
 log_tps = true
-log_count = true
 on_connect = """
 SET enable_indexonlyscan to OFF;
 SET enable_indexscan to OFF;
@@ -92,7 +88,6 @@ SELECT assert(count(*)::bigint, 8::bigint), count(*) FROM test where id @@@ 'mes
 refresh_ms = 5
 title = "Index Only Scan"
 log_tps = true
-log_count = true
 sql = """
 SELECT assert(count(*)::bigint, 8::bigint), count(*) FROM test where id @@@ 'message:wine';
 """
@@ -101,7 +96,6 @@ SELECT assert(count(*)::bigint, 8::bigint), count(*) FROM test where id @@@ 'mes
 refresh_ms = 25
 title = "Update random values"
 log_tps = true
-log_count = true
 sql = """
 UPDATE test
 SET message = substring(message FROM 1 FOR length(message)-1)
@@ -113,7 +107,6 @@ WHERE id < 10;
 refresh_ms = 10
 title = "Insert value"
 log_tps = true
-log_count = true
 sql = """
 INSERT INTO test (message) VALUES ('test');
 """
@@ -122,7 +115,6 @@ INSERT INTO test (message) VALUES ('test');
 refresh_ms = 10
 title = "Insert value"
 log_tps = true
-log_count = true
 sql = """
 INSERT INTO test (message) VALUES ('test');
 """
@@ -130,8 +122,6 @@ INSERT INTO test (message) VALUES ('test');
 [[jobs]]
 refresh_ms = 10
 title = "Delete values"
-log_tps = true
-log_count = true
 sql = """
 DELETE FROM test WHERE id > 14;
 """
@@ -140,7 +130,6 @@ DELETE FROM test WHERE id > 14;
 refresh_ms = 3000
 title = "Vacuum"
 log_tps = true
-log_count = true
 sql = """
 SET vacuum_freeze_min_age = 0;
 VACUUM test;

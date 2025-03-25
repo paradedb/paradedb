@@ -23,7 +23,7 @@ lto = "thin"
 codegen-units = 32
 
 [workspace.dependencies]
-tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "95774868b706123265a1a2cdc6465f78644a8a31", features = [
+tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "f2ce6c5ba5fb253d47d58cc7c8c4719a98a9b52c", features = [
   "quickwit",        # for sstable support
   "stopwords",
   "lz4-compression",
@@ -33,4 +33,3 @@ pgrx-tests = "=0.13.0"
 
 [patch.crates-io]
 rust_icu_sys = { git = "https://github.com/google/rust_icu.git", rev = "53e98c8" }
-lindera = { git = "https://github.com/lindera/lindera.git", rev = "c5be457" }

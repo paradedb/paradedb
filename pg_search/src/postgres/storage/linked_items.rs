@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 Retake, Inc.
+// Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -168,7 +168,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
 
     pub unsafe fn garbage_collect(&mut self) -> Vec<T> {
         // Delete all items that are definitely dead
-        let snapshot = pg_sys::GetActiveSnapshot();
         let heap_oid = pg_sys::IndexGetRelation(self.relation_oid, false);
         let heap_relation = pg_sys::RelationIdGetRelation(heap_oid);
         let freeze_limit = vacuum_get_freeze_limit(heap_relation);
@@ -187,7 +186,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
 
             while offsetno <= max_offset {
                 if let Some((entry, _)) = page.read_item::<T>(offsetno) {
-                    if entry.recyclable(snapshot, heap_relation) {
+                    if entry.recyclable(heap_relation) {
                         page.mark_item_dead(offsetno);
 
                         recycled_entries.push(entry);

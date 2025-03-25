@@ -129,7 +129,7 @@ jobs:
   # community contributors don't have access to.
   test-paradedb-helm-chart:
     name: Test ParadeDB Helm Chart
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     if: github.event.pull_request.draft == false && github.event.pull_request.base.ref == 'main'
 
     steps:

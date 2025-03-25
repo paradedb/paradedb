@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 Retake, Inc.
+// Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -154,7 +154,7 @@ pub unsafe fn row_to_search_document(
         let datum = *values.add(*attno);
         let isnull = *isnull.add(*attno);
 
-        if key_field_name == search_field.name.as_ref() && isnull {
+        if isnull && key_field_name == search_field.name.as_ref() {
             return Err(IndexError::KeyIdNull(key_field_name.to_string()));
         }
 

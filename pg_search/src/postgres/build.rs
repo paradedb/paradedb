@@ -23,7 +23,6 @@ use crate::postgres::storage::block::{
 };
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::merge::MergeLock;
-use crate::postgres::storage::merge::MergeLockData;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use crate::postgres::utils::{
     categorize_fields, item_pointer_to_u64, row_to_search_document, CategorizedFieldData,
@@ -218,9 +217,7 @@ unsafe fn create_metadata(index_relation: &PgRelation) {
     // Init merge lock buffer
     let mut merge_lock = bman.new_buffer();
     assert_eq!(merge_lock.number(), MERGE_LOCK);
-    let mut page = merge_lock.init_page();
-    let metadata = page.contents_mut::<MergeLockData>();
-    metadata.last_merge = pg_sys::InvalidTransactionId;
+    merge_lock.init_page();
 
     // Init cleanup lock buffer
     let mut cleanup_lock = bman.new_buffer();

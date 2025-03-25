@@ -127,7 +127,6 @@ function installDocker() {
   echo -e "🚀 ParadeDB Docker Container started! To connect to your ParadeDB database, execute: docker exec -it paradedb psql $dbname -U $pguser"
 }
 
-
 installMacOS() {
   # Confirm architecture
   if [ "$ARCH" != "arm64" ]; then

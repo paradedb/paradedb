@@ -33,4 +33,3 @@ pgrx-tests = "=0.13.0"
 
 [patch.crates-io]
 rust_icu_sys = { git = "https://github.com/google/rust_icu.git", rev = "53e98c8" }
-lindera = { git = "https://github.com/lindera/lindera.git", rev = "c5be457" }

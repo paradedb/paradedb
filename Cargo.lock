@@ -2890,7 +2890,6 @@ dependencies = [
  "tantivy",
  "thiserror 2.0.12",
  "tokenizers",
- "url",
  "uuid",
  "vergen",
  "vergen-git2",

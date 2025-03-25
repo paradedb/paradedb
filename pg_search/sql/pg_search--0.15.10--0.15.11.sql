@@ -25,3 +25,5 @@ from (select relname,
       where low < high
       group by relname, low, high
       order by relname, low desc) x;
+
+DROP FUNCTION IF EXISTS paradedb.help(text, text);

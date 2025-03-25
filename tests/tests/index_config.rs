@@ -256,7 +256,7 @@ fn expression_with_options(mut conn: PgConnection) {
 
     assert_eq!(rows[0], ("ctid".into(), "U64".into()));
     assert_eq!(rows[1], ("id".into(), "I64".into()));
-    assert_eq!(rows[2], ("in_stock".into(), "Bool".into()));
+    assert_eq!(rows[2], ("lower(description)".into(), "Str".into()));
 }
 
 #[rstest]

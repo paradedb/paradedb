@@ -454,17 +454,29 @@ impl SearchIndexCreateOptions {
             let (att_readable, att_name, atttypid) = if heap_attno == 0 {
                 // Is an expression.
                 let Some(expression) = expressions_iter.next() else {
-                    // TODO: Better error handling?
                     panic!("Expected expression for index attribute {i}.");
                 };
+                let node = expression.cast();
 
-                // TODO: For an expression, the SearchFieldName ends up containing the
-                // expression string.
-                let expression_str = unsafe { (*expression).display_node() };
+                let expression_str = unsafe {
+                    let pg_cstr = pg_sys::deparse_expression(
+                        node,
+                        pg_sys::deparse_context_for(heaprel.name().as_pg_cstr(), heaprel.oid()),
+                        false,
+                        false,
+                    );
+                    let expression_str = core::ffi::CStr::from_ptr(pg_cstr)
+                        .to_str()
+                        .expect("Invalid UTF8 in result of deparse_expression.")
+                        .to_owned();
+
+                    pg_sys::pfree(pg_cstr.cast());
+                    expression_str
+                };
                 (
                     format!("expression '{expression_str}'"),
                     expression_str,
-                    pg_sys::exprType(expression.cast()),
+                    pg_sys::exprType(node),
                 )
             } else {
                 // Is a field.
@@ -485,10 +497,7 @@ impl SearchIndexCreateOptions {
                 atttypid
             });
             let field_type = SearchFieldType::try_from(&base_oid).unwrap_or_else(|err| {
-                panic!(
-                    "cannot index {} with type {base_oid:?}: {err}",
-                    att_readable
-                )
+                panic!("cannot index {att_readable} with type {base_oid:?}: {err}",)
             });
 
             attributes.insert(SearchFieldName(att_name), field_type);

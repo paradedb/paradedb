@@ -24,8 +24,6 @@ mod postgres;
 mod query;
 mod schema;
 
-#[cfg(test)]
-pub mod github;
 pub mod gucs;
 
 use self::postgres::customscan;

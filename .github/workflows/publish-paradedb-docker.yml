@@ -17,6 +17,10 @@ on:
         description: "The version to set for the ParadeDB release. This publishes the latest commit of the chosen branch and tags it with the provided version."
         required: true
         default: ""
+      pg_version:
+        description: "The Postgres major version(s) to build ParadeDB for. This needs to be a comma-separated list of integers (e.g. [14] or [14, 15, 16, 17])."
+        required: true
+        default: "[14, 15, 16, 17]"
 
 concurrency:
   group: publish-paradedb-docker-${{ github.head_ref || github.ref }}
@@ -33,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        pg_version: [14, 15, 16, 17]
+        pg_version: ${{ fromJson(github.event.inputs.pg_version || '[14, 15, 16, 17]') }}
     env:
       default_pg_version: 17
 
@@ -118,11 +122,8 @@ jobs:
           push-to-registry: true
 
   publish-paradedb-helm-chart:
-    name: Publish ParadeDB Helm Chart for PostgreSQL ${{ matrix.pg_version }}
+    name: Publish ParadeDB Helm Chart
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        pg_version: [17]
 
     steps:
       - name: Retrieve GitHub Release Version

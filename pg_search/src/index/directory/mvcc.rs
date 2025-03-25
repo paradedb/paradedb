@@ -74,6 +74,7 @@ impl MvccSatisfies {
 #[derive(Clone, Debug)]
 pub struct MVCCDirectory {
     relation_oid: pg_sys::Oid,
+    snapshot: Option<pg_sys::Snapshot>,
     mvcc_style: MvccSatisfies,
 
     // keep a cache of readers behind an Arc<Mutex<_>> so that if/when this MVCCDirectory is
@@ -89,22 +90,37 @@ pub struct MVCCDirectory {
     entries_cache: Arc<Mutex<FxHashMap<PathBuf, FileEntry>>>,
 }
 
+unsafe impl Send for MVCCDirectory {}
+unsafe impl Sync for MVCCDirectory {}
+
 impl MVCCDirectory {
     pub fn snapshot(relation_oid: pg_sys::Oid) -> Self {
-        Self::with_mvcc_style(relation_oid, MvccSatisfies::Snapshot)
+        let snapshot = unsafe {
+            assert!(
+                pg_sys::ActiveSnapshotSet(),
+                "must have an active snapshot set"
+            );
+            pg_sys::GetActiveSnapshot()
+        };
+        Self::with_mvcc_style(relation_oid, MvccSatisfies::Snapshot, Some(snapshot))
     }
 
     pub fn any(relation_oid: pg_sys::Oid) -> Self {
-        Self::with_mvcc_style(relation_oid, MvccSatisfies::Any)
+        Self::with_mvcc_style(relation_oid, MvccSatisfies::Any, None)
     }
 
     pub fn mergeable(relation_oid: pg_sys::Oid) -> Self {
-        Self::with_mvcc_style(relation_oid, MvccSatisfies::Mergeable)
+        Self::with_mvcc_style(relation_oid, MvccSatisfies::Mergeable, None)
     }
 
-    fn with_mvcc_style(relation_oid: pg_sys::Oid, mvcc_style: MvccSatisfies) -> Self {
+    fn with_mvcc_style(
+        relation_oid: pg_sys::Oid,
+        mvcc_style: MvccSatisfies,
+        snapshot: Option<pg_sys::Snapshot>,
+    ) -> Self {
         Self {
             relation_oid,
+            snapshot,
             mvcc_style,
             readers: Arc::new(Mutex::new(FxHashMap::default())),
             loaded_metas: Default::default(),
@@ -271,22 +287,10 @@ impl Directory for MVCCDirectory {
 
     fn load_metas(&self, inventory: &SegmentMetaInventory) -> tantivy::Result<IndexMeta> {
         Clone::clone(self.loaded_metas.get_or_init(|| unsafe {
-            let snapshot = pg_sys::GetActiveSnapshot();
-            pgrx::debug1!(
-                "load_metas: xmin {:?}, xmax {:?}, xip {:?}",
-                (*snapshot).xmin,
-                (*snapshot).xmax,
-                if (*snapshot).xip.is_null() {
-                    vec![]
-                } else {
-                    std::slice::from_raw_parts((*snapshot).xip, (*snapshot).xcnt as usize).to_vec()
-                }
-            );
-
             Arc::new(load_metas(
                 self.relation_oid,
                 inventory,
-                pg_sys::GetActiveSnapshot(),
+                self.snapshot,
                 &self.mvcc_style,
             ))
         }))

@@ -29,7 +29,7 @@ use crate::postgres::utils::{
 };
 use crate::schema::SearchField;
 use pgrx::{pg_guard, pg_sys, PgMemoryContexts, PgRelation, PgTupleDesc};
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::ffi::CStr;
 use std::panic::{catch_unwind, resume_unwind};
 
@@ -51,7 +51,7 @@ impl InsertState {
         indexrel: &PgRelation,
         writer_resources: WriterResources,
     ) -> anyhow::Result<Self> {
-        let writer = SearchIndexWriter::open(indexrel, MvccSatisfies::Snapshot, writer_resources)?;
+        let writer = SearchIndexWriter::open(indexrel, MvccSatisfies::Mergeable, writer_resources)?;
         let tupdesc = unsafe { PgTupleDesc::from_pg_unchecked(indexrel.rd_att) };
         let categorized_fields = categorize_fields(&tupdesc, &writer.schema);
         let key_field_name = writer.schema.key_field().name.0;
@@ -249,30 +249,18 @@ unsafe fn do_merge(indexrelid: pg_sys::Oid, _doc_count: usize) {
         .get();
 
     let index_options = SearchIndexCreateOptions::from_relation(&indexrel);
-    let mut segment_meta_entries_list =
-        LinkedItemList::<SegmentMetaEntry>::open(indexrelid, SEGMENT_METAS_START);
-    let segment_meta_entries = segment_meta_entries_list.list();
-
-    pgrx::debug1!(
-        "segment meta entries: {:?}",
-        segment_meta_entries
-            .iter()
-            .map(|entry| (entry.segment_id, entry.xmin, entry.xmax))
-            .collect::<Vec<_>>()
-    );
-
     let mut merge_policy = LayeredMergePolicy {
         n: target_segments,
         min_merge_count: 2,
+        enable_logging: pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _),
 
         layer_sizes: index_options.layer_sizes(DEFAULT_LAYER_SIZES),
-        possibly_mergeable_segments: Default::default(),
-        segment_entries: segment_meta_entries
-            .into_iter()
-            .map(|entry| (entry.segment_id, entry))
-            .collect(),
+        mergeable_segments: Default::default(),
         already_processed: Default::default(),
     };
+
+    let all_segments =
+        LinkedItemList::<SegmentMetaEntry>::open(indexrelid, SEGMENT_METAS_START).list();
 
     // pin the CLEANUP_LOCK and hold it until this function is done.  We keep a pin here
     // so we can cause `ambulkdelete()` to block, waiting for all merging to finish before it
@@ -288,39 +276,44 @@ unsafe fn do_merge(indexrelid: pg_sys::Oid, _doc_count: usize) {
             WriterResources::PostStatementMerge,
         )
         .expect("should be able to open a SearchIndexWriter for PostStatementMerge");
+        let writer_segment_ids = &writer.segment_ids();
 
         // the non_mergeable_segments are those that are concurrently being vacuumed *and* merged
         let mut non_mergeable_segments = merge_lock.list_vacuuming_segments();
         non_mergeable_segments.extend(merge_lock.in_progress_segment_ids());
-        let writer_segment_ids = &writer.segment_ids();
 
-        pgrx::debug1!(
-            "do_merge: non mergeable segments are {:?}",
-            non_mergeable_segments
-        );
-        pgrx::debug1!("do_merge: writer segment ids are {:?}", writer_segment_ids);
+        if pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) {
+            pgrx::debug1!("do_merge: non_mergeable_segments={non_mergeable_segments:?}");
+            pgrx::debug1!("do_merge: writer_segment_ids={writer_segment_ids:?}");
+        }
 
-        let possibly_mergeable = writer_segment_ids
-            .difference(&non_mergeable_segments)
-            .collect::<HashSet<_>>();
+        // tell the MergePolicy which segments it's allowed to consider for merging
+        merge_policy.mergeable_segments = all_segments
+            .into_iter()
+            .filter_map(|entry| {
+                let segment_id = &entry.segment_id;
 
-        if possibly_mergeable.len() > 2 {
+                // every segment that isn't a known non_mergeable_segment
+                (!non_mergeable_segments.contains(segment_id)
+                    // and is also seen by the writer
+                    && writer_segment_ids.contains(segment_id))
+                .then_some((*segment_id, entry))
+            })
+            .collect::<HashMap<_, _>>();
+
+        if pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) {
+            pgrx::debug1!(
+                "do_merge: merge_policy.mergeable_segments={:?}",
+                merge_policy.mergeable_segments
+            );
+        }
+
+        if merge_policy.mergeable_segments.len() > 2 {
             // record all the segments the IndexWriter can see, as those are the ones that
             // could be merged.  This also drops the MergeLock
             let merge_entry = merge_lock
-                .record_in_progress_segment_ids(&possibly_mergeable)
+                .record_in_progress_segment_ids(merge_policy.mergeable_segments.keys())
                 .expect("should be able to write current merge segment_id list");
-
-            // tell the MergePolicy which segments it's allowed to consider for merging
-            merge_policy.possibly_mergeable_segments = possibly_mergeable
-                .iter()
-                .map(|segment_id| **segment_id)
-                .collect();
-
-            pgrx::debug1!(
-                "do_merge: possibly mergeable segments are {:?}",
-                possibly_mergeable
-            );
 
             // and do the merge
             writer.set_merge_policy(merge_policy);
@@ -342,7 +335,8 @@ unsafe fn do_merge(indexrelid: pg_sys::Oid, _doc_count: usize) {
 
             (!merge_lock.is_ambulkdelete_running()).then(|| {
                 assert!(merge_lock.list_vacuuming_segments().is_empty());
-                segment_meta_entries_list.garbage_collect()
+                LinkedItemList::<SegmentMetaEntry>::open(indexrelid, SEGMENT_METAS_START)
+                    .garbage_collect()
             })
         } else {
             None

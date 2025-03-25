@@ -201,7 +201,7 @@ impl MergeLock {
 
     pub unsafe fn record_in_progress_segment_ids<'a>(
         mut self,
-        segment_ids: impl IntoIterator<Item = &'a &'a SegmentId>,
+        segment_ids: impl IntoIterator<Item = &'a SegmentId>,
     ) -> anyhow::Result<MergeEntry> {
         assert!(pg_sys::IsTransactionState());
 

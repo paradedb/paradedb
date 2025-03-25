@@ -308,7 +308,7 @@ pub unsafe fn save_new_metas(
 pub unsafe fn load_metas(
     relation_oid: pg_sys::Oid,
     inventory: &SegmentMetaInventory,
-    snapshot: pg_sys::Snapshot,
+    snapshot: Option<pg_sys::Snapshot>,
     solve_mvcc: &MvccSatisfies,
 ) -> tantivy::Result<IndexMeta> {
     let segment_metas = LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START);
@@ -319,7 +319,7 @@ pub unsafe fn load_metas(
     let mut blockno = segment_metas.get_start_blockno();
 
     let bman = segment_metas.bman();
-
+    let current_xid = pg_sys::GetCurrentTransactionId();
     while blockno != pg_sys::InvalidBlockNumber {
         let buffer = bman.get_buffer(blockno);
         let page = buffer.page();
@@ -328,17 +328,20 @@ pub unsafe fn load_metas(
 
         while offsetno <= max_offset {
             if let Some((entry, _)) = page.read_item::<SegmentMetaEntry>(offsetno) {
-                if entry.recyclable(snapshot, heap_relation) {
+                if entry.recyclable(heap_relation) {
                     // we don't want anyone to see entries that are recyclable
                     offsetno += 1;
                     continue;
                 }
 
                 if (matches!(solve_mvcc, MvccSatisfies::Any))
-                    || (matches!(solve_mvcc, MvccSatisfies::Snapshot) && entry.visible(snapshot))
+                    || (matches!(solve_mvcc, MvccSatisfies::Snapshot)
+                        && entry.visible(
+                            snapshot
+                                .expect("snapshot must be provided for `MvccSatisfies::Snapshot`"),
+                        ))
                     || (matches!(solve_mvcc, MvccSatisfies::Mergeable)
-                        && entry.visible(snapshot)
-                        && entry.xmax == pg_sys::InvalidTransactionId)
+                        && entry.mergeable(current_xid))
                 {
                     let inner_segment_meta = InnerSegmentMeta {
                         max_doc: entry.max_doc,

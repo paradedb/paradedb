@@ -361,21 +361,24 @@ pub trait MVCCEntry {
         xmin_visible && !deleted
     }
 
-    unsafe fn recyclable(
-        &self,
-        snapshot: pg_sys::Snapshot,
-        heap_relation: pg_sys::Relation,
-    ) -> bool {
+    unsafe fn recyclable(&self, heap_relation: pg_sys::Relation) -> bool {
         let xmax = self.get_xmax();
         if xmax == pg_sys::InvalidTransactionId {
             return false;
         }
 
-        if pg_sys::XidInMVCCSnapshot(xmax, snapshot) {
-            return false;
-        }
-
         pg_sys::GlobalVisCheckRemovableXid(heap_relation, xmax)
+    }
+
+    unsafe fn mergeable(&self, current_xid: pg_sys::TransactionId) -> bool {
+        let xmin = self.get_xmin();
+        let xmax = self.get_xmax();
+
+        // mergeable if we haven't deleted it
+        xmax == pg_sys::InvalidTransactionId
+
+            // and it's from the current transaction or a transaction that is not in progress
+            && (xmin == current_xid || !pg_sys::TransactionIdIsInProgress(xmin))
     }
 
     unsafe fn xmin_needs_freeze(&self, freeze_limit: pg_sys::TransactionId) -> bool {

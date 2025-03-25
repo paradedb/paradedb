@@ -15,8 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
-
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::options::SearchIndexCreateOptions;
@@ -220,25 +218,21 @@ fn index_info(
 
     // open the specified index
     let all_entries = unsafe {
-        LinkedItemList::<SegmentMetaEntry>::open(index.oid(), SEGMENT_METAS_START)
-            .list()
-            .into_iter()
-            .map(|entry| (entry.segment_id, entry))
-            .collect::<HashMap<_, _>>()
+        LinkedItemList::<SegmentMetaEntry>::open(index.oid(), SEGMENT_METAS_START).list()
     };
 
     let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
     let mut results = Vec::new();
-    for (segment_id, entry) in all_entries {
+    for entry in all_entries {
         if !show_invisible && unsafe { !entry.visible(snapshot) } {
             continue;
         }
         results.push((
             unsafe { entry.visible(snapshot) },
-            unsafe { entry.recyclable(snapshot, heap.as_ptr()) },
+            unsafe { entry.recyclable(heap.as_ptr()) },
             entry.xmin.into(),
             entry.xmax.into(),
-            segment_id.short_uuid_string(),
+            entry.segment_id.short_uuid_string(),
             Some(entry.byte_size().into()),
             Some(entry.num_docs().into()),
             Some(entry.num_deleted_docs().into()),
@@ -386,7 +380,7 @@ fn page_info(
                     offsetno as i32,
                     size as i32,
                     entry.visible(snapshot),
-                    entry.recyclable(snapshot, heap_relation),
+                    entry.recyclable(heap_relation),
                     JsonB(serde_json::to_value(entry)?),
                 ))
             } else {

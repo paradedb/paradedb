@@ -11,9 +11,9 @@ pub struct LayeredMergePolicy {
     #[allow(dead_code)]
     pub n: usize,
     pub min_merge_count: usize,
+    pub enable_logging: bool,
     pub layer_sizes: Vec<u64>,
-    pub possibly_mergeable_segments: HashSet<SegmentId>,
-    pub segment_entries: HashMap<SegmentId, SegmentMetaEntry>,
+    pub mergeable_segments: HashMap<SegmentId, SegmentMetaEntry>,
     pub already_processed: AtomicBool,
 }
 
@@ -34,12 +34,16 @@ impl MergePolicy for LayeredMergePolicy {
             return Vec::new();
         }
 
+        assert!(
+            !self.mergeable_segments.is_empty(),
+            "must have mergeable segments"
+        );
         let avg_doc_size = self
-            .segment_entries
+            .mergeable_segments
             .values()
             .map(|entry| entry.byte_size())
             .sum::<u64>()
-            / self.segment_entries.len() as u64;
+            / self.mergeable_segments.len() as u64;
 
         let mut candidates = Vec::new();
         let mut merged_segments = HashSet::new();
@@ -47,8 +51,14 @@ impl MergePolicy for LayeredMergePolicy {
         layer_sizes.sort_by_key(|size| Reverse(*size)); // largest to smallest
 
         for layer_size in layer_sizes {
+            // individual segments that total a certain byte amount typically merge together into
+            // a segment of a smaller size than the individual source segments.  So we fudge things
+            // by a third more in the hopes the final segment will be >= to this layer size, ensuring
+            // it doesn't merge again
+            let extended_layer_size = layer_size + layer_size / 3;
+
             // collect the list of mergeable segments so that we can combine those that fit in the next layer
-            let segments = collect_mergeable_segments(original_segments, self, &merged_segments);
+            let segments = self.collect_mergeable_segments(original_segments, &merged_segments);
             let mut candidate_byte_size = 0;
             candidates.push((layer_size, MergeCandidate(vec![])));
 
@@ -58,7 +68,7 @@ impl MergePolicy for LayeredMergePolicy {
                     continue;
                 }
 
-                let byte_size = actual_byte_size(segment, &self.segment_entries, avg_doc_size);
+                let byte_size = actual_byte_size(segment, &self.mergeable_segments, avg_doc_size);
                 if byte_size > layer_size {
                     // this segment is larger than this layer_size... skip it
                     continue;
@@ -68,14 +78,14 @@ impl MergePolicy for LayeredMergePolicy {
                 candidate_byte_size += byte_size;
                 candidates.last_mut().unwrap().1 .0.push(segment.id());
 
-                if candidate_byte_size >= layer_size + layer_size / 3 {
+                if candidate_byte_size >= extended_layer_size {
                     // the candidate now exceeds the layer size so we start a new candidate
                     candidate_byte_size = 0;
                     candidates.push((layer_size, MergeCandidate(vec![])));
                 }
             }
 
-            if candidate_byte_size < layer_size + layer_size / 3 {
+            if candidate_byte_size < extended_layer_size {
                 // the last candidate isn't full, so throw it away
                 candidates.pop();
             }
@@ -86,10 +96,12 @@ impl MergePolicy for LayeredMergePolicy {
             }
         }
 
-        directory.log(&format!(
-            "compute_merge_candidates: candidates before min merge count are {:?}",
-            candidates
-        ));
+        if self.enable_logging {
+            directory.log(&format!(
+                "compute_merge_candidates: candidates before min merge count are {:?}",
+                candidates
+            ));
+        }
 
         // remove short candidate lists
         'outer: while !candidates.is_empty() {
@@ -125,10 +137,12 @@ impl MergePolicy for LayeredMergePolicy {
             self.already_processed.store(true, Ordering::Relaxed);
         }
 
-        directory.log(&format!(
-            "compute_merge_candidates: final candidates are {:?}",
-            candidates
-        ));
+        if self.enable_logging {
+            directory.log(&format!(
+                "compute_merge_candidates: final candidates are {:?}",
+                candidates
+            ));
+        }
 
         candidates
             .into_iter()
@@ -137,34 +151,32 @@ impl MergePolicy for LayeredMergePolicy {
     }
 }
 
-fn collect_mergeable_segments<'a>(
-    segments: &'a [SegmentMeta],
-    merge_policy: &LayeredMergePolicy,
-    exclude: &HashSet<SegmentId>,
-) -> Vec<&'a SegmentMeta> {
-    let mut segments = segments
-        .iter()
-        .filter(|meta| {
-            merge_policy
-                .possibly_mergeable_segments
-                .contains(&meta.id())
-                && !exclude.contains(&meta.id())
-        })
-        .collect::<Vec<_>>();
+impl LayeredMergePolicy {
+    fn collect_mergeable_segments<'a>(
+        &self,
+        segments: &'a [SegmentMeta],
+        exclude: &HashSet<SegmentId>,
+    ) -> Vec<&'a SegmentMeta> {
+        let mut segments = segments
+            .iter()
+            .filter(|meta| {
+                self.mergeable_segments.contains_key(&meta.id()) && !exclude.contains(&meta.id())
+            })
+            .collect::<Vec<_>>();
 
-    // sort largest to smallest
-    segments.sort_by_key(|segment| Reverse(segment_size(&segment.id(), merge_policy)));
-    segments
-}
+        // sort largest to smallest
+        segments.sort_by_key(|segment| Reverse(self.segment_size(&segment.id())));
+        segments
+    }
 
-// NB: just for logging purposes
-#[inline]
-fn segment_size(segment_id: &SegmentId, merge_policy: &LayeredMergePolicy) -> (u64, usize) {
-    merge_policy
-        .segment_entries
-        .get(segment_id)
-        .map(|entry| (entry.byte_size(), entry.num_docs()))
-        .unwrap_or((0, 0))
+    // NB: just for logging purposes
+    #[inline]
+    fn segment_size(&self, segment_id: &SegmentId) -> (u64, usize) {
+        self.mergeable_segments
+            .get(segment_id)
+            .map(|entry| (entry.byte_size(), entry.num_docs()))
+            .unwrap_or((0, 0))
+    }
 }
 
 #[inline]

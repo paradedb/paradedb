@@ -48,3 +48,34 @@ fn merges_to_1_100k_segment(mut conn: PgConnection) {
         .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(nsegments, 1);
 }
+
+#[rstest]
+fn force_merge(mut conn: PgConnection) {
+    r#"
+        CREATE TABLE force_merge (id bigint);
+        CREATE INDEX idxforce_merge ON force_merge USING bm25(id) WITH (key_field='id', layer_sizes = '100kb, 1mb, 100mb');
+    "#
+    .execute_result(&mut conn).expect("creating table/index should not fail");
+
+    // creates a segment of 481 bytes
+    for i in 0..10 {
+        // creates a segment of 1022 bytes
+        format!("insert into force_merge (id) values ({i});").execute(&mut conn);
+    }
+
+    // assert we actually have 10 segments and that a merge didn't happen yet
+    let (nsegments,) = "select count(*) from paradedb.index_info('idxforce_merge');"
+        .fetch_one::<(i64,)>(&mut conn);
+    assert_eq!(nsegments, 10);
+
+    // force merge into a layer of 800 bytes
+    let (nsegments, nmerged) = "select * from paradedb.force_merge('idxforce_merge', 800);"
+        .fetch_one::<(i64, i64)>(&mut conn);
+    assert_eq!(nsegments, 3);
+    assert_eq!(nmerged, 9);
+
+    // which leaves us with 4 segments
+    let (nsegments,) = "select count(*) from paradedb.index_info('idxforce_merge');"
+        .fetch_one::<(i64,)>(&mut conn);
+    assert_eq!(nsegments, 4);
+}

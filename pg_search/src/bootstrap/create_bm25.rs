@@ -15,8 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::insert::merge_index_with_policy;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::storage::block::{
     LinkedList, MVCCEntry, SegmentMetaEntry, SEGMENT_METAS_START,
@@ -417,6 +419,45 @@ fn version_info() -> TableIterator<
     };
 
     TableIterator::once((version, git_sha, build_mode))
+}
+
+#[pg_extern(name = "force_merge")]
+fn force_merge_pretty_bytes(
+    index: PgRelation,
+    oversized_layer_size_pretty: String,
+) -> anyhow::Result<TableIterator<'static, (name!(new_segments, i64), name!(merged_segments, i64))>>
+{
+    let byte_size = unsafe {
+        pgrx::direct_function_call::<i64>(
+            pg_sys::pg_size_bytes,
+            &[oversized_layer_size_pretty.into_datum()],
+        )
+        .expect("pg_size_bytes should not return null")
+    };
+
+    force_merge_raw_bytes(index, byte_size)
+}
+
+#[pg_extern(name = "force_merge")]
+fn force_merge_raw_bytes(
+    index: PgRelation,
+    oversized_layer_size_bytes: i64,
+) -> anyhow::Result<TableIterator<'static, (name!(new_segments, i64), name!(merged_segments, i64))>>
+{
+    let index = unsafe {
+        let oid = index.oid();
+        drop(index);
+
+        // reopen the index with a RowExclusiveLock b/c we are going to be changing its physical structure
+        PgRelation::with_lock(oid, pg_sys::RowExclusiveLock as _)
+    };
+
+    let merge_policy = LayeredMergePolicy::new(vec![oversized_layer_size_bytes.try_into()?]);
+    let (ncandidates, nmerged) = unsafe { merge_index_with_policy(index, merge_policy) };
+    Ok(TableIterator::once((
+        ncandidates.try_into()?,
+        nmerged.try_into()?,
+    )))
 }
 
 extension_sql!(

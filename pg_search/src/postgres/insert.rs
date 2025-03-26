@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::merge_policy::LayeredMergePolicy;
+use crate::index::merge_policy::{LayeredMergePolicy, NumCandidates, NumMerged};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::SearchIndexWriter;
 use crate::index::WriterResources;
@@ -210,12 +210,12 @@ pub fn paradedb_aminsertcleanup(mut writer: Option<SearchIndexWriter>) {
     if let Some(writer) = writer.take() {
         let indexrelid = writer.indexrelid;
 
-        let doc_count = writer
+        writer
             .commit()
             .expect("must be able to commit inserts in paradedb_aminsertcleanup");
 
         unsafe {
-            do_merge(indexrelid, doc_count);
+            do_merge(indexrelid);
         }
     }
 }
@@ -227,38 +227,37 @@ pub(crate) const DEFAULT_LAYER_SIZES: &[u64] = &[
     100 * 1024 * 1024, // 100MB
 ];
 
-unsafe fn do_merge(indexrelid: pg_sys::Oid, _doc_count: usize) {
-    let indexrel = PgRelation::open(indexrelid);
-    let heaprel = indexrel
-        .heap_relation()
-        .expect("index should belong to a heap relation");
+unsafe fn do_merge(indexrelid: pg_sys::Oid) -> (NumCandidates, NumMerged) {
+    let indexrel = {
+        let indexrel = PgRelation::open(indexrelid);
+        let heaprel = indexrel
+            .heap_relation()
+            .expect("index should belong to a heap relation");
 
-    /*
-     * Recompute VACUUM XID boundaries.
-     *
-     * We don't actually care about the oldest non-removable XID.  Computing
-     * the oldest such XID has a useful side-effect that we rely on: it
-     * forcibly updates the XID horizon state for this backend.  This step is
-     * essential; GlobalVisCheckRemovableFullXid() will not reliably recognize
-     * that it is now safe to recycle newly deleted pages without this step.
-     */
-    pg_sys::GetOldestNonRemovableTransactionId(heaprel.as_ptr());
-
-    let target_segments = std::thread::available_parallelism()
-        .expect("failed to get available_parallelism")
-        .get();
-
-    let index_options = SearchIndexCreateOptions::from_relation(&indexrel);
-    let mut merge_policy = LayeredMergePolicy {
-        n: target_segments,
-        min_merge_count: 2,
-        enable_logging: pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _),
-
-        layer_sizes: index_options.layer_sizes(DEFAULT_LAYER_SIZES),
-        mergeable_segments: Default::default(),
-        already_processed: Default::default(),
+        /*
+         * Recompute VACUUM XID boundaries.
+         *
+         * We don't actually care about the oldest non-removable XID.  Computing
+         * the oldest such XID has a useful side-effect that we rely on: it
+         * forcibly updates the XID horizon state for this backend.  This step is
+         * essential; GlobalVisCheckRemovableFullXid() will not reliably recognize
+         * that it is now safe to recycle newly deleted pages without this step.
+         */
+        pg_sys::GetOldestNonRemovableTransactionId(heaprel.as_ptr());
+        indexrel
     };
 
+    let index_options = SearchIndexCreateOptions::from_relation(&indexrel);
+    let merge_policy = LayeredMergePolicy::new(index_options.layer_sizes(DEFAULT_LAYER_SIZES));
+
+    merge_index_with_policy(indexrel, merge_policy)
+}
+
+pub unsafe fn merge_index_with_policy(
+    indexrel: PgRelation,
+    mut merge_policy: LayeredMergePolicy,
+) -> (NumCandidates, NumMerged) {
+    let indexrelid = indexrel.oid();
     let all_segments =
         LinkedItemList::<SegmentMetaEntry>::open(indexrelid, SEGMENT_METAS_START).list();
 
@@ -267,91 +266,94 @@ unsafe fn do_merge(indexrelid: pg_sys::Oid, _doc_count: usize) {
     // decides to find the segments it should vacuum.  The reason is that it needs to see the
     // final merged segment, not the original segments that will be deleted
     let _cleanup_lock = BufferManager::new(indexrelid).pinned_buffer(CLEANUP_LOCK);
-    let recycled_entries = {
-        let mut merge_lock = MergeLock::acquire(indexrelid);
+    let mut merge_lock = MergeLock::acquire(indexrelid);
+    let mut writer = SearchIndexWriter::open(
+        &PgRelation::open(indexrelid),
+        MvccSatisfies::Mergeable,
+        WriterResources::PostStatementMerge,
+    )
+    .expect("should be able to open a SearchIndexWriter for PostStatementMerge");
+    let writer_segment_ids = &writer.segment_ids();
 
-        let mut writer = SearchIndexWriter::open(
-            &PgRelation::open(indexrelid),
-            MvccSatisfies::Mergeable,
-            WriterResources::PostStatementMerge,
-        )
-        .expect("should be able to open a SearchIndexWriter for PostStatementMerge");
-        let writer_segment_ids = &writer.segment_ids();
+    // the non_mergeable_segments are those that are concurrently being vacuumed *and* merged
+    let mut non_mergeable_segments = merge_lock.list_vacuuming_segments();
+    non_mergeable_segments.extend(merge_lock.in_progress_segment_ids());
 
-        // the non_mergeable_segments are those that are concurrently being vacuumed *and* merged
-        let mut non_mergeable_segments = merge_lock.list_vacuuming_segments();
-        non_mergeable_segments.extend(merge_lock.in_progress_segment_ids());
+    if pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) {
+        pgrx::debug1!("do_merge: non_mergeable_segments={non_mergeable_segments:?}");
+        pgrx::debug1!("do_merge: writer_segment_ids={writer_segment_ids:?}");
+    }
 
-        if pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) {
-            pgrx::debug1!("do_merge: non_mergeable_segments={non_mergeable_segments:?}");
-            pgrx::debug1!("do_merge: writer_segment_ids={writer_segment_ids:?}");
-        }
+    // tell the MergePolicy which segments it's allowed to consider for merging
+    merge_policy.mergeable_segments = all_segments
+        .into_iter()
+        .filter_map(|entry| {
+            let segment_id = &entry.segment_id;
 
-        // tell the MergePolicy which segments it's allowed to consider for merging
-        merge_policy.mergeable_segments = all_segments
-            .into_iter()
-            .filter_map(|entry| {
-                let segment_id = &entry.segment_id;
-
-                // every segment that isn't a known non_mergeable_segment
-                (!non_mergeable_segments.contains(segment_id)
+            // every segment that isn't known to currently be merging
+            (!non_mergeable_segments.contains(segment_id)
                     // and is also seen by the writer
                     && writer_segment_ids.contains(segment_id))
-                .then_some((*segment_id, entry))
-            })
-            .collect::<HashMap<_, _>>();
+            .then_some((*segment_id, entry))
+        })
+        .collect::<HashMap<_, _>>();
 
-        if pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) {
-            pgrx::debug1!(
-                "do_merge: merge_policy.mergeable_segments={:?}",
-                merge_policy.mergeable_segments
-            );
-        }
+    // reduce the set of segments that the LayeredMergePolicy will operate on by internally
+    // simulating the process, allowing concurrent merges to consider segments we're not
+    let (ncandidates, nmerged) = merge_policy.simulate();
 
-        if merge_policy.mergeable_segments.len() > 2 {
-            // record all the segments the IndexWriter can see, as those are the ones that
-            // could be merged.  This also drops the MergeLock
-            let merge_entry = merge_lock
-                .record_in_progress_segment_ids(merge_policy.mergeable_segments.keys())
-                .expect("should be able to write current merge segment_id list");
+    if pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) {
+        pgrx::debug1!(
+            "do_merge: merge_policy.mergeable_segments={:?}",
+            merge_policy.mergeable_segments
+        );
+    }
 
-            // and do the merge
+    let mut recycled_entries = None;
+    if ncandidates > 0 {
+        // record all the segments the IndexWriter can see, as those are the ones that
+        // could be merged.  This also drops the MergeLock
+        let merge_entry = merge_lock
+            .record_in_progress_segment_ids(merge_policy.mergeable_segments.keys())
+            .expect("should be able to write current merge segment_id list");
+
+        // and concurrently do the merge -- we are NOT under the MergeLock at this point
+        //
+        // we defer raising a panic in the face of a merge error as we need to remove the created
+        // `merge_entry` whether the merge worked or not
+        let merge_result = {
             writer.set_merge_policy(merge_policy);
+            writer.merge()
+        };
 
-            // we defer raising a panic in the face of a merge error as we still need to
-            // remove the `merge_entry` that was created
-            let merge_result = writer.merge();
+        // re-acquire the MergeLock to remove the entry we made above
+        // we also can't concurrently garbage collect our segment meta entries list
+        let mut merge_lock = MergeLock::acquire(indexrelid);
+        merge_lock
+            .remove_entry(merge_entry)
+            .expect("should be able to remove MergeEntry");
 
-            // re-acquire the MergeLock to remove the entry we made above
-            // we also can't concurrently garbage collect our segment meta entries list
-            let mut merge_lock = MergeLock::acquire(indexrelid);
-            merge_lock
-                .remove_entry(merge_entry)
-                .expect("should be able to remove MergeEntry");
-
-            if let Err(e) = merge_result {
-                panic!("failed to merge: {:?}", e);
-            }
-
-            (!merge_lock.is_ambulkdelete_running()).then(|| {
-                assert!(merge_lock.list_vacuuming_segments().is_empty());
-                LinkedItemList::<SegmentMetaEntry>::open(indexrelid, SEGMENT_METAS_START)
-                    .garbage_collect()
-            })
-        } else {
-            None
+        if let Err(e) = merge_result {
+            panic!("failed to merge: {:?}", e);
         }
-    };
 
+        recycled_entries = (!merge_lock.is_ambulkdelete_running()).then(|| {
+            assert!(merge_lock.list_vacuuming_segments().is_empty());
+            LinkedItemList::<SegmentMetaEntry>::open(indexrelid, SEGMENT_METAS_START)
+                .garbage_collect()
+        });
+    }
+
+    // we can return blocks back to the FSM without being under the MergeLock
     if let Some(recycled_entries) = recycled_entries {
-        if !recycled_entries.is_empty() {
-            for entry in recycled_entries {
-                for (file_entry, type_) in entry.file_entries() {
-                    let bytes = LinkedBytesList::open(indexrelid, file_entry.starting_block);
-                    bytes.return_to_fsm(&entry, Some(type_));
-                    pg_sys::IndexFreeSpaceMapVacuum(indexrel.as_ptr());
-                }
+        for entry in recycled_entries {
+            for (file_entry, type_) in entry.file_entries() {
+                let bytes = LinkedBytesList::open(indexrelid, file_entry.starting_block);
+                bytes.return_to_fsm(&entry, Some(type_));
+                pg_sys::IndexFreeSpaceMapVacuum(indexrel.as_ptr());
             }
         }
     }
+
+    (ncandidates, nmerged)
 }

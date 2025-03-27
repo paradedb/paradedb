@@ -2,7 +2,7 @@
 .dockerignore export-ignore
 .gitignore export-ignore
 .gitattributes export-ignore
-.github export-ignorei
+.github export-ignore
 .hadolint.yaml export-ignore
 .markdownlint.yaml export-ignore
 .pre-commit-config.yaml export-ignore

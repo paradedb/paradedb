@@ -1,6 +1,7 @@
 PG_CONFIG   ?= $(shell which pg_config)
 DISTNAME     = $(shell grep -m 1 '^name' pg_search/Cargo.toml | sed -e 's/[^"]*"\([^"]*\)",\{0,1\}/\1/')
-DISTVERSION  = $(shell cargo tree --prefix=none --edges=normal | grep 'pgrx v' | sed 's/pgrx v//')
+DISTDESC     = $(shell grep -m 1 '^description' pg_search/Cargo.toml | sed -e 's/[^"]*"\([^"]*\)",\{0,1\}/\1/')
+DISTVERSION  = $(shell grep -m 1 '^version' Cargo.toml | sed -e 's/[^"]*"\([^"]*\)",\{0,1\}/\1/')
 PGRXV        = $(shell perl -nE '/^pgrx\s+=\s"=?([^"]+)/ && do { say $$1; exit }' Cargo.toml)
 PGV          = $(shell perl -E 'shift =~ /(\d+)/ && say $$1' "$(shell $(PG_CONFIG) --version)")
 
@@ -19,7 +20,7 @@ pgrx-version:
 # Install the version of PGRX specified in Cargo.toml.
 .PHONY: install-pgrx
 install-pgrx: pg_search/Cargo.toml
-	@cargo install --package pg_search --locked cargo-pgrx --version "$(PGRXV)"
+	@cargo install --locked cargo-pgrx --version "$(PGRXV)"
 
 # Initialize pgrx for the PostgreSQL version identified by pg_config.
 .PHONY: pgrx-init
@@ -37,6 +38,7 @@ package:
 	@cargo pgrx package --package pg_search --pg-config "$(PG_CONFIG)"
 
 META.json: META.json.in pg_search/Cargo.toml
+	@sed "s/@CRATE_DESC@/$(DISTDESC)/g" $< > $@
 	@sed "s/@CRATE_VERSION@/$(DISTVERSION)/g" $< > $@
 
 $(DISTNAME)-$(DISTVERSION).zip: META.json
@@ -47,4 +49,4 @@ dist: $(DISTNAME)-$(DISTVERSION).zip
 
 # Delete files generated while making a PGXN-compatible zip file.
 clean:
-	@rm -rf META.json $(DISTNAME)-$(DISTVERSION).zip
+	@rm -rf META.json $(DISTNAME)-$(DISTVERSION).zip target

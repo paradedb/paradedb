@@ -535,25 +535,33 @@ fn partitioned_query(mut conn: PgConnection) {
     .fetch(&mut conn);
     assert_eq!(rows_q2.len(), 3, "Expected 3 rows in Q2 partition");
 
-    // Test: Search using the bm25 index
-    let search_results: Vec<(i32, String)> = r#"
-        SELECT id, description FROM sales_2023_q1 WHERE id @@@ 'description:keyboard'
-    "#
-    .fetch(&mut conn);
-    assert_eq!(search_results.len(), 2, "Expected 2 items with 'keyboard'");
+    // Test: Search using the bm25 index against both the parent and child tables.
+    for table in ["sales", "sales_2023_q1"] {
+        let search_results: Vec<(i32, String)> = format!(
+            r#"
+            SELECT id, description FROM {table} WHERE id @@@ 'description:keyboard'
+            "#
+        )
+        .fetch(&mut conn);
+        assert_eq!(search_results.len(), 2, "Expected 2 items with 'keyboard'");
+    }
 
     // Test: Retrieve items by a numeric range (amount field) and verify bm25 compatibility
-    let amount_results: Vec<(i32, String, f32)> = r#"
-        SELECT id, description, amount FROM sales_2023_q1
-        WHERE amount @@@ '[175 TO 250]'
-        ORDER BY amount ASC
-    "#
-    .fetch(&mut conn);
-    assert_eq!(
-        amount_results.len(),
-        3,
-        "Expected 3 items with amount in range 175-250"
-    );
+    for (table, expected) in [("sales", 5), ("sales_2023_q1", 3)] {
+        let amount_results: Vec<(i32, String, f32)> = format!(
+            r#"
+            SELECT id, description, amount FROM {table}
+            WHERE amount @@@ '[175 TO 250]'
+            ORDER BY amount ASC
+            "#
+        )
+        .fetch(&mut conn);
+        assert_eq!(
+            amount_results.len(),
+            expected,
+            "Expected {expected} items with amount in range 175-250"
+        );
+    }
 }
 
 #[rstest]

@@ -2,6 +2,7 @@
 .vscode/
 .idea/
 /*.iml
+*.swp
 
 # macOS
 .DS_Store

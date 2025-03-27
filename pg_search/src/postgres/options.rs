@@ -26,6 +26,7 @@ use std::collections::HashMap;
 use std::ffi::CStr;
 use tokenizers::{manager::SearchTokenizerFilters, SearchNormalizer, SearchTokenizer};
 
+use super::utils::resolve_base_type;
 use crate::schema::{IndexRecordOption, SearchFieldConfig, SearchFieldName, SearchFieldType};
 
 /* ADDING OPTIONS
@@ -502,22 +503,7 @@ impl SearchIndexCreateOptions {
                 .expect("attribute should exist");
             let atttypid = att.type_oid().value();
             let array_type = pg_sys::get_element_type(atttypid);
-            let mut base_oid = PgOid::from(if array_type != pg_sys::InvalidOid {
-                array_type
-            } else {
-                atttypid
-            });
-            if pg_sys::get_typtype(base_oid.value()) as u8 == pg_sys::TYPTYPE_DOMAIN {
-                let domain_typoid = pg_sys::getBaseType(base_oid.value());
-                if domain_typoid != pg_sys::InvalidOid {
-                    base_oid = PgOid::from(domain_typoid);
-                } else {
-                    pgrx::warning!(
-                        "Failed to resolve base type for domain type in column {}",
-                        att.name()
-                    );
-                }
-            }
+            let (base_oid, _) = resolve_base_type(atttypid, array_type, att.name());
             let field_type = SearchFieldType::try_from(&base_oid).unwrap_or_else(|err| {
                 panic!(
                     "cannot index column '{}' with type {base_oid:?}: {err}",

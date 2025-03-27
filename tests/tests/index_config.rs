@@ -466,22 +466,48 @@ fn multi_index_insert_in_transaction(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn partitioned_index(mut conn: PgConnection) {
-    // Set up the partitioned table with two partitions
+// TODO: https://github.com/paradedb/paradedb/issues/2191
+#[should_panic]
+fn partitioned_metadata(mut conn: PgConnection) {
+    PartitionedTable::setup().execute(&mut conn);
+
+    let schema_rows: Vec<(String, String)> =
+        "SELECT name, field_type FROM paradedb.schema('sales_index')".fetch(&mut conn);
+    assert_eq!(schema_rows.len(), 4);
+
+    let nsegments = "SELECT COUNT(*) FROM paradedb.index_info('sales_index')"
+        .fetch_one::<(i64,)>(&mut conn)
+        .0 as usize;
+    assert_eq!(nsegments, 0);
+}
+
+#[rstest]
+fn partitioned_all(mut conn: PgConnection) {
+    PartitionedTable::setup().execute(&mut conn);
+
+    let schema_rows: Vec<(String, String)> =
+        "SELECT id from sales WHERE id @@@ paradedb.all()".fetch(&mut conn);
+    assert_eq!(schema_rows.len(), 0);
+
     r#"
-        CREATE TABLE sales (
-            id SERIAL,
-            sale_date DATE NOT NULL,
-            amount real NOT NULL, description TEXT,
-            PRIMARY KEY (id, sale_date)
-        ) PARTITION BY RANGE (sale_date);
+        INSERT INTO sales (sale_date, amount, description) VALUES
+        ('2023-01-10', 150.00, 'Ergonomic metal keyboard'),
+        ('2023-04-01', 250.00, 'Modern wall clock');
+    "#
+    .execute(&mut conn);
 
-        CREATE TABLE sales_2023_q1 PARTITION OF sales
-        FOR VALUES FROM ('2023-01-01') TO ('2023-03-31');
+    let schema_rows: Vec<(i32,)> =
+        "SELECT id from sales WHERE id @@@ paradedb.all()".fetch(&mut conn);
+    assert_eq!(schema_rows.len(), 2);
+}
 
-        CREATE TABLE sales_2023_q2 PARTITION OF sales
-        FOR VALUES FROM ('2023-04-01') TO ('2023-06-30');
+#[rstest]
+fn partitioned_query(mut conn: PgConnection) {
+    // Set up the partitioned table with two partitions and a BM25 index.
+    PartitionedTable::setup().execute(&mut conn);
 
+    // Insert some data.
+    r#"
         INSERT INTO sales (sale_date, amount, description) VALUES
         ('2023-01-10', 150.00, 'Ergonomic metal keyboard'),
         ('2023-01-15', 200.00, 'Plastic keyboard'),
@@ -495,12 +521,6 @@ fn partitioned_index(mut conn: PgConnection) {
         ('2023-05-09', 320.00, 'Handcrafted wooden frame');
     "#
     .execute(&mut conn);
-
-    // Create the BM25 index on the partitioned table
-    r#"CREATE INDEX sales_index ON sales_2023_q1
-        USING bm25 (id, description, sale_date, amount) WITH (key_field='id', numeric_fields='{"amount": {"fast": true}}')
-    "#
-        .execute(&mut conn);
 
     // Test: Verify data is partitioned correctly by querying each partition
     let rows_q1: Vec<(i32, String, String)> = r#"

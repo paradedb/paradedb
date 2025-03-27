@@ -4,6 +4,10 @@ DISTDESC     = $(shell grep -m 1 '^description' pg_search/Cargo.toml | sed -e 's
 DISTVERSION  = $(shell grep -m 1 '^version' Cargo.toml | sed -e 's/[^"]*"\([^"]*\)",\{0,1\}/\1/')
 PGRXV        = $(shell perl -nE '/^pgrx\s+=\s"=?([^"]+)/ && do { say $$1; exit }' Cargo.toml)
 PGV          = $(shell perl -E 'shift =~ /(\d+)/ && say $$1' "$(shell $(PG_CONFIG) --version)")
+EXTRA_CLEAN  = META.json $(DISTNAME)-$(DISTVERSION).zip target
+
+PGXS := $(shell $(PG_CONFIG) --pgxs)
+include $(PGXS)
 
 all: package
 
@@ -46,7 +50,3 @@ $(DISTNAME)-$(DISTVERSION).zip: META.json
 
 # Create a PGXN-compatible zip file.
 dist: $(DISTNAME)-$(DISTVERSION).zip
-
-# Delete files generated while making a PGXN-compatible zip file.
-clean:
-	@rm -rf META.json $(DISTNAME)-$(DISTVERSION).zip target

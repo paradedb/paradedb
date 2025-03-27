@@ -42,8 +42,7 @@ package:
 	@cargo pgrx package --package pg_search --pg-config "$(PG_CONFIG)"
 
 META.json: META.json.in pg_search/Cargo.toml
-	@sed "s/@CRATE_DESC@/$(DISTDESC)/g" $< > $@
-	@sed "s/@CRATE_VERSION@/$(DISTVERSION)/g" $< > $@
+	@sed -e "s/@CRATE_DESC@/$(DISTDESC)/g" -e "s/@CRATE_VERSION@/$(DISTVERSION)/g" $< > $@
 
 $(DISTNAME)-$(DISTVERSION).zip: META.json
 	git archive --format zip --prefix $(DISTNAME)-$(DISTVERSION)/ --add-file $< -o $(DISTNAME)-$(DISTVERSION).zip HEAD

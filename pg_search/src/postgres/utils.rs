@@ -113,22 +113,7 @@ pub fn categorize_fields(
                 .into_iter()
                 .map(|search_field| {
                     let array_type = unsafe { pg_sys::get_element_type(attribute_type_oid) };
-                    let (mut base_oid, is_array) = if array_type != pg_sys::InvalidOid {
-                        (array_type, true)
-                    } else {
-                        (attribute_type_oid, false)
-                    };
-                    if unsafe { pg_sys::get_typtype(base_oid) as u8 == pg_sys::TYPTYPE_DOMAIN } {
-                        let domain_typoid = unsafe { pg_sys::getBaseType(base_oid) };
-                        if domain_typoid != pg_sys::InvalidOid {
-                            base_oid = domain_typoid;
-                        } else {
-                            pgrx::warning!(
-                                "Failed to resolve base type for domain type in column {}",
-                                attname
-                            );
-                        }
-                    }
+                    let (base_oid, is_array) = resolve_base_type(attribute_type_oid, array_type);
 
                     let base_oid = PgOid::from(base_oid);
                     let is_json = matches!(
@@ -321,4 +306,30 @@ pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> tantivy::Dat
         }
         _ => panic!("Unsupported typeoid: {typeoid:?}"),
     }
+}
+
+/// Resolves type OID to its base type, handling array and domain type transformations.
+/// Returns the base type OID and a flag indicating whether the original type was an array.
+pub fn resolve_base_type(
+    orig_type: pg_sys::Oid,
+    array_type_oid: pg_sys::Oid,
+) -> (PgOid, bool) {
+    // Determine base OID and array status
+    let (mut type_oid, is_array) = if array_type_oid != pg_sys::InvalidOid {
+        (PgOid::from(array_type_oid), true)
+    } else {
+        (PgOid::from(orig_type), false)
+    };
+
+    // Handle domain types
+    if unsafe { pg_sys::get_typtype(type_oid.value()) as u8 == pg_sys::TYPTYPE_DOMAIN } {
+        let base_type = unsafe { pg_sys::getBaseType(type_oid.value()) };
+        if base_type != pg_sys::InvalidOid {
+            type_oid = PgOid::from(base_type);
+        } else {
+            pgrx::warning!("Failed to resolve base type for domain type");
+        }
+    }
+
+    (type_oid, is_array)
 }

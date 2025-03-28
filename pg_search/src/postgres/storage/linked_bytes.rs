@@ -293,7 +293,7 @@ impl LinkedBytesList {
     ///
     /// It's the caller's responsibility to later call [`pg_sys::IndexFreeSpaceMapVacuum`]
     /// if necessary.
-    pub unsafe fn return_to_fsm(mut self, entry: &impl Debug, type_: Option<SegmentComponent>) {
+    pub unsafe fn return_to_fsm(mut self, _entry: &impl Debug, _type: Option<SegmentComponent>) {
         // in addition to the list itself, we also have a secondary list of linked blocks (which
         // contain the blocknumbers of this list) that needs to freed too
         for starting_blockno in [self.metadata.start_blockno, self.metadata.blocklist_start] {
@@ -307,16 +307,6 @@ impl LinkedBytesList {
                 let buffer = self.bman.get_buffer(blockno);
                 let page = buffer.page();
                 let special = page.special::<BM25PageSpecialData>();
-
-                assert!(
-                    page.is_recyclable(self.bman.bm25cache().heaprel()),
-                    "blockno={blockno} should be recyclable, xmax={}, type={type_:?}, start={}, blocklist={}, header={} entry={:?}",
-                    special.xmax,
-                    { self.metadata.start_blockno },
-                    { self.metadata.blocklist_start} ,
-                    self.header_blockno,
-                    entry
-                );
 
                 blockno = special.next_blockno;
                 self.bman.return_to_fsm(buffer)

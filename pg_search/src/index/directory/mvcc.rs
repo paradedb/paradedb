@@ -18,7 +18,10 @@
 use super::utils::{load_metas, save_new_metas, save_schema, save_settings};
 use crate::index::channel::{ChannelRequest, ChannelRequestHandler};
 use crate::index::reader::segment_component::SegmentComponentReader;
-use crate::postgres::storage::block::{FileEntry, SegmentMetaEntry, SEGMENT_METAS_START};
+use crate::postgres::storage::block::{
+    FileEntry, MVCCEntry, SegmentMetaEntry, SEGMENT_METAS_START,
+};
+use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
 use crate::postgres::storage::LinkedItemList;
 use crossbeam::channel::Receiver;
 use parking_lot::Mutex;
@@ -26,7 +29,7 @@ use pgrx::{pg_sys, PgRelation};
 use rustc_hash::FxHashMap;
 use std::any::Any;
 use std::collections::hash_map::Entry;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt::{Debug, Display};
 use std::panic::panic_any;
@@ -34,16 +37,19 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use std::{io, result};
-use tantivy::directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError};
+use tantivy::directory::error::{
+    DeleteError, LockError, OpenDirectoryError, OpenReadError, OpenWriteError,
+};
 use tantivy::directory::{
     DirectoryLock, DirectoryPanicHandler, FileHandle, Lock, WatchCallback, WatchHandle, WritePtr,
 };
+use tantivy::index::SegmentId;
 use tantivy::{index::SegmentMetaInventory, Directory, IndexMeta, TantivyError};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MvccSatisfies {
     Snapshot,
-    Any,
+    Vacuum,
     Mergeable,
 }
 
@@ -51,7 +57,7 @@ impl MvccSatisfies {
     pub fn directory(self, index_relation: &PgRelation) -> MVCCDirectory {
         match self {
             MvccSatisfies::Snapshot => MVCCDirectory::snapshot(index_relation.oid()),
-            MvccSatisfies::Any => MVCCDirectory::any(index_relation.oid()),
+            MvccSatisfies::Vacuum => MVCCDirectory::any(index_relation.oid()),
             MvccSatisfies::Mergeable => MVCCDirectory::mergeable(index_relation.oid()),
         }
     }
@@ -86,8 +92,8 @@ pub struct MVCCDirectory {
     // we cannot tolerate tantivy calling `load_metas()` multiple times and giving it a different
     // answer
     loaded_metas: OnceLock<Arc<tantivy::Result<IndexMeta>>>,
-
-    entries_cache: Arc<Mutex<FxHashMap<PathBuf, FileEntry>>>,
+    all_entries: Arc<Mutex<HashMap<SegmentId, SegmentMetaEntry>>>,
+    pin_cushion: Arc<Mutex<Option<PinCushion>>>,
 }
 
 unsafe impl Send for MVCCDirectory {}
@@ -106,7 +112,7 @@ impl MVCCDirectory {
     }
 
     pub fn any(relation_oid: pg_sys::Oid) -> Self {
-        Self::with_mvcc_style(relation_oid, MvccSatisfies::Any, None)
+        Self::with_mvcc_style(relation_oid, MvccSatisfies::Vacuum, None)
     }
 
     pub fn mergeable(relation_oid: pg_sys::Oid) -> Self {
@@ -124,35 +130,30 @@ impl MVCCDirectory {
             mvcc_style,
             readers: Arc::new(Mutex::new(FxHashMap::default())),
             loaded_metas: Default::default(),
-            entries_cache: Default::default(),
+            pin_cushion: Default::default(),
+            all_entries: Default::default(),
         }
     }
 
     pub unsafe fn directory_lookup(&self, path: &Path) -> tantivy::Result<FileEntry> {
-        let mut entries_cache = self.entries_cache.lock();
-        if !entries_cache.contains_key(path) {
-            // segment_id not found in the entries_cache, so (re)populate the cache
-            let all_entries =
-                LinkedItemList::<SegmentMetaEntry>::open(self.relation_oid, SEGMENT_METAS_START)
-                    .list();
+        let file_name = path
+            .file_name()
+            .expect("path should have a filename")
+            .to_str()
+            .expect("path should be valid UTF8");
+        let file_name = &file_name[..file_name.find('.').unwrap_or(file_name.len())];
+        let segment_id = SegmentId::from_uuid_string(file_name)
+            .map_err(|e| TantivyError::InvalidArgument(e.to_string()))?;
 
-            for meta_entry in all_entries {
-                for (path, (file_entry, _)) in meta_entry
-                    .get_component_paths()
-                    .zip(meta_entry.file_entries())
-                {
-                    entries_cache.insert(path, *file_entry);
-                }
+        if let Some(meta_entry) = self.all_entries.lock().get(&segment_id) {
+            if let Some(file_entry) = meta_entry.file_entry(path) {
+                return Ok(file_entry);
             }
         }
 
-        match entries_cache.get(path) {
-            None => Err(TantivyError::SystemError(format!(
-                "`{}` not found in directory",
-                path.display()
-            ))),
-            Some(file_entry) => Ok(*file_entry),
-        }
+        Err(TantivyError::OpenDirectoryError(
+            OpenDirectoryError::DoesNotExist(path.to_path_buf()),
+        ))
     }
 }
 
@@ -286,14 +287,26 @@ impl Directory for MVCCDirectory {
     }
 
     fn load_metas(&self, inventory: &SegmentMetaInventory) -> tantivy::Result<IndexMeta> {
-        Clone::clone(self.loaded_metas.get_or_init(|| unsafe {
-            Arc::new(load_metas(
+        let loaded_metas = self.loaded_metas.get_or_init(|| unsafe {
+            match load_metas(
                 self.relation_oid,
                 inventory,
                 self.snapshot,
                 &self.mvcc_style,
-            ))
-        }))
+            ) {
+                Err(e) => Arc::new(Err(e)),
+                Ok((all_entries, index_meta, pin_cushion)) => {
+                    *self.all_entries.lock() = all_entries
+                        .into_iter()
+                        .map(|entry| (entry.segment_id, entry))
+                        .collect();
+                    *self.pin_cushion.lock() = Some(pin_cushion);
+                    Arc::new(Ok(index_meta))
+                }
+            }
+        });
+
+        Clone::clone(loaded_metas)
     }
 
     fn supports_garbage_collection(&self) -> bool {
@@ -346,6 +359,29 @@ impl Directory for MVCCDirectory {
 
     fn log(&self, message: &str) {
         pgrx::debug1!("{message}");
+    }
+}
+
+#[derive(Debug)]
+#[repr(transparent)]
+pub struct PinCushion(HashMap<pg_sys::BlockNumber, PinnedBuffer>);
+
+impl PinCushion {
+    #[inline]
+    pub unsafe fn new(bman: &BufferManager, entries: &[SegmentMetaEntry]) -> Self {
+        let pinned_blocks = entries
+            .iter()
+            .map(|entry| {
+                let blockno = entry.pintest_blockno();
+                (blockno, bman.pinned_buffer(blockno))
+            })
+            .collect();
+
+        PinCushion(pinned_blocks)
+    }
+
+    pub fn remove(&mut self, blockno: pg_sys::BlockNumber) {
+        self.0.remove(&blockno);
     }
 }
 

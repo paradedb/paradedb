@@ -261,11 +261,11 @@ pub unsafe fn merge_index_with_policy(
     let all_segments =
         LinkedItemList::<SegmentMetaEntry>::open(indexrelid, SEGMENT_METAS_START).list();
 
-    // pin the CLEANUP_LOCK and hold it until this function is done.  We keep a pin here
-    // so we can cause `ambulkdelete()` to block, waiting for all merging to finish before it
-    // decides to find the segments it should vacuum.  The reason is that it needs to see the
-    // final merged segment, not the original segments that will be deleted
-    let _cleanup_lock = BufferManager::new(indexrelid).pinned_buffer(CLEANUP_LOCK);
+    // take a shared lock on the CLEANUP_LOCK and hold it until this function is done.  We keep it
+    // locked here so we can cause `ambulkdelete()` to block, waiting for all merging to finish
+    // before it decides to find the segments it should vacuum.  The reason is that it needs to see
+    // the final merged segment, not the original segments that will be deleted
+    let _cleanup_lock = BufferManager::new(indexrelid).get_buffer(CLEANUP_LOCK);
     let mut merge_lock = MergeLock::acquire(indexrelid);
     let mut writer = SearchIndexWriter::open(
         &PgRelation::open(indexrelid),

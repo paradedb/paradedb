@@ -36,6 +36,7 @@ use pgrx::JsonB;
 use pgrx::PgRelation;
 use rustc_hash::FxHashMap;
 use serde_json::Value;
+use std::collections::HashSet;
 
 #[allow(clippy::too_many_arguments)]
 #[pg_extern]
@@ -282,12 +283,11 @@ fn find_ctid(index: PgRelation, ctid: pg_sys::ItemPointerData) -> Result<Option<
         .collect::<Vec<_>>();
 
     if results.is_empty() {
-        pgrx::warning!(
+        panic!(
             "find_ctid: didn't find segment for: {:?}.  segments={:#?}",
             pgrx::itemptr::item_pointer_get_both(ctid),
             search_index.segment_ids()
         );
-        Ok(None)
     } else {
         Ok(Some(results))
     }
@@ -455,6 +455,32 @@ fn force_merge_raw_bytes(
         ncandidates.try_into()?,
         nmerged.try_into()?,
     )))
+}
+
+#[pg_extern]
+fn merge_lock_garbage_collect(index: PgRelation) -> SetOfIterator<'static, i32> {
+    unsafe {
+        let mut merge_lock = MergeLock::acquire(index.oid());
+        let before = merge_lock.in_progress_merge_entries();
+        merge_lock.garbage_collect();
+        let after = merge_lock.in_progress_merge_entries();
+        drop(merge_lock);
+
+        let before_pids = before
+            .into_iter()
+            .map(|entry| entry.pid)
+            .collect::<HashSet<_>>();
+        let after_pids = after
+            .into_iter()
+            .map(|entry| entry.pid)
+            .collect::<HashSet<_>>();
+        let mut garbage_collected_pids = before_pids
+            .difference(&after_pids)
+            .copied()
+            .collect::<Vec<_>>();
+        garbage_collected_pids.sort_unstable();
+        SetOfIterator::new(garbage_collected_pids)
+    }
 }
 
 extension_sql!(

@@ -1,7 +1,7 @@
 use crate::index::mvcc::{MvccSatisfies, PinCushion};
 use crate::postgres::storage::block::{
-    DeleteEntry, FileEntry, MVCCEntry, PgItem, SegmentFileDetails, SegmentMetaEntry, SCHEMA_START,
-    SEGMENT_METAS_START, SETTINGS_START,
+    DeleteEntry, FileEntry, MVCCEntry, PgItem, SegmentFileDetails, SegmentMetaEntry, CLEANUP_LOCK,
+    SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
 };
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use anyhow::Result;
@@ -307,6 +307,7 @@ pub unsafe fn save_new_metas(
 
 impl LinkedItemList<SegmentMetaEntry> {
     pub unsafe fn list_and_pin(&self) -> (Vec<SegmentMetaEntry>, PinCushion) {
+        let _cleanup_lock = self.bman().get_buffer(CLEANUP_LOCK);
         let entries = self.list();
         let pin_cushion = PinCushion::new(self.bman(), &entries);
         (entries, pin_cushion)

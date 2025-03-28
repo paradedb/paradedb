@@ -1,6 +1,6 @@
 use crate::index::mvcc::{MvccSatisfies, PinCushion};
 use crate::postgres::storage::block::{
-    DeleteEntry, FileEntry, MVCCEntry, PgItem, SegmentFileDetails, SegmentMetaEntry, CLEANUP_LOCK,
+    DeleteEntry, FileEntry, LinkedList, MVCCEntry, PgItem, SegmentFileDetails, SegmentMetaEntry,
     SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
 };
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
@@ -307,10 +307,27 @@ pub unsafe fn save_new_metas(
 
 impl LinkedItemList<SegmentMetaEntry> {
     pub unsafe fn list_and_pin(&self) -> (Vec<SegmentMetaEntry>, PinCushion) {
-        let _cleanup_lock = self.bman().get_buffer(CLEANUP_LOCK);
-        let entries = self.list();
-        let pin_cushion = PinCushion::new(self.bman(), &entries);
-        (entries, pin_cushion)
+        let mut pin_cushion = PinCushion::default();
+
+        let mut items = vec![];
+        let mut blockno = self.get_start_blockno();
+
+        while blockno != pg_sys::InvalidBlockNumber {
+            let buffer = self.bman().get_buffer(blockno);
+            let page = buffer.page();
+            let mut offsetno = pg_sys::FirstOffsetNumber;
+            let max_offset = page.max_offset_number();
+            while offsetno <= max_offset {
+                if let Some((deserialized, _)) = page.read_item::<SegmentMetaEntry>(offsetno) {
+                    pin_cushion.push(self.bman(), &deserialized);
+                    items.push(deserialized);
+                }
+                offsetno += 1;
+            }
+            blockno = page.next_blockno();
+        }
+
+        (items, pin_cushion)
     }
 }
 

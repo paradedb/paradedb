@@ -58,7 +58,6 @@ use std::fmt::Debug;
 // +-------------------------------------------------------------+
 
 pub struct LinkedItemList<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> {
-    relation_oid: pg_sys::Oid,
     pub header_blockno: pg_sys::BlockNumber,
     bman: BufferManager,
     _marker: std::marker::PhantomData<T>,
@@ -85,7 +84,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedList for 
 impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<T> {
     pub fn open(relation_oid: pg_sys::Oid, header_blockno: pg_sys::BlockNumber) -> Self {
         Self {
-            relation_oid,
             header_blockno,
             bman: BufferManager::new(relation_oid),
             _marker: std::marker::PhantomData,
@@ -117,7 +115,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         metadata.npages = 0;
 
         Self {
-            relation_oid,
             header_blockno,
             bman,
             _marker: std::marker::PhantomData,
@@ -168,8 +165,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
 
     pub unsafe fn garbage_collect(&mut self) -> Vec<T> {
         // Delete all items that are definitely dead
-        let heap_oid = pg_sys::IndexGetRelation(self.relation_oid, false);
-        let heap_relation = pg_sys::RelationIdGetRelation(heap_oid);
+        let heap_relation = self.bman().bm25cache().heaprel();
         let freeze_limit = vacuum_get_freeze_limit(heap_relation);
         let start_blockno = self.get_start_blockno();
         let mut blockno = start_blockno;
@@ -186,7 +182,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
 
             while offsetno <= max_offset {
                 if let Some((entry, _)) = page.read_item::<T>(offsetno) {
-                    if entry.recyclable(heap_relation) {
+                    if entry.recyclable(self.bman_mut()) {
                         page.mark_item_dead(offsetno);
 
                         recycled_entries.push(entry);
@@ -249,8 +245,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
                 last_filled_blockno = current_blockno;
             }
         }
-
-        pg_sys::RelationClose(heap_relation);
 
         recycled_entries
     }
@@ -350,7 +344,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         // but we should have -- how else could we have asked for something from the list?
         Err(anyhow::anyhow!(format!(
             "transaction {} failed to find the desired entry",
-            pg_sys::GetCurrentTransactionId()
+            pg_sys::GetCurrentTransactionIdIfAny()
         )))
     }
 }

@@ -75,7 +75,8 @@ impl MergePolicy for LayeredMergePolicy {
             let extended_layer_size = layer_size + layer_size / 3;
 
             // collect the list of mergeable segments so that we can combine those that fit in the next layer
-            let segments = self.collect_mergeable_segments(original_segments, &merged_segments);
+            let segments =
+                self.collect_mergeable_segments(original_segments, &merged_segments, avg_doc_size);
             let mut candidate_byte_size = 0;
             candidates.push((layer_size, MergeCandidate(vec![])));
 
@@ -85,14 +86,14 @@ impl MergePolicy for LayeredMergePolicy {
                     continue;
                 }
 
-                let byte_size = actual_byte_size(segment, &self.mergeable_segments, avg_doc_size);
-                if byte_size > layer_size {
+                if self.segment_size(segment, avg_doc_size) > layer_size {
                     // this segment is larger than this layer_size... skip it
                     continue;
                 }
 
                 // add this segment as a candidate
-                candidate_byte_size += byte_size;
+                candidate_byte_size +=
+                    actual_byte_size(segment, &self.mergeable_segments, avg_doc_size);
                 candidates.last_mut().unwrap().1 .0.push(segment.id());
 
                 if candidate_byte_size >= extended_layer_size {
@@ -230,6 +231,7 @@ impl LayeredMergePolicy {
         &self,
         segments: &'a [SegmentMeta],
         exclude: &HashSet<SegmentId>,
+        avg_doc_size: u64,
     ) -> Vec<&'a SegmentMeta> {
         let mut segments = segments
             .iter()
@@ -239,17 +241,12 @@ impl LayeredMergePolicy {
             .collect::<Vec<_>>();
 
         // sort largest to smallest
-        segments.sort_by_key(|segment| Reverse(self.segment_size(&segment.id())));
+        segments.sort_by_key(|segment| Reverse(self.segment_size(segment, avg_doc_size)));
         segments
     }
 
-    // NB: just for logging purposes
-    #[inline]
-    fn segment_size(&self, segment_id: &SegmentId) -> (u64, usize) {
-        self.mergeable_segments
-            .get(segment_id)
-            .map(|entry| (entry.byte_size(), entry.num_docs()))
-            .unwrap_or((0, 0))
+    fn segment_size(&self, segment: &SegmentMeta, avg_doc_size: u64) -> u64 {
+        adjusted_byte_size(segment, &self.mergeable_segments, avg_doc_size)
     }
 }
 
@@ -263,4 +260,21 @@ fn actual_byte_size(
         .get(&meta.id())
         .map(|entry| entry.byte_size())
         .unwrap_or(meta.num_docs() as u64 * avg_doc_size)
+}
+
+#[inline]
+fn adjusted_byte_size(
+    meta: &SegmentMeta,
+    all_entries: &HashMap<SegmentId, SegmentMetaEntry>,
+    avg_doc_size: u64,
+) -> u64 {
+    all_entries
+        .get(&meta.id())
+        .map(|entry| {
+            entry
+                .byte_size()
+                .saturating_sub(entry.num_deleted_docs() as u64 * avg_doc_size)
+        })
+        .unwrap_or(meta.num_docs() as u64 * avg_doc_size)
+        .max(avg_doc_size)
 }

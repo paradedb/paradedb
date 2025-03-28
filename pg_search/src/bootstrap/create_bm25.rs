@@ -214,14 +214,11 @@ fn index_info(
     // validated the existence of the relation. We are safe calling the function below as
     // long we do not pass pg_sys::NoLock without any other locking mechanism of our own.
     let index = unsafe { PgRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _) };
-    let heap = index
-        .heap_relation()
-        .expect("index must have a heap relation");
 
     // open the specified index
-    let all_entries = unsafe {
-        LinkedItemList::<SegmentMetaEntry>::open(index.oid(), SEGMENT_METAS_START).list()
-    };
+    let mut segment_components =
+        LinkedItemList::<SegmentMetaEntry>::open(index.oid(), SEGMENT_METAS_START);
+    let all_entries = unsafe { segment_components.list() };
 
     let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
     let mut results = Vec::new();
@@ -231,7 +228,7 @@ fn index_info(
         }
         results.push((
             unsafe { entry.visible(snapshot) },
-            unsafe { entry.recyclable(heap.as_ptr()) },
+            unsafe { entry.recyclable(segment_components.bman_mut()) },
             entry.xmin.into(),
             entry.xmax.into(),
             entry.segment_id.short_uuid_string(),
@@ -359,9 +356,9 @@ fn page_info(
         ),
     >,
 > {
-    let segment_components =
+    let mut segment_components =
         LinkedItemList::<SegmentMetaEntry>::open(index.oid(), SEGMENT_METAS_START);
-    let bman = segment_components.bman();
+    let bman = segment_components.bman_mut();
     let buffer = bman.get_buffer(blockno as pg_sys::BlockNumber);
     let page = buffer.page();
     let max_offset = page.max_offset_number();
@@ -382,7 +379,7 @@ fn page_info(
                     offsetno as i32,
                     size as i32,
                     entry.visible(snapshot),
-                    entry.recyclable(heap_relation),
+                    entry.recyclable(bman),
                     JsonB(serde_json::to_value(entry)?),
                 ))
             } else {

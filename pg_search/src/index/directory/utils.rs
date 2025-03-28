@@ -1,7 +1,7 @@
-use crate::index::mvcc::MvccSatisfies;
+use crate::index::mvcc::{MvccSatisfies, PinCushion};
 use crate::postgres::storage::block::{
-    DeleteEntry, FileEntry, LinkedList, MVCCEntry, PgItem, SegmentFileDetails, SegmentMetaEntry,
-    SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
+    DeleteEntry, FileEntry, MVCCEntry, PgItem, SegmentFileDetails, SegmentMetaEntry, SCHEMA_START,
+    SEGMENT_METAS_START, SETTINGS_START,
 };
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use anyhow::Result;
@@ -305,77 +305,75 @@ pub unsafe fn save_new_metas(
     Ok(())
 }
 
+impl LinkedItemList<SegmentMetaEntry> {
+    pub unsafe fn list_and_pin(&self) -> (Vec<SegmentMetaEntry>, PinCushion) {
+        let entries = self.list();
+        let pin_cushion = PinCushion::new(self.bman(), &entries);
+        (entries, pin_cushion)
+    }
+}
+
 pub unsafe fn load_metas(
     relation_oid: pg_sys::Oid,
     inventory: &SegmentMetaInventory,
     snapshot: Option<pg_sys::Snapshot>,
     solve_mvcc: &MvccSatisfies,
-) -> tantivy::Result<IndexMeta> {
-    let segment_metas = LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START);
-    let heap_oid = unsafe { pg_sys::IndexGetRelation(relation_oid, false) };
-    let heap_relation = unsafe { pg_sys::RelationIdGetRelation(heap_oid) };
-    let mut alive_segments = vec![];
-    let mut opstamp = None;
-    let mut blockno = segment_metas.get_start_blockno();
-
-    let bman = segment_metas.bman();
+) -> tantivy::Result<(Vec<SegmentMetaEntry>, IndexMeta, PinCushion)> {
     let current_xid = pg_sys::GetCurrentTransactionIdIfAny();
-    while blockno != pg_sys::InvalidBlockNumber {
-        let buffer = bman.get_buffer(blockno);
-        let page = buffer.page();
-        let max_offset = page.max_offset_number();
-        let mut offsetno = pg_sys::FirstOffsetNumber;
+    let mut segment_metas =
+        LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START);
+    let mut alive_segments = vec![];
+    let mut alive_entries = vec![];
+    let mut opstamp = None;
 
-        while offsetno <= max_offset {
-            if let Some((entry, _)) = page.read_item::<SegmentMetaEntry>(offsetno) {
-                if entry.recyclable(heap_relation) {
-                    // we don't want anyone to see entries that are recyclable
-                    offsetno += 1;
-                    continue;
-                }
+    let (entries, mut pin_cushion) = segment_metas.list_and_pin();
+    for entry in entries {
+        if
+        // nobody sees recyclable entries
+        !entry.recyclable(segment_metas.bman_mut())
+            && (
+                // vacuum sees everything else
+                matches!(solve_mvcc, MvccSatisfies::Vacuum)
+            ||
+                // a snapshot can see any that are visible in its snapshot
+                (matches!(solve_mvcc, MvccSatisfies::Snapshot) && entry.visible(snapshot.expect("snapshot must be provided for `MvccSatisfies::Snapshot`")))
 
-                if (matches!(solve_mvcc, MvccSatisfies::Any))
-                    || (matches!(solve_mvcc, MvccSatisfies::Snapshot)
-                        && entry.visible(
-                            snapshot
-                                .expect("snapshot must be provided for `MvccSatisfies::Snapshot`"),
-                        ))
-                    || (matches!(solve_mvcc, MvccSatisfies::Mergeable)
-                        && entry.mergeable(current_xid))
-                {
-                    let inner_segment_meta = InnerSegmentMeta {
-                        max_doc: entry.max_doc,
-                        segment_id: entry.segment_id,
-                        deletes: entry.delete.map(|delete_entry| DeleteMeta {
-                            num_deleted_docs: delete_entry.num_deleted_docs,
-                            opstamp: 0, // hardcode zero as the entry's opstamp as it's not used
-                        }),
-                        include_temp_doc_store: Arc::new(AtomicBool::new(false)),
-                    };
-                    alive_segments.push(inner_segment_meta.track(inventory));
+                // mergeable can see any that are known to be mergeable
+            || (matches!(solve_mvcc, MvccSatisfies::Mergeable) && entry.mergeable(current_xid))
+            )
+        {
+            let inner_segment_meta = InnerSegmentMeta {
+                max_doc: entry.max_doc,
+                segment_id: entry.segment_id,
+                deletes: entry.delete.map(|delete_entry| DeleteMeta {
+                    num_deleted_docs: delete_entry.num_deleted_docs,
+                    opstamp: 0, // hardcode zero as the entry's opstamp as it's not used
+                }),
+                include_temp_doc_store: Arc::new(AtomicBool::new(false)),
+            };
+            alive_segments.push(inner_segment_meta.track(inventory));
+            alive_entries.push(entry);
 
-                    opstamp = opstamp.max(Some(entry.opstamp()));
-                }
-            }
-
-            offsetno += 1;
+            opstamp = opstamp.max(Some(entry.opstamp()));
+        } else {
+            pin_cushion.remove(entry.pintest_blockno());
         }
-
-        blockno = page.next_blockno();
     }
-
-    pg_sys::RelationClose(heap_relation);
 
     let schema = LinkedBytesList::open(relation_oid, SCHEMA_START);
     let settings = LinkedBytesList::open(relation_oid, SETTINGS_START);
     let deserialized_schema = serde_json::from_slice(&schema.read_all())?;
     let deserialized_settings = serde_json::from_slice(&settings.read_all())?;
 
-    Ok(IndexMeta {
-        segments: alive_segments,
-        schema: deserialized_schema,
-        index_settings: deserialized_settings,
-        opstamp: opstamp.unwrap_or(0),
-        payload: None,
-    })
+    Ok((
+        alive_entries,
+        IndexMeta {
+            segments: alive_segments,
+            schema: deserialized_schema,
+            index_settings: deserialized_settings,
+            opstamp: opstamp.unwrap_or(0),
+            payload: None,
+        },
+        pin_cushion,
+    ))
 }

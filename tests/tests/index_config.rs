@@ -23,6 +23,7 @@ use std::path::PathBuf;
 use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
+use serde_json::Value;
 use sqlx::PgConnection;
 
 fn fmt_err<T: std::error::Error>(err: T) -> String {
@@ -560,6 +561,42 @@ fn partitioned_query(mut conn: PgConnection) {
             amount_results.len(),
             expected,
             "Expected {expected} items with amount in range 175-250"
+        );
+    }
+}
+
+#[rstest]
+fn partitioned_uses_custom_scan(mut conn: PgConnection) {
+    PartitionedTable::setup().execute(&mut conn);
+
+    r#"
+        INSERT INTO sales (sale_date, amount, description) VALUES
+        ('2023-01-10', 150.00, 'Ergonomic metal keyboard'),
+        ('2023-04-01', 250.00, 'Modern wall clock');
+    "#
+    .execute(&mut conn);
+
+    "SET max_parallel_workers TO 0;".execute(&mut conn);
+
+    let (plan,) = r#"
+        EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
+        SELECT count(*)
+        FROM sales
+        WHERE id @@@ '1';
+        "#
+    .fetch_one::<(Value,)>(&mut conn);
+    eprintln!("{plan:#?}");
+
+    let per_partition_plans = plan
+        .pointer("/0/Plan/Plans/0/Plans")
+        .unwrap()
+        .as_array()
+        .unwrap();
+    assert_eq!(per_partition_plans.len(), 2, "Expected 2 partitions.");
+    for per_partition_plan in per_partition_plans {
+        pretty_assertions::assert_eq!(
+            per_partition_plan.get("Node Type"),
+            Some(&Value::String(String::from("Custom Scan")))
         );
     }
 }

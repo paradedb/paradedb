@@ -60,7 +60,11 @@ impl MergePolicy for LayeredMergePolicy {
             .values()
             .map(|entry| entry.byte_size())
             .sum::<u64>()
-            / self.mergeable_segments.len() as u64;
+            / self
+                .mergeable_segments
+                .values()
+                .map(|entry| (entry.num_docs() + entry.num_deleted_docs()) as u64)
+                .sum::<u64>();
 
         let mut candidates = Vec::new();
         let mut merged_segments = HashSet::new();

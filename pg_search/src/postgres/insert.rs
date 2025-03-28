@@ -265,7 +265,7 @@ pub unsafe fn merge_index_with_policy(
     // locked here so we can cause `ambulkdelete()` to block, waiting for all merging to finish
     // before it decides to find the segments it should vacuum.  The reason is that it needs to see
     // the final merged segment, not the original segments that will be deleted
-    let _cleanup_lock = BufferManager::new(indexrelid).get_buffer(CLEANUP_LOCK);
+    let cleanup_lock = BufferManager::new(indexrelid).get_buffer(CLEANUP_LOCK);
     let mut merge_lock = MergeLock::acquire(indexrelid);
     let mut writer = SearchIndexWriter::open(
         &PgRelation::open(indexrelid),
@@ -292,8 +292,8 @@ pub unsafe fn merge_index_with_policy(
 
             // every segment that isn't known to currently be merging
             (!non_mergeable_segments.contains(segment_id)
-                    // and is also seen by the writer
-                    && writer_segment_ids.contains(segment_id))
+                // and is also seen by the writer
+                && writer_segment_ids.contains(segment_id))
             .then_some((*segment_id, entry))
         })
         .collect::<HashMap<_, _>>();
@@ -309,7 +309,6 @@ pub unsafe fn merge_index_with_policy(
         );
     }
 
-    let mut recycled_entries = None;
     if ncandidates > 0 {
         // record all the segments the IndexWriter can see, as those are the ones that
         // could be merged.  This also drops the MergeLock
@@ -332,26 +331,24 @@ pub unsafe fn merge_index_with_policy(
         merge_lock
             .remove_entry(merge_entry)
             .expect("should be able to remove MergeEntry");
+        drop(merge_lock);
 
         if let Err(e) = merge_result {
             panic!("failed to merge: {:?}", e);
         }
+    } else {
+        drop(merge_lock)
+    };
+    drop(cleanup_lock);
 
-        recycled_entries = (!merge_lock.is_ambulkdelete_running()).then(|| {
-            assert!(merge_lock.list_vacuuming_segments().is_empty());
-            LinkedItemList::<SegmentMetaEntry>::open(indexrelid, SEGMENT_METAS_START)
-                .garbage_collect()
-        });
-    }
-
-    // we can return blocks back to the FSM without being under the MergeLock
-    if let Some(recycled_entries) = recycled_entries {
-        for entry in recycled_entries {
-            for (file_entry, type_) in entry.file_entries() {
-                let bytes = LinkedBytesList::open(indexrelid, file_entry.starting_block);
-                bytes.return_to_fsm(&entry, Some(type_));
-                pg_sys::IndexFreeSpaceMapVacuum(indexrel.as_ptr());
-            }
+    // we can garbage collect and return blocks back to the FSM without being under the MergeLock
+    let recycled_entries =
+        LinkedItemList::<SegmentMetaEntry>::open(indexrelid, SEGMENT_METAS_START).garbage_collect();
+    for entry in recycled_entries {
+        for (file_entry, type_) in entry.file_entries() {
+            let bytes = LinkedBytesList::open(indexrelid, file_entry.starting_block);
+            bytes.return_to_fsm(&entry, Some(type_));
+            pg_sys::IndexFreeSpaceMapVacuum(indexrel.as_ptr());
         }
     }
 

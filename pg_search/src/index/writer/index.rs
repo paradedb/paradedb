@@ -29,6 +29,8 @@ use crate::index::channel::{ChannelDirectory, ChannelRequestHandler};
 use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::{get_index_schema, setup_tokenizers, WriterResources};
+use crate::postgres::storage::block::CLEANUP_LOCK;
+use crate::postgres::storage::buffer::{Buffer, BufferManager};
 use crate::{
     postgres::types::TantivyValueError,
     schema::{SearchDocument, SearchIndexSchema},
@@ -51,6 +53,7 @@ pub struct SearchIndexWriter {
     insert_queue: Vec<UserOperation>,
 
     cnt: usize,
+    _cleanup_lock: Buffer,
 }
 
 impl SearchIndexWriter {
@@ -59,6 +62,7 @@ impl SearchIndexWriter {
         directory_type: MvccSatisfies,
         resources: WriterResources,
     ) -> Result<Self> {
+        let cleanup_lock = BufferManager::new(index_relation.oid()).get_buffer(CLEANUP_LOCK);
         let (parallelism, memory_budget) = resources.resources();
 
         let (req_sender, req_receiver) = crossbeam::channel::bounded(1);
@@ -96,10 +100,12 @@ impl SearchIndexWriter {
             ctid_field,
             insert_queue: Vec::with_capacity(MAX_INSERT_QUEUE_SIZE),
             cnt: 0,
+            _cleanup_lock: cleanup_lock,
         })
     }
 
     pub fn create_index(index_relation: &PgRelation) -> Result<Self> {
+        let cleanup_lock = BufferManager::new(index_relation.oid()).get_buffer(CLEANUP_LOCK);
         let schema = get_index_schema(index_relation)?;
         let (parallelism, memory_budget) = WriterResources::CreateIndex.resources();
 
@@ -142,6 +148,7 @@ impl SearchIndexWriter {
             handler,
             insert_queue: Vec::with_capacity(MAX_INSERT_QUEUE_SIZE),
             cnt: 0,
+            _cleanup_lock: cleanup_lock,
         })
     }
 

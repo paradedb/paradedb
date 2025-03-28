@@ -20,7 +20,7 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::scorer_iter::DeferredScorer;
 use crate::index::setup_tokenizers;
 use crate::postgres::storage::block::CLEANUP_LOCK;
-use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
+use crate::postgres::storage::buffer::{Buffer, BufferManager};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchField;
 use crate::schema::{SearchFieldName, SearchIndexSchema};
@@ -250,11 +250,11 @@ pub struct SearchIndexReader {
     underlying_reader: IndexReader,
     underlying_index: Index,
 
-    // [`PinnedBuffer`] has a Drop impl, so we hold onto it but don't otherwise use it
+    // [`Buffer`] has a Drop impl, so we hold onto it but don't otherwise use it
     //
     // also, it's an Arc b/c if we're clone'd (we do derive it, after all), we only want this
     // buffer dropped once
-    _cleanup_lock: Arc<PinnedBuffer>,
+    _cleanup_lock: Arc<Buffer>,
 }
 
 impl SearchIndexReader {
@@ -269,7 +269,7 @@ impl SearchIndexReader {
         //
         // It's sufficient, and **required** for parallel scans to operate correctly, for us to hold onto
         // a pinned but unlocked buffer.
-        let cleanup_lock = BufferManager::new(index_relation.oid()).pinned_buffer(CLEANUP_LOCK);
+        let cleanup_lock = BufferManager::new(index_relation.oid()).get_buffer(CLEANUP_LOCK);
 
         let directory = mvcc_style.directory(index_relation);
         let mut index = Index::open(directory)?;

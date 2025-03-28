@@ -241,8 +241,15 @@ RUN apt-get update \
 # The `postgres` database is the default database that exists in every Postgres installation. The pg_cron
 # extension requires a database to store its metadata tables. By using `postgres`, we ensure that it has a
 # stable, always-available database for its operations, no matter what other databases are created or deleted.
-RUN sed -i "s/^#shared_preload_libraries = ''/shared_preload_libraries = 'pg_search,pg_analytics,pg_parquet,pg_cron'/" /usr/share/postgresql/postgresql.conf.sample && \
-    echo "cron.database_name = 'postgres'" >> /usr/share/postgresql/postgresql.conf.sample
+#
+# The pg_prewarm extension is used to pre-load data into the Postgres buffer cache, which can significantly improve
+# performance for expensive queries. By setting `pg_prewarm` in the shared_preload_libraries, we ensure that it will
+# be performed automatically. The settings we set are the default settings for `pg_prewarm`, but we set them explicitly
+# in case the user wants to change them. https://www.postgresql.org/docs/current/pgprewarm.html
+RUN sed -i "s/^#shared_preload_libraries = ''/shared_preload_libraries = 'pg_search,pg_analytics,pg_parquet,pg_cron,pg_prewarm'/" /usr/share/postgresql/postgresql.conf.sample && \
+    echo "cron.database_name = 'postgres'" >> /usr/share/postgresql/postgresql.conf.sample && \
+    echo "pg_prewarm.autoprewarm = true" >> /usr/share/postgresql/postgresql.conf.sample && \
+    echo "pg_prewarm.autoprewarm_interval = 300s" >> /usr/share/postgresql/postgresql.conf.sample
 
 # The pg_search extension requires the ICU library binaries to be installed at runtime. Therefore, we download
 # and install the ICU library binaries in the final stage as well.

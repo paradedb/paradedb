@@ -466,19 +466,28 @@ fn multi_index_insert_in_transaction(mut conn: PgConnection) {
 }
 
 #[rstest]
-// TODO: https://github.com/paradedb/paradedb/issues/2191
-#[should_panic]
 fn partitioned_metadata(mut conn: PgConnection) {
     PartitionedTable::setup().execute(&mut conn);
 
-    let schema_rows: Vec<(String, String)> =
-        "SELECT name, field_type FROM paradedb.schema('sales_index')".fetch(&mut conn);
-    assert_eq!(schema_rows.len(), 4);
+    let err = "SELECT name, field_type FROM paradedb.schema('sales_index')"
+        .fetch_result::<(String, String)>(&mut conn)
+        .err()
+        .unwrap();
+    assert!(
+        err.to_string().contains("The given index is partitioned"),
+        "{}",
+        fmt_err(err)
+    );
 
-    let nsegments = "SELECT COUNT(*) FROM paradedb.index_info('sales_index')"
-        .fetch_one::<(i64,)>(&mut conn)
-        .0 as usize;
-    assert_eq!(nsegments, 0);
+    let err = "SELECT COUNT(*) FROM paradedb.index_info('sales_index')"
+        .fetch_result::<(String, String)>(&mut conn)
+        .err()
+        .unwrap();
+    assert!(
+        err.to_string().contains("The given index is partitioned"),
+        "{}",
+        fmt_err(err)
+    );
 }
 
 #[rstest]

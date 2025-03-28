@@ -17,7 +17,7 @@
 
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::schema::{SearchFieldConfig, SearchFieldName, SearchFieldType};
-use pgrx::PgRelation;
+use pgrx::{pg_sys, PgRelation};
 
 type Fields = Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>;
 type KeyFieldIndex = usize;
@@ -32,4 +32,26 @@ pub unsafe fn get_fields(index_relation: &PgRelation) -> (Fields, KeyFieldIndex)
         .expect("key field not found in columns"); // key field is already validated by now.
 
     (fields, key_field_index)
+}
+
+///
+/// Panic with a useful error message if the given relation is not
+/// an (unpartitioned) index.
+///
+pub fn validate_is_index(index_relation: &PgRelation) {
+    let index_relkind = unsafe { pg_sys::get_rel_relkind(index_relation.oid()) as u8 };
+    match index_relkind {
+        pg_sys::RELKIND_INDEX => {
+            // The index is already of the right type.
+        }
+        pg_sys::RELKIND_PARTITIONED_INDEX => {
+            // TODO: Should probably:
+            // 1. locate the child partition and then report its metadata
+            // 2. (optional) error if all child partitions do not have "equal" metadata
+            panic!("The given index is partitioned: please try again with the child relation.");
+        }
+        _ => {
+            panic!("Expected to receive an index argument.");
+        }
+    }
 }

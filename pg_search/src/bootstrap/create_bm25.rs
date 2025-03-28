@@ -17,6 +17,7 @@
 
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::index::IndexKind;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::storage::block::{
     LinkedList, MVCCEntry, SegmentMetaEntry, SEGMENT_METAS_START,
@@ -140,6 +141,9 @@ unsafe fn merge_info(
         name!(segno, String),
     ),
 > {
+    let IndexKind::Index(index) = IndexKind::for_index(index).unwrap() else {
+        panic!("The given index is partitioned: please try again with one of its child indexes.")
+    };
     let merge_lock = MergeLock::acquire(index.oid());
     let merge_entries = merge_lock.in_progress_merge_entries();
     let table = TableIterator::new(merge_entries.into_iter().flat_map(move |merge_entry| {
@@ -166,6 +170,9 @@ fn is_merging(index: PgRelation) -> bool {
 
 #[pg_extern]
 unsafe fn vacuum_info(index: PgRelation) -> SetOfIterator<'static, String> {
+    let IndexKind::Index(index) = IndexKind::for_index(index).unwrap() else {
+        panic!("The given index is partitioned: please try again with one of its child indexes.")
+    };
     let mut merge_lock = MergeLock::acquire(index.oid());
     let vacuum_list = merge_lock.list_vacuuming_segments();
     SetOfIterator::new(
@@ -212,6 +219,9 @@ fn index_info(
     // validated the existence of the relation. We are safe calling the function below as
     // long we do not pass pg_sys::NoLock without any other locking mechanism of our own.
     let index = unsafe { PgRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _) };
+    let IndexKind::Index(index) = IndexKind::for_index(index).unwrap() else {
+        panic!("The given index is partitioned: please try again with one of its child indexes.")
+    };
     let heap = index
         .heap_relation()
         .expect("index must have a heap relation");

@@ -20,6 +20,7 @@ use pgrx::{iter::TableIterator, *};
 
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::index::IndexKind;
 use crate::postgres::types::TantivyValue;
 use crate::query::{SearchQueryInput, TermInput};
 use crate::schema::AnyEnum;
@@ -59,6 +60,13 @@ pub fn schema(
     // validated the existence of the relation. We are safe calling the function below as
     // long we do not pass pg_sys::NoLock without any other locking mechanism of our own.
     let index = unsafe { PgRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _) };
+
+    // We only consider the first partition for the purposes of computing a schema.
+    let index = IndexKind::for_index(index)
+        .unwrap()
+        .partitions()
+        .next()
+        .expect("expected at least one partition of the index");
 
     let search_reader = SearchIndexReader::open(&index, MvccSatisfies::Snapshot)
         .expect("could not open search index reader");

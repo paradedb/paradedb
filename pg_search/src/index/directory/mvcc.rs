@@ -366,22 +366,14 @@ impl Directory for MVCCDirectory {
     }
 }
 
-#[derive(Debug)]
+#[derive(Default, Debug)]
 #[repr(transparent)]
 pub struct PinCushion(HashMap<pg_sys::BlockNumber, PinnedBuffer>);
 
 impl PinCushion {
-    #[inline]
-    pub unsafe fn new(bman: &BufferManager, entries: &[SegmentMetaEntry]) -> Self {
-        let pinned_blocks = entries
-            .iter()
-            .map(|entry| {
-                let blockno = entry.pintest_blockno();
-                (blockno, bman.pinned_buffer(blockno))
-            })
-            .collect();
-
-        PinCushion(pinned_blocks)
+    pub fn push(&mut self, bman: &BufferManager, entry: &SegmentMetaEntry) {
+        let blockno = entry.pintest_blockno();
+        self.0.insert(blockno, bman.pinned_buffer(blockno));
     }
 
     pub fn remove(&mut self, blockno: pg_sys::BlockNumber) {

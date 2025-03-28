@@ -390,10 +390,6 @@ pub trait MVCCEntry {
 
                 // and there's no pin on on our pintest buffer
                 && bman.get_buffer_for_cleanup_conditional(self.pintest_blockno()).is_some()
-
-                // and nobody is holding a pin on the CLEANUP_LOCK, which would indicate, at least
-                // that they're reading the segment meta entries list
-                && bman.get_buffer_for_cleanup_conditional(CLEANUP_LOCK).is_some()
             )
     }
 

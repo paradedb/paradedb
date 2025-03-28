@@ -28,8 +28,10 @@ SELECT * FROM paradedb.version_info();
 ```
 
 The reason that there are two statements is because `paradedb.version_info()` is the actual version of `pg_search` that is installed,
-whereas `pg_extension` is what Postgres' catalog thinks the version of `pg_search` is. If Postgres was not restarted after the previous upgrade,
-the two versions will not match.
+whereas `pg_extension` is what Postgres' catalog thinks the version of the extension is.
+
+If `paradedb.version_info()` is greater than `pg_extension`, it typically means that `ALTER EXTENSION` was not run after the previous upgrade, and that the SQL upgrade scripts were not applied.
+If `pg_extension` is greater than `paradedb.version_info()`, it means that the extension didn't fully upgrade, and that Postgres needs to be restarted.
 
 ## Getting the Latest Version
 

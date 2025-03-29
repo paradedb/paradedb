@@ -22,7 +22,7 @@ WITH (key_field='id');
 
 ```sql
 CREATE INDEX <index_name> ON <schema_name>.<table_name>
-USING bm25 (<columns>)
+USING bm25 (<indexing_fields>)
 WITH (key_field='<key_field>');
 ```
 
@@ -35,8 +35,8 @@ WITH (key_field='<key_field>');
 <ParamField body="table_name" required>
   The name of the table being indexed.
 </ParamField>
-<ParamField body="columns" required>
-  A comma-separated list of columns to index, starting with the key field. Text, numeric, datetime, boolean, range, enum, and JSON types can be indexed.
+<ParamField body="indexing_fields" required>
+  A comma-separated list of columns and/or expressions to index, starting with the key field. Text, numeric, datetime, boolean, range, enum, and JSON types can be indexed.
 </ParamField>
 <ParamField body="key_field" required>
   The name of a column in the table that represents a unique identifier for each

@@ -33,7 +33,7 @@
          "type": "git"
       }
    },
-   "generated_by": "Yoh Deadfall",
+   "generated_by": "ParadeDB",
    "meta-spec": {
       "version": "1.0.0",
       "url": "https://pgxn.org/meta/spec.txt"

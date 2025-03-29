@@ -374,23 +374,17 @@ pub trait MVCCEntry {
         xmin_visible && !deleted
     }
 
-    #[rustfmt::skip]
     unsafe fn recyclable(&self, bman: &mut BufferManager) -> bool {
         let xmax = self.get_xmax();
         if xmax == pg_sys::InvalidTransactionId {
             return false;
         }
 
-        // recyclable if the xmax is beyond the vacuum horizon
-        pg_sys::GlobalVisCheckRemovableXid(bman.bm25cache().heaprel(), xmax)
-            // or...
-            || (
-                // if the xmax transaction is no longer in progress
-                !pg_sys::TransactionIdIsInProgress(xmax)
+        // if the xmax transaction is no longer in progress
+        !pg_sys::TransactionIdIsInProgress(xmax)
 
-                // and there's no pin on on our pintest buffer
-                && bman.get_buffer_for_cleanup_conditional(self.pintest_blockno()).is_some()
-            )
+        // and there's no pin on on our pintest buffer
+        && bman.get_buffer_for_cleanup_conditional(self.pintest_blockno()).is_some()
     }
 
     unsafe fn mergeable(&self, current_xid: pg_sys::TransactionId) -> bool {

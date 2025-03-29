@@ -7,7 +7,7 @@
    "maintainer": [
       "ParadeDB <support@paradedb.com>"
    ],
-   "license": "agpl-3.0",
+   "license": "agpl_3",
    "provides": {
       "pg_search": {
          "abstract": "Postgres for Search and Analytics",

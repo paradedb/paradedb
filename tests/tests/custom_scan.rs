@@ -345,7 +345,6 @@ fn scores_survive_joins(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[should_panic]
 fn scores_partitioned(mut conn: PgConnection) {
     // Not indexing `sale_date` means that our index doesn't fully cover the query. But
     // we must still custom scan due to the use of the score function.
@@ -371,8 +370,8 @@ fn scores_partitioned(mut conn: PgConnection) {
         // This is all that we need to assert, because our result type above has already
         // asserted that no columns are NULL.
         assert!(
-            search_results.len() > 0,
-            "Expected at least one item in each table."
+            search_results.len() == 1,
+            "Expected one item in each table."
         );
     }
 }

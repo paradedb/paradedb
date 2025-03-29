@@ -29,6 +29,7 @@ use crate::api::operator::{
     anyelement_query_input_opoid, attname_from_var, estimate_selectivity, find_var_relation,
 };
 use crate::api::{AsCStr, AsInt, Cardinality};
+use crate::customscan::pdbscan::qual_inspect::Qual;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::builders::custom_path::{
@@ -177,9 +178,15 @@ impl CustomScan for PdbScan {
                 return None;
             }
 
-            let Some(quals) = quals else {
+            if quals.is_none() && !maybe_needs_const_projections {
+                // if there are no qualifiers to apply, and no need for a score function, then
+                // don't use the custom scan
                 return None;
-            };
+            }
+
+            // at this point, we will execute the query, regardless of whether there were any Quals
+            // pushed down by the planner
+            let quals = quals.unwrap_or(Qual::All);
 
             let has_expressions = quals.contains_exprs();
             let selectivity = if let Some(limit) = limit {

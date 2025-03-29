@@ -1,4 +1,4 @@
-use crate::index::mvcc::MvccSatisfies;
+use crate::index::mvcc::{MvccSatisfies, PinCushion};
 use crate::postgres::storage::block::{
     DeleteEntry, FileEntry, LinkedList, MVCCEntry, PgItem, SegmentFileDetails, SegmentMetaEntry,
     SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
@@ -218,7 +218,12 @@ pub unsafe fn save_new_metas(
     // now change things on disk
     //
 
-    // delete old entries and their corresponding files
+    // add the new entries -- happens via an index commit or the result of a merge
+    if !created_entries.is_empty() {
+        linked_list.add_items(&created_entries, None)?;
+    }
+
+    // delete old entries and their corresponding files -- happens only as the result of a merge
     for (entry, blockno) in &deleted_entries {
         assert!(entry.xmax == deleting_xid);
         let mut buffer = linked_list.bman_mut().get_buffer_mut(*blockno);
@@ -249,7 +254,7 @@ pub unsafe fn save_new_metas(
         drop(buffer);
     }
 
-    // replace the modified entries
+    // replace the modified entries -- only happens because of vacuum
     for (entry, blockno) in modified_entries {
         let mut buffer = linked_list.bman_mut().get_buffer_mut(blockno);
         let mut page = buffer.page_mut();
@@ -297,12 +302,32 @@ pub unsafe fn save_new_metas(
         }
     }
 
-    // add the new entries
-    if !created_entries.is_empty() {
-        linked_list.add_items(&created_entries, None)?;
-    }
-
     Ok(())
+}
+
+impl LinkedItemList<SegmentMetaEntry> {
+    pub unsafe fn list_and_pin(&self) -> (Vec<SegmentMetaEntry>, PinCushion) {
+        let mut pin_cushion = PinCushion::default();
+
+        let mut items = vec![];
+        let mut blockno = self.get_start_blockno();
+        while blockno != pg_sys::InvalidBlockNumber {
+            let buffer = self.bman().get_buffer(blockno);
+            let page = buffer.page();
+            let mut offsetno = pg_sys::FirstOffsetNumber;
+            let max_offset = page.max_offset_number();
+            while offsetno <= max_offset {
+                if let Some((deserialized, _)) = page.read_item::<SegmentMetaEntry>(offsetno) {
+                    pin_cushion.push(self.bman(), &deserialized);
+                    items.push(deserialized);
+                }
+                offsetno += 1;
+            }
+            blockno = page.next_blockno();
+        }
+
+        (items, pin_cushion)
+    }
 }
 
 pub unsafe fn load_metas(
@@ -310,72 +335,60 @@ pub unsafe fn load_metas(
     inventory: &SegmentMetaInventory,
     snapshot: Option<pg_sys::Snapshot>,
     solve_mvcc: &MvccSatisfies,
-) -> tantivy::Result<IndexMeta> {
-    let segment_metas = LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START);
-    let heap_oid = unsafe { pg_sys::IndexGetRelation(relation_oid, false) };
-    let heap_relation = unsafe { pg_sys::RelationIdGetRelation(heap_oid) };
-    let mut alive_segments = vec![];
-    let mut opstamp = None;
-    let mut blockno = segment_metas.get_start_blockno();
-
-    let bman = segment_metas.bman();
+) -> tantivy::Result<(Vec<SegmentMetaEntry>, IndexMeta, PinCushion)> {
     let current_xid = pg_sys::GetCurrentTransactionIdIfAny();
-    while blockno != pg_sys::InvalidBlockNumber {
-        let buffer = bman.get_buffer(blockno);
-        let page = buffer.page();
-        let max_offset = page.max_offset_number();
-        let mut offsetno = pg_sys::FirstOffsetNumber;
+    let mut segment_metas =
+        LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START);
+    let mut alive_segments = vec![];
+    let mut alive_entries = vec![];
+    let mut opstamp = None;
 
-        while offsetno <= max_offset {
-            if let Some((entry, _)) = page.read_item::<SegmentMetaEntry>(offsetno) {
-                if entry.recyclable(heap_relation) {
-                    // we don't want anyone to see entries that are recyclable
-                    offsetno += 1;
-                    continue;
-                }
+    let (entries, mut pin_cushion) = segment_metas.list_and_pin();
+    for entry in entries {
+        if !entry.recyclable(segment_metas.bman_mut()) {
+            // vacuum sees everything that hasn't been deleted by a merge
+            if (matches!(solve_mvcc, MvccSatisfies::Vacuum) && entry.xmax == pg_sys::InvalidTransactionId)
 
-                if (matches!(solve_mvcc, MvccSatisfies::Any))
-                    || (matches!(solve_mvcc, MvccSatisfies::Snapshot)
-                        && entry.visible(
-                            snapshot
-                                .expect("snapshot must be provided for `MvccSatisfies::Snapshot`"),
-                        ))
-                    || (matches!(solve_mvcc, MvccSatisfies::Mergeable)
-                        && entry.mergeable(current_xid))
-                {
-                    let inner_segment_meta = InnerSegmentMeta {
-                        max_doc: entry.max_doc,
-                        segment_id: entry.segment_id,
-                        deletes: entry.delete.map(|delete_entry| DeleteMeta {
-                            num_deleted_docs: delete_entry.num_deleted_docs,
-                            opstamp: 0, // hardcode zero as the entry's opstamp as it's not used
-                        }),
-                        include_temp_doc_store: Arc::new(AtomicBool::new(false)),
-                    };
-                    alive_segments.push(inner_segment_meta.track(inventory));
+                // a snapshot can see any that are visible in its snapshot
+                || (matches!(solve_mvcc, MvccSatisfies::Snapshot) && entry.visible(snapshot.expect("snapshot must be provided for `MvccSatisfies::Snapshot`")))
 
-                    opstamp = opstamp.max(Some(entry.opstamp()));
-                }
+                // mergeable can see any that are known to be mergeable
+                || (matches!(solve_mvcc, MvccSatisfies::Mergeable) && entry.mergeable(current_xid))
+            {
+                let inner_segment_meta = InnerSegmentMeta {
+                    max_doc: entry.max_doc,
+                    segment_id: entry.segment_id,
+                    deletes: entry.delete.map(|delete_entry| DeleteMeta {
+                        num_deleted_docs: delete_entry.num_deleted_docs,
+                        opstamp: 0, // hardcode zero as the entry's opstamp as it's not used
+                    }),
+                    include_temp_doc_store: Arc::new(AtomicBool::new(false)),
+                };
+                alive_segments.push(inner_segment_meta.track(inventory));
+                alive_entries.push(entry);
+
+                opstamp = opstamp.max(Some(entry.opstamp()));
+                continue;
             }
-
-            offsetno += 1;
         }
 
-        blockno = page.next_blockno();
+        pin_cushion.remove(entry.pintest_blockno());
     }
-
-    pg_sys::RelationClose(heap_relation);
 
     let schema = LinkedBytesList::open(relation_oid, SCHEMA_START);
     let settings = LinkedBytesList::open(relation_oid, SETTINGS_START);
     let deserialized_schema = serde_json::from_slice(&schema.read_all())?;
     let deserialized_settings = serde_json::from_slice(&settings.read_all())?;
 
-    Ok(IndexMeta {
-        segments: alive_segments,
-        schema: deserialized_schema,
-        index_settings: deserialized_settings,
-        opstamp: opstamp.unwrap_or(0),
-        payload: None,
-    })
+    Ok((
+        alive_entries,
+        IndexMeta {
+            segments: alive_segments,
+            schema: deserialized_schema,
+            index_settings: deserialized_settings,
+            opstamp: opstamp.unwrap_or(0),
+            payload: None,
+        },
+        pin_cushion,
+    ))
 }

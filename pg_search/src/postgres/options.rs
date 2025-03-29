@@ -158,25 +158,25 @@ extern "C" fn validate_layer_sizes(value: *const std::os::raw::c_char) {
     let cstr = unsafe { CStr::from_ptr(value) };
     let str = cstr.to_str().expect("`layer_sizes` must be valid UTF-8");
 
-    let mut cnt = 0;
-    for part in str.split(",") {
-        // just make sure postgres can parse this byte size
-        unsafe {
-            let byte_size: u64 =
-                direct_function_call::<i64>(pg_sys::pg_size_bytes, &[part.into_datum()])
-                    .expect("`pg_size_bytes()` should not return NULL")
-                    .try_into()
-                    .expect("a single layer size must be positive");
-            assert!(
-                byte_size > 0,
-                "a single layer size must be greater than zero"
-            )
-        }
-        cnt += 1;
-    }
+    let cnt = get_layer_sizes(str).count();
 
     // we require at least two layers
     assert!(cnt >= 2, "There must be at least 2 layers in `layer_sizes`");
+}
+
+fn get_layer_sizes(s: &str) -> impl Iterator<Item = u64> + use<'_> {
+    s.split(",").map(|part| {
+        unsafe {
+            // just make sure postgres can parse this byte size
+            u64::try_from(
+                direct_function_call::<i64>(pg_sys::pg_size_bytes, &[part.into_datum()])
+                    .expect("`pg_size_bytes()` should not return NULL"),
+            )
+            .ok()
+            .filter(|b| b > &0)
+            .expect("a single layer size must be greater than zero")
+        }
+    })
 }
 
 #[inline]
@@ -277,24 +277,7 @@ impl SearchIndexCreateOptions {
             return default.to_vec();
         }
 
-        let mut layer_sizes = Vec::new();
-        for part in layer_sizes_str.split(",") {
-            unsafe {
-                let byte_size =
-                    direct_function_call::<i64>(pg_sys::pg_size_bytes, &[part.into_datum()])
-                        .expect("`pg_size_bytes()` should not return NULL")
-                        .try_into()
-                        .expect("a single layer size must be positive");
-
-                assert!(
-                    byte_size > 0,
-                    "a single layer size must be greater than zero"
-                );
-
-                layer_sizes.push(byte_size);
-            }
-        }
-        layer_sizes
+        get_layer_sizes(&layer_sizes_str).collect()
     }
 
     /// As a SearchFieldConfig is an enum, for it to be correctly serialized the variant needs

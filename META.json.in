@@ -40,8 +40,16 @@
    },
    "tags": [
       "paradedb",
-      "full text",
+      "search",
+      "analytics",
+      "bm25",
+      "text search",
       "full text search",
-      "full-text search"
+      "full-text search",
+      "hybrid search",
+      "faceted search",
+      "facets",
+      "columnar",
+      "olap"
    ]
 }

@@ -218,7 +218,12 @@ pub unsafe fn save_new_metas(
     // now change things on disk
     //
 
-    // delete old entries and their corresponding files
+    // add the new entries -- happens via an index commit or the result of a merge
+    if !created_entries.is_empty() {
+        linked_list.add_items(&created_entries, None)?;
+    }
+
+    // delete old entries and their corresponding files -- happens only as the result of a merge
     for (entry, blockno) in &deleted_entries {
         assert!(entry.xmax == deleting_xid);
         let mut buffer = linked_list.bman_mut().get_buffer_mut(*blockno);
@@ -249,7 +254,7 @@ pub unsafe fn save_new_metas(
         drop(buffer);
     }
 
-    // replace the modified entries
+    // replace the modified entries -- only happens because of vacuum
     for (entry, blockno) in modified_entries {
         let mut buffer = linked_list.bman_mut().get_buffer_mut(blockno);
         let mut page = buffer.page_mut();
@@ -297,11 +302,6 @@ pub unsafe fn save_new_metas(
         }
     }
 
-    // add the new entries
-    if !created_entries.is_empty() {
-        linked_list.add_items(&created_entries, None)?;
-    }
-
     Ok(())
 }
 
@@ -311,7 +311,6 @@ impl LinkedItemList<SegmentMetaEntry> {
 
         let mut items = vec![];
         let mut blockno = self.get_start_blockno();
-
         while blockno != pg_sys::InvalidBlockNumber {
             let buffer = self.bman().get_buffer(blockno);
             let page = buffer.page();
@@ -346,36 +345,34 @@ pub unsafe fn load_metas(
 
     let (entries, mut pin_cushion) = segment_metas.list_and_pin();
     for entry in entries {
-        if
-        // nobody sees recyclable entries
-        !entry.recyclable(segment_metas.bman_mut())
-            && (
-                // vacuum sees everything else
-                matches!(solve_mvcc, MvccSatisfies::Vacuum)
-            ||
+        if !entry.recyclable(segment_metas.bman_mut()) {
+            // vacuum sees everything that hasn't been deleted by a merge
+            if (matches!(solve_mvcc, MvccSatisfies::Vacuum) && entry.xmax == pg_sys::InvalidTransactionId)
+
                 // a snapshot can see any that are visible in its snapshot
-                (matches!(solve_mvcc, MvccSatisfies::Snapshot) && entry.visible(snapshot.expect("snapshot must be provided for `MvccSatisfies::Snapshot`")))
+                || (matches!(solve_mvcc, MvccSatisfies::Snapshot) && entry.visible(snapshot.expect("snapshot must be provided for `MvccSatisfies::Snapshot`")))
 
                 // mergeable can see any that are known to be mergeable
-            || (matches!(solve_mvcc, MvccSatisfies::Mergeable) && entry.mergeable(current_xid))
-            )
-        {
-            let inner_segment_meta = InnerSegmentMeta {
-                max_doc: entry.max_doc,
-                segment_id: entry.segment_id,
-                deletes: entry.delete.map(|delete_entry| DeleteMeta {
-                    num_deleted_docs: delete_entry.num_deleted_docs,
-                    opstamp: 0, // hardcode zero as the entry's opstamp as it's not used
-                }),
-                include_temp_doc_store: Arc::new(AtomicBool::new(false)),
-            };
-            alive_segments.push(inner_segment_meta.track(inventory));
-            alive_entries.push(entry);
+                || (matches!(solve_mvcc, MvccSatisfies::Mergeable) && entry.mergeable(current_xid))
+            {
+                let inner_segment_meta = InnerSegmentMeta {
+                    max_doc: entry.max_doc,
+                    segment_id: entry.segment_id,
+                    deletes: entry.delete.map(|delete_entry| DeleteMeta {
+                        num_deleted_docs: delete_entry.num_deleted_docs,
+                        opstamp: 0, // hardcode zero as the entry's opstamp as it's not used
+                    }),
+                    include_temp_doc_store: Arc::new(AtomicBool::new(false)),
+                };
+                alive_segments.push(inner_segment_meta.track(inventory));
+                alive_entries.push(entry);
 
-            opstamp = opstamp.max(Some(entry.opstamp()));
-        } else {
-            pin_cushion.remove(entry.pintest_blockno());
+                opstamp = opstamp.max(Some(entry.opstamp()));
+                continue;
+            }
         }
+
+        pin_cushion.remove(entry.pintest_blockno());
     }
 
     let schema = LinkedBytesList::open(relation_oid, SCHEMA_START);

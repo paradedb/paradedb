@@ -344,6 +344,39 @@ fn scores_survive_joins(mut conn: PgConnection) {
     );
 }
 
+#[rstest]
+#[should_panic]
+fn scores_partitioned(mut conn: PgConnection) {
+    // Not indexing `sale_date` means that our index doesn't fully cover the query. But
+    // we must still custom scan due to the use of the score function.
+    PartitionedTable::setup_with_indexed_columns(["description", "amount"]).execute(&mut conn);
+
+    r#"
+        INSERT INTO sales (sale_date, amount, description) VALUES
+        ('2023-01-10', 150.00, 'Ergonomic metal keyboard'),
+        ('2023-04-01', 250.00, 'Modern wall clock');
+    "#
+    .execute(&mut conn);
+
+    // Confirm that a score is always available, whether we direct our query at the
+    // parent or child table.
+    for table in ["sales", "sales_2023_q1"] {
+        let search_results: Vec<(i32, f32)> = format!(
+            r#"
+            SELECT id, paradedb.score(id) from {table} WHERE id @@@ '1' AND sale_date = '2023-01-10';
+            "#
+        )
+        .fetch(&mut conn);
+
+        // This is all that we need to assert, because our result type above has already
+        // asserted that no columns are NULL.
+        assert!(
+            search_results.len() > 0,
+            "Expected at least one item in each table."
+        );
+    }
+}
+
 #[rustfmt::skip]
 #[rstest]
 fn join_issue_1776(mut conn: PgConnection) {

@@ -135,31 +135,36 @@ unsafe fn merge_info(
 ) -> TableIterator<
     'static,
     (
+        name!(index_name, String),
         name!(pid, i32),
         name!(xmin, AnyNumeric),
         name!(xmax, AnyNumeric),
         name!(segno, String),
     ),
 > {
-    let IndexKind::Index(index) = IndexKind::for_index(index).unwrap() else {
-        panic!("The given index is partitioned: please try again with one of its child indexes.")
-    };
-    let merge_lock = MergeLock::acquire(index.oid());
-    let merge_entries = merge_lock.in_progress_merge_entries();
-    let table = TableIterator::new(merge_entries.into_iter().flat_map(move |merge_entry| {
-        merge_entry
-            .segment_ids(index.oid())
-            .into_iter()
-            .map(move |segment_id| {
-                (
-                    merge_entry.pid,
-                    merge_entry.xmin.into(),
-                    merge_entry.xmax.into(),
-                    segment_id.short_uuid_string(),
-                )
-            })
-    }));
-    table
+    let index_kind = IndexKind::for_index(index).unwrap();
+
+    let mut result = Vec::new();
+    for index in index_kind.partitions() {
+        let merge_lock = MergeLock::acquire(index.oid());
+        let merge_entries = merge_lock.in_progress_merge_entries();
+        result.extend(merge_entries.into_iter().flat_map(move |merge_entry| {
+            let index_name = index.name().to_owned();
+            merge_entry
+                .segment_ids(index.oid())
+                .into_iter()
+                .map(move |segment_id| {
+                    (
+                        index_name.clone(),
+                        merge_entry.pid,
+                        merge_entry.xmin.into(),
+                        merge_entry.xmax.into(),
+                        segment_id.short_uuid_string(),
+                    )
+                })
+        }));
+    }
+    TableIterator::new(result)
 }
 
 /// Deprecated: Use `paradedb.merge_info` instead.
@@ -169,18 +174,22 @@ fn is_merging(index: PgRelation) -> bool {
 }
 
 #[pg_extern]
-unsafe fn vacuum_info(index: PgRelation) -> SetOfIterator<'static, String> {
-    let IndexKind::Index(index) = IndexKind::for_index(index).unwrap() else {
-        panic!("The given index is partitioned: please try again with one of its child indexes.")
-    };
-    let mut merge_lock = MergeLock::acquire(index.oid());
-    let vacuum_list = merge_lock.list_vacuuming_segments();
-    SetOfIterator::new(
-        vacuum_list
-            .iter()
-            .map(|segment_id| segment_id.short_uuid_string())
-            .collect::<Vec<_>>(),
-    )
+unsafe fn vacuum_info(
+    index: PgRelation,
+) -> TableIterator<'static, (name!(index_name, String), name!(segno, String))> {
+    let index_kind = IndexKind::for_index(index).unwrap();
+
+    let mut result = Vec::new();
+    for index in index_kind.partitions() {
+        let mut merge_lock = MergeLock::acquire(index.oid());
+        let vacuum_list = merge_lock.list_vacuuming_segments();
+        result.extend(
+            vacuum_list
+                .iter()
+                .map(|segment_id| (index.name().to_owned(), segment_id.short_uuid_string())),
+        );
+    }
+    TableIterator::new(result)
 }
 
 #[allow(clippy::type_complexity)]
@@ -192,6 +201,7 @@ fn index_info(
     TableIterator<
         'static,
         (
+            name!(index_name, String),
             name!(visible, bool),
             name!(recyclable, bool),
             name!(xmin, AnyNumeric),
@@ -219,41 +229,43 @@ fn index_info(
     // validated the existence of the relation. We are safe calling the function below as
     // long we do not pass pg_sys::NoLock without any other locking mechanism of our own.
     let index = unsafe { PgRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _) };
-    let IndexKind::Index(index) = IndexKind::for_index(index).unwrap() else {
-        panic!("The given index is partitioned: please try again with one of its child indexes.")
-    };
-    let heap = index
-        .heap_relation()
-        .expect("index must have a heap relation");
+    let index_kind = IndexKind::for_index(index)?;
 
-    // open the specified index
-    let all_entries = unsafe {
-        LinkedItemList::<SegmentMetaEntry>::open(index.oid(), SEGMENT_METAS_START).list()
-    };
-
-    let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
     let mut results = Vec::new();
-    for entry in all_entries {
-        if !show_invisible && unsafe { !entry.visible(snapshot) } {
-            continue;
+    for index in index_kind.partitions() {
+        let heap = index
+            .heap_relation()
+            .expect("index must have a heap relation");
+
+        // open the specified index
+        let all_entries = unsafe {
+            LinkedItemList::<SegmentMetaEntry>::open(index.oid(), SEGMENT_METAS_START).list()
+        };
+
+        let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
+        for entry in all_entries {
+            if !show_invisible && unsafe { !entry.visible(snapshot) } {
+                continue;
+            }
+            results.push((
+                index.name().to_owned(),
+                unsafe { entry.visible(snapshot) },
+                unsafe { entry.recyclable(heap.as_ptr()) },
+                entry.xmin.into(),
+                entry.xmax.into(),
+                entry.segment_id.short_uuid_string(),
+                Some(entry.byte_size().into()),
+                Some(entry.num_docs().into()),
+                Some(entry.num_deleted_docs().into()),
+                entry.terms.map(|file| file.total_bytes.into()),
+                entry.postings.map(|file| file.total_bytes.into()),
+                entry.positions.map(|file| file.total_bytes.into()),
+                entry.fast_fields.map(|file| file.total_bytes.into()),
+                entry.field_norms.map(|file| file.total_bytes.into()),
+                entry.store.map(|file| file.total_bytes.into()),
+                entry.delete.map(|file| file.file_entry.total_bytes.into()),
+            ));
         }
-        results.push((
-            unsafe { entry.visible(snapshot) },
-            unsafe { entry.recyclable(heap.as_ptr()) },
-            entry.xmin.into(),
-            entry.xmax.into(),
-            entry.segment_id.short_uuid_string(),
-            Some(entry.byte_size().into()),
-            Some(entry.num_docs().into()),
-            Some(entry.num_deleted_docs().into()),
-            entry.terms.map(|file| file.total_bytes.into()),
-            entry.postings.map(|file| file.total_bytes.into()),
-            entry.positions.map(|file| file.total_bytes.into()),
-            entry.fast_fields.map(|file| file.total_bytes.into()),
-            entry.field_norms.map(|file| file.total_bytes.into()),
-            entry.store.map(|file| file.total_bytes.into()),
-            entry.delete.map(|file| file.file_entry.total_bytes.into()),
-        ));
     }
 
     Ok(TableIterator::new(results))

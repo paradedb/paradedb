@@ -10,7 +10,7 @@
    "license": "agpl-3.0",
    "provides": {
       "pg_search": {
-         "abstract": "Full-text search for Postgres",
+         "abstract": "Postgres for Search and Analytics",
          "file": "pg_search/src/lib.rs",
          "docfile": "pg_search/README.md",
          "version": "@CRATE_VERSION@"

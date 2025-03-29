@@ -467,7 +467,7 @@ fn multi_index_insert_in_transaction(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn partitioned_metadata(mut conn: PgConnection) {
+fn partitioned_schema(mut conn: PgConnection) {
     PartitionedTable::setup().execute(&mut conn);
 
     let rows: Vec<(String, String)> =
@@ -479,16 +479,32 @@ fn partitioned_metadata(mut conn: PgConnection) {
     assert_eq!(rows[2], ("description".into(), "Str".into()));
     assert_eq!(rows[3], ("id".into(), "I64".into()));
     assert_eq!(rows[4], ("sale_date".into(), "Date".into()));
+}
 
-    let err = "SELECT COUNT(*) FROM paradedb.index_info('sales_index')"
-        .fetch_result::<(String, String)>(&mut conn)
-        .err()
-        .unwrap();
-    assert!(
-        err.to_string().contains("The given index is partitioned"),
-        "{}",
-        fmt_err(err)
-    );
+#[rstest]
+fn partitioned_info(mut conn: PgConnection) {
+    PartitionedTable::setup().execute(&mut conn);
+
+    // Insert rows into both partitions.
+    r#"
+        INSERT INTO sales (sale_date, amount, description) VALUES
+        ('2023-01-10', 150.00, 'Ergonomic metal keyboard'),
+        ('2023-04-01', 250.00, 'Modern wall clock');
+    "#
+    .execute(&mut conn);
+
+    // And validate that we see at least one segment for each.
+    let segments_per_partition: Vec<(String, i64)> = "
+        SELECT index_name, COUNT(*) FROM paradedb.index_info('sales_index') GROUP BY index_name
+    "
+    .fetch(&mut conn);
+    assert_eq!(segments_per_partition.len(), 2);
+    for (index_name, segment_count) in segments_per_partition {
+        assert!(
+            segment_count > 0,
+            "Got {segment_count} for index partition {index_name}"
+        );
+    }
 }
 
 #[rstest]

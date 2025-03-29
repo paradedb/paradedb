@@ -501,9 +501,7 @@ impl SearchIndexCreateOptions {
             let att = tupdesc
                 .get((heap_attno - 1) as usize)
                 .expect("attribute should exist");
-            let atttypid = att.type_oid().value();
-            let array_type = pg_sys::get_element_type(atttypid);
-            let (base_oid, _) = resolve_base_type(atttypid, array_type, att.name());
+            let (base_oid, _) = resolve_base_type(att.type_oid());
             let field_type = SearchFieldType::try_from(&base_oid).unwrap_or_else(|err| {
                 panic!(
                     "cannot index column '{}' with type {base_oid:?}: {err}",

@@ -886,8 +886,8 @@ impl TryFrom<pgrx::Uuid> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::Uuid) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::Str(
-            val.to_string(),
+        Ok(TantivyValue(tantivy::schema::OwnedValue::Bytes(
+            val.as_bytes().to_vec(),
         )))
     }
 }

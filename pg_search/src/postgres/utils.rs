@@ -112,8 +112,7 @@ pub fn categorize_fields(
             search_fields
                 .into_iter()
                 .map(|search_field| {
-                    let array_type = unsafe { pg_sys::get_element_type(attribute_type_oid) };
-                    let (base_oid, is_array) = resolve_base_type(attribute_type_oid, array_type);
+                    let (base_oid, is_array) = resolve_base_type(PgOid::from(attribute_type_oid));
 
                     let base_oid = PgOid::from(base_oid);
                     let is_json = matches!(
@@ -308,28 +307,48 @@ pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> tantivy::Dat
     }
 }
 
-/// Resolves type OID to its base type, handling array and domain type transformations.
-/// Returns the base type OID and a flag indicating whether the original type was an array.
-pub fn resolve_base_type(
-    orig_type: pg_sys::Oid,
-    array_type_oid: pg_sys::Oid,
-) -> (PgOid, bool) {
-    // Determine base OID and array status
-    let (mut type_oid, is_array) = if array_type_oid != pg_sys::InvalidOid {
-        (PgOid::from(array_type_oid), true)
-    } else {
-        (PgOid::from(orig_type), false)
-    };
-
-    // Handle domain types
-    if unsafe { pg_sys::get_typtype(type_oid.value()) as u8 == pg_sys::TYPTYPE_DOMAIN } {
-        let base_type = unsafe { pg_sys::getBaseType(type_oid.value()) };
-        if base_type != pg_sys::InvalidOid {
-            type_oid = PgOid::from(base_type);
-        } else {
-            pgrx::warning!("Failed to resolve base type for domain type");
-        }
+pub fn resolve_base_type(oid: PgOid) -> (PgOid, bool) {
+    fn is_domain_type(oid: pg_sys::Oid) -> bool {
+        unsafe { pg_sys::get_typtype(oid) as u8 == pg_sys::TYPTYPE_DOMAIN }
     }
 
-    (type_oid, is_array)
+    if matches!(oid, PgOid::Invalid) {
+        return (oid, false);
+    }
+
+    // resolve domain type to its base
+    let base_oid = if is_domain_type(oid.value()) {
+        let resolved_type = unsafe { pg_sys::getBaseType(oid.value()) };
+        if resolved_type != pg_sys::InvalidOid {
+            resolved_type
+        } else {
+            pgrx::error!("Failed to resolve base type");
+        }
+    } else {
+        oid.value()
+    };
+
+    // check if its an array type
+    let array_type = PgOid::from(unsafe { pg_sys::get_element_type(base_oid) });
+
+    match array_type {
+        // not an array
+        PgOid::Invalid => (base_oid.into(), false),
+
+        // built-in array type or custom array type
+        PgOid::BuiltIn(_) | PgOid::Custom(_) => {
+            let resolved_array_type = if is_domain_type(array_type.value()) {
+                let resolved_type = unsafe { pg_sys::getBaseType(array_type.value()) };
+                if resolved_type != pg_sys::InvalidOid {
+                    resolved_type
+                } else {
+                    pgrx::error!("Failed to resolve base type");
+                }
+            } else {
+                array_type.value()
+            };
+
+            (resolved_array_type.into(), true)
+        }
+    }
 }

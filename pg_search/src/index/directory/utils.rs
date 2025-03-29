@@ -3,6 +3,7 @@ use crate::postgres::storage::block::{
     DeleteEntry, FileEntry, LinkedList, MVCCEntry, PgItem, SegmentFileDetails, SegmentMetaEntry,
     SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
 };
+use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use anyhow::Result;
 use pgrx::pg_sys;
@@ -45,6 +46,11 @@ pub unsafe fn save_new_metas(
     prev_meta: &IndexMeta,
     directory_entries: &mut FxHashMap<PathBuf, FileEntry>,
 ) -> Result<()> {
+    // hold an exclusive lock on the schema to ensure no concurrent readers try to
+    // read the list before we're finished updating it
+    let _schema_lock = BufferManager::new(relation_oid).get_buffer_mut(SCHEMA_START);
+
+    // this is where the segments are stored
     let mut linked_list =
         LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START);
 
@@ -106,7 +112,18 @@ pub unsafe fn save_new_metas(
             let meta_entry = SegmentMetaEntry {
                 segment_id: *id,
                 max_doc: created_segment.max_doc(),
-                xmin: pg_sys::GetCurrentTransactionId(),
+                xmin: if deleted_ids.is_empty() {
+                    // this is a new segment created by a tantivy index .commit()
+                    pg_sys::GetCurrentTransactionId()
+                } else {
+                    // this is a new segment created by a tantivy merge.  in this case it's imperative
+                    // this segment, which contains tuples that have previously bee on disk, be
+                    // written to a transaction that is known to be "not in progress anymore".  This
+                    // is because the data in this segment came from a transaction that was not in
+                    // progress and changing their "in progress" state will upset our visibility
+                    // expectations
+                    pg_sys::FrozenTransactionId
+                },
                 xmax: pg_sys::InvalidTransactionId,
                 postings: files.remove(&SegmentComponent::Postings).map(|e| e.0),
                 positions: files.remove(&SegmentComponent::Positions).map(|e| e.0),
@@ -194,7 +211,16 @@ pub unsafe fn save_new_metas(
                 "SegmentMetaEntry {} should not already be deleted",
                 meta_entry.segment_id
             );
-            meta_entry.xmax = deleting_xid;
+
+            // deleted segments belong to a transaction that is known to not be in progress
+            // and so when we mark them as deleted, it'll be with a transaction that is known to
+            // not be in progress, the FrozenTransactionId.
+            //
+            // NB:  I think we could instead set `meta_entry.xmax = meta_entry.xmin` because the xmin
+            // is also know to not be in progress anymore, but using FrozenTransactionId is nice as
+            // it makes it clear when inspecting the segment meta entries list how this segment
+            // got marked deleted
+            meta_entry.xmax = pg_sys::FrozenTransactionId;
 
             (meta_entry, blockno)
         })
@@ -218,14 +244,9 @@ pub unsafe fn save_new_metas(
     // now change things on disk
     //
 
-    // add the new entries -- happens via an index commit or the result of a merge
-    if !created_entries.is_empty() {
-        linked_list.add_items(&created_entries, None)?;
-    }
-
     // delete old entries and their corresponding files -- happens only as the result of a merge
     for (entry, blockno) in &deleted_entries {
-        assert!(entry.xmax == deleting_xid);
+        assert!(entry.xmax == pg_sys::FrozenTransactionId);
         let mut buffer = linked_list.bman_mut().get_buffer_mut(*blockno);
         let mut page = buffer.page_mut();
 
@@ -302,11 +323,17 @@ pub unsafe fn save_new_metas(
         }
     }
 
+    // add the new entries -- happens via an index commit or the result of a merge
+    if !created_entries.is_empty() {
+        linked_list.add_items(&created_entries, None)?;
+    }
+
     Ok(())
 }
 
 impl LinkedItemList<SegmentMetaEntry> {
     pub unsafe fn list_and_pin(&self) -> (Vec<SegmentMetaEntry>, PinCushion) {
+        let _cleanup_lock = self.bman().get_buffer(SCHEMA_START);
         let mut pin_cushion = PinCushion::default();
 
         let mut items = vec![];
@@ -336,7 +363,6 @@ pub unsafe fn load_metas(
     snapshot: Option<pg_sys::Snapshot>,
     solve_mvcc: &MvccSatisfies,
 ) -> tantivy::Result<(Vec<SegmentMetaEntry>, IndexMeta, PinCushion)> {
-    let current_xid = pg_sys::GetCurrentTransactionIdIfAny();
     let mut segment_metas =
         LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START);
     let mut alive_segments = vec![];
@@ -353,7 +379,7 @@ pub unsafe fn load_metas(
                 || (matches!(solve_mvcc, MvccSatisfies::Snapshot) && entry.visible(snapshot.expect("snapshot must be provided for `MvccSatisfies::Snapshot`")))
 
                 // mergeable can see any that are known to be mergeable
-                || (matches!(solve_mvcc, MvccSatisfies::Mergeable) && entry.mergeable(current_xid))
+                || (matches!(solve_mvcc, MvccSatisfies::Mergeable) && entry.mergeable())
             {
                 let inner_segment_meta = InnerSegmentMeta {
                     max_doc: entry.max_doc,

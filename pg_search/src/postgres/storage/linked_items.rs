@@ -284,13 +284,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
                     let special = page.special_mut::<BM25PageSpecialData>();
                     special.next_blockno = new_blockno;
 
-                    // Update the header to point to the new last page
-                    let mut header_buffer = self.bman.get_buffer_mut(self.header_blockno);
-                    let mut page = header_buffer.page_mut();
-                    let metadata = page.contents_mut::<LinkedListData>();
-                    metadata.last_blockno = new_blockno;
-                    metadata.npages += 1;
-
                     if need_hold && hold_open.is_none() {
                         hold_open = Some(buffer);
                     }

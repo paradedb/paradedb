@@ -383,19 +383,21 @@ pub trait MVCCEntry {
         // if the xmax transaction is no longer in progress
         !pg_sys::TransactionIdIsInProgress(xmax)
 
-        // and there's no pin on on our pintest buffer
+        // and there's no pin on our pintest buffer
         && bman.get_buffer_for_cleanup_conditional(self.pintest_blockno()).is_some()
     }
 
-    unsafe fn mergeable(&self, current_xid: pg_sys::TransactionId) -> bool {
+    unsafe fn mergeable(&self) -> bool {
         let xmin = self.get_xmin();
         let xmax = self.get_xmax();
 
         // mergeable if we haven't deleted it
         xmax == pg_sys::InvalidTransactionId
 
-            // and it's from the current transaction or a transaction that is not in progress
-            && (xmin == current_xid || !pg_sys::TransactionIdIsInProgress(xmin))
+            // and it's from a transaction that is not in progress.  we can't merge segments created
+            // by *this* transaction (ie, xmin == GetCurrentTransactionId()) because this transaction
+            // is considered in progress
+        && (!pg_sys::TransactionIdIsInProgress(xmin))
     }
 
     unsafe fn xmin_needs_freeze(&self, freeze_limit: pg_sys::TransactionId) -> bool {

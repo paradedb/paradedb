@@ -26,6 +26,7 @@ use std::collections::HashMap;
 use std::ffi::CStr;
 use tokenizers::{manager::SearchTokenizerFilters, SearchNormalizer, SearchTokenizer};
 
+use super::utils::resolve_base_type;
 use crate::schema::{IndexRecordOption, SearchFieldConfig, SearchFieldName, SearchFieldType};
 
 /* ADDING OPTIONS
@@ -500,13 +501,7 @@ impl SearchIndexCreateOptions {
             let att = tupdesc
                 .get((heap_attno - 1) as usize)
                 .expect("attribute should exist");
-            let atttypid = att.type_oid().value();
-            let array_type = pg_sys::get_element_type(atttypid);
-            let base_oid = PgOid::from(if array_type != pg_sys::InvalidOid {
-                array_type
-            } else {
-                atttypid
-            });
+            let (base_oid, _) = resolve_base_type(att.type_oid());
             let field_type = SearchFieldType::try_from(&base_oid).unwrap_or_else(|err| {
                 panic!(
                     "cannot index column '{}' with type {base_oid:?}: {err}",

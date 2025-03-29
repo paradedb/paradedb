@@ -107,12 +107,7 @@ pub fn categorize_fields(
         };
 
         for search_field in search_fields {
-            let array_type = unsafe { pg_sys::get_element_type(attribute_type_oid.value()) };
-            let (base_oid, is_array) = if array_type != pg_sys::InvalidOid {
-                (PgOid::from(array_type), true)
-            } else {
-                (attribute_type_oid, false)
-            };
+            let (base_oid, is_array) = resolve_base_type(attribute_type_oid);
 
             let is_json = matches!(
                 base_oid,
@@ -274,5 +269,51 @@ pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> tantivy::Dat
             tantivy::DateTime::from_timestamp_micros(micros)
         }
         _ => panic!("Unsupported typeoid: {typeoid:?}"),
+    }
+}
+
+pub fn resolve_base_type(oid: PgOid) -> (PgOid, bool) {
+    fn is_domain_type(oid: pg_sys::Oid) -> bool {
+        unsafe { pg_sys::get_typtype(oid) as u8 == pg_sys::TYPTYPE_DOMAIN }
+    }
+
+    if matches!(oid, PgOid::Invalid) {
+        return (oid, false);
+    }
+
+    // resolve domain type to its base
+    let base_oid = if is_domain_type(oid.value()) {
+        let resolved_type = unsafe { pg_sys::getBaseType(oid.value()) };
+        if resolved_type != pg_sys::InvalidOid {
+            resolved_type
+        } else {
+            pgrx::error!("Failed to resolve base type");
+        }
+    } else {
+        oid.value()
+    };
+
+    // check if its an array type
+    let array_type = PgOid::from(unsafe { pg_sys::get_element_type(base_oid) });
+
+    match array_type {
+        // not an array
+        PgOid::Invalid => (base_oid.into(), false),
+
+        // built-in array type or custom array type
+        PgOid::BuiltIn(_) | PgOid::Custom(_) => {
+            let resolved_array_type = if is_domain_type(array_type.value()) {
+                let resolved_type = unsafe { pg_sys::getBaseType(array_type.value()) };
+                if resolved_type != pg_sys::InvalidOid {
+                    resolved_type
+                } else {
+                    pgrx::error!("Failed to resolve base type");
+                }
+            } else {
+                array_type.value()
+            };
+
+            (resolved_array_type.into(), true)
+        }
     }
 }

@@ -483,20 +483,10 @@ impl SearchIndexCreateOptions {
         &self,
         indexrel: &PgRelation,
     ) -> impl Iterator<Item = (SearchFieldName, SearchFieldConfig, SearchFieldType)> {
-        let heaprel = indexrel
-            .heap_relation()
-            .expect("index relation should have a heap relation");
-        let tupdesc = heaprel.tuple_desc();
-
-        let index_info = unsafe { pg_sys::BuildIndexInfo(indexrel.as_ptr()) };
+        let tupdesc = unsafe { PgTupleDesc::from_pg_unchecked(indexrel.rd_att) };
 
         let mut attributes: FxHashMap<SearchFieldName, SearchFieldType> = FxHashMap::default();
-
-        for i in 0..(*index_info).ii_NumIndexAttrs {
-            let heap_attno = (*index_info).ii_IndexAttrNumbers[i as usize];
-            let att = tupdesc
-                .get((heap_attno - 1) as usize)
-                .expect("attribute should exist");
+        for att in tupdesc.iter() {
             let atttypid = att.type_oid().value();
             let array_type = pg_sys::get_element_type(atttypid);
             let base_oid = PgOid::from(if array_type != pg_sys::InvalidOid {

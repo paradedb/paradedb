@@ -449,6 +449,7 @@ impl SearchIndexCreateOptions {
             SearchFieldType::Range => SearchFieldConfig::Range {
                 stored: false,
                 column: None,
+                fast: false,
             },
             SearchFieldType::Bool => SearchFieldConfig::Boolean {
                 indexed: true,

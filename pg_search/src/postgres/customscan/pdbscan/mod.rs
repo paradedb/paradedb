@@ -976,6 +976,30 @@ unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
                         return Some(OrderByStyle::Field(first_pathkey, att.name().to_string()));
                     }
                 }
+            } else if let Some(var) = is_range_lower_func(expr.cast(), rti as _) {
+                let (heaprelid, attno, _) = find_var_relation(var, root);
+                let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
+                let tupdesc = heaprel.tuple_desc();
+                if let Some(att) = tupdesc.get(attno as usize - 1) {
+                    if schema.is_range_sortable(att.name()) {
+                        return Some(OrderByStyle::RangeLower(
+                            first_pathkey,
+                            att.name().to_string(),
+                        ));
+                    }
+                }
+            } else if let Some(var) = is_range_upper_func(expr.cast(), rti as _) {
+                let (heaprelid, attno, _) = find_var_relation(var, root);
+                let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
+                let tupdesc = heaprel.tuple_desc();
+                if let Some(att) = tupdesc.get(attno as usize - 1) {
+                    if schema.is_range_sortable(att.name()) {
+                        return Some(OrderByStyle::RangeUpper(
+                            first_pathkey,
+                            att.name().to_string(),
+                        ));
+                    }
+                }
             } else if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expr) {
                 if let Some(var) = nodecast!(Var, T_Var, (*relabel).arg) {
                     let (heaprelid, attno, _) = find_var_relation(var, root);
@@ -1034,6 +1058,34 @@ unsafe fn is_lower_func(node: *mut pg_sys::Node, rti: i32) -> Option<*mut pg_sys
     None
 }
 
+unsafe fn is_range_lower_func(node: *mut pg_sys::Node, rti: i32) -> Option<*mut pg_sys::Var> {
+    let funcexpr = nodecast!(FuncExpr, T_FuncExpr, node)?;
+    if (*funcexpr).funcid == range_lower_funcoid() {
+        let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+        assert!(args.len() == 1, "`lower(anyrange)` must have one argument");
+        if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {
+            if (*var).varno as i32 == rti as i32 {
+                return Some(var);
+            }
+        }
+    }
+    None
+}
+
+unsafe fn is_range_upper_func(node: *mut pg_sys::Node, rti: i32) -> Option<*mut pg_sys::Var> {
+    let funcexpr = nodecast!(FuncExpr, T_FuncExpr, node)?;
+    if (*funcexpr).funcid == range_upper_funcoid() {
+        let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+        assert!(args.len() == 1, "`upper(anyrange)` must have one argument");
+        if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {
+            if (*var).varno as i32 == rti as i32 {
+                return Some(var);
+            }
+        }
+    }
+    None
+}
+
 pub fn text_lower_funcoid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(
@@ -1041,6 +1093,26 @@ pub fn text_lower_funcoid() -> pg_sys::Oid {
             &[c"pg_catalog.lower(text)".into_datum()],
         )
         .expect("the `pg_catalog.lower(text)` function should exist")
+    }
+}
+
+pub fn range_lower_funcoid() -> pg_sys::Oid {
+    unsafe {
+        direct_function_call(
+            pg_sys::regprocedurein,
+            &[c"pg_catalog.lower(anyrange)".into_datum()],
+        )
+        .expect("the `pg_catalog.lower(anyrange)` function should exist")
+    }
+}
+
+pub fn range_upper_funcoid() -> pg_sys::Oid {
+    unsafe {
+        direct_function_call(
+            pg_sys::regprocedurein,
+            &[c"pg_catalog.upper(anyrange)".into_datum()],
+        )
+        .expect("the `pg_catalog.upper(anyrange)` function should exist")
     }
 }
 

@@ -453,7 +453,7 @@ impl MVCCEntry for MergeEntry {
     }
 
     fn pintest_blockno(&self) -> pg_sys::BlockNumber {
-        unimplemented!("pintest_blockno not supported for MergeEntry");
+        pg_sys::InvalidBlockNumber
     }
 }
 

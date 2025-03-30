@@ -15,7 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use super::block::{BM25PageSpecialData, LinkedList, LinkedListData, MVCCEntry, PgItem};
+use super::block::{
+    BM25PageSpecialData, LinkedList, LinkedListData, MVCCEntry, PgItem, SCHEMA_START,
+};
 use super::buffer::{BufferManager, BufferMut};
 use super::utils::vacuum_get_freeze_limit;
 use anyhow::Result;
@@ -164,6 +166,10 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
     }
 
     pub unsafe fn garbage_collect(&mut self) -> Vec<T> {
+        // concurrent changes to the items list itself is not possible and should interlock with
+        // other backends that are reading/modifying the list
+        let _schema_lock = self.bman_mut().get_buffer_mut(SCHEMA_START);
+
         // Delete all items that are definitely dead
         let heap_relation = self.bman().bm25cache().heaprel();
         let freeze_limit = vacuum_get_freeze_limit(heap_relation);

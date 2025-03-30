@@ -385,8 +385,8 @@ pub trait MVCCEntry {
 
         // and there's no pin on our pintest buffer, assuming we have a valid buffer
         && {
-            self.pintest_blockno() != pg_sys::InvalidBlockNumber
-                && bman.get_buffer_for_cleanup_conditional(self.pintest_blockno()).is_some()
+            self.pintest_blockno() == pg_sys::InvalidBlockNumber
+                || bman.get_buffer_for_cleanup_conditional(self.pintest_blockno()).is_some()
         }
     }
 

@@ -383,8 +383,11 @@ pub trait MVCCEntry {
         // if the xmax transaction is no longer in progress
         !pg_sys::TransactionIdIsInProgress(xmax)
 
-        // and there's no pin on our pintest buffer
-        && bman.get_buffer_for_cleanup_conditional(self.pintest_blockno()).is_some()
+        // and there's no pin on our pintest buffer, assuming we have a valid buffer
+        && {
+            self.pintest_blockno() != pg_sys::InvalidBlockNumber
+                && bman.get_buffer_for_cleanup_conditional(self.pintest_blockno()).is_some()
+        }
     }
 
     unsafe fn mergeable(&self) -> bool {

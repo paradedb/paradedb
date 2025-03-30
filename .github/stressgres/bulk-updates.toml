@@ -1,4 +1,4 @@
-[setup]
+[setup_primary]
 sql = """
 DROP EXTENSION IF EXISTS pg_search CASCADE;
 DROP TABLE IF EXISTS test CASCADE;

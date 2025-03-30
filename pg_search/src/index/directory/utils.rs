@@ -357,6 +357,7 @@ impl LinkedItemList<SegmentMetaEntry> {
     }
 }
 
+#[allow(clippy::collapsible_if)] // come on clippy, let me write the code that's clear to me
 pub unsafe fn load_metas(
     relation_oid: pg_sys::Oid,
     inventory: &SegmentMetaInventory,
@@ -372,8 +373,12 @@ pub unsafe fn load_metas(
     let (entries, mut pin_cushion) = segment_metas.list_and_pin();
     for entry in entries {
         if !entry.recyclable(segment_metas.bman_mut()) {
-            // vacuum sees everything that hasn't been deleted by a merge
-            if (matches!(solve_mvcc, MvccSatisfies::Vacuum) && entry.xmax == pg_sys::InvalidTransactionId)
+            if (
+                // parallel workers get to see all non-recyclable segments.  This relies on the leader having kept a pin on the original segments
+                matches!(solve_mvcc, MvccSatisfies::ParallelWorker)
+
+                // vacuum sees everything that hasn't been deleted by a merge
+                || (matches!(solve_mvcc, MvccSatisfies::Vacuum) && entry.xmax == pg_sys::InvalidTransactionId))
 
                 // a snapshot can see any that are visible in its snapshot
                 || (matches!(solve_mvcc, MvccSatisfies::Snapshot) && entry.visible(snapshot.expect("snapshot must be provided for `MvccSatisfies::Snapshot`")))

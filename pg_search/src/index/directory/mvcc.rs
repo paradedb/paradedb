@@ -48,6 +48,7 @@ use tantivy::{index::SegmentMetaInventory, Directory, IndexMeta, TantivyError};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MvccSatisfies {
+    ParallelWorker,
     Snapshot,
     Vacuum,
     Mergeable,
@@ -56,6 +57,7 @@ pub enum MvccSatisfies {
 impl MvccSatisfies {
     pub fn directory(self, index_relation: &PgRelation) -> MVCCDirectory {
         match self {
+            MvccSatisfies::ParallelWorker => MVCCDirectory::parallel_worker(index_relation.oid()),
             MvccSatisfies::Snapshot => MVCCDirectory::snapshot(index_relation.oid()),
             MvccSatisfies::Vacuum => MVCCDirectory::vacuum(index_relation.oid()),
             MvccSatisfies::Mergeable => MVCCDirectory::mergeable(index_relation.oid()),
@@ -100,6 +102,10 @@ unsafe impl Send for MVCCDirectory {}
 unsafe impl Sync for MVCCDirectory {}
 
 impl MVCCDirectory {
+    pub fn parallel_worker(relation_oid: pg_sys::Oid) -> Self {
+        Self::with_mvcc_style(relation_oid, MvccSatisfies::ParallelWorker, None)
+    }
+
     pub fn snapshot(relation_oid: pg_sys::Oid) -> Self {
         let snapshot = unsafe {
             assert!(

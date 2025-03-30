@@ -177,157 +177,153 @@ impl CustomScan for PdbScan {
                 return None;
             }
 
-            if let Some(quals) = quals {
-                let has_expressions = quals.contains_exprs();
-                let selectivity = if let Some(limit) = limit {
-                    // use the limit
-                    limit
-                        / table
-                            .reltuples()
-                            .map(|n| n as Cardinality)
-                            .unwrap_or(UNKNOWN_SELECTIVITY)
-                } else if restrict_info.len() == 1 {
-                    // we can use the norm_selec that already happened
-                    let norm_select = (*restrict_info.get_ptr(0).unwrap()).norm_selec;
-                    if norm_select != UNKNOWN_SELECTIVITY {
-                        norm_select
-                    } else {
-                        // assume PARAMETERIZED_SELECTIVITY
-                        PARAMETERIZED_SELECTIVITY
-                    }
+            let Some(quals) = quals else {
+                return None;
+            };
+
+            let has_expressions = quals.contains_exprs();
+            let selectivity = if let Some(limit) = limit {
+                // use the limit
+                limit
+                    / table
+                        .reltuples()
+                        .map(|n| n as Cardinality)
+                        .unwrap_or(UNKNOWN_SELECTIVITY)
+            } else if restrict_info.len() == 1 {
+                // we can use the norm_selec that already happened
+                let norm_select = (*restrict_info.get_ptr(0).unwrap()).norm_selec;
+                if norm_select != UNKNOWN_SELECTIVITY {
+                    norm_select
                 } else {
-                    // ask the index
-                    if has_expressions {
-                        // we have no idea, so assume PARAMETERIZED_SELECTIVITY
-                        PARAMETERIZED_SELECTIVITY
-                    } else {
-                        let query = SearchQueryInput::from(&quals);
-                        estimate_selectivity(&bm25_index, &query).unwrap_or(UNKNOWN_SELECTIVITY)
-                    }
-                };
-
-                // we must use this path if we need to do const projections for scores or snippets
-                builder = builder.set_force_path(
-                    has_expressions
-                        && (maybe_needs_const_projections || is_topn || quals.contains_all()),
-                );
-
-                builder.custom_private().set_heaprelid(table.oid());
-                builder.custom_private().set_indexrelid(bm25_index.oid());
-                builder.custom_private().set_range_table_index(rti);
-                builder.custom_private().set_quals(quals);
-                builder.custom_private().set_limit(limit);
-
-                if is_topn {
-                    // sorting by a field only works if we're not doing const projections
-                    // the reason for this is that tantivy can't do both scoring and ordering by
-                    // a fast field at the same time.
-                    //
-                    // and sorting by score always works
-                    if !(maybe_needs_const_projections
-                        && matches!(&pathkey, Some(OrderByStyle::Field(..))))
-                    {
-                        builder.custom_private().set_sort_info(&pathkey);
-                    }
-                } else if limit.is_some()
-                    && PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys)
-                        .is_empty()
-                {
-                    // we have a limit but no order by, so record that.  this will let us go through
-                    // our "top n" machinery, but getting "limit" (essentially) random docs, which
-                    // is what the user asked for
-                    builder
-                        .custom_private()
-                        .set_sort_direction(Some(SortDirection::None));
+                    // assume PARAMETERIZED_SELECTIVITY
+                    PARAMETERIZED_SELECTIVITY
                 }
-
-                let reltuples = table.reltuples().unwrap_or(1.0) as f64;
-                let rows = (reltuples * selectivity).max(1.0);
-
-                let per_tuple_cost = {
-                    // if we think we need scores, we need a much cheaper plan so that Postgres will
-                    // prefer it over all the others.
-                    if is_join || maybe_needs_const_projections {
-                        0.0
-                    } else if maybe_ff {
-                        // returns fields from fast fields
-                        pg_sys::cpu_index_tuple_cost / 100.0
-                    } else {
-                        // requires heap access to return fields
-                        pg_sys::cpu_tuple_cost * 200.0
-                    }
-                };
-
-                let startup_cost = if is_join || maybe_needs_const_projections {
-                    0.0
+            } else {
+                // ask the index
+                if has_expressions {
+                    // we have no idea, so assume PARAMETERIZED_SELECTIVITY
+                    PARAMETERIZED_SELECTIVITY
                 } else {
-                    DEFAULT_STARTUP_COST
-                };
-
-                let total_cost = startup_cost + (rows * per_tuple_cost);
-                let segment_count = index.searchable_segments().unwrap_or_default().len();
-
-                builder.custom_private().set_segment_count(
-                    index
-                        .searchable_segments()
-                        .map(|segments| segments.len())
-                        .unwrap_or(0),
-                );
-                builder = builder.set_rows(rows);
-                builder = builder.set_startup_cost(startup_cost);
-                builder = builder.set_total_cost(total_cost);
-                builder = builder.set_flag(Flags::Projection);
-
-                if pathkey.is_some()
-                    && !is_topn
-                    && is_string_agg_capable_ex(
-                        builder.custom_private().limit(),
-                        &which_fast_fields,
-                    )
-                    .is_some()
-                {
-                    // we're going to do a StringAgg, and it may or may not be more efficient to use
-                    // parallel queries, depending on the cardinality of what we're going to select
-                    let cardinality = {
-                        let estimate = if let Some(OrderByStyle::Field(_, field)) = &pathkey {
-                            // NB:  '4' is a magic number
-                            estimate_cardinality(&bm25_index, field).unwrap_or(0) * 4
-                        } else {
-                            0
-                        };
-                        estimate as f64 * selectivity
-                    };
-
-                    let pathkey_cnt =
-                        PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys)
-                            .len();
-
-                    if pathkey_cnt == 1 || cardinality > 1_000_000.0 {
-                        // if we only have 1 path key or if our estimated cardinality is over some
-                        // hardcoded value, it's seemingly more efficient to do a parallel scan
-                        builder = builder.set_parallel(false, rows, limit, segment_count, true);
-                    } else {
-                        // otherwise we'll do a regular scan and indicate that we're emitting results
-                        // sorted by the first pathkey
-                        builder = builder.add_path_key(&pathkey);
-                        builder.custom_private().set_sort_info(&pathkey);
-                    }
-                } else {
-                    let sortdir = builder.custom_private().sort_direction();
-                    builder = builder.set_parallel(
-                        is_topn,
-                        rows,
-                        limit,
-                        segment_count,
-                        !matches!(sortdir, Some(SortDirection::None)) && sortdir.is_some(),
-                    );
+                    let query = SearchQueryInput::from(&quals);
+                    estimate_selectivity(&bm25_index, &query).unwrap_or(UNKNOWN_SELECTIVITY)
                 }
+            };
 
-                return Some(builder.build());
+            // we must use this path if we need to do const projections for scores or snippets
+            builder = builder.set_force_path(
+                has_expressions
+                    && (maybe_needs_const_projections || is_topn || quals.contains_all()),
+            );
+
+            builder.custom_private().set_heaprelid(table.oid());
+            builder.custom_private().set_indexrelid(bm25_index.oid());
+            builder.custom_private().set_range_table_index(rti);
+            builder.custom_private().set_quals(quals);
+            builder.custom_private().set_limit(limit);
+
+            if is_topn {
+                // sorting by a field only works if we're not doing const projections
+                // the reason for this is that tantivy can't do both scoring and ordering by
+                // a fast field at the same time.
+                //
+                // and sorting by score always works
+                if !(maybe_needs_const_projections
+                    && matches!(&pathkey, Some(OrderByStyle::Field(..))))
+                {
+                    builder.custom_private().set_sort_info(&pathkey);
+                }
+            } else if limit.is_some()
+                && PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys)
+                    .is_empty()
+            {
+                // we have a limit but no order by, so record that.  this will let us go through
+                // our "top n" machinery, but getting "limit" (essentially) random docs, which
+                // is what the user asked for
+                builder
+                    .custom_private()
+                    .set_sort_direction(Some(SortDirection::None));
             }
-        }
 
-        None
+            let reltuples = table.reltuples().unwrap_or(1.0) as f64;
+            let rows = (reltuples * selectivity).max(1.0);
+
+            let per_tuple_cost = {
+                // if we think we need scores, we need a much cheaper plan so that Postgres will
+                // prefer it over all the others.
+                if is_join || maybe_needs_const_projections {
+                    0.0
+                } else if maybe_ff {
+                    // returns fields from fast fields
+                    pg_sys::cpu_index_tuple_cost / 100.0
+                } else {
+                    // requires heap access to return fields
+                    pg_sys::cpu_tuple_cost * 200.0
+                }
+            };
+
+            let startup_cost = if is_join || maybe_needs_const_projections {
+                0.0
+            } else {
+                DEFAULT_STARTUP_COST
+            };
+
+            let total_cost = startup_cost + (rows * per_tuple_cost);
+            let segment_count = index.searchable_segments().unwrap_or_default().len();
+
+            builder.custom_private().set_segment_count(
+                index
+                    .searchable_segments()
+                    .map(|segments| segments.len())
+                    .unwrap_or(0),
+            );
+            builder = builder.set_rows(rows);
+            builder = builder.set_startup_cost(startup_cost);
+            builder = builder.set_total_cost(total_cost);
+            builder = builder.set_flag(Flags::Projection);
+
+            if pathkey.is_some()
+                && !is_topn
+                && is_string_agg_capable_ex(builder.custom_private().limit(), &which_fast_fields)
+                    .is_some()
+            {
+                // we're going to do a StringAgg, and it may or may not be more efficient to use
+                // parallel queries, depending on the cardinality of what we're going to select
+                let cardinality = {
+                    let estimate = if let Some(OrderByStyle::Field(_, field)) = &pathkey {
+                        // NB:  '4' is a magic number
+                        estimate_cardinality(&bm25_index, field).unwrap_or(0) * 4
+                    } else {
+                        0
+                    };
+                    estimate as f64 * selectivity
+                };
+
+                let pathkey_cnt =
+                    PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys).len();
+
+                if pathkey_cnt == 1 || cardinality > 1_000_000.0 {
+                    // if we only have 1 path key or if our estimated cardinality is over some
+                    // hardcoded value, it's seemingly more efficient to do a parallel scan
+                    builder = builder.set_parallel(false, rows, limit, segment_count, true);
+                } else {
+                    // otherwise we'll do a regular scan and indicate that we're emitting results
+                    // sorted by the first pathkey
+                    builder = builder.add_path_key(&pathkey);
+                    builder.custom_private().set_sort_info(&pathkey);
+                }
+            } else {
+                let sortdir = builder.custom_private().sort_direction();
+                builder = builder.set_parallel(
+                    is_topn,
+                    rows,
+                    limit,
+                    segment_count,
+                    !matches!(sortdir, Some(SortDirection::None)) && sortdir.is_some(),
+                );
+            }
+
+            Some(builder.build())
+        }
     }
 
     fn plan_custom_path(mut builder: CustomScanBuilder<Self::PrivateData>) -> pg_sys::CustomScan {

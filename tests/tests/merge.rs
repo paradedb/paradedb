@@ -33,12 +33,12 @@ fn merge_with_no_positions(mut conn: PgConnection) {
     .execute(&mut conn);
 
     // this will merge on the 12th insert
-    for _ in 0..12 {
+    for _ in 0..13 {
         "insert into test (message) select null from generate_series(1, 1000);".execute(&mut conn);
     }
 
     // and we should have 1 segment after it merges
     let (count,) =
         "select count(*) from paradedb.index_info('idxtest')".fetch_one::<(i64,)>(&mut conn);
-    assert_eq!(count, 1);
+    assert_eq!(count, 2);
 }

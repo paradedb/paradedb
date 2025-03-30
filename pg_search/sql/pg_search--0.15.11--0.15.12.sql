@@ -32,3 +32,38 @@ from (select relname,
       where low < high
       group by relname, low, high
       order by relname, low desc) x;
+
+-- pg_search/src/bootstrap/create_bm25.rs:424
+-- pg_search::bootstrap::create_bm25::force_merge
+CREATE  FUNCTION "force_merge"(
+    "index" regclass, /* pgrx::rel::PgRelation */
+    "oversized_layer_size_pretty" TEXT /* alloc::string::String */
+) RETURNS TABLE (
+                    "new_segments" bigint,  /* i64 */
+                    "merged_segments" bigint  /* i64 */
+                )
+    STRICT
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'force_merge_pretty_bytes_wrapper';
+
+-- pg_search/src/bootstrap/create_bm25.rs:441
+-- pg_search::bootstrap::create_bm25::force_merge
+CREATE  FUNCTION "force_merge"(
+    "index" regclass, /* pgrx::rel::PgRelation */
+    "oversized_layer_size_bytes" bigint /* i64 */
+) RETURNS TABLE (
+                    "new_segments" bigint,  /* i64 */
+                    "merged_segments" bigint  /* i64 */
+                )
+    STRICT
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'force_merge_raw_bytes_wrapper';
+
+-- pg_search/src/bootstrap/create_bm25.rs:460
+-- pg_search::bootstrap::create_bm25::merge_lock_garbage_collect
+CREATE  FUNCTION "merge_lock_garbage_collect"(
+    "index" regclass /* pgrx::rel::PgRelation */
+) RETURNS SETOF INT /* i32 */
+    STRICT
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'merge_lock_garbage_collect_wrapper';

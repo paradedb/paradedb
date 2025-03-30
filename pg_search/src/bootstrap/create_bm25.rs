@@ -15,8 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::insert::merge_index_with_policy;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::storage::block::{
     LinkedList, MVCCEntry, SegmentMetaEntry, SEGMENT_METAS_START,
@@ -34,6 +36,7 @@ use pgrx::JsonB;
 use pgrx::PgRelation;
 use rustc_hash::FxHashMap;
 use serde_json::Value;
+use std::collections::HashSet;
 
 #[allow(clippy::too_many_arguments)]
 #[pg_extern]
@@ -212,14 +215,11 @@ fn index_info(
     // validated the existence of the relation. We are safe calling the function below as
     // long we do not pass pg_sys::NoLock without any other locking mechanism of our own.
     let index = unsafe { PgRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _) };
-    let heap = index
-        .heap_relation()
-        .expect("index must have a heap relation");
 
     // open the specified index
-    let all_entries = unsafe {
-        LinkedItemList::<SegmentMetaEntry>::open(index.oid(), SEGMENT_METAS_START).list()
-    };
+    let mut segment_components =
+        LinkedItemList::<SegmentMetaEntry>::open(index.oid(), SEGMENT_METAS_START);
+    let all_entries = unsafe { segment_components.list() };
 
     let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
     let mut results = Vec::new();
@@ -229,7 +229,7 @@ fn index_info(
         }
         results.push((
             unsafe { entry.visible(snapshot) },
-            unsafe { entry.recyclable(heap.as_ptr()) },
+            unsafe { entry.recyclable(segment_components.bman_mut()) },
             entry.xmin.into(),
             entry.xmax.into(),
             entry.segment_id.short_uuid_string(),
@@ -283,12 +283,11 @@ fn find_ctid(index: PgRelation, ctid: pg_sys::ItemPointerData) -> Result<Option<
         .collect::<Vec<_>>();
 
     if results.is_empty() {
-        pgrx::warning!(
+        panic!(
             "find_ctid: didn't find segment for: {:?}.  segments={:#?}",
             pgrx::itemptr::item_pointer_get_both(ctid),
             search_index.segment_ids()
         );
-        Ok(None)
     } else {
         Ok(Some(results))
     }
@@ -357,9 +356,9 @@ fn page_info(
         ),
     >,
 > {
-    let segment_components =
+    let mut segment_components =
         LinkedItemList::<SegmentMetaEntry>::open(index.oid(), SEGMENT_METAS_START);
-    let bman = segment_components.bman();
+    let bman = segment_components.bman_mut();
     let buffer = bman.get_buffer(blockno as pg_sys::BlockNumber);
     let page = buffer.page();
     let max_offset = page.max_offset_number();
@@ -380,7 +379,7 @@ fn page_info(
                     offsetno as i32,
                     size as i32,
                     entry.visible(snapshot),
-                    entry.recyclable(heap_relation),
+                    entry.recyclable(bman),
                     JsonB(serde_json::to_value(entry)?),
                 ))
             } else {
@@ -417,6 +416,71 @@ fn version_info() -> TableIterator<
     };
 
     TableIterator::once((version, git_sha, build_mode))
+}
+
+#[pg_extern(name = "force_merge")]
+fn force_merge_pretty_bytes(
+    index: PgRelation,
+    oversized_layer_size_pretty: String,
+) -> anyhow::Result<TableIterator<'static, (name!(new_segments, i64), name!(merged_segments, i64))>>
+{
+    let byte_size = unsafe {
+        pgrx::direct_function_call::<i64>(
+            pg_sys::pg_size_bytes,
+            &[oversized_layer_size_pretty.into_datum()],
+        )
+        .expect("pg_size_bytes should not return null")
+    };
+
+    force_merge_raw_bytes(index, byte_size)
+}
+
+#[pg_extern(name = "force_merge")]
+fn force_merge_raw_bytes(
+    index: PgRelation,
+    oversized_layer_size_bytes: i64,
+) -> anyhow::Result<TableIterator<'static, (name!(new_segments, i64), name!(merged_segments, i64))>>
+{
+    let index = unsafe {
+        let oid = index.oid();
+        drop(index);
+
+        // reopen the index with a RowExclusiveLock b/c we are going to be changing its physical structure
+        PgRelation::with_lock(oid, pg_sys::RowExclusiveLock as _)
+    };
+
+    let merge_policy = LayeredMergePolicy::new(vec![oversized_layer_size_bytes.try_into()?]);
+    let (ncandidates, nmerged) = unsafe { merge_index_with_policy(index, merge_policy) };
+    Ok(TableIterator::once((
+        ncandidates.try_into()?,
+        nmerged.try_into()?,
+    )))
+}
+
+#[pg_extern]
+fn merge_lock_garbage_collect(index: PgRelation) -> SetOfIterator<'static, i32> {
+    unsafe {
+        let mut merge_lock = MergeLock::acquire(index.oid());
+        let before = merge_lock.in_progress_merge_entries();
+        merge_lock.garbage_collect();
+        let after = merge_lock.in_progress_merge_entries();
+        drop(merge_lock);
+
+        let before_pids = before
+            .into_iter()
+            .map(|entry| entry.pid)
+            .collect::<HashSet<_>>();
+        let after_pids = after
+            .into_iter()
+            .map(|entry| entry.pid)
+            .collect::<HashSet<_>>();
+        let mut garbage_collected_pids = before_pids
+            .difference(&after_pids)
+            .copied()
+            .collect::<Vec<_>>();
+        garbage_collected_pids.sort_unstable();
+        SetOfIterator::new(garbage_collected_pids)
+    }
 }
 
 extension_sql!(

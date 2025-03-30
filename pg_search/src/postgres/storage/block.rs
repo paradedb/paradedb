@@ -15,6 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::postgres::storage::buffer::BufferManager;
+use pgrx::pg_sys::BlockNumber;
 use pgrx::*;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
@@ -183,6 +185,15 @@ impl SegmentMetaEntry {
             .unwrap_or(0)
     }
 
+    pub fn file_entry(&self, path: &Path) -> Option<FileEntry> {
+        for (file_path, (file_entry, _)) in self.get_component_paths().zip(self.file_entries()) {
+            if path == file_path {
+                return Some(*file_entry);
+            }
+        }
+        None
+    }
+
     pub fn file_entries(&self) -> impl Iterator<Item = (&FileEntry, SegmentComponent)> {
         self.postings
             .iter()
@@ -349,6 +360,8 @@ pub trait MVCCEntry {
     fn get_xmax(&self) -> pg_sys::TransactionId;
     fn into_frozen(self, should_freeze_xmin: bool, should_freeze_xmax: bool) -> Self;
 
+    fn pintest_blockno(&self) -> pg_sys::BlockNumber;
+
     // Provided methods
     unsafe fn visible(&self, snapshot: pg_sys::Snapshot) -> bool {
         let xmin = self.get_xmin();
@@ -361,24 +374,30 @@ pub trait MVCCEntry {
         xmin_visible && !deleted
     }
 
-    unsafe fn recyclable(&self, heap_relation: pg_sys::Relation) -> bool {
+    unsafe fn recyclable(&self, bman: &mut BufferManager) -> bool {
         let xmax = self.get_xmax();
         if xmax == pg_sys::InvalidTransactionId {
             return false;
         }
 
-        pg_sys::GlobalVisCheckRemovableXid(heap_relation, xmax)
+        // if the xmax transaction is no longer in progress
+        !pg_sys::TransactionIdIsInProgress(xmax)
+
+        // and there's no pin on our pintest buffer
+        && bman.get_buffer_for_cleanup_conditional(self.pintest_blockno()).is_some()
     }
 
-    unsafe fn mergeable(&self, current_xid: pg_sys::TransactionId) -> bool {
+    unsafe fn mergeable(&self) -> bool {
         let xmin = self.get_xmin();
         let xmax = self.get_xmax();
 
         // mergeable if we haven't deleted it
         xmax == pg_sys::InvalidTransactionId
 
-            // and it's from the current transaction or a transaction that is not in progress
-            && (xmin == current_xid || !pg_sys::TransactionIdIsInProgress(xmin))
+            // and it's from a transaction that is not in progress.  we can't merge segments created
+            // by *this* transaction (ie, xmin == GetCurrentTransactionId()) because this transaction
+            // is considered in progress
+        && (!pg_sys::TransactionIdIsInProgress(xmin))
     }
 
     unsafe fn xmin_needs_freeze(&self, freeze_limit: pg_sys::TransactionId) -> bool {
@@ -412,6 +431,13 @@ impl MVCCEntry for SegmentMetaEntry {
                 self.xmax
             },
             ..self
+        }
+    }
+
+    fn pintest_blockno(&self) -> BlockNumber {
+        match self.file_entries().next() {
+            None => panic!("SegmentMetaEntry for `{}` has no files", self.segment_id),
+            Some((file_entry, _)) => file_entry.starting_block,
         }
     }
 }

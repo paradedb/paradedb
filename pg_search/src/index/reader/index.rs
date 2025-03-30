@@ -431,7 +431,7 @@ impl SearchIndexReader {
             .iter()
             .enumerate()
             .find(|(_, reader)| reader.segment_id() == segment_id)
-            .expect("segment {segment_id} should exist");
+            .unwrap_or_else(|| panic!("segment {segment_id} should exist"));
         let iter = scorer_iter::ScorerIter::new(
             DeferredScorer::new(
                 query,
@@ -583,7 +583,7 @@ impl SearchIndexReader {
             .iter()
             .enumerate()
             .find(|(_, reader)| reader.segment_id() == segment_id)
-            .expect("segment {segment_id} should exist");
+            .unwrap_or_else(|| panic!("segment {segment_id} should exist"));
         let sort_field = self
             .schema
             .get_search_field(&SearchFieldName(sort_field.clone()))
@@ -636,7 +636,7 @@ impl SearchIndexReader {
             .iter()
             .enumerate()
             .find(|(_, reader)| reader.segment_id() == segment_id)
-            .expect("segment {segment_id} should exist");
+            .unwrap_or_else(|| panic!("segment {segment_id} should exist"));
 
         let query = self.query(query);
         let weight = query

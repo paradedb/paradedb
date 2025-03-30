@@ -58,7 +58,6 @@ use std::fmt::Debug;
 // +-------------------------------------------------------------+
 
 pub struct LinkedItemList<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> {
-    relation_oid: pg_sys::Oid,
     pub header_blockno: pg_sys::BlockNumber,
     bman: BufferManager,
     _marker: std::marker::PhantomData<T>,
@@ -85,7 +84,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedList for 
 impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<T> {
     pub fn open(relation_oid: pg_sys::Oid, header_blockno: pg_sys::BlockNumber) -> Self {
         Self {
-            relation_oid,
             header_blockno,
             bman: BufferManager::new(relation_oid),
             _marker: std::marker::PhantomData,
@@ -117,7 +115,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         metadata.npages = 0;
 
         Self {
-            relation_oid,
             header_blockno,
             bman,
             _marker: std::marker::PhantomData,
@@ -168,8 +165,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
 
     pub unsafe fn garbage_collect(&mut self) -> Vec<T> {
         // Delete all items that are definitely dead
-        let heap_oid = pg_sys::IndexGetRelation(self.relation_oid, false);
-        let heap_relation = pg_sys::RelationIdGetRelation(heap_oid);
+        let heap_relation = self.bman().bm25cache().heaprel();
         let freeze_limit = vacuum_get_freeze_limit(heap_relation);
         let start_blockno = self.get_start_blockno();
         let mut blockno = start_blockno;
@@ -178,7 +174,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         let mut recycled_entries = Vec::new();
 
         while blockno != pg_sys::InvalidBlockNumber {
-            let mut buffer = self.bman.get_buffer_for_cleanup(blockno);
+            let mut buffer = self.bman.get_buffer_mut(blockno);
             let mut page = buffer.page_mut();
             let mut offsetno = pg_sys::FirstOffsetNumber;
             let max_offset = page.max_offset_number();
@@ -186,7 +182,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
 
             while offsetno <= max_offset {
                 if let Some((entry, _)) = page.read_item::<T>(offsetno) {
-                    if entry.recyclable(heap_relation) {
+                    if entry.recyclable(self.bman_mut()) {
                         page.mark_item_dead(offsetno);
 
                         recycled_entries.push(entry);
@@ -250,8 +246,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             }
         }
 
-        pg_sys::RelationClose(heap_relation);
-
         recycled_entries
     }
 
@@ -289,13 +283,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
 
                     let special = page.special_mut::<BM25PageSpecialData>();
                     special.next_blockno = new_blockno;
-
-                    // Update the header to point to the new last page
-                    let mut header_buffer = self.bman.get_buffer_mut(self.header_blockno);
-                    let mut page = header_buffer.page_mut();
-                    let metadata = page.contents_mut::<LinkedListData>();
-                    metadata.last_blockno = new_blockno;
-                    metadata.npages += 1;
 
                     if need_hold && hold_open.is_none() {
                         hold_open = Some(buffer);
@@ -350,7 +337,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         // but we should have -- how else could we have asked for something from the list?
         Err(anyhow::anyhow!(format!(
             "transaction {} failed to find the desired entry",
-            pg_sys::GetCurrentTransactionId()
+            pg_sys::GetCurrentTransactionIdIfAny()
         )))
     }
 }
@@ -364,7 +351,7 @@ mod tests {
     use tantivy::index::SegmentId;
     use uuid::Uuid;
 
-    use crate::postgres::storage::block::SegmentMetaEntry;
+    use crate::postgres::storage::block::{FileEntry, SegmentMetaEntry};
 
     fn random_segment_id() -> SegmentId {
         SegmentId::from_uuid_string(&Uuid::new_v4().to_string()).unwrap()
@@ -403,12 +390,14 @@ mod tests {
             segment_id: random_segment_id(),
             xmin: delete_xid,
             xmax: delete_xid,
+            postings: Some(make_fake_postings(relation_oid)),
             ..Default::default()
         }];
         let entries_to_keep = vec![SegmentMetaEntry {
             segment_id: random_segment_id(),
             xmin: (*snapshot).xmin - 1,
             xmax: pg_sys::InvalidTransactionId,
+            postings: Some(make_fake_postings(relation_oid)),
             ..Default::default()
         }];
 
@@ -450,6 +439,7 @@ mod tests {
                     } else {
                         not_deleted_xid
                     },
+                    postings: Some(make_fake_postings(relation_oid)),
                     ..Default::default()
                 })
                 .collect::<Vec<_>>();
@@ -473,6 +463,7 @@ mod tests {
                     segment_id: random_segment_id(),
                     xmin,
                     xmax: not_deleted_xid,
+                    postings: Some(make_fake_postings(relation_oid)),
                     ..Default::default()
                 })
                 .collect::<Vec<_>>();
@@ -483,6 +474,7 @@ mod tests {
                     segment_id: random_segment_id(),
                     xmin,
                     xmax: deleted_xid,
+                    postings: Some(make_fake_postings(relation_oid)),
                     ..Default::default()
                 })
                 .collect::<Vec<_>>();
@@ -493,6 +485,7 @@ mod tests {
                     segment_id: random_segment_id(),
                     xmin,
                     xmax: not_deleted_xid,
+                    postings: Some(make_fake_postings(relation_oid)),
                     ..Default::default()
                 })
                 .collect::<Vec<_>>();
@@ -516,6 +509,15 @@ mod tests {
             let post_gc_blocks = linked_list_block_numbers(&list);
             assert!(pre_gc_blocks.len() > post_gc_blocks.len());
             assert!(post_gc_blocks.is_subset(&pre_gc_blocks));
+        }
+    }
+
+    fn make_fake_postings(relation_oid: pg_sys::Oid) -> FileEntry {
+        let mut postings_file_block = BufferManager::new(relation_oid).new_buffer();
+        postings_file_block.init_page();
+        FileEntry {
+            starting_block: postings_file_block.number(),
+            total_bytes: 0,
         }
     }
 }

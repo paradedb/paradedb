@@ -107,6 +107,7 @@ impl BufferMut {
     }
 }
 
+#[derive(Debug)]
 pub struct PinnedBuffer {
     pg_buffer: pg_sys::Buffer,
 }
@@ -182,10 +183,6 @@ impl Page<'_> {
 
     pub fn contents<T: Copy>(&self) -> T {
         unsafe { (pg_sys::PageGetContents(self.pg_page) as *const T).read_unaligned() }
-    }
-
-    pub fn is_recyclable(&self, heaprel: pg_sys::Relation) -> bool {
-        unsafe { self.pg_page.recyclable(heaprel) }
     }
 
     pub fn next_blockno(&self) -> pg_sys::BlockNumber {

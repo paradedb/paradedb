@@ -57,7 +57,7 @@ impl MvccSatisfies {
     pub fn directory(self, index_relation: &PgRelation) -> MVCCDirectory {
         match self {
             MvccSatisfies::Snapshot => MVCCDirectory::snapshot(index_relation.oid()),
-            MvccSatisfies::Vacuum => MVCCDirectory::any(index_relation.oid()),
+            MvccSatisfies::Vacuum => MVCCDirectory::vacuum(index_relation.oid()),
             MvccSatisfies::Mergeable => MVCCDirectory::mergeable(index_relation.oid()),
         }
     }
@@ -111,7 +111,7 @@ impl MVCCDirectory {
         Self::with_mvcc_style(relation_oid, MvccSatisfies::Snapshot, Some(snapshot))
     }
 
-    pub fn any(relation_oid: pg_sys::Oid) -> Self {
+    pub fn vacuum(relation_oid: pg_sys::Oid) -> Self {
         Self::with_mvcc_style(relation_oid, MvccSatisfies::Vacuum, None)
     }
 

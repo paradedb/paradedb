@@ -351,7 +351,7 @@ mod tests {
     use tantivy::index::SegmentId;
     use uuid::Uuid;
 
-    use crate::postgres::storage::block::SegmentMetaEntry;
+    use crate::postgres::storage::block::{FileEntry, SegmentMetaEntry};
 
     fn random_segment_id() -> SegmentId {
         SegmentId::from_uuid_string(&Uuid::new_v4().to_string()).unwrap()
@@ -390,12 +390,14 @@ mod tests {
             segment_id: random_segment_id(),
             xmin: delete_xid,
             xmax: delete_xid,
+            postings: Some(make_fake_postings(relation_oid)),
             ..Default::default()
         }];
         let entries_to_keep = vec![SegmentMetaEntry {
             segment_id: random_segment_id(),
             xmin: (*snapshot).xmin - 1,
             xmax: pg_sys::InvalidTransactionId,
+            postings: Some(make_fake_postings(relation_oid)),
             ..Default::default()
         }];
 
@@ -437,6 +439,7 @@ mod tests {
                     } else {
                         not_deleted_xid
                     },
+                    postings: Some(make_fake_postings(relation_oid)),
                     ..Default::default()
                 })
                 .collect::<Vec<_>>();
@@ -460,6 +463,7 @@ mod tests {
                     segment_id: random_segment_id(),
                     xmin,
                     xmax: not_deleted_xid,
+                    postings: Some(make_fake_postings(relation_oid)),
                     ..Default::default()
                 })
                 .collect::<Vec<_>>();
@@ -470,6 +474,7 @@ mod tests {
                     segment_id: random_segment_id(),
                     xmin,
                     xmax: deleted_xid,
+                    postings: Some(make_fake_postings(relation_oid)),
                     ..Default::default()
                 })
                 .collect::<Vec<_>>();
@@ -480,6 +485,7 @@ mod tests {
                     segment_id: random_segment_id(),
                     xmin,
                     xmax: not_deleted_xid,
+                    postings: Some(make_fake_postings(relation_oid)),
                     ..Default::default()
                 })
                 .collect::<Vec<_>>();
@@ -503,6 +509,15 @@ mod tests {
             let post_gc_blocks = linked_list_block_numbers(&list);
             assert!(pre_gc_blocks.len() > post_gc_blocks.len());
             assert!(post_gc_blocks.is_subset(&pre_gc_blocks));
+        }
+    }
+
+    fn make_fake_postings(relation_oid: pg_sys::Oid) -> FileEntry {
+        let mut postings_file_block = BufferManager::new(relation_oid).new_buffer();
+        postings_file_block.init_page();
+        FileEntry {
+            starting_block: postings_file_block.number(),
+            total_bytes: 0,
         }
     }
 }

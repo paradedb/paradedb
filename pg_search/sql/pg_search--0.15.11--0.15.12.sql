@@ -58,3 +58,12 @@ CREATE  FUNCTION "force_merge"(
     STRICT
     LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'force_merge_raw_bytes_wrapper';
+
+-- pg_search/src/bootstrap/create_bm25.rs:460
+-- pg_search::bootstrap::create_bm25::merge_lock_garbage_collect
+CREATE  FUNCTION "merge_lock_garbage_collect"(
+    "index" regclass /* pgrx::rel::PgRelation */
+) RETURNS SETOF INT /* i32 */
+    STRICT
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'merge_lock_garbage_collect_wrapper';

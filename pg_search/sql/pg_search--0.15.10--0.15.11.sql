@@ -1,3 +1,5 @@
+\echo Use "ALTER EXTENSION pg_search UPDATE TO '0.15.11'" to load this file. \quit
+
 create view paradedb.index_layer_info as
 select relname::text,
        layer_size,

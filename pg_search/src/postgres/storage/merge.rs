@@ -451,6 +451,10 @@ impl MVCCEntry for MergeEntry {
             ..self
         }
     }
+
+    fn pintest_blockno(&self) -> pg_sys::BlockNumber {
+        pg_sys::InvalidBlockNumber
+    }
 }
 
 impl MergeEntry {

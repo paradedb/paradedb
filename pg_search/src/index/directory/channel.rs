@@ -311,7 +311,7 @@ impl ChannelRequestHandler {
             //
             // This is safe because despite the closure getting passed to a background
             // thread, we actually wait on it through the internal `self.action` and `self.reply` channels.
-            unsafe { std::mem::transmute(boxed_func) }
+            std::mem::transmute(boxed_func)
         };
 
         self.action.0.send(boxed_func)?;

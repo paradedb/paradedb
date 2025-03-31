@@ -190,9 +190,8 @@ impl LayeredMergePolicy {
         }
     }
 
-    /// Run a simulation of what tantivy will do when it calls our [`MergePolicy::compute_merge_candidates`]
-    /// implementation and then reduce the internal set of mergeable segments to just the segments
-    /// that will be merged.
+    /// Run a simulation of what tantivy will do if it were to call our [`MergePolicy::compute_merge_candidates`]
+    /// implementation
     pub fn simulate(&self) -> (Vec<MergeCandidate>, NumMerged) {
         // we don't want the whole world to know how to do this conversion
         #[allow(non_local_definitions)]

@@ -301,8 +301,19 @@ impl ChannelRequestHandler {
             self.process_message(message)?;
         }
 
-        let boxed_func: Action<'me> = Box::new(move || Box::new(func()));
-        let boxed_func: Action<'static> = unsafe { std::mem::transmute(boxed_func) };
+        let boxed_func: Action<'static> = unsafe {
+            let boxed_func: Action<'me> = Box::new(move || Box::new(func()));
+
+            // SAFETY
+            //
+            // What we're doing here is transmuting the lifetime of the `FnOnce() -> T` argument
+            // `func` from `'me` (meaning it's assumed to borrow from `'self`) to`'static`.
+            //
+            // This is safe because despite the closure getting passed to a background
+            // thread, we actually wait on it through the internal `self.action` and `self.reply` channels.
+            unsafe { std::mem::transmute(boxed_func) }
+        };
+
         self.action.0.send(boxed_func)?;
         loop {
             match self.reply.1.try_recv() {

@@ -44,8 +44,7 @@ struct BuildState {
 
 impl BuildState {
     fn new(indexrel: &PgRelation, writer: SearchIndexWriter) -> Self {
-        let tupdesc = unsafe { PgTupleDesc::from_pg_unchecked(indexrel.rd_att) };
-        let categorized_fields = categorize_fields(&tupdesc, &writer.schema);
+        let categorized_fields = categorize_fields(indexrel, &writer.schema);
         let key_field_name = writer.schema.key_field().name.0;
 
         BuildState {

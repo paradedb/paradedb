@@ -33,6 +33,7 @@ mod range;
 mod scan;
 mod vacuum;
 mod validate;
+pub mod expression;
 
 pub mod customscan;
 pub mod datetime;
@@ -254,6 +255,7 @@ impl ParallelScanState {
     }
 
     fn query(&self) -> anyhow::Result<Option<SearchQueryInput>> {
+        pgrx::log!("parallel scan query");
         self.payload.query()
     }
 }

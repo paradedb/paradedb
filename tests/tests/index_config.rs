@@ -762,10 +762,10 @@ fn expression_with_options(mut conn: PgConnection) {
         .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
-        "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
+        "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index') ORDER BY name"
             .fetch(&mut conn);
 
-    assert_eq!(rows[0], ("ctid".into(), "U64".into()));
-    assert_eq!(rows[1], ("id".into(), "I64".into()));
-    assert_eq!(rows[2], ("lower".into(), "Str".into()));
+    assert_eq!(rows[0], ("_pg_search_1".into(), "Str".into()));
+    assert_eq!(rows[1], ("ctid".into(), "U64".into()));
+    assert_eq!(rows[2], ("id".into(), "I64".into()));
 }

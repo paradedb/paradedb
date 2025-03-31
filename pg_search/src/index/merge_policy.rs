@@ -193,7 +193,7 @@ impl LayeredMergePolicy {
     /// Run a simulation of what tantivy will do when it calls our [`MergePolicy::compute_merge_candidates`]
     /// implementation and then reduce the internal set of mergeable segments to just the segments
     /// that will be merged.
-    pub fn simulate(&mut self) -> (NumCandidates, NumMerged) {
+    pub fn simulate(&self) -> (Vec<MergeCandidate>, NumMerged) {
         // we don't want the whole world to know how to do this conversion
         #[allow(non_local_definitions)]
         impl From<SegmentMetaEntry> for SegmentMeta {
@@ -219,16 +219,9 @@ impl LayeredMergePolicy {
             .map(From::from)
             .collect::<Vec<SegmentMeta>>();
         let candidates = self.compute_merge_candidates(None, &segment_metas);
-        let ncandidates = candidates.len();
-        let candidate_ids = candidates
-            .into_iter()
-            .flat_map(|candidate| candidate.0)
-            .collect::<HashSet<_>>();
+        let nmerged = candidates.iter().flat_map(|candidate| &candidate.0).count();
 
-        self.mergeable_segments
-            .retain(|&id, _| candidate_ids.contains(&id));
-        self.already_processed = AtomicBool::new(false);
-        (ncandidates, candidate_ids.len())
+        (candidates, nmerged)
     }
 
     fn collect_mergeable_segments<'a>(

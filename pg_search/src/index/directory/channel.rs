@@ -21,7 +21,7 @@ use tantivy::directory::{
     DirectoryLock, DirectoryPanicHandler, FileHandle, Lock, OwnedBytes, TerminatingWrite,
     WatchCallback, WatchHandle, WritePtr,
 };
-use tantivy::index::SegmentMetaInventory;
+use tantivy::index::{SegmentId, SegmentMetaInventory};
 use tantivy::{Directory, IndexMeta, TantivyError};
 
 pub type Overwrite = bool;
@@ -216,7 +216,7 @@ impl Directory for ChannelDirectory {
     }
 }
 
-type Action = Box<dyn FnOnce() -> Reply + Send + Sync>;
+type Action<'a> = Box<dyn FnOnce() -> Reply + Send + Sync + 'a>;
 type Reply = Box<dyn Any + Send + Sync>;
 pub struct ChannelRequestHandler {
     directory: MVCCDirectory,
@@ -227,7 +227,7 @@ pub struct ChannelRequestHandler {
 
     file_entries: FxHashMap<PathBuf, FileEntry>,
 
-    action: (Sender<Action>, Receiver<Action>),
+    action: (Sender<Action<'static>>, Receiver<Action<'static>>),
     reply: (Sender<Reply>, Receiver<Reply>),
     _worker: JoinHandle<()>,
 }
@@ -260,16 +260,29 @@ impl ChannelRequestHandler {
         }
     }
 
+    /// Drop the pins that are held on the specified [`SegmentId`]s.
+    ///
+    /// # Safety
+    ///
+    /// This does not remove the segments themselves from being accessible by the internal
+    /// [`MVCCDirectory`] which means that attempts to use these segments after dropping their pins
+    /// will likely lead to incorrect behavior.  It is the callers responsibility to ensure they
+    /// don't do that.
+    #[doc(hidden)]
+    pub(crate) unsafe fn drop_pins(&mut self, segment_ids: &[SegmentId]) -> tantivy::Result<()> {
+        self.directory.drop_pins(segment_ids)
+    }
+
     #[track_caller]
-    pub fn wait_for<T: Send + Sync + 'static, F: FnOnce() -> T + Send + Sync + 'static>(
-        &mut self,
+    pub fn wait_for<'me, T: Send + Sync + 'static, F: FnOnce() -> T + Send + Sync + 'me>(
+        &'me mut self,
         func: F,
     ) -> Result<T> {
         self.wait_for_internal(func, false)
     }
 
     #[track_caller]
-    pub fn wait_for_final<T: Send + Sync + 'static, F: FnOnce() -> T + Send + Sync + 'static>(
+    pub fn wait_for_final<T: Send + Sync + 'static, F: FnOnce() -> T + Send + Sync>(
         mut self,
         func: F,
     ) -> Result<T> {
@@ -277,9 +290,9 @@ impl ChannelRequestHandler {
     }
 
     #[track_caller]
-    fn wait_for_internal<T: Send + Sync + 'static, F: FnOnce() -> T + Send + Sync + 'static>(
-        &mut self,
-        action_func: F,
+    fn wait_for_internal<'me, T: Send + Sync + 'static, F: FnOnce() -> T + Send + Sync + 'me>(
+        &'me mut self,
+        func: F,
         sync: bool,
     ) -> Result<T> {
         // Before we fire off the caller's action we should ensure there are no unprocessed messages
@@ -288,8 +301,9 @@ impl ChannelRequestHandler {
             self.process_message(message)?;
         }
 
-        let func: Action = Box::new(move || Box::new(action_func()));
-        self.action.0.send(func)?;
+        let boxed_func: Action<'me> = Box::new(move || Box::new(func()));
+        let boxed_func: Action<'static> = unsafe { std::mem::transmute(boxed_func) };
+        self.action.0.send(boxed_func)?;
         loop {
             match self.reply.1.try_recv() {
                 // `func` has finished and we have its reply

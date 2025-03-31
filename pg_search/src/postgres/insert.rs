@@ -32,6 +32,7 @@ use pgrx::{pg_guard, pg_sys, PgMemoryContexts, PgRelation, PgTupleDesc};
 use std::collections::HashMap;
 use std::ffi::CStr;
 use std::panic::{catch_unwind, resume_unwind};
+use tantivy::SegmentMeta;
 
 extern "C" {
     fn IsLogicalWorker() -> bool;
@@ -250,12 +251,13 @@ unsafe fn do_merge(indexrelid: pg_sys::Oid) -> (NumCandidates, NumMerged) {
     let index_options = SearchIndexCreateOptions::from_relation(&indexrel);
     let merge_policy = LayeredMergePolicy::new(index_options.layer_sizes(DEFAULT_LAYER_SIZES));
 
-    merge_index_with_policy(indexrel, merge_policy)
+    merge_index_with_policy(indexrel, merge_policy, false)
 }
 
 pub unsafe fn merge_index_with_policy(
     indexrel: PgRelation,
     mut merge_policy: LayeredMergePolicy,
+    verbose: bool,
 ) -> (NumCandidates, NumMerged) {
     let indexrelid = indexrel.oid();
     let all_segments =
@@ -300,14 +302,8 @@ pub unsafe fn merge_index_with_policy(
 
     // reduce the set of segments that the LayeredMergePolicy will operate on by internally
     // simulating the process, allowing concurrent merges to consider segments we're not
-    let (ncandidates, nmerged) = merge_policy.simulate();
-
-    if pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) {
-        pgrx::debug1!(
-            "do_merge: merge_policy.mergeable_segments={:?}",
-            merge_policy.mergeable_segments
-        );
-    }
+    let (merge_candidates, nmerged) = merge_policy.simulate();
+    let ncandidates = merge_candidates.len();
 
     if ncandidates > 0 {
         // record all the segments the IndexWriter can see, as those are the ones that
@@ -320,10 +316,59 @@ pub unsafe fn merge_index_with_policy(
         //
         // we defer raising a panic in the face of a merge error as we need to remove the created
         // `merge_entry` whether the merge worked or not
-        let merge_result = {
-            writer.set_merge_policy(merge_policy);
-            writer.merge()
-        };
+
+        writer.set_merge_policy(merge_policy);
+        let mut merger = writer.index_merger();
+        let mut merge_result: anyhow::Result<Option<SegmentMeta>> = Ok(None);
+
+        if !verbose {
+            // happy path
+            for candidate in merge_candidates {
+                merge_result = merger.merge_segments(&candidate.0);
+                if merge_result.is_err() {
+                    break;
+                }
+            }
+        } else {
+            // verbose path
+            pgrx::warning!(
+                "merging {} candidates, totalling {} segments",
+                ncandidates,
+                nmerged
+            );
+
+            for (i, candidate) in merge_candidates.into_iter().enumerate() {
+                pgrx::warning!(
+                    "merging candidate #{}:  {} segments",
+                    i + 1,
+                    candidate.0.len()
+                );
+
+                let start = std::time::Instant::now();
+                merge_result = match merger.merge_segments(&candidate.0) {
+                    Ok(Some(segment_meta)) => {
+                        pgrx::warning!(
+                            "   finished merge in {:?}.  final num_docs={}",
+                            start.elapsed(),
+                            segment_meta.num_docs()
+                        );
+                        Ok(Some(segment_meta))
+                    }
+                    Ok(None) => {
+                        pgrx::warning!(
+                            "   finished merge in {:?}.  merged to nothing",
+                            start.elapsed()
+                        );
+                        Ok(None)
+                    }
+                    Err(e) => Err(e),
+                };
+
+                if merge_result.is_err() {
+                    break;
+                }
+            }
+        }
 
         // re-acquire the MergeLock to remove the entry we made above
         // we also can't concurrently garbage collect our segment meta entries list

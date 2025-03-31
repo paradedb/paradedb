@@ -18,11 +18,12 @@
 use anyhow::Result;
 use pgrx::{pg_sys, PgRelation};
 use std::collections::HashSet;
-use std::sync::Arc;
 use tantivy::index::SegmentId;
 use tantivy::indexer::{NoMergePolicy, UserOperation};
 use tantivy::schema::Field;
-use tantivy::{DocId, Index, IndexSettings, IndexWriter, Opstamp, TantivyDocument, TantivyError};
+use tantivy::{
+    DocId, Index, IndexSettings, IndexWriter, Opstamp, SegmentMeta, TantivyDocument, TantivyError,
+};
 use thiserror::Error;
 
 use crate::index::channel::{ChannelDirectory, ChannelRequestHandler};
@@ -46,7 +47,7 @@ pub struct SearchIndexWriter {
 
     // keep all these private -- leaking them to the public API would allow callers to
     // mis-use the IndexWriter in particular.
-    writer: Arc<IndexWriter>,
+    writer: IndexWriter,
     handler: ChannelRequestHandler,
     insert_queue: Vec<UserOperation>,
 
@@ -90,7 +91,7 @@ impl SearchIndexWriter {
 
         Ok(Self {
             indexrelid: index_relation.oid(),
-            writer: Arc::new(writer),
+            writer,
             schema,
             handler,
             ctid_field,
@@ -136,7 +137,7 @@ impl SearchIndexWriter {
 
         Ok(Self {
             indexrelid: index_relation.oid(),
-            writer: Arc::new(writer),
+            writer,
             schema,
             ctid_field,
             handler,
@@ -185,8 +186,7 @@ impl SearchIndexWriter {
 
     pub fn commit(mut self) -> Result<usize> {
         self.drain_insert_queue()?;
-        let mut writer =
-            Arc::into_inner(self.writer).expect("should not have an outstanding Arc<IndexWriter>");
+        let mut writer = self.writer;
 
         let writer = self
             .handler
@@ -203,7 +203,34 @@ impl SearchIndexWriter {
         Ok(self.cnt)
     }
 
-    /// Causes the index to perform a merge.
+    pub fn index_merger(self) -> SearchIndexMerger {
+        assert!(self.insert_queue.is_empty());
+        SearchIndexMerger {
+            writer: self,
+            merged_segment_ids: Default::default(),
+        }
+    }
+
+    fn drain_insert_queue(&mut self) -> Result<Opstamp, TantivyError> {
+        let insert_queue = std::mem::take(&mut self.insert_queue);
+        let writer = &self.writer;
+        self.handler
+            .wait_for(move || writer.run(insert_queue))
+            .expect("spawned thread should not fail")
+    }
+}
+
+pub struct SearchIndexMerger {
+    writer: SearchIndexWriter,
+    merged_segment_ids: HashSet<SegmentId>,
+}
+
+impl SearchIndexMerger {
+    /// Merge the specified [`SegmentId`]s together into a new segment.  This is a blocking,
+    /// foreground operation.
+    ///
+    /// Once the segments are merged, we drop the pin held on each one which allows for subsequent
+    /// merges to potentially use their previously-occupied space.
     ///
     /// It is your responsibility to ensure any necessary locking is handled externally
     ///
@@ -211,20 +238,27 @@ impl SearchIndexWriter {
     ///
     /// Will panic if the insert_queue is not empty.  Can also panic if our internal communications
     /// channels with tantivy fail for some reason.
-    pub fn merge(self) -> Result<()> {
-        assert!(self.insert_queue.is_empty());
-        let start = std::time::Instant::now();
-        self.commit()?;
-        pgrx::debug1!("merge complete in {:?}", start.elapsed());
-        Ok(())
-    }
+    pub fn merge_segments(&mut self, segment_ids: &[SegmentId]) -> Result<Option<SegmentMeta>> {
+        assert!(
+            segment_ids
+                .iter()
+                .all(|segment_id| !self.merged_segment_ids.contains(segment_id)),
+            "segment was already merged by this merger instance"
+        );
+        let writer = &mut self.writer.writer;
+        let result = self
+            .writer
+            .handler
+            .wait_for(move || writer.merge(segment_ids).wait())?;
 
-    fn drain_insert_queue(&mut self) -> Result<Opstamp, TantivyError> {
-        let insert_queue = std::mem::take(&mut self.insert_queue);
-        let writer = self.writer.clone();
-        self.handler
-            .wait_for(move || writer.run(insert_queue))
-            .expect("spawned thread should not fail")
+        unsafe {
+            // SAFETY:  The important thing here is that these segments are not used in any way
+            // after their pins are dropped, and [`SearchIndexMerger`] ensures that
+            self.writer.handler.drop_pins(segment_ids)?;
+            self.merged_segment_ids.extend(segment_ids.iter().cloned());
+        }
+
+        Ok(result?)
     }
 }
 

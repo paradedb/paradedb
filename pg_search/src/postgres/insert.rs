@@ -317,7 +317,6 @@ pub unsafe fn merge_index_with_policy(
         // we defer raising a panic in the face of a merge error as we need to remove the created
         // `merge_entry` whether the merge worked or not
 
-        writer.set_merge_policy(merge_policy);
         let mut merger = writer.index_merger();
         let mut merge_result: anyhow::Result<Option<SegmentMeta>> = Ok(None);
 

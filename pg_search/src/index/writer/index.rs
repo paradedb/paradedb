@@ -27,7 +27,6 @@ use tantivy::{
 use thiserror::Error;
 
 use crate::index::channel::{ChannelDirectory, ChannelRequestHandler};
-use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::{get_index_schema, setup_tokenizers, WriterResources};
 use crate::{
@@ -146,12 +145,6 @@ impl SearchIndexWriter {
         })
     }
 
-    /// Our default merge policy is tantivy's [`NoMergePolicy`], and if it's to be changed, we only
-    /// support our own [`LayeredMergePolicy`]
-    pub fn set_merge_policy(&mut self, merge_policy: LayeredMergePolicy) {
-        self.writer.set_merge_policy(Box::new(merge_policy));
-    }
-
     pub fn segment_ids(&mut self) -> HashSet<SegmentId> {
         let index = self.writer.index().clone();
         self.handler
@@ -203,6 +196,11 @@ impl SearchIndexWriter {
         Ok(self.cnt)
     }
 
+    /// Create a new [`SearchIndexMerger`]
+    ///
+    /// # Panics
+    ///
+    /// Will panic if the internal insert queue is not empty
     pub fn index_merger(self) -> SearchIndexMerger {
         assert!(self.insert_queue.is_empty());
         SearchIndexMerger {
@@ -236,8 +234,8 @@ impl SearchIndexMerger {
     ///
     /// # Panics
     ///
-    /// Will panic if the insert_queue is not empty.  Can also panic if our internal communications
-    /// channels with tantivy fail for some reason.
+    /// Will panic if a segment_id has already been merged or if our internal tantivy communications
+    /// channels fail for some reason.
     pub fn merge_segments(&mut self, segment_ids: &[SegmentId]) -> Result<Option<SegmentMeta>> {
         assert!(
             segment_ids

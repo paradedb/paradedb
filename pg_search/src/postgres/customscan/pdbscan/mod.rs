@@ -723,8 +723,19 @@ impl CustomScan for PdbScan {
             .map(|indexrel| unsafe { PgRelation::from_pg(*indexrel) })
             .expect("custom_state.indexrel should already be open");
 
-        let search_reader = SearchIndexReader::open(&indexrel, MvccSatisfies::Snapshot)
-            .expect("should be able to open the search index reader");
+        let search_reader = SearchIndexReader::open(&indexrel, unsafe {
+            if pg_sys::ParallelWorkerNumber == -1 {
+                // the leader only sees snapshot-visible segments
+                MvccSatisfies::Snapshot
+            } else {
+                // the workers have their own rules, which is literally every segment
+                // this is because the workers pick a specific segment to query that
+                // is known to be held open/pinned by the leader but might not pass a ::Snapshot
+                // visibility test due to concurrent merges/garbage collects
+                MvccSatisfies::ParallelWorker
+            }
+        })
+        .expect("should be able to open the search index reader");
         state.custom_state_mut().search_reader = Some(search_reader);
 
         let csstate = addr_of_mut!(state.csstate);

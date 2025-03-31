@@ -1,0 +1,55 @@
+
+{
+   "name": "pg_search",
+   "abstract": "@CRATE_DESC@",
+   "description": "ParadeDB pg_search is a Postgres extension that enables fast full-text, faceted and hybrid search over Postgres tables using the BM25 algorithm. It is built on top of Tantivy, the Rust-based alternative to Apache Lucene, using pgrx.",
+   "version": "@CRATE_VERSION@",
+   "maintainer": [
+      "ParadeDB <support@paradedb.com>"
+   ],
+   "license": "agpl_3",
+   "provides": {
+      "pg_search": {
+         "abstract": "Postgres for Search and Analytics",
+         "file": "pg_search/src/lib.rs",
+         "docfile": "pg_search/README.md",
+         "version": "@CRATE_VERSION@"
+      }
+   },
+   "prereqs": {
+      "runtime": {
+         "requires": {
+            "PostgreSQL": "14.0.0"
+         }
+      }
+   },
+   "resources": {
+      "bugtracker": {
+         "web": "https://github.com/paradedb/paradedb/issues/"
+      },
+      "repository": {
+         "url": "git://github.com/paradedb/paradedb.git",
+         "web": "https://github.com/paradedb/paradedb/",
+         "type": "git"
+      }
+   },
+   "generated_by": "ParadeDB",
+   "meta-spec": {
+      "version": "1.0.0",
+      "url": "https://pgxn.org/meta/spec.txt"
+   },
+   "tags": [
+      "paradedb",
+      "search",
+      "analytics",
+      "bm25",
+      "text search",
+      "full text search",
+      "full-text search",
+      "hybrid search",
+      "faceted search",
+      "facets",
+      "columnar",
+      "olap"
+   ]
+}

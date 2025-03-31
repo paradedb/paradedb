@@ -44,29 +44,40 @@ pub unsafe extern "C" fn ambulkdelete(
         callback(&mut ctid, callback_state)
     };
 
+    // first, we need an exclusive lock on the CLEANUP_LOCK.  Once we get it, we know that there
+    // are no concurrent merges happening
+    let cleanup_lock =
+        BufferManager::new(index_relation.oid()).get_buffer_for_cleanup(CLEANUP_LOCK);
+
     // take the MergeLock
-    let merge_lock = loop {
-        // acquire the CLEANUP_LOCK (for cleanup).  This will block us until the lock has no concurrent
-        // pins.  That means there are no readers and no merging happening
-        let cleanup_lock =
-            BufferManager::new(index_relation.oid()).get_buffer_for_cleanup(CLEANUP_LOCK);
-        drop(cleanup_lock);
+    let merge_lock = {
+        // this should acquire instantly as at this point, because of our exclusive lock on CLEANUP_LOCK
+        // we know there's nobody else that might also be holding the merge lock
+        let mut merge_lock = MergeLock::acquire(index_relation.oid());
 
-        // next we acquire the MergeLock.  This too is a blocking operation.  The hope here is that
-        // because of the waiting we did above to get the CLEANUP_LOCK, we'll be the next to acquire
-        // the MergeLock before another merge begins
-        let merge_lock = MergeLock::acquire(index_relation.oid());
-        if merge_lock.is_merge_in_progress() {
-            // but if another merge did begin we need to wait it out and retry.
-            check_for_interrupts!();
-            continue;
-        }
-        break merge_lock;
+        // garbage collecting the MergeLock is necessary to remove any stale entries that may have
+        // been leftover from a cancelled merge or crash during merge
+        merge_lock.garbage_collect();
+        pg_sys::IndexFreeSpaceMapVacuum(index_relation.as_ptr());
+
+        // and now we should not have any merges happening, and cannot
+        assert!(
+            !merge_lock.is_merge_in_progress(),
+            "ambulkdelete cannot run concurrently with an active merge operation"
+        );
+        merge_lock
     };
+    drop(cleanup_lock);
 
-    let mut index_writer =
-        SearchIndexWriter::open(&index_relation, MvccSatisfies::Any, WriterResources::Vacuum)
-            .expect("ambulkdelete: should be able to open a SearchIndexWriter");
+    let mut index_writer = SearchIndexWriter::open(
+        &index_relation,
+        MvccSatisfies::Vacuum,
+        WriterResources::Vacuum,
+    )
+    .expect("ambulkdelete: should be able to open a SearchIndexWriter");
+    let reader = SearchIndexReader::open(&index_relation, MvccSatisfies::Vacuum)
+        .expect("ambulkdelete: should be able to open a SearchIndexReader");
+
     let writer_segment_ids = index_writer.segment_ids();
 
     // write out the list of segment ids we're about to operate on.  Doing so drops the MergeLock
@@ -75,9 +86,6 @@ pub unsafe extern "C" fn ambulkdelete(
     let vacuum_sentinel = merge_lock
         .vacuum_list()
         .write_list(writer_segment_ids.iter());
-
-    let reader = SearchIndexReader::open(&index_relation, MvccSatisfies::Any)
-        .expect("ambulkdelete: should be able to open a SearchIndexReader");
 
     let mut did_delete = false;
     for segment_reader in reader.segment_readers() {

@@ -16,13 +16,14 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::operator::{
-    anyelement_text_opoid, anyelement_text_procoid, attname_from_var, estimate_selectivity,
-    make_search_query_input_opexpr_node, ReturnedNodePointer,
+    anyelement_text_opoid, anyelement_text_procoid, estimate_selectivity, make_search_query_input_opexpr_node, ReturnedNodePointer
 };
 use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
 use crate::{nodecast, UNKNOWN_SELECTIVITY};
 use pgrx::{pg_extern, pg_sys, AnyElement, FromDatum, Internal, PgList};
+
+use super::attname_from_node;
 
 /// This is the function behind the `@@@(anyelement, text)` operator. Since we transform those to
 /// use `@@@(anyelement, searchqueryinput`), this function won't be called in normal circumstances, but it
@@ -58,19 +59,17 @@ fn text_support_request_simplify(arg: Internal) -> Option<ReturnedNodePointer> {
         let lhs = input_args.get_ptr(0)?;
         let rhs = input_args.get_ptr(1)?;
 
-        let var = nodecast!(Var, T_Var, lhs)?;
         let (query, param) = if let Some(const_) = nodecast!(Const, T_Const, rhs) {
             // the field name comes from the lhs of the @@@ operator
-            let (_, query) = make_query_from_var_and_const((*srs).root, var, const_);
+            let (_, query) = make_query_from_node_and_const((*srs).root, lhs, const_);
             (Some(query), None)
         } else {
+            let (_, attname) = attname_from_node((*srs).root, lhs).expect("lhs is not a Var/FuncExpr");
             (
                 None,
                 Some((
                     rhs,
-                    attname_from_var((*srs).root, var)
-                        .1
-                        .expect("should be able to determine Var name"),
+                    Some(attname.expect("should be able to determine Var name"),)
                 )),
             )
         };
@@ -78,7 +77,7 @@ fn text_support_request_simplify(arg: Internal) -> Option<ReturnedNodePointer> {
         Some(make_search_query_input_opexpr_node(
             srs,
             &mut input_args,
-            var,
+            lhs,
             query,
             param,
             anyelement_text_opoid(),
@@ -102,10 +101,10 @@ pub fn text_restrict(
             let info = planner_info.unwrap()?.cast_mut_ptr::<pg_sys::PlannerInfo>();
             let args =
                 PgList::<pg_sys::Node>::from_pg(args.unwrap()?.cast_mut_ptr::<pg_sys::List>());
-            let var = nodecast!(Var, T_Var, args.get_ptr(0)?)?;
+            let lhs = args.get_ptr(0)?;
             let const_ = nodecast!(Const, T_Const, args.get_ptr(1)?)?;
 
-            let (heaprelid, search_query_input) = make_query_from_var_and_const(info, var, const_);
+            let (heaprelid, search_query_input) = make_query_from_node_and_const(info, lhs, const_);
             let indexrel = locate_bm25_index(heaprelid)?;
 
             estimate_selectivity(&indexrel, &search_query_input)
@@ -122,12 +121,12 @@ pub fn text_restrict(
     selectivity
 }
 
-unsafe fn make_query_from_var_and_const(
+unsafe fn make_query_from_node_and_const(
     root: *mut pg_sys::PlannerInfo,
-    var: *mut pg_sys::Var,
+    node: *mut pg_sys::Node,
     const_: *mut pg_sys::Const,
 ) -> (pg_sys::Oid, SearchQueryInput) {
-    let (heaprelid, attname) = attname_from_var(root, var);
+    let (heaprelid, attname) = attname_from_node(root, node).expect("node is not a Var/FuncExpr");
     // the query comes from the rhs of the @@@ operator.  we've already proved it's a `pg_sys::Const` node
     let query_string = String::from_datum((*const_).constvalue, (*const_).constisnull)
         .expect("query must not be NULL");

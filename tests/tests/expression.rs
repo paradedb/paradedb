@@ -35,7 +35,71 @@ fn basic_expression_scan(mut conn: PgConnection) {
         .execute(&mut conn);
 
     let (count,) =
-        "SELECT count(*) FROM paradedb.index_config WHERE index_config @@@ paradedb.term('lower', 'test')"
+        "SELECT count(*) FROM paradedb.index_config WHERE index_config @@@ paradedb.term('_pg_search_1', 'test')"
+            .fetch_one::<(i64,)>(&mut conn);
+    assert_eq!(count, 1);
+}
+
+#[rstest]
+fn classic_expression_scan(mut conn: PgConnection) {
+    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
+        .execute(&mut conn);
+
+    r#"CREATE INDEX index_config_index ON paradedb.index_config
+        USING bm25 (id, description) WITH (key_field='id')"#
+        .execute(&mut conn);
+
+    r#"INSERT INTO paradedb.index_config (description) VALUES ('Test description')"#
+        .execute(&mut conn);
+
+    let (count,) =
+        "SELECT count(*) FROM paradedb.index_config WHERE description @@@ 'Test'"
+            .fetch_one::<(i64,)>(&mut conn);
+    assert_eq!(count, 1);
+}
+
+#[rstest]
+fn basic_query_string(mut conn: PgConnection) {
+    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
+        .execute(&mut conn);
+
+    r#"CREATE INDEX index_config_index ON paradedb.index_config
+        USING bm25 (id, lower(description)) WITH (key_field='id')"#
+        .execute(&mut conn);
+
+    r#"INSERT INTO paradedb.index_config (description) VALUES ('Test description')"#
+        .execute(&mut conn);
+
+    let (count,) =
+        "SELECT count(*) FROM paradedb.index_config WHERE lower(description) @@@ 'test'"
+            .fetch_one::<(i64,)>(&mut conn);
+    assert_eq!(count, 1);
+}
+
+#[rstest]
+fn conflicting_query_string(mut conn: PgConnection) {
+    "CREATE TABLE expression_test (id SERIAL PRIMARY KEY, firstname TEXT, lastname TEXT)"
+        .execute(&mut conn);
+
+    r#"CREATE INDEX expression_test_idx ON expression_test
+        USING bm25 (id, lower(firstname), lower(lastname)) WITH (key_field='id')"#
+        .execute(&mut conn);
+
+    r#"INSERT INTO expression_test (firstname, lastname) VALUES ('John', 'Doe')"#
+        .execute(&mut conn);
+
+    let (count,) =
+        "SELECT count(*) FROM expression_test WHERE lower(firstname) @@@ 'john'"
+            .fetch_one::<(i64,)>(&mut conn);
+    assert_eq!(count, 1);
+
+    let (count,) =
+        "SELECT count(*) FROM expression_test WHERE lower(lastname) @@@ 'doe'"
+            .fetch_one::<(i64,)>(&mut conn);
+    assert_eq!(count, 1);
+
+    let (count,) =
+        "SELECT count(*) FROM expression_test WHERE lower(firstname) @@@ 'john' AND lower(lastname) @@@ 'doe'"
             .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 1);
 }

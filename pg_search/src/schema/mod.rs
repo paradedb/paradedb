@@ -921,7 +921,21 @@ impl AsTypeOid for (&PgRelation, &SearchIndexSchema) {
             return PgOid::BuiltIn(pgrx::pg_sys::BuiltinOid::TIDOID);
         }
         let indexrel = self.0;
-        for attribute in indexrel.tuple_desc().iter() {
+        let indexdesc = indexrel.tuple_desc();
+        // Expression are converted to _pg_search_N with N being the
+        // field id.
+        if search_field.name.0.starts_with("_pg_search_") {
+            let expr_oid = search_field.name.0[11..].parse::<u32>()
+                .ok()
+                .map(|v| indexdesc.get(v as usize))
+                .flatten()
+                .map(|f| f.type_oid());
+            if let Some(oid) = expr_oid {
+                return oid;
+            }
+        }
+
+        for attribute in indexdesc.iter() {
             let attname = attribute.name().to_string();
             let typeoid = attribute.type_oid();
             if search_field.name.0 == attname {

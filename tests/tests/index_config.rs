@@ -505,6 +505,11 @@ fn partitioned_info(mut conn: PgConnection) {
             "Got {segment_count} for index partition {index_name}"
         );
     }
+
+    // Just cover `index_layer_info`.
+    let segments_per_partition: Vec<(String, String, i64)> =
+        "SELECT relname::text, layer_size, count FROM paradedb.index_layer_info".fetch(&mut conn);
+    assert!(!segments_per_partition.is_empty());
 }
 
 #[rstest]

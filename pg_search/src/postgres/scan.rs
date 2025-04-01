@@ -106,8 +106,10 @@ pub extern "C" fn amrescan(
 
     // Create the index and scan state
     let search_reader = SearchIndexReader::open(&indexrel, unsafe {
-        if pg_sys::ParallelWorkerNumber == -1 {
-            // the leader only sees snapshot-visible segments
+        if pg_sys::ParallelWorkerNumber == -1 || (*scan).parallel_scan.is_null() {
+            // the leader only sees snapshot-visible segments.
+            // we're the leader because our WorkerNumber is -1
+            // alternatively, we're not actually a parallel scan because (*scan).parallen_scan is null
             MvccSatisfies::Snapshot
         } else {
             // the workers have their own rules, which is literally every segment

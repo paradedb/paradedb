@@ -218,6 +218,7 @@ impl ParallelScanState {
     }
 
     fn init_without_mutex(&mut self, segments: &[SegmentReader], query: &[u8]) {
+        assert!(!segments.is_empty());
         self.payload.init(segments, query);
         self.remaining_segments = segments.len();
         self.nsegments = segments.len();

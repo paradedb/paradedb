@@ -488,21 +488,22 @@ impl SearchIndexCreateOptions {
         &self,
         indexrel: &PgRelation,
     ) -> impl Iterator<Item = (SearchFieldName, SearchFieldConfig, SearchFieldType)> {
-        let attributes: FxHashMap<SearchFieldName, SearchFieldType> = extract_field_attributes(indexrel)
-            .into_iter()
-            .map(|(attname, atttypid)| {
-                let array_type = pg_sys::get_element_type(atttypid);
-                let base_oid = PgOid::from(if array_type != pg_sys::InvalidOid {
-                    array_type
-                } else {
-                    atttypid
-                });
-                let field_type = SearchFieldType::try_from(&base_oid).unwrap_or_else(|err| {
-                    panic!("cannot index '{attname}' with type {base_oid:?}: {err}",)
-                });
-                (SearchFieldName(attname), field_type)
-            })
-            .collect();
+        let attributes: FxHashMap<SearchFieldName, SearchFieldType> =
+            extract_field_attributes(indexrel)
+                .into_iter()
+                .map(|(attname, atttypid)| {
+                    let array_type = pg_sys::get_element_type(atttypid);
+                    let base_oid = PgOid::from(if array_type != pg_sys::InvalidOid {
+                        array_type
+                    } else {
+                        atttypid
+                    });
+                    let field_type = SearchFieldType::try_from(&base_oid).unwrap_or_else(|err| {
+                        panic!("cannot index '{attname}' with type {base_oid:?}: {err}",)
+                    });
+                    (SearchFieldName(attname), field_type)
+                })
+                .collect();
 
         let (key_field_name, key_field_config, key_field_type) = self
             .get_key_field_config(&attributes)

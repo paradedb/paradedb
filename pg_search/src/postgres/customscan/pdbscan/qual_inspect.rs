@@ -643,6 +643,7 @@ unsafe fn opexpr(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 unsafe fn node_opexpr(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
@@ -720,10 +721,7 @@ unsafe fn node_opexpr(
     }
 }
 
-unsafe fn is_node_range_table_entry(
-    node: *mut pg_sys::Node,
-    rti: pg_sys::Index,
-) -> bool {
+unsafe fn is_node_range_table_entry(node: *mut pg_sys::Node, rti: pg_sys::Index) -> bool {
     match (*node).type_ {
         pg_sys::NodeTag::T_Var => {
             let var = node.cast::<pg_sys::Var>();
@@ -735,7 +733,7 @@ unsafe fn is_node_range_table_entry(
                 .iter_ptr()
                 .all(|arg| is_node_range_table_entry(arg, rti))
         }
-        _ => false
+        _ => false,
     }
 }
 

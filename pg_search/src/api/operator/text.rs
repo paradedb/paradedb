@@ -16,7 +16,8 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::operator::{
-    anyelement_text_opoid, anyelement_text_procoid, estimate_selectivity, make_search_query_input_opexpr_node, ReturnedNodePointer
+    anyelement_text_opoid, anyelement_text_procoid, estimate_selectivity,
+    make_search_query_input_opexpr_node, ReturnedNodePointer,
 };
 use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
@@ -64,12 +65,13 @@ fn text_support_request_simplify(arg: Internal) -> Option<ReturnedNodePointer> {
             let (_, query) = make_query_from_node_and_const((*srs).root, lhs, const_);
             (Some(query), None)
         } else {
-            let (_, attname) = attname_from_node((*srs).root, lhs).expect("lhs is not a Var/FuncExpr");
+            let (_, attname) =
+                attname_from_node((*srs).root, lhs).expect("lhs is not a Var/FuncExpr");
             (
                 None,
                 Some((
                     rhs,
-                    Some(attname.expect("should be able to determine Var name"),)
+                    Some(attname.expect("should be able to determine Var name")),
                 )),
             )
         };

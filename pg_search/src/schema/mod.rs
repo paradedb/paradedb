@@ -1011,10 +1011,10 @@ impl AsTypeOid for (&PgRelation, &SearchIndexSchema) {
         // Expression are converted to _pg_search_N with N being the
         // field id.
         if search_field.name.0.starts_with("_pg_search_") {
-            let expr_oid = search_field.name.0[11..].parse::<u32>()
+            let expr_oid = search_field.name.0[11..]
+                .parse::<u32>()
                 .ok()
-                .map(|v| indexdesc.get(v as usize))
-                .flatten()
+                .and_then(|v| indexdesc.get(v as usize))
                 .map(|f| f.type_oid());
             if let Some(oid) = expr_oid {
                 return oid;

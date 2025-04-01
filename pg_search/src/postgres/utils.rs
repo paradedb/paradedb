@@ -150,19 +150,13 @@ pub fn extract_field_attributes(indexrel: &PgRelation) -> Vec<(String, Oid)> {
                 panic!("Expected expression for index attribute {i}.");
             };
             let node = expression.cast();
-            (
-                format!("_pg_search_{}", i),
-                unsafe { pg_sys::exprType(node) },
-            )
+            (format!("_pg_search_{}", i), unsafe {
+                pg_sys::exprType(node)
+            })
         } else {
             // Is a field.
-            let att = tupdesc
-                .get(i as usize)
-                .expect("attribute should exist");
-            (
-                att.name().to_owned(),
-                att.type_oid().value(),
-            )
+            let att = tupdesc.get(i as usize).expect("attribute should exist");
+            (att.name().to_owned(), att.type_oid().value())
         };
         field_attributes.push((attname, attribute_type_oid));
     }

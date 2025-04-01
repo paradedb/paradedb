@@ -24,15 +24,15 @@ use sqlx::PgConnection;
 
 #[rstest]
 fn expression_paradedb_term(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
-        .execute(&mut conn);
+    r#"
+    CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb');
 
-    r#"CREATE INDEX index_config_index ON paradedb.index_config
-        USING bm25 (id, lower(description)) WITH (key_field='id')"#
-        .execute(&mut conn);
+    CREATE INDEX index_config_index ON paradedb.index_config
+        USING bm25 (id, lower(description)) WITH (key_field='id');
 
-    r#"INSERT INTO paradedb.index_config (description) VALUES ('Test description')"#
-        .execute(&mut conn);
+    INSERT INTO paradedb.index_config (description) VALUES ('Test description');
+    "#
+    .execute(&mut conn);
 
     let (count,) =
         "SELECT count(*) FROM paradedb.index_config WHERE index_config @@@ paradedb.term('_pg_search_1', 'test')"
@@ -52,9 +52,8 @@ fn expression_query_string(mut conn: PgConnection) {
     r#"INSERT INTO paradedb.index_config (description) VALUES ('Test description')"#
         .execute(&mut conn);
 
-    let (count,) =
-        "SELECT count(*) FROM paradedb.index_config WHERE lower(description) @@@ 'test'"
-            .fetch_one::<(i64,)>(&mut conn);
+    let (count,) = "SELECT count(*) FROM paradedb.index_config WHERE lower(description) @@@ 'test'"
+        .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 1);
 }
 
@@ -70,14 +69,12 @@ fn expression_conflicting_query_string(mut conn: PgConnection) {
     r#"INSERT INTO expression_test (firstname, lastname) VALUES ('John', 'Doe')"#
         .execute(&mut conn);
 
-    let (count,) =
-        "SELECT count(*) FROM expression_test WHERE lower(firstname) @@@ 'john'"
-            .fetch_one::<(i64,)>(&mut conn);
+    let (count,) = "SELECT count(*) FROM expression_test WHERE lower(firstname) @@@ 'john'"
+        .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 1);
 
-    let (count,) =
-        "SELECT count(*) FROM expression_test WHERE lower(lastname) @@@ 'doe'"
-            .fetch_one::<(i64,)>(&mut conn);
+    let (count,) = "SELECT count(*) FROM expression_test WHERE lower(lastname) @@@ 'doe'"
+        .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 1);
 
     let (count,) =

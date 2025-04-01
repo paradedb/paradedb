@@ -52,7 +52,7 @@ impl InsertState {
         writer_resources: WriterResources,
     ) -> anyhow::Result<Self> {
         let writer = SearchIndexWriter::open(indexrel, MvccSatisfies::Mergeable, writer_resources)?;
-        let categorized_fields = categorize_fields(&indexrel, &writer.schema);
+        let categorized_fields = categorize_fields(indexrel, &writer.schema);
         let key_field_name = writer.schema.key_field().name.0;
 
         let per_row_context = pg_sys::AllocSetContextCreateExtended(

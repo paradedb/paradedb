@@ -471,7 +471,7 @@ fn force_merge_raw_bytes(
     };
 
     let merge_policy = LayeredMergePolicy::new(vec![oversized_layer_size_bytes.try_into()?]);
-    let (ncandidates, nmerged) = unsafe { merge_index_with_policy(index, merge_policy) };
+    let (ncandidates, nmerged) = unsafe { merge_index_with_policy(index, merge_policy, true) };
     Ok(TableIterator::once((
         ncandidates.try_into()?,
         nmerged.try_into()?,

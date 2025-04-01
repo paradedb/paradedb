@@ -161,6 +161,29 @@ impl MVCCDirectory {
             OpenDirectoryError::DoesNotExist(path.to_path_buf()),
         ))
     }
+
+    /// Drop the pins that are held on the specified [`SegmentId`]s.
+    ///
+    /// # Safety
+    ///
+    /// This does not remove the segments themselves from being accessible by Tantivy, which means
+    /// that attempts to use these segments after dropping their pins will likely lead to incorrect
+    /// behavior.  It is the callers responsibility to ensure this does not happen.
+    pub(crate) unsafe fn drop_pins(&mut self, segment_ids: &[SegmentId]) -> tantivy::Result<()> {
+        let all_entries = self.all_entries.lock();
+        let mut pin_cushion = self.pin_cushion.lock();
+        let pin_cushion = pin_cushion
+            .as_mut()
+            .expect("pin_cushion should have been initialized by now");
+        for segment_id in segment_ids {
+            let entry = all_entries.get(segment_id).ok_or_else(|| {
+                TantivyError::SystemError(format!("segment {segment_id} not found in pin cushion"))
+            })?;
+            pin_cushion.remove(entry.pintest_blockno());
+        }
+
+        Ok(())
+    }
 }
 
 impl Directory for MVCCDirectory {

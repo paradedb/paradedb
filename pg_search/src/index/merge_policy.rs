@@ -16,7 +16,7 @@ pub struct LayeredMergePolicy {
     min_merge_count: usize,
     enable_logging: bool,
 
-    pub mergeable_segments: HashMap<SegmentId, SegmentMetaEntry>,
+    mergeable_segments: HashMap<SegmentId, SegmentMetaEntry>,
     already_processed: AtomicBool,
 }
 
@@ -190,9 +190,16 @@ impl LayeredMergePolicy {
         }
     }
 
+    pub fn set_mergeable_segment_entries(
+        &mut self,
+        mergeable_segments: impl Iterator<Item = (SegmentId, SegmentMetaEntry)>,
+    ) {
+        self.mergeable_segments = mergeable_segments.collect();
+    }
+
     /// Run a simulation of what tantivy will do if it were to call our [`MergePolicy::compute_merge_candidates`]
     /// implementation
-    pub fn simulate(&self) -> (Vec<MergeCandidate>, NumMerged) {
+    pub fn simulate(&mut self) -> (Vec<MergeCandidate>, NumMerged) {
         // we don't want the whole world to know how to do this conversion
         #[allow(non_local_definitions)]
         impl From<SegmentMetaEntry> for SegmentMeta {
@@ -219,8 +226,23 @@ impl LayeredMergePolicy {
             .collect::<Vec<SegmentMeta>>();
         let candidates = self.compute_merge_candidates(None, &segment_metas);
         let nmerged = candidates.iter().flat_map(|candidate| &candidate.0).count();
+        let segment_ids = candidates
+            .iter()
+            .flat_map(|candidate| &candidate.0)
+            .collect();
+
+        self.retain(segment_ids);
 
         (candidates, nmerged)
+    }
+
+    fn retain(&mut self, to_keep: HashSet<&SegmentId>) {
+        self.mergeable_segments
+            .retain(|segment_id, _| to_keep.contains(segment_id));
+    }
+
+    pub fn mergeable_segments(&self) -> impl Iterator<Item = &SegmentId> {
+        self.mergeable_segments.keys()
     }
 
     fn collect_mergeable_segments<'a>(

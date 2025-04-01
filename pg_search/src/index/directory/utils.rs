@@ -380,8 +380,8 @@ pub unsafe fn load_metas(
     for entry in entries {
         if !entry.recyclable(segment_metas.bman_mut()) {
             if (
-                // parallel workers get to see all non-recyclable segments.  This relies on the leader having kept a pin on the original segments
-                matches!(solve_mvcc, MvccSatisfies::ParallelWorker)
+                // parallel workers only see a specific set of segments.  This relies on the leader having kept a pin on them
+                matches!(solve_mvcc, MvccSatisfies::ParallelWorker(only_these) if only_these.contains(&entry.segment_id))
 
                 // vacuum sees everything that hasn't been deleted by a merge
                 || (matches!(solve_mvcc, MvccSatisfies::Vacuum) && entry.xmax == pg_sys::InvalidTransactionId))
@@ -410,6 +410,10 @@ pub unsafe fn load_metas(
         }
 
         pin_cushion.remove(entry.pintest_blockno());
+    }
+
+    if let MvccSatisfies::ParallelWorker(only_these) = solve_mvcc {
+        assert!(alive_entries.len() == only_these.len(), "load_metas: MvccSatisfies::ParallelWorker didn't load the correct segments.  desired={only_these:?}, actual={alive_entries:?}");
     }
 
     let schema = LinkedBytesList::open(relation_oid, SCHEMA_START);

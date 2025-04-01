@@ -19,6 +19,7 @@ use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{SearchIndexReader, SearchResults};
 use crate::postgres::options::SearchIndexCreateOptions;
+use crate::postgres::parallel::list_segment_ids;
 use crate::postgres::{parallel, ScanStrategy};
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys::IndexScanDesc;
@@ -105,15 +106,19 @@ pub extern "C" fn amrescan(
 
     // Create the index and scan state
     let search_reader = SearchIndexReader::open(&indexrel, unsafe {
-        if pg_sys::ParallelWorkerNumber == -1 {
-            // the leader only sees snapshot-visible segments
+        if pg_sys::ParallelWorkerNumber == -1 || (*scan).parallel_scan.is_null() {
+            // the leader only sees snapshot-visible segments.
+            // we're the leader because our WorkerNumber is -1
+            // alternatively, we're not actually a parallel scan because (*scan).parallen_scan is null
             MvccSatisfies::Snapshot
         } else {
             // the workers have their own rules, which is literally every segment
             // this is because the workers pick a specific segment to query that
             // is known to be held open/pinned by the leader but might not pass a ::Snapshot
             // visibility test due to concurrent merges/garbage collects
-            MvccSatisfies::ParallelWorker
+            MvccSatisfies::ParallelWorker(
+                list_segment_ids(scan).expect("IndexScan parallel state should have segments"),
+            )
         }
     })
     .expect("amrescan: should be able to open a SearchIndexReader");

@@ -1008,7 +1008,7 @@ impl AsTypeOid for (&PgRelation, &SearchIndexSchema) {
         }
         let indexrel = self.0;
         let indexdesc = indexrel.tuple_desc();
-        // Expression are converted to _pg_search_N with N being the
+        // Expressions are converted to _pg_search_N with N being the
         // field id.
         if search_field.name.0.starts_with("_pg_search_") {
             let expr_oid = search_field.name.0[11..]

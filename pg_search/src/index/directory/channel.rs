@@ -21,7 +21,7 @@ use tantivy::directory::{
     DirectoryLock, DirectoryPanicHandler, FileHandle, Lock, OwnedBytes, TerminatingWrite,
     WatchCallback, WatchHandle, WritePtr,
 };
-use tantivy::index::{SegmentId, SegmentMetaInventory};
+use tantivy::index::SegmentMetaInventory;
 use tantivy::{Directory, IndexMeta, TantivyError};
 
 pub type Overwrite = bool;
@@ -258,19 +258,6 @@ impl ChannelRequestHandler {
                 }
             }),
         }
-    }
-
-    /// Drop the pins that are held on the specified [`SegmentId`]s.
-    ///
-    /// # Safety
-    ///
-    /// This does not remove the segments themselves from being accessible by the internal
-    /// [`MVCCDirectory`] which means that attempts to use these segments after dropping their pins
-    /// will likely lead to incorrect behavior.  It is the callers responsibility to ensure they
-    /// don't do that.
-    #[doc(hidden)]
-    pub(crate) unsafe fn drop_pins(&mut self, segment_ids: &[SegmentId]) -> tantivy::Result<()> {
-        self.directory.drop_pins(segment_ids)
     }
 
     #[track_caller]

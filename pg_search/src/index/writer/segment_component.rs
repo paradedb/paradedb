@@ -3,12 +3,14 @@ use crate::postgres::storage::LinkedBytesList;
 use pgrx::*;
 use std::io::{Result, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use tantivy::directory::{AntiCallToken, TerminatingWrite};
 
 pub struct SegmentComponentWriter {
     path: PathBuf,
     header_blockno: pg_sys::BlockNumber,
-    total_bytes: usize,
+    total_bytes: Arc<AtomicUsize>,
     buffer: ExactBuffer<{ bm25_max_free_space() }, LinkedBytesList>,
 }
 
@@ -19,7 +21,7 @@ impl SegmentComponentWriter {
         Self {
             path: path.to_path_buf(),
             header_blockno: segment_component.header_blockno,
-            total_bytes: 0,
+            total_bytes: Default::default(),
             buffer: ExactBuffer {
                 writer: segment_component,
                 buffer: [0; bm25_max_free_space()],
@@ -32,10 +34,14 @@ impl SegmentComponentWriter {
         self.path.clone()
     }
 
+    pub fn total_bytes(&self) -> Arc<AtomicUsize> {
+        self.total_bytes.clone()
+    }
+
     pub fn file_entry(&self) -> FileEntry {
         FileEntry {
             starting_block: self.header_blockno,
-            total_bytes: self.total_bytes,
+            total_bytes: self.total_bytes.load(Ordering::Relaxed),
         }
     }
 }
@@ -43,7 +49,7 @@ impl SegmentComponentWriter {
 impl Write for SegmentComponentWriter {
     fn write(&mut self, data: &[u8]) -> Result<usize> {
         let many = self.buffer.write(data)?;
-        self.total_bytes += data.len();
+        self.total_bytes.fetch_add(data.len(), Ordering::Relaxed);
         Ok(many)
     }
 

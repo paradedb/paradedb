@@ -43,6 +43,7 @@ use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::{
     estimate_cardinality, is_string_agg_capable_ex,
 };
+use crate::postgres::customscan::pdbscan::parallel::list_segment_ids;
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
 use crate::postgres::customscan::pdbscan::projections::score::{
     is_score_func, score_funcoid, uses_scores,
@@ -732,7 +733,11 @@ impl CustomScan for PdbScan {
                 // this is because the workers pick a specific segment to query that
                 // is known to be held open/pinned by the leader but might not pass a ::Snapshot
                 // visibility test due to concurrent merges/garbage collects
-                MvccSatisfies::ParallelWorker
+                MvccSatisfies::ParallelWorker(list_segment_ids(
+                    state.custom_state().parallel_state.expect(
+                        "Parallel Custom Scan rescan_custom_scan should have a parallel state",
+                    ),
+                ))
             }
         })
         .expect("should be able to open the search index reader");

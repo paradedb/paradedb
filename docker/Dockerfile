@@ -287,3 +287,6 @@ WORKDIR /
 
 # Copy ParadeDB bootstrap script to install extensions and configure postgresql.conf
 COPY ./docker/bootstrap.sh /docker-entrypoint-initdb.d/10_bootstrap_paradedb.sh
+
+# Explicitly set non-root user (same as official image default)
+USER postgres

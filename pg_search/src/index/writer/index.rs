@@ -17,7 +17,7 @@
 
 use anyhow::Result;
 use pgrx::{pg_sys, PgRelation};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use tantivy::index::SegmentId;
 use tantivy::indexer::{NoMergePolicy, UserOperation};
 use tantivy::schema::Field;
@@ -27,8 +27,9 @@ use tantivy::{
 use thiserror::Error;
 
 use crate::index::channel::{ChannelDirectory, ChannelRequestHandler};
-use crate::index::mvcc::MvccSatisfies;
+use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::{get_index_schema, setup_tokenizers, WriterResources};
+use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::{
     postgres::types::TantivyValueError,
     schema::{SearchDocument, SearchIndexSchema},
@@ -196,19 +197,6 @@ impl SearchIndexWriter {
         Ok(self.cnt)
     }
 
-    /// Create a new [`SearchIndexMerger`]
-    ///
-    /// # Panics
-    ///
-    /// Will panic if the internal insert queue is not empty
-    pub fn index_merger(self) -> SearchIndexMerger {
-        assert!(self.insert_queue.is_empty());
-        SearchIndexMerger {
-            writer: self,
-            merged_segment_ids: Default::default(),
-        }
-    }
-
     fn drain_insert_queue(&mut self) -> Result<Opstamp, TantivyError> {
         let insert_queue = std::mem::take(&mut self.insert_queue);
         let writer = &self.writer;
@@ -219,11 +207,58 @@ impl SearchIndexWriter {
 }
 
 pub struct SearchIndexMerger {
-    writer: SearchIndexWriter,
+    directory: MVCCDirectory,
+    writer: IndexWriter,
     merged_segment_ids: HashSet<SegmentId>,
 }
 
 impl SearchIndexMerger {
+    pub fn open(relation_id: pg_sys::Oid) -> Result<SearchIndexMerger> {
+        let directory = MVCCDirectory::mergeable(relation_id);
+        let index = Index::open(directory.clone())?;
+        let writer = index.writer(15 * 1024 * 1024)?;
+
+        Ok(Self {
+            directory,
+            writer,
+            merged_segment_ids: Default::default(),
+        })
+    }
+
+    pub fn all_entries(&self) -> HashMap<SegmentId, SegmentMetaEntry> {
+        self.directory.all_entries()
+    }
+
+    pub fn segment_ids(&mut self) -> tantivy::Result<HashSet<SegmentId>> {
+        Ok(self
+            .writer
+            .index()
+            .searchable_segment_ids()?
+            .into_iter()
+            .collect())
+    }
+
+    /// Only keep pins on the specified segments, releasing pins on all other segments.
+    pub fn adjust_pins<'a>(
+        mut self,
+        segment_ids: impl Iterator<Item = &'a SegmentId>,
+    ) -> tantivy::Result<impl Mergeable> {
+        let keep = segment_ids.cloned().collect::<HashSet<_>>();
+        let current = self.segment_ids()?;
+        let remove = current.difference(&keep);
+
+        for segment_id in remove {
+            unsafe {
+                // SAFETY:  we (SegmentIndexMerger) promise not to reference or otherwise
+                // use the segments that we're no longer pinning
+                self.directory.drop_pin(segment_id);
+            }
+        }
+        Ok(self)
+    }
+}
+
+pub trait Mergeable {
     /// Merge the specified [`SegmentId`]s together into a new segment.  This is a blocking,
     /// foreground operation.
     ///
@@ -236,27 +271,27 @@ impl SearchIndexMerger {
     ///
     /// Will panic if a segment_id has already been merged or if our internal tantivy communications
     /// channels fail for some reason.
-    pub fn merge_segments(&mut self, segment_ids: &[SegmentId]) -> Result<Option<SegmentMeta>> {
+    fn merge_segments(&mut self, segment_ids: &[SegmentId]) -> Result<Option<SegmentMeta>>;
+}
+
+impl Mergeable for SearchIndexMerger {
+    fn merge_segments(&mut self, segment_ids: &[SegmentId]) -> Result<Option<SegmentMeta>> {
         assert!(
             segment_ids
                 .iter()
                 .all(|segment_id| !self.merged_segment_ids.contains(segment_id)),
             "segment was already merged by this merger instance"
         );
-        let writer = &mut self.writer.writer;
-        let result = self
-            .writer
-            .handler
-            .wait_for(move || writer.merge(segment_ids).wait())?;
 
+        let new_segment = self.writer.merge_foreground(segment_ids)?;
         unsafe {
             // SAFETY:  The important thing here is that these segments are not used in any way
             // after their pins are dropped, and [`SearchIndexMerger`] ensures that
-            self.writer.handler.drop_pins(segment_ids)?;
+            self.directory.drop_pins(segment_ids)?;
             self.merged_segment_ids.extend(segment_ids.iter().cloned());
         }
 
-        Ok(result?)
+        Ok(new_segment)
     }
 }
 

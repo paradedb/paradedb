@@ -18,8 +18,9 @@
 use super::utils::{load_metas, save_new_metas, save_schema, save_settings};
 use crate::index::channel::{ChannelRequest, ChannelRequestHandler};
 use crate::index::reader::segment_component::SegmentComponentReader;
+use crate::index::writer::segment_component::SegmentComponentWriter;
 use crate::postgres::storage::block::{
-    FileEntry, MVCCEntry, SegmentMetaEntry, SEGMENT_METAS_START,
+    bm25_max_free_space, FileEntry, MVCCEntry, SegmentMetaEntry, SEGMENT_METAS_START,
 };
 use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
 use crate::postgres::storage::LinkedItemList;
@@ -35,6 +36,7 @@ use std::fmt::{Debug, Display};
 use std::panic::panic_any;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::{io, result};
 use tantivy::directory::error::{
@@ -48,7 +50,7 @@ use tantivy::{index::SegmentMetaInventory, Directory, IndexMeta, TantivyError};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MvccSatisfies {
-    ParallelWorker,
+    ParallelWorker(HashSet<SegmentId>),
     Snapshot,
     Vacuum,
     Mergeable,
@@ -57,7 +59,9 @@ pub enum MvccSatisfies {
 impl MvccSatisfies {
     pub fn directory(self, index_relation: &PgRelation) -> MVCCDirectory {
         match self {
-            MvccSatisfies::ParallelWorker => MVCCDirectory::parallel_worker(index_relation.oid()),
+            MvccSatisfies::ParallelWorker(segment_ids) => {
+                MVCCDirectory::parallel_worker(index_relation.oid(), segment_ids)
+            }
             MvccSatisfies::Snapshot => MVCCDirectory::snapshot(index_relation.oid()),
             MvccSatisfies::Vacuum => MVCCDirectory::vacuum(index_relation.oid()),
             MvccSatisfies::Mergeable => MVCCDirectory::mergeable(index_relation.oid()),
@@ -76,6 +80,7 @@ impl MvccSatisfies {
     }
 }
 
+type AtomicFileEntry = (FileEntry, Arc<AtomicUsize>);
 /// Tantivy Directory trait implementation over block storage
 /// This Directory implementation respects Postgres MVCC visibility rules
 /// and should back all Tantivy Indexes used in insert and scan operations
@@ -89,6 +94,7 @@ pub struct MVCCDirectory {
     // cloned, we don't lose all the work we did originally creating the FileHandler impls.  And
     // it's cloned a lot!
     readers: Arc<Mutex<FxHashMap<PathBuf, Arc<dyn FileHandle>>>>,
+    new_files: Arc<Mutex<FxHashMap<PathBuf, AtomicFileEntry>>>,
 
     // a lazily loaded [`IndexMeta`], which is only created once per MVCCDirectory instance
     // we cannot tolerate tantivy calling `load_metas()` multiple times and giving it a different
@@ -102,8 +108,12 @@ unsafe impl Send for MVCCDirectory {}
 unsafe impl Sync for MVCCDirectory {}
 
 impl MVCCDirectory {
-    pub fn parallel_worker(relation_oid: pg_sys::Oid) -> Self {
-        Self::with_mvcc_style(relation_oid, MvccSatisfies::ParallelWorker, None)
+    pub fn parallel_worker(relation_oid: pg_sys::Oid, segment_ids: HashSet<SegmentId>) -> Self {
+        Self::with_mvcc_style(
+            relation_oid,
+            MvccSatisfies::ParallelWorker(segment_ids),
+            None,
+        )
     }
 
     pub fn snapshot(relation_oid: pg_sys::Oid) -> Self {
@@ -134,7 +144,8 @@ impl MVCCDirectory {
             relation_oid,
             snapshot,
             mvcc_style,
-            readers: Arc::new(Mutex::new(FxHashMap::default())),
+            readers: Default::default(),
+            new_files: Default::default(),
             loaded_metas: Default::default(),
             pin_cushion: Default::default(),
             all_entries: Default::default(),
@@ -184,6 +195,20 @@ impl MVCCDirectory {
 
         Ok(())
     }
+
+    pub(crate) unsafe fn drop_pin(&mut self, segment_id: &SegmentId) -> Option<()> {
+        let all_entries = self.all_entries.lock();
+        let segment_meta_entry = all_entries.get(segment_id)?;
+        let mut pin_cushion = self.pin_cushion.lock();
+        let pin_cushion = pin_cushion.as_mut()?;
+
+        pin_cushion.remove(segment_meta_entry.pintest_blockno());
+        Some(())
+    }
+
+    pub(crate) fn all_entries(&self) -> HashMap<SegmentId, SegmentMetaEntry> {
+        self.all_entries.lock().clone()
+    }
 }
 
 impl Directory for MVCCDirectory {
@@ -193,11 +218,24 @@ impl Directory for MVCCDirectory {
             Entry::Occupied(reader) => Ok(reader.get().clone()),
             Entry::Vacant(vacant) => {
                 let file_entry = unsafe {
-                    self.directory_lookup(path)
-                        .map_err(|err| OpenReadError::IoError {
-                            io_error: io::Error::new(io::ErrorKind::Other, err.to_string()).into(),
-                            filepath: PathBuf::from(path),
-                        })?
+                    match self.directory_lookup(path) {
+                        Ok(file_entry) => file_entry,
+                        Err(err) => {
+                            if let Some((file_entry, total_bytes)) = self.new_files.lock().get(path)
+                            {
+                                FileEntry {
+                                    starting_block: file_entry.starting_block,
+                                    total_bytes: total_bytes.load(Ordering::Relaxed),
+                                }
+                            } else {
+                                return Err(OpenReadError::IoError {
+                                    io_error: io::Error::new(io::ErrorKind::Other, err.to_string())
+                                        .into(),
+                                    filepath: PathBuf::from(path),
+                                });
+                            }
+                        }
+                    }
                 };
                 Ok(vacant
                     .insert(Arc::new(unsafe {
@@ -221,7 +259,15 @@ impl Directory for MVCCDirectory {
     /// Returns a segment writer that implements std::io::Write
     /// Our [`ChannelDirectory`] is what gets called for doing writes, not this impl
     fn open_write(&self, path: &Path) -> result::Result<WritePtr, OpenWriteError> {
-        unimplemented!("open_write should not be called for {:?}", path);
+        let writer = unsafe { SegmentComponentWriter::new(self.relation_oid, path) };
+        self.new_files.lock().insert(
+            path.to_path_buf(),
+            (writer.file_entry(), writer.total_bytes()),
+        );
+        Ok(io::BufWriter::with_capacity(
+            bm25_max_free_space(),
+            Box::new(writer),
+        ))
     }
 
     /// atomic_read is used by Tantivy to read from managed.json and meta.json
@@ -291,9 +337,22 @@ impl Directory for MVCCDirectory {
         previous_meta: &IndexMeta,
         payload: &mut (dyn Any + '_),
     ) -> tantivy::Result<()> {
-        let payload = payload
-            .downcast_mut::<FxHashMap<PathBuf, FileEntry>>()
-            .expect("save_metas should have a payload");
+        let mut file_entries = FxHashMap::default();
+        let payload = if let Some(payload) = payload.downcast_mut::<FxHashMap<PathBuf, FileEntry>>()
+        {
+            payload
+        } else {
+            for (path, (file_entry, total_bytes)) in self.new_files.lock().iter() {
+                file_entries.insert(
+                    path.clone(),
+                    FileEntry {
+                        starting_block: file_entry.starting_block,
+                        total_bytes: total_bytes.load(Ordering::Relaxed),
+                    },
+                );
+            }
+            &mut file_entries
+        };
 
         // Save Schema and IndexSettings if this is the first time
         save_schema(self.relation_oid, &meta.schema)

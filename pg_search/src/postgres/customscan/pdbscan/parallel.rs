@@ -4,6 +4,7 @@ use crate::postgres::customscan::pdbscan::PdbScan;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::ParallelScanState;
 use pgrx::pg_sys::{shm_toc, ParallelContext, Size};
+use std::collections::HashSet;
 use std::os::raw::c_void;
 use tantivy::index::SegmentId;
 
@@ -90,4 +91,8 @@ pub unsafe fn checkout_segment(pscan_state: *mut ParallelScanState) -> Option<Se
     } else {
         None
     }
+}
+
+pub unsafe fn list_segment_ids(pscan_state: *mut ParallelScanState) -> HashSet<SegmentId> {
+    (*pscan_state).segments()
 }

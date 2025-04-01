@@ -18,6 +18,7 @@
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::ParallelScanState;
 use pgrx::{pg_guard, pg_sys};
+use std::collections::HashSet;
 use std::ptr::addr_of_mut;
 use tantivy::index::SegmentId;
 
@@ -130,6 +131,10 @@ pub unsafe fn maybe_claim_segment(scan: pg_sys::IndexScanDesc) -> Option<Segment
         let remaining_segments = state.decrement_remaining_segments();
         Some(state.segment_id(remaining_segments))
     }
+}
+
+pub unsafe fn list_segment_ids(scan: pg_sys::IndexScanDesc) -> Option<HashSet<SegmentId>> {
+    Some(get_bm25_scan_state(&scan)?.segments())
 }
 
 fn get_bm25_scan_state(scan: &pg_sys::IndexScanDesc) -> Option<&mut ParallelScanState> {

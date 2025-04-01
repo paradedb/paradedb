@@ -19,6 +19,7 @@ use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{SearchIndexReader, SearchResults};
 use crate::postgres::options::SearchIndexCreateOptions;
+use crate::postgres::parallel::list_segment_ids;
 use crate::postgres::{parallel, ScanStrategy};
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys::IndexScanDesc;
@@ -113,7 +114,9 @@ pub extern "C" fn amrescan(
             // this is because the workers pick a specific segment to query that
             // is known to be held open/pinned by the leader but might not pass a ::Snapshot
             // visibility test due to concurrent merges/garbage collects
-            MvccSatisfies::ParallelWorker
+            MvccSatisfies::ParallelWorker(
+                list_segment_ids(scan).expect("IndexScan parallel state should have segments"),
+            )
         }
     })
     .expect("amrescan: should be able to open a SearchIndexReader");

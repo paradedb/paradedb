@@ -582,6 +582,7 @@ unsafe fn opexpr(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 unsafe fn node_opexpr(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,

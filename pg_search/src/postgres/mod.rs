@@ -27,13 +27,13 @@ use tantivy::SegmentReader;
 mod build;
 mod cost;
 mod delete;
+pub mod expression;
 pub mod insert;
 pub mod options;
 mod range;
 mod scan;
 mod vacuum;
 mod validate;
-pub mod expression;
 
 pub mod customscan;
 pub mod datetime;

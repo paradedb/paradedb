@@ -1,11 +1,11 @@
-use pgrx::{pg_sys::{self, AsPgCStr}, PgList, PgRelation};
+use pgrx::{
+    pg_sys::{self, AsPgCStr},
+    PgList, PgRelation,
+};
 
 // find_funcexpr_idx returns the attribute number of the
-// node in the index. 
-pub fn find_funcexpr_attnum(
-    indexrel: &PgRelation,
-    node: *mut pg_sys::Node,
-) -> Option<i32> {
+// node in the index.
+pub fn find_funcexpr_attnum(indexrel: &PgRelation, node: *mut pg_sys::Node) -> Option<i32> {
     let index_info = unsafe { *pg_sys::BuildIndexInfo(indexrel.as_ptr()) };
     let heaprel = indexrel
         .heap_relation()
@@ -32,10 +32,7 @@ pub fn find_funcexpr_attnum(
     None
 }
 
-unsafe fn get_expr_str(
-    node: *mut pg_sys::Node,
-    heaprel: &PgRelation,
-) -> String {
+unsafe fn get_expr_str(node: *mut pg_sys::Node, heaprel: &PgRelation) -> String {
     let pg_cstr = pg_sys::deparse_expression(
         node,
         pg_sys::deparse_context_for(heaprel.name().as_pg_cstr(), heaprel.oid()),

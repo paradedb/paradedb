@@ -518,18 +518,18 @@ pub unsafe fn attname_from_node(
                         None
                     }
                 })?;
-            let indexrel = locate_bm25_index(heaprelid)
-                .expect("could not find bm25 index for heaprelid");
+            let indexrel =
+                locate_bm25_index(heaprelid).expect("could not find bm25 index for heaprelid");
 
             let attnum = find_funcexpr_attnum(&indexrel, node)?;
             let expression_str = format!("_pg_search_{}", attnum);
             Some((heaprelid, Some(expression_str)))
-        },
+        }
         NodeTag::T_Var => {
             let var = nodecast!(Var, T_Var, node).expect("node is not a Var");
             let (oid, attname) = attname_from_var(root, var);
             Some((oid, attname))
-        },
+        }
         _ => None,
     }
 }

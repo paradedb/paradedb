@@ -23,6 +23,7 @@ use std::path::PathBuf;
 use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
+use serde_json::Value;
 use sqlx::PgConnection;
 
 fn fmt_err<T: std::error::Error>(err: T) -> String {
@@ -466,22 +467,78 @@ fn multi_index_insert_in_transaction(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn partitioned_index(mut conn: PgConnection) {
-    // Set up the partitioned table with two partitions
+fn partitioned_schema(mut conn: PgConnection) {
+    PartitionedTable::setup().execute(&mut conn);
+
+    let rows: Vec<(String, String)> =
+        "SELECT name, field_type FROM paradedb.schema('sales_index') ORDER BY name"
+            .fetch(&mut conn);
+
+    assert_eq!(rows[0], ("amount".into(), "F64".into()));
+    assert_eq!(rows[1], ("ctid".into(), "U64".into()));
+    assert_eq!(rows[2], ("description".into(), "Str".into()));
+    assert_eq!(rows[3], ("id".into(), "I64".into()));
+    assert_eq!(rows[4], ("sale_date".into(), "Date".into()));
+}
+
+#[rstest]
+fn partitioned_info(mut conn: PgConnection) {
+    PartitionedTable::setup().execute(&mut conn);
+
+    // Insert rows into both partitions.
     r#"
-        CREATE TABLE sales (
-            id SERIAL,
-            sale_date DATE NOT NULL,
-            amount real NOT NULL, description TEXT,
-            PRIMARY KEY (id, sale_date)
-        ) PARTITION BY RANGE (sale_date);
+        INSERT INTO sales (sale_date, amount, description) VALUES
+        ('2023-01-10', 150.00, 'Ergonomic metal keyboard'),
+        ('2023-04-01', 250.00, 'Modern wall clock');
+    "#
+    .execute(&mut conn);
 
-        CREATE TABLE sales_2023_q1 PARTITION OF sales
-        FOR VALUES FROM ('2023-01-01') TO ('2023-03-31');
+    // And validate that we see at least one segment for each.
+    let segments_per_partition: Vec<(String, i64)> = "
+        SELECT index_name, COUNT(*) FROM paradedb.index_info('sales_index') GROUP BY index_name
+    "
+    .fetch(&mut conn);
+    assert_eq!(segments_per_partition.len(), 2);
+    for (index_name, segment_count) in segments_per_partition {
+        assert!(
+            segment_count > 0,
+            "Got {segment_count} for index partition {index_name}"
+        );
+    }
 
-        CREATE TABLE sales_2023_q2 PARTITION OF sales
-        FOR VALUES FROM ('2023-04-01') TO ('2023-06-30');
+    // Just cover `index_layer_info`.
+    let segments_per_partition: Vec<(String, String, i64)> =
+        "SELECT relname::text, layer_size, count FROM paradedb.index_layer_info".fetch(&mut conn);
+    assert!(!segments_per_partition.is_empty());
+}
 
+#[rstest]
+fn partitioned_all(mut conn: PgConnection) {
+    PartitionedTable::setup().execute(&mut conn);
+
+    let schema_rows: Vec<(String, String)> =
+        "SELECT id from sales WHERE id @@@ paradedb.all()".fetch(&mut conn);
+    assert_eq!(schema_rows.len(), 0);
+
+    r#"
+        INSERT INTO sales (sale_date, amount, description) VALUES
+        ('2023-01-10', 150.00, 'Ergonomic metal keyboard'),
+        ('2023-04-01', 250.00, 'Modern wall clock');
+    "#
+    .execute(&mut conn);
+
+    let schema_rows: Vec<(i32,)> =
+        "SELECT id from sales WHERE id @@@ paradedb.all()".fetch(&mut conn);
+    assert_eq!(schema_rows.len(), 2);
+}
+
+#[rstest]
+fn partitioned_query(mut conn: PgConnection) {
+    // Set up the partitioned table with two partitions and a BM25 index.
+    PartitionedTable::setup().execute(&mut conn);
+
+    // Insert some data.
+    r#"
         INSERT INTO sales (sale_date, amount, description) VALUES
         ('2023-01-10', 150.00, 'Ergonomic metal keyboard'),
         ('2023-01-15', 200.00, 'Plastic keyboard'),
@@ -496,12 +553,6 @@ fn partitioned_index(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    // Create the BM25 index on the partitioned table
-    r#"CREATE INDEX sales_index ON sales_2023_q1
-        USING bm25 (id, description, sale_date, amount) WITH (key_field='id', numeric_fields='{"amount": {"fast": true}}')
-    "#
-        .execute(&mut conn);
-
     // Test: Verify data is partitioned correctly by querying each partition
     let rows_q1: Vec<(i32, String, String)> = r#"
         SELECT id, description, sale_date::text FROM sales_2023_q1
@@ -515,25 +566,69 @@ fn partitioned_index(mut conn: PgConnection) {
     .fetch(&mut conn);
     assert_eq!(rows_q2.len(), 3, "Expected 3 rows in Q2 partition");
 
-    // Test: Search using the bm25 index
-    let search_results: Vec<(i32, String)> = r#"
-        SELECT id, description FROM sales_2023_q1 WHERE id @@@ 'description:keyboard'
-    "#
-    .fetch(&mut conn);
-    assert_eq!(search_results.len(), 2, "Expected 2 items with 'keyboard'");
+    // Test: Search using the bm25 index against both the parent and child tables.
+    for table in ["sales", "sales_2023_q1"] {
+        let search_results: Vec<(i32, String)> = format!(
+            r#"
+            SELECT id, description FROM {table} WHERE id @@@ 'description:keyboard'
+            "#
+        )
+        .fetch(&mut conn);
+        assert_eq!(search_results.len(), 2, "Expected 2 items with 'keyboard'");
+    }
 
     // Test: Retrieve items by a numeric range (amount field) and verify bm25 compatibility
-    let amount_results: Vec<(i32, String, f32)> = r#"
-        SELECT id, description, amount FROM sales_2023_q1
-        WHERE amount @@@ '[175 TO 250]'
-        ORDER BY amount ASC
+    for (table, expected) in [("sales", 5), ("sales_2023_q1", 3)] {
+        let amount_results: Vec<(i32, String, f32)> = format!(
+            r#"
+            SELECT id, description, amount FROM {table}
+            WHERE amount @@@ '[175 TO 250]'
+            ORDER BY amount ASC
+            "#
+        )
+        .fetch(&mut conn);
+        assert_eq!(
+            amount_results.len(),
+            expected,
+            "Expected {expected} items with amount in range 175-250"
+        );
+    }
+}
+
+#[rstest]
+fn partitioned_uses_custom_scan(mut conn: PgConnection) {
+    PartitionedTable::setup().execute(&mut conn);
+
+    r#"
+        INSERT INTO sales (sale_date, amount, description) VALUES
+        ('2023-01-10', 150.00, 'Ergonomic metal keyboard'),
+        ('2023-04-01', 250.00, 'Modern wall clock');
     "#
-    .fetch(&mut conn);
-    assert_eq!(
-        amount_results.len(),
-        3,
-        "Expected 3 items with amount in range 175-250"
-    );
+    .execute(&mut conn);
+
+    "SET max_parallel_workers TO 0;".execute(&mut conn);
+
+    let (plan,) = r#"
+        EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
+        SELECT count(*)
+        FROM sales
+        WHERE id @@@ '1';
+        "#
+    .fetch_one::<(Value,)>(&mut conn);
+    eprintln!("{plan:#?}");
+
+    let per_partition_plans = plan
+        .pointer("/0/Plan/Plans/0/Plans")
+        .unwrap()
+        .as_array()
+        .unwrap();
+    assert_eq!(per_partition_plans.len(), 2, "Expected 2 partitions.");
+    for per_partition_plan in per_partition_plans {
+        pretty_assertions::assert_eq!(
+            per_partition_plan.get("Node Type"),
+            Some(&Value::String(String::from("Custom Scan")))
+        );
+    }
 }
 
 #[rstest]

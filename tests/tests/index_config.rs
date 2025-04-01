@@ -608,6 +608,7 @@ fn partitioned_uses_custom_scan(mut conn: PgConnection) {
 
     "SET max_parallel_workers TO 0;".execute(&mut conn);
 
+    // Without the partition key.
     let (plan,) = r#"
         EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
         SELECT count(*)
@@ -622,11 +623,47 @@ fn partitioned_uses_custom_scan(mut conn: PgConnection) {
         .unwrap()
         .as_array()
         .unwrap();
-    assert_eq!(per_partition_plans.len(), 2, "Expected 2 partitions.");
+    assert_eq!(
+        per_partition_plans.len(),
+        2,
+        "Expected 2 partitions to be scanned."
+    );
     for per_partition_plan in per_partition_plans {
         pretty_assertions::assert_eq!(
             per_partition_plan.get("Node Type"),
             Some(&Value::String(String::from("Custom Scan")))
+        );
+    }
+
+    // With the partition key: we expect the partition to be filtered, and for
+    // us to apply pushdown.
+    let (plan,) = r#"
+        EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
+        SELECT count(*)
+        FROM sales
+        WHERE description @@@ 'keyboard' and sale_date = '2023-01-10';
+        "#
+    .fetch_one::<(Value,)>(&mut conn);
+    eprintln!("{plan:#?}");
+
+    let per_partition_plans = plan.pointer("/0/Plan/Plans").unwrap().as_array().unwrap();
+    assert_eq!(
+        per_partition_plans.len(),
+        1,
+        "Expected 1 partition to be scanned."
+    );
+    for per_partition_plan in per_partition_plans {
+        pretty_assertions::assert_eq!(
+            per_partition_plan.get("Node Type"),
+            Some(&Value::String(String::from("Custom Scan")))
+        );
+        let query = per_partition_plan
+            .get("Human Readable Query")
+            .unwrap()
+            .to_string();
+        assert!(
+            query.to_string().contains("sale_date:2023-01-10"),
+            "Expected sale_date to be pushed down into query: {query:?}",
         );
     }
 }

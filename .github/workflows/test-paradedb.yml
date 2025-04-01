@@ -32,21 +32,10 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
-      - name: Set up Environment
-        id: env
-        run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            echo "environment=prod" >> $GITHUB_OUTPUT
-            echo "Using prod configuration..."
-          else
-            echo "environment=dev" >> $GITHUB_OUTPUT
-            echo "Using dev configuration..."
-          fi
-
       # Only login to Docker Hub on PRs to `main` since this is only used
       # for comparing upcoming release Docker images via Docker Scout.
       - name: Login to Docker Hub
-        if: steps.env.outputs.environment == 'prod'
+        if: github.event.pull_request.base.ref == 'main'
         uses: docker/login-action@v3
         with:
           username: ${{ vars.DOCKERHUB_USERNAME }}
@@ -65,7 +54,7 @@ jobs:
       # compose file. The docker-compose.yml file will use the local ParadeDB image that we
       # just built since we tagged it with `latest` in docker-compose.dev.yml.
       - name: Start the ParadeDB Docker Image via Docker Compose (dev only)
-        if: steps.env.outputs.environment == 'dev'
+        if: github.event.pull_request.base.ref == 'dev'
         working-directory: docker/
         run: docker compose -f docker-compose.yml up -d && sleep 10
 
@@ -73,8 +62,8 @@ jobs:
       # standalone Docker image. We add a --tmpfs mount as a test of compatibility with the
       # upstream `postgres` image. The `docker run` command will use the local ParadeDB image
       # that we just built since we tagged it with `latest` in docker-compose.dev.yml.
-      - name: Start the ParadeDB Docker Image via Docker Run (prod only)
-        if: steps.env.outputs.environment == 'prod'
+      - name: Start the ParadeDB Docker Image via Docker Run (main only)
+        if: github.event.pull_request.base.ref == 'main'
         working-directory: docker/
         run: |
           docker run -d \
@@ -114,7 +103,7 @@ jobs:
       # On PRs to `main`, we compare the Docker image built from the PR to the last official
       # ParadeDB Docker image in Docker Hub to check for security regressions.
       - name: Compare the ParadeDB Docker Image to the ParadeDB Docker Image in Docker Hub via Docker Scout
-        if: steps.env.outputs.environment == 'prod'
+        if: github.event.pull_request.base.ref == 'main'
         uses: docker/scout-action@v1
         with:
           command: compare

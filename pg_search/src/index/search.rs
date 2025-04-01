@@ -27,7 +27,6 @@ use tokenizers::{create_normalizer_manager, create_tokenizer_manager};
 pub enum WriterResources {
     CreateIndex,
     Statement,
-    PostStatementMerge,
     Vacuum,
 }
 pub type Parallelism = NonZeroUsize;
@@ -42,10 +41,6 @@ impl WriterResources {
                 gucs::create_index_memory_budget(),
             ),
             WriterResources::Statement => (
-                gucs::statement_parallelism(),
-                gucs::statement_memory_budget(),
-            ),
-            WriterResources::PostStatementMerge => (
                 gucs::statement_parallelism(),
                 gucs::statement_memory_budget(),
             ),

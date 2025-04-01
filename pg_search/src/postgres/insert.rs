@@ -28,7 +28,7 @@ use crate::postgres::utils::{
     categorize_fields, item_pointer_to_u64, row_to_search_document, CategorizedFieldData,
 };
 use crate::schema::SearchField;
-use pgrx::{pg_guard, pg_sys, PgMemoryContexts, PgRelation, PgTupleDesc};
+use pgrx::{check_for_interrupts, pg_guard, pg_sys, PgMemoryContexts, PgRelation, PgTupleDesc};
 use std::ffi::CStr;
 use std::panic::{catch_unwind, resume_unwind};
 use tantivy::SegmentMeta;
@@ -369,6 +369,9 @@ pub unsafe fn merge_index_with_policy(
             .remove_entry(merge_entry)
             .expect("should be able to remove MergeEntry");
         drop(merge_lock);
+
+        // if merging was cancelled due to a legit interrupt we'd prefer that be provided to the user
+        check_for_interrupts!();
 
         if let Err(e) = merge_result {
             panic!("failed to merge: {:?}", e);

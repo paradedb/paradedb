@@ -4,3 +4,5 @@ DROP FUNCTION IF EXISTS merge_info(index regclass);
 CREATE OR REPLACE FUNCTION merge_info(index regclass) RETURNS TABLE(index_name text, pid pg_catalog.int4, xmin pg_catalog."numeric", xmax pg_catalog."numeric", segno text) AS 'MODULE_PATHNAME', 'merge_info_wrapper' LANGUAGE c STRICT;
 DROP FUNCTION IF EXISTS vacuum_info(index regclass);
 CREATE OR REPLACE FUNCTION vacuum_info(index regclass) RETURNS TABLE(index_name text, segno text) AS 'MODULE_PATHNAME', 'vacuum_info_wrapper' LANGUAGE c STRICT;
+
+GRANT SELECT ON paradedb.index_layer_info TO PUBLIC;

@@ -538,6 +538,8 @@ from (select relname,
       where low < high
       group by relname, low, high
       order by relname, low desc) x;
+      
+GRANT SELECT ON paradedb.index_layer_info TO PUBLIC;
 "#,
     name = "index_layer_info",
     requires = [index_info, layer_sizes]

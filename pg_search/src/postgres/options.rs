@@ -501,7 +501,13 @@ impl SearchIndexCreateOptions {
             let att = tupdesc
                 .get((heap_attno - 1) as usize)
                 .expect("attribute should exist");
-            let (base_oid, _) = resolve_base_type(att.type_oid());
+            let (base_oid, _) = resolve_base_type(att.type_oid()).unwrap_or_else(|| {
+                pgrx::error!(
+                    "Failed to resolve base type for column {} with type {:?}",
+                    att.name(),
+                    att.type_oid()
+                )
+            });
             let field_type = SearchFieldType::try_from(&base_oid).unwrap_or_else(|err| {
                 panic!(
                     "cannot index column '{}' with type {base_oid:?}: {err}",

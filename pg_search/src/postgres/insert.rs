@@ -250,13 +250,14 @@ unsafe fn do_merge(indexrelid: pg_sys::Oid) -> (NumCandidates, NumMerged) {
     let index_options = SearchIndexCreateOptions::from_relation(&indexrel);
     let merge_policy = LayeredMergePolicy::new(index_options.layer_sizes(DEFAULT_LAYER_SIZES));
 
-    merge_index_with_policy(indexrel, merge_policy, false)
+    merge_index_with_policy(indexrel, merge_policy, false, false)
 }
 
 pub unsafe fn merge_index_with_policy(
     indexrel: PgRelation,
     mut merge_policy: LayeredMergePolicy,
     verbose: bool,
+    gc_after_merge: bool,
 ) -> (NumCandidates, NumMerged) {
     let indexrelid = indexrel.oid();
 
@@ -299,6 +300,7 @@ pub unsafe fn merge_index_with_policy(
         .adjust_pins(merge_policy.mergeable_segments())
         .expect("should be table to adjust merger pins");
 
+    let mut need_gc = !gc_after_merge;
     let ncandidates = merge_candidates.len();
     if ncandidates > 0 {
         // record all the segments the SearchIndexMerger can see, as those are the ones that
@@ -320,6 +322,10 @@ pub unsafe fn merge_index_with_policy(
                 merge_result = merger.merge_segments(&candidate.0);
                 if merge_result.is_err() {
                     break;
+                }
+                if gc_after_merge {
+                    garbage_collect_index(&indexrel);
+                    need_gc = false;
                 }
             }
         } else {
@@ -360,6 +366,11 @@ pub unsafe fn merge_index_with_policy(
                 if merge_result.is_err() {
                     break;
                 }
+
+                if gc_after_merge {
+                    garbage_collect_index(&indexrel);
+                    need_gc = false;
+                }
             }
         }
 
@@ -369,6 +380,11 @@ pub unsafe fn merge_index_with_policy(
             .remove_entry(merge_entry)
             .expect("should be able to remove MergeEntry");
         drop(merge_lock);
+
+        // we can garbage collect and return blocks back to the FSM without being under the MergeLock
+        if need_gc {
+            garbage_collect_index(&indexrel);
+        }
 
         // if merging was cancelled due to a legit interrupt we'd prefer that be provided to the user
         check_for_interrupts!();
@@ -381,7 +397,11 @@ pub unsafe fn merge_index_with_policy(
     }
     drop(cleanup_lock);
 
-    // we can garbage collect and return blocks back to the FSM without being under the MergeLock
+    (ncandidates, nmerged)
+}
+
+unsafe fn garbage_collect_index(indexrel: &PgRelation) {
+    let indexrelid = indexrel.oid();
     let recycled_entries =
         LinkedItemList::<SegmentMetaEntry>::open(indexrelid, SEGMENT_METAS_START).garbage_collect();
     for entry in recycled_entries {
@@ -391,6 +411,4 @@ pub unsafe fn merge_index_with_policy(
             pg_sys::IndexFreeSpaceMapVacuum(indexrel.as_ptr());
         }
     }
-
-    (ncandidates, nmerged)
 }

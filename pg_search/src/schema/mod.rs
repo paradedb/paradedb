@@ -92,7 +92,8 @@ impl SearchFieldType {
 impl TryFrom<&PgOid> for SearchFieldType {
     type Error = SearchIndexSchemaError;
     fn try_from(pg_oid: &PgOid) -> Result<Self, Self::Error> {
-        let (base_oid, _) = resolve_base_type(*pg_oid);
+        let (base_oid, _) = resolve_base_type(*pg_oid)
+            .unwrap_or_else(|| pgrx::error!("Failed to resolve base type for type {:?}", pg_oid));
         match &base_oid {
             PgOid::BuiltIn(builtin) => match builtin {
                 PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => {

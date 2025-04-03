@@ -71,7 +71,7 @@ fn text_support_request_simplify(arg: Internal) -> Option<ReturnedNodePointer> {
                 None,
                 Some((
                     rhs,
-                    Some(attname.expect("should be able to determine Var name")),
+                    Some(attname.expect("should be able to determine Node name")),
                 )),
             )
         };

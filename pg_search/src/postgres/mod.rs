@@ -273,7 +273,6 @@ impl ParallelScanState {
     }
 
     fn query(&self) -> anyhow::Result<Option<SearchQueryInput>> {
-        pgrx::log!("parallel scan query");
         self.payload.query()
     }
 

@@ -25,7 +25,9 @@ use pgrx::pg_sys::Oid;
 use pgrx::*;
 use std::str::FromStr;
 
-extern "C-unwind" {
+use super::expression::PG_SEARCH_PREFIX;
+
+extern "C" {
     // SAFETY: `IsTransactionState()` doesn't raise an ERROR.  As such, we can avoid the pgrx
     // sigsetjmp overhead by linking to the function directly.
     pub fn IsTransactionState() -> bool;
@@ -155,7 +157,7 @@ pub fn extract_field_attributes(indexrel: &PgRelation) -> Vec<(String, Oid)> {
                 panic!("Expected expression for index attribute {i}.");
             };
             let node = expression.cast();
-            (format!("_pg_search_{}", i), unsafe {
+            (format!("{}{}", PG_SEARCH_PREFIX, i), unsafe {
                 pg_sys::exprType(node)
             })
         } else {

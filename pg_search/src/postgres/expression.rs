@@ -3,6 +3,8 @@ use pgrx::{
     PgList, PgRelation,
 };
 
+pub const PG_SEARCH_PREFIX: &str = "_pg_search_";
+
 /// Returns the attribute number of the node in the index.
 pub fn find_funcexpr_attnum(
     heaprel: &PgRelation,

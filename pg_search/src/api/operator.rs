@@ -22,7 +22,7 @@ use crate::api::index::{fieldname_typoid, FieldName};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::nodecast;
-use crate::postgres::expression::find_funcexpr_attnum;
+use crate::postgres::expression::{find_funcexpr_attnum, PG_SEARCH_PREFIX};
 use crate::postgres::utils::locate_bm25_index_from_heaprel;
 use crate::query::SearchQueryInput;
 use pgrx::callconv::{BoxRet, FcInfo};
@@ -517,7 +517,7 @@ pub unsafe fn attname_from_node(
                 .expect("could not find bm25 index for heaprelid");
 
             let attnum = find_funcexpr_attnum(&heaprel, &indexrel, node)?;
-            let expression_str = format!("_pg_search_{}", attnum);
+            let expression_str = format!("{}{}", PG_SEARCH_PREFIX, attnum);
             Some((heaprelid, Some(expression_str)))
         }
         NodeTag::T_Var => {

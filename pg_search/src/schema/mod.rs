@@ -34,6 +34,7 @@ use tantivy::schema::{
 use thiserror::Error;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
 
+use crate::postgres::expression::PG_SEARCH_PREFIX;
 use crate::postgres::index::get_fields;
 use crate::query::AsFieldType;
 pub use anyenum::AnyEnum;
@@ -922,9 +923,7 @@ impl AsTypeOid for (&PgRelation, &SearchIndexSchema) {
         }
         let indexrel = self.0;
         let indexdesc = indexrel.tuple_desc();
-        // Expressions are converted to _pg_search_N with N being the
-        // field id.
-        if search_field.name.0.starts_with("_pg_search_") {
+        if search_field.name.0.starts_with(PG_SEARCH_PREFIX) {
             let expr_oid = search_field.name.0[11..]
                 .parse::<u32>()
                 .ok()

@@ -4,14 +4,15 @@ use pgrx::{
 };
 
 /// Returns the attribute number of the node in the index.
-pub fn find_funcexpr_attnum(indexrel: &PgRelation, node: *mut pg_sys::Node) -> Option<i32> {
+pub fn find_funcexpr_attnum(
+    heaprel: &PgRelation,
+    indexrel: &PgRelation,
+    node: *mut pg_sys::Node,
+) -> Option<i32> {
     let index_info = unsafe { *pg_sys::BuildIndexInfo(indexrel.as_ptr()) };
-    let heaprel = indexrel
-        .heap_relation()
-        .expect("index relation should have a heap relation");
 
     let expressions = unsafe { PgList::<pg_sys::Expr>::from_pg(index_info.ii_Expressions) };
-    let ref_str = unsafe { get_expr_str(node, &heaprel) };
+    let ref_str = unsafe { get_expr_str(node, heaprel) };
     let mut expressions_iter = expressions.iter_ptr();
 
     for i in 0..index_info.ii_NumIndexAttrs {
@@ -22,7 +23,7 @@ pub fn find_funcexpr_attnum(indexrel: &PgRelation, node: *mut pg_sys::Node) -> O
             };
             let node = expression.cast();
 
-            let expr_str = unsafe { get_expr_str(node, &heaprel) };
+            let expr_str = unsafe { get_expr_str(node, heaprel) };
             if expr_str == ref_str {
                 return Some(i);
             }

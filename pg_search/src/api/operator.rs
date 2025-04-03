@@ -470,8 +470,6 @@ pub unsafe fn find_vars(node: *mut pg_sys::Node) -> Vec<*mut pg_sys::Var> {
 
 /// Given a [`pg_sys::PlannerInfo`] and a [`pg_sys::Var`] from it, figure out the name of the `Var`
 ///
-/// # Return
-///
 /// Returns the heap relation [`pg_sys::Oid`] that contains the `Var` along with its name.
 pub unsafe fn attname_from_var(
     root: *mut pg_sys::PlannerInfo,
@@ -496,8 +494,6 @@ pub unsafe fn attname_from_var(
 /// Given a [`pg_sys::PlannerInfo`] and a [`pg_sys::Node`] from it, figure out the name of the `Node`,
 /// it supports `FuncExpr` and `Var` nodes. Note that for the heap relation, the `Var` must be
 /// the first argument of the `FuncExpr`.
-///
-/// # Return
 ///
 /// Returns the heap relation [`pg_sys::Oid`] that contains the `Node` along with its name.
 pub unsafe fn attname_from_node(

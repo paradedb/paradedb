@@ -3,8 +3,7 @@ use pgrx::{
     PgList, PgRelation,
 };
 
-// find_funcexpr_idx returns the attribute number of the
-// node in the index.
+/// Returns the attribute number of the node in the index.
 pub fn find_funcexpr_attnum(indexrel: &PgRelation, node: *mut pg_sys::Node) -> Option<i32> {
     let index_info = unsafe { *pg_sys::BuildIndexInfo(indexrel.as_ptr()) };
     let heaprel = indexrel

@@ -428,8 +428,10 @@ pub unsafe fn find_node_relation(
             let funcexpr: *mut FuncExpr = node.cast();
             let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
             args.iter_ptr()
-                .filter(|arg| is_a(*arg, pg_sys::NodeTag::T_Var))
-                .map(|arg| find_var_relation(arg.cast(), root))
+                .filter_map(|arg| match (*arg).type_ {
+                    NodeTag::T_FuncExpr | NodeTag::T_Var => Some(find_node_relation(arg, root)),
+                    _ => None,
+                })
                 .reduce(|(acc_oid, acc_attno, acc_tl), (oid, _attno, _tl)| {
                     if acc_oid != oid {
                         panic!("expressions cannot contain multiple relations");

@@ -26,7 +26,7 @@ body:
     attributes:
       label: To Reproduce
       description: |
-        Please provide steps to reproduce the behaviour, preferably a [minimal reproducible example](https://en.wikipedia.org/wiki/Minimal_reproducible_example). If you are facing issues with a specific query, please provide an `EXPLAIN ANALYZE` as well.
+        Please provide steps to reproduce the behaviour, preferably a [minimal reproducible example](https://en.wikipedia.org/wiki/Minimal_reproducible_example), and an `EXPLAIN ANALYZE` of the query, if applicable.
     validations:
       required: true
 

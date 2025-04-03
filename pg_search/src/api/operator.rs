@@ -505,18 +505,10 @@ pub unsafe fn attname_from_node(
     match (*node).type_ {
         NodeTag::T_FuncExpr => {
             // We expect the funcexpr to contain the var of the field name we're looking for
-            let funcexpr = nodecast!(FuncExpr, T_FuncExpr, node).expect("node is not a FuncExpr");
-            let heaprelid = PgList::<pg_sys::Node>::from_pg((*funcexpr).args)
-                .iter_ptr()
-                .find_map(|arg| {
-                    if is_a(arg, pg_sys::NodeTag::T_Var) {
-                        let var = nodecast!(Var, T_Var, arg).expect("node is not a Var");
-                        let (heaprelid, _, _) = find_var_relation(var, root);
-                        Some(heaprelid)
-                    } else {
-                        None
-                    }
-                })?;
+            let (heaprelid, _, _) = find_node_relation(node, root);
+            if heaprelid == pg_sys::Oid::INVALID {
+                panic!("could not find heap relation for node");
+            }
             let indexrel =
                 locate_bm25_index(heaprelid).expect("could not find bm25 index for heaprelid");
 

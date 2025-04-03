@@ -18,13 +18,19 @@
 use crate::nodecast;
 use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{
-    direct_function_call, extension_sql, pg_extern, pg_guard, pg_sys, AnyElement, IntoDatum, PgList,
+    direct_function_call, error, extension_sql, pg_extern, pg_guard, pg_sys, AnyElement, IntoDatum,
+    PgList,
 };
 use std::ptr::addr_of_mut;
 
 #[pg_extern(name = "score", stable, parallel_safe, cost = 1)]
 fn score_from_relation(_relation_reference: AnyElement) -> Option<f32> {
     None
+}
+
+#[pg_extern(name = "score")]
+fn score_invalid_signature() {
+    error!("paradedb.score requires 1 argument.\n\tparadedb.score(<column_name>)");
 }
 
 extension_sql!(

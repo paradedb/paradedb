@@ -427,12 +427,16 @@ pub unsafe fn find_node_relation(
         NodeTag::T_FuncExpr => {
             let funcexpr: *mut FuncExpr = node.cast();
             let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-            for arg in args.iter_ptr() {
-                if is_a(arg, pg_sys::NodeTag::T_Var) {
-                    return find_var_relation(arg.cast(), root);
-                }
-            }
-            (pg_sys::Oid::INVALID, 0, None)
+            args.iter_ptr()
+                .filter(|arg| is_a(*arg, pg_sys::NodeTag::T_Var))
+                .map(|arg| find_var_relation(arg.cast(), root))
+                .reduce(|(acc_oid, acc_attno, acc_tl), (oid, _attno, _tl)| {
+                    if acc_oid != oid {
+                        panic!("expressions cannot contain multiple relations");
+                    }
+                    (acc_oid, acc_attno, acc_tl)
+                })
+                .unwrap_or_else(|| panic!("could not find a Var in the expression tree"))
         }
         _ => (pg_sys::Oid::INVALID, 0, None),
     }

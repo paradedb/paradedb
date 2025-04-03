@@ -34,8 +34,13 @@ extern "C" {
 /// Finds and returns the `USING bm25` index on the specified relation with the
 /// highest OID, or [`None`] if there aren't any.
 pub fn locate_bm25_index(heaprelid: pg_sys::Oid) -> Option<PgRelation> {
+    unsafe { locate_bm25_index_from_heaprel(&PgRelation::open(heaprelid)) }
+}
+
+/// Finds and returns the `USING bm25` index on the specified relation with the
+/// highest OID, or [`None`] if there aren't any.
+pub fn locate_bm25_index_from_heaprel(heaprel: &PgRelation) -> Option<PgRelation> {
     unsafe {
-        let heaprel = PgRelation::open(heaprelid);
         let indices = heaprel.indices(pg_sys::AccessShareLock as _);
 
         // Find all bm25 indexes and keep the one with highest OID

@@ -23,7 +23,7 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::nodecast;
 use crate::postgres::expression::find_funcexpr_attnum;
-use crate::postgres::utils::locate_bm25_index;
+use crate::postgres::utils::locate_bm25_index_from_heaprel;
 use crate::query::SearchQueryInput;
 use pgrx::callconv::{BoxRet, FcInfo};
 use pgrx::datum::Datum;
@@ -166,7 +166,7 @@ unsafe fn make_search_query_input_opexpr_node(
 
     // we need to use what should be the only `USING bm25` index on the table
     let heaprel = PgRelation::open(relid);
-    let indexrel = locate_bm25_index(relid).unwrap_or_else(|| {
+    let indexrel = locate_bm25_index_from_heaprel(&heaprel).unwrap_or_else(|| {
         panic!(
             "relation `{}.{}` must have a `USING bm25` index",
             heaprel.namespace(),
@@ -512,10 +512,11 @@ pub unsafe fn attname_from_node(
             if heaprelid == pg_sys::Oid::INVALID {
                 panic!("could not find heap relation for node");
             }
-            let indexrel =
-                locate_bm25_index(heaprelid).expect("could not find bm25 index for heaprelid");
+            let heaprel = PgRelation::open(heaprelid);
+            let indexrel = locate_bm25_index_from_heaprel(&heaprel)
+                .expect("could not find bm25 index for heaprelid");
 
-            let attnum = find_funcexpr_attnum(&indexrel, node)?;
+            let attnum = find_funcexpr_attnum(&heaprel, &indexrel, node)?;
             let expression_str = format!("_pg_search_{}", attnum);
             Some((heaprelid, Some(expression_str)))
         }

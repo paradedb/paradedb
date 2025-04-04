@@ -81,6 +81,8 @@ impl From<SortDirection> for u32 {
 pub enum OrderByStyle {
     Score(*mut pg_sys::PathKey),
     Field(*mut pg_sys::PathKey, String),
+    RangeLower(*mut pg_sys::PathKey, String),
+    RangeUpper(*mut pg_sys::PathKey, String),
 }
 
 impl OrderByStyle {
@@ -88,6 +90,8 @@ impl OrderByStyle {
         match self {
             OrderByStyle::Score(pathkey) => *pathkey,
             OrderByStyle::Field(pathkey, _) => *pathkey,
+            OrderByStyle::RangeLower(pathkey, _) => *pathkey,
+            OrderByStyle::RangeUpper(pathkey, _) => *pathkey,
         }
     }
 

@@ -181,17 +181,21 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         // other backends that are reading/modifying the list
         let _schema_lock = self.bman_mut().get_buffer_mut(SCHEMA_START);
 
+        // Despite the lock above, all of our edits to the list should become visible atomically
+        // on physical replicas. We therefore duplicate-and-replace the
+        let mut guard = self.atomically();
+
         // Delete all items that are definitely dead
-        let heap_relation = self.bman().bm25cache().heaprel();
+        let heap_relation = guard.bman().bm25cache().heaprel();
         let freeze_limit = vacuum_get_freeze_limit(heap_relation);
-        let start_blockno = self.get_start_blockno();
+        let start_blockno = guard.get_start_blockno();
         let mut blockno = start_blockno;
         let mut last_filled_blockno = start_blockno;
 
         let mut recycled_entries = Vec::new();
 
         while blockno != pg_sys::InvalidBlockNumber {
-            let mut buffer = self.bman.get_buffer_mut(blockno);
+            let mut buffer = guard.bman.get_buffer_mut(blockno);
             let mut page = buffer.page_mut();
             let mut offsetno = pg_sys::FirstOffsetNumber;
             let max_offset = page.max_offset_number();
@@ -199,7 +203,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
 
             while offsetno <= max_offset {
                 if let Some((entry, _)) = page.read_item::<T>(offsetno) {
-                    if entry.recyclable(self.bman_mut()) {
+                    if entry.recyclable(guard.bman_mut()) {
                         page.mark_item_dead(offsetno);
 
                         recycled_entries.push(entry);
@@ -234,12 +238,12 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
                 page.mark_deleted(pg_sys::GetCurrentTransactionId());
                 // this page is no longer useful to us so go ahead and return it to the FSM.  Doing
                 // so will also drop the lock
-                self.bman.return_to_fsm_mut(buffer);
+                guard.bman.return_to_fsm_mut(buffer);
 
                 // We've reached the end of the list, which means the last filled block is now the
                 // last entry in the list
                 if blockno == pg_sys::InvalidBlockNumber {
-                    let mut last_filled_buffer = self.bman.get_buffer_mut(last_filled_blockno);
+                    let mut last_filled_buffer = guard.bman.get_buffer_mut(last_filled_blockno);
                     let mut last_filled_page = last_filled_buffer.page_mut();
                     let special = last_filled_page.special_mut::<BM25PageSpecialData>();
                     special.next_blockno = pg_sys::InvalidBlockNumber;
@@ -253,7 +257,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
                 // we want while we have this page locked
                 drop(buffer);
 
-                let mut last_filled_buffer = self.bman.get_buffer_mut(last_filled_blockno);
+                let mut last_filled_buffer = guard.bman.get_buffer_mut(last_filled_blockno);
                 let mut last_filled_page = last_filled_buffer.page_mut();
                 if last_filled_page.next_blockno() != current_blockno {
                     let special = last_filled_page.special_mut::<BM25PageSpecialData>();
@@ -262,6 +266,8 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
                 last_filled_blockno = current_blockno;
             }
         }
+
+        guard.commit();
 
         recycled_entries
     }
@@ -657,10 +663,9 @@ mod tests {
                 }
             }
 
-            // Assert that compaction produced a smaller list with no new blocks
+            // Assert that compaction produced a smaller list
             let post_gc_blocks = linked_list_block_numbers(&list);
             assert!(pre_gc_blocks.len() > post_gc_blocks.len());
-            assert!(post_gc_blocks.is_subset(&pre_gc_blocks));
         }
     }
 

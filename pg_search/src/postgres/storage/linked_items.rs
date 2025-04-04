@@ -101,26 +101,36 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
     }
 
     pub unsafe fn create(relation_oid: pg_sys::Oid) -> Self {
-        let mut bman = BufferManager::new(relation_oid);
+        let (mut _self, mut header_buffer) = Self::create_without_start_page(relation_oid);
 
-        let mut header_buffer = bman.new_buffer();
-        let header_blockno = header_buffer.number();
-        let mut start_buffer = bman.new_buffer();
+        let mut start_buffer = _self.bman.new_buffer();
         let start_blockno = start_buffer.number();
-
-        let mut header_page = header_buffer.init_page();
         start_buffer.init_page();
 
+        let mut header_page = header_buffer.page_mut();
         let metadata = header_page.contents_mut::<LinkedListData>();
         metadata.start_blockno = start_blockno;
         metadata.last_blockno = start_blockno;
         metadata.npages = 0;
 
-        Self {
-            header_blockno,
-            bman,
-            _marker: std::marker::PhantomData,
-        }
+        _self
+    }
+
+    unsafe fn create_without_start_page(relation_oid: pg_sys::Oid) -> (Self, BufferMut) {
+        let mut bman = BufferManager::new(relation_oid);
+
+        let mut header_buffer = bman.new_buffer();
+        let header_blockno = header_buffer.number();
+        header_buffer.init_page();
+
+        (
+            Self {
+                header_blockno,
+                bman,
+                _marker: std::marker::PhantomData,
+            },
+            header_buffer,
+        )
     }
 
     /// Return a Vec of all the items in this linked list
@@ -346,6 +356,96 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             pg_sys::GetCurrentTransactionIdIfAny()
         )))
     }
+
+    ///
+    /// Make an independent copy of this list and all its backing buffers.
+    ///
+    pub unsafe fn duplicate(&self) -> Self {
+        // We create the duplicate without a start page: it will be filled in in the first
+        // iteration of the loop below.
+        let (mut dup, mut header_buffer) =
+            LinkedItemList::create_without_start_page(self.bman.relation_oid());
+
+        // TODO: This code could either:
+        // * switch to compacting pages as it goes.
+        // * switch to using memcpy
+        // ... but not both.
+        let mut blockno = self.get_start_blockno();
+        assert!(
+            blockno != pg_sys::InvalidBlockNumber,
+            "Must contain at least one block."
+        );
+        let mut previous_new_buffer: Option<BufferMut> = None;
+        while blockno != pg_sys::InvalidBlockNumber {
+            let buffer = self.bman.get_buffer(blockno);
+            let page = buffer.page();
+            let mut offsetno = pg_sys::FirstOffsetNumber;
+            let max_offset = page.max_offset_number();
+
+            let mut new_buffer = dup.bman.new_buffer();
+            let new_blockno = new_buffer.number();
+            let mut new_page = new_buffer.init_page();
+
+            // Link the new block in with the previous block, or with the header.
+            if let Some(mut previous_new_buffer) = previous_new_buffer {
+                previous_new_buffer
+                    .page_mut()
+                    .special_mut::<BM25PageSpecialData>()
+                    .next_blockno = new_blockno;
+            } else {
+                header_buffer
+                    .page_mut()
+                    .contents_mut::<LinkedListData>()
+                    .start_blockno = new_blockno;
+            }
+
+            while offsetno <= max_offset {
+                if let Some((deserialized, _)) = page.read_item::<T>(offsetno) {
+                    let PgItem(item, size) = deserialized.into();
+                    let new_offsetno = new_page.append_item(item, size, 0);
+                    assert!(new_offsetno != pg_sys::InvalidOffsetNumber);
+                }
+                offsetno += 1;
+            }
+
+            blockno = page.next_blockno();
+            previous_new_buffer = Some(new_buffer);
+        }
+
+        dup
+    }
+
+    ///
+    /// Atomically replace all content of this list with the content of the given
+    /// list, deallocating the given list and the previous contents of this list.
+    ///
+    pub unsafe fn replace(&mut self, mut other: Self) {
+        // Update our header page to point to the new start block, and return the old one.
+        let mut blockno = {
+            // Open both header pages.
+            let mut self_header_buffer = self.bman.get_buffer_mut(self.header_blockno);
+            let mut self_header_page = self_header_buffer.page_mut();
+            let other_header_buffer = other.bman.get_buffer(other.header_blockno);
+            let other_header_page = other_header_buffer.page();
+
+            // Capture our old start page, then overwrite our metadata.
+            let self_metadata = self_header_page.contents_mut::<LinkedListData>();
+            let old_start_blockno = self_metadata.start_blockno;
+            *self_metadata = other_header_page.contents::<LinkedListData>();
+
+            // Finally, garbage collect the other header block.
+            other.bman.return_to_fsm(other_header_buffer);
+
+            old_start_blockno
+        };
+
+        // And then collect our old contents, which are no longer reachable.
+        while blockno != pg_sys::InvalidBlockNumber {
+            let buffer = self.bman().get_buffer(blockno);
+            blockno = buffer.page().next_blockno();
+            self.bman.return_to_fsm(buffer);
+        }
+    }
 }
 
 #[cfg(any(test, feature = "pg_test"))]
@@ -370,10 +470,10 @@ mod tests {
         let mut block_numbers = HashSet::new();
 
         while blockno != pg_sys::InvalidBlockNumber {
+            block_numbers.insert(blockno);
             let buffer = list.bman().get_buffer(blockno);
             let page = buffer.page();
             blockno = page.next_blockno();
-            block_numbers.insert(blockno);
         }
 
         block_numbers
@@ -381,12 +481,7 @@ mod tests {
 
     #[pg_test]
     unsafe fn test_linked_items_garbage_collect_single_page() {
-        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
-        Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
-        let relation_oid: pg_sys::Oid =
-            Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
-                .expect("spi should succeed")
-                .unwrap();
+        let relation_oid = init_bm25_index();
 
         let snapshot = pg_sys::GetActiveSnapshot();
         let delete_xid = (*snapshot).xmin - 1;
@@ -421,12 +516,7 @@ mod tests {
 
     #[pg_test]
     unsafe fn test_linked_items_garbage_collect_multiple_pages() {
-        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
-        Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
-        let relation_oid: pg_sys::Oid =
-            Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
-                .expect("spi should succeed")
-                .unwrap();
+        let relation_oid = init_bm25_index();
 
         let snapshot = pg_sys::GetActiveSnapshot();
         let deleted_xid = (*snapshot).xmin - 1;
@@ -516,6 +606,55 @@ mod tests {
             assert!(pre_gc_blocks.len() > post_gc_blocks.len());
             assert!(post_gc_blocks.is_subset(&pre_gc_blocks));
         }
+    }
+
+    #[pg_test]
+    unsafe fn test_linked_items_duplicate_then_replace() {
+        let relation_oid = init_bm25_index();
+
+        let snapshot = pg_sys::GetActiveSnapshot();
+
+        // Add 2000 entries.
+        let mut list = LinkedItemList::<SegmentMetaEntry>::create(relation_oid);
+        let entries = (1..2000)
+            .map(|_| SegmentMetaEntry {
+                segment_id: random_segment_id(),
+                xmin: (*snapshot).xmin - 1,
+                xmax: pg_sys::InvalidTransactionId,
+                postings: Some(make_fake_postings(relation_oid)),
+                ..Default::default()
+            })
+            .collect::<Vec<_>>();
+
+        list.add_items(&entries, None).unwrap();
+
+        // Duplicate the list, and then confirm that it contains unique blocks, and the same
+        // contents.
+        let duplicate = list.duplicate();
+        let duplicate_block_numbers = linked_list_block_numbers(&duplicate);
+        let duplicate_contents = duplicate.list();
+        assert_eq!(
+            linked_list_block_numbers(&list)
+                .intersection(&duplicate_block_numbers)
+                .cloned()
+                .collect::<Vec<_>>(),
+            Vec::<pg_sys::BlockNumber>::new(),
+        );
+        assert_eq!(list.list(), duplicate_contents);
+
+        // Then `replace` the first list with the duplicate, and confirm that the structure
+        // matches afterwards.
+        list.replace(duplicate);
+        assert_eq!(linked_list_block_numbers(&list), duplicate_block_numbers,);
+        assert_eq!(list.list(), duplicate_contents);
+    }
+
+    fn init_bm25_index() -> pg_sys::Oid {
+        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
+        return Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
+            .expect("spi should succeed")
+            .unwrap();
     }
 
     fn make_fake_postings(relation_oid: pg_sys::Oid) -> FileEntry {

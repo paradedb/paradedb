@@ -70,6 +70,12 @@ WITH (key_field = 'id');
 In Postgres, a partitioned index is an index created over a [partitioned table](https://www.postgresql.org/docs/current/ddl-partitioning.html).
 A BM25 index can be created over a partitioned table in the same way as a normal table.
 
+<Note>
+  If the partition key of your partitioned table is only indexed as a fast field by the BM25 index
+  (and not additionally indexed via a B-Tree index), note that the `@@@` operator [must be used](/documentation/aggregates/limitations#filtering)
+  in order for filtering to be optimized by the index.
+</Note>
+
 ## Partial Index
 
 The following code block demonstrates how to pass predicates to `CREATE INDEX`

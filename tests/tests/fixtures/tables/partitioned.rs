@@ -44,13 +44,17 @@ BEGIN;
     ) PARTITION BY RANGE (sale_date);
 
     CREATE TABLE sales_2023_q1 PARTITION OF sales
-      FOR VALUES FROM ('2023-01-01') TO ('2023-03-31');
+      FOR VALUES FROM ('2023-01-01') TO ('2023-04-01');
 
     CREATE TABLE sales_2023_q2 PARTITION OF sales
       FOR VALUES FROM ('2023-04-01') TO ('2023-06-30');
 
     CREATE INDEX sales_index ON sales
       USING bm25 (id, description, sale_date, amount)
-      WITH (key_field='id', numeric_fields='{"amount": {"fast": true}}');
+      WITH (
+        key_field='id',
+        numeric_fields='{"amount": {"fast": true}}',
+        datetime_fields = '{"sale_date": {"fast": true}}'
+      );
 COMMIT;
 "#;

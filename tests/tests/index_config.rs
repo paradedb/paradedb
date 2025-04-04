@@ -751,3 +751,21 @@ fn uuid_as_raw_issue2199(mut conn: PgConnection) {
             .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 1);
 }
+
+#[rstest]
+fn expression_with_options(mut conn: PgConnection) {
+    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
+        .execute(&mut conn);
+
+    r#"CREATE INDEX index_config_index ON paradedb.index_config
+        USING bm25 (id, lower(description)) WITH (key_field='id')"#
+        .execute(&mut conn);
+
+    let rows: Vec<(String, String)> =
+        "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index') ORDER BY name"
+            .fetch(&mut conn);
+
+    assert_eq!(rows[0], ("_pg_search_1".into(), "Str".into()));
+    assert_eq!(rows[1], ("ctid".into(), "U64".into()));
+    assert_eq!(rows[2], ("id".into(), "I64".into()));
+}

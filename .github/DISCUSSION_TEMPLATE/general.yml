@@ -8,7 +8,6 @@ body:
         please do so on the relevant ParadeDB repository:
 
           * [paradedb/paradedb](https://github.com/paradedb/paradedb/issues/news/) - ParadeDB core and pg_search extension repository
-          * [paradedb/pg_analytics](https://github.com/paradedb/pg_analytics/issues/new/) - ParadeDB pg_analytics extension repository
           * [paradedb/charts](https://github.com/paradedb/charts/issues/new/) - ParadeDB Helm Chart repository
 
         Please report security vulnerabilities using GitHub's [report vulnerability form](https://github.com/paradedb/paradedb/security/advisories/new).

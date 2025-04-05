@@ -599,73 +599,32 @@ fn partitioned_query(mut conn: PgConnection) {
 fn partitioned_uses_custom_scan(mut conn: PgConnection) {
     PartitionedTable::setup().execute(&mut conn);
 
+    // Insert matching rows into both partitions.
     r#"
-        INSERT INTO sales (sale_date, amount, description) VALUES
-        ('2023-01-10', 150.00, 'Ergonomic metal keyboard'),
-        ('2023-04-01', 250.00, 'Modern wall clock');
+    INSERT INTO sales (sale_date, amount, description) VALUES
+    ('2023-01-10', 150.00, 'Ergonomic metal keyboard'),
+    ('2023-04-01', 250.00, 'Cheap plastic keyboard');
     "#
     .execute(&mut conn);
 
-    "SET max_parallel_workers TO 0;".execute(&mut conn);
-
-    // Without the partition key.
-    let (plan,) = r#"
-        EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
-        SELECT count(*)
+    // With ORDER BY the partition key: we expect the partitions to be visited sequentially.
+    let plan: Vec<(String,)> = r#"
+        EXPLAIN (ANALYZE, VERBOSE)
+        SELECT description, sale_date
         FROM sales
-        WHERE id @@@ '1';
+        WHERE description @@@ 'keyboard'
+        ORDER BY sale_date
+        LIMIT 1;
         "#
-    .fetch_one::<(Value,)>(&mut conn);
-    eprintln!("{plan:#?}");
+    .fetch(&mut conn);
+    let plan = plan
+        .into_iter()
+        .map(|(s,)| s)
+        .collect::<Vec<_>>()
+        .join("\n");
+    eprintln!("{plan}");
 
-    let per_partition_plans = plan
-        .pointer("/0/Plan/Plans/0/Plans")
-        .unwrap()
-        .as_array()
-        .unwrap();
-    assert_eq!(
-        per_partition_plans.len(),
-        2,
-        "Expected 2 partitions to be scanned."
-    );
-    for per_partition_plan in per_partition_plans {
-        pretty_assertions::assert_eq!(
-            per_partition_plan.get("Node Type"),
-            Some(&Value::String(String::from("Custom Scan")))
-        );
-    }
-
-    // With the partition key: we expect the partition to be filtered, and for
-    // us to apply pushdown.
-    let (plan,) = r#"
-        EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
-        SELECT count(*)
-        FROM sales
-        WHERE description @@@ 'keyboard' and sale_date = '2023-01-10';
-        "#
-    .fetch_one::<(Value,)>(&mut conn);
-    eprintln!("{plan:#?}");
-
-    let per_partition_plans = plan.pointer("/0/Plan/Plans").unwrap().as_array().unwrap();
-    assert_eq!(
-        per_partition_plans.len(),
-        1,
-        "Expected 1 partition to be scanned."
-    );
-    for per_partition_plan in per_partition_plans {
-        pretty_assertions::assert_eq!(
-            per_partition_plan.get("Node Type"),
-            Some(&Value::String(String::from("Custom Scan")))
-        );
-        let query = per_partition_plan
-            .get("Human Readable Query")
-            .unwrap()
-            .to_string();
-        assert!(
-            query.to_string().contains("sale_date:2023-01-10"),
-            "Expected sale_date to be pushed down into query: {query:?}",
-        );
-    }
+    assert!(false);
 }
 
 #[rstest]

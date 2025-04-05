@@ -131,6 +131,46 @@ impl CustomScan for PdbScan {
             #[cfg(any(feature = "pg16", feature = "pg17"))]
             let baserels = (*builder.args().root).all_query_rels;
 
+            unsafe fn bms_to_integers(bms: *mut pg_sys::Bitmapset) -> Vec<i32> {
+                let mut set_bit: i32 = -1;
+                let mut result = Vec::new();
+                loop {
+                    // Get the set bits, which are offsets into the RangeTable.
+                    set_bit = pg_sys::bms_next_member(bms, set_bit);
+                    if set_bit < 0 {
+                        break;
+                    }
+
+                    result.push(set_bit);
+                }
+                result
+            }
+
+            unsafe fn bms_to_reloids(
+                root: *mut pg_sys::PlannerInfo,
+                bms: *mut pg_sys::Bitmapset,
+            ) -> Vec<String> {
+                bms_to_integers(bms).into_iter().map(|range_table_index| {
+                    // Get the relevant range table entry.
+                    let rte = pg_sys::rt_fetch(range_table_index as pg_sys::Index, (*(*root).parse).rtable);
+                    let partition_info = if (*rte).relkind as u8 == pg_sys::RELKIND_PARTITIONED_TABLE {
+                      // If the rte is a partitioned table, figure out what partitions are
+                      // involved.
+                      let partitioned_table_reloptinfo = (*root).simple_rel_array.offset(range_table_index as isize).read();
+                      format!(" (partition relids: {:?})", bms_to_integers((*partitioned_table_reloptinfo).all_partrels))
+                    } else {
+                      "".to_owned()
+                    };
+                    format!("range_table_index: {range_table_index}, relid: {:?}, relkind: {}{partition_info}", (*rte).relid, (*rte).relkind)
+                }).collect()
+            }
+
+            pgrx::log!(
+                ">>> limit_tuples: {:?}, relids: {:?}, baserels: {:?}",
+                (*builder.args().root).limit_tuples,
+                bms_to_reloids(root, (*builder.args().rel).relids),
+                bms_to_reloids(root, baserels),
+            );
             let limit = if (*builder.args().root).limit_tuples > -1.0
                 && pg_sys::bms_equal((*builder.args().rel).relids, baserels)
             {
@@ -147,6 +187,10 @@ impl CustomScan for PdbScan {
             let ff_cnt =
                 exec_methods::fast_fields::count(&mut builder, rti, &table, &schema, target_list);
             let maybe_ff = builder.custom_private().maybe_ff();
+            pgrx::log!(
+                ">>> limit: {limit:?}, pathkey.is_some(): {}",
+                pathkey.is_some()
+            );
             let is_topn = limit.is_some() && pathkey.is_some();
             let which_fast_fields = exec_methods::fast_fields::collect(
                 builder.custom_private().maybe_ff(),
@@ -218,6 +262,8 @@ impl CustomScan for PdbScan {
                 builder.custom_private().set_range_table_index(rti);
                 builder.custom_private().set_quals(quals);
                 builder.custom_private().set_limit(limit);
+
+                pgrx::log!(">>> is_topn: {is_topn}");
 
                 if is_topn {
                     // sorting by a field only works if we're not doing const projections
@@ -302,6 +348,8 @@ impl CustomScan for PdbScan {
                     let pathkey_cnt =
                         PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys)
                             .len();
+
+                    pgrx::log!(">>> pathkey_cnt: {pathkey_cnt}, cardinality: {cardinality}");
 
                     if pathkey_cnt == 1 || cardinality > 1_000_000.0 {
                         // if we only have 1 path key or if our estimated cardinality is over some

@@ -3,7 +3,6 @@ use crate::postgres::storage::block::{
     DeleteEntry, FileEntry, LinkedList, MVCCEntry, PgItem, SegmentFileDetails, SegmentMetaEntry,
     SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
 };
-use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use anyhow::Result;
 use pgrx::pg_sys;
@@ -46,13 +45,8 @@ pub unsafe fn save_new_metas(
     prev_meta: &IndexMeta,
     directory_entries: &mut FxHashMap<PathBuf, FileEntry>,
 ) -> Result<()> {
-    // hold an exclusive lock on the schema to ensure no concurrent readers try to
-    // read the list before we're finished updating it
-    let _schema_lock = BufferManager::new(relation_oid).get_buffer_mut(SCHEMA_START);
-
     // in order to ensure that all of our mutations to the list of segments appear atomically on
-    // physical replicas, we mutate a deep copy of the list, and then atomically replace the real
-    // list as our last step.
+    // physical replicas, we atomically operate on a deep copy of the list.
     let mut segment_metas_linked_list =
         LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START);
     let mut linked_list = segment_metas_linked_list.atomically();

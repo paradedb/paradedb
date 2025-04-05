@@ -15,9 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use super::block::{
-    BM25PageSpecialData, LinkedList, LinkedListData, MVCCEntry, PgItem, SCHEMA_START,
-};
+use super::block::{BM25PageSpecialData, LinkedList, LinkedListData, MVCCEntry, PgItem};
 use super::buffer::{BufferManager, BufferMut};
 use super::utils::vacuum_get_freeze_limit;
 use anyhow::Result;
@@ -177,10 +175,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
     }
 
     pub unsafe fn garbage_collect(&mut self) -> Vec<T> {
-        // concurrent changes to the items list itself is not possible and should interlock with
-        // other backends that are reading/modifying the list
-        let _schema_lock = self.bman_mut().get_buffer_mut(SCHEMA_START);
-
         // Despite the lock above, all of our edits to the list should become visible atomically
         // on physical replicas. We therefore duplicate-and-replace the
         let mut guard = self.atomically();
@@ -374,6 +368,12 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
     /// then re-storing it from scratch to commit.
     ///
     pub unsafe fn atomically(&mut self) -> AtomicGuard<'_, T> {
+        // While we're operating on the List atomically, hold an exclusive lock on its header.
+        let original_header_lock = {
+            let header_blockno = self.header_blockno;
+            self.bman_mut().get_buffer_mut(header_blockno)
+        };
+
         // We create the duplicate without a start page: it will be filled in in the first
         // iteration of the loop below.
         let (mut cloned, mut header_buffer) =
@@ -383,7 +383,10 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         // * switch to compacting pages as it goes.
         // * switch to using memcpy
         // ... but not both.
-        let mut blockno = self.get_start_blockno();
+        let mut blockno = original_header_lock
+            .page()
+            .contents::<LinkedListData>()
+            .start_blockno;
         assert!(
             blockno != pg_sys::InvalidBlockNumber,
             "Must contain at least one block."
@@ -429,6 +432,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
 
         AtomicGuard {
             original: self,
+            original_header_lock,
             cloned: Some(cloned),
         }
     }
@@ -436,6 +440,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
 
 pub struct AtomicGuard<'s, T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> {
     original: &'s mut LinkedItemList<T>,
+    original_header_lock: BufferMut,
     cloned: Option<LinkedItemList<T>>,
 }
 
@@ -461,11 +466,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> AtomicGuard<'_,
         // Update our header page to point to the new start block, and return the old one.
         let mut blockno = {
             // Open both header pages.
-            let mut original_header_buffer = self
-                .original
-                .bman
-                .get_buffer_mut(self.original.header_blockno);
-            let mut original_header_page = original_header_buffer.page_mut();
+            let mut original_header_page = self.original_header_lock.page_mut();
             let cloned_header_buffer = cloned.bman.get_buffer(cloned.header_blockno);
             let cloned_header_page = cloned_header_buffer.page();
 

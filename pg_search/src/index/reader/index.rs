@@ -256,9 +256,9 @@ pub struct SearchIndexReader {
     // buffer dropped once
     _cleanup_lock: Arc<PinnedBuffer>,
 
-    // If we are a WAL receiver, the SearchIndexReader holds a share lock on the SEGMENT_METAS_START buffer
+    // If we are a WAL receiver, the SearchIndexReader must hold a share lock on the SEGMENT_METAS_START buffer
     // to prevent WAL records from a concurrent save_new_metas from being applied while a parallel custom/index scan
-    // is running
+    // is running (since applying a WAL record requires an exclusive lock).
     _segment_metas_share_lock: Arc<Option<Buffer>>,
 }
 

@@ -19,8 +19,8 @@ use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::scorer_iter::DeferredScorer;
 use crate::index::setup_tokenizers;
-use crate::postgres::storage::block::CLEANUP_LOCK;
-use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
+use crate::postgres::storage::block::{CLEANUP_LOCK, SEGMENT_METAS_START};
+use crate::postgres::storage::buffer::{Buffer, BufferManager, PinnedBuffer};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchField;
 use crate::schema::{SearchFieldName, SearchIndexSchema};
@@ -255,10 +255,16 @@ pub struct SearchIndexReader {
     // also, it's an Arc b/c if we're clone'd (we do derive it, after all), we only want this
     // buffer dropped once
     _cleanup_lock: Arc<PinnedBuffer>,
+
+    // If we are a WAL receiver, the SearchIndexReader holds a share lock on the SEGMENT_METAS_START buffer
+    // to prevent WAL records from a concurrent save_new_metas from being applied while a parallel custom/index scan
+    // is running
+    _segment_metas_share_lock: Arc<Option<Buffer>>,
 }
 
 impl SearchIndexReader {
     pub fn open(index_relation: &PgRelation, mvcc_style: MvccSatisfies) -> Result<Self> {
+        let bman = BufferManager::new(index_relation.oid());
         // It is possible for index only scans and custom scans, which only check the visibility map
         // and do not fetch tuples from the heap, to suffer from the concurrent TID recycling problem.
         // This problem occurs due to a race condition: after vacuum is called, a concurrent index only or custom scan
@@ -270,6 +276,12 @@ impl SearchIndexReader {
         // It's sufficient, and **required** for parallel scans to operate correctly, for us to hold onto
         // a pinned but unlocked buffer.
         let cleanup_lock = BufferManager::new(index_relation.oid()).pinned_buffer(CLEANUP_LOCK);
+
+        let segment_metas_share_lock = if unsafe { pg_sys::RecoveryInProgress() } {
+            Some(bman.get_buffer(SEGMENT_METAS_START))
+        } else {
+            None
+        };
 
         let directory = mvcc_style.directory(index_relation);
         let mut index = Index::open(directory)?;
@@ -289,6 +301,7 @@ impl SearchIndexReader {
             underlying_reader: reader,
             underlying_index: index,
             _cleanup_lock: Arc::new(cleanup_lock),
+            _segment_metas_share_lock: Arc::new(segment_metas_share_lock),
         })
     }
 

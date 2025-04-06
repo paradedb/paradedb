@@ -277,7 +277,9 @@ impl SearchIndexReader {
         // a pinned but unlocked buffer.
         let cleanup_lock = BufferManager::new(index_relation.oid()).pinned_buffer(CLEANUP_LOCK);
 
-        let segment_metas_share_lock = if unsafe { pg_sys::RecoveryInProgress() } {
+        // Parallel workers do not need to acquire the segment metas share lock, because the main process
+        // has already acquired it
+        let segment_metas_share_lock = if !matches!(mvcc_style, MvccSatisfies::ParallelWorker(_)) {
             Some(bman.get_buffer(SEGMENT_METAS_START))
         } else {
             None

@@ -43,6 +43,8 @@ pub struct MergeLockData {
 
     /// The starting block for a [`LinkedItemsList<MergeEntry>]`
     pub merge_list: pg_sys::BlockNumber,
+
+    pub create_index_list: pg_sys::BlockNumber,
 }
 
 #[repr(transparent)]
@@ -59,7 +61,7 @@ pub struct MergeLock {
 }
 
 impl MergeLock {
-    /// This is a blocking operation to acquire the MERGE_LOCK.  
+    /// This is a blocking operation to acquire the MERGE_LOCK.
     pub unsafe fn acquire(relation_oid: pg_sys::Oid) -> Self {
         let mut bman = BufferManager::new(relation_oid);
         let merge_lock = bman.get_buffer_mut(MERGE_LOCK);
@@ -175,6 +177,23 @@ impl MergeLock {
         )
     }
 
+    pub unsafe fn in_progress_create_index_segment_ids(&self) -> impl Iterator<Item = SegmentId> {
+        let metadata = self.metadata();
+        if metadata.create_index_list == 0
+            || metadata.create_index_list == pg_sys::InvalidBlockNumber
+        {
+            // our create_index_list has never been initialized
+            let iter: Box<dyn Iterator<Item = SegmentId>> = Box::new(std::iter::empty());
+            return iter;
+        }
+        let relation_id = (*self.bman.bm25cache().indexrel()).rd_id;
+        let entries = LinkedBytesList::open(relation_id, metadata.create_index_list);
+        let bytes = entries.read_all();
+        Box::new(bytes.chunks(size_of::<SegmentIdBytes>()).map(|entry| {
+            SegmentId::from_bytes(entry.try_into().expect("malformed SegmentId entry"))
+        }))
+    }
+
     pub unsafe fn in_progress_merge_entries(&self) -> Vec<MergeEntry> {
         let metadata = self.metadata();
         if metadata.merge_list == 0 || metadata.merge_list == pg_sys::InvalidBlockNumber {
@@ -233,6 +252,25 @@ impl MergeLock {
         let mut entries_list = LinkedItemList::<MergeEntry>::open(relation_id, merge_list_blockno);
         entries_list.add_items(&[merge_entry], None)?;
         Ok(merge_entry)
+    }
+
+    pub unsafe fn record_create_index_segment_ids<'a>(
+        mut self,
+        segment_ids: impl IntoIterator<Item = &'a SegmentId>,
+    ) -> anyhow::Result<()> {
+        let relation_id = (*self.bman.bm25cache().indexrel()).rd_id;
+        let segment_id_bytes = segment_ids
+            .into_iter()
+            .flat_map(|segment_id| segment_id.uuid_bytes().iter().copied())
+            .collect::<Vec<_>>();
+        let mut segment_ids_list = LinkedBytesList::create(relation_id);
+        segment_ids_list.write(&segment_id_bytes)?;
+
+        let mut page = self.buffer.page_mut();
+        let metadata = page.contents_mut::<MergeLockData>();
+        metadata.create_index_list = segment_ids_list.get_header_blockno();
+
+        Ok(())
     }
 
     pub unsafe fn remove_entry(&mut self, merge_entry: MergeEntry) -> anyhow::Result<MergeEntry> {

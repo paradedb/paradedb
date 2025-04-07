@@ -402,8 +402,10 @@ pub unsafe fn merge_index_with_policy(
 
 unsafe fn garbage_collect_index(indexrel: &PgRelation) {
     let indexrelid = indexrel.oid();
-    let recycled_entries =
-        LinkedItemList::<SegmentMetaEntry>::open(indexrelid, SEGMENT_METAS_START).garbage_collect();
+    let mut segment_meta_list =
+        LinkedItemList::<SegmentMetaEntry>::open(indexrelid, SEGMENT_METAS_START).atomically();
+    let recycled_entries = segment_meta_list.garbage_collect();
+    segment_meta_list.commit();
     for entry in recycled_entries {
         for (file_entry, type_) in entry.file_entries() {
             let bytes = LinkedBytesList::open(indexrelid, file_entry.starting_block);

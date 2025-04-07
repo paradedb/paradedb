@@ -48,7 +48,7 @@ pub const FIXED_BLOCK_NUMBERS: [pg_sys::BlockNumber; 5] = [
 // ---------------------------------------------------------
 
 // Struct for all page's LP_SPECIAL data
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct BM25PageSpecialData {
     pub next_blockno: pg_sys::BlockNumber,
     pub xmax: pg_sys::TransactionId,

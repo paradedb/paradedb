@@ -129,6 +129,19 @@ impl PartialOrd for TweakedScore {
     }
 }
 
+impl SearchResults {
+    pub fn len(&self) -> Option<usize> {
+        match self {
+            SearchResults::None => Some(0),
+            SearchResults::TopNByScore(_, _, iter) => Some(iter.len()),
+            SearchResults::TopNByTweakedScore(_, _, iter) => Some(iter.len()),
+            SearchResults::TopNByField(_, _, iter) => Some(iter.len()),
+            SearchResults::SingleSegment(_, _, _, _) => None,
+            SearchResults::AllSegments(_, _, _) => None,
+        }
+    }
+}
+
 impl Iterator for SearchResults {
     type Item = (SearchIndexScore, DocAddress);
 

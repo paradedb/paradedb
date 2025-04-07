@@ -301,8 +301,6 @@ impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
 
     pub fn set_parallel(
         mut self,
-        is_topn: bool,
-        row_estimate: Cardinality,
         limit: Option<Cardinality>,
         segment_count: usize,
         sorted: bool,

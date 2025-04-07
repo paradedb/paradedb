@@ -306,7 +306,7 @@ impl CustomScan for PdbScan {
                     if pathkey_cnt == 1 || cardinality > 1_000_000.0 {
                         // if we only have 1 path key or if our estimated cardinality is over some
                         // hardcoded value, it's seemingly more efficient to do a parallel scan
-                        builder = builder.set_parallel(false, rows, limit, segment_count, true);
+                        builder = builder.set_parallel(limit, segment_count, true);
                     } else {
                         // otherwise we'll do a regular scan and indicate that we're emitting results
                         // sorted by the first pathkey
@@ -314,14 +314,17 @@ impl CustomScan for PdbScan {
                         builder.custom_private().set_sort_info(&pathkey);
                     }
                 } else {
-                    let sortdir = builder.custom_private().sort_direction();
-                    builder = builder.set_parallel(
-                        is_topn,
-                        rows,
-                        limit,
-                        segment_count,
-                        !matches!(sortdir, Some(SortDirection::None)) && sortdir.is_some(),
+                    let sorted = !matches!(
+                        builder.custom_private().sort_direction(),
+                        Some(SortDirection::None) | None
                     );
+                    if sorted && pathkey.is_some() {
+                        // We're producing a sorted relation: declare that so that the planner
+                        // knows that it does not need to re-sort our output.
+                        builder = builder.add_path_key(&pathkey);
+                        builder.custom_private().set_sort_info(&pathkey);
+                    }
+                    builder = builder.set_parallel(limit, segment_count, sorted);
                 }
 
                 return Some(builder.build());

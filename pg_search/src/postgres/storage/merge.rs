@@ -71,7 +71,7 @@ impl MergeLock {
         }
     }
 
-    pub unsafe fn init(relation_id: pg_sys::Oid) {
+    pub unsafe fn init(relation_id: pg_sys::Oid) -> Self {
         let mut bman = BufferManager::new(relation_id);
         let mut merge_lock = bman.get_buffer_mut(MERGE_LOCK);
         let mut page = merge_lock.page_mut();
@@ -79,6 +79,11 @@ impl MergeLock {
 
         metadata.active_vacuum_list = pg_sys::InvalidBlockNumber;
         metadata.ambulkdelete_sentinel = pg_sys::InvalidBlockNumber;
+        metadata.create_index_list = pg_sys::InvalidBlockNumber;
+        Self {
+            buffer: merge_lock,
+            bman,
+        }
     }
 
     pub fn metadata(&self) -> MergeLockData {
@@ -177,21 +182,22 @@ impl MergeLock {
         )
     }
 
-    pub unsafe fn in_progress_create_index_segment_ids(&self) -> impl Iterator<Item = SegmentId> {
+    pub unsafe fn create_index_segment_ids(&self) -> Vec<SegmentId> {
         let metadata = self.metadata();
         if metadata.create_index_list == 0
             || metadata.create_index_list == pg_sys::InvalidBlockNumber
         {
-            // our create_index_list has never been initialized
-            let iter: Box<dyn Iterator<Item = SegmentId>> = Box::new(std::iter::empty());
-            return iter;
+            return Vec::new();
         }
         let relation_id = (*self.bman.bm25cache().indexrel()).rd_id;
         let entries = LinkedBytesList::open(relation_id, metadata.create_index_list);
         let bytes = entries.read_all();
-        Box::new(bytes.chunks(size_of::<SegmentIdBytes>()).map(|entry| {
-            SegmentId::from_bytes(entry.try_into().expect("malformed SegmentId entry"))
-        }))
+        bytes
+            .chunks(size_of::<SegmentIdBytes>())
+            .map(|entry| {
+                SegmentId::from_bytes(entry.try_into().expect("malformed SegmentId entry"))
+            })
+            .collect()
     }
 
     pub unsafe fn in_progress_merge_entries(&self) -> Vec<MergeEntry> {

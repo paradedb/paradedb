@@ -25,8 +25,11 @@ on:
       - "**/*.toml"
   workflow_dispatch:
 
+# - New commits to a feature branch PR cancel previous runs.
+# - Pushes to `dev` get grouped under "dev".
+# - A PR from `dev` to `main` uses the same key as pushes to `dev`, avoiding duplicate runs when doing a promotion.
 concurrency:
-  group: test-pg_search-${{ github.head_ref || github.ref }}
+  group: test-pg_search-${{ (github.event_name == 'push' || github.event.pull_request.head.ref == 'dev') && 'dev' || github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:

@@ -172,7 +172,7 @@ impl CustomScan for PdbScan {
                 bms_to_reloids(root, baserels),
             );
             let limit = if (*builder.args().root).limit_tuples > -1.0
-                && pg_sys::bms_equal((*builder.args().rel).relids, baserels)
+            /*&& pg_sys::bms_equal((*builder.args().rel).relids, baserels)*/
             {
                 // we can only use the limit for estimates if a) we have one, and b) we know
                 // the query is only querying one relation

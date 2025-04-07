@@ -145,11 +145,11 @@ impl ExecMethod for TopNScanExecState {
     }
 
     fn internal_next(&mut self, state: &mut PdbScanState) -> ExecState {
-        check_for_interrupts!();
-
         unsafe {
             let mut next = self.search_results.next();
             loop {
+                check_for_interrupts!();
+
                 match next {
                     None if !self.did_query => {
                         // we haven't even done a query yet, so this is our very first time in

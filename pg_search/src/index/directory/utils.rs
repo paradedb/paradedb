@@ -47,9 +47,8 @@ pub unsafe fn save_new_metas(
 ) -> Result<()> {
     // in order to ensure that all of our mutations to the list of segments appear atomically on
     // physical replicas, we atomically operate on a deep copy of the list.
-    let mut segment_metas_linked_list =
-        LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START);
-    let mut linked_list = segment_metas_linked_list.atomically();
+    let mut linked_list =
+        LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START).atomically();
 
     let incoming_segments = new_meta
         .segments

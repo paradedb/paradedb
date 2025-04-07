@@ -19,8 +19,8 @@ use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::scorer_iter::DeferredScorer;
 use crate::index::setup_tokenizers;
-use crate::postgres::storage::block::CLEANUP_LOCK;
-use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
+use crate::postgres::storage::block::{CLEANUP_LOCK, SEGMENT_METAS_START};
+use crate::postgres::storage::buffer::{Buffer, BufferManager, PinnedBuffer};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchField;
 use crate::schema::{SearchFieldName, SearchIndexSchema};
@@ -125,6 +125,19 @@ impl PartialOrd for TweakedScore {
             SortDirection::Desc => cmp,
             SortDirection::Asc => cmp.map(|o| o.reverse()),
             SortDirection::None => Some(Ordering::Equal),
+        }
+    }
+}
+
+impl SearchResults {
+    pub fn len(&self) -> Option<usize> {
+        match self {
+            SearchResults::None => Some(0),
+            SearchResults::TopNByScore(_, _, iter) => Some(iter.len()),
+            SearchResults::TopNByTweakedScore(_, _, iter) => Some(iter.len()),
+            SearchResults::TopNByField(_, _, iter) => Some(iter.len()),
+            SearchResults::SingleSegment(_, _, _, _) => None,
+            SearchResults::AllSegments(_, _, _) => None,
         }
     }
 }
@@ -255,10 +268,16 @@ pub struct SearchIndexReader {
     // also, it's an Arc b/c if we're clone'd (we do derive it, after all), we only want this
     // buffer dropped once
     _cleanup_lock: Arc<PinnedBuffer>,
+
+    // If we are a WAL receiver, the SearchIndexReader must hold a share lock on the SEGMENT_METAS_START buffer
+    // to prevent WAL records from a concurrent save_new_metas from being applied while a parallel custom/index scan
+    // is running (since applying a WAL record requires an exclusive lock).
+    _segment_metas_share_lock: Arc<Option<Buffer>>,
 }
 
 impl SearchIndexReader {
     pub fn open(index_relation: &PgRelation, mvcc_style: MvccSatisfies) -> Result<Self> {
+        let bman = BufferManager::new(index_relation.oid());
         // It is possible for index only scans and custom scans, which only check the visibility map
         // and do not fetch tuples from the heap, to suffer from the concurrent TID recycling problem.
         // This problem occurs due to a race condition: after vacuum is called, a concurrent index only or custom scan
@@ -270,6 +289,14 @@ impl SearchIndexReader {
         // It's sufficient, and **required** for parallel scans to operate correctly, for us to hold onto
         // a pinned but unlocked buffer.
         let cleanup_lock = BufferManager::new(index_relation.oid()).pinned_buffer(CLEANUP_LOCK);
+
+        // Parallel workers do not need to acquire the segment metas share lock, because the main process
+        // has already acquired it
+        let segment_metas_share_lock = if !matches!(mvcc_style, MvccSatisfies::ParallelWorker(_)) {
+            Some(bman.get_buffer(SEGMENT_METAS_START))
+        } else {
+            None
+        };
 
         let directory = mvcc_style.directory(index_relation);
         let mut index = Index::open(directory)?;
@@ -289,6 +316,7 @@ impl SearchIndexReader {
             underlying_reader: reader,
             underlying_index: index,
             _cleanup_lock: Arc::new(cleanup_lock),
+            _segment_metas_share_lock: Arc::new(segment_metas_share_lock),
         })
     }
 

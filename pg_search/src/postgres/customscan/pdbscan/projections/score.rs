@@ -30,7 +30,7 @@ fn score_from_relation(_relation_reference: AnyElement) -> Option<f32> {
 
 #[pg_extern(name = "score")]
 fn score_invalid_signature() {
-    error!("paradedb.score requires 1 argument.\n\tparadedb.score(<column_name>)");
+    error!("paradedb.score requires 1 argument.\n\tparadedb.score(<column_name/key_field>)");
 }
 
 extension_sql!(

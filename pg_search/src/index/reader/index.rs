@@ -291,8 +291,11 @@ impl SearchIndexReader {
         let cleanup_lock = BufferManager::new(index_relation.oid()).pinned_buffer(CLEANUP_LOCK);
 
         // Parallel workers do not need to acquire the segment metas share lock, because the main process
-        // has already acquired it
-        let segment_metas_share_lock = if !matches!(mvcc_style, MvccSatisfies::ParallelWorker(_)) {
+        // has already acquired it. Additionally, the write instance should not acquire the lock - doing so
+        // will block save_new_metas if there's a long-running read.
+        let segment_metas_share_lock = if !matches!(mvcc_style, MvccSatisfies::ParallelWorker(_))
+            && unsafe { pg_sys::RecoveryInProgress() }
+        {
             Some(bman.get_buffer(SEGMENT_METAS_START))
         } else {
             None

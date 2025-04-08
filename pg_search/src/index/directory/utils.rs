@@ -3,7 +3,6 @@ use crate::postgres::storage::block::{
     DeleteEntry, FileEntry, LinkedList, MVCCEntry, PgItem, SegmentFileDetails, SegmentMetaEntry,
     SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
 };
-use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use anyhow::Result;
 use pgrx::pg_sys;
@@ -46,13 +45,10 @@ pub unsafe fn save_new_metas(
     prev_meta: &IndexMeta,
     directory_entries: &mut FxHashMap<PathBuf, FileEntry>,
 ) -> Result<()> {
-    // hold an exclusive lock on the schema to ensure no concurrent readers try to
-    // read the list before we're finished updating it
-    let _schema_lock = BufferManager::new(relation_oid).get_buffer_mut(SCHEMA_START);
-
-    // this is where the segments are stored
+    // in order to ensure that all of our mutations to the list of segments appear atomically on
+    // physical replicas, we atomically operate on a deep copy of the list.
     let mut linked_list =
-        LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START);
+        LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START).atomically();
 
     let incoming_segments = new_meta
         .segments
@@ -249,6 +245,7 @@ pub unsafe fn save_new_metas(
     //
     // now change things on disk
     //
+    let mut bytes_lists_to_delete = Vec::new();
 
     // delete old entries and their corresponding files -- happens only as the result of a merge
     for (entry, blockno) in &deleted_entries {
@@ -274,8 +271,7 @@ pub unsafe fn save_new_metas(
         // so that when the lock is released and this buffer is readable by others, its xmax value
         // and the recyclable-status of all its linked files will match
         for (file_entry, _) in entry.file_entries() {
-            let mut file = LinkedBytesList::open(relation_oid, file_entry.starting_block);
-            file.mark_deleted(deleting_xid);
+            bytes_lists_to_delete.push((file_entry.starting_block, deleting_xid));
         }
 
         drop(buffer);
@@ -303,11 +299,10 @@ pub unsafe fn save_new_metas(
             //
             // we also do this while `buffer` has an exclusive lock so that when we're done updating
             // this entry in the entry list all its files will have the same recyclable setting
-            let mut deletes_file = LinkedBytesList::open(
-                relation_oid,
+            bytes_lists_to_delete.push((
                 entry.delete.as_ref().unwrap().file_entry.starting_block,
-            );
-            deletes_file.mark_deleted(entry.xmax);
+                entry.xmax,
+            ));
         }
 
         let PgItem(pg_item, size) = entry.into();
@@ -323,15 +318,19 @@ pub unsafe fn save_new_metas(
     // chase down the linked lists for any existing deleted entries and mark them as deleted
     for (existing_xmax, deleted_entry) in replaced_delete_entries {
         if existing_xmax == pg_sys::InvalidTransactionId {
-            let mut file =
-                LinkedBytesList::open(relation_oid, deleted_entry.file_entry.starting_block);
-            file.mark_deleted(deleting_xid);
+            bytes_lists_to_delete.push((deleted_entry.file_entry.starting_block, deleting_xid));
         }
     }
 
     // add the new entries -- happens via an index commit or the result of a merge
     if !created_entries.is_empty() {
         linked_list.add_items(&created_entries, None)?;
+    }
+
+    // atomically replace the SegmentMetaEntry list, and then mark any orphaned files deleted.
+    linked_list.commit();
+    for (starting_block, deleting_xid) in bytes_lists_to_delete {
+        LinkedBytesList::open(relation_oid, starting_block).mark_deleted(deleting_xid);
     }
 
     Ok(())

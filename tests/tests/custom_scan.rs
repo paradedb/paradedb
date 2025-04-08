@@ -625,10 +625,25 @@ fn top_n_matches(mut conn: PgConnection) {
     r#"
         SET enable_indexonlyscan to OFF;
         SET enable_indexscan to OFF;
+        SET max_parallel_workers = 0;
     "#
     .execute(&mut conn);
 
-    for n in [1, 2, 3, 4, 5, 6, 7, 8, 100] {
+    for n in 1..=100 {
+        let sql = format!("select assert(count(*), LEAST({n}, 8)), count(*) from (select id from test where message @@@ 'beer' order by severity limit {n}) x;");
+
+        let (b, count) = sql.fetch_one::<(bool, i64)>(&mut conn);
+        assert_eq!((b, count), (true, n.min(8)));
+    }
+
+    r#"
+        SET enable_indexonlyscan to OFF;
+        SET enable_indexscan to OFF;
+        SET max_parallel_workers = 32;
+    "#
+    .execute(&mut conn);
+
+    for n in 1..=100 {
         let sql = format!("select assert(count(*), LEAST({n}, 8)), count(*) from (select id from test where message @@@ 'beer' order by severity limit {n}) x;");
 
         let (b, count) = sql.fetch_one::<(bool, i64)>(&mut conn);

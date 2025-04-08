@@ -261,8 +261,10 @@ impl MergeLock {
         }
 
         let relation_id = (*self.bman.bm25cache().indexrel()).rd_id;
-        let mut entries_list = LinkedItemList::<MergeEntry>::open(relation_id, metadata.merge_list);
+        let mut entries_list =
+            LinkedItemList::<MergeEntry>::open(relation_id, metadata.merge_list).atomically();
         let recycled_entries = entries_list.garbage_collect();
+        entries_list.commit();
         for recycled_entry in recycled_entries {
             let mut bytes_list =
                 LinkedBytesList::open(relation_id, recycled_entry.segment_ids_start_blockno);

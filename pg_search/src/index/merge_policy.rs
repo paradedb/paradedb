@@ -18,7 +18,6 @@ pub struct LayeredMergePolicy {
 
     mergeable_segments: HashMap<SegmentId, SegmentMetaEntry>,
     already_processed: AtomicBool,
-    create_index_segments: HashSet<SegmentId>,
 }
 
 pub type NumCandidates = usize;
@@ -188,7 +187,6 @@ impl LayeredMergePolicy {
 
             mergeable_segments: Default::default(),
             already_processed: Default::default(),
-            create_index_segments: Default::default(),
         }
     }
 
@@ -197,13 +195,6 @@ impl LayeredMergePolicy {
         mergeable_segments: impl Iterator<Item = (SegmentId, SegmentMetaEntry)>,
     ) {
         self.mergeable_segments = mergeable_segments.collect();
-    }
-
-    pub fn set_create_index_segments(
-        &mut self,
-        create_index_segments: impl Iterator<Item = SegmentId>,
-    ) {
-        self.create_index_segments = create_index_segments.collect();
     }
 
     /// Run a simulation of what tantivy will do if it were to call our [`MergePolicy::compute_merge_candidates`]

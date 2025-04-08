@@ -159,9 +159,9 @@ unsafe fn make_search_query_input_opexpr_node(
     opoid: pg_sys::Oid,
     procoid: pg_sys::Oid,
 ) -> ReturnedNodePointer {
-    let (relid, _varattno, targetlist) = find_node_relation(lhs, (*srs).root);
+    let (relid, _nodeattno, targetlist) = find_node_relation(lhs, (*srs).root);
     if relid == pg_sys::Oid::INVALID {
-        panic!("could not determine relation for var");
+        panic!("could not determine relation for node");
     }
 
     // we need to use what should be the only `USING bm25` index on the table

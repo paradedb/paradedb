@@ -43,7 +43,7 @@ use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::{
     estimate_cardinality, is_string_agg_capable_ex,
 };
-use crate::postgres::customscan::pdbscan::parallel::list_segment_ids;
+use crate::postgres::customscan::pdbscan::parallel::{compute_nworkers, list_segment_ids};
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
 use crate::postgres::customscan::pdbscan::projections::score::{
     is_score_func, score_funcoid, uses_scores,
@@ -283,6 +283,15 @@ impl CustomScan for PdbScan {
 
                 let total_cost = startup_cost + (rows * per_tuple_cost);
                 let segment_count = index.searchable_segments().unwrap_or_default().len();
+                let sorted = matches!(
+                    builder.custom_private().sort_direction(),
+                    Some(SortDirection::Asc | SortDirection::Desc)
+                );
+                let nworkers = if (*builder.args().rel).consider_parallel {
+                    compute_nworkers(limit, segment_count, sorted)
+                } else {
+                    0
+                };
 
                 builder.custom_private().set_segment_count(
                     index
@@ -321,23 +330,18 @@ impl CustomScan for PdbScan {
                         PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys)
                             .len();
 
-                    if pathkey_cnt == 1 || cardinality > 1_000_000.0 {
+                    if nworkers > 0 && (pathkey_cnt == 1 || cardinality > 1_000_000.0) {
                         // if we only have 1 path key or if our estimated cardinality is over some
                         // hardcoded value, it's seemingly more efficient to do a parallel scan
-                        builder = builder.set_parallel(limit, segment_count, true);
+                        builder = builder.set_parallel(nworkers);
                     } else {
                         // otherwise we'll do a regular scan and indicate that we're emitting results
                         // sorted by the first pathkey
                         builder = builder.add_path_key(pathkey);
                         builder.custom_private().set_sort_info(pathkey);
                     }
-                } else {
-                    let sortdir = builder.custom_private().sort_direction();
-                    builder = builder.set_parallel(
-                        limit,
-                        segment_count,
-                        !matches!(sortdir, Some(SortDirection::None)) && sortdir.is_some(),
-                    );
+                } else if nworkers > 0 {
+                    builder = builder.set_parallel(nworkers);
                 }
 
                 return Some(builder.build());

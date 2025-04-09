@@ -237,10 +237,14 @@ impl CustomScan for PdbScan {
                     // a fast field at the same time.
                     //
                     // and sorting by score always works
-                    if !(maybe_needs_const_projections
-                        && matches!(&pathkey, Some(OrderByStyle::Field(..))))
-                    {
-                        builder.custom_private().set_sort_info(&pathkey);
+                    match (maybe_needs_const_projections, &pathkey) {
+                        (false, Some(pathkey @ OrderByStyle::Score(..))) => {
+                            builder.custom_private().set_sort_info(pathkey);
+                        }
+                        _ => (
+                            // TODO: This condition does not match the comment. Change in a
+                            // followup commit.
+                        ),
                     }
                 } else if limit.is_some()
                     && PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys)
@@ -299,10 +303,12 @@ impl CustomScan for PdbScan {
                     )
                     .is_some()
                 {
+                    let pathkey = pathkey.as_ref().unwrap();
+
                     // we're going to do a StringAgg, and it may or may not be more efficient to use
                     // parallel queries, depending on the cardinality of what we're going to select
                     let cardinality = {
-                        let estimate = if let Some(OrderByStyle::Field(_, field)) = &pathkey {
+                        let estimate = if let OrderByStyle::Field(_, field) = pathkey {
                             // NB:  '4' is a magic number
                             estimate_cardinality(&bm25_index, field).unwrap_or(0) * 4
                         } else {
@@ -322,8 +328,8 @@ impl CustomScan for PdbScan {
                     } else {
                         // otherwise we'll do a regular scan and indicate that we're emitting results
                         // sorted by the first pathkey
-                        builder = builder.add_path_key(&pathkey);
-                        builder.custom_private().set_sort_info(&pathkey);
+                        builder = builder.add_path_key(pathkey);
+                        builder.custom_private().set_sort_info(pathkey);
                     }
                 } else {
                     let sortdir = builder.custom_private().sort_direction();

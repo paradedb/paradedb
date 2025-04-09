@@ -277,17 +277,15 @@ impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
         self
     }
 
-    pub fn add_path_key(mut self, pathkey: &Option<OrderByStyle>) -> Self {
+    pub fn add_path_key(mut self, style: &OrderByStyle) -> Self {
         unsafe {
-            if let Some(style) = pathkey {
-                let mut pklist =
-                    PgList::<pg_sys::PathKey>::from_pg(self.custom_path_node.path.pathkeys);
-                pklist.push(style.pathkey());
+            let mut pklist =
+                PgList::<pg_sys::PathKey>::from_pg(self.custom_path_node.path.pathkeys);
+            pklist.push(style.pathkey());
 
-                self.custom_path_node.path.pathkeys = pklist.into_pg();
-            }
-            self
+            self.custom_path_node.path.pathkeys = pklist.into_pg();
         }
+        self
     }
 
     pub fn set_force_path(mut self, force: bool) -> Self {

@@ -1989,12 +1989,12 @@ fn hybrid_search(mut conn: PgConnection) {
     WITH bm25_ranked AS (
         SELECT id, RANK() OVER (ORDER BY score DESC) AS rank
         FROM (
-        SELECT id, paradedb.score(id) AS score
-        FROM mock_items
-        WHERE description @@@ 'keyboard'
-        ORDER BY paradedb.score(id) DESC
-        LIMIT 20
-        )
+            SELECT id, paradedb.score(id) AS score
+            FROM mock_items
+            WHERE description @@@ 'keyboard'
+            ORDER BY paradedb.score(id) DESC
+            LIMIT 20
+        ) AS bm25_score
     ),
     semantic_search AS (
         SELECT id, RANK() OVER (ORDER BY embedding <=> '[1,2,3]') AS rank

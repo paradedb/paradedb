@@ -419,10 +419,11 @@ pub unsafe fn merge_index_with_policy(
 
 unsafe fn garbage_collect_index(indexrel: &PgRelation) {
     let indexrelid = indexrel.oid();
-    let mut segment_meta_list =
-        LinkedItemList::<SegmentMetaEntry>::open(indexrelid, SEGMENT_METAS_START).atomically();
-    let recycled_entries = segment_meta_list.garbage_collect();
-    segment_meta_list.commit();
+    let mut segment_metas_linked_list =
+        LinkedItemList::<SegmentMetaEntry>::open(indexrelid, SEGMENT_METAS_START);
+    let mut segment_metas = segment_metas_linked_list.atomically();
+    let recycled_entries = segment_metas.garbage_collect();
+    segment_metas.commit();
     for entry in recycled_entries {
         for (file_entry, _) in entry.file_entries() {
             LinkedBytesList::open(indexrelid, file_entry.starting_block).return_to_fsm();

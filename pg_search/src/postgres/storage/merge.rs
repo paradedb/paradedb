@@ -303,10 +303,10 @@ impl MergeLock {
         }
 
         let relation_id = (*self.bman.bm25cache().indexrel()).rd_id;
-        let mut entries_list =
-            LinkedItemList::<MergeEntry>::open(relation_id, metadata.merge_list).atomically();
+        // Merge entries are only consumed on a primary, and so do not need to be published
+        // atomically.
+        let mut entries_list = LinkedItemList::<MergeEntry>::open(relation_id, metadata.merge_list);
         let recycled_entries = entries_list.garbage_collect();
-        entries_list.commit();
         for recycled_entry in recycled_entries {
             LinkedBytesList::open(relation_id, recycled_entry.segment_ids_start_blockno)
                 .return_to_fsm();

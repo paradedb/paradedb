@@ -324,7 +324,7 @@ impl CustomScan for PdbScan {
                     if pathkey_cnt == 1 || cardinality > 1_000_000.0 {
                         // if we only have 1 path key or if our estimated cardinality is over some
                         // hardcoded value, it's seemingly more efficient to do a parallel scan
-                        builder = builder.set_parallel(false, rows, limit, segment_count, true);
+                        builder = builder.set_parallel(limit, segment_count, true);
                     } else {
                         // otherwise we'll do a regular scan and indicate that we're emitting results
                         // sorted by the first pathkey
@@ -334,8 +334,6 @@ impl CustomScan for PdbScan {
                 } else {
                     let sortdir = builder.custom_private().sort_direction();
                     builder = builder.set_parallel(
-                        is_topn,
-                        rows,
                         limit,
                         segment_count,
                         !matches!(sortdir, Some(SortDirection::None)) && sortdir.is_some(),

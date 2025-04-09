@@ -22,16 +22,15 @@ The following code block implements reciprocal rank fusion over the `mock_items`
 calculated against the vector `[1,2,3]`.
 
 ```sql
-WITH bm25_candidates AS (
-    SELECT id
-    FROM mock_items
-    WHERE description @@@ 'keyboard'
-    ORDER BY paradedb.score(id) DESC
-    LIMIT 20
-),
-bm25_ranked AS (
-    SELECT id, RANK() OVER (ORDER BY paradedb.score(id) DESC) AS rank
-    FROM bm25_candidates
+WITH bm25_ranked AS (
+    SELECT id, RANK() OVER (ORDER BY score DESC) AS rank
+    FROM (
+      SELECT id, paradedb.score(id) AS score
+      FROM mock_items
+      WHERE description @@@ 'keyboard'
+      ORDER BY paradedb.score(id) DESC
+      LIMIT 20
+    )
 ),
 semantic_search AS (
     SELECT id, RANK() OVER (ORDER BY embedding <=> '[1,2,3]') AS rank

@@ -1,9 +1,9 @@
 use crate::index::mvcc::{MvccSatisfies, PinCushion};
 use crate::postgres::storage::block::{
-    DeleteEntry, FileEntry, LinkedList, MVCCEntry, PgItem, SegmentFileDetails, SegmentMetaEntry,
-    SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
+    DeleteEntry, FileEntry, MVCCEntry, PgItem, SegmentFileDetails, SegmentMetaEntry, SCHEMA_START,
+    SEGMENT_METAS_START, SETTINGS_START,
 };
-use crate::postgres::storage::buffer::BufferManager;
+use crate::postgres::storage::merge::MergeLock;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use anyhow::Result;
 use pgrx::pg_sys;
@@ -289,13 +289,13 @@ pub unsafe fn save_new_metas(
             page.delete_item(offno);
 
             // ... and add it to somewhere in the list, starting on this page
-            linked_list.add_items(&[entry], Some(buffer))?;
+            linked_list.add_items(&[entry], Some(buffer));
         }
     }
 
     // add the new entries -- happens via an index commit or the result of a merge
     if !created_entries.is_empty() {
-        linked_list.add_items(&created_entries, None)?;
+        linked_list.add_items(&created_entries, None);
     }
 
     if !orphaned_deletes_files.is_empty() {
@@ -320,7 +320,7 @@ pub unsafe fn save_new_metas(
                 delete: Some(delete_entry), // the file whose bytes we need to ensure get garbage collected in the future
             })
             .collect::<Vec<_>>();
-        linked_list.add_items(&fake_entries, None)?;
+        linked_list.add_items(&fake_entries, None);
     }
 
     // atomically replace the SegmentMetaEntry list, and then mark any orphaned files deleted.
@@ -329,86 +329,105 @@ pub unsafe fn save_new_metas(
     Ok(())
 }
 
-impl LinkedItemList<SegmentMetaEntry> {
-    pub unsafe fn for_each_and_pin<
-        Accept: Fn(&SegmentMetaEntry, &mut BufferManager) -> bool,
-        ForEach: FnMut(SegmentMetaEntry),
-    >(
-        &mut self,
-        accept: Accept,
-        mut for_each: ForEach,
-    ) -> PinCushion {
-        let mut pin_cushion = PinCushion::default();
-
-        let mut blockno = self.get_start_blockno();
-        while blockno != pg_sys::InvalidBlockNumber {
-            let buffer = self.bman().get_buffer(blockno);
-            let page = buffer.page();
-            let mut offsetno = pg_sys::FirstOffsetNumber;
-            let max_offset = page.max_offset_number();
-            while offsetno <= max_offset {
-                if let Some((deserialized, _)) = page.deserialize_item::<SegmentMetaEntry>(offsetno)
-                {
-                    if accept(&deserialized, self.bman_mut()) {
-                        pin_cushion.push(self.bman(), &deserialized);
-                        for_each(deserialized);
-                    }
-                }
-                offsetno += 1;
-            }
-            blockno = page.next_blockno();
-        }
-
-        pin_cushion
-    }
-}
-
-#[allow(clippy::collapsible_if)] // come on clippy, let me write the code that's clear to me
 pub unsafe fn load_metas(
     relation_oid: pg_sys::Oid,
     inventory: &SegmentMetaInventory,
     snapshot: Option<pg_sys::Snapshot>,
     solve_mvcc: &MvccSatisfies,
 ) -> tantivy::Result<(Vec<SegmentMetaEntry>, IndexMeta, PinCushion)> {
-    let mut segment_metas =
-        LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START);
     let mut alive_segments = vec![];
     let mut alive_entries = vec![];
     let mut opstamp = None;
+    let mut pin_cushion = PinCushion::default();
 
-    let pin_cushion = segment_metas.for_each_and_pin(|entry, bman| {
-        // nobody sees recyclable segments
-        !entry.recyclable(bman) && (
-            // parallel workers only see a specific set of segments.  This relies on the leader having kept a pin on them
-            matches!(solve_mvcc, MvccSatisfies::ParallelWorker(only_these) if only_these.contains(&entry.segment_id))
+    // Collect segments from each relevant list.
+    let mut segment_metas =
+        LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START);
+    let mut exhausted_metas_lists = false;
 
-            // vacuum sees everything that hasn't been deleted by a merge
-            || (matches!(solve_mvcc, MvccSatisfies::Vacuum) && entry.xmax == pg_sys::InvalidTransactionId)
+    loop {
+        // Find all relevant segments in this list.
+        segment_metas.for_each(|bman, entry| {
+            // nobody sees recyclable segments
+            let accept = !entry.recyclable(bman) && (
+                // parallel workers only see a specific set of segments.  This relies on the leader having kept a pin on them
+                matches!(solve_mvcc, MvccSatisfies::ParallelWorker(only_these) if only_these.contains(&entry.segment_id))
 
-            // a snapshot can see any that are visible in its snapshot
-            || (matches!(solve_mvcc, MvccSatisfies::Snapshot) && entry.visible(snapshot.expect("snapshot must be provided for `MvccSatisfies::Snapshot`")))
+                // vacuum sees everything that hasn't been deleted by a merge
+                || (matches!(solve_mvcc, MvccSatisfies::Vacuum) && entry.xmax == pg_sys::InvalidTransactionId)
 
-            // mergeable can see any that are known to be mergeable
-            || (matches!(solve_mvcc, MvccSatisfies::Mergeable) && entry.mergeable())
-        )
-    }, |entry| {
-        let inner_segment_meta = InnerSegmentMeta {
-            max_doc: entry.max_doc,
-            segment_id: entry.segment_id,
-            deletes: entry.delete.map(|delete_entry| DeleteMeta {
-                num_deleted_docs: delete_entry.num_deleted_docs,
-                opstamp: 0, // hardcode zero as the entry's opstamp as it's not used
-            }),
-            include_temp_doc_store: Arc::new(AtomicBool::new(false)),
-        };
-        alive_segments.push(inner_segment_meta.track(inventory));
-        alive_entries.push(entry);
+                // a snapshot can see any that are visible in its snapshot
+                || (matches!(solve_mvcc, MvccSatisfies::Snapshot) && entry.visible(snapshot.expect("snapshot must be provided for `MvccSatisfies::Snapshot`")))
 
-        opstamp = opstamp.max(Some(entry.opstamp()));
-    });
+                // mergeable can see any that are known to be mergeable
+                || (matches!(solve_mvcc, MvccSatisfies::Mergeable) && entry.mergeable())
+            );
+            if !accept {
+                return;
+            };
 
-    if let MvccSatisfies::ParallelWorker(only_these) = solve_mvcc {
-        assert!(alive_entries.len() == only_these.len(), "load_metas: MvccSatisfies::ParallelWorker didn't load the correct segments.  desired={only_these:?}, actual={alive_entries:?}");
+            pin_cushion.push(bman, &entry);
+            let inner_segment_meta = InnerSegmentMeta {
+                max_doc: entry.max_doc,
+                segment_id: entry.segment_id,
+                deletes: entry.delete.map(|delete_entry| DeleteMeta {
+                    num_deleted_docs: delete_entry.num_deleted_docs,
+                    opstamp: 0, // hardcode zero as the entry's opstamp as it's not used
+                }),
+                include_temp_doc_store: Arc::new(AtomicBool::new(false)),
+            };
+            alive_segments.push(inner_segment_meta.track(inventory));
+            alive_entries.push(entry);
+
+            opstamp = opstamp.max(Some(entry.opstamp()));
+        });
+
+        match solve_mvcc {
+            MvccSatisfies::ParallelWorker(only_these)
+                if alive_entries.len() != only_these.len() =>
+            {
+                // If we haven't tried the `segment_metas_garbage` list, try that next.
+                if !exhausted_metas_lists {
+                    if let Some(garbage) =
+                        MergeLock::acquire(relation_oid).segment_metas_garbage_opt()
+                    {
+                        segment_metas = garbage;
+                        exhausted_metas_lists = true;
+                        continue;
+                    }
+                }
+
+                let missing = only_these
+                    .difference(&alive_entries.iter().map(|s| s.segment_id).collect())
+                    .cloned()
+                    .collect::<std::collections::HashSet<SegmentId>>();
+                let found = only_these.difference(&missing).collect::<FxHashSet<_>>();
+
+                panic!(
+                    "load_metas: MvccSatisfies::ParallelWorker didn't load the correct segments. \
+                    found={found:?}, missing={missing:?}",
+                );
+            }
+            #[cfg(debug_assertions)]
+            MvccSatisfies::ParallelWorker(only_these) => {
+                // In debug mode only, actually do a set comparison to determine that we got the
+                // exact expected segments.
+                let actual = alive_entries
+                    .iter()
+                    .map(|s| s.segment_id)
+                    .collect::<std::collections::HashSet<_>>();
+                assert_eq!(
+                    &actual, only_these,
+                    "Got the wrong segments in parallel worker: \
+                     actual: {actual:?}, expected: {only_these:?}"
+                );
+                break;
+            }
+            _ => {
+                // We've successfully collected all of the relevant entries.
+                break;
+            }
+        }
     }
 
     let schema = LinkedBytesList::open(relation_oid, SCHEMA_START);

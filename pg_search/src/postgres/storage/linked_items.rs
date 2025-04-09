@@ -99,7 +99,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         &mut self.bman
     }
 
-    pub unsafe fn create(relation_oid: pg_sys::Oid) -> Self {
+    pub fn create(relation_oid: pg_sys::Oid) -> Self {
         let (mut _self, mut header_buffer) = Self::create_without_start_page(relation_oid);
 
         let mut start_buffer = _self.bman.new_buffer();
@@ -115,7 +115,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         _self
     }
 
-    unsafe fn create_without_start_page(relation_oid: pg_sys::Oid) -> (Self, BufferMut) {
+    fn create_without_start_page(relation_oid: pg_sys::Oid) -> (Self, BufferMut) {
         let mut bman = BufferManager::new(relation_oid);
 
         let mut header_buffer = bman.new_buffer();
@@ -198,7 +198,13 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
     /// Mutate the list in-place by optionally removing, replacing, or retaining each entry. Returns
     /// the list of removed entries.
     ///
-    pub unsafe fn retain(&mut self, f: impl Fn(&mut BufferManager, T) -> RetainItem<T>) -> Vec<T> {
+    /// Note that this method will necessarily write WAL entries for every buffer in the list,
+    /// because it must acquire each buffer as mutable.
+    ///
+    pub unsafe fn retain(
+        &mut self,
+        mut f: impl FnMut(&mut BufferManager, T) -> RetainItem<T>,
+    ) -> Vec<T> {
         let start_blockno = self.get_start_blockno();
         let mut blockno = start_blockno;
         let mut last_filled_blockno = start_blockno;
@@ -277,7 +283,27 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         recycled_entries
     }
 
-    pub unsafe fn add_items(&mut self, items: &[T], buffer: Option<BufferMut>) -> Result<()> {
+    ///
+    /// Visit each entry, without mutating entries or the list structure.
+    ///
+    pub unsafe fn for_each(&mut self, mut f: impl FnMut(&mut BufferManager, T)) {
+        let mut blockno = self.get_start_blockno();
+        while blockno != pg_sys::InvalidBlockNumber {
+            let buffer = self.bman().get_buffer(blockno);
+            let page = buffer.page();
+            let mut offsetno = pg_sys::FirstOffsetNumber;
+            let max_offset = page.max_offset_number();
+            while offsetno <= max_offset {
+                if let Some((deserialized, _)) = page.deserialize_item(offsetno) {
+                    f(self.bman_mut(), deserialized);
+                }
+                offsetno += 1;
+            }
+            blockno = page.next_blockno();
+        }
+    }
+
+    pub unsafe fn add_items(&mut self, items: &[T], buffer: Option<BufferMut>) {
         let need_hold = buffer.is_some();
         let mut buffer =
             buffer.unwrap_or_else(|| self.bman.get_buffer_mut(self.get_start_blockno()));
@@ -319,8 +345,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
                 }
             }
         }
-
-        Ok(())
     }
 
     pub unsafe fn remove_item<Cmp: Fn(&T) -> bool>(&mut self, cmp: Cmp) -> Result<T> {
@@ -591,8 +615,8 @@ mod tests {
             ..Default::default()
         }];
 
-        list.add_items(&entries_to_delete, None).unwrap();
-        list.add_items(&entries_to_keep, None).unwrap();
+        list.add_items(&entries_to_delete, None);
+        list.add_items(&entries_to_keep, None);
         list.garbage_collect();
 
         assert!(list
@@ -629,7 +653,7 @@ mod tests {
                 })
                 .collect::<Vec<_>>();
 
-            list.add_items(&entries, None).unwrap();
+            list.add_items(&entries, None);
             list.garbage_collect();
 
             for entry in entries {
@@ -652,7 +676,7 @@ mod tests {
                     ..Default::default()
                 })
                 .collect::<Vec<_>>();
-            list.add_items(&entries_1, None).unwrap();
+            list.add_items(&entries_1, None);
 
             let entries_2 = (1..1000)
                 .map(|_| SegmentMetaEntry {
@@ -663,7 +687,7 @@ mod tests {
                     ..Default::default()
                 })
                 .collect::<Vec<_>>();
-            list.add_items(&entries_2, None).unwrap();
+            list.add_items(&entries_2, None);
 
             let entries_3 = (1..500)
                 .map(|_| SegmentMetaEntry {
@@ -675,7 +699,7 @@ mod tests {
                 })
                 .collect::<Vec<_>>();
 
-            list.add_items(&entries_3, None).unwrap();
+            list.add_items(&entries_3, None);
 
             let pre_gc_blocks = linked_list_block_numbers(&list);
             list.garbage_collect();
@@ -714,7 +738,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        list.add_items(&entries, None).unwrap();
+        list.add_items(&entries, None);
 
         // Atomically modify the list, and then confirm that it contains unique blocks, and the
         // same contents.

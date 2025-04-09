@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::postgres::storage::block::{
     bm25_max_free_space, BM25PageSpecialData, LinkedList, MVCCEntry, PgItem, MERGE_LOCK,
 };
@@ -41,10 +42,13 @@ pub struct MergeLockData {
     /// A block for which is pin is held during `ambulkdelete()`
     pub ambulkdelete_sentinel: pg_sys::BlockNumber,
 
-    /// The starting block for a [`LinkedItemsList<MergeEntry>]`
+    /// The header block for a [`LinkedItemsList<MergeEntry>]`
     pub merge_list: pg_sys::BlockNumber,
 
     pub create_index_list: pg_sys::BlockNumber,
+
+    /// The header block for a [`LinkedItemsList<SegmentMergeEntry>]`
+    segment_meta_garbage: pg_sys::BlockNumber,
 }
 
 #[repr(transparent)]
@@ -89,6 +93,59 @@ impl MergeLock {
     pub fn metadata(&self) -> MergeLockData {
         let page = self.buffer.page();
         page.contents::<MergeLockData>()
+    }
+
+    ///
+    /// A LinkedItemList<SegmentMetaEntry> containing segments which are no longer visible from the
+    /// live `SEGMENT_METAS_START` list, and which will be recyclable when no transactions might still
+    /// be reading them on physical replicas.
+    ///
+    /// Deferring recycling avoids readers needing to hold a lock all the way from when
+    /// `SEGMENT_METAS_START` is first opened for reading until when they finish consuming the files
+    /// for the segments it references.
+    ///
+    #[allow(dead_code)]
+    pub fn segment_metas_garbage(mut self) -> LinkedItemList<SegmentMetaEntry> {
+        let mut page = self.buffer.page_mut();
+        let metadata = page.contents_mut::<MergeLockData>();
+
+        // if the `segment_meta_garbage` block number appears to be uninitialized, which in our
+        // case will be zero if this is from an index that existed prior to adding the `segment_meta_garbage`
+        // field, or pg_sys::InvalidBlockNumber if the index was created after adding the
+        // `segment_meta_garbage` field.
+        let relation_oid = self.bman.relation_oid();
+        if metadata.segment_meta_garbage == 0
+            || metadata.segment_meta_garbage == pg_sys::InvalidBlockNumber
+        {
+            let list = LinkedItemList::<SegmentMetaEntry>::create(relation_oid);
+            metadata.segment_meta_garbage = list.header_blockno;
+            list
+        } else {
+            LinkedItemList::<SegmentMetaEntry>::open(relation_oid, metadata.segment_meta_garbage)
+        }
+    }
+
+    ///
+    /// Get the segment_metas_garbage list, but only if it has already been created (which may not
+    /// yet be the case on a hot standby).
+    ///
+    /// See `segment_metas_garbage`.
+    ///
+    pub fn segment_metas_garbage_opt(self) -> Option<LinkedItemList<SegmentMetaEntry>> {
+        let page = self.buffer.page();
+        let metadata = page.contents::<MergeLockData>();
+
+        let relation_oid = self.bman.relation_oid();
+        if metadata.segment_meta_garbage == 0
+            || metadata.segment_meta_garbage == pg_sys::InvalidBlockNumber
+        {
+            None
+        } else {
+            Some(LinkedItemList::<SegmentMetaEntry>::open(
+                relation_oid,
+                metadata.segment_meta_garbage,
+            ))
+        }
     }
 
     pub fn vacuum_list(mut self) -> VacuumList {
@@ -256,7 +313,7 @@ impl MergeLock {
         };
 
         let mut entries_list = LinkedItemList::<MergeEntry>::open(relation_id, merge_list_blockno);
-        entries_list.add_items(&[merge_entry], None)?;
+        entries_list.add_items(&[merge_entry], None);
         Ok(merge_entry)
     }
 

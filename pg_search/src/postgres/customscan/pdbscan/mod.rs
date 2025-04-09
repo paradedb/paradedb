@@ -316,23 +316,28 @@ impl CustomScan for PdbScan {
 
                     // we're going to do a StringAgg, and it may or may not be more efficient to use
                     // parallel queries, depending on the cardinality of what we're going to select
-                    let cardinality = {
-                        let estimate = if let OrderByStyle::Field(_, field) = pathkey {
-                            // NB:  '4' is a magic number
-                            estimate_cardinality(&bm25_index, field).unwrap_or(0) * 4
-                        } else {
-                            0
+                    let parallel_scan_preferred = || -> bool {
+                        let cardinality = {
+                            let estimate = if let OrderByStyle::Field(_, field) = &pathkey {
+                                // NB:  '4' is a magic number
+                                estimate_cardinality(&bm25_index, field).unwrap_or(0) * 4
+                            } else {
+                                0
+                            };
+                            estimate as f64 * selectivity
                         };
-                        estimate as f64 * selectivity
-                    };
 
-                    let pathkey_cnt =
-                        PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys)
-                            .len();
+                        let pathkey_cnt = PgList::<pg_sys::PathKey>::from_pg(
+                            (*builder.args().root).query_pathkeys,
+                        )
+                        .len();
 
-                    if nworkers > 0 && (pathkey_cnt == 1 || cardinality > 1_000_000.0) {
                         // if we only have 1 path key or if our estimated cardinality is over some
                         // hardcoded value, it's seemingly more efficient to do a parallel scan
+                        pathkey_cnt == 1 || cardinality > 1_000_000.0
+                    };
+
+                    if nworkers > 0 && parallel_scan_preferred() {
                         builder = builder.set_parallel(nworkers);
                     } else {
                         // otherwise we'll do a regular scan and indicate that we're emitting results

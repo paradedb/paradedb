@@ -178,37 +178,54 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         // Delete all items that are definitely dead
         let heap_relation = self.bman().bm25cache().heaprel();
         let freeze_limit = vacuum_get_freeze_limit(heap_relation);
+        self.retain(|bman, entry| {
+            if entry.recyclable(bman) {
+                RetainItem::Remove(entry)
+            } else {
+                let xmin_needs_freeze = entry.xmin_needs_freeze(freeze_limit);
+                let xmax_needs_freeze = entry.xmax_needs_freeze(freeze_limit);
+
+                if xmin_needs_freeze || xmax_needs_freeze {
+                    RetainItem::Replace(entry.into_frozen(xmin_needs_freeze, xmax_needs_freeze))
+                } else {
+                    RetainItem::Retain
+                }
+            }
+        })
+    }
+
+    ///
+    /// Mutate the list in-place by optionally removing, replacing, or retaining each entry. Returns
+    /// the list of removed entries.
+    ///
+    pub unsafe fn retain(&mut self, f: impl Fn(&mut BufferManager, T) -> RetainItem<T>) -> Vec<T> {
         let start_blockno = self.get_start_blockno();
         let mut blockno = start_blockno;
         let mut last_filled_blockno = start_blockno;
 
         let mut recycled_entries = Vec::new();
-
+        let mut delete_offsets = vec![];
         while blockno != pg_sys::InvalidBlockNumber {
             let mut buffer = self.bman.get_buffer_mut(blockno);
             let mut page = buffer.page_mut();
             let mut offsetno = pg_sys::FirstOffsetNumber;
             let max_offset = page.max_offset_number();
-            let mut delete_offsets = vec![];
 
             while offsetno <= max_offset {
                 if let Some((entry, _)) = page.deserialize_item::<T>(offsetno) {
-                    if entry.recyclable(self.bman_mut()) {
-                        page.mark_item_dead(offsetno);
+                    match f(self.bman_mut(), entry) {
+                        RetainItem::Remove(entry) => {
+                            page.mark_item_dead(offsetno);
 
-                        recycled_entries.push(entry);
-                        delete_offsets.push(offsetno);
-                    } else {
-                        let xmin_needs_freeze = entry.xmin_needs_freeze(freeze_limit);
-                        let xmax_needs_freeze = entry.xmax_needs_freeze(freeze_limit);
-
-                        if xmin_needs_freeze || xmax_needs_freeze {
-                            let frozen_entry =
-                                entry.into_frozen(xmin_needs_freeze, xmax_needs_freeze);
-                            let PgItem(item, size) = frozen_entry.clone().into();
+                            recycled_entries.push(entry);
+                            delete_offsets.push(offsetno);
+                        }
+                        RetainItem::Replace(entry) => {
+                            let PgItem(item, size) = entry.clone().into();
                             let did_replace = page.replace_item(offsetno, item, size);
                             assert!(did_replace);
                         }
+                        RetainItem::Retain => {}
                     }
                 }
                 offsetno += 1;
@@ -216,6 +233,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
 
             if !delete_offsets.is_empty() {
                 page.delete_items(&mut delete_offsets);
+                delete_offsets.clear();
             }
 
             let new_max_offset = page.max_offset_number();
@@ -428,6 +446,12 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             cloned,
         }
     }
+}
+
+pub enum RetainItem<T> {
+    Remove(T),
+    Replace(T),
+    Retain,
 }
 
 pub struct AtomicGuard<'s, T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> {

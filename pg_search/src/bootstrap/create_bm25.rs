@@ -395,7 +395,7 @@ fn page_info(
 
     for offsetno in pg_sys::FirstOffsetNumber..=max_offset {
         unsafe {
-            if let Some((entry, size)) = page.read_item::<SegmentMetaEntry>(offsetno) {
+            if let Some((entry, size)) = page.deserialize_item::<SegmentMetaEntry>(offsetno) {
                 data.push((
                     offsetno as i32,
                     size as i32,

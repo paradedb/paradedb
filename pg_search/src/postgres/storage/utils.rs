@@ -22,7 +22,11 @@ use pgrx::pg_sys::OffsetNumber;
 use rustc_hash::FxHashMap;
 
 pub trait BM25Page {
-    unsafe fn read_item<T: From<PgItem>>(
+    /// Read the opaque, non-decoded [`PgItem`] at `offno`.
+    unsafe fn read_item(&self, offno: OffsetNumber) -> Option<PgItem>;
+
+    /// Read the fully decoded/deserialized item at `offno` into an instance of `T`
+    unsafe fn deserialize_item<T: From<PgItem>>(
         &self,
         offsetno: pg_sys::OffsetNumber,
     ) -> Option<(T, pg_sys::Size)>;
@@ -34,7 +38,16 @@ pub trait BM25Page {
 }
 
 impl BM25Page for pg_sys::Page {
-    unsafe fn read_item<T: From<PgItem>>(&self, offno: OffsetNumber) -> Option<(T, pg_sys::Size)> {
+    unsafe fn deserialize_item<T: From<PgItem>>(
+        &self,
+        offno: OffsetNumber,
+    ) -> Option<(T, pg_sys::Size)> {
+        let pg_item = self.read_item(offno)?;
+        let size = pg_item.1;
+        Some((T::from(pg_item), size))
+    }
+
+    unsafe fn read_item(&self, offno: OffsetNumber) -> Option<PgItem> {
         let item_id = pg_sys::PageGetItemId(*self, offno);
 
         if (*item_id).lp_flags() != pg_sys::LP_NORMAL {
@@ -43,7 +56,7 @@ impl BM25Page for pg_sys::Page {
 
         let item = pg_sys::PageGetItem(*self, item_id);
         let size = (*item_id).lp_len() as pg_sys::Size;
-        Some((T::from(PgItem(item, size)), size))
+        Some(PgItem(item, size))
     }
 
     unsafe fn xmax(&self) -> pg_sys::TransactionId {

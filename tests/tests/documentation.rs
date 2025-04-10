@@ -53,7 +53,7 @@ fn quickstart(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range) 
+    USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
     WITH (key_field='id');
     "#
     .execute(&mut conn);
@@ -112,7 +112,7 @@ fn quickstart(mut conn: PgConnection) {
     REFERENCES mock_items(id);
 
     CREATE INDEX orders_idx ON orders
-    USING bm25 (order_id, customer_name) 
+    USING bm25 (order_id, customer_name)
     WITH (key_field='order_id');
     "#
     .execute(&mut conn);
@@ -514,7 +514,7 @@ fn full_text_search(mut conn: PgConnection) {
     SELECT id, paradedb.score(id) * COALESCE(rating, 1) as score
     FROM mock_items
     WHERE description @@@ 'shoes'
-    ORDER BY score DESC 
+    ORDER BY score DESC
     LIMIT 5
     "#
     .fetch(&mut conn);
@@ -923,7 +923,7 @@ fn term_level_queries(mut conn: PgConnection) {
     WHERE id @@@
     '{
         "range_within": {
-            "field": "weight_range", 
+            "field": "weight_range",
             "lower_bound": {"excluded": 2},
             "upper_bound": {"included": 11}
         }
@@ -1165,11 +1165,11 @@ fn json_queries(mut conn: PgConnection) {
     );
 
     UPDATE mock_items
-    SET metadata = '{"attributes": {"score": 3, "tstz": "2023-05-01T08:12:34Z"}}'::jsonb 
+    SET metadata = '{"attributes": {"score": 3, "tstz": "2023-05-01T08:12:34Z"}}'::jsonb
     WHERE id = 1;
 
     UPDATE mock_items
-    SET metadata = '{"attributes": {"score": 4, "tstz": "2023-05-01T09:12:34Z"}}'::jsonb 
+    SET metadata = '{"attributes": {"score": 4, "tstz": "2023-05-01T09:12:34Z"}}'::jsonb
     WHERE id = 2;
 
 
@@ -1526,7 +1526,7 @@ fn compound_queries(mut conn: PgConnection) {
                 {"term": {"field": "description", "value": "running"}}
             ]
         }
-    }'::jsonb;    
+    }'::jsonb;
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 3);
@@ -1986,16 +1986,15 @@ fn hybrid_search(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(i32, BigDecimal, String, Vector)> = r#"
-    WITH bm25_candidates AS (
-        SELECT id
-        FROM mock_items
-        WHERE description @@@ 'keyboard'
-        ORDER BY paradedb.score(id) DESC
-        LIMIT 20
-    ),
-    bm25_ranked AS (
-        SELECT id, RANK() OVER (ORDER BY paradedb.score(id) DESC) AS rank
-        FROM bm25_candidates
+    WITH bm25_ranked AS (
+        SELECT id, RANK() OVER (ORDER BY score DESC) AS rank
+        FROM (
+            SELECT id, paradedb.score(id) AS score
+            FROM mock_items
+            WHERE description @@@ 'keyboard'
+            ORDER BY paradedb.score(id) DESC
+            LIMIT 20
+        ) AS bm25_score
     ),
     semantic_search AS (
         SELECT id, RANK() OVER (ORDER BY embedding <=> '[1,2,3]') AS rank
@@ -2106,7 +2105,7 @@ fn concurrent_indexing(mut conn: PgConnection) {
 
     CREATE INDEX search_idx ON mock_items
     USING bm25 (id, description, category, rating)
-    WITH (key_field='id'); 
+    WITH (key_field='id');
     "#
     .execute(&mut conn);
 

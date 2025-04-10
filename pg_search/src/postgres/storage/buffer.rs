@@ -114,8 +114,8 @@ impl BufferMut {
     pub fn return_to_fsm(mut self, bman: &mut BufferManager) {
         unsafe {
             let blockno = self.page_mut().mark_deleted();
-            assert!(
-                blockno > *FIXED_BLOCK_NUMBERS.last().unwrap(),
+            debug_assert!(
+                FIXED_BLOCK_NUMBERS.iter().all(|fb| *fb != blockno),
                 "record_free_index_page: blockno {blockno} cannot ever be recycled"
             );
             pg_sys::RecordPageWithFreeSpace(bman.bcache.indexrel(), blockno, bm25_max_free_space());

@@ -275,8 +275,8 @@ impl LinkedBytesList {
         for starting_blockno in [self.metadata.start_blockno, self.metadata.blocklist_start] {
             let mut blockno = starting_blockno;
             while blockno != pg_sys::InvalidBlockNumber {
-                assert!(
-                    blockno > *FIXED_BLOCK_NUMBERS.last().unwrap(),
+                debug_assert!(
+                    FIXED_BLOCK_NUMBERS.iter().all(|fb| *fb != blockno),
                     "mark_deleted:  blockno {blockno} cannot ever be recycled"
                 );
                 let mut buffer = self.bman.get_buffer_mut(blockno);

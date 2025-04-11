@@ -3,6 +3,7 @@ use crate::postgres::storage::block::{
     DeleteEntry, FileEntry, LinkedList, MVCCEntry, PgItem, SegmentFileDetails, SegmentMetaEntry,
     SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
 };
+use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use anyhow::Result;
 use pgrx::pg_sys;
@@ -96,8 +97,6 @@ pub unsafe fn save_new_metas(
         }
     });
 
-    let deleting_xid = pg_sys::GetCurrentTransactionIdIfAny();
-
     //
     // process the new segments
     //
@@ -153,7 +152,7 @@ pub unsafe fn save_new_metas(
     // if it already has one also locate its LinkedBytesList and .mark_deleted()
     // xmin/xmax do not change
     //
-    let mut replaced_delete_entries = Vec::new();
+    let mut orphaned_deletes_files = Vec::new();
     let modified_entries = modified_ids
         .into_iter()
         .filter_map(|id| {
@@ -175,7 +174,7 @@ pub unsafe fn save_new_metas(
 
             if meta_entry.delete.is_some() {
                 // remember the old delete_entry for future action
-                replaced_delete_entries.push((meta_entry.xmax, meta_entry.delete.unwrap()));
+                orphaned_deletes_files.push((meta_entry.xmax, meta_entry.delete.unwrap()));
             }
 
             // replace (or set new) the delete_entry
@@ -245,7 +244,6 @@ pub unsafe fn save_new_metas(
     //
     // now change things on disk
     //
-    let mut bytes_lists_to_delete = Vec::new();
 
     // delete old entries and their corresponding files -- happens only as the result of a merge
     for (entry, blockno) in &deleted_entries {
@@ -267,13 +265,6 @@ pub unsafe fn save_new_metas(
         let did_replace = page.replace_item(offno, pg_item, size);
         assert!(did_replace);
 
-        // we do this while holding an exclusive lock on the `buffer` containing the SegmentMetaEntry
-        // so that when the lock is released and this buffer is readable by others, its xmax value
-        // and the recyclable-status of all its linked files will match
-        for (file_entry, _) in entry.file_entries() {
-            bytes_lists_to_delete.push((file_entry.starting_block, deleting_xid));
-        }
-
         drop(buffer);
     }
 
@@ -290,21 +281,6 @@ pub unsafe fn save_new_metas(
             );
         };
 
-        if entry.xmax != pg_sys::InvalidTransactionId {
-            // this entry was already marked with an xmax so we want to carry that same value through
-            // to the `.delete` file that's now attached to it.
-            //
-            // the entry having an xmax means it's been tagged for recycling but hasn't been recycled
-            // yet.  and we want this new delete file to be recycled along with it when that happens
-            //
-            // we also do this while `buffer` has an exclusive lock so that when we're done updating
-            // this entry in the entry list all its files will have the same recyclable setting
-            bytes_lists_to_delete.push((
-                entry.delete.as_ref().unwrap().file_entry.starting_block,
-                entry.xmax,
-            ));
-        }
-
         let PgItem(pg_item, size) = entry.into();
         let did_replace = page.replace_item(offno, pg_item, size);
         if !did_replace {
@@ -315,33 +291,54 @@ pub unsafe fn save_new_metas(
             linked_list.add_items(&[entry], Some(buffer))?;
         }
     }
-    // chase down the linked lists for any existing deleted entries and mark them as deleted
-    for (existing_xmax, deleted_entry) in replaced_delete_entries {
-        if existing_xmax == pg_sys::InvalidTransactionId {
-            bytes_lists_to_delete.push((deleted_entry.file_entry.starting_block, deleting_xid));
-        }
-    }
 
     // add the new entries -- happens via an index commit or the result of a merge
     if !created_entries.is_empty() {
         linked_list.add_items(&created_entries, None)?;
     }
 
+    if !orphaned_deletes_files.is_empty() {
+        // if we have orphaned ".deletes" files, what we do with them is add a new, fake entry to
+        // the metas `linked_ist` for each one, where the fake entry is configured such that it's
+        // immediately considered recyclable.  This will allow for a future garbage collection to
+        // properly delete the blocks associated with the orphaned file
+        let fake_entries = orphaned_deletes_files
+            .into_iter()
+            .map(|(_, delete_entry)| SegmentMetaEntry {
+                segment_id: SegmentId::from_bytes([0; 16]), // all zeros
+                max_doc: delete_entry.num_deleted_docs,
+                xmin: pg_sys::FrozenTransactionId,
+                xmax: pg_sys::FrozenTransactionId, // immediately recyclable
+                postings: None,
+                positions: None,
+                fast_fields: None,
+                field_norms: None,
+                terms: None,
+                store: None,
+                temp_store: None,
+                delete: Some(delete_entry), // the file whose bytes we need to ensure get garbage collected in the future
+            })
+            .collect::<Vec<_>>();
+        linked_list.add_items(&fake_entries, None)?;
+    }
+
     // atomically replace the SegmentMetaEntry list, and then mark any orphaned files deleted.
     linked_list.commit();
-    for (starting_block, deleting_xid) in bytes_lists_to_delete {
-        LinkedBytesList::open(relation_oid, starting_block).mark_deleted(deleting_xid);
-    }
 
     Ok(())
 }
 
 impl LinkedItemList<SegmentMetaEntry> {
-    pub unsafe fn list_and_pin(&self) -> (Vec<SegmentMetaEntry>, PinCushion) {
-        let _cleanup_lock = self.bman().get_buffer(SCHEMA_START);
+    pub unsafe fn for_each_and_pin<
+        Accept: Fn(&SegmentMetaEntry, &mut BufferManager) -> bool,
+        ForEach: FnMut(SegmentMetaEntry),
+    >(
+        &mut self,
+        accept: Accept,
+        mut for_each: ForEach,
+    ) -> PinCushion {
         let mut pin_cushion = PinCushion::default();
 
-        let mut items = vec![];
         let mut blockno = self.get_start_blockno();
         while blockno != pg_sys::InvalidBlockNumber {
             let buffer = self.bman().get_buffer(blockno);
@@ -350,15 +347,17 @@ impl LinkedItemList<SegmentMetaEntry> {
             let max_offset = page.max_offset_number();
             while offsetno <= max_offset {
                 if let Some((deserialized, _)) = page.read_item::<SegmentMetaEntry>(offsetno) {
-                    pin_cushion.push(self.bman(), &deserialized);
-                    items.push(deserialized);
+                    if accept(&deserialized, self.bman_mut()) {
+                        pin_cushion.push(self.bman(), &deserialized);
+                        for_each(deserialized);
+                    }
                 }
                 offsetno += 1;
             }
             blockno = page.next_blockno();
         }
 
-        (items, pin_cushion)
+        pin_cushion
     }
 }
 
@@ -375,41 +374,36 @@ pub unsafe fn load_metas(
     let mut alive_entries = vec![];
     let mut opstamp = None;
 
-    let (entries, mut pin_cushion) = segment_metas.list_and_pin();
-    for entry in entries {
-        if !entry.recyclable(segment_metas.bman_mut()) {
-            if (
-                // parallel workers only see a specific set of segments.  This relies on the leader having kept a pin on them
-                matches!(solve_mvcc, MvccSatisfies::ParallelWorker(only_these) if only_these.contains(&entry.segment_id))
+    let pin_cushion = segment_metas.for_each_and_pin(|entry, bman| {
+        // nobody sees recyclable segments
+        !entry.recyclable(bman) && (
+            // parallel workers only see a specific set of segments.  This relies on the leader having kept a pin on them
+            matches!(solve_mvcc, MvccSatisfies::ParallelWorker(only_these) if only_these.contains(&entry.segment_id))
 
-                // vacuum sees everything that hasn't been deleted by a merge
-                || (matches!(solve_mvcc, MvccSatisfies::Vacuum) && entry.xmax == pg_sys::InvalidTransactionId))
+            // vacuum sees everything that hasn't been deleted by a merge
+            || (matches!(solve_mvcc, MvccSatisfies::Vacuum) && entry.xmax == pg_sys::InvalidTransactionId)
 
-                // a snapshot can see any that are visible in its snapshot
-                || (matches!(solve_mvcc, MvccSatisfies::Snapshot) && entry.visible(snapshot.expect("snapshot must be provided for `MvccSatisfies::Snapshot`")))
+            // a snapshot can see any that are visible in its snapshot
+            || (matches!(solve_mvcc, MvccSatisfies::Snapshot) && entry.visible(snapshot.expect("snapshot must be provided for `MvccSatisfies::Snapshot`")))
 
-                // mergeable can see any that are known to be mergeable
-                || (matches!(solve_mvcc, MvccSatisfies::Mergeable) && entry.mergeable())
-            {
-                let inner_segment_meta = InnerSegmentMeta {
-                    max_doc: entry.max_doc,
-                    segment_id: entry.segment_id,
-                    deletes: entry.delete.map(|delete_entry| DeleteMeta {
-                        num_deleted_docs: delete_entry.num_deleted_docs,
-                        opstamp: 0, // hardcode zero as the entry's opstamp as it's not used
-                    }),
-                    include_temp_doc_store: Arc::new(AtomicBool::new(false)),
-                };
-                alive_segments.push(inner_segment_meta.track(inventory));
-                alive_entries.push(entry);
+            // mergeable can see any that are known to be mergeable
+            || (matches!(solve_mvcc, MvccSatisfies::Mergeable) && entry.mergeable())
+        )
+    }, |entry| {
+        let inner_segment_meta = InnerSegmentMeta {
+            max_doc: entry.max_doc,
+            segment_id: entry.segment_id,
+            deletes: entry.delete.map(|delete_entry| DeleteMeta {
+                num_deleted_docs: delete_entry.num_deleted_docs,
+                opstamp: 0, // hardcode zero as the entry's opstamp as it's not used
+            }),
+            include_temp_doc_store: Arc::new(AtomicBool::new(false)),
+        };
+        alive_segments.push(inner_segment_meta.track(inventory));
+        alive_entries.push(entry);
 
-                opstamp = opstamp.max(Some(entry.opstamp()));
-                continue;
-            }
-        }
-
-        pin_cushion.remove(entry.pintest_blockno());
-    }
+        opstamp = opstamp.max(Some(entry.opstamp()));
+    });
 
     if let MvccSatisfies::ParallelWorker(only_these) = solve_mvcc {
         assert!(alive_entries.len() == only_these.len(), "load_metas: MvccSatisfies::ParallelWorker didn't load the correct segments.  desired={only_these:?}, actual={alive_entries:?}");

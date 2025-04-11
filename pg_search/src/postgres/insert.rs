@@ -407,9 +407,8 @@ unsafe fn garbage_collect_index(indexrel: &PgRelation) {
     let recycled_entries = segment_meta_list.garbage_collect();
     segment_meta_list.commit();
     for entry in recycled_entries {
-        for (file_entry, type_) in entry.file_entries() {
-            let bytes = LinkedBytesList::open(indexrelid, file_entry.starting_block);
-            bytes.return_to_fsm(&entry, Some(type_));
+        for (file_entry, _) in entry.file_entries() {
+            LinkedBytesList::open(indexrelid, file_entry.starting_block).return_to_fsm();
             pg_sys::IndexFreeSpaceMapVacuum(indexrel.as_ptr());
         }
     }

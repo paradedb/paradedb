@@ -1,7 +1,8 @@
 # workflows/publish-pg_search-pgxn.yml
 #
 # Publish pg_search (PGXN)
-# Build and publish the pg_search extension to the PostgreSQL Extension Network (PGXN).
+# Build and publish the pg_search extension to the PostgreSQL Extension Network (PGXN). This
+# workflow is only triggered for official releases, not for release candidates.
 
 name: Publish pg_search (PGXN)
 

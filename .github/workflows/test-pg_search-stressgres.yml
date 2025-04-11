@@ -111,7 +111,7 @@ jobs:
         run: |
           sudo chmod a+rwx /var/run/postgresql/ && \
           cargo run --release -- headless \
-          ${{ matrix.test_file }}
+          /home/runner/work/paradedb/paradedb/paradedb/.github/stressgres/${{ matrix.test_file }} \
           --log-file stressgres-${{ matrix.test_file }}.log \
           --runtime 30000
 

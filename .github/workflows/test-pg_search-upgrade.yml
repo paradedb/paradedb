@@ -48,6 +48,30 @@ jobs:
           version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
           echo "version=$version" >> $GITHUB_OUTPUT
 
+      # This checks that the version in the top-level Cargo.toml is incremented to that of the upcoming release.
+      - name: Check version in Cargo.toml
+        run: |
+          CARGO_VERSION=$(grep "^version" Cargo.toml | head -1 | awk -F '"' '{print $2}')
+          PROD_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}"
+          STAGING_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-rc.${{ vars.VERSION_RC }}"
+          if [[ ${{ github.ref }} == "refs/heads/main" ]]; then
+            # For production, only the prod version is valid.
+            if [ "$CARGO_VERSION" != "$PROD_VERSION" ]; then
+              echo "Version in top-level Cargo.toml ($CARGO_VERSION) does not match upcoming release version ($PROD_VERSION). Did you forget to increment it?"
+              exit 1
+            fi
+          elif [[ ${{ github.ref }} == "refs/heads/staging" ]]; then
+            # For staging, both the prod and staging versions are valid since we could be on our way to making a prod release.
+            if [ "$CARGO_VERSION" != "$PROD_VERSION" || "$CARGO_VERSION" != "$STAGING_VERSION" ]; then
+              echo "Version in top-level Cargo.toml ($CARGO_VERSION) does not match upcoming prod version ($PROD_VERSION) or staging version ($STAGING_VERSION). Did you forget to increment it?"
+              exit 1
+            fi
+          else
+            echo "Unknown branch: ${{ github.ref }}"
+            exit 1
+          fi
+          echo "Version check passed!"
+
       # Caches from base branches are available to PRs, but not across unrelated branches, so we only
       # save the cache on the 'dev' branch, but load it on all branches.
       - name: Install Rust Cache

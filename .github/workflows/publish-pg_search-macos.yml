@@ -29,6 +29,7 @@ jobs:
   publish-pg_search:
     name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.name }} arm64
     runs-on: ${{ matrix.runner }}
+    if: ${{ !contains(github.ref, '-rc') }}
     strategy:
       matrix:
         include:

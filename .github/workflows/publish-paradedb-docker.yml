@@ -32,12 +32,32 @@ permissions:
   attestations: write
 
 jobs:
+  set-matrix:
+    name:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Set Matrix
+        id: set-matrix
+        run: |
+          echo "Evaluating tag: $GITHUB_REF"
+          if [[ "$GITHUB_REF" == *"-rc"* ]]; then
+            echo "Release candidate detected; using only PostgreSQL version 17."
+            echo "::set-output name=matrix::[17]"
+          else
+            echo "Regular tag detected; using provided PostgreSQL versions."
+            # Note: github.event.inputs.pg_version is a string (JSON array).
+            echo "::set-output name=matrix::${{ github.event.inputs.pg_version || '[14, 15, 16, 17]' }}"
+          fi
+
   publish-paradedb-docker-image:
     name: Publish ParadeDB Docker Image for PostgreSQL ${{ matrix.pg_version }}
     runs-on: ubuntu-latest
+    needs: set-matrix
     strategy:
       matrix:
-        pg_version: ${{ fromJson(github.event.inputs.pg_version || '[14, 15, 16, 17]') }}
+        pg_version: ${{ fromJson(needs.set-matrix.outputs.matrix) }}
     env:
       default_pg_version: 17
 

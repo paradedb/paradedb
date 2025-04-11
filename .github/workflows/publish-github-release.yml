@@ -45,7 +45,7 @@ jobs:
             CURRENT_RELEASE_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-rc.${{ vars.VERSION_RC }}"
 
             # Increment GHA variable version by -rc.1 for next release
-            GHA_VAR_NAME="VERSION_DEV_RC"
+            GHA_VAR_NAME="VERSION_RC"
             GHA_VAR_VALUE="$(( ${{ vars.VERSION_RC }} + 1 ))"
           else
             echo "Error: Invalid branch, exiting..."

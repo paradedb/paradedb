@@ -1,9 +1,9 @@
-# workflows/test-paradedb.yml
+# workflows/test-pg_search-docker.yml
 #
-# Test ParadeDB
+# Test pg_search Docker
 # Test building the ParadeDB Docker Image using Docker Compose.
 
-name: Test ParadeDB
+name: Test pg_search Docker
 
 on:
   pull_request:
@@ -13,14 +13,14 @@ on:
       - staging
       - dev
     paths:
-      - ".github/workflows/test-paradedb.yml"
+      - ".github/workflows/test-pg_search-docker.yml"
       - "docker/**"
       - "pg_search/**"
       - "tokenizers/**"
   workflow_dispatch:
 
 concurrency:
-  group: test-paradedb-${{ github.head_ref || github.ref }}
+  group: test-pg_search-docker-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:

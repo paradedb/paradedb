@@ -26,20 +26,6 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
-      - name: Set Environment
-        id: env
-        run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            echo "environment=prod" >> $GITHUB_OUTPUT
-            echo "Using prod configuration..."
-          elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
-            echo "environment=staging" >> $GITHUB_OUTPUT
-            echo "Using staging configuration..."
-          else
-            echo "Invalid environment. Exiting..."
-            exit 1
-          fi
-
       # We store the GitHub Release version number in GitHub Actions Variables. Since it's
       # not possible for a GHA variable to be negative, we store the version of the next
       # release, to allow 0-indexing. This is why we immediately release the version stored,
@@ -47,14 +33,14 @@ jobs:
       - name: Retrieve & Increment Release Version Number
         id: version
         run: |
-          if [[ "${{ steps.env.outputs.environment }}" == "prod" ]]; then
+          if [[ ${{ github.ref }} == "refs/heads/main" ]]; then
             echo 'Using prod configuration...'
             CURRENT_RELEASE_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}"
 
             # Increment GHA variable version by 0.0.1 for next release
             GHA_VAR_NAME="VERSION_PATCH"
             GHA_VAR_VALUE="$(( ${{ vars.VERSION_PATCH }} + 1 ))"
-          elif [[ "${{ steps.env.outputs.environment }}" == "staging" ]]; then
+          elif [[ ${{ github.ref }} == "refs/heads/staging" ]]; then
             echo 'Using staging configuration...'
             CURRENT_RELEASE_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-rc.${{ vars.VERSION_RC }}"
 
@@ -76,7 +62,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
         run: |
           # on prod we update patch and reset dev RC to 0
-          if [[ "${{ steps.env.outputs.environment }}" == "prod" ]]; then
+          if [[ ${{ github.ref }} == "refs/heads/main" ]]; then
             gh api \
               --method PATCH \
               -H "Accept: application/vnd.github+json" \
@@ -93,7 +79,7 @@ jobs:
               -f name='VERSION_RC' \
               -f value='0'
           # on staging we only update RC
-          elif [[ "${{ steps.env.outputs.environment }}" == "staging" ]]; then
+          elif [[ ${{ github.ref }} == "refs/heads/staging" ]]; then
             gh api \
               --method PATCH \
               -H "Accept: application/vnd.github+json" \

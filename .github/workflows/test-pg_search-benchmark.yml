@@ -1,10 +1,10 @@
-# workflows/benchmark-pg_search.yml
+# workflows/test-pg_search-benchmark.yml
 #
-# Benchmark pg_search
+# Test pg_search Benchmark
 # Benchmark pg_search performance on a nightly basis. This workflow can also be triggered
 # manually to benchmark other systems on one-off basis, to compare against pg_search.
 
-name: Benchmark pg_search
+name: Test pg_search Benchmark
 
 on:
   pull_request:
@@ -15,7 +15,7 @@ on:
     branches: # On the `dev` branch, we run benchmarks post pushes to speed up CI
       - dev
     paths:
-      - ".github/workflows/benchmark-pg_search.yml"
+      - ".github/workflows/test-pg_search-benchmark.yml"
       - "**/*.rs"
       - "**/*.toml"
   workflow_dispatch:
@@ -24,7 +24,7 @@ on:
 # - Pushes to `dev` get grouped under "dev".
 # - A PR from `dev` to `main` uses the same key as pushes to `dev`, avoiding duplicate runs when doing a promotion.
 concurrency:
-  group: benchmark-pg_search-${{ (github.event_name == 'push' || github.event.pull_request.head.ref == 'dev') && 'dev' || github.event.pull_request.number }}
+  group: test-pg_search-benchmark-${{ (github.event_name == 'push' || github.event.pull_request.head.ref == 'dev') && 'dev' || github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:

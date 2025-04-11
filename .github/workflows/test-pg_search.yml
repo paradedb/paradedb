@@ -9,17 +9,19 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches:
-      - dev
       - main
+      - staging
+      - dev
     paths:
       - ".github/workflows/test-pg_search.yml"
       - "pg_search/**"
       - "tests/**"
       - "tokenizers/**"
   push:
-    branches: # Also run on `dev` and `main` to fill the GitHub Actions Rust cache in a way that PRs can see it
-      - dev
+    branches: # Also run on `main`, `staging` and `dev` to fill the GitHub Actions Rust cache in a way that PRs can see it
       - main
+      - staging
+      - dev
     paths:
       - "**/*.rs"
       - "**/*.toml"

@@ -143,7 +143,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             let mut offsetno = pg_sys::FirstOffsetNumber;
             let max_offset = page.max_offset_number();
             while offsetno <= max_offset {
-                if let Some((deserialized, _)) = page.read_item::<T>(offsetno) {
+                if let Some((deserialized, _)) = page.deserialize_item::<T>(offsetno) {
                     items.push(deserialized);
                 }
                 offsetno += 1;
@@ -163,7 +163,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             let mut offsetno = pg_sys::FirstOffsetNumber;
             let max_offset = page.max_offset_number();
             while offsetno <= max_offset {
-                if let Some((_, _)) = page.read_item::<T>(offsetno) {
+                if let Some((_, _)) = page.deserialize_item::<T>(offsetno) {
                     return false;
                 }
                 offsetno += 1;
@@ -247,7 +247,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             let max_offset = page.max_offset_number();
 
             while offsetno <= max_offset {
-                if let Some((deserialized, _)) = page.read_item::<T>(offsetno) {
+                if let Some((deserialized, _)) = page.deserialize_item::<T>(offsetno) {
                     if cmp(&deserialized) {
                         return Ok((deserialized, blockno, offsetno));
                     }
@@ -324,8 +324,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             }
 
             while offsetno <= max_offset {
-                if let Some((deserialized, _)) = page.read_item::<T>(offsetno) {
-                    let PgItem(item, size) = deserialized.into();
+                if let Some(PgItem(item, size)) = page.read_item(offsetno) {
                     let new_offsetno = new_page.append_item(item, size, 0);
                     assert!(new_offsetno != pg_sys::InvalidOffsetNumber);
                 }
@@ -385,7 +384,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> AtomicGuard<T> 
             let mut delete_offsets = vec![];
 
             while offsetno <= max_offset {
-                if let Some((entry, _)) = page.read_item::<T>(offsetno) {
+                if let Some((entry, _)) = page.deserialize_item::<T>(offsetno) {
                     if entry.recyclable(self.bman_mut()) {
                         page.mark_item_dead(offsetno);
 

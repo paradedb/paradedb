@@ -167,10 +167,14 @@ impl Page<'_> {
         unsafe { pg_sys::PageGetMaxOffsetNumber(self.pg_page) }
     }
 
-    pub fn read_item<T: From<PgItem>>(
+    pub fn deserialize_item<T: From<PgItem>>(
         &self,
         offno: pg_sys::OffsetNumber,
     ) -> Option<(T, pg_sys::Size)> {
+        unsafe { self.pg_page.deserialize_item(offno) }
+    }
+
+    pub fn read_item(&self, offno: pg_sys::OffsetNumber) -> Option<PgItem> {
         unsafe { self.pg_page.read_item(offno) }
     }
 
@@ -243,11 +247,11 @@ impl PageMut<'_> {
         }
     }
 
-    pub fn read_item<T: From<PgItem>>(
+    pub fn deserialize_item<T: From<PgItem>>(
         &self,
         offno: pg_sys::OffsetNumber,
     ) -> Option<(T, pg_sys::Size)> {
-        unsafe { self.pg_page.read_item(offno) }
+        unsafe { self.pg_page.deserialize_item(offno) }
     }
 
     pub fn find_item<T: From<PgItem>, F: Fn(T) -> bool>(
@@ -256,7 +260,7 @@ impl PageMut<'_> {
     ) -> Option<pg_sys::OffsetNumber> {
         let max = self.max_offset_number();
         for offno in pg_sys::FirstOffsetNumber as pg_sys::OffsetNumber..=max {
-            let (item, _) = self.read_item::<T>(offno)?;
+            let (item, _) = self.deserialize_item::<T>(offno)?;
             if cmp(item) {
                 return Some(offno);
             }

@@ -346,7 +346,8 @@ impl LinkedItemList<SegmentMetaEntry> {
             let mut offsetno = pg_sys::FirstOffsetNumber;
             let max_offset = page.max_offset_number();
             while offsetno <= max_offset {
-                if let Some((deserialized, _)) = page.read_item::<SegmentMetaEntry>(offsetno) {
+                if let Some((deserialized, _)) = page.deserialize_item::<SegmentMetaEntry>(offsetno)
+                {
                     if accept(&deserialized, self.bman_mut()) {
                         pin_cushion.push(self.bman(), &deserialized);
                         for_each(deserialized);

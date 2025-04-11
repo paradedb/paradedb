@@ -47,7 +47,7 @@ jobs:
             echo "matrix=[17]" >> $GITHUB_OUTPUT
           else
             echo "Regular promotion tag detected; using provided PostgreSQL version(s)."
-            echo "matrix=${{ github.event.inputs.pg_version || '[14, 15, 16, 17]' }}"
+            echo "matrix=${{ github.event.inputs.pg_version || '[14, 15, 16, 17]' }}" >> $GITHUB_OUTPUT
           fi
 
   publish-paradedb-docker-image:

@@ -9,10 +9,6 @@ on:
   pull_request:
     branches:
       - main
-      - dev # just for now so I can test this
-    paths:
-      - ".github/workflows/test-pg_search-stressgres.yml"
-      - "**/stressgres/*.toml"
   push:
     branches:
       - dev
@@ -113,7 +109,7 @@ jobs:
           cargo run --release -- headless \
           /home/runner/work/paradedb/paradedb/paradedb/.github/stressgres/${{ matrix.test_file }} \
           --log-file stressgres-${{ matrix.test_file }}.log \
-          --runtime 30000
+          --runtime 600000
 
       - name: Create Stressgres Graph
         working-directory: stressgres/

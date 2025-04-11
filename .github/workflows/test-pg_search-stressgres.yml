@@ -9,6 +9,10 @@ on:
   pull_request:
     branches:
       - main
+      - dev # just for now so I can test this
+    paths:
+      - ".github/workflows/test-pg_search-stressgres.yml"
+      - "**/stressgres/*.toml"
   push:
     branches:
       - dev
@@ -106,16 +110,14 @@ jobs:
         working-directory: stressgres/
         run: |
           sudo chmod a+rwx /var/run/postgresql/ && \
-          cargo run --release -- auto \
-          --log-path stressgres-${{ matrix.test_file }}.log \
-          --runtime 600000 \
-          `which pg_config` \
-          /home/runner/work/paradedb/paradedb/paradedb/.github/stressgres/${{ matrix.test_file }} \
-          /tmp/stressgres-${{ matrix.test_file }}
+          cargo run --release -- headless \
+          ${{ matrix.test_file }}
+          --log-file stressgres-${{ matrix.test_file }}.log \
+          --runtime 30000
 
       - name: Create Stressgres Graph
         working-directory: stressgres/
-        run: cargo run --release -- graph --output stressgres-${{ matrix.test_file }}.png stressgres-${{ matrix.test_file }}.log
+        run: cargo run --release -- graph stressgres-${{ matrix.test_file }}.log stressgres-${{ matrix.test_file }}.png
 
       - name: Upload Stressgres Graph
         id: artifact-graph
@@ -167,4 +169,8 @@ jobs:
           ${SLACK_WEBHOOK_URL}
 
       - name: Print Postgres Logs
-        run: cat /tmp/stressgres-${{ matrix.test_file }}/stressgres/primary.log
+        run: |
+          for f in `ls /tmp/stressgres/*.log`; do
+            echo $f
+            cat $f
+          done

@@ -86,12 +86,28 @@ impl MergePolicy for LayeredMergePolicy {
 
             for segment in segments {
                 if merged_segments.contains(&segment.id()) {
+                    logger(
+                        directory,
+                        &format!(
+                            "already merged {:?}",
+                            &segment.id()
+                        ),
+                    );
                     // we've already merged it
                     continue;
                 }
 
                 if self.segment_size(segment, avg_doc_size) > layer_size {
                     // this segment is larger than this layer_size... skip it
+                    logger(
+                        directory,
+                        &format!(
+                            "segment {:?} is larger than layer size {:?}, it is {:?} bytes",
+                            &segment.id(),
+                            &layer_size,
+                            self.segment_size(segment, avg_doc_size)
+                        ),
+                    );
                     continue;
                 }
 
@@ -194,7 +210,9 @@ impl LayeredMergePolicy {
         &mut self,
         mergeable_segments: impl Iterator<Item = (SegmentId, SegmentMetaEntry)>,
     ) {
-        self.mergeable_segments = mergeable_segments.collect();
+        let mergeable_segments: HashMap<SegmentId, SegmentMetaEntry> = mergeable_segments.collect();
+        pgrx::info!("setting mergeable segments {:?}", mergeable_segments.iter().map(|(id, _)| id).collect::<Vec<_>>());
+        self.mergeable_segments = mergeable_segments;
     }
 
     /// Run a simulation of what tantivy will do if it were to call our [`MergePolicy::compute_merge_candidates`]
@@ -225,6 +243,7 @@ impl LayeredMergePolicy {
             .map(From::from)
             .collect::<Vec<SegmentMeta>>();
         let candidates = self.compute_merge_candidates(None, &segment_metas);
+        pgrx::info!("candidates {:?}", candidates);
         let nmerged = candidates.iter().flat_map(|candidate| &candidate.0).count();
         let segment_ids = candidates
             .iter()

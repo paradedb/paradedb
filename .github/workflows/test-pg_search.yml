@@ -49,13 +49,13 @@ jobs:
             echo "matrix=[17]" >> $GITHUB_OUTPUT
           else
             echo "Pull request event detected, using all PostgreSQL versions."
-            echo "matrix=[14, 15, 16, 17]"
+            echo "matrix=[14, 15, 16, 17]" >> $GITHUB_OUTPUT
           fi
 
   test-pg_search-postgres:
     name: Test pg_search on PostgreSQL ${{ matrix.pg_version }}
-    if: github.event.pull_request.draft == false
     runs-on: ubicloud-standard-8
+    if: github.event.pull_request.draft == false
     needs: set-matrix
     strategy:
       matrix:

@@ -84,6 +84,7 @@ fn force_merge(mut conn: PgConnection) {
 
 #[rstest]
 fn dont_merge_create_index_segments(mut conn: PgConnection) {
+    // Test that a segment created by CREATE INDEX cannot get merged away even if less than layer size
     r#"
         CREATE TABLE dont_merge_create_index_segments (id bigint);
         INSERT INTO dont_merge_create_index_segments (id) SELECT x FROM generate_series(1, 1000000) x;
@@ -91,16 +92,27 @@ fn dont_merge_create_index_segments(mut conn: PgConnection) {
     "#
     .execute_result(&mut conn).expect("creating table/index should not fail");
 
-    let (nsegments_before,) = "select count(*) from paradedb.index_info('idxdont_merge_create_index_segments');"
-        .fetch_one::<(i64,)>(&mut conn);
+    let (nsegments_before,) =
+        "select count(*) from paradedb.index_info('idxdont_merge_create_index_segments');"
+            .fetch_one::<(i64,)>(&mut conn);
 
     "INSERT INTO dont_merge_create_index_segments (id) VALUES (1)".execute(&mut conn);
 
-    let (nsegments_after,) = "select count(*) from paradedb.index_info('idxdont_merge_create_index_segments');"
-        .fetch_one::<(i64,)>(&mut conn);
+    let (nsegments_after,) =
+        "select count(*) from paradedb.index_info('idxdont_merge_create_index_segments');"
+            .fetch_one::<(i64,)>(&mut conn);
 
     assert_eq!(nsegments_after, nsegments_before + 1);
 
+    // Test that deleted segments created by CREATE INDEX can get merged away
     "DELETE FROM dont_merge_create_index_segments WHERE id > 10".execute(&mut conn);
     "VACUUM dont_merge_create_index_segments".execute(&mut conn);
+
+    let (num_deleted_before,) = "select sum(num_deleted_docs) from paradedb.index_info('idxdont_merge_create_index_segments');"
+        .fetch_one::<(i64,)>(&mut conn);
+    "INSERT INTO dont_merge_create_index_segments (id) VALUES (1)".execute(&mut conn);
+    let (num_deleted_after,) = "select sum(num_deleted_docs) from paradedb.index_info('idxdont_merge_create_index_segments');"
+        .fetch_one::<(i64,)>(&mut conn);
+
+    assert!(num_deleted_after < num_deleted_before);
 }

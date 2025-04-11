@@ -33,20 +33,20 @@ permissions:
 
 jobs:
   set-matrix:
-    name:
+    name: Define the PostgreSQL Version Matrix
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
-      - name: Set Matrix
+      - name: Define the PostgreSQL Version Matrix
         id: set-matrix
         run: |
           echo "Evaluating tag: $GITHUB_REF"
           if [[ "$GITHUB_REF" == *"-rc"* ]]; then
-            echo "Release candidate detected; using only PostgreSQL version 17."
+            echo "Release candidate tag detected; using only PostgreSQL version 17."
             echo "matrix=[17]" >> $GITHUB_OUTPUT
           else
-            echo "Regular tag detected; using provided PostgreSQL versions."
+            echo "Regular promotion tag detected; using provided PostgreSQL version(s)."
             echo "matrix=${{ github.event.inputs.pg_version || '[14, 15, 16, 17]' }}"
           fi
 

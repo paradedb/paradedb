@@ -8,11 +8,11 @@ name: Benchmark pg_search
 
 on:
   pull_request:
-    branches:
+    branches: # On the `staging` and `main` branches, we run benchmarks in PRs to test thoroughly
       - main
       - staging
   push:
-    branches:
+    branches: # On the `dev` branch, we run benchmarks post pushes to speed up CI
       - dev
     paths:
       - ".github/workflows/benchmark-pg_search.yml"

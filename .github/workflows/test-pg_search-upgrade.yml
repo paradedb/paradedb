@@ -1,7 +1,8 @@
 # workflows/test-pg_search-upgrade.yml
 #
 # Test pg_search Upgrade
-# Test that the pg_search extension can upgrade via ALTER EXTENSION.
+# Test that the pg_search extension can upgrade via ALTER EXTENSION. This test is only run on
+# promotion PRs to `main` and `staging`.
 
 name: Test pg_search Upgrade
 

@@ -78,7 +78,10 @@ pub unsafe fn uses_snippets(
     }
 
     #[pg_guard]
-    unsafe extern "C" fn walker(node: *mut pg_sys::Node, data: *mut core::ffi::c_void) -> bool {
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        data: *mut core::ffi::c_void,
+    ) -> bool {
         if node.is_null() {
             return false;
         }

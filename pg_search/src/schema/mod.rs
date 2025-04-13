@@ -1032,7 +1032,7 @@ impl AsTypeOid for (&PgRelation, &SearchIndexSchema) {
             "search field {} not found in index '{}' with oid: {}",
             search_field.name.0,
             indexrel.name(),
-            indexrel.oid().as_u32()
+            indexrel.oid().to_u32()
         );
     }
 }

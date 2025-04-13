@@ -56,7 +56,7 @@ pub unsafe fn placeholder_support(arg: Internal) -> ReturnedNodePointer {
         let phv = pg_sys::submodules::ffi::pg_guard_ffi_boundary(|| {
             #[allow(improper_ctypes)]
             #[rustfmt::skip]
-            extern "C" {
+            extern "C-unwind" {
                 fn make_placeholder_expr(root: *mut pg_sys::PlannerInfo, expr: *mut pg_sys::Expr, phrels: pg_sys::Relids) -> *mut pg_sys::PlaceHolderVar;
             }
 
@@ -82,7 +82,10 @@ pub unsafe fn placeholder_support(arg: Internal) -> ReturnedNodePointer {
 
 pub unsafe fn maybe_needs_const_projections(node: *mut pg_sys::Node) -> bool {
     #[pg_guard]
-    unsafe extern "C" fn walker(node: *mut pg_sys::Node, data: *mut core::ffi::c_void) -> bool {
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        data: *mut core::ffi::c_void,
+    ) -> bool {
         if node.is_null() {
             return false;
         }
@@ -124,7 +127,10 @@ pub unsafe fn pullout_funcexprs(
     rti: i32,
 ) -> Vec<(*mut pg_sys::FuncExpr, *mut pg_sys::Var)> {
     #[pg_guard]
-    unsafe extern "C" fn walker(node: *mut pg_sys::Node, data: *mut core::ffi::c_void) -> bool {
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        data: *mut core::ffi::c_void,
+    ) -> bool {
         if node.is_null() {
             return false;
         }
@@ -178,7 +184,7 @@ pub unsafe fn inject_placeholders(
     HashMap<SnippetInfo, Vec<*mut pg_sys::Const>>,
 ) {
     #[pg_guard]
-    unsafe extern "C" fn walker(
+    unsafe extern "C-unwind" fn walker(
         node: *mut pg_sys::Node,
         context: *mut std::ffi::c_void,
     ) -> *mut pg_sys::Node {
@@ -231,7 +237,8 @@ pub unsafe fn inject_placeholders(
         #[cfg(not(any(feature = "pg16", feature = "pg17")))]
         {
             let fnptr = walker as usize as *const ();
-            let walker: unsafe extern "C" fn() -> *mut pg_sys::Node = std::mem::transmute(fnptr);
+            let walker: unsafe extern "C-unwind" fn() -> *mut pg_sys::Node =
+                std::mem::transmute(fnptr);
             pg_sys::expression_tree_mutator(node, Some(walker), context)
         }
 

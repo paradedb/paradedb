@@ -18,7 +18,7 @@
 use pgrx::*;
 
 #[pg_guard]
-pub unsafe extern "C" fn amvacuumcleanup(
+pub unsafe extern "C-unwind" fn amvacuumcleanup(
     _info: *mut pg_sys::IndexVacuumInfo,
     stats: *mut pg_sys::IndexBulkDeleteResult,
 ) -> *mut pg_sys::IndexBulkDeleteResult {

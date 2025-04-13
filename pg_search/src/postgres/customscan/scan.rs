@@ -26,7 +26,7 @@ use pgrx::{pg_guard, pg_sys};
 /// performs basic initialization, the BeginCustomScan callback will be invoked to give the custom
 /// scan provider a chance to do whatever else is needed.
 #[pg_guard]
-pub extern "C" fn create_custom_scan_state<CS: CustomScan>(
+pub extern "C-unwind" fn create_custom_scan_state<CS: CustomScan>(
     cscan: *mut pg_sys::CustomScan,
 ) -> *mut pg_sys::Node {
     let builder = CustomScanStateBuilder::new(cscan);

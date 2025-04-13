@@ -33,7 +33,7 @@ use std::ffi::CStr;
 use std::panic::{catch_unwind, resume_unwind};
 use tantivy::SegmentMeta;
 
-extern "C" {
+extern "C-unwind" {
     fn IsLogicalWorker() -> bool;
 }
 
@@ -122,7 +122,7 @@ pub unsafe fn init_insert_state(
 
 #[allow(clippy::too_many_arguments)]
 #[pg_guard]
-pub unsafe extern "C" fn aminsert(
+pub unsafe extern "C-unwind" fn aminsert(
     index_relation: pg_sys::Relation,
     values: *mut pg_sys::Datum,
     isnull: *mut bool,
@@ -194,7 +194,7 @@ unsafe fn aminsert_internal(
 
 #[cfg(feature = "pg17")]
 #[pg_guard]
-pub unsafe extern "C" fn aminsertcleanup(
+pub unsafe extern "C-unwind" fn aminsertcleanup(
     _index_relation: pg_sys::Relation,
     index_info: *mut pg_sys::IndexInfo,
 ) {

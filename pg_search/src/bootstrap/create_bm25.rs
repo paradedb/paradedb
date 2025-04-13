@@ -140,8 +140,8 @@ unsafe fn merge_info(
     (
         name!(index_name, String),
         name!(pid, i32),
-        name!(xmin, AnyNumeric),
-        name!(xmax, AnyNumeric),
+        name!(xmin, pg_sys::TransactionId),
+        name!(xmax, pg_sys::TransactionId),
         name!(segno, String),
     ),
 > {
@@ -160,8 +160,8 @@ unsafe fn merge_info(
                     (
                         index_name.clone(),
                         merge_entry.pid,
-                        merge_entry.xmin.into(),
-                        merge_entry.xmax.into(),
+                        merge_entry.xmin,
+                        merge_entry.xmax,
                         segment_id.short_uuid_string(),
                     )
                 })
@@ -207,8 +207,8 @@ fn index_info(
             name!(index_name, String),
             name!(visible, bool),
             name!(recyclable, bool),
-            name!(xmin, AnyNumeric),
-            name!(xmax, AnyNumeric),
+            name!(xmin, pg_sys::TransactionId),
+            name!(xmax, pg_sys::TransactionId),
             name!(segno, String),
             name!(byte_size, Option<AnyNumeric>),
             name!(num_docs, Option<AnyNumeric>),
@@ -250,8 +250,8 @@ fn index_info(
                 index.name().to_owned(),
                 unsafe { entry.visible(snapshot) },
                 unsafe { entry.recyclable(segment_components.bman_mut()) },
-                entry.xmin.into(),
-                entry.xmax.into(),
+                entry.xmin,
+                entry.xmax,
                 entry.segment_id.short_uuid_string(),
                 Some(entry.byte_size().into()),
                 Some(entry.num_docs().into()),

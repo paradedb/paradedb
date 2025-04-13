@@ -216,7 +216,7 @@ pub unsafe fn pullup_fast_fields(
                     let att = tupdesc.get((attno - 1) as usize).unwrap_or_else(|| {
                         panic!(
                             "attno {attno} should exist in tupdesc from relation {} (`{}`)",
-                            heaprel.oid().as_u32(),
+                            heaprel.oid().to_u32(),
                             heaprel.name()
                         )
                     });

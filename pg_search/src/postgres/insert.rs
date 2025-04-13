@@ -33,10 +33,6 @@ use std::ffi::CStr;
 use std::panic::{catch_unwind, resume_unwind};
 use tantivy::SegmentMeta;
 
-extern "C-unwind" {
-    fn IsLogicalWorker() -> bool;
-}
-
 pub struct InsertState {
     #[allow(dead_code)] // field is used by pg<16 for the fakeaminsertcleanup stuff
     pub indexrelid: pg_sys::Oid,
@@ -143,7 +139,7 @@ unsafe fn aminsert_internal(
     ctid: pg_sys::ItemPointer,
     index_info: *mut pg_sys::IndexInfo,
 ) -> bool {
-    if IsLogicalWorker() {
+    if pg_sys::IsLogicalWorker() {
         panic!("pg_search logical replication is an enterprise feature");
     }
 

@@ -551,7 +551,7 @@ mod tests {
         let relation_oid = init_bm25_index();
 
         let snapshot = pg_sys::GetActiveSnapshot();
-        let delete_xid = (*snapshot).xmin - 1;
+        let delete_xid = pg_sys::TransactionId::from((*snapshot).xmin.into_inner() - 1);
 
         let mut list = LinkedItemList::<SegmentMetaEntry>::create(relation_oid).atomically();
         let entries_to_delete = vec![SegmentMetaEntry {
@@ -563,7 +563,7 @@ mod tests {
         }];
         let entries_to_keep = vec![SegmentMetaEntry {
             segment_id: random_segment_id(),
-            xmin: (*snapshot).xmin - 1,
+            xmin: pg_sys::TransactionId::from((*snapshot).xmin.into_inner() - 1),
             xmax: pg_sys::InvalidTransactionId,
             postings: Some(make_fake_postings(relation_oid)),
             ..Default::default()
@@ -586,9 +586,9 @@ mod tests {
         let relation_oid = init_bm25_index();
 
         let snapshot = pg_sys::GetActiveSnapshot();
-        let deleted_xid = (*snapshot).xmin - 1;
+        let deleted_xid = pg_sys::TransactionId::from((*snapshot).xmin.into_inner() - 1);
         let not_deleted_xid = pg_sys::InvalidTransactionId;
-        let xmin = (*snapshot).xmin - 1;
+        let xmin = pg_sys::TransactionId::from((*snapshot).xmin.into_inner() - 1);
 
         // Add 2000 entries, delete every 10th entry
         {
@@ -685,7 +685,7 @@ mod tests {
         let entries = (1..2000)
             .map(|_| SegmentMetaEntry {
                 segment_id: random_segment_id(),
-                xmin: (*snapshot).xmin - 1,
+                xmin: pg_sys::TransactionId::from((*snapshot).xmin.into_inner() - 1),
                 xmax: pg_sys::InvalidTransactionId,
                 postings: Some(make_fake_postings(relation_oid)),
                 ..Default::default()

@@ -246,10 +246,8 @@ impl MergeLock {
         let mut entries_list = LinkedItemList::<MergeEntry>::open(relation_id, metadata.merge_list);
         let removed_entry = entries_list.remove_item(|entry| entry == &merge_entry)?;
 
-        let mut bytes_list =
-            LinkedBytesList::open(relation_id, removed_entry.segment_ids_start_blockno);
-        bytes_list.mark_deleted(merge_entry.xmin);
-        bytes_list.return_to_fsm_unchecked();
+        LinkedBytesList::open(relation_id, removed_entry.segment_ids_start_blockno).return_to_fsm();
+        pg_sys::IndexFreeSpaceMapVacuum(self.bman.bm25cache().indexrel());
         Ok(removed_entry)
     }
 
@@ -266,10 +264,9 @@ impl MergeLock {
         let recycled_entries = entries_list.garbage_collect();
         entries_list.commit();
         for recycled_entry in recycled_entries {
-            let mut bytes_list =
-                LinkedBytesList::open(relation_id, recycled_entry.segment_ids_start_blockno);
-            bytes_list.mark_deleted(recycled_entry.xmax);
-            bytes_list.return_to_fsm(&recycled_entry, None);
+            LinkedBytesList::open(relation_id, recycled_entry.segment_ids_start_blockno)
+                .return_to_fsm();
+            pg_sys::IndexFreeSpaceMapVacuum(self.bman.bm25cache().indexrel());
         }
     }
 }

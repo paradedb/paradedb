@@ -46,8 +46,7 @@ pub unsafe extern "C" fn ambulkdelete(
 
     // first, we need an exclusive lock on the CLEANUP_LOCK.  Once we get it, we know that there
     // are no concurrent merges happening
-    let cleanup_lock =
-        BufferManager::new(index_relation.oid()).get_buffer_for_cleanup(CLEANUP_LOCK);
+    let cleanup_lock = BufferManager::new(index_relation.oid()).get_buffer_mut(CLEANUP_LOCK);
 
     // take the MergeLock
     let merge_lock = {

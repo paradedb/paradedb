@@ -22,15 +22,32 @@ use pgrx::pg_sys::OffsetNumber;
 use rustc_hash::FxHashMap;
 
 pub trait BM25Page {
-    unsafe fn read_item<T: From<PgItem>>(
+    /// Read the opaque, non-decoded [`PgItem`] at `offno`.
+    unsafe fn read_item(&self, offno: OffsetNumber) -> Option<PgItem>;
+
+    /// Read the fully decoded/deserialized item at `offno` into an instance of `T`
+    unsafe fn deserialize_item<T: From<PgItem>>(
         &self,
         offsetno: pg_sys::OffsetNumber,
     ) -> Option<(T, pg_sys::Size)>;
-    unsafe fn recyclable(self, heap_relation: pg_sys::Relation) -> bool;
+
+    unsafe fn xmax(&self) -> pg_sys::TransactionId;
+
+    /// Return true if the page is able to reused as if it were a new page
+    unsafe fn is_reusable(&self) -> bool;
 }
 
 impl BM25Page for pg_sys::Page {
-    unsafe fn read_item<T: From<PgItem>>(&self, offno: OffsetNumber) -> Option<(T, pg_sys::Size)> {
+    unsafe fn deserialize_item<T: From<PgItem>>(
+        &self,
+        offno: OffsetNumber,
+    ) -> Option<(T, pg_sys::Size)> {
+        let pg_item = self.read_item(offno)?;
+        let size = pg_item.1;
+        Some((T::from(pg_item), size))
+    }
+
+    unsafe fn read_item(&self, offno: OffsetNumber) -> Option<PgItem> {
         let item_id = pg_sys::PageGetItemId(*self, offno);
 
         if (*item_id).lp_flags() != pg_sys::LP_NORMAL {
@@ -39,20 +56,23 @@ impl BM25Page for pg_sys::Page {
 
         let item = pg_sys::PageGetItem(*self, item_id);
         let size = (*item_id).lp_len() as pg_sys::Size;
-        Some((T::from(PgItem(item, size)), size))
+        Some(PgItem(item, size))
     }
 
-    unsafe fn recyclable(self, heap_relation: pg_sys::Relation) -> bool {
-        if pg_sys::PageIsNew(self) {
+    unsafe fn xmax(&self) -> pg_sys::TransactionId {
+        let special = pg_sys::PageGetSpecialPointer(*self) as *mut BM25PageSpecialData;
+        (*special).xmax
+    }
+
+    unsafe fn is_reusable(&self) -> bool {
+        if pg_sys::PageIsNew(*self) {
             return true;
         }
 
-        let special = pg_sys::PageGetSpecialPointer(self) as *mut BM25PageSpecialData;
-        if (*special).xmax == pg_sys::InvalidTransactionId {
-            return false;
-        }
-
-        pg_sys::GlobalVisCheckRemovableXid(heap_relation, (*special).xmax)
+        // technically we're only called on pages given to us by the FSM, and in that case the page
+        // can be immediately reused if our internal `xmax` tracking is set to frozen, indicating
+        // that it's been deleted
+        self.xmax() == pg_sys::FrozenTransactionId
     }
 }
 
@@ -103,12 +123,12 @@ impl BM25BufferCache {
             if pg_sys::ConditionalLockBuffer(buffer) {
                 let page = pg_sys::BufferGetPage(buffer);
 
-                // the FSM would have returned a page to us that was previously known to be recyclable,
-                // but it may not still be recyclable now that we have a lock.
+                // the FSM would have returned a page to us that was previously known to be reusable,
+                // but it may not still be reusable now that we have a lock.
                 //
                 // between then and now some other backend could have gotten this page too, locked it,
-                // initialized it, and released its lock, making it unusable by us
-                if page.recyclable(self.heaprel) {
+                // (re)initialized it, and released its lock, making it unusable by us
+                if page.is_reusable() {
                     return buffer;
                 }
 

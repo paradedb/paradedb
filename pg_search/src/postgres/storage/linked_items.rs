@@ -143,7 +143,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             let mut offsetno = pg_sys::FirstOffsetNumber;
             let max_offset = page.max_offset_number();
             while offsetno <= max_offset {
-                if let Some((deserialized, _)) = page.read_item::<T>(offsetno) {
+                if let Some((deserialized, _)) = page.deserialize_item::<T>(offsetno) {
                     items.push(deserialized);
                 }
                 offsetno += 1;
@@ -163,7 +163,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             let mut offsetno = pg_sys::FirstOffsetNumber;
             let max_offset = page.max_offset_number();
             while offsetno <= max_offset {
-                if let Some((_, _)) = page.read_item::<T>(offsetno) {
+                if let Some((_, _)) = page.deserialize_item::<T>(offsetno) {
                     return false;
                 }
                 offsetno += 1;
@@ -247,7 +247,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             let max_offset = page.max_offset_number();
 
             while offsetno <= max_offset {
-                if let Some((deserialized, _)) = page.read_item::<T>(offsetno) {
+                if let Some((deserialized, _)) = page.deserialize_item::<T>(offsetno) {
                     if cmp(&deserialized) {
                         return Ok((deserialized, blockno, offsetno));
                     }
@@ -324,8 +324,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             }
 
             while offsetno <= max_offset {
-                if let Some((deserialized, _)) = page.read_item::<T>(offsetno) {
-                    let PgItem(item, size) = deserialized.into();
+                if let Some(PgItem(item, size)) = page.read_item(offsetno) {
                     let new_offsetno = new_page.append_item(item, size, 0);
                     assert!(new_offsetno != pg_sys::InvalidOffsetNumber);
                 }
@@ -385,7 +384,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> AtomicGuard<T> 
             let mut delete_offsets = vec![];
 
             while offsetno <= max_offset {
-                if let Some((entry, _)) = page.read_item::<T>(offsetno) {
+                if let Some((entry, _)) = page.deserialize_item::<T>(offsetno) {
                     if entry.recyclable(self.bman_mut()) {
                         page.mark_item_dead(offsetno);
 
@@ -418,10 +417,9 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> AtomicGuard<T> 
             // Compaction step: If the page is entirely empty, mark as deleted
             // Adjust the pointer from the last known non-empty node to point to the next non-empty node
             if new_max_offset == pg_sys::InvalidOffsetNumber && current_blockno != start_blockno {
-                page.mark_deleted(pg_sys::GetCurrentTransactionId());
                 // this page is no longer useful to us so go ahead and return it to the FSM.  Doing
                 // so will also drop the lock
-                self.bman.return_to_fsm_mut(buffer);
+                buffer.return_to_fsm(&mut self.bman);
 
                 // We've reached the end of the list, which means the last filled block is now the
                 // last entry in the list
@@ -460,25 +458,26 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> AtomicGuard<T> 
         let mut blockno = {
             // Open both header pages.
             let mut original_header_page = self.original_header_lock.page_mut();
-            let cloned_header_buffer = self.cloned.bman.get_buffer(self.cloned.header_blockno);
-            let cloned_header_page = cloned_header_buffer.page();
+            let mut cloned_header_buffer =
+                self.cloned.bman.get_buffer_mut(self.cloned.header_blockno);
+            let mut cloned_header_page = cloned_header_buffer.page_mut();
 
             // Capture our old start page, then overwrite our metadata.
             let original_metadata = original_header_page.contents_mut::<LinkedListData>();
             let old_start_blockno = original_metadata.start_blockno;
-            *original_metadata = cloned_header_page.contents::<LinkedListData>();
+            *original_metadata = *cloned_header_page.contents_mut::<LinkedListData>();
 
             // Finally, garbage collect the cloned header block.
-            self.cloned.bman.return_to_fsm(cloned_header_buffer);
+            cloned_header_buffer.return_to_fsm(&mut self.cloned.bman);
 
             old_start_blockno
         };
 
         // And then collect our old contents, which are no longer reachable.
         while blockno != pg_sys::InvalidBlockNumber {
-            let buffer = original.bman().get_buffer(blockno);
+            let buffer = original.bman_mut().get_buffer_mut(blockno);
             blockno = buffer.page().next_blockno();
-            original.bman.return_to_fsm(buffer);
+            buffer.return_to_fsm(&mut original.bman);
         }
 
         original
@@ -500,16 +499,18 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> Drop for Atomic
         }
 
         // The guard was dropped without a call to commit: return its pages.
-        let header_buffer = self.cloned.bman().get_buffer(self.cloned.header_blockno);
+        let header_blockno = self.cloned.header_blockno;
+        let bman = self.cloned.bman_mut();
+        let header_buffer = bman.get_buffer_mut(header_blockno);
         let mut blockno = header_buffer
             .page()
             .contents::<LinkedListData>()
             .start_blockno;
-        self.cloned.bman.return_to_fsm(header_buffer);
+        header_buffer.return_to_fsm(bman);
         while blockno != pg_sys::InvalidBlockNumber {
-            let buffer = self.cloned.bman().get_buffer(blockno);
+            let buffer = bman.get_buffer_mut(blockno);
             blockno = buffer.page().next_blockno();
-            self.cloned.bman.return_to_fsm(buffer);
+            buffer.return_to_fsm(bman);
         }
     }
 }

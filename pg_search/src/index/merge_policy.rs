@@ -40,14 +40,9 @@ impl MergePolicy for LayeredMergePolicy {
         };
 
         if original_segments.is_empty() {
-            logger(directory, "compute_merge_candidates: no segments to merge");
             return Vec::new();
         }
         if self.already_processed.load(Ordering::Relaxed) {
-            logger(
-                directory,
-                "compute_merge_candidates: already processed segments, skipping merge",
-            );
             return Vec::new();
         }
 
@@ -87,27 +82,15 @@ impl MergePolicy for LayeredMergePolicy {
 
             for segment in segments {
                 if merged_segments.contains(&segment.id()) {
-                    logger(
-                        directory,
-                        &format!("compute_merge_candidates: already merged: {:?}", segment.id()),
-                    );
                     // we've already merged it
                     continue;
                 }
 
                 if self.segment_size(segment, avg_doc_size) > layer_size {
                     // this segment is larger than this layer_size... skip it
-                    logger(
-                        directory,
-                        &format!("compute_merge_candidates: segment too large: {:?}", segment.id()),
-                    );
                     continue;
                 }
 
-                logger(
-                    directory,
-                    &format!("adding segment {:?} to candidate", segment.id()),
-                );
                 // add this segment as a candidate
                 candidate_byte_size +=
                     actual_byte_size(segment, &self.mergeable_segments, avg_doc_size);

@@ -294,14 +294,14 @@ pub unsafe fn merge_index_with_policy(
             }
 
             // skip segments that were created by CREATE INDEX and have no deletes
-            // if !consider_create_index_segments
-            //     && create_index_segment_ids.contains(segment_id)
-            //     && entry
-            //         .delete
-            //         .is_none_or(|delete_entry| delete_entry.num_deleted_docs == 0)
-            // {
-            //     return false;
-            // }
+            if !consider_create_index_segments
+                && create_index_segment_ids.contains(segment_id)
+                && entry
+                    .delete
+                    .is_none_or(|delete_entry| delete_entry.num_deleted_docs == 0)
+            {
+                return false;
+            }
 
             true
         },

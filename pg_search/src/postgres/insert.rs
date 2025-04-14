@@ -250,7 +250,7 @@ unsafe fn do_merge(indexrelid: pg_sys::Oid) -> (NumCandidates, NumMerged) {
     let index_options = SearchIndexCreateOptions::from_relation(&indexrel);
     let merge_policy = LayeredMergePolicy::new(index_options.layer_sizes(DEFAULT_LAYER_SIZES));
 
-    merge_index_with_policy(indexrel, merge_policy, false, false)
+    merge_index_with_policy(indexrel, merge_policy, false, false, false)
 }
 
 pub unsafe fn merge_index_with_policy(
@@ -258,6 +258,7 @@ pub unsafe fn merge_index_with_policy(
     mut merge_policy: LayeredMergePolicy,
     verbose: bool,
     gc_after_merge: bool,
+    consider_create_index_segments: bool,
 ) -> (NumCandidates, NumMerged) {
     let indexrelid = indexrel.oid();
 
@@ -293,13 +294,14 @@ pub unsafe fn merge_index_with_policy(
             }
 
             // skip segments that were created by CREATE INDEX and have no deletes
-            if create_index_segment_ids.contains(segment_id)
-                && entry
-                    .delete
-                    .is_none_or(|delete_entry| delete_entry.num_deleted_docs == 0)
-            {
-                return false;
-            }
+            // if !consider_create_index_segments
+            //     && create_index_segment_ids.contains(segment_id)
+            //     && entry
+            //         .delete
+            //         .is_none_or(|delete_entry| delete_entry.num_deleted_docs == 0)
+            // {
+            //     return false;
+            // }
 
             true
         },

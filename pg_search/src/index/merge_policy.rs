@@ -81,20 +81,33 @@ impl MergePolicy for LayeredMergePolicy {
             // collect the list of mergeable segments so that we can combine those that fit in the next layer
             let segments =
                 self.collect_mergeable_segments(original_segments, &merged_segments, avg_doc_size);
+
             let mut candidate_byte_size = 0;
             candidates.push((layer_size, MergeCandidate(vec![])));
 
             for segment in segments {
                 if merged_segments.contains(&segment.id()) {
+                    logger(
+                        directory,
+                        &format!("compute_merge_candidates: already merged: {:?}", segment.id()),
+                    );
                     // we've already merged it
                     continue;
                 }
 
                 if self.segment_size(segment, avg_doc_size) > layer_size {
                     // this segment is larger than this layer_size... skip it
+                    logger(
+                        directory,
+                        &format!("compute_merge_candidates: segment too large: {:?}", segment.id()),
+                    );
                     continue;
                 }
 
+                logger(
+                    directory,
+                    &format!("adding segment {:?} to candidate", segment.id()),
+                );
                 // add this segment as a candidate
                 candidate_byte_size +=
                     actual_byte_size(segment, &self.mergeable_segments, avg_doc_size);

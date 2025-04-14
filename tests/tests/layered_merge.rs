@@ -116,3 +116,24 @@ fn dont_merge_create_index_segments(mut conn: PgConnection) {
 
     assert!(num_deleted_after < num_deleted_before);
 }
+
+#[rstest]
+fn force_merge_create_index_segments(mut conn: PgConnection) {
+    r#"
+        CREATE TABLE force_merge (id bigint);
+        INSERT INTO force_merge (id) SELECT x FROM generate_series(1, 10000000) x;
+        CREATE INDEX idxforce_merge ON force_merge USING bm25(id) WITH (key_field='id');
+    "#.execute_result(&mut conn).expect("creating table/index should not fail");
+
+    let (nsegments_before,) =
+        "select count(*) from paradedb.index_info('idxforce_merge');"
+            .fetch_one::<(i64,)>(&mut conn);
+
+    "SELECT paradedb.force_merge('idxforce_merge', '2MB');".execute(&mut conn);
+
+    let (nsegments_after,) =
+        "select count(*) from paradedb.index_info('idxforce_merge');"
+            .fetch_one::<(i64,)>(&mut conn);
+
+    assert!(nsegments_after < nsegments_before);
+}

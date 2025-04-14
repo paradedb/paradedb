@@ -40,9 +40,14 @@ impl MergePolicy for LayeredMergePolicy {
         };
 
         if original_segments.is_empty() {
+            logger(directory, "compute_merge_candidates: no segments to merge");
             return Vec::new();
         }
         if self.already_processed.load(Ordering::Relaxed) {
+            logger(
+                directory,
+                "compute_merge_candidates: already processed segments, skipping merge",
+            );
             return Vec::new();
         }
 
@@ -76,7 +81,6 @@ impl MergePolicy for LayeredMergePolicy {
             // collect the list of mergeable segments so that we can combine those that fit in the next layer
             let segments =
                 self.collect_mergeable_segments(original_segments, &merged_segments, avg_doc_size);
-
             let mut candidate_byte_size = 0;
             candidates.push((layer_size, MergeCandidate(vec![])));
 

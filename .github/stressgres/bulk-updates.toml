@@ -1,4 +1,8 @@
-[setup_primary]
+[[server]]
+name = "Primary"
+[server.style.Automatic]
+
+[server.setup]
 sql = """
 DROP EXTENSION IF EXISTS pg_search CASCADE;
 DROP TABLE IF EXISTS test CASCADE;
@@ -44,12 +48,12 @@ END;
 $$;
 """
 
-[teardown]
+[server.teardown]
 sql = """
 DROP TABLE test CASCADE;
 DROP EXTENSION pg_search CASCADE;
 """
-[monitor]
+[server.monitor]
 refresh_ms = 10
 title = "Monitor Index Size"
 log_columns = ["block_count", "segment_count"]

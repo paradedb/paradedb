@@ -286,6 +286,10 @@ fn adjusted_byte_size(
     all_entries: &HashMap<SegmentId, SegmentMetaEntry>,
     avg_doc_size: u64,
 ) -> u64 {
+    if meta.num_docs() == 0 {
+        return 0;
+    }
+
     all_entries
         .get(&meta.id())
         .map(|entry| {

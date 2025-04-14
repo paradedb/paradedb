@@ -129,9 +129,14 @@ fn do_heap_scan<'a>(
             .unwrap_or_else(|e| panic!("failed to commit new tantivy index: {e}"));
 
         // store number of segments created in metadata
-        SearchIndexReader::open(index_relation, MvccSatisfies::Snapshot)
+        let reader = SearchIndexReader::open(index_relation, MvccSatisfies::Snapshot)
             .expect("do_heap_scan: should be able to open a SearchIndexReader");
-        MergeLock::init(index_relation.oid());
+
+        // record the segment ids created in the merge lock
+        let merge_lock = MergeLock::init(index_relation.oid());
+        merge_lock
+            .record_create_index_segment_ids(reader.segment_ids().iter())
+            .expect("do_heap_scan: should be able to record segment ids in merge lock");
 
         state.count
     }

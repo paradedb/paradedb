@@ -145,6 +145,68 @@ fn pushdown(mut conn: PgConnection) {
             Some(&Value::String(String::from("Custom Scan")))
         );
     }
+
+    // test IS TRUE operator
+    {
+        let sqltype = "boolean";
+        let sqlname = sqlname(sqltype);
+        let sql = format!(
+            r#"
+                EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
+                SELECT count(*)
+                FROM test
+                WHERE {sqlname} IS true
+                  AND id @@@ '1';
+            "#
+        );
+
+        eprintln!("/----------/");
+        eprintln!("{sql}");
+
+        let (plan,) = sql.fetch_one::<(Value,)>(&mut conn);
+        eprintln!("{plan:#?}");
+
+        let plan = plan
+            .pointer("/0/Plan/Plans/0")
+            .unwrap()
+            .as_object()
+            .unwrap();
+        pretty_assertions::assert_eq!(
+            plan.get("Node Type"),
+            Some(&Value::String(String::from("Custom Scan")))
+        );
+    }
+
+    // test IS FALSE operator
+    {
+        let sqltype = "boolean";
+        let sqlname = sqlname(sqltype);
+        let sql = format!(
+            r#"
+                EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
+                SELECT count(*)
+                FROM test
+                WHERE {sqlname} IS false
+                  AND id @@@ '1';
+            "#
+        );
+
+        eprintln!("/----------/");
+        eprintln!("{sql}");
+
+        let (plan,) = sql.fetch_one::<(Value,)>(&mut conn);
+        eprintln!("{plan:#?}");
+
+        let plan = plan
+            .pointer("/0/Plan/Plans/0")
+            .unwrap()
+            .as_object()
+            .unwrap();
+        pretty_assertions::assert_eq!(
+            plan.get("Node Type"),
+            Some(&Value::String(String::from("Custom Scan")))
+        );
+    }
 }
 
 #[rstest]

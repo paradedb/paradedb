@@ -346,11 +346,11 @@ fn storage_info(
     let segment_components =
         LinkedItemList::<SegmentMetaEntry>::open(index.oid(), SEGMENT_METAS_START);
     let bman = segment_components.bman();
-    let mut blockno = segment_components.get_start_blockno();
+    let (mut blockno, mut buffer) = segment_components.get_start_blockno();
     let mut data = vec![];
 
     while blockno != pg_sys::InvalidBlockNumber {
-        let buffer = bman.get_buffer(blockno);
+        buffer = bman.get_buffer_exchange(blockno, buffer);
         let page = buffer.page();
         let max_offset = page.max_offset_number();
         data.push((blockno as i64, max_offset as i32));

@@ -474,6 +474,18 @@ impl BufferManager {
         }
     }
 
+    ///
+    /// A convenience wrapper around `get_buffer` to handle acquiring a lock on the Buffer for the
+    /// given blockno before releasing the lock on the given Buffer.
+    ///
+    /// Useful for hand-over-hand locking.
+    ///
+    pub fn get_buffer_exchange(&self, blockno: pg_sys::BlockNumber, old_buffer: Buffer) -> Buffer {
+        let buffer = self.get_buffer(blockno);
+        std::mem::drop(old_buffer);
+        buffer
+    }
+
     pub fn get_buffer_mut(&mut self, blockno: pg_sys::BlockNumber) -> BufferMut {
         unsafe {
             BufferMut {
@@ -484,6 +496,19 @@ impl BufferManager {
                 ),
             }
         }
+    }
+
+    ///
+    /// See `get_buffer_exchange`.
+    ///
+    pub fn get_buffer_exchange_mut(
+        &mut self,
+        blockno: pg_sys::BlockNumber,
+        old_buffer: BufferMut,
+    ) -> BufferMut {
+        let buffer = self.get_buffer_mut(blockno);
+        std::mem::drop(old_buffer);
+        buffer
     }
 
     #[allow(dead_code)]

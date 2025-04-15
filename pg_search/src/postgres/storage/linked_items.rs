@@ -69,16 +69,18 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedList for 
         self.header_blockno
     }
 
+    fn bman(&self) -> &BufferManager {
+        &self.bman
+    }
+
+    fn bman_mut(&mut self) -> &mut BufferManager {
+        &mut self.bman
+    }
+
     fn block_for_ord(&self, ord: usize) -> Option<BlockNumber> {
         unimplemented!(
             "block_for_ord is not implemented for LinkedItemList.  caller requested ord: {ord}"
         )
-    }
-
-    unsafe fn get_linked_list_data(&self) -> LinkedListData {
-        let header_buffer = self.bman.get_buffer(self.get_header_blockno());
-        let page = header_buffer.page();
-        page.contents::<LinkedListData>()
     }
 }
 
@@ -89,14 +91,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             bman: BufferManager::new(relation_oid),
             _marker: std::marker::PhantomData,
         }
-    }
-
-    pub fn bman(&self) -> &BufferManager {
-        &self.bman
-    }
-
-    pub fn bman_mut(&mut self) -> &mut BufferManager {
-        &mut self.bman
     }
 
     pub fn create(relation_oid: pg_sys::Oid) -> Self {
@@ -135,10 +129,10 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
     /// Return a Vec of all the items in this linked list
     pub unsafe fn list(&self) -> Vec<T> {
         let mut items = vec![];
-        let mut blockno = self.get_start_blockno();
+        let (mut blockno, mut buffer) = self.get_start_blockno();
 
         while blockno != pg_sys::InvalidBlockNumber {
-            let buffer = self.bman.get_buffer(blockno);
+            buffer = self.bman.get_buffer_exchange(blockno, buffer);
             let page = buffer.page();
             let mut offsetno = pg_sys::FirstOffsetNumber;
             let max_offset = page.max_offset_number();
@@ -155,10 +149,10 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
     }
 
     pub unsafe fn is_empty(&self) -> bool {
-        let mut blockno = self.get_start_blockno();
+        let (mut blockno, mut buffer) = self.get_start_blockno();
 
         while blockno != pg_sys::InvalidBlockNumber {
-            let buffer = self.bman.get_buffer(blockno);
+            buffer = self.bman.get_buffer_exchange(blockno, buffer);
             let page = buffer.page();
             let mut offsetno = pg_sys::FirstOffsetNumber;
             let max_offset = page.max_offset_number();
@@ -205,9 +199,8 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         &mut self,
         mut f: impl FnMut(&mut BufferManager, T) -> RetainItem<T>,
     ) -> Vec<T> {
-        let start_blockno = self.get_start_blockno();
-        let mut blockno = start_blockno;
-        let mut last_filled_blockno = start_blockno;
+        let (mut blockno, mut previous_buffer) = self.get_start_blockno_mut();
+        let mut is_first_block = true;
 
         let mut recycled_entries = Vec::new();
         let mut delete_offsets = vec![];
@@ -243,41 +236,29 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             }
 
             let new_max_offset = page.max_offset_number();
-            let current_blockno = blockno;
             blockno = page.next_blockno();
 
             // Compaction step: If the page is entirely empty, mark as deleted
             // Adjust the pointer from the last known non-empty node to point to the next non-empty node
-            if new_max_offset == pg_sys::InvalidOffsetNumber && current_blockno != start_blockno {
-                // this page is no longer useful to us so go ahead and return it to the FSM.  Doing
-                // so will also drop the lock
+            if new_max_offset == pg_sys::InvalidOffsetNumber && !is_first_block {
+                // this page is no longer useful to us: remove it from the linked list by adjusting
+                // the previous page to point at the next page.
+                previous_buffer
+                    .page_mut()
+                    .special_mut::<BM25PageSpecialData>()
+                    .next_blockno = blockno;
+
+                // return it to the FSM. Doing so will also drop the lock, but we are still
+                // holding the lock on the previous page, so hand-over-hand is ensured.
                 buffer.return_to_fsm(&mut self.bman);
-
-                // We've reached the end of the list, which means the last filled block is now the
-                // last entry in the list
-                if blockno == pg_sys::InvalidBlockNumber {
-                    let mut last_filled_buffer = self.bman.get_buffer_mut(last_filled_blockno);
-                    let mut last_filled_page = last_filled_buffer.page_mut();
-                    let special = last_filled_page.special_mut::<BM25PageSpecialData>();
-                    special.next_blockno = pg_sys::InvalidBlockNumber;
-                }
-            } else if new_max_offset != pg_sys::InvalidOffsetNumber
-                && current_blockno != start_blockno
-            {
-                // drop the buffer were holding onto as we might acquire an exclusive lock on another
-                // one below and we don't want concurrent backends that are otherwise racing through
-                // this linked list to end up causing a lock inversion where they've locked the page
-                // we want while we have this page locked
-                drop(buffer);
-
-                let mut last_filled_buffer = self.bman.get_buffer_mut(last_filled_blockno);
-                let mut last_filled_page = last_filled_buffer.page_mut();
-                if last_filled_page.next_blockno() != current_blockno {
-                    let special = last_filled_page.special_mut::<BM25PageSpecialData>();
-                    special.next_blockno = current_blockno;
-                }
-                last_filled_blockno = current_blockno;
+            } else {
+                // this is either the start page, or a page containing valid data. move its buffer
+                // into previous_buffer to ensure that it is held hand-over-hand until we decide
+                // that we might need to free some future buffer.
+                previous_buffer = buffer;
             }
+
+            is_first_block = false;
         }
 
         recycled_entries
@@ -287,9 +268,9 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
     /// Visit each entry, without mutating entries or the list structure.
     ///
     pub unsafe fn for_each(&mut self, mut f: impl FnMut(&mut BufferManager, T)) {
-        let mut blockno = self.get_start_blockno();
+        let (mut blockno, mut buffer) = self.get_start_blockno();
         while blockno != pg_sys::InvalidBlockNumber {
-            let buffer = self.bman().get_buffer(blockno);
+            buffer = self.bman().get_buffer_exchange(blockno, buffer);
             let page = buffer.page();
             let mut offsetno = pg_sys::FirstOffsetNumber;
             let max_offset = page.max_offset_number();
@@ -304,14 +285,12 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
     }
 
     pub unsafe fn add_items(&mut self, items: &[T], buffer: Option<BufferMut>) {
-        let need_hold = buffer.is_some();
-        let mut buffer =
-            buffer.unwrap_or_else(|| self.bman.get_buffer_mut(self.get_start_blockno()));
-
-        // this will get set to the `buffer` argument above and remain open (ie, exclusive locked)
-        // until we're done adding all the items, so long as the original `buffer` argument was
-        // Some(BufferMut)
-        let mut hold_open = None;
+        let mut buffer = if let Some(buffer) = buffer {
+            buffer
+        } else {
+            let (start_blockno, buffer) = self.get_start_blockno_mut();
+            self.bman.get_buffer_exchange_mut(start_blockno, buffer)
+        };
 
         for item in items {
             let PgItem(pg_item, size) = item.clone().into();
@@ -325,9 +304,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
                 } else if page.next_blockno() != pg_sys::InvalidBlockNumber {
                     // go to the next block
                     let next_blockno = page.next_blockno();
-                    if need_hold && hold_open.is_none() {
-                        hold_open = Some(buffer);
-                    }
                     buffer = self.bman.get_buffer_mut(next_blockno);
                 } else {
                     // need to create new block and link it to this one
@@ -338,9 +314,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
                     let special = page.special_mut::<BM25PageSpecialData>();
                     special.next_blockno = new_blockno;
 
-                    if need_hold && hold_open.is_none() {
-                        hold_open = Some(buffer);
-                    }
                     buffer = new_page;
                 }
             }
@@ -366,9 +339,9 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         &self,
         cmp: Cmp,
     ) -> Result<(T, pg_sys::BlockNumber, pg_sys::OffsetNumber)> {
-        let mut blockno = self.get_start_blockno();
+        let (mut blockno, mut buffer) = self.get_start_blockno();
         while blockno != pg_sys::InvalidBlockNumber {
-            let buffer = self.bman.get_buffer(blockno);
+            buffer = self.bman.get_buffer_exchange(blockno, buffer);
             let page = buffer.page();
             let mut offsetno = pg_sys::FirstOffsetNumber;
             let max_offset = page.max_offset_number();
@@ -411,7 +384,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
 
         // We create the duplicate without a start page: it will be filled in in the first
         // iteration of the loop below.
-        let (mut cloned, mut header_buffer) =
+        let (mut cloned, mut previous_buffer) =
             LinkedItemList::create_without_start_page(self.bman.relation_oid());
 
         // TODO: This code could either:
@@ -428,7 +401,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         );
         let mut previous_new_buffer: Option<BufferMut> = None;
         while blockno != pg_sys::InvalidBlockNumber {
-            let buffer = self.bman.get_buffer(blockno);
+            let buffer = self.bman.get_buffer_mut(blockno);
             let page = buffer.page();
             let mut offsetno = pg_sys::FirstOffsetNumber;
             let max_offset = page.max_offset_number();
@@ -444,7 +417,8 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
                     .special_mut::<BM25PageSpecialData>()
                     .next_blockno = new_blockno;
             } else {
-                header_buffer
+                // In the case of the first block, our previous buffer points to the header.
+                previous_buffer
                     .page_mut()
                     .contents_mut::<LinkedListData>()
                     .start_blockno = new_blockno;
@@ -461,6 +435,10 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             *new_page.special_mut::<BM25PageSpecialData>() =
                 (*page.special::<BM25PageSpecialData>()).clone();
             blockno = page.next_blockno();
+
+            // We hold the previous_buffer in order to ensure hand-over-hand locking on the
+            // original list.
+            previous_buffer = buffer;
             previous_new_buffer = Some(new_buffer);
         }
 
@@ -579,7 +557,7 @@ mod tests {
     fn linked_list_block_numbers(
         list: &LinkedItemList<SegmentMetaEntry>,
     ) -> HashSet<pg_sys::BlockNumber> {
-        let mut blockno = list.get_start_blockno();
+        let (mut blockno, _) = list.get_start_blockno();
         let mut block_numbers = HashSet::new();
 
         while blockno != pg_sys::InvalidBlockNumber {

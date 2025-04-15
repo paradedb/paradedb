@@ -170,6 +170,14 @@ impl LinkedList for LinkedBytesList {
         self.header_blockno
     }
 
+    fn bman(&self) -> &BufferManager {
+        &self.bman
+    }
+
+    fn bman_mut(&mut self) -> &mut BufferManager {
+        &mut self.bman
+    }
+
     fn block_for_ord(&self, ord: usize) -> Option<BlockNumber> {
         self.blocklist_reader
             .get_or_init(|| {
@@ -178,12 +186,6 @@ impl LinkedList for LinkedBytesList {
                 })
             })
             .get(ord)
-    }
-
-    unsafe fn get_linked_list_data(&self) -> LinkedListData {
-        let header_buffer = self.bman.get_buffer(self.get_header_blockno());
-        let page = header_buffer.page();
-        page.contents::<LinkedListData>()
     }
 }
 
@@ -274,11 +276,11 @@ impl LinkedBytesList {
     }
 
     pub unsafe fn read_all(&self) -> Vec<u8> {
-        let mut blockno = self.get_start_blockno();
+        let (mut blockno, mut buffer) = self.get_start_blockno();
         let mut bytes: Vec<u8> = vec![];
 
         while blockno != pg_sys::InvalidBlockNumber {
-            let buffer = self.bman.get_buffer(blockno);
+            buffer = self.bman.get_buffer_exchange(blockno, buffer);
             let page = buffer.page();
             let special = page.special::<BM25PageSpecialData>();
             let slice = page.as_slice();
@@ -320,7 +322,7 @@ impl LinkedBytesList {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.bman.page_is_empty(self.get_start_blockno())
+        self.bman.page_is_empty(self.get_start_blockno().0)
     }
 
     #[inline]
@@ -457,7 +459,7 @@ mod tests {
         let mut writer = linked_list.writer();
         writer.write(&bytes).unwrap();
         let linked_list = writer.into_inner().unwrap();
-        let mut blockno = linked_list.get_start_blockno();
+        let (mut blockno, _) = linked_list.get_start_blockno();
         linked_list.return_to_fsm();
 
         while blockno != pg_sys::InvalidBlockNumber {

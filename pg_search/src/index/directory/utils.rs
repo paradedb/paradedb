@@ -19,22 +19,22 @@ use tantivy::{
 };
 
 pub fn save_schema(relation_oid: pg_sys::Oid, tantivy_schema: &Schema) -> Result<()> {
-    let mut schema = LinkedBytesList::open(relation_oid, SCHEMA_START);
+    let schema = LinkedBytesList::open(relation_oid, SCHEMA_START);
     if schema.is_empty() {
         let bytes = serde_json::to_vec(tantivy_schema)?;
         unsafe {
-            let _ = schema.write(&bytes)?;
+            schema.writer().write(&bytes)?;
         }
     }
     Ok(())
 }
 
 pub fn save_settings(relation_oid: pg_sys::Oid, tantivy_settings: &IndexSettings) -> Result<()> {
-    let mut settings = LinkedBytesList::open(relation_oid, SETTINGS_START);
+    let settings = LinkedBytesList::open(relation_oid, SETTINGS_START);
     if settings.is_empty() {
         let bytes = serde_json::to_vec(tantivy_settings)?;
         unsafe {
-            let _ = settings.write(&bytes)?;
+            settings.writer().write(&bytes)?;
         }
     }
     Ok(())

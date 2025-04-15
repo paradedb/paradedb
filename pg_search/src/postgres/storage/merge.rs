@@ -300,8 +300,9 @@ impl MergeLock {
             .into_iter()
             .flat_map(|segment_id| segment_id.uuid_bytes().iter().copied())
             .collect::<Vec<_>>();
-        let mut segment_ids_list = LinkedBytesList::create(relation_id);
-        segment_ids_list.write(&segment_id_bytes)?;
+        let segment_ids_list = LinkedBytesList::create(relation_id);
+        let segment_ids_start_blockno = segment_ids_list.get_header_blockno();
+        segment_ids_list.writer().write(&segment_id_bytes)?;
 
         // fabricate and write the [`MergeEntry`] itself
         let xid = pg_sys::GetCurrentTransactionId();
@@ -309,7 +310,7 @@ impl MergeLock {
             pid: pg_sys::MyProcPid,
             xmin: xid, // the entry is transient
             xmax: xid, // so it will be considered deleted by this transaction
-            segment_ids_start_blockno: segment_ids_list.get_header_blockno(),
+            segment_ids_start_blockno,
         };
 
         let mut entries_list = LinkedItemList::<MergeEntry>::open(relation_id, merge_list_blockno);
@@ -326,8 +327,10 @@ impl MergeLock {
             .into_iter()
             .flat_map(|segment_id| segment_id.uuid_bytes().iter().copied())
             .collect::<Vec<_>>();
-        let mut segment_ids_list = LinkedBytesList::create(relation_id);
-        segment_ids_list.write(&segment_id_bytes)?;
+        let segment_ids_list = LinkedBytesList::create(relation_id);
+        let mut writer = segment_ids_list.writer();
+        writer.write(&segment_id_bytes)?;
+        let segment_ids_list = writer.into_inner()?;
 
         let mut page = self.buffer.page_mut();
         let metadata = page.contents_mut::<MergeLockData>();

@@ -36,10 +36,6 @@ impl Buffer {
         }
     }
 
-    pub fn page_contents<T: Copy>(&self) -> T {
-        self.page().contents()
-    }
-
     pub fn number(&self) -> pg_sys::BlockNumber {
         unsafe { pg_sys::BufferGetBlockNumber(self.pg_buffer) }
     }

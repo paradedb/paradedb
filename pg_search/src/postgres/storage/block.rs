@@ -115,6 +115,7 @@ pub trait LinkedList {
 
     fn block_for_ord(&self, ord: usize) -> Option<pg_sys::BlockNumber>;
 
+    // TODO: Remove.
     unsafe fn get_linked_list_data(&self) -> LinkedListData;
 }
 

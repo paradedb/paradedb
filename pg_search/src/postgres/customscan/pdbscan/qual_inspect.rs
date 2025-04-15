@@ -554,6 +554,24 @@ pub unsafe fn extract_quals(
             }
         }
 
+        pg_sys::NodeTag::T_BooleanTest => {
+            let booltest = nodecast!(BooleanTest, T_BooleanTest, node)?;
+            let (_, attname) = attname_from_var(root, (*booltest).arg.cast());
+            let attname = attname?;
+
+            match (*booltest).booltesttype {
+                pg_sys::BoolTestType::IS_TRUE => Some(Qual::PushdownVarIsTrue { attname }),
+                pg_sys::BoolTestType::IS_NOT_TRUE => {
+                    Some(Qual::Not(Box::new(Qual::PushdownVarIsTrue { attname })))
+                }
+                pg_sys::BoolTestType::IS_FALSE => {
+                    Some(Qual::Not(Box::new(Qual::PushdownVarIsTrue { attname })))
+                }
+                pg_sys::BoolTestType::IS_NOT_FALSE => Some(Qual::PushdownVarIsTrue { attname }),
+                _ => None,
+            }
+        }
+
         // we don't understand this clause so we can't do anything
         _ => None,
     }

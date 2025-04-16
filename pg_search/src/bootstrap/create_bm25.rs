@@ -472,7 +472,7 @@ fn force_merge_raw_bytes(
 
     let merge_policy = LayeredMergePolicy::new(vec![oversized_layer_size_bytes.try_into()?]);
     let (ncandidates, nmerged) =
-        unsafe { merge_index_with_policy(index, merge_policy, true, true) };
+        unsafe { merge_index_with_policy(index, merge_policy, true, true, true) };
     Ok(TableIterator::once((
         ncandidates.try_into()?,
         nmerged.try_into()?,
@@ -539,7 +539,7 @@ from (select relname,
       where low < high
       group by relname, low, high
       order by relname, low desc) x;
-      
+
 GRANT SELECT ON paradedb.index_layer_info TO PUBLIC;
 "#,
     name = "index_layer_info",

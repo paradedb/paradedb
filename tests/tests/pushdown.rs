@@ -5,6 +5,48 @@ use rstest::*;
 use serde_json::Value;
 use sqlx::PgConnection;
 
+/// Helper function to verify that a query plan uses ParadeDB's custom scan operator
+/// This checks if the plan node is either:
+/// 1. A "Custom Scan" node directly, or
+/// 2. A "Gather" node with a "Custom Scan" child node
+fn verify_custom_scan(plan: &Value, description: &str) {
+    let plan_node = plan
+        .pointer("/0/Plan/Plans/0")
+        .unwrap_or_else(|| panic!("Could not find plan node in: {plan:?}"))
+        .as_object()
+        .unwrap();
+
+    let node_type = plan_node
+        .get("Node Type")
+        .unwrap_or_else(|| panic!("Could not find Node Type in plan node"))
+        .as_str()
+        .unwrap();
+
+    if node_type == "Custom Scan" {
+        assert_eq!("Custom Scan", node_type, "{description}");
+    } else {
+        assert_eq!(
+            "Gather", node_type,
+            "Expected either Custom Scan or Gather but got {node_type}"
+        );
+        let child_node = plan_node
+            .get("Plans")
+            .unwrap_or_else(|| panic!("Could not find child plans in Gather node"))
+            .as_array()
+            .unwrap()
+            .get(0)
+            .unwrap()
+            .as_object()
+            .unwrap();
+
+        assert_eq!(
+            "Custom Scan",
+            child_node.get("Node Type").unwrap().as_str().unwrap(),
+            "Child node of Gather should be Custom Scan for {description}"
+        );
+    }
+}
+
 #[rstest]
 fn pushdown(mut conn: PgConnection) {
     const OPERATORS: [&str; 6] = ["=", ">", "<", ">=", "<=", "<>"];
@@ -74,15 +116,7 @@ fn pushdown(mut conn: PgConnection) {
             let (plan,) = sql.fetch_one::<(Value,)>(&mut conn);
             eprintln!("{plan:#?}");
 
-            let plan = plan
-                .pointer("/0/Plan/Plans/0")
-                .unwrap()
-                .as_object()
-                .unwrap();
-            pretty_assertions::assert_eq!(
-                plan.get("Node Type"),
-                Some(&Value::String(String::from("Custom Scan")))
-            );
+            verify_custom_scan(&plan, &format!("Operator {operator} for type {sqltype}"));
         }
     }
 
@@ -106,15 +140,7 @@ fn pushdown(mut conn: PgConnection) {
         let (plan,) = sql.fetch_one::<(Value,)>(&mut conn);
         eprintln!("{plan:#?}");
 
-        let plan = plan
-            .pointer("/0/Plan/Plans/0")
-            .unwrap()
-            .as_object()
-            .unwrap();
-        pretty_assertions::assert_eq!(
-            plan.get("Node Type"),
-            Some(&Value::String(String::from("Custom Scan")))
-        );
+        verify_custom_scan(&plan, "boolean = true operator");
     }
     {
         let sqltype = "boolean";
@@ -135,15 +161,7 @@ fn pushdown(mut conn: PgConnection) {
         let (plan,) = sql.fetch_one::<(Value,)>(&mut conn);
         eprintln!("{plan:#?}");
 
-        let plan = plan
-            .pointer("/0/Plan/Plans/0")
-            .unwrap()
-            .as_object()
-            .unwrap();
-        pretty_assertions::assert_eq!(
-            plan.get("Node Type"),
-            Some(&Value::String(String::from("Custom Scan")))
-        );
+        verify_custom_scan(&plan, "boolean = false operator");
     }
 
     // test IS TRUE operator
@@ -166,15 +184,7 @@ fn pushdown(mut conn: PgConnection) {
         let (plan,) = sql.fetch_one::<(Value,)>(&mut conn);
         eprintln!("{plan:#?}");
 
-        let plan = plan
-            .pointer("/0/Plan/Plans/0")
-            .unwrap()
-            .as_object()
-            .unwrap();
-        pretty_assertions::assert_eq!(
-            plan.get("Node Type"),
-            Some(&Value::String(String::from("Custom Scan")))
-        );
+        verify_custom_scan(&plan, "boolean IS true operator");
     }
 
     // test IS FALSE operator
@@ -197,15 +207,7 @@ fn pushdown(mut conn: PgConnection) {
         let (plan,) = sql.fetch_one::<(Value,)>(&mut conn);
         eprintln!("{plan:#?}");
 
-        let plan = plan
-            .pointer("/0/Plan/Plans/0")
-            .unwrap()
-            .as_object()
-            .unwrap();
-        pretty_assertions::assert_eq!(
-            plan.get("Node Type"),
-            Some(&Value::String(String::from("Custom Scan")))
-        );
+        verify_custom_scan(&plan, "boolean IS false operator");
     }
 }
 
@@ -247,15 +249,7 @@ fn issue2301_is_null_with_joins(mut conn: PgConnection) {
 
     eprintln!("{plan:#?}");
 
-    let plan = plan
-        .pointer("/0/Plan/Plans/0")
-        .unwrap()
-        .as_object()
-        .unwrap();
-    pretty_assertions::assert_eq!(
-        plan.get("Node Type"),
-        Some(&Value::String(String::from("Custom Scan")))
-    );
+    verify_custom_scan(&plan, "IS NULL with joins");
 }
 
 #[fixture]
@@ -307,15 +301,7 @@ mod pushdown_is_not_null {
         eprintln!("{plan:#?}");
 
         // Verify that the custom scan is used
-        let plan = plan
-            .pointer("/0/Plan/Plans/0")
-            .unwrap()
-            .as_object()
-            .unwrap();
-        pretty_assertions::assert_eq!(
-            plan.get("Node Type"),
-            Some(&Value::String(String::from("Custom Scan")))
-        );
+        verify_custom_scan(&plan, "IS NOT NULL condition");
     }
 
     #[rstest]
@@ -529,15 +515,7 @@ mod pushdown_is_null {
         eprintln!("{plan:#?}");
 
         // Verify that the custom scan is used
-        let plan = plan
-            .pointer("/0/Plan/Plans/0")
-            .unwrap()
-            .as_object()
-            .unwrap();
-        pretty_assertions::assert_eq!(
-            plan.get("Node Type"),
-            Some(&Value::String(String::from("Custom Scan")))
-        );
+        verify_custom_scan(&plan, "IS NULL condition");
     }
 
     #[rstest]
@@ -751,32 +729,8 @@ mod pushdown_is_bool_operator {
         let (plan,) = sql.fetch_one::<(Value,)>(conn);
         eprintln!("{plan:#?}");
 
-        // Verify custom scan is used (handling both direct Custom Scan and Gather with Custom Scan child)
-        let plan_node = plan
-            .pointer("/0/Plan/Plans/0")
-            .unwrap()
-            .as_object()
-            .unwrap();
-        let node_type = plan_node.get("Node Type").unwrap().as_str().unwrap();
-
-        if node_type == "Custom Scan" {
-            assert_eq!("Custom Scan", node_type);
-        } else {
-            assert_eq!("Gather", node_type);
-            let child_node = plan_node
-                .get("Plans")
-                .unwrap()
-                .as_array()
-                .unwrap()
-                .get(0)
-                .unwrap()
-                .as_object()
-                .unwrap();
-            assert_eq!(
-                "Custom Scan",
-                child_node.get("Node Type").unwrap().as_str().unwrap()
-            );
-        }
+        // Verify custom scan is used
+        verify_custom_scan(&plan, &format!("boolean {condition} operator"));
 
         // Verify query results
         let results: Vec<(i64, bool, String, f32)> = format!(
@@ -1080,6 +1034,9 @@ mod pushdown_is_bool_operator {
             eprintln!("{sql}");
             let (plan,) = sql.fetch_one::<(Value,)>(conn);
             eprintln!("{plan:#?}");
+
+            // Verify custom scan is used
+            verify_custom_scan(&plan, &format!("{condition} operator for NULL test"));
 
             // Get actual results
             let results: Vec<(i64, Option<bool>, String, f32)> = format!(

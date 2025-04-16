@@ -33,7 +33,8 @@ fn verify_custom_scan(plan: &Value, description: &str) {
             .get("Plans")
             .unwrap_or_else(|| panic!("Could not find child plans in Gather node"))
             .as_array()
-            .unwrap().first()
+            .unwrap()
+            .first()
             .unwrap()
             .as_object()
             .unwrap();

@@ -443,8 +443,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         }
 
         AtomicGuard {
-            original: Some(self),
-            original_header_lock,
+            original: Some((self, original_header_lock)),
             cloned,
         }
     }
@@ -457,8 +456,7 @@ pub enum RetainItem<T> {
 }
 
 pub struct AtomicGuard<'s, T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> {
-    original: Option<&'s mut LinkedItemList<T>>,
-    original_header_lock: BufferMut,
+    original: Option<(&'s mut LinkedItemList<T>, BufferMut)>,
     cloned: LinkedItemList<T>,
 }
 
@@ -478,12 +476,13 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> DerefMut for At
 
 impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> AtomicGuard<'_, T> {
     pub fn commit(mut self) {
-        let original = self.original.take().expect("Cannot commit twice!");
+        let (original, mut original_header_lock) =
+            self.original.take().expect("Cannot commit twice!");
 
         // Update our header page to point to the new start block, and return the old one.
         let mut blockno = {
             // Open both header pages.
-            let mut original_header_page = self.original_header_lock.page_mut();
+            let mut original_header_page = original_header_lock.page_mut();
             let mut cloned_header_buffer =
                 self.cloned.bman.get_buffer_mut(self.cloned.header_blockno);
             let mut cloned_header_page = cloned_header_buffer.page_mut();
@@ -498,6 +497,10 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> AtomicGuard<'_,
 
             old_start_blockno
         };
+
+        // Drop the header, to ensure that the new header content is written to the WAL before
+        // we begin cleaning up its old pages.
+        std::mem::drop(original_header_lock);
 
         // And then collect our old contents, which are no longer reachable.
         while blockno != pg_sys::InvalidBlockNumber {

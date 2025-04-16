@@ -313,17 +313,13 @@ impl From<&Qual> for SearchQueryInput {
                 match qual.as_ref() {
                     // If we're negating a PushdownVarIsTrue, we should use PushdownVarIsFalse directly
                     // rather than using must_not, to avoid including NULLs
-                    Qual::PushdownVarIsTrue { attname } => SearchQueryInput::Term {
-                        field: Some(attname.clone()),
-                        value: OwnedValue::Bool(false),
-                        is_datetime: false,
-                    },
+                    Qual::PushdownVarIsTrue { attname } => Self::from(&Qual::PushdownVarIsFalse {
+                        attname: attname.clone(),
+                    }),
                     // Similarly, if we're negating a PushdownVarIsFalse, use PushdownVarIsTrue
-                    Qual::PushdownVarIsFalse { attname } => SearchQueryInput::Term {
-                        field: Some(attname.clone()),
-                        value: OwnedValue::Bool(true),
-                        is_datetime: false,
-                    },
+                    Qual::PushdownVarIsFalse { attname } => Self::from(&Qual::PushdownVarIsTrue {
+                        attname: attname.clone(),
+                    }),
                     // For other types of negation, use the standard Boolean query with must_not
                     _ => {
                         let must_not = vec![SearchQueryInput::from(qual.as_ref())];

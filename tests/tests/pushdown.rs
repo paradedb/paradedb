@@ -726,7 +726,7 @@ mod pushdown_is_bool_operator {
         // since it may not use Custom Scan directly
 
         // Just verify the query results
-        let results: Vec<(i64, bool, String, f32)> = format!(
+        let results: Vec<(i64, bool, String, Option<f32>)> = format!(
             r#"
             SELECT id, bool_field, message, paradedb.score(id)
             FROM is_true
@@ -777,7 +777,6 @@ mod pushdown_is_bool_operator {
     /// PostgreSQL will handle the evaluation of these expressions after the scan.
     /// We're marking this test as ignored until we implement full support for complex expressions.
     #[rstest]
-    #[ignore]
     fn test_complex_bool_expressions_with_is_operator(mut conn: PgConnection) {
         r#"
     DROP TABLE IF EXISTS is_true;

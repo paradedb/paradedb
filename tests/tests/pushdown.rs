@@ -119,6 +119,50 @@ fn pushdown(mut conn: PgConnection) {
             verify_custom_scan(&plan, &format!("Operator {operator} for type {sqltype}"));
         }
     }
+
+    // boolean is a bit of a separate beast, so test it directly
+    {
+        let sqltype = "boolean";
+        let sqlname = sqlname(sqltype);
+        let sql = format!(
+            r#"
+                EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
+                SELECT count(*)
+                FROM test
+                WHERE {sqlname} = true
+                  AND id @@@ '1';
+            "#
+        );
+
+        eprintln!("/----------/");
+        eprintln!("{sql}");
+
+        let (plan,) = sql.fetch_one::<(Value,)>(&mut conn);
+        eprintln!("{plan:#?}");
+
+        verify_custom_scan(&plan, "boolean = true operator");
+    }
+    {
+        let sqltype = "boolean";
+        let sqlname = sqlname(sqltype);
+        let sql = format!(
+            r#"
+                EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
+                SELECT count(*)
+                FROM test
+                WHERE {sqlname} = false
+                  AND id @@@ '1';
+            "#
+        );
+
+        eprintln!("/----------/");
+        eprintln!("{sql}");
+
+        let (plan,) = sql.fetch_one::<(Value,)>(&mut conn);
+        eprintln!("{plan:#?}");
+
+        verify_custom_scan(&plan, "boolean = false operator");
+    }
 }
 
 #[rstest]

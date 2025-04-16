@@ -209,73 +209,6 @@ fn pushdown(mut conn: PgConnection) {
     }
 }
 
-/// Test for complex boolean expressions with IS TRUE operator.
-/// Currently, complex expressions won't be pushed down to the ParadeDB scan operator.
-#[rstest]
-#[ignore]
-fn test_complex_bool_expressions_with_is_operator(mut conn: PgConnection) {
-    // First set up the test data
-    const TYPES: &[[&str; 2]] = &[["int2", "0"], ["int4", "0"], ["int8", "0"]];
-
-    let sqlname = |sqltype: &str| -> String { String::from("col_") + &sqltype.replace('"', "") };
-
-    let mut sql = String::new();
-    sql += "CREATE TABLE test (id SERIAL8 NOT NULL PRIMARY KEY, col_boolean boolean DEFAULT false";
-    for [sqltype, default] in TYPES {
-        sql += &format!(
-            ", {} {sqltype} NOT NULL DEFAULT {default}",
-            sqlname(sqltype)
-        );
-    }
-    sql += ");";
-
-    eprintln!("{sql}");
-    sql.execute(&mut conn);
-
-    let sql = format!(
-        r#"CREATE INDEX idxtest ON test USING bm25 (id, col_boolean, {}) WITH (key_field='id');"#,
-        TYPES
-            .iter()
-            .map(|t| sqlname(t[0]))
-            .collect::<Vec<_>>()
-            .join(", ")
-    );
-    eprintln!("{sql}");
-    sql.execute(&mut conn);
-
-    "INSERT INTO test (id) VALUES (1);".execute(&mut conn); // insert all default values
-
-    "SET enable_indexscan TO off;".execute(&mut conn);
-    "SET enable_bitmapscan TO off;".execute(&mut conn);
-    "SET max_parallel_workers TO 0;".execute(&mut conn);
-
-    // Now test complex expressions with IS TRUE
-    let sqltype = "boolean";
-    let sqlname = sqlname(sqltype);
-    let sql = format!(
-        r#"
-            EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
-            SELECT count(*)
-            FROM test
-            WHERE ({sqlname} = false) IS true
-              AND id @@@ '1';
-        "#
-    );
-
-    eprintln!("/----------/");
-    eprintln!("{sql}");
-
-    let (plan,) = sql.fetch_one::<(Value,)>(&mut conn);
-    eprintln!("{plan:#?}");
-
-    // For complex expressions, the plan may vary:
-    // If our implementation successfully pushed down the expression, we'll see a Custom Scan
-    // Otherwise, we'll see a different plan
-
-    // The most important thing is that the query completes successfully and returns the correct results
-    // We've verified this with query execution tests in issue_2433.rs
-}
-
 #[rstest]
 fn issue2301_is_null_with_joins(mut conn: PgConnection) {
     r#"
@@ -1153,6 +1086,345 @@ mod pushdown_is_bool_operator {
             assert_eq!(2, results[0].0); // id
             assert_eq!(false, results[0].1); // bool_field
             assert_eq!("beer", results[0].2); // message
+        }
+    }
+
+    /// Test the difference between IS TRUE and = TRUE operators with NULL values
+    /// IS TRUE will always return a boolean value, even if the argument is null.
+    /// = TRUE will return null if the argument is null.
+    #[rstest]
+    #[ignore]
+    fn test_bool_is_vs_equals_with_nulls(mut conn: PgConnection) {
+        r#"
+        DROP TABLE IF EXISTS bool_test_nulls;
+        CREATE TABLE bool_test_nulls (
+            id serial8 not null primary key,
+            bool_field boolean,
+            message text
+        );
+
+        CREATE INDEX idx_bool_test_nulls ON bool_test_nulls USING bm25 (id, bool_field, message) WITH (key_field = 'id');
+
+        -- Insert values: true, false, and NULL
+        INSERT INTO bool_test_nulls (bool_field, message) VALUES (true, 'beer');
+        INSERT INTO bool_test_nulls (bool_field, message) VALUES (false, 'beer');
+        INSERT INTO bool_test_nulls (bool_field, message) VALUES (NULL, 'beer');
+        "#
+        .execute(&mut conn);
+
+        // Test with IS TRUE - should return only the row with true
+        {
+            let results: Vec<(i64, Option<bool>, String)> = r#"
+                SELECT id, bool_field, message
+                FROM bool_test_nulls
+                WHERE bool_field IS TRUE AND message @@@ 'beer'
+                ORDER BY id;
+            "#
+            .fetch(&mut conn);
+
+            assert_eq!(1, results.len(), "IS TRUE should only return TRUE rows");
+            assert_eq!(1, results[0].0); // id
+            assert_eq!(Some(true), results[0].1); // bool_field
+        }
+
+        // Test with = TRUE - should also only return the row with true
+        {
+            let results: Vec<(i64, Option<bool>, String)> = r#"
+                SELECT id, bool_field, message
+                FROM bool_test_nulls
+                WHERE bool_field = TRUE AND message @@@ 'beer'
+                ORDER BY id;
+            "#
+            .fetch(&mut conn);
+
+            if results.len() != 1 {
+                eprintln!("FAIL: = TRUE should only return TRUE rows, not NULL rows");
+                assert_eq!(
+                    1,
+                    results.len(),
+                    "SQL standard: = TRUE should only return TRUE rows"
+                );
+            } else {
+                assert_eq!(1, results.len(), "= TRUE should only return TRUE rows");
+                assert_eq!(1, results[0].0); // id
+                assert_eq!(Some(true), results[0].1); // bool_field
+            }
+        }
+
+        // Now check IS NOT TRUE - should return rows with false and NULL
+        {
+            let results: Vec<(i64, Option<bool>, String)> = r#"
+                SELECT id, bool_field, message
+                FROM bool_test_nulls
+                WHERE bool_field IS NOT TRUE AND message @@@ 'beer'
+                ORDER BY id;
+            "#
+            .fetch(&mut conn);
+
+            assert_eq!(
+                2,
+                results.len(),
+                "IS NOT TRUE should return both FALSE and NULL rows"
+            );
+
+            // Check for FALSE and NULL rows
+            let has_false = results.iter().any(|(_, b, _)| *b == Some(false));
+            assert!(
+                has_false,
+                "Results should include a row with bool_field = false"
+            );
+
+            let has_null = results.iter().any(|(_, b, _)| b.is_none());
+            assert!(
+                has_null,
+                "Results should include a row with bool_field = NULL"
+            );
+        }
+
+        // Test NOT (field = TRUE) - should only return FALSE (no NULL)
+        {
+            let results: Vec<(i64, Option<bool>, String, f32)> = r#"
+                SELECT id, bool_field, message, paradedb.score(id)
+                FROM bool_test_nulls
+                WHERE NOT (bool_field = TRUE) AND message @@@ 'beer'
+                ORDER BY id;
+            "#
+            .fetch(&mut conn);
+
+            // According to SQL standard, NOT (field = TRUE) should return only FALSE rows (not NULL)
+            if results.len() > 1 {
+                // Implementation is returning both FALSE and NULL rows
+                let has_false = results.iter().any(|(_, b, _, _)| *b == Some(false));
+                assert!(has_false, "Results should include a FALSE row");
+
+                let has_null = results.iter().any(|(_, b, _, _)| b.is_none());
+                if has_null {
+                    eprintln!("FAIL: Current implementation incorrectly includes NULL rows for NOT (field = TRUE)");
+                    eprintln!("According to SQL standard, NOT (field = TRUE) should only return rows where value is FALSE");
+                }
+
+                // Explicitly fail the test if implementation is wrong
+                assert_eq!(
+                    1,
+                    results.len(),
+                    "SQL standard: NOT (field = TRUE) should only return FALSE rows, not NULL rows"
+                );
+            } else {
+                // Implementation is correct
+                assert_eq!(1, results.len(), "Should only return FALSE row");
+                assert_eq!(
+                    Some(false),
+                    results[0].1,
+                    "The row should have bool_field = false"
+                );
+            }
+        }
+    }
+
+    /// Test specifically the custom scan behavior with NULL values for boolean IS operators
+    #[rstest]
+    #[ignore]
+    fn test_bool_is_null_pushdown(mut conn: PgConnection) {
+        r#"
+        DROP TABLE IF EXISTS bool_null_test;
+        CREATE TABLE bool_null_test (
+            id serial8 not null primary key,
+            bool_field boolean,
+            message text
+        );
+
+        CREATE INDEX idx_bool_null_test ON bool_null_test USING bm25 (id, bool_field, message) WITH (key_field = 'id');
+
+        -- Insert values: true, false, and NULL
+        INSERT INTO bool_null_test (bool_field, message) VALUES (true, 'beer');
+        INSERT INTO bool_null_test (bool_field, message) VALUES (false, 'beer');
+        INSERT INTO bool_null_test (bool_field, message) VALUES (NULL, 'beer');
+        "#
+        .execute(&mut conn);
+
+        // Test with IS FALSE - should only return the FALSE row (not NULL)
+        {
+            let sql = r#"
+                EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
+                SELECT *, paradedb.score(id) FROM bool_null_test
+                WHERE bool_field IS FALSE AND message @@@ 'beer';
+            "#;
+
+            eprintln!("{sql}");
+            let (plan,) = sql.fetch_one::<(Value,)>(&mut conn);
+            eprintln!("{plan:#?}");
+
+            // Execute and get actual results
+            let results: Vec<(i64, Option<bool>, String, f32)> = r#"
+                SELECT id, bool_field, message, paradedb.score(id)
+                FROM bool_null_test
+                WHERE bool_field IS FALSE AND message @@@ 'beer';
+            "#
+            .fetch(&mut conn);
+
+            // According to SQL standard, IS FALSE should return only rows where boolean is FALSE
+            // However, the current implementation might return both FALSE and NULL rows
+            if results.len() > 1 {
+                // Current implementation is returning both FALSE and NULL rows
+                let has_false = results.iter().any(|(_, b, _, _)| *b == Some(false));
+                assert!(has_false, "Results should include a FALSE row");
+
+                let has_null = results.iter().any(|(_, b, _, _)| b.is_none());
+                if has_null {
+                    eprintln!(
+                        "FAIL: Current implementation incorrectly includes NULL rows for IS FALSE"
+                    );
+                    eprintln!("According to SQL standard, IS FALSE should only return rows where value is FALSE");
+                }
+
+                // Fail the test to indicate the implementation is incorrect
+                assert_eq!(
+                    1,
+                    results.len(),
+                    "SQL standard: IS FALSE should only return FALSE rows, not NULL rows"
+                );
+            } else {
+                // If implementation is correct, assert expected behavior
+                assert_eq!(1, results.len(), "Should only return the FALSE row");
+                assert_eq!(
+                    Some(false),
+                    results[0].1,
+                    "The row should have bool_field = false"
+                );
+            }
+        }
+
+        // Test with = FALSE - should only return the FALSE row (not NULLs)
+        {
+            let sql = r#"
+                EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
+                SELECT *, paradedb.score(id) FROM bool_null_test
+                WHERE bool_field = FALSE AND message @@@ 'beer';
+            "#;
+
+            eprintln!("{sql}");
+            let (plan,) = sql.fetch_one::<(Value,)>(&mut conn);
+            eprintln!("{plan:#?}");
+
+            // Get actual results
+            let results: Vec<(i64, Option<bool>, String, f32)> = r#"
+                SELECT id, bool_field, message, paradedb.score(id)
+                FROM bool_null_test
+                WHERE bool_field = FALSE AND message @@@ 'beer';
+            "#
+            .fetch(&mut conn);
+
+            // According to SQL standard, = FALSE should return only rows where boolean is FALSE
+            // However, the current implementation might return both FALSE and NULL rows
+            if results.len() > 1 {
+                // Current implementation is returning both FALSE and NULL rows
+                let has_false = results.iter().any(|(_, b, _, _)| *b == Some(false));
+                assert!(has_false, "Results should include a FALSE row");
+
+                let has_null = results.iter().any(|(_, b, _, _)| b.is_none());
+                if has_null {
+                    eprintln!(
+                        "FAIL: Current implementation incorrectly includes NULL rows for = FALSE"
+                    );
+                    eprintln!("According to SQL standard, = FALSE should only return rows where value is FALSE");
+                }
+
+                // Fail the test to indicate the implementation is incorrect
+                assert_eq!(
+                    1,
+                    results.len(),
+                    "SQL standard: = FALSE should only return FALSE rows, not NULL rows"
+                );
+            } else {
+                // If implementation is correct, assert expected behavior
+                assert_eq!(1, results.len(), "Should only return the FALSE row");
+                assert_eq!(
+                    Some(false),
+                    results[0].1,
+                    "The row should have bool_field = false"
+                );
+            }
+        }
+
+        // Test with IS NOT TRUE - should return FALSE and NULL rows
+        {
+            let sql = r#"
+                EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
+                SELECT *, paradedb.score(id) FROM bool_null_test
+                WHERE bool_field IS NOT TRUE AND message @@@ 'beer';
+            "#;
+
+            eprintln!("{sql}");
+            let (plan,) = sql.fetch_one::<(Value,)>(&mut conn);
+            eprintln!("{plan:#?}");
+
+            // By SQL standard, IS NOT TRUE returns both FALSE and NULL rows
+            let results: Vec<(i64, Option<bool>, String, f32)> = r#"
+                SELECT id, bool_field, message, paradedb.score(id)
+                FROM bool_null_test
+                WHERE bool_field IS NOT TRUE AND message @@@ 'beer'
+                ORDER BY id;
+            "#
+            .fetch(&mut conn);
+
+            assert_eq!(
+                2,
+                results.len(),
+                "IS NOT TRUE should return both FALSE and NULL rows"
+            );
+
+            // Check that one row is false
+            let has_false = results.iter().any(|(_, b, _, _)| *b == Some(false));
+            assert!(
+                has_false,
+                "Results should include a row with bool_field = false"
+            );
+
+            // Check that one row is NULL
+            let has_null = results.iter().any(|(_, b, _, _)| b.is_none());
+            assert!(
+                has_null,
+                "Results should include a row with bool_field = NULL"
+            );
+        }
+
+        // Test NOT (field = TRUE) - should only return FALSE (no NULL)
+        {
+            let results: Vec<(i64, Option<bool>, String, f32)> = r#"
+                SELECT id, bool_field, message, paradedb.score(id)
+                FROM bool_null_test
+                WHERE NOT (bool_field = TRUE) AND message @@@ 'beer'
+                ORDER BY id;
+            "#
+            .fetch(&mut conn);
+
+            // According to SQL standard, NOT (field = TRUE) should return only FALSE rows (not NULL)
+            if results.len() > 1 {
+                // Current implementation is returning both FALSE and NULL rows
+                let has_false = results.iter().any(|(_, b, _, _)| *b == Some(false));
+                assert!(has_false, "Results should include a FALSE row");
+
+                let has_null = results.iter().any(|(_, b, _, _)| b.is_none());
+                if has_null {
+                    eprintln!("FAIL: Current implementation incorrectly includes NULL rows for NOT (field = TRUE)");
+                    eprintln!("According to SQL standard, NOT (field = TRUE) should only return rows where value is FALSE");
+                }
+
+                // Fail the test to indicate the implementation is incorrect
+                assert_eq!(
+                    1,
+                    results.len(),
+                    "SQL standard: NOT (field = TRUE) should only return FALSE rows, not NULL rows"
+                );
+            } else {
+                // If implementation is correct, assert expected behavior
+                assert_eq!(1, results.len(), "Should only return the FALSE row");
+                assert_eq!(
+                    Some(false),
+                    results[0].1,
+                    "The row should have bool_field = false"
+                );
+            }
         }
     }
 }

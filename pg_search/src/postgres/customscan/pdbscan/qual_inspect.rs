@@ -46,9 +46,31 @@ pub enum Qual {
     PushdownExpr {
         funcexpr: *mut pg_sys::FuncExpr,
     },
+    /// Represents a SQL equality comparison: `bool_field = TRUE`
+    /// - NULL values are excluded (NULL is not equal to TRUE)
+    /// - Used for direct field reference equality comparisons
+    /// - Negation transforms to PushdownVarEqFalse without including NULLs
+    PushdownVarEqTrue {
+        attname: String,
+    },
+    /// Represents a SQL equality comparison: `bool_field = FALSE`
+    /// - NULL values are excluded (NULL is not equal to FALSE)
+    /// - Used for direct field reference equality comparisons
+    /// - Negation transforms to PushdownVarEqTrue without including NULLs
+    PushdownVarEqFalse {
+        attname: String,
+    },
+    /// Represents a SQL IS operator: `bool_field IS TRUE`
+    /// - NULL values are excluded (NULL is not TRUE)
+    /// - Different from equality in negation semantics:
+    ///   IS NOT TRUE includes both FALSE and NULL values
     PushdownVarIsTrue {
         attname: String,
     },
+    /// Represents a SQL IS operator: `bool_field IS FALSE`
+    /// - NULL values are excluded (NULL is not FALSE)
+    /// - Different from equality in negation semantics:
+    ///   IS NOT FALSE includes both TRUE and NULL values
     PushdownVarIsFalse {
         attname: String,
     },
@@ -71,6 +93,8 @@ impl Qual {
             Qual::OpExpr { .. } => false,
             Qual::Expr { .. } => false,
             Qual::PushdownExpr { .. } => false,
+            Qual::PushdownVarEqTrue { .. } => false,
+            Qual::PushdownVarEqFalse { .. } => false,
             Qual::PushdownVarIsTrue { .. } => false,
             Qual::PushdownVarIsFalse { .. } => false,
             Qual::PushdownIsNotNull { .. } => false,
@@ -87,6 +111,8 @@ impl Qual {
             Qual::OpExpr { .. } => false,
             Qual::Expr { node, .. } => contains_exec_param(*node),
             Qual::PushdownExpr { .. } => false,
+            Qual::PushdownVarEqTrue { .. } => false,
+            Qual::PushdownVarEqFalse { .. } => false,
             Qual::PushdownVarIsTrue { .. } => false,
             Qual::PushdownVarIsFalse { .. } => false,
             Qual::PushdownIsNotNull { .. } => false,
@@ -103,6 +129,8 @@ impl Qual {
             Qual::OpExpr { .. } => false,
             Qual::Expr { .. } => true,
             Qual::PushdownExpr { .. } => false,
+            Qual::PushdownVarEqTrue { .. } => true,
+            Qual::PushdownVarEqFalse { .. } => true,
             Qual::PushdownVarIsTrue { .. } => true,
             Qual::PushdownVarIsFalse { .. } => true,
             Qual::PushdownIsNotNull { .. } => false,
@@ -119,6 +147,8 @@ impl Qual {
             Qual::OpExpr { .. } => false,
             Qual::Expr { .. } => false,
             Qual::PushdownExpr { .. } => false,
+            Qual::PushdownVarEqTrue { .. } => false,
+            Qual::PushdownVarEqFalse { .. } => false,
             Qual::PushdownVarIsTrue { .. } => false,
             Qual::PushdownVarIsFalse { .. } => false,
             Qual::PushdownIsNotNull { .. } => false,
@@ -135,6 +165,8 @@ impl Qual {
             Qual::OpExpr { .. } => {}
             Qual::Expr { .. } => exprs.push(self),
             Qual::PushdownExpr { .. } => {}
+            Qual::PushdownVarEqTrue { .. } => {}
+            Qual::PushdownVarEqFalse { .. } => {}
             Qual::PushdownVarIsTrue { .. } => {}
             Qual::PushdownVarIsFalse { .. } => {}
             Qual::PushdownIsNotNull { .. } => {}
@@ -167,6 +199,16 @@ impl From<&Qual> for SearchQueryInput {
                 pg_sys::FreeExprContext(expr_context, false);
                 SearchQueryInput::from_datum(datum, is_null)
                     .expect("pushdown expression should not evaluate to NULL")
+            },
+            Qual::PushdownVarEqTrue { attname } => SearchQueryInput::Term {
+                field: Some(attname.clone()),
+                value: OwnedValue::Bool(true),
+                is_datetime: false,
+            },
+            Qual::PushdownVarEqFalse { attname } => SearchQueryInput::Term {
+                field: Some(attname.clone()),
+                value: OwnedValue::Bool(false),
+                is_datetime: false,
             },
             Qual::PushdownVarIsTrue { attname } => SearchQueryInput::Term {
                 field: Some(attname.clone()),
@@ -311,16 +353,22 @@ impl From<&Qual> for SearchQueryInput {
             Qual::Not(qual) => {
                 // Special handling for boolean fields to correctly handle NULL values
                 match qual.as_ref() {
-                    // If we're negating a PushdownVarIsTrue, we should use PushdownVarIsFalse directly
+                    // If we're negating a PushdownVarEqTrue, we should use PushdownVarEqFalse directly
                     // rather than using must_not, to avoid including NULLs
-                    Qual::PushdownVarIsTrue { attname } => Self::from(&Qual::PushdownVarIsFalse {
+                    // This follows SQL standard where NOT (field = TRUE) is equivalent to (field = FALSE)
+                    // and does NOT include NULL values
+                    Qual::PushdownVarEqTrue { attname } => Self::from(&Qual::PushdownVarEqFalse {
                         attname: attname.clone(),
                     }),
-                    // Similarly, if we're negating a PushdownVarIsFalse, use PushdownVarIsTrue
-                    Qual::PushdownVarIsFalse { attname } => Self::from(&Qual::PushdownVarIsTrue {
+                    // Similarly, if we're negating a PushdownVarEqFalse, use PushdownVarEqTrue
+                    // This follows SQL standard where NOT (field = FALSE) is equivalent to (field = TRUE)
+                    // and does NOT include NULL values
+                    Qual::PushdownVarEqFalse { attname } => Self::from(&Qual::PushdownVarEqTrue {
                         attname: attname.clone(),
                     }),
                     // For other types of negation, use the standard Boolean query with must_not
+                    // Note that when negating an IS operator (e.g., IS NOT TRUE), PostgreSQL handles
+                    // NULL values differently than when negating equality operators
                     _ => {
                         let must_not = vec![SearchQueryInput::from(qual.as_ref())];
 
@@ -356,6 +404,14 @@ impl From<Qual> for PgList<pg_sys::Node> {
                 Qual::PushdownExpr { funcexpr } => {
                     list.push(makeString(Some("PUSHDOWN")));
                     list.push(funcexpr.cast());
+                }
+                Qual::PushdownVarEqTrue { attname } => {
+                    list.push(makeString(Some("PUSHDOWN_VAR_EQ_TRUE")));
+                    list.push(makeString(Some(attname)));
+                }
+                Qual::PushdownVarEqFalse { attname } => {
+                    list.push(makeString(Some("PUSHDOWN_VAR_EQ_FALSE")));
+                    list.push(makeString(Some(attname)));
                 }
                 Qual::PushdownVarIsTrue { attname } => {
                     list.push(makeString(Some("PUSHDOWN_VAR_IS_TRUE")));
@@ -429,6 +485,14 @@ impl From<PgList<pg_sys::Node>> for Qual {
                         "PUSHDOWN" => {
                             let funcexpr = nodecast!(FuncExpr, T_FuncExpr, value.get_ptr(1)?)?;
                             Some(Qual::PushdownExpr { funcexpr })
+                        }
+                        "PUSHDOWN_VAR_EQ_TRUE" => {
+                            let attname = decodeString::<String>(value.get_ptr(1)?)?;
+                            Some(Qual::PushdownVarEqTrue { attname })
+                        }
+                        "PUSHDOWN_VAR_EQ_FALSE" => {
+                            let attname = decodeString::<String>(value.get_ptr(1)?)?;
+                            Some(Qual::PushdownVarEqFalse { attname })
                         }
                         "PUSHDOWN_VAR_IS_TRUE" => {
                             let attname = decodeString::<String>(value.get_ptr(1)?)?;
@@ -572,7 +636,7 @@ pub unsafe fn extract_quals(
         }
 
         pg_sys::NodeTag::T_Var if (*(node as *mut pg_sys::Var)).vartype == pg_sys::BOOLOID => {
-            Some(Qual::PushdownVarIsTrue {
+            Some(Qual::PushdownVarEqTrue {
                 attname: attname_from_var(root, node.cast())
                     .1
                     .expect("var should have an attname"),
@@ -789,6 +853,16 @@ unsafe fn contains_var(root: *mut pg_sys::Node) -> bool {
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Handles SQL boolean test operators: IS TRUE, IS FALSE, IS NOT TRUE, IS NOT FALSE
+///
+/// According to SQL standards:
+/// - IS TRUE: Only returns TRUE (not NULL)
+/// - IS FALSE: Only returns FALSE (not NULL)
+/// - IS NOT TRUE: Returns FALSE and NULL
+/// - IS NOT FALSE: Returns TRUE and NULL
+///
+/// This function interprets these operators to generate the appropriate Qual variants
+/// that will correctly handle NULL values in the query.
 unsafe fn booltest(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
@@ -809,11 +883,13 @@ unsafe fn booltest(
         if let Some(attname) = attname {
             // It's a simple field reference, handle as specific cases
             match (*booltest).booltesttype {
-                pg_sys::BoolTestType::IS_TRUE | pg_sys::BoolTestType::IS_NOT_FALSE => {
-                    Some(Qual::PushdownVarIsTrue { attname })
+                pg_sys::BoolTestType::IS_TRUE => Some(Qual::PushdownVarIsTrue { attname }),
+                pg_sys::BoolTestType::IS_NOT_FALSE => {
+                    Some(Qual::Not(Box::new(Qual::PushdownVarIsFalse { attname })))
                 }
-                pg_sys::BoolTestType::IS_FALSE | pg_sys::BoolTestType::IS_NOT_TRUE => {
-                    Some(Qual::PushdownVarIsFalse { attname })
+                pg_sys::BoolTestType::IS_FALSE => Some(Qual::PushdownVarIsFalse { attname }),
+                pg_sys::BoolTestType::IS_NOT_TRUE => {
+                    Some(Qual::Not(Box::new(Qual::PushdownVarIsTrue { attname })))
                 }
                 _ => None,
             }

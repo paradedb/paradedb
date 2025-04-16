@@ -33,8 +33,7 @@ fn verify_custom_scan(plan: &Value, description: &str) {
             .get("Plans")
             .unwrap_or_else(|| panic!("Could not find child plans in Gather node"))
             .as_array()
-            .unwrap()
-            .get(0)
+            .unwrap().first()
             .unwrap()
             .as_object()
             .unwrap();
@@ -913,7 +912,7 @@ mod pushdown_is_bool_operator {
 
             assert_eq!(1, results.len());
             assert_eq!(1, results[0].0); // id
-            assert_eq!(true, results[0].1); // bool_field
+            assert!(results[0].1); // bool_field
             assert_eq!("beer", results[0].2); // message
         }
 

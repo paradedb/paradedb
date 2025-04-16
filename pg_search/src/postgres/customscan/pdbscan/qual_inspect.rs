@@ -554,23 +554,15 @@ pub unsafe fn extract_quals(
             }
         }
 
-        pg_sys::NodeTag::T_BooleanTest => {
-            let booltest = nodecast!(BooleanTest, T_BooleanTest, node)?;
-            let (_, attname) = attname_from_var(root, (*booltest).arg.cast());
-            let attname = attname?;
-
-            match (*booltest).booltesttype {
-                pg_sys::BoolTestType::IS_TRUE => Some(Qual::PushdownVarIsTrue { attname }),
-                pg_sys::BoolTestType::IS_NOT_TRUE => {
-                    Some(Qual::Not(Box::new(Qual::PushdownVarIsTrue { attname })))
-                }
-                pg_sys::BoolTestType::IS_FALSE => {
-                    Some(Qual::Not(Box::new(Qual::PushdownVarIsTrue { attname })))
-                }
-                pg_sys::BoolTestType::IS_NOT_FALSE => Some(Qual::PushdownVarIsTrue { attname }),
-                _ => None,
-            }
-        }
+        pg_sys::NodeTag::T_BooleanTest => booltest(
+            root,
+            rti,
+            node,
+            pdbopoid,
+            ri_type,
+            schema,
+            uses_our_operator,
+        ),
 
         // we don't understand this clause so we can't do anything
         _ => None,
@@ -758,4 +750,43 @@ unsafe fn contains_var(root: *mut pg_sys::Node) -> bool {
     }
 
     walker(root, std::ptr::null_mut())
+}
+
+#[allow(clippy::too_many_arguments)]
+unsafe fn booltest(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+    node: *mut pg_sys::Node,
+    pdbopoid: pg_sys::Oid,
+    ri_type: RestrictInfoType,
+    schema: &SearchIndexSchema,
+    uses_our_operator: &mut bool,
+) -> Option<Qual> {
+    let booltest = nodecast!(BooleanTest, T_BooleanTest, node)?;
+    let arg = (*booltest).arg;
+
+    // We only support boolean test for simple field references (Var nodes)
+    // For complex expressions, the optimizer will evaluate the condition later
+    if let Some(arg_var) = nodecast!(Var, T_Var, arg) {
+        // Get the attribute name from the Var
+        let (_, attname) = attname_from_var(root, arg_var);
+        if let Some(attname) = attname {
+            // It's a simple field reference, handle as specific cases
+            match (*booltest).booltesttype {
+                pg_sys::BoolTestType::IS_TRUE | pg_sys::BoolTestType::IS_NOT_FALSE => {
+                    Some(Qual::PushdownVarIsTrue { attname })
+                }
+                pg_sys::BoolTestType::IS_FALSE | pg_sys::BoolTestType::IS_NOT_TRUE => {
+                    Some(Qual::Not(Box::new(Qual::PushdownVarIsTrue { attname })))
+                }
+                _ => None,
+            }
+        } else {
+            // Var node but couldn't get attribute name
+            None
+        }
+    } else {
+        // Not a simple field reference - let the PostgreSQL executor handle it
+        None
+    }
 }

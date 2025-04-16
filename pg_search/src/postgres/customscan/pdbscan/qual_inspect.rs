@@ -49,6 +49,9 @@ pub enum Qual {
     PushdownVarIsTrue {
         attname: String,
     },
+    PushdownVarIsFalse {
+        attname: String,
+    },
     PushdownIsNotNull {
         attname: String,
     },
@@ -69,6 +72,7 @@ impl Qual {
             Qual::Expr { .. } => false,
             Qual::PushdownExpr { .. } => false,
             Qual::PushdownVarIsTrue { .. } => false,
+            Qual::PushdownVarIsFalse { .. } => false,
             Qual::PushdownIsNotNull { .. } => false,
             Qual::ScoreExpr { .. } => false,
             Qual::And(quals) => quals.iter().any(|q| q.contains_all()),
@@ -84,6 +88,7 @@ impl Qual {
             Qual::Expr { node, .. } => contains_exec_param(*node),
             Qual::PushdownExpr { .. } => false,
             Qual::PushdownVarIsTrue { .. } => false,
+            Qual::PushdownVarIsFalse { .. } => false,
             Qual::PushdownIsNotNull { .. } => false,
             Qual::ScoreExpr { .. } => false,
             Qual::And(quals) => quals.iter().any(|q| q.contains_exec_param()),
@@ -99,6 +104,7 @@ impl Qual {
             Qual::Expr { .. } => true,
             Qual::PushdownExpr { .. } => false,
             Qual::PushdownVarIsTrue { .. } => true,
+            Qual::PushdownVarIsFalse { .. } => true,
             Qual::PushdownIsNotNull { .. } => false,
             Qual::ScoreExpr { .. } => false,
             Qual::And(quals) => quals.iter().any(|q| q.contains_exprs()),
@@ -114,6 +120,7 @@ impl Qual {
             Qual::Expr { .. } => false,
             Qual::PushdownExpr { .. } => false,
             Qual::PushdownVarIsTrue { .. } => false,
+            Qual::PushdownVarIsFalse { .. } => false,
             Qual::PushdownIsNotNull { .. } => false,
             Qual::ScoreExpr { .. } => true,
             Qual::And(quals) => quals.iter().any(|q| q.contains_exprs()),
@@ -129,6 +136,7 @@ impl Qual {
             Qual::Expr { .. } => exprs.push(self),
             Qual::PushdownExpr { .. } => {}
             Qual::PushdownVarIsTrue { .. } => {}
+            Qual::PushdownVarIsFalse { .. } => {}
             Qual::PushdownIsNotNull { .. } => {}
             Qual::ScoreExpr { .. } => {}
             Qual::And(quals) => quals.iter_mut().for_each(|q| q.collect_exprs(exprs)),
@@ -163,6 +171,11 @@ impl From<&Qual> for SearchQueryInput {
             Qual::PushdownVarIsTrue { attname } => SearchQueryInput::Term {
                 field: Some(attname.clone()),
                 value: OwnedValue::Bool(true),
+                is_datetime: false,
+            },
+            Qual::PushdownVarIsFalse { attname } => SearchQueryInput::Term {
+                field: Some(attname.clone()),
+                value: OwnedValue::Bool(false),
                 is_datetime: false,
             },
             Qual::PushdownIsNotNull { attname } => SearchQueryInput::Exists {
@@ -333,6 +346,10 @@ impl From<Qual> for PgList<pg_sys::Node> {
                     list.push(makeString(Some("PUSHDOWN_VAR_IS_TRUE")));
                     list.push(makeString(Some(attname)));
                 }
+                Qual::PushdownVarIsFalse { attname } => {
+                    list.push(makeString(Some("PUSHDOWN_VAR_IS_FALSE")));
+                    list.push(makeString(Some(attname)));
+                }
                 Qual::PushdownIsNotNull { attname } => {
                     list.push(makeString(Some("PUSHDOWN_IS_NOT_NULL")));
                     list.push(makeString(Some(attname)));
@@ -401,6 +418,10 @@ impl From<PgList<pg_sys::Node>> for Qual {
                         "PUSHDOWN_VAR_IS_TRUE" => {
                             let attname = decodeString::<String>(value.get_ptr(1)?)?;
                             Some(Qual::PushdownVarIsTrue { attname })
+                        }
+                        "PUSHDOWN_VAR_IS_FALSE" => {
+                            let attname = decodeString::<String>(value.get_ptr(1)?)?;
+                            Some(Qual::PushdownVarIsFalse { attname })
                         }
                         "PUSHDOWN_IS_NOT_NULL" => {
                             let attname = decodeString::<String>(value.get_ptr(1)?)?;
@@ -777,7 +798,7 @@ unsafe fn booltest(
                     Some(Qual::PushdownVarIsTrue { attname })
                 }
                 pg_sys::BoolTestType::IS_FALSE | pg_sys::BoolTestType::IS_NOT_TRUE => {
-                    Some(Qual::Not(Box::new(Qual::PushdownVarIsTrue { attname })))
+                    Some(Qual::PushdownVarIsFalse { attname })
                 }
                 _ => None,
             }

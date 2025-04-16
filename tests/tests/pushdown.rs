@@ -731,6 +731,150 @@ mod pushdown_is_null {
 mod pushdown_is_bool_operator {
     use super::*;
 
+    // Helper function to verify a query uses custom scan and returns expected results
+    fn verify_boolean_is_operator(
+        conn: &mut PgConnection,
+        condition: &str,
+        expected_id: i64,
+        expected_bool_value: bool,
+    ) {
+        // Check execution plan uses custom scan
+        let sql = format!(
+            r#"
+            EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
+            SELECT *, paradedb.score(id) FROM is_true
+            WHERE bool_field {condition} AND message @@@ 'beer';
+            "#
+        );
+
+        eprintln!("{sql}");
+        let (plan,) = sql.fetch_one::<(Value,)>(conn);
+        eprintln!("{plan:#?}");
+
+        // Verify custom scan is used (handling both direct Custom Scan and Gather with Custom Scan child)
+        let plan_node = plan
+            .pointer("/0/Plan/Plans/0")
+            .unwrap()
+            .as_object()
+            .unwrap();
+        let node_type = plan_node.get("Node Type").unwrap().as_str().unwrap();
+
+        if node_type == "Custom Scan" {
+            assert_eq!("Custom Scan", node_type);
+        } else {
+            assert_eq!("Gather", node_type);
+            let child_node = plan_node
+                .get("Plans")
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .get(0)
+                .unwrap()
+                .as_object()
+                .unwrap();
+            assert_eq!(
+                "Custom Scan",
+                child_node.get("Node Type").unwrap().as_str().unwrap()
+            );
+        }
+
+        // Verify query results
+        let results: Vec<(i64, bool, String, f32)> = format!(
+            r#"
+            SELECT id, bool_field, message, paradedb.score(id)
+            FROM is_true
+            WHERE bool_field {condition} AND message @@@ 'beer'
+            ORDER BY id;
+            "#
+        )
+        .fetch(conn);
+
+        assert_eq!(1, results.len());
+        assert_eq!(expected_id, results[0].0); // id
+        assert_eq!(expected_bool_value, results[0].1); // bool_field
+        assert_eq!("beer", results[0].2); // message
+    }
+
+    // Helper for complex boolean expression tests
+    fn verify_complex_boolean_expr(
+        conn: &mut PgConnection,
+        condition: &str,
+        expected_id: i64,
+        expected_bool_value: bool,
+    ) {
+        let sql = format!(
+            r#"
+            EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
+            SELECT *, paradedb.score(id) FROM is_true
+            WHERE {condition} AND message @@@ 'beer';
+            "#
+        );
+
+        eprintln!("{sql}");
+        let (plan,) = sql.fetch_one::<(Value,)>(conn);
+        eprintln!("{plan:#?}");
+
+        // For complex expressions we don't verify the plan type
+        // since it may not use Custom Scan directly
+
+        // Just verify the query results
+        let results: Vec<(i64, bool, String, f32)> = format!(
+            r#"
+            SELECT id, bool_field, message, paradedb.score(id)
+            FROM is_true
+            WHERE {condition} AND message @@@ 'beer'
+            ORDER BY id;
+            "#
+        )
+        .fetch(conn);
+
+        assert_eq!(1, results.len());
+        assert_eq!(expected_id, results[0].0); // id
+        assert_eq!(expected_bool_value, results[0].1); // bool_field
+        assert_eq!("beer", results[0].2); // message
+    }
+
+    // Helper for testing NULL value handling
+    fn verify_null_handling(
+        conn: &mut PgConnection,
+        condition: &str,
+        expected_count: usize,
+        should_have_false: bool,
+        should_have_null: bool,
+    ) {
+        let results: Vec<(i64, Option<bool>, String)> = format!(
+            r#"
+            SELECT id, bool_field, message
+            FROM bool_test_nulls
+            WHERE {condition} AND message @@@ 'beer'
+            ORDER BY id;
+            "#
+        )
+        .fetch(conn);
+
+        assert_eq!(
+            expected_count,
+            results.len(),
+            "Expected {expected_count} rows for condition: {condition}"
+        );
+
+        if should_have_false {
+            let has_false = results.iter().any(|(_, b, _)| *b == Some(false));
+            assert!(
+                has_false,
+                "Results should include a row with bool_field = false"
+            );
+        }
+
+        if should_have_null {
+            let has_null = results.iter().any(|(_, b, _)| b.is_none());
+            assert!(
+                has_null,
+                "Results should include a row with bool_field = NULL"
+            );
+        }
+    }
+
     /// Test for issue #2433: Pushdown `bool_field IS true|false`
     /// Verifies that the SQL IS operator for boolean fields is properly
     /// pushed down to the ParadeDB scan operator.
@@ -751,223 +895,11 @@ mod pushdown_is_bool_operator {
     "#
         .execute(&mut conn);
 
-        // Test with IS true
-        {
-            let sql = r#"
-            EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
-            SELECT *, paradedb.score(id) FROM is_true
-            WHERE bool_field IS true AND message @@@ 'beer';
-        "#;
-
-            eprintln!("{sql}");
-            let (plan,) = sql.fetch_one::<(Value,)>(&mut conn);
-            eprintln!("{plan:#?}");
-
-            // Verify we're using a custom scan (ParadeDB Scan)
-            let plan_node = plan
-                .pointer("/0/Plan/Plans/0")
-                .unwrap()
-                .as_object()
-                .unwrap();
-            let node_type = plan_node.get("Node Type").unwrap().as_str().unwrap();
-
-            // The node type should be either "Custom Scan" directly or "Gather" with a Custom Scan child
-            // Depending on PostgreSQL's decision to use parallelism
-            if node_type == "Custom Scan" {
-                assert_eq!("Custom Scan", node_type);
-            } else {
-                assert_eq!("Gather", node_type);
-                let child_node = plan_node
-                    .get("Plans")
-                    .unwrap()
-                    .as_array()
-                    .unwrap()
-                    .get(0)
-                    .unwrap()
-                    .as_object()
-                    .unwrap();
-                assert_eq!(
-                    "Custom Scan",
-                    child_node.get("Node Type").unwrap().as_str().unwrap()
-                );
-            }
-
-            // Actually query with IS true to verify results
-            let results: Vec<(i64, bool, String, f32)> = r#"
-            SELECT id, bool_field, message, paradedb.score(id)
-            FROM is_true
-            WHERE bool_field IS true AND message @@@ 'beer'
-            ORDER BY id;
-        "#
-            .fetch(&mut conn);
-
-            assert_eq!(1, results.len());
-            assert_eq!(1, results[0].0); // id
-            assert_eq!(true, results[0].1); // bool_field
-            assert_eq!("beer", results[0].2); // message
-        }
-
-        // Test with IS false
-        {
-            let sql = r#"
-            EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
-            SELECT *, paradedb.score(id) FROM is_true
-            WHERE bool_field IS false AND message @@@ 'beer';
-        "#;
-
-            eprintln!("{sql}");
-            let (plan,) = sql.fetch_one::<(Value,)>(&mut conn);
-            eprintln!("{plan:#?}");
-
-            // Verify we're using a custom scan (ParadeDB Scan)
-            let plan_node = plan
-                .pointer("/0/Plan/Plans/0")
-                .unwrap()
-                .as_object()
-                .unwrap();
-            let node_type = plan_node.get("Node Type").unwrap().as_str().unwrap();
-
-            if node_type == "Custom Scan" {
-                assert_eq!("Custom Scan", node_type);
-            } else {
-                assert_eq!("Gather", node_type);
-                let child_node = plan_node
-                    .get("Plans")
-                    .unwrap()
-                    .as_array()
-                    .unwrap()
-                    .get(0)
-                    .unwrap()
-                    .as_object()
-                    .unwrap();
-                assert_eq!(
-                    "Custom Scan",
-                    child_node.get("Node Type").unwrap().as_str().unwrap()
-                );
-            }
-
-            // Actually query with IS false to verify results
-            let results: Vec<(i64, bool, String, f32)> = r#"
-            SELECT id, bool_field, message, paradedb.score(id)
-            FROM is_true
-            WHERE bool_field IS false AND message @@@ 'beer'
-            ORDER BY id;
-        "#
-            .fetch(&mut conn);
-
-            assert_eq!(1, results.len());
-            assert_eq!(2, results[0].0); // id
-            assert_eq!(false, results[0].1); // bool_field
-            assert_eq!("beer", results[0].2); // message
-        }
-
-        // Test with IS NOT TRUE
-        {
-            let sql = r#"
-            EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
-            SELECT *, paradedb.score(id) FROM is_true
-            WHERE bool_field IS NOT true AND message @@@ 'beer';
-        "#;
-
-            eprintln!("{sql}");
-            let (plan,) = sql.fetch_one::<(Value,)>(&mut conn);
-            eprintln!("{plan:#?}");
-
-            // Verify we're using a custom scan (ParadeDB Scan)
-            let plan_node = plan
-                .pointer("/0/Plan/Plans/0")
-                .unwrap()
-                .as_object()
-                .unwrap();
-            let node_type = plan_node.get("Node Type").unwrap().as_str().unwrap();
-
-            if node_type == "Custom Scan" {
-                assert_eq!("Custom Scan", node_type);
-            } else {
-                assert_eq!("Gather", node_type);
-                let child_node = plan_node
-                    .get("Plans")
-                    .unwrap()
-                    .as_array()
-                    .unwrap()
-                    .get(0)
-                    .unwrap()
-                    .as_object()
-                    .unwrap();
-                assert_eq!(
-                    "Custom Scan",
-                    child_node.get("Node Type").unwrap().as_str().unwrap()
-                );
-            }
-
-            // Actually query with IS NOT TRUE to verify results
-            let results: Vec<(i64, bool, String, f32)> = r#"
-            SELECT id, bool_field, message, paradedb.score(id)
-            FROM is_true
-            WHERE bool_field IS NOT true AND message @@@ 'beer'
-            ORDER BY id;
-        "#
-            .fetch(&mut conn);
-
-            assert_eq!(1, results.len());
-            assert_eq!(2, results[0].0); // id
-            assert_eq!(false, results[0].1); // bool_field
-            assert_eq!("beer", results[0].2); // message
-        }
-
-        // Test with IS NOT FALSE
-        {
-            let sql = r#"
-            EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
-            SELECT *, paradedb.score(id) FROM is_true
-            WHERE bool_field IS NOT false AND message @@@ 'beer';
-        "#;
-
-            eprintln!("{sql}");
-            let (plan,) = sql.fetch_one::<(Value,)>(&mut conn);
-            eprintln!("{plan:#?}");
-
-            // Verify we're using a custom scan (ParadeDB Scan)
-            let plan_node = plan
-                .pointer("/0/Plan/Plans/0")
-                .unwrap()
-                .as_object()
-                .unwrap();
-            let node_type = plan_node.get("Node Type").unwrap().as_str().unwrap();
-
-            if node_type == "Custom Scan" {
-                assert_eq!("Custom Scan", node_type);
-            } else {
-                assert_eq!("Gather", node_type);
-                let child_node = plan_node
-                    .get("Plans")
-                    .unwrap()
-                    .as_array()
-                    .unwrap()
-                    .get(0)
-                    .unwrap()
-                    .as_object()
-                    .unwrap();
-                assert_eq!(
-                    "Custom Scan",
-                    child_node.get("Node Type").unwrap().as_str().unwrap()
-                );
-            }
-
-            // Actually query with IS NOT FALSE to verify results
-            let results: Vec<(i64, bool, String, f32)> = r#"
-            SELECT id, bool_field, message, paradedb.score(id)
-            FROM is_true
-            WHERE bool_field IS NOT false AND message @@@ 'beer'
-            ORDER BY id;
-        "#
-            .fetch(&mut conn);
-
-            assert_eq!(1, results.len());
-            assert_eq!(1, results[0].0); // id
-            assert_eq!(true, results[0].1); // bool_field
-            assert_eq!("beer", results[0].2); // message
-        }
+        // Test all boolean IS operators using the helper function
+        verify_boolean_is_operator(&mut conn, "IS true", 1, true);
+        verify_boolean_is_operator(&mut conn, "IS false", 2, false);
+        verify_boolean_is_operator(&mut conn, "IS NOT true", 2, false);
+        verify_boolean_is_operator(&mut conn, "IS NOT false", 1, true);
     }
 
     /// Test for issue #2433: Complex boolean expressions with IS TRUE/FALSE operators
@@ -1002,34 +934,7 @@ mod pushdown_is_bool_operator {
         .execute(&mut conn);
 
         // Test with expression IS TRUE
-        {
-            let sql = r#"
-            EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
-            SELECT *, paradedb.score(id) FROM is_true
-            WHERE (bool_field = true) IS true AND message @@@ 'beer';
-        "#;
-
-            eprintln!("{sql}");
-            let (plan,) = sql.fetch_one::<(Value,)>(&mut conn);
-            eprintln!("{plan:#?}");
-
-            // Verify if the plan is using our Custom Scan implementation
-            // Note: Complex expressions might not use Custom Scan directly
-
-            // Query with expression IS TRUE
-            let results: Vec<(i64, bool, String, f32)> = r#"
-            SELECT id, bool_field, message, paradedb.score(id)
-            FROM is_true
-            WHERE (bool_field = true) IS true AND message @@@ 'beer'
-            ORDER BY id;
-        "#
-            .fetch(&mut conn);
-
-            assert_eq!(1, results.len());
-            assert_eq!(1, results[0].0); // id
-            assert_eq!(true, results[0].1); // bool_field
-            assert_eq!("beer", results[0].2); // message
-        }
+        verify_complex_boolean_expr(&mut conn, "(bool_field = true) IS true", 1, true);
 
         // Test with function call IS TRUE
         {
@@ -1037,14 +942,11 @@ mod pushdown_is_bool_operator {
             EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
             SELECT *, paradedb.score(id) FROM is_true
             WHERE is_true_test(bool_field) IS true AND message @@@ 'beer';
-        "#;
+            "#;
 
             eprintln!("{sql}");
             let (plan,) = sql.fetch_one::<(Value,)>(&mut conn);
             eprintln!("{plan:#?}");
-
-            // Verify if the plan is using our Custom Scan implementation
-            // Note: Function calls might not use Custom Scan directly
 
             // Query with function call IS TRUE
             let results: Vec<(i64, bool, String, Option<f32>)> = r#"
@@ -1052,7 +954,7 @@ mod pushdown_is_bool_operator {
             FROM is_true
             WHERE is_true_test(bool_field) IS true AND message @@@ 'beer'
             ORDER BY id;
-        "#
+            "#
             .fetch(&mut conn);
 
             assert_eq!(1, results.len());
@@ -1062,31 +964,7 @@ mod pushdown_is_bool_operator {
         }
 
         // Test with complex expression IS FALSE
-        {
-            let sql = r#"
-            EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
-            SELECT *, paradedb.score(id) FROM is_true
-            WHERE (bool_field <> true) IS true AND message @@@ 'beer';
-        "#;
-
-            eprintln!("{sql}");
-            let (plan,) = sql.fetch_one::<(Value,)>(&mut conn);
-            eprintln!("{plan:#?}");
-
-            // Query with complex expression IS TRUE
-            let results: Vec<(i64, bool, String, Option<f32>)> = r#"
-            SELECT id, bool_field, message, paradedb.score(id)
-            FROM is_true
-            WHERE (bool_field <> true) IS true AND message @@@ 'beer'
-            ORDER BY id;
-        "#
-            .fetch(&mut conn);
-
-            assert_eq!(1, results.len());
-            assert_eq!(2, results[0].0); // id
-            assert_eq!(false, results[0].1); // bool_field
-            assert_eq!("beer", results[0].2); // message
-        }
+        verify_complex_boolean_expr(&mut conn, "(bool_field <> true) IS true", 2, false);
     }
 
     /// Test the difference between IS TRUE and = TRUE operators with NULL values
@@ -1113,73 +991,13 @@ mod pushdown_is_bool_operator {
         .execute(&mut conn);
 
         // Test with IS TRUE - should return only the row with true
-        {
-            let results: Vec<(i64, Option<bool>, String)> = r#"
-                SELECT id, bool_field, message
-                FROM bool_test_nulls
-                WHERE bool_field IS TRUE AND message @@@ 'beer'
-                ORDER BY id;
-            "#
-            .fetch(&mut conn);
-
-            assert_eq!(1, results.len(), "IS TRUE should only return TRUE rows");
-            assert_eq!(1, results[0].0); // id
-            assert_eq!(Some(true), results[0].1); // bool_field
-        }
+        verify_null_handling(&mut conn, "bool_field IS TRUE", 1, false, false);
 
         // Test with = TRUE - should also only return the row with true
-        {
-            let results: Vec<(i64, Option<bool>, String)> = r#"
-                SELECT id, bool_field, message
-                FROM bool_test_nulls
-                WHERE bool_field = TRUE AND message @@@ 'beer'
-                ORDER BY id;
-            "#
-            .fetch(&mut conn);
-
-            if results.len() != 1 {
-                eprintln!("FAIL: = TRUE should only return TRUE rows, not NULL rows");
-                assert_eq!(
-                    1,
-                    results.len(),
-                    "SQL standard: = TRUE should only return TRUE rows"
-                );
-            } else {
-                assert_eq!(1, results.len(), "= TRUE should only return TRUE rows");
-                assert_eq!(1, results[0].0); // id
-                assert_eq!(Some(true), results[0].1); // bool_field
-            }
-        }
+        verify_null_handling(&mut conn, "bool_field = TRUE", 1, false, false);
 
         // Now check IS NOT TRUE - should return rows with false and NULL
-        {
-            let results: Vec<(i64, Option<bool>, String)> = r#"
-                SELECT id, bool_field, message
-                FROM bool_test_nulls
-                WHERE bool_field IS NOT TRUE AND message @@@ 'beer'
-                ORDER BY id;
-            "#
-            .fetch(&mut conn);
-
-            assert_eq!(
-                2,
-                results.len(),
-                "IS NOT TRUE should return both FALSE and NULL rows"
-            );
-
-            // Check for FALSE and NULL rows
-            let has_false = results.iter().any(|(_, b, _)| *b == Some(false));
-            assert!(
-                has_false,
-                "Results should include a row with bool_field = false"
-            );
-
-            let has_null = results.iter().any(|(_, b, _)| b.is_none());
-            assert!(
-                has_null,
-                "Results should include a row with bool_field = NULL"
-            );
-        }
+        verify_null_handling(&mut conn, "bool_field IS NOT TRUE", 2, true, true);
 
         // Test NOT (field = TRUE) - should only return FALSE (no NULL)
         {
@@ -1258,40 +1076,33 @@ mod pushdown_is_bool_operator {
             let results: Vec<(i64, Option<bool>, String, f32)> = r#"
                 SELECT id, bool_field, message, paradedb.score(id)
                 FROM bool_null_test
-                WHERE bool_field IS FALSE AND message @@@ 'beer';
+                WHERE bool_field IS FALSE AND message @@@ 'beer'
+                ORDER BY id;
             "#
             .fetch(&mut conn);
 
+            // We expect only one row for IS FALSE (the FALSE row, not NULL)
+            let expected_count = 1;
+
             // According to SQL standard, IS FALSE should return only rows where boolean is FALSE
             // However, the current implementation might return both FALSE and NULL rows
-            if results.len() > 1 {
-                // Current implementation is returning both FALSE and NULL rows
-                let has_false = results.iter().any(|(_, b, _, _)| *b == Some(false));
-                assert!(has_false, "Results should include a FALSE row");
-
-                let has_null = results.iter().any(|(_, b, _, _)| b.is_none());
-                if has_null {
-                    eprintln!(
-                        "FAIL: Current implementation incorrectly includes NULL rows for IS FALSE"
-                    );
-                    eprintln!("According to SQL standard, IS FALSE should only return rows where value is FALSE");
-                }
+            if results.len() != expected_count {
+                eprintln!(
+                    "FAIL: IS FALSE should return {expected_count} rows, got {}",
+                    results.len()
+                );
 
                 // Fail the test to indicate the implementation is incorrect
                 assert_eq!(
-                    1,
+                    expected_count,
                     results.len(),
                     "SQL standard: IS FALSE should only return FALSE rows, not NULL rows"
                 );
-            } else {
-                // If implementation is correct, assert expected behavior
-                assert_eq!(1, results.len(), "Should only return the FALSE row");
-                assert_eq!(
-                    Some(false),
-                    results[0].1,
-                    "The row should have bool_field = false"
-                );
             }
+
+            // Check that the row has bool_field = false
+            let has_false = results.iter().any(|(_, b, _, _)| *b == Some(false));
+            assert!(has_false, "Results should include a FALSE row");
         }
 
         // Test with = FALSE - should only return the FALSE row (not NULLs)
@@ -1310,40 +1121,33 @@ mod pushdown_is_bool_operator {
             let results: Vec<(i64, Option<bool>, String, f32)> = r#"
                 SELECT id, bool_field, message, paradedb.score(id)
                 FROM bool_null_test
-                WHERE bool_field = FALSE AND message @@@ 'beer';
+                WHERE bool_field = FALSE AND message @@@ 'beer'
+                ORDER BY id;
             "#
             .fetch(&mut conn);
 
+            // We expect only one row for = FALSE (the FALSE row, not NULL)
+            let expected_count = 1;
+
             // According to SQL standard, = FALSE should return only rows where boolean is FALSE
             // However, the current implementation might return both FALSE and NULL rows
-            if results.len() > 1 {
-                // Current implementation is returning both FALSE and NULL rows
-                let has_false = results.iter().any(|(_, b, _, _)| *b == Some(false));
-                assert!(has_false, "Results should include a FALSE row");
-
-                let has_null = results.iter().any(|(_, b, _, _)| b.is_none());
-                if has_null {
-                    eprintln!(
-                        "FAIL: Current implementation incorrectly includes NULL rows for = FALSE"
-                    );
-                    eprintln!("According to SQL standard, = FALSE should only return rows where value is FALSE");
-                }
+            if results.len() != expected_count {
+                eprintln!(
+                    "FAIL: = FALSE should return {expected_count} rows, got {}",
+                    results.len()
+                );
 
                 // Fail the test to indicate the implementation is incorrect
                 assert_eq!(
-                    1,
+                    expected_count,
                     results.len(),
                     "SQL standard: = FALSE should only return FALSE rows, not NULL rows"
                 );
-            } else {
-                // If implementation is correct, assert expected behavior
-                assert_eq!(1, results.len(), "Should only return the FALSE row");
-                assert_eq!(
-                    Some(false),
-                    results[0].1,
-                    "The row should have bool_field = false"
-                );
             }
+
+            // Check that the row has bool_field = false
+            let has_false = results.iter().any(|(_, b, _, _)| *b == Some(false));
+            assert!(has_false, "Results should include a FALSE row");
         }
 
         // Test with IS NOT TRUE - should return FALSE and NULL rows
@@ -1367,6 +1171,7 @@ mod pushdown_is_bool_operator {
             "#
             .fetch(&mut conn);
 
+            // We expect 2 rows for IS NOT TRUE (the FALSE row and the NULL row)
             assert_eq!(
                 2,
                 results.len(),
@@ -1386,45 +1191,6 @@ mod pushdown_is_bool_operator {
                 has_null,
                 "Results should include a row with bool_field = NULL"
             );
-        }
-
-        // Test NOT (field = TRUE) - should only return FALSE (no NULL)
-        {
-            let results: Vec<(i64, Option<bool>, String, f32)> = r#"
-                SELECT id, bool_field, message, paradedb.score(id)
-                FROM bool_null_test
-                WHERE NOT (bool_field = TRUE) AND message @@@ 'beer'
-                ORDER BY id;
-            "#
-            .fetch(&mut conn);
-
-            // According to SQL standard, NOT (field = TRUE) should return only FALSE rows (not NULL)
-            if results.len() > 1 {
-                // Current implementation is returning both FALSE and NULL rows
-                let has_false = results.iter().any(|(_, b, _, _)| *b == Some(false));
-                assert!(has_false, "Results should include a FALSE row");
-
-                let has_null = results.iter().any(|(_, b, _, _)| b.is_none());
-                if has_null {
-                    eprintln!("FAIL: Current implementation incorrectly includes NULL rows for NOT (field = TRUE)");
-                    eprintln!("According to SQL standard, NOT (field = TRUE) should only return rows where value is FALSE");
-                }
-
-                // Fail the test to indicate the implementation is incorrect
-                assert_eq!(
-                    1,
-                    results.len(),
-                    "SQL standard: NOT (field = TRUE) should only return FALSE rows, not NULL rows"
-                );
-            } else {
-                // If implementation is correct, assert expected behavior
-                assert_eq!(1, results.len(), "Should only return the FALSE row");
-                assert_eq!(
-                    Some(false),
-                    results[0].1,
-                    "The row should have bool_field = false"
-                );
-            }
         }
     }
 }

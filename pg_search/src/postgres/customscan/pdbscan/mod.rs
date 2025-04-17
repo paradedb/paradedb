@@ -159,7 +159,6 @@ impl CustomScan for PdbScan {
             let ff_cnt =
                 exec_methods::fast_fields::count(&mut builder, rti, &table, &schema, target_list);
             let maybe_ff = builder.custom_private().maybe_ff();
-
             let is_topn = limit.is_some() && pathkey.is_some();
             let which_fast_fields = exec_methods::fast_fields::collect(
                 builder.custom_private().maybe_ff(),
@@ -1120,28 +1119,35 @@ unsafe fn is_partitioned_table_setup(
 ) -> bool {
     use pgrx::pg_sys::{self};
 
-    // Get the relids of our current relation
+    // If the relation bitmap is empty, early return
     if bms_is_empty(rel_relids) {
         return false;
     }
 
-    // Find partitioned tables in the baserels
-    let baserels_ints = bms_to_integers(baserels);
+    // Get the rtable for relkind checks
     let rtable = (*(*root).parse).rtable;
-    for baserel_idx in baserels_ints {
+
+    // For each relation in baserels
+    let baserel_members = bms_to_integers(baserels);
+    for baserel_idx in &baserel_members {
         // Skip invalid indices
-        if baserel_idx <= 0 || baserel_idx as usize >= (*root).simple_rel_array_size as usize {
+        if *baserel_idx <= 0 || *baserel_idx as usize >= (*root).simple_rel_array_size as usize {
             continue;
         }
 
-        // Get the RTE to determine if this is a partitioned table
-        let rte = pg_sys::rt_fetch(baserel_idx as pg_sys::Index, (*(*root).parse).rtable);
+        // Get the RTE to check if this is a partitioned table
+        let rte = pg_sys::rt_fetch(*baserel_idx as pg_sys::Index, rtable);
         if (*rte).relkind as u8 != pg_sys::RELKIND_PARTITIONED_TABLE {
             continue;
         }
 
+        // Access RelOptInfo safely using offset and read
+        if (*root).simple_rel_array.is_null() {
+            continue;
+        }
+
         // This is a partitioned table, get its RelOptInfo to find partitions
-        let rel_info_ptr = *(*root).simple_rel_array.add(baserel_idx as usize);
+        let rel_info_ptr = *(*root).simple_rel_array.add(*baserel_idx as usize);
         if rel_info_ptr.is_null() {
             continue;
         }
@@ -1153,7 +1159,7 @@ unsafe fn is_partitioned_table_setup(
             continue;
         }
 
-        // This is a partitioned table, check if rel_relids overlaps with its partitions
+        // Check if any relation in rel_relids is among the partitions
         if pg_sys::bms_overlap(rel_info.all_partrels, rel_relids) {
             return true;
         }

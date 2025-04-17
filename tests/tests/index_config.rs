@@ -751,3 +751,103 @@ fn uuid_as_raw_issue2199(mut conn: PgConnection) {
             .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 1);
 }
+
+#[rstest]
+fn partitioned_order_by_limit_pushdown(mut conn: PgConnection) {
+    // Set up a partitioned table
+    r#"
+    DROP TABLE IF EXISTS sales;
+
+    SET enable_indexscan TO off;
+    SET enable_bitmapscan TO off;
+    SET max_parallel_workers TO 0;
+
+    DROP TABLE IF EXISTS sales;
+    CREATE TABLE sales (
+        id SERIAL,
+        product_name TEXT,
+        amount DECIMAL,
+        sale_date DATE
+    ) PARTITION BY RANGE (sale_date);
+
+    CREATE TABLE sales_2023 PARTITION OF sales
+    FOR VALUES FROM ('2023-01-01') TO ('2024-01-01');
+
+    CREATE TABLE sales_2024 PARTITION OF sales
+    FOR VALUES FROM ('2024-01-01') TO ('2025-01-01');
+
+    INSERT INTO sales (product_name, amount, sale_date) VALUES
+    ('Laptop', 1200.00, '2023-01-15'),
+    ('Smartphone', 800.00, '2023-03-10'),
+    ('Headphones', 150.00, '2023-05-20'),
+    ('Monitor', 300.00, '2023-07-05'),
+    ('Keyboard', 80.00, '2023-09-12'),
+    ('Mouse', 40.00, '2023-11-25'),
+    ('Tablet', 500.00, '2024-01-05'),
+    ('Printer', 200.00, '2024-02-18'),
+    ('Camera', 600.00, '2024-04-22'),
+    ('Speaker', 120.00, '2024-06-30');
+
+    CREATE INDEX idx_sales_bm25 ON sales
+    USING bm25 (id, product_name, amount, sale_date)
+    WITH (
+        key_field = 'id',
+        text_fields = '{"product_name": {}}',
+        numeric_fields = '{"amount": {}}',
+        datetime_fields = '{"sale_date": {"fast": true}}'
+    );
+    "#
+    .execute(&mut conn);
+
+    // Get the explain plan
+    let explain_output = r#"
+    EXPLAIN (ANALYZE, VERBOSE)
+    SELECT * FROM sales 
+    WHERE product_name @@@ 'laptop OR smartphone OR headphones'
+    ORDER BY sale_date LIMIT 5;
+    "#
+    .fetch::<(String,)>(&mut conn)
+    .into_iter()
+    .map(|(line,)| line)
+    .collect::<Vec<String>>()
+    .join("\n");
+
+    // Check for TopNScanExecState in the plan
+    assert!(
+        explain_output.contains("TopNScanExecState"),
+        "Expected TopNScanExecState in the execution plan"
+    );
+
+    // Verify sort field and direction
+    assert!(
+        explain_output.contains("Sort Field: sale_date"),
+        "Expected sort field to be sale_date"
+    );
+
+    // Verify the limit is pushed down
+    assert!(
+        explain_output.contains("Top N Limit: 5"),
+        "Expected limit 5 to be pushed down"
+    );
+
+    // Also test that we get the correct sorted results
+    let results: Vec<(String, String)> = r#"
+    SELECT product_name, sale_date::text FROM sales 
+    WHERE product_name @@@ 'laptop OR smartphone OR headphones'
+    ORDER BY sale_date LIMIT 5;
+    "#
+    .fetch(&mut conn);
+
+    // Verify we got the right number of results
+    assert_eq!(results.len(), 3, "Expected 3 matching results");
+
+    // Verify they're in the correct order (ordered by sale_date)
+    assert_eq!(results[0].0, "Laptop");
+    assert_eq!(results[1].0, "Smartphone");
+    assert_eq!(results[2].0, "Headphones");
+
+    // Check the dates are in ascending order
+    assert_eq!(results[0].1, "2023-01-15");
+    assert_eq!(results[1].1, "2023-03-10");
+    assert_eq!(results[2].1, "2023-05-20");
+}

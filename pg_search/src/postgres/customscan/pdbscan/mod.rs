@@ -159,6 +159,7 @@ impl CustomScan for PdbScan {
             let ff_cnt =
                 exec_methods::fast_fields::count(&mut builder, rti, &table, &schema, target_list);
             let maybe_ff = builder.custom_private().maybe_ff();
+
             let is_topn = limit.is_some() && pathkey.is_some();
             let which_fast_fields = exec_methods::fast_fields::collect(
                 builder.custom_private().maybe_ff(),

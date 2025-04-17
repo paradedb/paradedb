@@ -86,7 +86,7 @@ WITH (
 
 ### Keyword
 
-Treats the entire text as a single token, as-is. This tokenizer is required for `pg_search`'s query predicate pushdown
+Treats the entire text as a single token, as-is. If a field is tokenized as `keyword`, using the `=` operator over that field can be pushed down to the index.
 support against fields that are `text` or `varchar`.
 
 ```sql

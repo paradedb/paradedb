@@ -146,7 +146,7 @@ pub enum SearchFieldConfig {
         indexed: bool,
         #[serde(default)]
         fast: bool,
-        #[serde(default = "default_as_false")]
+        #[serde(default)]
         stored: bool,
         #[serde(default = "default_as_true")]
         fieldnorms: bool,
@@ -164,7 +164,7 @@ pub enum SearchFieldConfig {
         indexed: bool,
         #[serde(default)]
         fast: bool,
-        #[serde(default = "default_as_false")]
+        #[serde(default)]
         stored: bool,
         #[serde(default = "default_as_true")]
         fieldnorms: bool,
@@ -180,7 +180,7 @@ pub enum SearchFieldConfig {
         column: Option<String>,
     },
     Range {
-        #[serde(default = "default_as_false")]
+        #[serde(default)]
         stored: bool,
         #[serde(default)]
         column: Option<String>,
@@ -190,7 +190,7 @@ pub enum SearchFieldConfig {
         indexed: bool,
         #[serde(default = "default_as_true")]
         fast: bool,
-        #[serde(default = "default_as_false")]
+        #[serde(default)]
         stored: bool,
         #[serde(default)]
         column: Option<String>,
@@ -200,7 +200,7 @@ pub enum SearchFieldConfig {
         indexed: bool,
         #[serde(default = "default_as_true")]
         fast: bool,
-        #[serde(default = "default_as_false")]
+        #[serde(default)]
         stored: bool,
         #[serde(default)]
         column: Option<String>,
@@ -210,7 +210,7 @@ pub enum SearchFieldConfig {
         indexed: bool,
         #[serde(default = "default_as_true")]
         fast: bool,
-        #[serde(default = "default_as_false")]
+        #[serde(default)]
         stored: bool,
         #[serde(default)]
         column: Option<String>,
@@ -986,10 +986,6 @@ pub enum SearchIndexSchemaError {
 }
 
 fn default_as_true() -> bool {
-    true
-}
-
-fn default_as_false() -> bool {
     true
 }
 

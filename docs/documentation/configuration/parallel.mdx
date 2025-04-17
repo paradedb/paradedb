@@ -32,8 +32,8 @@ and Postgres must be restarted afterward.
 
 ## Shared Buffers
 
-`shared_buffers` controls how much memory is available to the Postgres buffer cache. While a general rule of thumb is to allocate up to 40% of total system memory to `shared_buffers`,
-we recommend experimenting with higher values for larger indexes.
+`shared_buffers` controls how much memory is available to the Postgres buffer cache. We recommend allocating no more than 40% of total memory
+to `shared_buffers`.
 
 ```bash postgresql.conf
 shared_buffers = 8GB
@@ -46,3 +46,30 @@ stored in the buffer cache.
 CREATE EXTENSION pg_prewarm;
 SELECT pg_prewarm('search_idx');
 ```
+
+## Autovacuum
+
+If an index experiences frequent writes, the search performance of some queries like [sorting](/documentation/full-text/sorting) or
+[aggregates](/documentation/aggregates) can degrade if `VACUUM` has not been recently run. This is because writes can cause parts of Postgres' visibility map
+to go out of date, and `VACUUM` updates the visibility map.
+
+To determine if search performance is degraded by lack of `VACUUM`, run `EXPLAIN ANALYZE` over a query. A `Parallel Custom Scan`
+in the query plan with a large number of `Heap Fetches` typically means that `VACUUM` should be run.
+
+Postgres can be configured to automatically vacuum a table when a certain number of rows have been updated. Autovacuum settings
+can be set globally in `postgresql.conf` or for a specific table.
+
+```sql
+ALTER TABLE mock_items SET (autovacuum_vacuum_threshold = 500);
+```
+
+There are several [autovacuum settings](https://www.postgresql.org/docs/current/runtime-config-autovacuum.html), but the important ones to
+note are:
+
+1. `autovacuum_vacuum_scale_factor` triggers an autovacuum if a certain percentage of rows in a table have been updated.
+2. `autovacuum_vacuum_threshold` triggers an autovacuum if an absolute number of rows have been updated.
+3. `autovacuum_naptime` ensures that vacuum does not run too frequently.
+
+This means that setting `autovacuum_vacuum_scale_factor` to `0` and `autovacuum_vacuum_threshold` to `100000` will trigger an autovacuum
+for every `100000` row updates. To determine the right autovacuum settings for your table, we recommend examining the table's write volumes and
+adjusting the autovacuum threshold accordingly.

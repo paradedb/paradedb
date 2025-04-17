@@ -83,7 +83,7 @@ where
 /// value is in bytes. This callback is optional, and need only be supplied if this custom scan
 /// provider supports parallel execution.
 #[pg_guard]
-pub extern "C" fn estimate_dsm_custom_scan<CS: CustomScan + ParallelQueryCapable>(
+pub extern "C-unwind" fn estimate_dsm_custom_scan<CS: CustomScan + ParallelQueryCapable>(
     node: *mut pg_sys::CustomScanState,
     pcxt: *mut pg_sys::ParallelContext,
 ) -> pg_sys::Size {
@@ -96,7 +96,7 @@ pub extern "C" fn estimate_dsm_custom_scan<CS: CustomScan + ParallelQueryCapable
 /// callback is optional, and need only be supplied if this custom scan provider supports parallel
 /// execution.
 #[pg_guard]
-pub extern "C" fn initialize_dsm_custom_scan<CS: CustomScan + ParallelQueryCapable>(
+pub extern "C-unwind" fn initialize_dsm_custom_scan<CS: CustomScan + ParallelQueryCapable>(
     node: *mut pg_sys::CustomScanState,
     pcxt: *mut pg_sys::ParallelContext,
     coordinate: *mut std::os::raw::c_void,
@@ -111,7 +111,7 @@ pub extern "C" fn initialize_dsm_custom_scan<CS: CustomScan + ParallelQueryCapab
 /// reset only shared state, while the ReScanCustomScan callback resets only local state. Currently,
 /// this callback will be called before ReScanCustomScan, but it's best not to rely on that ordering.
 #[pg_guard]
-pub extern "C" fn reinitialize_dsm_custom_scan<CS: CustomScan + ParallelQueryCapable>(
+pub extern "C-unwind" fn reinitialize_dsm_custom_scan<CS: CustomScan + ParallelQueryCapable>(
     node: *mut pg_sys::CustomScanState,
     pcxt: *mut pg_sys::ParallelContext,
     coordinate: *mut std::os::raw::c_void,
@@ -124,7 +124,7 @@ pub extern "C" fn reinitialize_dsm_custom_scan<CS: CustomScan + ParallelQueryCap
 /// InitializeDSMCustomScan. This callback is optional, and need only be supplied if this custom scan
 /// provider supports parallel execution.
 #[pg_guard]
-pub extern "C" fn initialize_worker_custom_scan<CS: CustomScan + ParallelQueryCapable>(
+pub extern "C-unwind" fn initialize_worker_custom_scan<CS: CustomScan + ParallelQueryCapable>(
     node: *mut pg_sys::CustomScanState,
     toc: *mut pg_sys::shm_toc,
     coordinate: *mut std::os::raw::c_void,

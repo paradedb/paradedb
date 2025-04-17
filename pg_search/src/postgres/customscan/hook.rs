@@ -30,7 +30,7 @@ pub fn register_rel_pathlist<CS: CustomScan + 'static>(_: CS) {
         > = Lazy::new(Default::default);
 
         #[pg_guard]
-        extern "C" fn __priv_callback<CS: CustomScan + 'static>(
+        extern "C-unwind" fn __priv_callback<CS: CustomScan + 'static>(
             root: *mut pg_sys::PlannerInfo,
             rel: *mut pg_sys::RelOptInfo,
             rti: pg_sys::Index,
@@ -63,7 +63,7 @@ pub fn register_rel_pathlist<CS: CustomScan + 'static>(_: CS) {
 /// objects and adding them to rel using add_path. The custom scan provider is responsible for
 /// initializing the CustomPath object, which is declared like this:
 #[pg_guard]
-pub extern "C" fn paradedb_rel_pathlist_callback<CS: CustomScan>(
+pub extern "C-unwind" fn paradedb_rel_pathlist_callback<CS: CustomScan>(
     root: *mut pg_sys::PlannerInfo,
     rel: *mut pg_sys::RelOptInfo,
     rti: pg_sys::Index,

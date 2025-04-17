@@ -831,7 +831,7 @@ unsafe fn var_opexpr(
 }
 
 unsafe fn contains_exec_param(root: *mut pg_sys::Node) -> bool {
-    unsafe extern "C" fn walker(node: *mut pg_sys::Node, _: *mut core::ffi::c_void) -> bool {
+    unsafe extern "C-unwind" fn walker(node: *mut pg_sys::Node, _: *mut core::ffi::c_void) -> bool {
         if let Some(param) = nodecast!(Param, T_Param, node) {
             if (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC {
                 return true;
@@ -848,7 +848,7 @@ unsafe fn contains_exec_param(root: *mut pg_sys::Node) -> bool {
 }
 
 unsafe fn contains_var(root: *mut pg_sys::Node) -> bool {
-    unsafe extern "C" fn walker(node: *mut pg_sys::Node, _: *mut core::ffi::c_void) -> bool {
+    unsafe extern "C-unwind" fn walker(node: *mut pg_sys::Node, _: *mut core::ffi::c_void) -> bool {
         nodecast!(Var, T_Var, node).is_some()
             || pg_sys::expression_tree_walker(node, Some(walker), std::ptr::null_mut())
     }

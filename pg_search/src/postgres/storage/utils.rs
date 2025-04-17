@@ -218,14 +218,15 @@ pub unsafe fn vacuum_get_freeze_limit(heap_relation: pg_sys::Relation) -> pg_sys
     assert!(pg_sys::TransactionIdIsNormal(oldest_xmin));
     assert!(pg_sys::vacuum_freeze_min_age >= 0);
 
-    let next_xid = pg_sys::ReadNextFullTransactionId().value as pg_sys::TransactionId;
+    let next_xid = pg_sys::TransactionId::from(pg_sys::ReadNextFullTransactionId().value as u32);
     let freeze_min_age =
         std::cmp::min(pg_sys::vacuum_freeze_min_age, autovacuum_freeze_max_age / 2);
-    if freeze_min_age > (next_xid as i32) {
+    if freeze_min_age > next_xid.into_inner() as i32 {
         return pg_sys::FirstNormalTransactionId;
     }
 
-    let mut freeze_limit = next_xid - (freeze_min_age as u32);
+    let mut freeze_limit =
+        pg_sys::TransactionId::from(next_xid.into_inner() - (freeze_min_age as u32));
     // ensure that freeze_limit is a normal transaction ID
     if !pg_sys::TransactionIdIsNormal(freeze_limit) {
         freeze_limit = pg_sys::FirstNormalTransactionId;

@@ -24,7 +24,7 @@ use pgrx::itemptr::{item_pointer_get_both, item_pointer_set_all};
 use pgrx::*;
 use std::str::FromStr;
 
-extern "C" {
+extern "C-unwind" {
     // SAFETY: `IsTransactionState()` doesn't raise an ERROR.  As such, we can avoid the pgrx
     // sigsetjmp overhead by linking to the function directly.
     pub fn IsTransactionState() -> bool;
@@ -45,7 +45,7 @@ pub fn locate_bm25_index(heaprelid: pg_sys::Oid) -> Option<PgRelation> {
                 !index.rd_indam.is_null()
                     && (*index.rd_indam).ambuild == Some(crate::postgres::build::ambuild)
             })
-            .max_by_key(|index| index.oid().as_u32())
+            .max_by_key(|index| index.oid().to_u32())
     }
 }
 

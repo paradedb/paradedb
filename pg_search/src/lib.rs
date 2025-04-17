@@ -67,7 +67,7 @@ pub fn MyDatabaseId() -> u32 {
     unsafe {
         // SAFETY:  this static is set by Postgres when the backend first connects and is
         // never changed afterwards.  As such, it'll always be set whenever this code runs
-        pg_sys::MyDatabaseId.as_u32()
+        pg_sys::MyDatabaseId.to_u32()
     }
 }
 
@@ -75,7 +75,7 @@ pub fn MyDatabaseId() -> u32 {
 #[allow(clippy::missing_safety_doc)]
 #[allow(non_snake_case)]
 #[pg_guard]
-pub unsafe extern "C" fn _PG_init() {
+pub unsafe extern "C-unwind" fn _PG_init() {
     // initialize environment logging (to stderr) for dependencies that do logging
     // we can't implement our own logger that sends messages to Postgres `ereport()` because
     // of threading concerns

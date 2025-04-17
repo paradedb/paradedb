@@ -60,7 +60,7 @@ impl BuildState {
 }
 
 #[pg_guard]
-pub extern "C" fn ambuild(
+pub extern "C-unwind" fn ambuild(
     heaprel: pg_sys::Relation,
     indexrel: pg_sys::Relation,
     index_info: *mut pg_sys::IndexInfo,
@@ -103,7 +103,7 @@ pub extern "C" fn ambuild(
 }
 
 #[pg_guard]
-pub extern "C" fn ambuildempty(_index_relation: pg_sys::Relation) {}
+pub extern "C-unwind" fn ambuildempty(_index_relation: pg_sys::Relation) {}
 
 fn do_heap_scan<'a>(
     index_info: *mut pg_sys::IndexInfo,
@@ -143,7 +143,7 @@ fn do_heap_scan<'a>(
 }
 
 #[pg_guard]
-unsafe extern "C" fn build_callback(
+unsafe extern "C-unwind" fn build_callback(
     indexrel: pg_sys::Relation,
     ctid: pg_sys::ItemPointer,
     values: *mut pg_sys::Datum,

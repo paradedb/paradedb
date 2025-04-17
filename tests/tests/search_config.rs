@@ -365,6 +365,24 @@ fn raw_tokenizer_config(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn normalizer_requires_fast(mut conn: PgConnection) {
+    let result = r#"
+    CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
+
+    CREATE INDEX bm25_search_idx ON paradedb.bm25_search
+        USING bm25 (id, description)
+        WITH (key_field='id', text_fields='{"description": {"tokenizer": {"type": "raw"}, "normalizer": "raw" } }');
+    "#
+        .execute_result(&mut conn);
+
+    assert!(result.is_err());
+    let err = result.err().unwrap();
+    assert!(err
+        .to_string()
+        .contains("'normalizer' is only valid when `\"fast\": true`"));
+}
+
+#[rstest]
 fn regex_tokenizer_config(mut conn: PgConnection) {
     "CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb')"
         .execute(&mut conn);

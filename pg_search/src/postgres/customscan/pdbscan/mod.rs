@@ -1119,39 +1119,39 @@ unsafe fn is_partitioned_table_setup(
         if (*rte).relkind as u8 != pg_sys::RELKIND_RELATION {
             continue;
         }
+    }
 
-        // Check if this relation belongs to a partitioned table in baserels
-        // We'll do this by checking for overlaps between baserels and partitioned tables
+    // Check if this relation belongs to a partitioned table in baserels
+    // We'll do this by checking for overlaps between baserels and partitioned tables
 
-        // Iterate through all relations to find partitioned tables
-        for i in 0..(*root).simple_rel_array_size as usize {
-            let possible_parent_ptr = *(*root).simple_rel_array.add(i);
-            if possible_parent_ptr.is_null() {
-                continue;
-            }
+    // Iterate through all relations to find partitioned tables
+    for i in 0..(*root).simple_rel_array_size as usize {
+        let possible_parent_ptr = *(*root).simple_rel_array.add(i);
+        if possible_parent_ptr.is_null() {
+            continue;
+        }
 
-            let possible_parent = &*possible_parent_ptr;
+        let possible_parent = &*possible_parent_ptr;
 
-            // Skip if not in baserels
-            if !pg_sys::bms_is_member(i as i32, baserels) {
-                continue;
-            }
+        // Skip if not in baserels
+        if !pg_sys::bms_is_member(i as i32, baserels) {
+            continue;
+        }
 
-            // Skip if it doesn't have partitions
-            if possible_parent.all_partrels.is_null() {
-                continue;
-            }
+        // Skip if it doesn't have partitions
+        if possible_parent.all_partrels.is_null() {
+            continue;
+        }
 
-            // Check if the possible parent's RTE is a partitioned table
-            let parent_rte = pg_sys::rt_fetch(i as pg_sys::Index, rtable);
-            if (*parent_rte).relkind as u8 != pg_sys::RELKIND_PARTITIONED_TABLE {
-                continue;
-            }
+        // Check if the possible parent's RTE is a partitioned table
+        let parent_rte = pg_sys::rt_fetch(i as pg_sys::Index, rtable);
+        if (*parent_rte).relkind as u8 != pg_sys::RELKIND_PARTITIONED_TABLE {
+            continue;
+        }
 
-            // Check if our member is one of its partitions
-            if pg_sys::bms_is_member(member, possible_parent.all_partrels) {
-                return true;
-            }
+        // Check if our member is one of its partitions
+        if pg_sys::bms_is_subset(rel_relids, possible_parent.all_partrels) {
+            return true;
         }
     }
 

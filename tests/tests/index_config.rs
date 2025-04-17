@@ -973,7 +973,7 @@ fn non_partitioned_no_order_by_limit_pushdown(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[ignore]
+#[should_panic]
 fn view_no_order_by_limit_pushdown(mut conn: PgConnection) {
     // First drop any existing tables or views
     r#"

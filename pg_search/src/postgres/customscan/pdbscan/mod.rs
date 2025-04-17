@@ -1084,7 +1084,7 @@ pub fn is_block_all_visible(
     }
 }
 
-// Helper function to convert Bitmapset to Vec<i32>
+// Helper function to check if a Bitmapset is empty
 unsafe fn bms_is_empty(bms: *mut pg_sys::Bitmapset) -> bool {
     let mut set_bit: i32 = -1;
     // Get the set bits, which are offsets into the RangeTable.

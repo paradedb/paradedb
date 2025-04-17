@@ -81,6 +81,53 @@ impl ExecMethod for PdbScan {
     }
 }
 
+unsafe fn bms_to_integers(bms: *mut pg_sys::Bitmapset) -> Vec<i32> {
+    let mut set_bit: i32 = -1;
+    let mut result = Vec::new();
+    loop {
+        // Get the set bits, which are offsets into the RangeTable.
+        set_bit = pg_sys::bms_next_member(bms, set_bit);
+        if set_bit < 0 {
+            break;
+        }
+
+        result.push(set_bit);
+    }
+    result
+}
+
+unsafe fn bms_to_reloids(
+    root: *mut pg_sys::PlannerInfo,
+    bms: *mut pg_sys::Bitmapset,
+) -> Vec<String> {
+    bms_to_integers(bms)
+        .into_iter()
+        .map(|range_table_index| {
+            // Get the relevant range table entry.
+            let rte = pg_sys::rt_fetch(range_table_index as pg_sys::Index, (*(*root).parse).rtable);
+            let partition_info = if (*rte).relkind as u8 == pg_sys::RELKIND_PARTITIONED_TABLE {
+                // If the rte is a partitioned table, figure out what partitions are
+                // involved.
+                let partitioned_table_reloptinfo = (*root)
+                    .simple_rel_array
+                    .offset(range_table_index as isize)
+                    .read();
+                format!(
+                    " (partition relids: {:?})",
+                    bms_to_integers((*partitioned_table_reloptinfo).all_partrels)
+                )
+            } else {
+                "".to_owned()
+            };
+            format!(
+                "range_table_index: {range_table_index}, relid: {:?}, relkind: {}{partition_info}",
+                (*rte).relid,
+                (*rte).relkind
+            )
+        })
+        .collect()
+}
+
 impl CustomScan for PdbScan {
     const NAME: &'static CStr = c"ParadeDB Scan";
 
@@ -131,12 +178,38 @@ impl CustomScan for PdbScan {
             #[cfg(any(feature = "pg16", feature = "pg17"))]
             let baserels = (*builder.args().root).all_query_rels;
 
-            let limit = if (*builder.args().root).limit_tuples > -1.0
-                && pg_sys::bms_equal((*builder.args().rel).relids, baserels)
-            {
-                // we can only use the limit for estimates if a) we have one, and b) we know
-                // the query is only querying one relation
-                Some((*builder.args().root).limit_tuples)
+            pgrx::log!(
+                ">>> limit_tuples: {:?}, relids: {:?}, baserels: {:?}",
+                (*builder.args().root).limit_tuples,
+                bms_to_reloids(root, (*builder.args().rel).relids),
+                bms_to_reloids(root, baserels),
+            );
+
+            let limit = if (*builder.args().root).limit_tuples > -1.0 {
+                // Check if this is a single relation or a partitioned table setup
+                let rel_is_single_or_partitioned =
+                    pg_sys::bms_equal((*builder.args().rel).relids, baserels)
+                        || is_partitioned_table_setup(
+                            builder.args().root,
+                            (*builder.args().rel).relids,
+                            baserels,
+                        );
+
+                pgrx::log!(
+                    ">>> rel_is_single_or_partitioned: {}, bms_equal: {}, is_partitioned_table_setup: {}",
+                    rel_is_single_or_partitioned,
+                    pg_sys::bms_equal((*builder.args().rel).relids, baserels),
+                    is_partitioned_table_setup(builder.args().root, (*builder.args().rel).relids, baserels)
+                );
+
+                if rel_is_single_or_partitioned {
+                    // We can use the limit for estimates if:
+                    // a) we have a limit, and
+                    // b) we're querying a single relation OR partitions of a partitioned table
+                    Some((*builder.args().root).limit_tuples)
+                } else {
+                    None
+                }
             } else {
                 None
             };
@@ -147,6 +220,12 @@ impl CustomScan for PdbScan {
             let ff_cnt =
                 exec_methods::fast_fields::count(&mut builder, rti, &table, &schema, target_list);
             let maybe_ff = builder.custom_private().maybe_ff();
+
+            pgrx::log!(
+                ">>> limit: {limit:?}, pathkey.is_some(): {}",
+                pathkey.is_some()
+            );
+
             let is_topn = limit.is_some() && pathkey.is_some();
             let which_fast_fields = exec_methods::fast_fields::collect(
                 builder.custom_private().maybe_ff(),
@@ -218,6 +297,8 @@ impl CustomScan for PdbScan {
                 builder.custom_private().set_range_table_index(rti);
                 builder.custom_private().set_quals(quals);
                 builder.custom_private().set_limit(limit);
+
+                pgrx::log!(">>> is_topn: {is_topn}");
 
                 if is_topn {
                     // sorting by a field only works if we're not doing const projections
@@ -302,6 +383,8 @@ impl CustomScan for PdbScan {
                     let pathkey_cnt =
                         PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys)
                             .len();
+
+                    pgrx::log!(">>> pathkey_cnt: {pathkey_cnt}, cardinality: {cardinality}");
 
                     if pathkey_cnt == 1 || cardinality > 1_000_000.0 {
                         // if we only have 1 path key or if our estimated cardinality is over some
@@ -1070,4 +1153,105 @@ pub fn is_block_all_visible(
         let status = pg_sys::visibilitymap_get_status(heaprel, heap_blockno, vmbuff);
         status != 0
     }
+}
+
+// Add helper function to determine if we're dealing with a partitioned table setup
+unsafe fn is_partitioned_table_setup(
+    root: *mut pg_sys::PlannerInfo,
+    rel_relids: *mut pg_sys::Bitmapset,
+    baserels: *mut pg_sys::Bitmapset,
+) -> bool {
+    use pgrx::pg_sys::{self};
+
+    pgrx::log!(">>> Entering is_partitioned_table_setup");
+
+    // Get all the RTEs and print their relation kind
+    let rtable = (*(*root).parse).rtable;
+    let rtable_list = pgrx::PgList::<pg_sys::RangeTblEntry>::from_pg(rtable);
+
+    for (i, rte) in rtable_list.iter_ptr().enumerate() {
+        let relkind_str = match (*rte).relkind as u8 {
+            k if k == pg_sys::RELKIND_RELATION => "RELATION",
+            k if k == pg_sys::RELKIND_PARTITIONED_TABLE => "PARTITIONED_TABLE",
+            _ => "OTHER",
+        };
+        pgrx::log!(
+            ">>> RTE {}: relid: {:?}, relkind: {} ({})",
+            i + 1,
+            (*rte).relid,
+            (*rte).relkind,
+            relkind_str
+        );
+    }
+
+    // Find partitioned tables in the baserels
+    let baserels_ints = bms_to_integers(baserels);
+    pgrx::log!(">>> Baserels: {:?}", baserels_ints);
+
+    for baserel_idx in baserels_ints {
+        // Skip invalid indices
+        if baserel_idx <= 0 || baserel_idx as usize >= (*root).simple_rel_array_size as usize {
+            continue;
+        }
+
+        // Get the RTE for this baserel
+        let rte = pg_sys::rt_fetch(baserel_idx as pg_sys::Index, rtable);
+        if (*rte).relkind as u8 != pg_sys::RELKIND_PARTITIONED_TABLE {
+            pgrx::log!(">>> Baserel {} is not a partitioned table", baserel_idx);
+            continue;
+        }
+
+        pgrx::log!(">>> Found partitioned table at index {}", baserel_idx);
+
+        // This is a partitioned table, get its RelOptInfo to find partitions
+        let rel_info_ptr = *(*root).simple_rel_array.add(baserel_idx as usize);
+        if rel_info_ptr.is_null() {
+            pgrx::log!(
+                ">>> RelOptInfo is null for partitioned table {}",
+                baserel_idx
+            );
+            continue;
+        }
+
+        let rel_info = &*rel_info_ptr;
+
+        // Check if it has partitions
+        if rel_info.all_partrels.is_null() {
+            pgrx::log!(">>> Partitioned table {} has no partrels", baserel_idx);
+            continue;
+        }
+
+        // Get all partition relids
+        let partition_relids = bms_to_integers(rel_info.all_partrels);
+        pgrx::log!(
+            ">>> Partitioned table {} has partrels: {:?}",
+            baserel_idx,
+            partition_relids
+        );
+
+        // Check if our rel_relids is one of the partitions
+        let rel_relids_ints = bms_to_integers(rel_relids);
+        pgrx::log!(">>> Current rel_relids: {:?}", rel_relids_ints);
+
+        for rel_relid in rel_relids_ints {
+            if partition_relids.contains(&rel_relid) {
+                pgrx::log!(
+                    ">>> Found match! rel_relid {} is a partition of baserel {}",
+                    rel_relid,
+                    baserel_idx
+                );
+                return true;
+            }
+        }
+
+        // Another approach: check if any bit in all_partrels is also set in rel_relids
+        let is_overlap = !pg_sys::bms_overlap(rel_info.all_partrels, rel_relids);
+        pgrx::log!(">>> Bitmap overlap check: {}", is_overlap);
+        if is_overlap {
+            return true;
+        }
+    }
+
+    pgrx::log!(">>> No partition relationship found");
+    false
 }

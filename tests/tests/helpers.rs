@@ -92,6 +92,7 @@ fn list_tokenizers(mut conn: PgConnection) {
             rows,
             vec![
                 ("default".into(),),
+                ("keyword".into(),),
                 ("raw".into(),),
                 ("en_stem".into(),),
                 ("stem".into(),),

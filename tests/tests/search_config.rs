@@ -365,6 +365,39 @@ fn raw_tokenizer_config(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn keyword_tokenizer_config(mut conn: PgConnection) {
+    r#"
+    CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
+
+    CREATE INDEX bm25_search_idx ON paradedb.bm25_search
+        USING bm25 (id, description)
+        WITH (key_field='id', text_fields='{"description": {"tokenizer": {"type": "keyword"}}}');
+    "#
+    .execute(&mut conn);
+
+    let count: (i64,) = r#"
+        SELECT COUNT(*) FROM paradedb.bm25_search
+        WHERE bm25_search @@@ 'description:shoes'"#
+        .fetch_one(&mut conn);
+    assert_eq!(count.0, 0);
+
+    // the literal "description" value is `"Generic shoes"`, so searching for "GENERIC SHOES" will
+    // not find a match
+    let count: (i64,) = r#"
+        SELECT COUNT(*) FROM paradedb.bm25_search
+        WHERE bm25_search @@@ 'description:"GENERIC SHOES"'"#
+        .fetch_one(&mut conn);
+    assert_eq!(count.0, 0);
+
+    // whereas, searching for the literal value will
+    let count: (i64,) = r#"
+        SELECT COUNT(*) FROM paradedb.bm25_search
+        WHERE bm25_search @@@ 'description:"Generic shoes"'"#
+        .fetch_one(&mut conn);
+    assert_eq!(count.0, 1);
+}
+
+#[rstest]
 fn normalizer_requires_fast(mut conn: PgConnection) {
     let result = r#"
     CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');

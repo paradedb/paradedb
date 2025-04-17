@@ -98,8 +98,8 @@ fn pushdown(mut conn: PgConnection) {
                    WITH (
                     key_field='id',
                         text_fields = '{{
-                            "col_text": {{"tokenizer": {{"type":"raw"}} }},
-                            "col_varchar": {{"tokenizer": {{"type":"raw"}} }}
+                            "col_text": {{"tokenizer": {{"type":"keyword"}} }},
+                            "col_varchar": {{"tokenizer": {{"type":"keyword"}} }}
                          }}'
                     );"#,
         TYPES

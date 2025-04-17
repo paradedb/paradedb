@@ -974,6 +974,7 @@ fn non_partitioned_no_order_by_limit_pushdown(mut conn: PgConnection) {
 
 #[rstest]
 #[should_panic]
+// This test is broken until issue #2200 is fixed
 fn view_no_order_by_limit_pushdown(mut conn: PgConnection) {
     // First drop any existing tables or views
     r#"

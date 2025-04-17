@@ -250,7 +250,7 @@ unsafe fn do_merge(indexrelid: pg_sys::Oid) -> (NumCandidates, NumMerged) {
     let index_options = SearchIndexCreateOptions::from_relation(&indexrel);
     let merge_policy = LayeredMergePolicy::new(index_options.layer_sizes(DEFAULT_LAYER_SIZES));
 
-    merge_index_with_policy(indexrel, merge_policy, false, false)
+    merge_index_with_policy(indexrel, merge_policy, false, false, false)
 }
 
 pub unsafe fn merge_index_with_policy(
@@ -258,6 +258,7 @@ pub unsafe fn merge_index_with_policy(
     mut merge_policy: LayeredMergePolicy,
     verbose: bool,
     gc_after_merge: bool,
+    consider_create_index_segments: bool,
 ) -> (NumCandidates, NumMerged) {
     let indexrelid = indexrel.oid();
 
@@ -276,19 +277,35 @@ pub unsafe fn merge_index_with_policy(
     // the non_mergeable_segments are those that are concurrently being vacuumed *and* merged
     let mut non_mergeable_segments = merge_lock.list_vacuuming_segments();
     non_mergeable_segments.extend(merge_lock.in_progress_segment_ids());
+    let create_index_segment_ids = merge_lock.create_index_segment_ids();
 
     if pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) {
         pgrx::debug1!("do_merge: non_mergeable_segments={non_mergeable_segments:?}");
         pgrx::debug1!("do_merge: merger_segment_ids={merger_segment_ids:?}");
+        pgrx::debug1!("do_merge: create_index_segment_ids={create_index_segment_ids:?}");
     }
 
     // tell the MergePolicy which segments it's initially allowed to consider for merging
-    merge_policy.set_mergeable_segment_entries(
-        merger
-            .all_entries()
-            .into_iter()
-            .filter(|(segment_id, _)| !non_mergeable_segments.contains(segment_id)),
-    );
+    merge_policy.set_mergeable_segment_entries(merger.all_entries().into_iter().filter(
+        |(segment_id, entry)| {
+            // skip segments that are already being vacuumed or merged
+            if non_mergeable_segments.contains(segment_id) {
+                return false;
+            }
+
+            // skip segments that were created by CREATE INDEX and have no deletes
+            if !consider_create_index_segments
+                && create_index_segment_ids.contains(segment_id)
+                && entry
+                    .delete
+                    .is_none_or(|delete_entry| delete_entry.num_deleted_docs == 0)
+            {
+                return false;
+            }
+
+            true
+        },
+    ));
 
     // further reduce the set of segments that the LayeredMergePolicy will operate on by internally
     // simulating the process, allowing concurrent merges to consider segments we're not, only retaining

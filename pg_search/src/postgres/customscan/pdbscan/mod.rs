@@ -131,12 +131,24 @@ impl CustomScan for PdbScan {
             #[cfg(any(feature = "pg16", feature = "pg17"))]
             let baserels = (*builder.args().root).all_query_rels;
 
-            let limit = if (*builder.args().root).limit_tuples > -1.0
-                && pg_sys::bms_equal((*builder.args().rel).relids, baserels)
-            {
-                // we can only use the limit for estimates if a) we have one, and b) we know
-                // the query is only querying one relation
-                Some((*builder.args().root).limit_tuples)
+            let limit = if (*builder.args().root).limit_tuples > -1.0 {
+                // Check if this is a single relation or a partitioned table setup
+                let rel_is_single_or_partitioned =
+                    pg_sys::bms_equal((*builder.args().rel).relids, baserels)
+                        || is_partitioned_table_setup(
+                            builder.args().root,
+                            (*builder.args().rel).relids,
+                            baserels,
+                        );
+
+                if rel_is_single_or_partitioned {
+                    // We can use the limit for estimates if:
+                    // a) we have a limit, and
+                    // b) we're querying a single relation OR partitions of a partitioned table
+                    Some((*builder.args().root).limit_tuples)
+                } else {
+                    None
+                }
             } else {
                 None
             };
@@ -1070,4 +1082,76 @@ pub fn is_block_all_visible(
         let status = pg_sys::visibilitymap_get_status(heaprel, heap_blockno, vmbuff);
         status != 0
     }
+}
+
+// Helper function to create an iterator over Bitmapset members
+unsafe fn bms_iter(bms: *mut pg_sys::Bitmapset) -> impl Iterator<Item = i32> {
+    let mut set_bit: i32 = -1;
+    std::iter::from_fn(move || {
+        set_bit = pg_sys::bms_next_member(bms, set_bit);
+        if set_bit < 0 {
+            None
+        } else {
+            Some(set_bit)
+        }
+    })
+}
+
+// Helper function to check if a Bitmapset is empty
+unsafe fn bms_is_empty(bms: *mut pg_sys::Bitmapset) -> bool {
+    bms_iter(bms).next().is_none()
+}
+
+// Helper function to determine if we're dealing with a partitioned table setup
+unsafe fn is_partitioned_table_setup(
+    root: *mut pg_sys::PlannerInfo,
+    rel_relids: *mut pg_sys::Bitmapset,
+    baserels: *mut pg_sys::Bitmapset,
+) -> bool {
+    // If the relation bitmap is empty, early return
+    if bms_is_empty(rel_relids) {
+        return false;
+    }
+
+    // Get the rtable for relkind checks
+    let rtable = (*(*root).parse).rtable;
+
+    // For each relation in baserels
+    for baserel_idx in bms_iter(baserels) {
+        // Skip invalid indices
+        if baserel_idx <= 0 || baserel_idx as usize >= (*root).simple_rel_array_size as usize {
+            continue;
+        }
+
+        // Get the RTE to check if this is a partitioned table
+        let rte = pg_sys::rt_fetch(baserel_idx as pg_sys::Index, rtable);
+        if (*rte).relkind as u8 != pg_sys::RELKIND_PARTITIONED_TABLE {
+            continue;
+        }
+
+        // Access RelOptInfo safely using offset and read
+        if (*root).simple_rel_array.is_null() {
+            continue;
+        }
+
+        // This is a partitioned table, get its RelOptInfo to find partitions
+        let rel_info_ptr = *(*root).simple_rel_array.add(baserel_idx as usize);
+        if rel_info_ptr.is_null() {
+            continue;
+        }
+
+        let rel_info = &*rel_info_ptr;
+
+        // Check if it has partitions
+        if rel_info.all_partrels.is_null() {
+            continue;
+        }
+
+        // Check if any relation in rel_relids is among the partitions
+        if pg_sys::bms_overlap(rel_info.all_partrels, rel_relids) {
+            return true;
+        }
+    }
+
+    false
 }

@@ -1128,15 +1128,14 @@ unsafe fn is_partitioned_table_setup(
     // Find partitioned tables in the baserels
     let baserels_ints = bms_to_integers(baserels);
     let rtable = (*(*root).parse).rtable;
-
     for baserel_idx in baserels_ints {
         // Skip invalid indices
         if baserel_idx <= 0 || baserel_idx as usize >= (*root).simple_rel_array_size as usize {
             continue;
         }
 
-        // Get the RTE for this baserel
-        let rte = pg_sys::rt_fetch(baserel_idx as pg_sys::Index, rtable);
+        // Get the RTE to determine if this is a partitioned table
+        let rte = pg_sys::rt_fetch(baserel_idx as pg_sys::Index, (*(*root).parse).rtable);
         if (*rte).relkind as u8 != pg_sys::RELKIND_PARTITIONED_TABLE {
             continue;
         }
@@ -1154,9 +1153,8 @@ unsafe fn is_partitioned_table_setup(
             continue;
         }
 
-        // Alternative approach using direct bitmap operations
-        let is_overlap = pg_sys::bms_overlap(rel_info.all_partrels, rel_relids);
-        if is_overlap {
+        // This is a partitioned table, check if rel_relids overlaps with its partitions
+        if pg_sys::bms_overlap(rel_info.all_partrels, rel_relids) {
             return true;
         }
     }

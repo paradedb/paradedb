@@ -146,7 +146,7 @@ pub enum SearchFieldConfig {
         indexed: bool,
         #[serde(default)]
         fast: bool,
-        #[serde(default = "default_as_false")]
+        #[serde(default)]
         stored: bool,
         #[serde(default = "default_as_true")]
         fieldnorms: bool,
@@ -164,7 +164,7 @@ pub enum SearchFieldConfig {
         indexed: bool,
         #[serde(default)]
         fast: bool,
-        #[serde(default = "default_as_false")]
+        #[serde(default)]
         stored: bool,
         #[serde(default = "default_as_true")]
         fieldnorms: bool,
@@ -180,7 +180,7 @@ pub enum SearchFieldConfig {
         column: Option<String>,
     },
     Range {
-        #[serde(default = "default_as_false")]
+        #[serde(default)]
         stored: bool,
         #[serde(default)]
         column: Option<String>,
@@ -190,7 +190,7 @@ pub enum SearchFieldConfig {
         indexed: bool,
         #[serde(default = "default_as_true")]
         fast: bool,
-        #[serde(default = "default_as_false")]
+        #[serde(default)]
         stored: bool,
         #[serde(default)]
         column: Option<String>,
@@ -200,7 +200,7 @@ pub enum SearchFieldConfig {
         indexed: bool,
         #[serde(default = "default_as_true")]
         fast: bool,
-        #[serde(default = "default_as_false")]
+        #[serde(default)]
         stored: bool,
         #[serde(default)]
         column: Option<String>,
@@ -210,7 +210,7 @@ pub enum SearchFieldConfig {
         indexed: bool,
         #[serde(default = "default_as_true")]
         fast: bool,
-        #[serde(default = "default_as_false")]
+        #[serde(default)]
         stored: bool,
         #[serde(default)]
         column: Option<String>,
@@ -989,10 +989,6 @@ fn default_as_true() -> bool {
     true
 }
 
-fn default_as_false() -> bool {
-    true
-}
-
 fn default_as_freqs_and_positions() -> IndexRecordOption {
     IndexRecordOption(tantivy::schema::IndexRecordOption::WithFreqsAndPositions)
 }
@@ -1087,7 +1083,7 @@ mod tests {
         let json = r#"{
             "indexed": true,
             "fast": false,
-            "stored": true,
+            "stored": false,
             "fieldnorms": true,
             "type": "default",
             "record": "basic",
@@ -1113,7 +1109,7 @@ mod tests {
     fn test_search_numeric_options() {
         let json = r#"{
             "indexed": true,
-            "stored": true,
+            "stored": false,
             "fieldnorms": false,
             "fast": true
         }"#;
@@ -1129,7 +1125,7 @@ mod tests {
     fn test_search_boolean_options() {
         let json = r#"{
             "indexed": true,
-            "stored": true,
+            "stored": false,
             "fieldnorms": false,
             "fast": true
         }"#;
@@ -1146,7 +1142,7 @@ mod tests {
         let json = r#"{
             "indexed": true,
             "fast": false,
-            "stored": true,
+            "stored": false,
             "expand_dots": true,
             "type": "default",
             "record": "basic",

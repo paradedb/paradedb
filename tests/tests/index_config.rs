@@ -961,12 +961,13 @@ fn non_partitioned_no_order_by_limit_pushdown(mut conn: PgConnection) {
 
     // Check that the first result is the earliest date
     if !results.is_empty() {
-        let earliest_date = results[0].1.clone();
+        let mut prev_date = &results[0].1;
         for result in &results[1..] {
             assert!(
-                result.1 >= earliest_date,
+                &result.1 >= prev_date,
                 "Results should be sorted by date in ascending order"
             );
+            prev_date = &result.1;
         }
     }
 }

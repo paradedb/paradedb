@@ -1085,33 +1085,6 @@ pub fn is_block_all_visible(
     }
 }
 
-// Helper function to convert Bitmapset to Vec<i32>
-unsafe fn bms_is_empty(bms: *mut pg_sys::Bitmapset) -> bool {
-    let mut set_bit: i32 = -1;
-    // Get the set bits, which are offsets into the RangeTable.
-    set_bit = pg_sys::bms_next_member(bms, set_bit);
-    if set_bit < 0 {
-        return true;
-    }
-    false
-}
-
-// Helper function to convert Bitmapset to Vec<i32>
-unsafe fn bms_to_integers(bms: *mut pg_sys::Bitmapset) -> Vec<i32> {
-    let mut set_bit: i32 = -1;
-    let mut result = Vec::new();
-    loop {
-        // Get the set bits, which are offsets into the RangeTable.
-        set_bit = pg_sys::bms_next_member(bms, set_bit);
-        if set_bit < 0 {
-            break;
-        }
-
-        result.push(set_bit);
-    }
-    result
-}
-
 // Helper function to determine if we're dealing with a partitioned table setup
 unsafe fn is_partitioned_table_setup(
     root: *mut pg_sys::PlannerInfo,
@@ -1120,42 +1093,66 @@ unsafe fn is_partitioned_table_setup(
 ) -> bool {
     use pgrx::pg_sys::{self};
 
-    // Get the relids of our current relation
-    if bms_is_empty(rel_relids) {
-        return false;
-    }
-
-    // Find partitioned tables in the baserels
-    let baserels_ints = bms_to_integers(baserels);
+    // Get the rtable for relkind checks
     let rtable = (*(*root).parse).rtable;
-    for baserel_idx in baserels_ints {
+
+    // For each relid in rel_relids, check if it's a partition
+    let mut member: i32 = -1;
+    while {
+        member = pg_sys::bms_next_member(rel_relids, member);
+        member >= 0
+    } {
         // Skip invalid indices
-        if baserel_idx <= 0 || baserel_idx as usize >= (*root).simple_rel_array_size as usize {
+        if member <= 0 || member as usize >= (*root).simple_rel_array_size as usize {
             continue;
         }
 
-        // Get the RTE to determine if this is a partitioned table
-        let rte = pg_sys::rt_fetch(baserel_idx as pg_sys::Index, (*(*root).parse).rtable);
-        if (*rte).relkind as u8 != pg_sys::RELKIND_PARTITIONED_TABLE {
-            continue;
-        }
-
-        // This is a partitioned table, get its RelOptInfo to find partitions
-        let rel_info_ptr = *(*root).simple_rel_array.add(baserel_idx as usize);
+        // Get the rel info for this member
+        let rel_info_ptr = *(*root).simple_rel_array.add(member as usize);
         if rel_info_ptr.is_null() {
             continue;
         }
 
         let rel_info = &*rel_info_ptr;
 
-        // Check if it has partitions
-        if rel_info.all_partrels.is_null() {
+        // Get the RTE to check if this is a relation
+        let rte = pg_sys::rt_fetch(member as pg_sys::Index, rtable);
+        if (*rte).relkind as u8 != pg_sys::RELKIND_RELATION {
             continue;
         }
 
-        // This is a partitioned table, check if rel_relids overlaps with its partitions
-        if pg_sys::bms_overlap(rel_info.all_partrels, rel_relids) {
-            return true;
+        // Check if this relation belongs to a partitioned table in baserels
+        // We'll do this by checking for overlaps between baserels and partitioned tables
+
+        // Iterate through all relations to find partitioned tables
+        for i in 0..(*root).simple_rel_array_size as usize {
+            let possible_parent_ptr = *(*root).simple_rel_array.add(i);
+            if possible_parent_ptr.is_null() {
+                continue;
+            }
+
+            let possible_parent = &*possible_parent_ptr;
+
+            // Skip if not in baserels
+            if !pg_sys::bms_is_member(i as i32, baserels) {
+                continue;
+            }
+
+            // Skip if it doesn't have partitions
+            if possible_parent.all_partrels.is_null() {
+                continue;
+            }
+
+            // Check if the possible parent's RTE is a partitioned table
+            let parent_rte = pg_sys::rt_fetch(i as pg_sys::Index, rtable);
+            if (*parent_rte).relkind as u8 != pg_sys::RELKIND_PARTITIONED_TABLE {
+                continue;
+            }
+
+            // Check if our member is one of its partitions
+            if pg_sys::bms_is_member(member, possible_parent.all_partrels) {
+                return true;
+            }
         }
     }
 

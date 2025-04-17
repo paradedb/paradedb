@@ -1084,31 +1084,22 @@ pub fn is_block_all_visible(
     }
 }
 
-// Helper function to check if a Bitmapset is empty
-unsafe fn bms_is_empty(bms: *mut pg_sys::Bitmapset) -> bool {
+// Helper function to create an iterator over Bitmapset members
+unsafe fn bms_iter(bms: *mut pg_sys::Bitmapset) -> impl Iterator<Item = i32> {
     let mut set_bit: i32 = -1;
-    // Get the set bits, which are offsets into the RangeTable.
-    set_bit = pg_sys::bms_next_member(bms, set_bit);
-    if set_bit < 0 {
-        return true;
-    }
-    false
-}
-
-// Helper function to convert Bitmapset to Vec<i32>
-unsafe fn bms_to_integers(bms: *mut pg_sys::Bitmapset) -> Vec<i32> {
-    let mut set_bit: i32 = -1;
-    let mut result = Vec::new();
-    loop {
-        // Get the set bits, which are offsets into the RangeTable.
+    std::iter::from_fn(move || {
         set_bit = pg_sys::bms_next_member(bms, set_bit);
         if set_bit < 0 {
-            break;
+            None
+        } else {
+            Some(set_bit)
         }
+    })
+}
 
-        result.push(set_bit);
-    }
-    result
+// Helper function to check if a Bitmapset is empty
+unsafe fn bms_is_empty(bms: *mut pg_sys::Bitmapset) -> bool {
+    bms_iter(bms).next().is_none()
 }
 
 // Helper function to determine if we're dealing with a partitioned table setup
@@ -1117,8 +1108,6 @@ unsafe fn is_partitioned_table_setup(
     rel_relids: *mut pg_sys::Bitmapset,
     baserels: *mut pg_sys::Bitmapset,
 ) -> bool {
-    use pgrx::pg_sys::{self};
-
     // If the relation bitmap is empty, early return
     if bms_is_empty(rel_relids) {
         return false;
@@ -1128,15 +1117,14 @@ unsafe fn is_partitioned_table_setup(
     let rtable = (*(*root).parse).rtable;
 
     // For each relation in baserels
-    let baserel_members = bms_to_integers(baserels);
-    for baserel_idx in &baserel_members {
+    for baserel_idx in bms_iter(baserels) {
         // Skip invalid indices
-        if *baserel_idx <= 0 || *baserel_idx as usize >= (*root).simple_rel_array_size as usize {
+        if baserel_idx <= 0 || baserel_idx as usize >= (*root).simple_rel_array_size as usize {
             continue;
         }
 
         // Get the RTE to check if this is a partitioned table
-        let rte = pg_sys::rt_fetch(*baserel_idx as pg_sys::Index, rtable);
+        let rte = pg_sys::rt_fetch(baserel_idx as pg_sys::Index, rtable);
         if (*rte).relkind as u8 != pg_sys::RELKIND_PARTITIONED_TABLE {
             continue;
         }
@@ -1147,7 +1135,7 @@ unsafe fn is_partitioned_table_setup(
         }
 
         // This is a partitioned table, get its RelOptInfo to find partitions
-        let rel_info_ptr = *(*root).simple_rel_array.add(*baserel_idx as usize);
+        let rel_info_ptr = *(*root).simple_rel_array.add(baserel_idx as usize);
         if rel_info_ptr.is_null() {
             continue;
         }

@@ -752,43 +752,159 @@ fn uuid_as_raw_issue2199(mut conn: PgConnection) {
     assert_eq!(count, 1);
 }
 
-#[rstest]
-fn partitioned_order_by_limit_pushdown(mut conn: PgConnection) {
-    // Set up a partitioned table
+/// Common setup function for partitioned and non-partitioned table tests
+fn setup_table_for_order_by_limit_test(conn: &mut PgConnection, is_partitioned: bool) {
+    // Common settings for all tests
     r#"
-    DROP TABLE IF EXISTS sales;
+    SET enable_indexscan TO off;
+    SET enable_bitmapscan TO off;
+    SET max_parallel_workers TO 0;
+    "#
+    .execute(conn);
 
+    if is_partitioned {
+        // Set up a partitioned table
+        r#"
+        DROP TABLE IF EXISTS sales;
+
+        CREATE TABLE sales (
+            id SERIAL,
+            product_name TEXT,
+            amount DECIMAL,
+            sale_date DATE
+        ) PARTITION BY RANGE (sale_date);
+
+        CREATE TABLE sales_2023 PARTITION OF sales
+        FOR VALUES FROM ('2023-01-01') TO ('2024-01-01');
+
+        CREATE TABLE sales_2024 PARTITION OF sales
+        FOR VALUES FROM ('2024-01-01') TO ('2025-01-01');
+
+        INSERT INTO sales (product_name, amount, sale_date) VALUES
+        ('Laptop', 1200.00, '2023-01-15'),
+        ('Smartphone', 800.00, '2023-03-10'),
+        ('Headphones', 150.00, '2023-05-20'),
+        ('Monitor', 300.00, '2023-07-05'),
+        ('Keyboard', 80.00, '2023-09-12'),
+        ('Mouse', 40.00, '2023-11-25'),
+        ('Tablet', 500.00, '2024-01-05'),
+        ('Printer', 200.00, '2024-02-18'),
+        ('Camera', 600.00, '2024-04-22'),
+        ('Speaker', 120.00, '2024-06-30');
+
+        CREATE INDEX idx_sales_bm25 ON sales
+        USING bm25 (id, product_name, amount, sale_date)
+        WITH (
+            key_field = 'id',
+            text_fields = '{"product_name": {}}',
+            numeric_fields = '{"amount": {}}',
+            datetime_fields = '{"sale_date": {"fast": true}}'
+        );
+        "#
+        .execute(conn);
+    } else {
+        // Set up two separate tables (not partitioned)
+        r#"
+        DROP TABLE IF EXISTS products_2023;
+        DROP TABLE IF EXISTS products_2024;
+
+        -- Create two separate tables with similar schema
+        CREATE TABLE products_2023 (
+            id SERIAL,
+            product_name TEXT,
+            amount DECIMAL,
+            sale_date DATE
+        );
+
+        CREATE TABLE products_2024 (
+            id SERIAL,
+            product_name TEXT,
+            amount DECIMAL,
+            sale_date DATE
+        );
+
+        -- Insert similar data to both tables
+        INSERT INTO products_2023 (product_name, amount, sale_date) VALUES
+        ('Laptop', 1200.00, '2023-01-15'),
+        ('Smartphone', 800.00, '2023-03-10'),
+        ('Headphones', 150.00, '2023-05-20'),
+        ('Monitor', 300.00, '2023-07-05'),
+        ('Keyboard', 80.00, '2023-09-12');
+
+        INSERT INTO products_2024 (product_name, amount, sale_date) VALUES
+        ('Mouse', 40.00, '2024-01-25'),
+        ('Tablet', 500.00, '2024-01-05'),
+        ('Printer', 200.00, '2024-02-18'),
+        ('Camera', 600.00, '2024-04-22'),
+        ('Speaker', 120.00, '2024-06-30');
+
+        -- Create BM25 indexes for both tables
+        CREATE INDEX idx_products_2023_bm25 ON products_2023
+        USING bm25 (id, product_name, amount, sale_date)
+        WITH (
+            key_field = 'id',
+            text_fields = '{"product_name": {}}',
+            numeric_fields = '{"amount": {}}',
+            datetime_fields = '{"sale_date": {"fast": true}}'
+        );
+
+        CREATE INDEX idx_products_2024_bm25 ON products_2024
+        USING bm25 (id, product_name, amount, sale_date)
+        WITH (
+            key_field = 'id',
+            text_fields = '{"product_name": {}}',
+            numeric_fields = '{"amount": {}}',
+            datetime_fields = '{"sale_date": {"fast": true}}'
+        );
+        "#
+        .execute(conn);
+    }
+}
+
+/// Setup function for view tests
+fn setup_view_for_order_by_limit_test(conn: &mut PgConnection) {
+    // First drop any existing tables or views
+    r#"
+    DROP VIEW IF EXISTS products_view;
+    DROP TABLE IF EXISTS products_2023_view;
+    DROP TABLE IF EXISTS products_2024_view;
+    
     SET enable_indexscan TO off;
     SET enable_bitmapscan TO off;
     SET max_parallel_workers TO 0;
 
-    DROP TABLE IF EXISTS sales;
-    CREATE TABLE sales (
+    -- Create two separate tables with similar schema
+    CREATE TABLE products_2023_view (
         id SERIAL,
         product_name TEXT,
         amount DECIMAL,
         sale_date DATE
-    ) PARTITION BY RANGE (sale_date);
+    );
 
-    CREATE TABLE sales_2023 PARTITION OF sales
-    FOR VALUES FROM ('2023-01-01') TO ('2024-01-01');
-
-    CREATE TABLE sales_2024 PARTITION OF sales
-    FOR VALUES FROM ('2024-01-01') TO ('2025-01-01');
-
-    INSERT INTO sales (product_name, amount, sale_date) VALUES
+    CREATE TABLE products_2024_view (
+        id SERIAL,
+        product_name TEXT,
+        amount DECIMAL,
+        sale_date DATE
+    );
+    
+    -- Insert data to both tables
+    INSERT INTO products_2023_view (product_name, amount, sale_date) VALUES
     ('Laptop', 1200.00, '2023-01-15'),
     ('Smartphone', 800.00, '2023-03-10'),
     ('Headphones', 150.00, '2023-05-20'),
     ('Monitor', 300.00, '2023-07-05'),
-    ('Keyboard', 80.00, '2023-09-12'),
-    ('Mouse', 40.00, '2023-11-25'),
+    ('Keyboard', 80.00, '2023-09-12');
+
+    INSERT INTO products_2024_view (product_name, amount, sale_date) VALUES
+    ('Mouse', 40.00, '2024-01-25'),
     ('Tablet', 500.00, '2024-01-05'),
     ('Printer', 200.00, '2024-02-18'),
     ('Camera', 600.00, '2024-04-22'),
     ('Speaker', 120.00, '2024-06-30');
-
-    CREATE INDEX idx_sales_bm25 ON sales
+    
+    -- Create BM25 indexes for both tables
+    CREATE INDEX idx_products_2023_view_bm25 ON products_2023_view
     USING bm25 (id, product_name, amount, sale_date)
     WITH (
         key_field = 'id',
@@ -796,8 +912,28 @@ fn partitioned_order_by_limit_pushdown(mut conn: PgConnection) {
         numeric_fields = '{"amount": {}}',
         datetime_fields = '{"sale_date": {"fast": true}}'
     );
+
+    CREATE INDEX idx_products_2024_view_bm25 ON products_2024_view
+    USING bm25 (id, product_name, amount, sale_date)
+    WITH (
+        key_field = 'id',
+        text_fields = '{"product_name": {}}',
+        numeric_fields = '{"amount": {}}',
+        datetime_fields = '{"sale_date": {"fast": true}}'
+    );
+    
+    -- Create view combining both tables
+    CREATE VIEW products_view AS
+    SELECT * FROM products_2023_view
+    UNION ALL
+    SELECT * FROM products_2024_view;
     "#
-    .execute(&mut conn);
+    .execute(conn);
+}
+
+#[rstest]
+fn partitioned_order_by_limit_pushdown(mut conn: PgConnection) {
+    setup_table_for_order_by_limit_test(&mut conn, true);
 
     // Get the explain plan
     let explain_output = r#"
@@ -854,65 +990,7 @@ fn partitioned_order_by_limit_pushdown(mut conn: PgConnection) {
 
 #[rstest]
 fn non_partitioned_no_order_by_limit_pushdown(mut conn: PgConnection) {
-    // Set up two separate tables (not partitioned)
-    r#"
-    DROP TABLE IF EXISTS products_2023;
-    DROP TABLE IF EXISTS products_2024;
-
-    SET enable_indexscan TO off;
-    SET enable_bitmapscan TO off;
-    SET max_parallel_workers TO 0;
-
-    -- Create two separate tables with similar schema
-    CREATE TABLE products_2023 (
-        id SERIAL,
-        product_name TEXT,
-        amount DECIMAL,
-        sale_date DATE
-    );
-
-    CREATE TABLE products_2024 (
-        id SERIAL,
-        product_name TEXT,
-        amount DECIMAL,
-        sale_date DATE
-    );
-
-    -- Insert similar data to both tables
-    INSERT INTO products_2023 (product_name, amount, sale_date) VALUES
-    ('Laptop', 1200.00, '2023-01-15'),
-    ('Smartphone', 800.00, '2023-03-10'),
-    ('Headphones', 150.00, '2023-05-20'),
-    ('Monitor', 300.00, '2023-07-05'),
-    ('Keyboard', 80.00, '2023-09-12');
-
-    INSERT INTO products_2024 (product_name, amount, sale_date) VALUES
-    ('Mouse', 40.00, '2024-01-25'),
-    ('Tablet', 500.00, '2024-01-05'),
-    ('Printer', 200.00, '2024-02-18'),
-    ('Camera', 600.00, '2024-04-22'),
-    ('Speaker', 120.00, '2024-06-30');
-
-    -- Create BM25 indexes for both tables
-    CREATE INDEX idx_products_2023_bm25 ON products_2023
-    USING bm25 (id, product_name, amount, sale_date)
-    WITH (
-        key_field = 'id',
-        text_fields = '{"product_name": {}}',
-        numeric_fields = '{"amount": {}}',
-        datetime_fields = '{"sale_date": {"fast": true}}'
-    );
-
-    CREATE INDEX idx_products_2024_bm25 ON products_2024
-    USING bm25 (id, product_name, amount, sale_date)
-    WITH (
-        key_field = 'id',
-        text_fields = '{"product_name": {}}',
-        numeric_fields = '{"amount": {}}',
-        datetime_fields = '{"sale_date": {"fast": true}}'
-    );
-    "#
-    .execute(&mut conn);
+    setup_table_for_order_by_limit_test(&mut conn, false);
 
     // Get the explain plan for a UNION query with ORDER BY LIMIT
     let explain_output = r#"
@@ -974,80 +1052,9 @@ fn non_partitioned_no_order_by_limit_pushdown(mut conn: PgConnection) {
 
 #[rstest]
 #[should_panic]
-// This test is broken until issue #2200 is fixed
+// This test is broken until issue #2441 is fixed
 fn view_no_order_by_limit_pushdown(mut conn: PgConnection) {
-    // First drop any existing tables or views
-    r#"
-    DROP VIEW IF EXISTS products_view;
-    DROP TABLE IF EXISTS products_2023_view;
-    DROP TABLE IF EXISTS products_2024_view;
-    "#
-    .execute(&mut conn);
-
-    // Create tables
-    r#"
-    SET enable_indexscan TO off;
-    SET enable_bitmapscan TO off;
-    SET max_parallel_workers TO 0;
-
-    -- Create two separate tables with similar schema
-    CREATE TABLE products_2023_view (
-        id SERIAL,
-        product_name TEXT,
-        amount DECIMAL,
-        sale_date DATE
-    );
-
-    CREATE TABLE products_2024_view (
-        id SERIAL,
-        product_name TEXT,
-        amount DECIMAL,
-        sale_date DATE
-    );
-    "#
-    .execute(&mut conn);
-
-    // Insert data
-    r#"
-    -- Insert data to both tables
-    INSERT INTO products_2023_view (product_name, amount, sale_date) VALUES
-    ('Laptop', 1200.00, '2023-01-15'),
-    ('Smartphone', 800.00, '2023-03-10'),
-    ('Headphones', 150.00, '2023-05-20'),
-    ('Monitor', 300.00, '2023-07-05'),
-    ('Keyboard', 80.00, '2023-09-12');
-
-    INSERT INTO products_2024_view (product_name, amount, sale_date) VALUES
-    ('Mouse', 40.00, '2024-01-25'),
-    ('Tablet', 500.00, '2024-01-05'),
-    ('Printer', 200.00, '2024-02-18'),
-    ('Camera', 600.00, '2024-04-22'),
-    ('Speaker', 120.00, '2024-06-30');
-    "#
-    .execute(&mut conn);
-
-    // Create indexes
-    r#"
-    -- Create BM25 indexes for both tables
-    CREATE INDEX idx_products_2023_view_bm25 ON products_2023_view
-    USING bm25 (id, product_name, amount, sale_date)
-    WITH (
-        key_field = 'id',
-        text_fields = '{"product_name": {}}',
-        numeric_fields = '{"amount": {}}',
-        datetime_fields = '{"sale_date": {"fast": true}}'
-    );
-
-    CREATE INDEX idx_products_2024_view_bm25 ON products_2024_view
-    USING bm25 (id, product_name, amount, sale_date)
-    WITH (
-        key_field = 'id',
-        text_fields = '{"product_name": {}}',
-        numeric_fields = '{"amount": {}}',
-        datetime_fields = '{"sale_date": {"fast": true}}'
-    );
-    "#
-    .execute(&mut conn);
+    setup_view_for_order_by_limit_test(&mut conn);
 
     // Verify the tables and indexes were created properly
     let table_check: Vec<(String,)> = r#"
@@ -1065,16 +1072,6 @@ fn view_no_order_by_limit_pushdown(mut conn: PgConnection) {
     "#
     .fetch(&mut conn);
     assert_eq!(index_check.len(), 2, "Both indexes should exist");
-
-    // Create the view
-    r#"
-    -- Create view combining both tables
-    CREATE VIEW products_view AS
-    SELECT * FROM products_2023_view
-    UNION ALL
-    SELECT * FROM products_2024_view;
-    "#
-    .execute(&mut conn);
 
     // Verify the view was created
     let view_check: Vec<(String,)> = r#"

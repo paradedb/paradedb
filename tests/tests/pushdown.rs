@@ -726,7 +726,7 @@ mod pushdown_is_bool_operator {
         // since it may not use Custom Scan directly
 
         // Just verify the query results
-        let results: Vec<(i64, bool, String, f32)> = format!(
+        let results: Vec<(i64, bool, String, Option<f32>)> = format!(
             r#"
             SELECT id, bool_field, message, paradedb.score(id)
             FROM is_true
@@ -739,6 +739,7 @@ mod pushdown_is_bool_operator {
         assert_eq!(1, results.len());
         assert_eq!(expected_id, results[0].0); // id
         assert_eq!(expected_bool_value, results[0].1); // bool_field
+        assert_ne!(None, results[0].3, "score should not be None"); // score
         assert_eq!("beer", results[0].2); // message
     }
 
@@ -803,32 +804,7 @@ mod pushdown_is_bool_operator {
         // Test with expression IS TRUE
         verify_complex_boolean_expr(&mut conn, "(bool_field = true) IS true", 1, true);
 
-        // Test with function call IS TRUE
-        {
-            let sql = r#"
-            EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
-            SELECT *, paradedb.score(id) FROM is_true
-            WHERE is_true_test(bool_field) IS true AND message @@@ 'beer';
-            "#;
-
-            eprintln!("{sql}");
-            let (plan,) = sql.fetch_one::<(Value,)>(&mut conn);
-            eprintln!("{plan:#?}");
-
-            // Query with function call IS TRUE
-            let results: Vec<(i64, bool, String, Option<f32>)> = r#"
-            SELECT id, bool_field, message, paradedb.score(id)
-            FROM is_true
-            WHERE is_true_test(bool_field) IS true AND message @@@ 'beer'
-            ORDER BY id;
-            "#
-            .fetch(&mut conn);
-
-            assert_eq!(1, results.len());
-            assert_eq!(1, results[0].0); // id
-            assert!(results[0].1); // bool_field
-            assert_eq!("beer", results[0].2); // message
-        }
+        verify_complex_boolean_expr(&mut conn, "is_true_test(bool_field) IS true", 1, true);
 
         // Test with complex expression IS FALSE
         verify_complex_boolean_expr(&mut conn, "(bool_field <> true) IS true", 2, false);
@@ -842,7 +818,6 @@ mod pushdown_is_bool_operator {
     /// - IS NOT FALSE should return rows where the value is TRUE or NULL
     /// - NOT (field = TRUE) should only return rows where the value is FALSE (not NULL)
     #[rstest]
-    #[ignore]
     fn test_boolean_operators_with_null_values(mut conn: PgConnection) {
         r#"
         DROP TABLE IF EXISTS bool_null_test;

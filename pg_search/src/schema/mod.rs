@@ -1083,7 +1083,7 @@ mod tests {
         let json = r#"{
             "indexed": true,
             "fast": false,
-            "stored": true,
+            "stored": false,
             "fieldnorms": true,
             "type": "default",
             "record": "basic",
@@ -1109,7 +1109,7 @@ mod tests {
     fn test_search_numeric_options() {
         let json = r#"{
             "indexed": true,
-            "stored": true,
+            "stored": false,
             "fieldnorms": false,
             "fast": true
         }"#;
@@ -1125,7 +1125,7 @@ mod tests {
     fn test_search_boolean_options() {
         let json = r#"{
             "indexed": true,
-            "stored": true,
+            "stored": false,
             "fieldnorms": false,
             "fast": true
         }"#;
@@ -1142,7 +1142,7 @@ mod tests {
         let json = r#"{
             "indexed": true,
             "fast": false,
-            "stored": true,
+            "stored": false,
             "expand_dots": true,
             "type": "default",
             "record": "basic",

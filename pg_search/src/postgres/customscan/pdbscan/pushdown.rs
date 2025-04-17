@@ -97,7 +97,17 @@ pub unsafe fn try_pushdown(
     schema: &SearchIndexSchema
 ) -> Option<Qual> {
     let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
-    let var = nodecast!(Var, T_Var, args.get_ptr(0)?)?;
+    let var = {
+        // inspect the left-hand-side of the operator expression...
+        let mut lhs = args.get_ptr(0)?;
+        
+        while (*lhs).type_ == pg_sys::NodeTag::T_RelabelType {
+            // and keep following it as long as it's still a RelabelType
+            let relabel_type = lhs as *mut pg_sys::RelabelType;
+            lhs = (*relabel_type).arg as _;
+        }
+        nodecast!(Var, T_Var, lhs)?
+    };
     let rhs = args.get_ptr(1)?;
 
     let (typeoid, attname) = attname_from_var(root, var);

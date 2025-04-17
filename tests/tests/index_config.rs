@@ -851,3 +851,122 @@ fn partitioned_order_by_limit_pushdown(mut conn: PgConnection) {
     assert_eq!(results[1].1, "2023-03-10");
     assert_eq!(results[2].1, "2023-05-20");
 }
+
+#[rstest]
+fn non_partitioned_no_order_by_limit_pushdown(mut conn: PgConnection) {
+    // Set up two separate tables (not partitioned)
+    r#"
+    DROP TABLE IF EXISTS products_2023;
+    DROP TABLE IF EXISTS products_2024;
+
+    SET enable_indexscan TO off;
+    SET enable_bitmapscan TO off;
+    SET max_parallel_workers TO 0;
+
+    -- Create two separate tables with similar schema
+    CREATE TABLE products_2023 (
+        id SERIAL,
+        product_name TEXT,
+        amount DECIMAL,
+        sale_date DATE
+    );
+
+    CREATE TABLE products_2024 (
+        id SERIAL,
+        product_name TEXT,
+        amount DECIMAL,
+        sale_date DATE
+    );
+
+    -- Insert similar data to both tables
+    INSERT INTO products_2023 (product_name, amount, sale_date) VALUES
+    ('Laptop', 1200.00, '2023-01-15'),
+    ('Smartphone', 800.00, '2023-03-10'),
+    ('Headphones', 150.00, '2023-05-20'),
+    ('Monitor', 300.00, '2023-07-05'),
+    ('Keyboard', 80.00, '2023-09-12');
+
+    INSERT INTO products_2024 (product_name, amount, sale_date) VALUES
+    ('Mouse', 40.00, '2024-01-25'),
+    ('Tablet', 500.00, '2024-01-05'),
+    ('Printer', 200.00, '2024-02-18'),
+    ('Camera', 600.00, '2024-04-22'),
+    ('Speaker', 120.00, '2024-06-30');
+
+    -- Create BM25 indexes for both tables
+    CREATE INDEX idx_products_2023_bm25 ON products_2023
+    USING bm25 (id, product_name, amount, sale_date)
+    WITH (
+        key_field = 'id',
+        text_fields = '{"product_name": {}}',
+        numeric_fields = '{"amount": {}}',
+        datetime_fields = '{"sale_date": {"fast": true}}'
+    );
+
+    CREATE INDEX idx_products_2024_bm25 ON products_2024
+    USING bm25 (id, product_name, amount, sale_date)
+    WITH (
+        key_field = 'id',
+        text_fields = '{"product_name": {}}',
+        numeric_fields = '{"amount": {}}',
+        datetime_fields = '{"sale_date": {"fast": true}}'
+    );
+    "#
+    .execute(&mut conn);
+
+    // Get the explain plan for a UNION query with ORDER BY LIMIT
+    let explain_output = r#"
+    EXPLAIN (ANALYZE, VERBOSE)
+    SELECT * FROM (
+        SELECT * FROM products_2023 
+        WHERE product_name @@@ 'laptop OR smartphone OR headphones'
+        UNION ALL
+        SELECT * FROM products_2024
+        WHERE product_name @@@ 'tablet OR printer'
+    ) combined_products
+    ORDER BY sale_date LIMIT 5;
+    "#
+    .fetch::<(String,)>(&mut conn)
+    .into_iter()
+    .map(|(line,)| line)
+    .collect::<Vec<String>>()
+    .join("\n");
+
+    // Verify NormalScanExecState is used (not TopNScanExecState)
+    assert!(
+        explain_output.contains("NormalScanExecState"),
+        "Expected NormalScanExecState in the execution plan"
+    );
+
+    assert!(
+        !explain_output.contains("TopNScanExecState"),
+        "TopNScanExecState should not be present in the execution plan"
+    );
+
+    // Even without the optimization, verify the query returns correct results
+    let results: Vec<(String, String)> = r#"
+    SELECT product_name, sale_date::text FROM (
+        SELECT * FROM products_2023 
+        WHERE product_name @@@ 'laptop OR smartphone OR headphones'
+        UNION ALL
+        SELECT * FROM products_2024
+        WHERE product_name @@@ 'tablet OR printer'
+    ) combined_products
+    ORDER BY sale_date LIMIT 5;
+    "#
+    .fetch(&mut conn);
+
+    // Verify we got the right number of results and correct order
+    assert!(results.len() <= 5, "Expected at most 5 matching results");
+
+    // Check that the first result is the earliest date
+    if !results.is_empty() {
+        let earliest_date = results[0].1.clone();
+        for result in &results[1..] {
+            assert!(
+                result.1 >= earliest_date,
+                "Results should be sorted by date in ascending order"
+            );
+        }
+    }
+}

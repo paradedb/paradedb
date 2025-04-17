@@ -971,3 +971,175 @@ fn non_partitioned_no_order_by_limit_pushdown(mut conn: PgConnection) {
         }
     }
 }
+
+#[rstest]
+#[ignore]
+fn view_no_order_by_limit_pushdown(mut conn: PgConnection) {
+    // First drop any existing tables or views
+    r#"
+    DROP VIEW IF EXISTS products_view;
+    DROP TABLE IF EXISTS products_2023_view;
+    DROP TABLE IF EXISTS products_2024_view;
+    "#
+    .execute(&mut conn);
+
+    // Create tables
+    r#"
+    SET enable_indexscan TO off;
+    SET enable_bitmapscan TO off;
+    SET max_parallel_workers TO 0;
+
+    -- Create two separate tables with similar schema
+    CREATE TABLE products_2023_view (
+        id SERIAL,
+        product_name TEXT,
+        amount DECIMAL,
+        sale_date DATE
+    );
+
+    CREATE TABLE products_2024_view (
+        id SERIAL,
+        product_name TEXT,
+        amount DECIMAL,
+        sale_date DATE
+    );
+    "#
+    .execute(&mut conn);
+
+    // Insert data
+    r#"
+    -- Insert data to both tables
+    INSERT INTO products_2023_view (product_name, amount, sale_date) VALUES
+    ('Laptop', 1200.00, '2023-01-15'),
+    ('Smartphone', 800.00, '2023-03-10'),
+    ('Headphones', 150.00, '2023-05-20'),
+    ('Monitor', 300.00, '2023-07-05'),
+    ('Keyboard', 80.00, '2023-09-12');
+
+    INSERT INTO products_2024_view (product_name, amount, sale_date) VALUES
+    ('Mouse', 40.00, '2024-01-25'),
+    ('Tablet', 500.00, '2024-01-05'),
+    ('Printer', 200.00, '2024-02-18'),
+    ('Camera', 600.00, '2024-04-22'),
+    ('Speaker', 120.00, '2024-06-30');
+    "#
+    .execute(&mut conn);
+
+    // Create indexes
+    r#"
+    -- Create BM25 indexes for both tables
+    CREATE INDEX idx_products_2023_view_bm25 ON products_2023_view
+    USING bm25 (id, product_name, amount, sale_date)
+    WITH (
+        key_field = 'id',
+        text_fields = '{"product_name": {}}',
+        numeric_fields = '{"amount": {}}',
+        datetime_fields = '{"sale_date": {"fast": true}}'
+    );
+
+    CREATE INDEX idx_products_2024_view_bm25 ON products_2024_view
+    USING bm25 (id, product_name, amount, sale_date)
+    WITH (
+        key_field = 'id',
+        text_fields = '{"product_name": {}}',
+        numeric_fields = '{"amount": {}}',
+        datetime_fields = '{"sale_date": {"fast": true}}'
+    );
+    "#
+    .execute(&mut conn);
+
+    // Verify the tables and indexes were created properly
+    let table_check: Vec<(String,)> = r#"
+    SELECT tablename FROM pg_tables 
+    WHERE tablename IN ('products_2023_view', 'products_2024_view')
+    ORDER BY tablename;
+    "#
+    .fetch(&mut conn);
+    assert_eq!(table_check.len(), 2, "Both tables should exist");
+
+    let index_check: Vec<(String,)> = r#"
+    SELECT indexname FROM pg_indexes
+    WHERE indexname IN ('idx_products_2023_view_bm25', 'idx_products_2024_view_bm25')
+    ORDER BY indexname;
+    "#
+    .fetch(&mut conn);
+    assert_eq!(index_check.len(), 2, "Both indexes should exist");
+
+    // Create the view
+    r#"
+    -- Create view combining both tables
+    CREATE VIEW products_view AS
+    SELECT * FROM products_2023_view
+    UNION ALL
+    SELECT * FROM products_2024_view;
+    "#
+    .execute(&mut conn);
+
+    // Verify the view was created
+    let view_check: Vec<(String,)> = r#"
+    SELECT viewname FROM pg_views WHERE viewname = 'products_view';
+    "#
+    .fetch(&mut conn);
+    assert_eq!(view_check.len(), 1, "View should exist");
+
+    // Verify direct table queries work
+    let test_query: Vec<(String,)> = r#"
+    SELECT product_name FROM products_2023_view 
+    WHERE product_name @@@ 'laptop'
+    LIMIT 1;
+    "#
+    .fetch(&mut conn);
+    assert_eq!(test_query.len(), 1, "Direct table query should work");
+
+    // Get the explain plan for a view query with ORDER BY LIMIT
+    let explain_output = r#"
+    EXPLAIN (ANALYZE, VERBOSE)
+    SELECT * FROM products_view
+    WHERE product_name @@@ 'laptop OR smartphone OR headphones OR tablet OR printer'
+    ORDER BY sale_date LIMIT 5;
+    "#
+    .fetch::<(String,)>(&mut conn)
+    .into_iter()
+    .map(|(line,)| line)
+    .collect::<Vec<String>>()
+    .join("\n");
+
+    // Print the explain plan for debugging
+    println!("EXPLAIN output:\n{}", explain_output);
+
+    // Verify NormalScanExecState is used (not TopNScanExecState)
+    assert!(
+        explain_output.contains("NormalScanExecState"),
+        "Expected NormalScanExecState in the execution plan"
+    );
+
+    assert!(
+        !explain_output.contains("TopNScanExecState"),
+        "TopNScanExecState should not be present in the execution plan"
+    );
+
+    // Ensure the query works and returns correct results
+    let results: Vec<(String, String)> = r#"
+    SELECT product_name, sale_date::text FROM products_view
+    WHERE product_name @@@ 'laptop OR smartphone OR headphones OR tablet OR printer'
+    ORDER BY sale_date LIMIT 5;
+    "#
+    .fetch(&mut conn);
+
+    println!("Query results: {:?}", results);
+
+    // Verify we got the right number of results and correct order
+    assert_eq!(results.len(), 5, "Expected 5 matching results");
+
+    // Check that results are sorted by date
+    if !results.is_empty() {
+        let mut prev_date = &results[0].1;
+        for result in &results[1..] {
+            assert!(
+                &result.1 >= prev_date,
+                "Results should be sorted by date in ascending order"
+            );
+            prev_date = &result.1;
+        }
+    }
+}

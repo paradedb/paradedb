@@ -23,8 +23,7 @@ use rstest::*;
 use serde_json::Value;
 use sqlx::PgConnection;
 
-#[rstest]
-fn sort_by_lower(mut conn: PgConnection) {
+fn field_sort_fixture(conn: &mut PgConnection) -> Value {
     // ensure our custom scan wins against our small test table
     r#"
         SET enable_indexscan TO off;
@@ -56,18 +55,45 @@ fn sort_by_lower(mut conn: PgConnection) {
                 "latest_available_time": {}
             }'
         );
-    "#.execute(&mut conn);
+    "#.execute(conn);
 
-    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM paradedb.bm25_search WHERE description @@@ 'keyboard OR shoes' ORDER BY lower(category) LIMIT 5".fetch_one::<(Value,)>(&mut conn);
+    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM paradedb.bm25_search WHERE description @@@ 'keyboard OR shoes' ORDER BY lower(category) LIMIT 5".fetch_one::<(Value,)>(conn);
+    eprintln!("{plan:#?}");
+    plan
+}
+
+#[rstest]
+fn sort_by_lower(mut conn: PgConnection) {
+    let plan = field_sort_fixture(&mut conn);
+    let plan = plan
+        .pointer("/0/Plan/Plans/0")
+        .unwrap()
+        .as_object()
+        .unwrap();
+    assert_eq!(
+        plan.get("   Sort Field"),
+        Some(&Value::String(String::from("category")))
+    );
+}
+
+#[rstest]
+fn sort_by_lower_parallel(mut conn: PgConnection) {
+    // When parallel workers are used, we should not claim that the output that we produce is
+    // sorted. Each worker will consume a series of segments, each of which is individually
+    // sorted, but the overall output is not.
+    "SET max_parallel_workers = 8;".execute(&mut conn);
+    if pg_major_version(&mut conn) >= 16 {
+        "SET debug_parallel_query TO on".execute(&mut conn);
+    }
+    let plan = field_sort_fixture(&mut conn);
     let plan = plan
         .pointer("/0/Plan/Plans/0/Plans/0")
         .unwrap()
         .as_object()
         .unwrap();
-    eprintln!("{plan:#?}");
     assert_eq!(
-        plan.get("   Sort Field"),
-        Some(&Value::String(String::from("category")))
+        plan.get("Node Type").unwrap(),
+        &Value::String("Sort".to_owned())
     );
 }
 
@@ -107,12 +133,12 @@ fn sort_by_raw(mut conn: PgConnection) {
     "#.execute(&mut conn);
 
     let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM paradedb.bm25_search WHERE description @@@ 'keyboard OR shoes' ORDER BY category LIMIT 5".fetch_one::<(Value,)>(&mut conn);
+    eprintln!("{plan:#?}");
     let plan = plan
-        .pointer("/0/Plan/Plans/0/Plans/0")
+        .pointer("/0/Plan/Plans/0")
         .unwrap()
         .as_object()
         .unwrap();
-    eprintln!("{plan:#?}");
     assert_eq!(
         plan.get("   Sort Field"),
         Some(&Value::String(String::from("category")))
@@ -155,12 +181,56 @@ fn sort_by_row_return_scores(mut conn: PgConnection) {
     "#.execute(&mut conn);
 
     let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT paradedb.score(id), * FROM paradedb.bm25_search WHERE description @@@ 'keyboard OR shoes' ORDER BY category LIMIT 5".fetch_one::<(Value,)>(&mut conn);
+    eprintln!("{plan:#?}");
     let plan = plan
         .pointer("/0/Plan/Plans/0/Plans/0")
         .unwrap()
         .as_object()
         .unwrap();
-    eprintln!("{plan:#?}");
     assert_eq!(plan.get("   Sort Field"), None);
     assert_eq!(plan.get("Scores"), Some(&Value::Bool(true)));
+}
+
+#[rstest]
+fn sort_partitioned_early_cutoff(mut conn: PgConnection) {
+    PartitionedTable::setup().execute(&mut conn);
+
+    // Insert matching rows into both partitions.
+    r#"
+        INSERT INTO sales (sale_date, amount, description) VALUES
+        ('2023-01-10', 150.00, 'Ergonomic metal keyboard'),
+        ('2023-04-01', 250.00, 'Cheap plastic keyboard');
+    "#
+    .execute(&mut conn);
+
+    "SET max_parallel_workers TO 0;".execute(&mut conn);
+
+    // With ORDER BY the partition key: we expect the partitions to be visited sequentially, and
+    // for cutoff to occur.
+    let (plan,): (Value,) = r#"
+        EXPLAIN (ANALYZE, FORMAT JSON)
+        SELECT description, sale_date
+        FROM sales
+        WHERE description @@@ 'keyboard'
+        ORDER BY sale_date
+        LIMIT 1;
+        "#
+    .fetch_one(&mut conn);
+    eprintln!("{plan:#?}");
+
+    // We expect both partitions to be in the plan, but for only the first one to have been
+    // executed, because the Append node was able to get enough results from the first partition.
+    let plans = plan
+        .pointer("/0/Plan/Plans/0/Plans")
+        .unwrap()
+        .as_array()
+        .unwrap();
+    assert_eq!(
+        plans[0].get("Actual Loops").unwrap(),
+        &serde_json::from_str::<Value>("1").unwrap()
+    );
+    assert_eq!(
+        plans[1].get("Actual Loops").unwrap(),
+        &serde_json::from_str::<Value>("0").unwrap()
+    );
 }

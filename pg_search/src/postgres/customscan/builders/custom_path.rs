@@ -78,6 +78,7 @@ impl From<SortDirection> for u32 {
     }
 }
 
+#[derive(Debug)]
 pub enum OrderByStyle {
     Score(*mut pg_sys::PathKey),
     Field(*mut pg_sys::PathKey, String),

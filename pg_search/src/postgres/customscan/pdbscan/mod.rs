@@ -238,13 +238,13 @@ impl CustomScan for PdbScan {
                     //
                     // and sorting by score always works
                     match (maybe_needs_const_projections, &pathkey) {
-                        (false, Some(pathkey @ OrderByStyle::Score(..))) => {
+                        (false, Some(pathkey @ OrderByStyle::Field(..))) => {
                             builder.custom_private().set_sort_info(pathkey);
                         }
-                        _ => (
-                            // TODO: This condition does not match the comment. Change in a
-                            // followup commit.
-                        ),
+                        (_, Some(pathkey @ OrderByStyle::Score(..))) => {
+                            builder.custom_private().set_sort_info(pathkey);
+                        }
+                        _ => {}
                     }
                 } else if limit.is_some()
                     && PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys)
@@ -338,15 +338,32 @@ impl CustomScan for PdbScan {
                     };
 
                     if nworkers > 0 && parallel_scan_preferred() {
+                        // If we use parallel workers, there is no point in sorting, because the
+                        // plan will already need to sort and merge the outputs from the workers.
+                        // See the TODO below about being able to claim sorting for parallel
+                        // workers.
                         builder = builder.set_parallel(nworkers);
                     } else {
-                        // otherwise we'll do a regular scan and indicate that we're emitting results
-                        // sorted by the first pathkey
-                        builder = builder.add_path_key(pathkey);
+                        // otherwise we'll do a regular scan
                         builder.custom_private().set_sort_info(pathkey);
                     }
                 } else if nworkers > 0 {
                     builder = builder.set_parallel(nworkers);
+                }
+
+                // If we are sorting our output (which we will only do if we have a limit!) and we
+                // are _not_ using parallel workers, then we can claim that the output is sorted.
+                //
+                // TODO: To allow sorted output with parallel workers, we would need to partition
+                // our segments across the workers so that each worker emitted all of its results
+                // in sorted order.
+                if nworkers == 0
+                    && builder.custom_private().sort_direction().is_some()
+                    && limit.is_some()
+                {
+                    if let Some(pathkey) = pathkey.as_ref() {
+                        builder = builder.add_path_key(pathkey);
+                    }
                 }
 
                 return Some(builder.build());

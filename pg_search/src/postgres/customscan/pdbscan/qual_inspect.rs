@@ -706,8 +706,16 @@ unsafe fn opexpr(
     let opexpr = nodecast!(OpExpr, T_OpExpr, node)?;
     let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
 
-    let lhs = args.get_ptr(0)?;
+    let mut lhs = args.get_ptr(0)?;
     let rhs = args.get_ptr(1)?;
+
+    // relabel types are essentially a cast, but for types that are directly compatible without
+    // the need for a cast function.  So if the lhs of the input node is a RelabelType, just
+    // keep chasing its arg until we get a final node type
+    while (*lhs).type_ == pg_sys::NodeTag::T_RelabelType {
+        let relabel_type = lhs as *mut pg_sys::RelabelType;
+        lhs = (*relabel_type).arg as _;
+    }
 
     match (*lhs).type_ {
         pg_sys::NodeTag::T_Var => var_opexpr(

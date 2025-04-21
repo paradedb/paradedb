@@ -32,7 +32,7 @@ use crate::api::Cardinality;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::builders::custom_path::{
-    CustomPathBuilder, Flags, OrderByStyle, RestrictInfoType, SortDirection,
+    CustomPathBuilder, ExecMethodType, Flags, OrderByStyle, RestrictInfoType, SortDirection,
 };
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -56,13 +56,13 @@ use crate::postgres::customscan::pdbscan::projections::{
 };
 use crate::postgres::customscan::pdbscan::qual_inspect::extract_quals;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
-use crate::postgres::customscan::{CustomScan, CustomScanState, ExecMethod};
+use crate::postgres::customscan::{self, CustomScan, CustomScanState};
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::query::{AsHumanReadable, SearchQueryInput};
 use crate::schema::SearchIndexSchema;
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
-use exec_methods::top_n::TopNScanExecState;
+use exec_methods::normal::NormalScanExecState;
 use exec_methods::ExecState;
 use pgrx::pg_sys::CustomExecMethods;
 use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts, PgRelation};
@@ -75,7 +75,7 @@ use tantivy::Index;
 #[derive(Default)]
 pub struct PdbScan;
 
-impl ExecMethod for PdbScan {
+impl customscan::ExecMethod for PdbScan {
     fn exec_methods() -> *const CustomExecMethods {
         <PdbScan as ParallelQueryCapable>::exec_methods()
     }
@@ -501,32 +501,9 @@ impl CustomScan for PdbScan {
                     .collect();
 
             let need_snippets = builder.custom_state().need_snippets();
-            let need_scores = builder.custom_state().need_scores();
-            if let Some((limit, sort_direction)) = builder.custom_state().is_top_n_capable() {
-                // having a valid limit and sort direction means we can do a TopN query
-                // and TopN can do snippets
-                let heaprelid = builder.custom_state().heaprelid;
-                builder
-                    .custom_state()
-                    .assign_exec_method(TopNScanExecState::new(
-                        heaprelid,
-                        limit,
-                        sort_direction,
-                        need_scores,
-                    ));
-            } else if let Some(limit) = builder.custom_state().is_unsorted_top_n_capable() {
-                let heaprelid = builder.custom_state().heaprelid;
-                builder
-                    .custom_state()
-                    .assign_exec_method(TopNScanExecState::new(
-                        heaprelid,
-                        limit,
-                        SortDirection::None,
-                        need_scores,
-                    ));
-            } else {
-                exec_methods::fast_fields::assign_exec_method(&mut builder);
-            }
+
+            builder.custom_state().exec_method_type = choose_exec_method(builder.custom_state());
+            assign_exec_method(builder.custom_state());
 
             builder.build()
         }
@@ -919,6 +896,79 @@ impl CustomScan for PdbScan {
                 pg_sys::relation_close(indexrel, state.custom_state().lockmode);
             }
         }
+    }
+}
+
+///
+/// Choose and return an ExecMethodType based on the properties of the builder.
+///
+/// If the query can return "fast fields", make that determination here, falling back to the
+/// [`NormalScanExecState`] if not.
+///
+/// We support [`StringFastFieldExecState`] when there's 1 fast field and it's a string, or
+/// [`NumericFastFieldExecState`] when there's one or more numeric fast fields
+///
+/// `paradedb.score()`, `ctid`, and `tableoid` are considered fast fields for the purposes of
+/// these specialized [`ExecMethod`]s.
+fn choose_exec_method(custom_state: &PdbScanState) -> ExecMethodType {
+    if let Some((limit, sort_direction)) = custom_state.is_top_n_capable() {
+        // having a valid limit and sort direction means we can do a TopN query
+        // and TopN can do snippets
+        ExecMethodType::TopN {
+            heaprelid: custom_state.heaprelid,
+            limit,
+            sort_direction,
+            need_scores: custom_state.need_scores,
+        }
+    } else if let Some(limit) = custom_state.is_unsorted_top_n_capable() {
+        ExecMethodType::TopN {
+            heaprelid: custom_state.heaprelid,
+            limit,
+            sort_direction: SortDirection::None,
+            need_scores: custom_state.need_scores,
+        }
+    } else if let Some(field) = exec_methods::fast_fields::is_string_agg_capable(custom_state) {
+        ExecMethodType::FastFieldString {
+            field,
+            which_fast_fields: custom_state.which_fast_fields.clone().unwrap(),
+        }
+    } else if exec_methods::fast_fields::is_numeric_fast_field_capable(custom_state) {
+        ExecMethodType::FastFieldNumeric {
+            which_fast_fields: custom_state.which_fast_fields.clone().unwrap_or_default(),
+        }
+    } else {
+        ExecMethodType::Normal
+    }
+}
+
+fn assign_exec_method(custom_state: &mut PdbScanState) {
+    match &custom_state.exec_method_type {
+        ExecMethodType::Normal => custom_state.assign_exec_method(NormalScanExecState::default()),
+        ExecMethodType::TopN {
+            heaprelid,
+            limit,
+            sort_direction,
+            need_scores,
+        } => custom_state.assign_exec_method(exec_methods::top_n::TopNScanExecState::new(
+            *heaprelid,
+            *limit,
+            *sort_direction,
+            *need_scores,
+        )),
+        ExecMethodType::FastFieldString {
+            field,
+            which_fast_fields,
+        } => custom_state.assign_exec_method(
+            exec_methods::fast_fields::string::StringFastFieldExecState::new(
+                field.to_owned(),
+                which_fast_fields.clone(),
+            ),
+        ),
+        ExecMethodType::FastFieldNumeric { which_fast_fields } => custom_state.assign_exec_method(
+            exec_methods::fast_fields::numeric::NumericFastFieldExecState::new(
+                which_fast_fields.clone(),
+            ),
+        ),
     }
 }
 

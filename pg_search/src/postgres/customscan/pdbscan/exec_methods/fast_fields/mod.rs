@@ -23,13 +23,8 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{SearchIndexReader, SearchResults};
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
-use crate::postgres::customscan::builders::custom_state::{
-    CustomScanStateBuilder, CustomScanStateWrapper,
-};
+use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::explainer::Explainer;
-use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::numeric::NumericFastFieldExecState;
-use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::string::StringFastFieldExecState;
-use crate::postgres::customscan::pdbscan::exec_methods::normal::NormalScanExecState;
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
 use crate::postgres::customscan::pdbscan::projections::score::{score_funcoid, uses_scores};
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
@@ -267,37 +262,7 @@ pub unsafe fn pullup_fast_fields(
     Some(matches)
 }
 
-/// If the query can return "fast fields", make that determination here, falling back to the
-/// [`NormalScanExecState`] if not.
-///
-/// We support [`StringFastFieldExecState`] when there's 1 fast field and it's a string, or
-/// [`NumericFastFieldExecState`] when there's one or more numeric fast fields
-///
-/// `paradedb.score()`, `ctid`, and `tableoid` are considered fast fields for the purposes of
-/// these specialized [`ExecMethod`]s.
-pub fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>) {
-    if let Some(field) = is_string_agg_capable(builder.custom_state()) {
-        let which_fast_fields = builder.custom_state().which_fast_fields.clone().unwrap();
-        builder
-            .custom_state()
-            .assign_exec_method(StringFastFieldExecState::new(field, which_fast_fields));
-    } else if is_numeric_fast_field_capable(builder.custom_state()) {
-        let which_fast_fields = builder
-            .custom_state()
-            .which_fast_fields
-            .clone()
-            .unwrap_or_default();
-        builder
-            .custom_state()
-            .assign_exec_method(NumericFastFieldExecState::new(which_fast_fields));
-    } else {
-        builder
-            .custom_state()
-            .assign_exec_method(NormalScanExecState::default());
-    }
-}
-
-fn is_string_agg_capable(state: &PdbScanState) -> Option<String> {
+pub fn is_string_agg_capable(state: &PdbScanState) -> Option<String> {
     is_string_agg_capable_ex(state.limit, &state.which_fast_fields)
 }
 
@@ -333,7 +298,7 @@ pub fn is_string_agg_capable_ex(
     string_field
 }
 
-fn is_numeric_fast_field_capable(state: &PdbScanState) -> bool {
+pub fn is_numeric_fast_field_capable(state: &PdbScanState) -> bool {
     if state.targetlist_len == 0 {
         return true;
     }

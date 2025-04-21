@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::Cardinality;
+use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::CustomScan;
 use pgrx::{pg_sys, PgList};
 use serde::{Deserialize, Serialize};
@@ -101,6 +102,25 @@ impl OrderByStyle {
             (*self.pathkey()).pk_strategy.into()
         }
     }
+}
+
+#[derive(Default)]
+pub enum ExecMethodType {
+    #[default]
+    Normal,
+    TopN {
+        heaprelid: pg_sys::Oid,
+        limit: usize,
+        sort_direction: SortDirection,
+        need_scores: bool,
+    },
+    FastFieldString {
+        field: String,
+        which_fast_fields: Vec<WhichFastField>,
+    },
+    FastFieldNumeric {
+        which_fast_fields: Vec<WhichFastField>,
+    },
 }
 
 #[derive(Debug)]

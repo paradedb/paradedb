@@ -84,6 +84,9 @@ fn sort_by_lower_parallel(mut conn: PgConnection) {
     "SET max_parallel_workers = 8;".execute(&mut conn);
     if pg_major_version(&mut conn) >= 16 {
         "SET debug_parallel_query TO on".execute(&mut conn);
+    } else {
+        // We cannot reliably force parallel workers to be used without `debug_parallel_query`.
+        return;
     }
     let plan = field_sort_fixture(&mut conn);
     let plan = plan

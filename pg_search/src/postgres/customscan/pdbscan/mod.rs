@@ -43,7 +43,7 @@ use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::{
     estimate_cardinality, is_string_agg_capable_ex,
 };
-use crate::postgres::customscan::pdbscan::parallel::list_segment_ids;
+use crate::postgres::customscan::pdbscan::parallel::{compute_nworkers, list_segment_ids};
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
 use crate::postgres::customscan::pdbscan::projections::score::{
     is_score_func, score_funcoid, uses_scores,
@@ -237,10 +237,14 @@ impl CustomScan for PdbScan {
                     // a fast field at the same time.
                     //
                     // and sorting by score always works
-                    if !(maybe_needs_const_projections
-                        && matches!(&pathkey, Some(OrderByStyle::Field(..))))
-                    {
-                        builder.custom_private().set_sort_info(&pathkey);
+                    match (maybe_needs_const_projections, &pathkey) {
+                        (false, Some(pathkey @ OrderByStyle::Field(..))) => {
+                            builder.custom_private().set_sort_info(pathkey);
+                        }
+                        (_, Some(pathkey @ OrderByStyle::Score(..))) => {
+                            builder.custom_private().set_sort_info(pathkey);
+                        }
+                        _ => {}
                     }
                 } else if limit.is_some()
                     && PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys)
@@ -279,6 +283,15 @@ impl CustomScan for PdbScan {
 
                 let total_cost = startup_cost + (rows * per_tuple_cost);
                 let segment_count = index.searchable_segments().unwrap_or_default().len();
+                let sorted = matches!(
+                    builder.custom_private().sort_direction(),
+                    Some(SortDirection::Asc | SortDirection::Desc)
+                );
+                let nworkers = if (*builder.args().rel).consider_parallel {
+                    compute_nworkers(limit, segment_count, sorted)
+                } else {
+                    0
+                };
 
                 builder.custom_private().set_segment_count(
                     index
@@ -299,41 +312,58 @@ impl CustomScan for PdbScan {
                     )
                     .is_some()
                 {
+                    let pathkey = pathkey.as_ref().unwrap();
+
                     // we're going to do a StringAgg, and it may or may not be more efficient to use
                     // parallel queries, depending on the cardinality of what we're going to select
-                    let cardinality = {
-                        let estimate = if let Some(OrderByStyle::Field(_, field)) = &pathkey {
-                            // NB:  '4' is a magic number
-                            estimate_cardinality(&bm25_index, field).unwrap_or(0) * 4
-                        } else {
-                            0
+                    let parallel_scan_preferred = || -> bool {
+                        let cardinality = {
+                            let estimate = if let OrderByStyle::Field(_, field) = &pathkey {
+                                // NB:  '4' is a magic number
+                                estimate_cardinality(&bm25_index, field).unwrap_or(0) * 4
+                            } else {
+                                0
+                            };
+                            estimate as f64 * selectivity
                         };
-                        estimate as f64 * selectivity
-                    };
 
-                    let pathkey_cnt =
-                        PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys)
-                            .len();
+                        let pathkey_cnt = PgList::<pg_sys::PathKey>::from_pg(
+                            (*builder.args().root).query_pathkeys,
+                        )
+                        .len();
 
-                    if pathkey_cnt == 1 || cardinality > 1_000_000.0 {
                         // if we only have 1 path key or if our estimated cardinality is over some
                         // hardcoded value, it's seemingly more efficient to do a parallel scan
-                        builder = builder.set_parallel(false, rows, limit, segment_count, true);
+                        pathkey_cnt == 1 || cardinality > 1_000_000.0
+                    };
+
+                    if nworkers > 0 && parallel_scan_preferred() {
+                        // If we use parallel workers, there is no point in sorting, because the
+                        // plan will already need to sort and merge the outputs from the workers.
+                        // See the TODO below about being able to claim sorting for parallel
+                        // workers.
+                        builder = builder.set_parallel(nworkers);
                     } else {
-                        // otherwise we'll do a regular scan and indicate that we're emitting results
-                        // sorted by the first pathkey
-                        builder = builder.add_path_key(&pathkey);
-                        builder.custom_private().set_sort_info(&pathkey);
+                        // otherwise we'll do a regular scan
+                        builder.custom_private().set_sort_info(pathkey);
                     }
-                } else {
-                    let sortdir = builder.custom_private().sort_direction();
-                    builder = builder.set_parallel(
-                        is_topn,
-                        rows,
-                        limit,
-                        segment_count,
-                        !matches!(sortdir, Some(SortDirection::None)) && sortdir.is_some(),
-                    );
+                } else if nworkers > 0 {
+                    builder = builder.set_parallel(nworkers);
+                }
+
+                // If we are sorting our output (which we will only do if we have a limit!) and we
+                // are _not_ using parallel workers, then we can claim that the output is sorted.
+                //
+                // TODO: To allow sorted output with parallel workers, we would need to partition
+                // our segments across the workers so that each worker emitted all of its results
+                // in sorted order.
+                if nworkers == 0
+                    && builder.custom_private().sort_direction().is_some()
+                    && limit.is_some()
+                {
+                    if let Some(pathkey) = pathkey.as_ref() {
+                        builder = builder.add_path_key(pathkey);
+                    }
                 }
 
                 return Some(builder.build());

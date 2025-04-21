@@ -1,13 +1,15 @@
 use crate::api::Cardinality;
+use crate::index::mvcc::MVCCDirectory;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::pdbscan::PdbScan;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::ParallelScanState;
-use pgrx::pg_sys::{self, shm_toc, ParallelContext, Size};
+use pgrx::pg_sys::{self, panic::ErrorReport, shm_toc, ParallelContext, Size};
+use pgrx::{function_name, PgLogLevel, PgRelation, PgSqlErrorCode};
 use std::collections::HashSet;
 use std::os::raw::c_void;
-use tantivy::index::SegmentId;
+use tantivy::{index::SegmentId, Index};
 
 impl ParallelQueryCapable for PdbScan {
     fn estimate_dsm_custom_scan(
@@ -128,5 +130,40 @@ pub unsafe fn checkout_segment(pscan_state: *mut ParallelScanState) -> Option<Se
 }
 
 pub unsafe fn list_segment_ids(pscan_state: *mut ParallelScanState) -> HashSet<SegmentId> {
-    (*pscan_state).segments()
+    (*pscan_state).segments().keys().cloned().collect()
+}
+
+#[allow(dead_code)]
+pub unsafe fn check_for_concurrent_vacuum(pscan_state: &mut CustomScanStateWrapper<PdbScan>) {
+    let indexrel = pscan_state
+        .custom_state()
+        .indexrel
+        .as_ref()
+        .map(|indexrel| unsafe { PgRelation::from_pg(*indexrel) })
+        .expect("end_custom_scan: custom_state.indexrel should already be open");
+    let old_segments = unsafe { (*pscan_state.custom_state().parallel_state.unwrap()).segments() };
+    let directory =
+        MVCCDirectory::parallel_worker(indexrel.oid(), old_segments.keys().cloned().collect());
+    let index = Index::open(directory).expect("end_custom_scan: should be able to open index");
+    let new_metas = index
+        .searchable_segment_metas()
+        .expect("end_custom_scan: should be able to get segment metas");
+
+    let new_segments: std::collections::HashMap<_, _> = new_metas
+        .iter()
+        .map(|meta| (meta.id(), meta.num_deleted_docs()))
+        .collect();
+
+    for (segment_id, num_deleted_docs) in old_segments {
+        if new_segments.get(&segment_id).unwrap_or(&0) != &num_deleted_docs {
+            ErrorReport::new(
+                PgSqlErrorCode::ERRCODE_QUERY_CANCELED,
+                "cancelling query due to conflict with vacuum",
+                function_name!(),
+            )
+            .set_detail("a concurrent vacuum operation on the WAL sender is running")
+            .set_hint("retry the query when the vacuum operation has completed")
+            .report(PgLogLevel::ERROR);
+        }
+    }
 }

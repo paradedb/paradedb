@@ -71,6 +71,10 @@ impl TopNScanExecState {
         }
     }
 
+    /// Sets whether this scan is part of a partial sort operation.
+    /// When true, indicates that the scan delivers tuples already sorted by the first key
+    /// in a multi-key ORDER BY clause, enabling PostgreSQL to perform an incremental sort
+    /// rather than a full sort.
     pub fn set_partial_sort(&mut self, is_partial_sort: bool) -> &mut Self {
         self.is_partial_sort = is_partial_sort;
         self

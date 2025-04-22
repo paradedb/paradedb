@@ -241,17 +241,9 @@ impl CustomScan for PdbScan {
                     match (maybe_needs_const_projections, pathkey) {
                         (false, OrderByStyle::Field(..)) => {
                             builder.custom_private().set_sort_info(pathkey);
-
-                            // Always set the sort info and mark as partial sort if we can handle any pathkey
-                            // whether it's a single pathkey or one of multiple pathkeys
-                            builder.custom_private().set_is_partial_sort(true);
                         }
                         (_, OrderByStyle::Score(..)) => {
                             builder.custom_private().set_sort_info(pathkey);
-
-                            // Always set the sort info and mark as partial sort if we can handle any pathkey
-                            // whether it's a single pathkey or one of multiple pathkeys
-                            builder.custom_private().set_is_partial_sort(true);
                         }
                         _ => {}
                     }

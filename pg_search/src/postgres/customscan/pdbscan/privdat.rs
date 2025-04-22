@@ -83,6 +83,11 @@ impl PrivateData {
             OrderByStyle::Score(_) => {}
             OrderByStyle::Field(_, name) => self.sort_field = Some(name.clone()),
         }
+
+        // Always set the sort info and mark as partial sort if we can handle any pathkey
+        // whether it's a single pathkey or one of multiple pathkeys
+        self.set_is_partial_sort(true);
+
         self.sort_direction = Some(style.direction())
     }
 

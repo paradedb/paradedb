@@ -96,8 +96,8 @@ fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRouti
     amroutine.amoptions = Some(options::amoptions);
     amroutine.ambeginscan = Some(scan::ambeginscan);
     amroutine.amrescan = Some(scan::amrescan);
-    amroutine.amgettuple = Some(scan::amgettuple);
-    amroutine.amgetbitmap = Some(scan::amgetbitmap);
+    amroutine.amgettuple = None;
+    amroutine.amgetbitmap = None;
     amroutine.amendscan = Some(scan::amendscan);
     amroutine.amcanreturn = Some(scan::amcanreturn);
 

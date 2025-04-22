@@ -8,6 +8,8 @@ use tantivy::index::{DeleteMeta, InnerSegmentMeta, SegmentId};
 use tantivy::indexer::{MergeCandidate, MergePolicy};
 use tantivy::{Directory, Inventory, SegmentMeta};
 
+// Because the size of segments that merge together is usually less than the sum of their parts,
+// we multiply the size of the segments by this factor to ensure we don't merge segments too soon
 const LAYER_FUDGE_FACTOR: f64 = 1.33;
 
 #[derive(Debug)]

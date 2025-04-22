@@ -19,7 +19,7 @@
 use crate::postgres::parallel::Spinlock;
 use crate::query::SearchQueryInput;
 use pgrx::*;
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::io::Write;
 use tantivy::index::SegmentId;
 use tantivy::SegmentReader;
@@ -255,8 +255,8 @@ impl ParallelScanState {
         self.remaining_segments
     }
 
-    pub fn segments(&self) -> HashMap<SegmentId, u32> {
-        let mut segments = HashMap::new();
+    pub fn segments(&self) -> FxHashMap<SegmentId, u32> {
+        let mut segments = FxHashMap::default();
         for i in 0..self.nsegments {
             segments.insert(self.segment_id(i), self.num_deleted_docs(i));
         }

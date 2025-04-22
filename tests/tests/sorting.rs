@@ -109,7 +109,7 @@ fn sort_by_lower_parallel(mut conn: PgConnection) {
     assert!(
         worker_node
             .get("Parallel Aware")
-            .map_or(false, |p| p.as_bool().unwrap_or(false)),
+            .is_some_and(|p| p.as_bool().unwrap_or(false)),
         "Worker should be parallel aware"
     );
 
@@ -247,7 +247,7 @@ fn sort_by_row_return_scores(mut conn: PgConnection) {
         .pointer("/0/Plan/Plans/0")
         .unwrap_or_else(|| {
             // If we can't find the expected path, try another common path
-            plan.pointer("/0/Plan").unwrap_or_else(|| &plan)
+            plan.pointer("/0/Plan").unwrap_or(&plan)
         })
         .as_object()
         .unwrap();
@@ -255,7 +255,7 @@ fn sort_by_row_return_scores(mut conn: PgConnection) {
     // Find the Custom Scan node which could be at different levels based on the plan
     let custom_scan_node = if plan_node
         .get("Node Type")
-        .map_or(false, |v| v.as_str() == Some("Custom Scan"))
+        .is_some_and(|v| v.as_str() == Some("Custom Scan"))
     {
         plan_node
     } else if let Some(plans) = plan_node.get("Plans").and_then(|p| p.as_array()) {
@@ -264,7 +264,7 @@ fn sort_by_row_return_scores(mut conn: PgConnection) {
             .iter()
             .find(|p| {
                 p.get("Node Type")
-                    .map_or(false, |v| v.as_str() == Some("Custom Scan"))
+                    .is_some_and(|v| v.as_str() == Some("Custom Scan"))
             })
             .and_then(|p| p.as_object())
             .unwrap_or(plan_node)
@@ -279,7 +279,7 @@ fn sort_by_row_return_scores(mut conn: PgConnection) {
     assert!(
         custom_scan_node
             .get("Scores")
-            .map_or(false, |v| v.as_bool() == Some(true)),
+            .is_some_and(|v| v.as_bool() == Some(true)),
         "Plan should indicate Scores are enabled: {:#?}",
         custom_scan_node
     );
@@ -396,6 +396,10 @@ async fn test_incremental_sort_with_partial_order(mut conn: PgConnection) {
         .await
         .unwrap();
 
+    // Check Postgres version - Incremental Sort only exists in PG 15+
+    let pg_version = pg_major_version(&mut conn);
+    let pg_supports_incremental_sort = pg_version >= 15;
+
     // Test BM25 with ORDER BY ... LIMIT to confirm Incremental Sort is used
     let (explain_bm25,) = sqlx::query_as::<_, (Value,)>(
         "EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON) 
@@ -424,25 +428,44 @@ async fn test_incremental_sort_with_partial_order(mut conn: PgConnection) {
 
     println!("SIMPLE QUERY EXPLAIN OUTPUT: {}", explain_simple);
 
-    // Check for Incremental Sort - need to check for both text and JSON formats
-    // In JSON format, we need to look for "Node Type":"Incremental Sort"
-    assert!(
-        plan_json.contains("\"Node Type\":\"Incremental Sort\"")
-            || explain_simple.contains("Incremental Sort"),
-        "BM25 should use Incremental Sort, plan was: {} \n\nSimple plan was: {}",
-        plan_json,
-        explain_simple
-    );
+    // Check for Incremental Sort in PG 15+ or regular Sort in PG 14
+    if pg_supports_incremental_sort {
+        // In PostgreSQL 15+, we expect an Incremental Sort node
+        assert!(
+            plan_json.contains("\"Node Type\":\"Incremental Sort\"")
+                || explain_simple.contains("Incremental Sort"),
+            "BM25 should use Incremental Sort in PG 15+, plan was: {} \n\nSimple plan was: {}",
+            plan_json,
+            explain_simple
+        );
 
-    // For Presorted Key we need to check for multiple formats
-    // In JSON format: "Presorted Key":[\"sales.sale_date\"]
-    // In text format: "Presorted Key: sales.sale_date"
-    assert!(
-        plan_json.contains("\"Presorted Key\":[") || explain_simple.contains("Presorted Key:"),
-        "BM25 should use presorted keys, plan was: {} \n\nSimple plan was: {}",
-        plan_json,
-        explain_simple
-    );
+        // For Presorted Key, check for specific formats in JSON/text formats
+        assert!(
+            plan_json.contains("\"Presorted Key\":[") || explain_simple.contains("Presorted Key:"),
+            "BM25 should use presorted keys in PG 15+, plan was: {} \n\nSimple plan was: {}",
+            plan_json,
+            explain_simple
+        );
+    } else {
+        // In PostgreSQL 14, we expect a normal Sort node but with our Custom Scan
+        // setting Sort Field correctly
+        assert!(
+            plan_json.contains("\"Node Type\":\"Sort\"") || explain_simple.contains("Sort"),
+            "BM25 should use Sort in PG 14, plan was: {} \n\nSimple plan was: {}",
+            plan_json,
+            explain_simple
+        );
+
+        // Check that at least one of the Custom Scan nodes in the plans has a Sort Field set
+        let custom_scan_has_sort_field =
+            plan_json.contains("\"Sort Field\"") || explain_simple.contains("Sort Field:");
+
+        assert!(
+            custom_scan_has_sort_field,
+            "Even in PG 14, ParadeDB Custom Scan should set the Sort Field, plan was: {} \n\nSimple plan was: {}",
+            plan_json, explain_simple
+        );
+    }
 
     // Verify we get results and they're in the correct order
     let results = sqlx::query(

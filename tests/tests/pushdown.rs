@@ -4,11 +4,13 @@ use fixtures::*;
 use rstest::*;
 use serde_json::Value;
 use sqlx::PgConnection;
+use std::collections::HashSet;
 
 /// Helper function to verify that a query plan uses ParadeDB's custom scan operator
 /// This checks if the plan node is either:
 /// 1. A "Custom Scan" node directly, or
 /// 2. A "Gather" node with a "Custom Scan" child node
+#[track_caller]
 fn verify_custom_scan(plan: &Value, description: &str) {
     let plan_node = plan
         .pointer("/0/Plan/Plans/0")
@@ -61,19 +63,27 @@ fn pushdown(mut conn: PgConnection) {
         ["timetz", "now()"],
         ["timestamp", "now()"],
         ["timestamptz", "now()"],
-        ["text", "'foo'"],
+        ["text", "'foo'::text"],
+        ["text", "'foo'::varchar"],
+        ["varchar", "'foo'::varchar"],
+        ["varchar", "'foo'::text"],
         ["uuid", "gen_random_uuid()"],
     ];
 
     let sqlname = |sqltype: &str| -> String { String::from("col_") + &sqltype.replace('"', "") };
 
+    let mut used_types = HashSet::<&str>::default();
     let mut sql = String::new();
     sql += "CREATE TABLE test (id SERIAL8 NOT NULL PRIMARY KEY, col_boolean boolean DEFAULT false";
     for [sqltype, default] in TYPES {
+        if used_types.contains(sqltype) {
+            continue;
+        }
         sql += &format!(
             ", {} {sqltype} NOT NULL DEFAULT {default}",
             sqlname(sqltype)
         );
+        used_types.insert(sqltype);
     }
     sql += ");";
 
@@ -81,7 +91,17 @@ fn pushdown(mut conn: PgConnection) {
     sql.execute(&mut conn);
 
     let sql = format!(
-        r#"CREATE INDEX idxtest ON test USING bm25 (id, col_boolean, {}) WITH (key_field='id', text_fields = '{{"col_text": {{"tokenizer": {{"type":"raw"}} }} }}');"#,
+        r#"
+            CREATE INDEX idxtest
+                      ON test
+                   USING bm25 (id, col_boolean, {})
+                   WITH (
+                    key_field='id',
+                        text_fields = '{{
+                            "col_text": {{"tokenizer": {{"type":"raw"}} }},
+                            "col_varchar": {{"tokenizer": {{"type":"raw"}} }}
+                         }}'
+                    );"#,
         TYPES
             .iter()
             .map(|t| sqlname(t[0]))

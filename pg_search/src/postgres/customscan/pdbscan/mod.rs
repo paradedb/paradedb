@@ -43,7 +43,7 @@ use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::{
     estimate_cardinality, is_string_agg_capable_ex,
 };
-use crate::postgres::customscan::pdbscan::parallel::list_segment_ids;
+use crate::postgres::customscan::pdbscan::parallel::{compute_nworkers, list_segment_ids};
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
 use crate::postgres::customscan::pdbscan::projections::score::{
     is_score_func, score_funcoid, uses_scores,
@@ -131,12 +131,24 @@ impl CustomScan for PdbScan {
             #[cfg(any(feature = "pg16", feature = "pg17"))]
             let baserels = (*builder.args().root).all_query_rels;
 
-            let limit = if (*builder.args().root).limit_tuples > -1.0
-                && pg_sys::bms_equal((*builder.args().rel).relids, baserels)
-            {
-                // we can only use the limit for estimates if a) we have one, and b) we know
-                // the query is only querying one relation
-                Some((*builder.args().root).limit_tuples)
+            let limit = if (*builder.args().root).limit_tuples > -1.0 {
+                // Check if this is a single relation or a partitioned table setup
+                let rel_is_single_or_partitioned =
+                    pg_sys::bms_equal((*builder.args().rel).relids, baserels)
+                        || is_partitioned_table_setup(
+                            builder.args().root,
+                            (*builder.args().rel).relids,
+                            baserels,
+                        );
+
+                if rel_is_single_or_partitioned {
+                    // We can use the limit for estimates if:
+                    // a) we have a limit, and
+                    // b) we're querying a single relation OR partitions of a partitioned table
+                    Some((*builder.args().root).limit_tuples)
+                } else {
+                    None
+                }
             } else {
                 None
             };
@@ -225,10 +237,14 @@ impl CustomScan for PdbScan {
                     // a fast field at the same time.
                     //
                     // and sorting by score always works
-                    if !(maybe_needs_const_projections
-                        && matches!(&pathkey, Some(OrderByStyle::Field(..))))
-                    {
-                        builder.custom_private().set_sort_info(&pathkey);
+                    match (maybe_needs_const_projections, &pathkey) {
+                        (false, Some(pathkey @ OrderByStyle::Field(..))) => {
+                            builder.custom_private().set_sort_info(pathkey);
+                        }
+                        (_, Some(pathkey @ OrderByStyle::Score(..))) => {
+                            builder.custom_private().set_sort_info(pathkey);
+                        }
+                        _ => {}
                     }
                 } else if limit.is_some()
                     && PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys)
@@ -267,6 +283,15 @@ impl CustomScan for PdbScan {
 
                 let total_cost = startup_cost + (rows * per_tuple_cost);
                 let segment_count = index.searchable_segments().unwrap_or_default().len();
+                let sorted = matches!(
+                    builder.custom_private().sort_direction(),
+                    Some(SortDirection::Asc | SortDirection::Desc)
+                );
+                let nworkers = if (*builder.args().rel).consider_parallel {
+                    compute_nworkers(limit, segment_count, sorted)
+                } else {
+                    0
+                };
 
                 builder.custom_private().set_segment_count(
                     index
@@ -287,41 +312,58 @@ impl CustomScan for PdbScan {
                     )
                     .is_some()
                 {
+                    let pathkey = pathkey.as_ref().unwrap();
+
                     // we're going to do a StringAgg, and it may or may not be more efficient to use
                     // parallel queries, depending on the cardinality of what we're going to select
-                    let cardinality = {
-                        let estimate = if let Some(OrderByStyle::Field(_, field)) = &pathkey {
-                            // NB:  '4' is a magic number
-                            estimate_cardinality(&bm25_index, field).unwrap_or(0) * 4
-                        } else {
-                            0
+                    let parallel_scan_preferred = || -> bool {
+                        let cardinality = {
+                            let estimate = if let OrderByStyle::Field(_, field) = &pathkey {
+                                // NB:  '4' is a magic number
+                                estimate_cardinality(&bm25_index, field).unwrap_or(0) * 4
+                            } else {
+                                0
+                            };
+                            estimate as f64 * selectivity
                         };
-                        estimate as f64 * selectivity
-                    };
 
-                    let pathkey_cnt =
-                        PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys)
-                            .len();
+                        let pathkey_cnt = PgList::<pg_sys::PathKey>::from_pg(
+                            (*builder.args().root).query_pathkeys,
+                        )
+                        .len();
 
-                    if pathkey_cnt == 1 || cardinality > 1_000_000.0 {
                         // if we only have 1 path key or if our estimated cardinality is over some
                         // hardcoded value, it's seemingly more efficient to do a parallel scan
-                        builder = builder.set_parallel(false, rows, limit, segment_count, true);
+                        pathkey_cnt == 1 || cardinality > 1_000_000.0
+                    };
+
+                    if nworkers > 0 && parallel_scan_preferred() {
+                        // If we use parallel workers, there is no point in sorting, because the
+                        // plan will already need to sort and merge the outputs from the workers.
+                        // See the TODO below about being able to claim sorting for parallel
+                        // workers.
+                        builder = builder.set_parallel(nworkers);
                     } else {
-                        // otherwise we'll do a regular scan and indicate that we're emitting results
-                        // sorted by the first pathkey
-                        builder = builder.add_path_key(&pathkey);
-                        builder.custom_private().set_sort_info(&pathkey);
+                        // otherwise we'll do a regular scan
+                        builder.custom_private().set_sort_info(pathkey);
                     }
-                } else {
-                    let sortdir = builder.custom_private().sort_direction();
-                    builder = builder.set_parallel(
-                        is_topn,
-                        rows,
-                        limit,
-                        segment_count,
-                        !matches!(sortdir, Some(SortDirection::None)) && sortdir.is_some(),
-                    );
+                } else if nworkers > 0 {
+                    builder = builder.set_parallel(nworkers);
+                }
+
+                // If we are sorting our output (which we will only do if we have a limit!) and we
+                // are _not_ using parallel workers, then we can claim that the output is sorted.
+                //
+                // TODO: To allow sorted output with parallel workers, we would need to partition
+                // our segments across the workers so that each worker emitted all of its results
+                // in sorted order.
+                if nworkers == 0
+                    && builder.custom_private().sort_direction().is_some()
+                    && limit.is_some()
+                {
+                    if let Some(pathkey) = pathkey.as_ref() {
+                        builder = builder.add_path_key(pathkey);
+                    }
                 }
 
                 return Some(builder.build());
@@ -1070,4 +1112,76 @@ pub fn is_block_all_visible(
         let status = pg_sys::visibilitymap_get_status(heaprel, heap_blockno, vmbuff);
         status != 0
     }
+}
+
+// Helper function to create an iterator over Bitmapset members
+unsafe fn bms_iter(bms: *mut pg_sys::Bitmapset) -> impl Iterator<Item = i32> {
+    let mut set_bit: i32 = -1;
+    std::iter::from_fn(move || {
+        set_bit = pg_sys::bms_next_member(bms, set_bit);
+        if set_bit < 0 {
+            None
+        } else {
+            Some(set_bit)
+        }
+    })
+}
+
+// Helper function to check if a Bitmapset is empty
+unsafe fn bms_is_empty(bms: *mut pg_sys::Bitmapset) -> bool {
+    bms_iter(bms).next().is_none()
+}
+
+// Helper function to determine if we're dealing with a partitioned table setup
+unsafe fn is_partitioned_table_setup(
+    root: *mut pg_sys::PlannerInfo,
+    rel_relids: *mut pg_sys::Bitmapset,
+    baserels: *mut pg_sys::Bitmapset,
+) -> bool {
+    // If the relation bitmap is empty, early return
+    if bms_is_empty(rel_relids) {
+        return false;
+    }
+
+    // Get the rtable for relkind checks
+    let rtable = (*(*root).parse).rtable;
+
+    // For each relation in baserels
+    for baserel_idx in bms_iter(baserels) {
+        // Skip invalid indices
+        if baserel_idx <= 0 || baserel_idx as usize >= (*root).simple_rel_array_size as usize {
+            continue;
+        }
+
+        // Get the RTE to check if this is a partitioned table
+        let rte = pg_sys::rt_fetch(baserel_idx as pg_sys::Index, rtable);
+        if (*rte).relkind as u8 != pg_sys::RELKIND_PARTITIONED_TABLE {
+            continue;
+        }
+
+        // Access RelOptInfo safely using offset and read
+        if (*root).simple_rel_array.is_null() {
+            continue;
+        }
+
+        // This is a partitioned table, get its RelOptInfo to find partitions
+        let rel_info_ptr = *(*root).simple_rel_array.add(baserel_idx as usize);
+        if rel_info_ptr.is_null() {
+            continue;
+        }
+
+        let rel_info = &*rel_info_ptr;
+
+        // Check if it has partitions
+        if rel_info.all_partrels.is_null() {
+            continue;
+        }
+
+        // Check if any relation in rel_relids is among the partitions
+        if pg_sys::bms_overlap(rel_info.all_partrels, rel_relids) {
+            return true;
+        }
+    }
+
+    false
 }

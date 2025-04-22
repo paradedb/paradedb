@@ -241,7 +241,17 @@ impl CustomScan for PdbScan {
                         && matches!(&pathkey, Some(OrderByStyle::Field(..))))
                     {
                         builder.custom_private().set_sort_info(&pathkey);
+
+                        // Always set the sort info and mark as partial sort if we can handle any pathkey
+                        // whether it's a single pathkey or one of multiple pathkeys
+                        builder.custom_private().set_is_partial_sort(true);
                     }
+
+                    // Mark path as presorted - this is critical for triggering Incremental Sort
+                    builder = builder.set_already_presorted(true);
+
+                    // Even for TopN cases, add the pathkey to ensure Incremental Sort gets considered
+                    builder = builder.add_path_key(&pathkey);
                 } else if limit.is_some()
                     && PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys)
                         .is_empty()
@@ -415,6 +425,9 @@ impl CustomScan for PdbScan {
                 .range_table_index()
                 .expect("range table index should have been set");
 
+            // Set the partial sort flag from the private data
+            builder.custom_state().is_partial_sort = builder.custom_private().is_partial_sort();
+
             {
                 let indexrel = PgRelation::open(builder.custom_state().indexrelid);
                 let heaprel = indexrel
@@ -520,14 +533,16 @@ impl CustomScan for PdbScan {
                 // having a valid limit and sort direction means we can do a TopN query
                 // and TopN can do snippets
                 let heaprelid = builder.custom_state().heaprelid;
-                builder
-                    .custom_state()
-                    .assign_exec_method(TopNScanExecState::new(
-                        heaprelid,
-                        limit,
-                        sort_direction,
-                        need_scores,
-                    ));
+                let is_partial_sort = builder.custom_state().is_partial_sort;
+                let mut top_n =
+                    TopNScanExecState::new(heaprelid, limit, sort_direction, need_scores);
+
+                // Set the partial sort flag if applicable
+                if is_partial_sort {
+                    top_n.set_partial_sort(true);
+                }
+
+                builder.custom_state().assign_exec_method(top_n);
             } else if let Some(limit) = builder.custom_state().is_unsorted_top_n_capable() {
                 let heaprelid = builder.custom_state().heaprelid;
                 builder
@@ -558,6 +573,14 @@ impl CustomScan for PdbScan {
             state.custom_state().segment_count as u64,
             None,
         );
+
+        // Add more detailed partial sort info if applicable
+        if state.custom_state().is_partial_sort {
+            if let Some(sort_field) = &state.custom_state().sort_field {
+                explainer.add_text("   Sort Field", sort_field);
+                explainer.add_text("   Partial Sort Flag", "True");
+            }
+        }
 
         if explainer.is_analyze() {
             explainer.add_unsigned_integer(
@@ -595,10 +618,12 @@ impl CustomScan for PdbScan {
             if !matches!(sort_direction, SortDirection::None) {
                 if let Some(sort_field) = &state.custom_state().sort_field {
                     explainer.add_text("   Sort Field", sort_field);
-                } else {
-                    explainer.add_text("   Sort Field", "paradedb.score()");
+                    if state.custom_state().is_partial_sort {
+                        explainer.add_text("   Sort Mode", "Partial (first pathkey only)");
+                    } else {
+                        explainer.add_text("   Sort Mode", "Full (not partial)");
+                    }
                 }
-                explainer.add_text("   Sort Direction", sort_direction);
             }
 
             if let Some(limit) = state.custom_state().limit {

@@ -35,6 +35,7 @@ pub struct TopNScanExecState {
     limit: usize,
     sort_direction: SortDirection,
     need_scores: bool,
+    is_partial_sort: bool,
 
     // set during init
     search_query_input: Option<SearchQueryInput>,
@@ -65,8 +66,14 @@ impl TopNScanExecState {
             limit,
             sort_direction,
             need_scores,
+            is_partial_sort: false,
             ..Default::default()
         }
+    }
+
+    pub fn set_partial_sort(&mut self, is_partial_sort: bool) -> &mut Self {
+        self.is_partial_sort = is_partial_sort;
+        self
     }
 
     fn query_more_results(

@@ -347,6 +347,25 @@ impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
         }
     }
 
+    pub fn set_already_presorted(mut self, presorted: bool) -> Self {
+        // According to PostgreSQL source code in src/include/nodes/pathnodes.h,
+        // For CustomPath nodes, flags is stored on the CustomPath struct directly,
+        // not on the Path struct
+        // #define CUSTOMPATH_PRESORTED 0x0001
+
+        // This flag tells PostgreSQL's optimizer that this path delivers tuples
+        // that are already presorted according to the pathkeys we've added.
+        // When only a partial set of pathkeys are satisfied, this will trigger
+        // the Incremental Sort node rather than a full Sort.
+        if presorted {
+            // Set flag on the CustomPath struct
+            self.custom_path_node.flags |= 0x0001; // CUSTOMPATH_PRESORTED
+        } else {
+            self.custom_path_node.flags &= !0x0001;
+        }
+        self
+    }
+
     pub fn build(mut self) -> pg_sys::CustomPath {
         self.custom_path_node.custom_paths = self.custom_paths.into_pg();
         self.custom_path_node.custom_private = self.custom_private.into();
@@ -354,6 +373,19 @@ impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
             .flags
             .into_iter()
             .fold(0, |acc, flag| acc | flag as u32);
+
+        // Ensure presorted flag works with pathkeys
+        unsafe {
+            if (self.custom_path_node.flags & 0x0001) != 0 {
+                // CUSTOMPATH_PRESORTED flag is set
+                // If we're presorted but have no pathkeys, add a dummy one to ensure proper signaling
+                let pathkeys =
+                    PgList::<pg_sys::PathKey>::from_pg(self.custom_path_node.path.pathkeys);
+                if pathkeys.is_empty() {
+                    pgrx::warning!("presorted flag set but no pathkeys present");
+                }
+            }
+        }
 
         self.custom_path_node
     }

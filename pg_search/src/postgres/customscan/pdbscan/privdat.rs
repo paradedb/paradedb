@@ -33,6 +33,7 @@ pub struct PrivateData {
     var_attname_lookup: Option<*mut pg_sys::List>,
     maybe_ff: bool,
     segment_count: usize,
+    is_partial_sort: bool,
 }
 
 impl From<*mut pg_sys::List> for PrivateData {
@@ -98,6 +99,10 @@ impl PrivateData {
     pub fn set_segment_count(&mut self, segment_count: usize) {
         self.segment_count = segment_count;
     }
+
+    pub fn set_is_partial_sort(&mut self, is_partial_sort: bool) {
+        self.is_partial_sort = is_partial_sort;
+    }
 }
 
 //
@@ -145,6 +150,10 @@ impl PrivateData {
 
     pub fn segment_count(&self) -> usize {
         self.segment_count
+    }
+
+    pub fn is_partial_sort(&self) -> bool {
+        self.is_partial_sort
     }
 }
 
@@ -273,6 +282,8 @@ pub mod serialize {
         ));
         ser.push(makeBoolean(Some(privdat.maybe_ff)));
         ser.push(makeString(Some(privdat.segment_count)));
+        ser.push(makeBoolean(Some(privdat.is_partial_sort)));
+
         ser
     }
 }
@@ -322,6 +333,10 @@ pub mod deserialize {
                 .and_then(|n| decodeBoolean(n))
                 .unwrap_or_default(),
             segment_count: input.get_ptr(9).and_then(|n| decodeString(n)).unwrap_or(0),
+            is_partial_sort: input
+                .get_ptr(10)
+                .and_then(|n| decodeBoolean(n))
+                .unwrap_or_default(),
         }
     }
 }

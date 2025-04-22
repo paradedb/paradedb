@@ -82,7 +82,6 @@ impl PrivateData {
             OrderByStyle::Score(_) => {}
             OrderByStyle::Field(_, name) => self.sort_field = Some(name.clone()),
         }
-
         self.sort_direction = Some(style.direction())
     }
 
@@ -131,6 +130,10 @@ impl PrivateData {
 
     pub fn sort_direction(&self) -> Option<SortDirection> {
         self.sort_direction
+    }
+
+    pub fn is_sorted(&self) -> bool {
+        !matches!(self.sort_direction, Some(SortDirection::None))
     }
 
     pub fn var_attname_lookup(&self) -> Option<PgList<pg_sys::Node>> {
@@ -272,7 +275,6 @@ pub mod serialize {
         ));
         ser.push(makeBoolean(Some(privdat.maybe_ff)));
         ser.push(makeString(Some(privdat.segment_count)));
-
         ser
     }
 }

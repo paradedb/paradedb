@@ -274,4 +274,8 @@ impl PdbScanState {
             Some(html)
         }
     }
+
+    pub fn is_sorted(&self) -> bool {
+        !matches!(self.sort_direction, Some(SortDirection::None))
+    }
 }

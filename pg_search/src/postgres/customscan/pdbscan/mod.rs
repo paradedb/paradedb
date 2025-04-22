@@ -284,10 +284,7 @@ impl CustomScan for PdbScan {
 
                 let total_cost = startup_cost + (rows * per_tuple_cost);
                 let segment_count = index.searchable_segments().unwrap_or_default().len();
-                let sorted = matches!(
-                    builder.custom_private().sort_direction(),
-                    None | Some(SortDirection::Asc | SortDirection::Desc)
-                );
+                let sorted = builder.custom_private().is_sorted();
                 let nworkers = if (*builder.args().rel).consider_parallel {
                     compute_nworkers(limit, segment_count, sorted)
                 } else {
@@ -548,9 +545,14 @@ impl CustomScan for PdbScan {
                 // having a valid limit and sort direction means we can do a TopN query
                 // and TopN can do snippets
                 let heaprelid = builder.custom_state().heaprelid;
-                let top_n = TopNScanExecState::new(heaprelid, limit, sort_direction, need_scores);
-
-                builder.custom_state().assign_exec_method(top_n);
+                builder
+                    .custom_state()
+                    .assign_exec_method(TopNScanExecState::new(
+                        heaprelid,
+                        limit,
+                        sort_direction,
+                        need_scores,
+                    ));
             } else if let Some(limit) = builder.custom_state().is_unsorted_top_n_capable() {
                 let heaprelid = builder.custom_state().heaprelid;
                 builder
@@ -614,24 +616,29 @@ impl CustomScan for PdbScan {
         exec_methods::fast_fields::explain(state, explainer);
 
         explainer.add_bool("Scores", state.custom_state().need_scores());
-        if let Some(sort_direction) = state.custom_state().sort_direction {
-            if !matches!(sort_direction, SortDirection::None) {
-                if let Some(sort_field) = &state.custom_state().sort_field {
-                    explainer.add_text("   Sort Field", sort_field);
-                } else {
-                    explainer.add_text("   Sort Field", "paradedb.score()");
-                }
+        if state.custom_state().is_sorted() {
+            if let Some(sort_field) = &state.custom_state().sort_field {
+                explainer.add_text("   Sort Field", sort_field);
+            } else {
+                explainer.add_text("   Sort Field", "paradedb.score()");
             }
+            explainer.add_text(
+                "   Sort Direction",
+                state
+                    .custom_state()
+                    .sort_direction
+                    .unwrap_or(SortDirection::Asc),
+            );
+        }
 
-            if let Some(limit) = state.custom_state().limit {
-                explainer.add_unsigned_integer("   Top N Limit", limit as u64, None);
-                if explainer.is_analyze() && state.custom_state().retry_count > 0 {
-                    explainer.add_unsigned_integer(
-                        "   Invisible Tuple Retries",
-                        state.custom_state().retry_count as u64,
-                        None,
-                    );
-                }
+        if let Some(limit) = state.custom_state().limit {
+            explainer.add_unsigned_integer("   Top N Limit", limit as u64, None);
+            if explainer.is_analyze() && state.custom_state().retry_count > 0 {
+                explainer.add_unsigned_integer(
+                    "   Invisible Tuple Retries",
+                    state.custom_state().retry_count as u64,
+                    None,
+                );
             }
         }
 

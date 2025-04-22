@@ -42,7 +42,6 @@ use crate::schema::{IndexRecordOption, SearchFieldConfig, SearchFieldName, Searc
  * (because SearchIndexCreateOptions is a postgres-allocated object) and use getters and setters
 */
 
-const DEFAULT_LAYER_FUDGE_FACTOR: f64 = 1.33;
 static mut RELOPT_KIND_PDB: pg_sys::relopt_kind::Type = 0;
 
 // Postgres handles string options by placing each option offset bytes from the start of rdopts and
@@ -59,7 +58,6 @@ pub struct SearchIndexCreateOptions {
     datetime_fields_offset: i32,
     key_field_offset: i32,
     layer_sizes_offset: i32,
-    layer_fudge_factor_offset: i32,
 }
 
 #[pg_guard]
@@ -166,17 +164,6 @@ extern "C" fn validate_layer_sizes(value: *const std::os::raw::c_char) {
     assert!(cnt >= 2, "There must be at least 2 layers in `layer_sizes`");
 }
 
-#[pg_guard]
-extern "C" fn validate_layer_fudge_factor(value: *const std::os::raw::c_char) {
-    if value.is_null() {
-        // a NULL value means we're to use whatever our defaults are
-        return;
-    }
-
-    let f64: f64 = value.parse().expect("`layer_fudge_factor` must be a valid f64");
-    assert!(f64 >= 1.0 && f64 <= 10.0, "`layer_fudge_factor` must be between 1.0 and 10.0");
-}
-
 fn get_layer_sizes(s: &str) -> impl Iterator<Item = u64> + use<'_> {
     s.split(",").map(|part| {
         unsafe {
@@ -190,10 +177,6 @@ fn get_layer_sizes(s: &str) -> impl Iterator<Item = u64> + use<'_> {
             .expect("a single layer size must be greater than zero")
         }
     })
-}
-
-fn get_layer_fudge_factor(s: &str) -> f64 {
-    s.parse().expect("`layer_fudge_factor` must be a valid f64")
 }
 
 #[inline]
@@ -254,11 +237,6 @@ pub unsafe extern "C" fn amoptions(
             optname: "layer_sizes".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: offset_of!(SearchIndexCreateOptions, layer_sizes_offset) as i32,
-        },
-        pg_sys::relopt_parse_elt {
-            optname: "layer_fudge_factor".as_pg_cstr(),
-            opttype: pg_sys::relopt_type::RELOPT_TYPE_REAL,
-            offset: offset_of!(SearchIndexCreateOptions, layer_fudge_factor_offset) as i32,
         },
     ];
     build_relopts(reloptions, validate, options)
@@ -714,12 +692,5 @@ pub unsafe fn init() {
         std::ptr::null(),
         Some(validate_layer_sizes),
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
-    );
-    pg_sys::add_real_reloption(
-        RELOPT_KIND_PDB,
-        "layer_fudge_factor".as_pg_cstr(),
-        "Because the size of segments that merge together is usually less than the sum of their parts, we fudge the size of the segments by this factor to ensure we don't merge segments too soon".as_pg_cstr(),
-        std::ptr::null(),
-        Some(validate_layer_fudge_factor),
     );
 }

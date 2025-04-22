@@ -8,6 +8,8 @@ use tantivy::index::{DeleteMeta, InnerSegmentMeta, SegmentId};
 use tantivy::indexer::{MergeCandidate, MergePolicy};
 use tantivy::{Directory, Inventory, SegmentMeta};
 
+const LAYER_FUDGE_FACTOR: f64 = 1.33;
+
 #[derive(Debug)]
 pub struct LayeredMergePolicy {
     #[allow(dead_code)]
@@ -18,8 +20,6 @@ pub struct LayeredMergePolicy {
 
     mergeable_segments: HashMap<SegmentId, SegmentMetaEntry>,
     already_processed: AtomicBool,
-
-    layer_fudge_factor: f64,
 }
 
 pub type NumCandidates = usize;
@@ -95,7 +95,7 @@ impl MergePolicy for LayeredMergePolicy {
                 candidate_byte_size += self.segment_size(segment, avg_doc_size);
                 candidates.last_mut().unwrap().1 .0.push(segment.id());
 
-                if (candidate_byte_size as f64 * self.layer_fudge_factor) >= layer_size as f64 {
+                if (candidate_byte_size as f64 * LAYER_FUDGE_FACTOR) >= layer_size as f64 {
                     // the candidate now exceeds the layer size so we start a new candidate
                     candidate_byte_size = 0;
                     candidates.push((layer_size, MergeCandidate(vec![])));
@@ -171,7 +171,7 @@ impl MergePolicy for LayeredMergePolicy {
 }
 
 impl LayeredMergePolicy {
-    pub fn new(layer_sizes: Vec<u64>, layer_fudge_factor: f64) -> LayeredMergePolicy {
+    pub fn new(layer_sizes: Vec<u64>) -> LayeredMergePolicy {
         Self {
             n: std::thread::available_parallelism()
                 .expect("your computer should have at least one CPU")
@@ -182,7 +182,6 @@ impl LayeredMergePolicy {
 
             mergeable_segments: Default::default(),
             already_processed: Default::default(),
-            layer_fudge_factor,
         }
     }
 
@@ -262,18 +261,6 @@ impl LayeredMergePolicy {
     fn segment_size(&self, segment: &SegmentMeta, avg_doc_size: u64) -> u64 {
         adjusted_byte_size(segment, &self.mergeable_segments, avg_doc_size)
     }
-}
-
-#[inline]
-fn actual_byte_size(
-    meta: &SegmentMeta,
-    all_entries: &HashMap<SegmentId, SegmentMetaEntry>,
-    avg_doc_size: u64,
-) -> u64 {
-    all_entries
-        .get(&meta.id())
-        .map(|entry| entry.byte_size())
-        .unwrap_or(meta.num_docs() as u64 * avg_doc_size)
 }
 
 #[inline]

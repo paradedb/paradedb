@@ -86,13 +86,15 @@ impl MergePolicy for LayeredMergePolicy {
                     continue;
                 }
 
-                if self.segment_size(segment, avg_doc_size) > layer_size {
+                let segment_size =
+                    adjusted_byte_size(segment, &self.mergeable_segments, avg_doc_size);
+                if segment_size > layer_size {
                     // this segment is larger than this layer_size... skip it
                     continue;
                 }
 
                 // add this segment as a candidate
-                candidate_byte_size += self.segment_size(segment, avg_doc_size);
+                candidate_byte_size += segment_size;
                 candidates.last_mut().unwrap().1 .0.push(segment.id());
 
                 if (candidate_byte_size as f64 * LAYER_FUDGE_FACTOR) >= layer_size as f64 {
@@ -254,12 +256,14 @@ impl LayeredMergePolicy {
             .collect::<Vec<_>>();
 
         // sort largest to smallest
-        segments.sort_by_key(|segment| Reverse(self.segment_size(segment, avg_doc_size)));
+        segments.sort_by_key(|segment| {
+            Reverse(adjusted_byte_size(
+                segment,
+                &self.mergeable_segments,
+                avg_doc_size,
+            ))
+        });
         segments
-    }
-
-    fn segment_size(&self, segment: &SegmentMeta, avg_doc_size: u64) -> u64 {
-        adjusted_byte_size(segment, &self.mergeable_segments, avg_doc_size)
     }
 }
 

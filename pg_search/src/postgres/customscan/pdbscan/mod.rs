@@ -443,9 +443,6 @@ impl CustomScan for PdbScan {
                 .range_table_index()
                 .expect("range table index should have been set");
 
-            // Set the partial sort flag from the private data
-            builder.custom_state().is_partial_sort = builder.custom_private().is_partial_sort();
-
             {
                 let indexrel = PgRelation::open(builder.custom_state().indexrelid);
                 let heaprel = indexrel
@@ -551,14 +548,7 @@ impl CustomScan for PdbScan {
                 // having a valid limit and sort direction means we can do a TopN query
                 // and TopN can do snippets
                 let heaprelid = builder.custom_state().heaprelid;
-                let is_partial_sort = builder.custom_state().is_partial_sort;
-                let mut top_n =
-                    TopNScanExecState::new(heaprelid, limit, sort_direction, need_scores);
-
-                // Set the partial sort flag if applicable
-                if is_partial_sort {
-                    top_n.set_partial_sort(true);
-                }
+                let top_n = TopNScanExecState::new(heaprelid, limit, sort_direction, need_scores);
 
                 builder.custom_state().assign_exec_method(top_n);
             } else if let Some(limit) = builder.custom_state().is_unsorted_top_n_capable() {
@@ -630,11 +620,6 @@ impl CustomScan for PdbScan {
                     explainer.add_text("   Sort Field", sort_field);
                 } else {
                     explainer.add_text("   Sort Field", "paradedb.score()");
-                }
-                if state.custom_state().is_partial_sort {
-                    explainer.add_text("   Sort Mode", "Partial (first pathkey only)");
-                } else {
-                    explainer.add_text("   Sort Mode", "Full (not partial)");
                 }
             }
 

@@ -51,7 +51,6 @@ pub struct PdbScanState {
     pub limit: Option<usize>,
     pub sort_field: Option<String>,
     pub sort_direction: Option<SortDirection>,
-    pub is_partial_sort: bool,
     pub retry_count: usize,
     pub heap_tuple_check_count: usize,
     pub virtual_tuple_count: usize,

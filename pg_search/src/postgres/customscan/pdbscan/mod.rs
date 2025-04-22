@@ -256,9 +256,6 @@ impl CustomScan for PdbScan {
                         _ => {}
                     }
 
-                    // Mark path as presorted - this is critical for triggering Incremental Sort
-                    builder = builder.set_already_presorted(true);
-
                     // Even for TopN cases, add the pathkey to ensure Incremental Sort gets considered
                     builder = builder.add_path_key(pathkey);
                 } else if limit.is_some()

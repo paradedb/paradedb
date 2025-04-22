@@ -606,14 +606,6 @@ impl CustomScan for PdbScan {
             None,
         );
 
-        // Add more detailed partial sort info if applicable
-        if state.custom_state().is_partial_sort {
-            if let Some(sort_field) = &state.custom_state().sort_field {
-                explainer.add_text("Sort Field", sort_field);
-                explainer.add_text("Partial Sort Flag", "True");
-            }
-        }
-
         if explainer.is_analyze() {
             explainer.add_unsigned_integer(
                 "Heap Fetches",
@@ -649,12 +641,14 @@ impl CustomScan for PdbScan {
         if let Some(sort_direction) = state.custom_state().sort_direction {
             if !matches!(sort_direction, SortDirection::None) {
                 if let Some(sort_field) = &state.custom_state().sort_field {
-                    explainer.add_text("Sort Field", sort_field);
-                    if state.custom_state().is_partial_sort {
-                        explainer.add_text("Sort Mode", "Partial (first pathkey only)");
-                    } else {
-                        explainer.add_text("Sort Mode", "Full (not partial)");
-                    }
+                    explainer.add_text("   Sort Field", sort_field);
+                } else {
+                    explainer.add_text("   Sort Field", "paradedb.score()");
+                }
+                if state.custom_state().is_partial_sort {
+                    explainer.add_text("   Sort Mode", "Partial (first pathkey only)");
+                } else {
+                    explainer.add_text("   Sort Mode", "Full (not partial)");
                 }
             }
 

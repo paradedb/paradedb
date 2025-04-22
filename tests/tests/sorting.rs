@@ -72,7 +72,7 @@ fn sort_by_lower(mut conn: PgConnection) {
         .as_object()
         .unwrap();
     assert_eq!(
-        plan.get("Sort Field"),
+        plan.get("   Sort Field"),
         Some(&Value::String(String::from("category")))
     );
 }
@@ -117,8 +117,8 @@ fn sort_by_lower_parallel(mut conn: PgConnection) {
     let node_type = worker_node.get("Node Type").unwrap().as_str().unwrap();
 
     if node_type == "Custom Scan" {
-        // If it's a Custom Scan, ensure Sort Field and Partial Sort Flag are set correctly
-        let sort_field = worker_node.get("Sort Field");
+        // If it's a Custom Scan, ensure Sort Field and Sort Mode are set correctly
+        let sort_field = worker_node.get("   Sort Field");
         assert!(
             sort_field.is_some(),
             "Custom Scan should have a Sort Field: {:?}",
@@ -134,10 +134,10 @@ fn sort_by_lower_parallel(mut conn: PgConnection) {
             );
         }
 
-        // Verify that the Partial Sort Flag is set
-        let has_partial_sort = worker_node.get("Partial Sort Flag");
+        // Verify that the Sort Mode is set
+        let sort_mode = worker_node.get("   Sort Mode");
         assert!(
-            has_partial_sort.is_some(),
+            sort_mode.is_some() && sort_mode.unwrap() == "Partial (first pathkey only)",
             "Custom Scan should indicate if partial sort is enabled"
         );
 
@@ -199,7 +199,7 @@ fn sort_by_raw(mut conn: PgConnection) {
         .as_object()
         .unwrap();
     assert_eq!(
-        plan.get("Sort Field"),
+        plan.get("   Sort Field"),
         Some(&Value::String(String::from("category")))
     );
 }
@@ -286,23 +286,23 @@ fn sort_by_row_return_scores(mut conn: PgConnection) {
 
     // 2. We may have a Sort Field even with scores, but the planner might decide to
     // use a different approach when requesting scores, so we don't strictly require it
-    let has_sort_field = custom_scan_node.get("Sort Field").is_some();
-    let has_partial_sort = custom_scan_node.get("Partial Sort Flag").is_some();
+    let has_sort_field = custom_scan_node.get("   Sort Field").is_some();
+    let has_sort_mode = custom_scan_node.get("   Sort Mode").is_some();
 
     // 3. If we have a sort field, then partial sort flag should also be set
     if has_sort_field {
         assert_eq!(
-            custom_scan_node.get("Sort Field").unwrap(),
+            custom_scan_node.get("   Sort Field").unwrap(),
             &Value::String("category".to_string()),
             "Sort Field should be 'category' when present"
         );
 
-        // 4. If Sort Field is present, Partial Sort Flag should also be set
-        if has_partial_sort {
+        // 4. If Sort Field is present, Sort Mode should also be set
+        if has_sort_mode {
             assert_eq!(
-                custom_scan_node.get("Partial Sort Flag").unwrap(),
-                &Value::String("True".to_string()),
-                "Partial Sort Flag should be 'True' when present"
+                custom_scan_node.get("   Sort Mode").unwrap(),
+                &Value::String("Partial (first pathkey only)".to_string()),
+                "Sort Mode should be 'Partial (first pathkey only)' when present"
             );
         }
     }

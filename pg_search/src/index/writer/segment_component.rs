@@ -1,5 +1,5 @@
 use crate::postgres::storage::block::{bm25_max_free_space, FileEntry};
-use crate::postgres::storage::LinkedBytesList;
+use crate::postgres::storage::{LinkedBytesList, LinkedBytesListWriter};
 use pgrx::*;
 use std::io::{Result, Write};
 use std::path::{Path, PathBuf};
@@ -11,7 +11,7 @@ pub struct SegmentComponentWriter {
     path: PathBuf,
     header_blockno: pg_sys::BlockNumber,
     total_bytes: Arc<AtomicUsize>,
-    buffer: ExactBuffer<{ bm25_max_free_space() }, LinkedBytesList>,
+    buffer: ExactBuffer<{ bm25_max_free_space() }, LinkedBytesListWriter>,
 }
 
 impl SegmentComponentWriter {
@@ -23,7 +23,7 @@ impl SegmentComponentWriter {
             header_blockno: segment_component.header_blockno,
             total_bytes: Default::default(),
             buffer: ExactBuffer {
-                writer: segment_component,
+                writer: segment_component.writer(),
                 buffer: [0; bm25_max_free_space()],
                 len: 0,
             },

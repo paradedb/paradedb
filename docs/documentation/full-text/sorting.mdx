@@ -123,9 +123,7 @@ LIMIT 5;
 <Note>
 Not all `ORDER BY`s are pushed down. The following queries are not pushed down:
 
-1. `ORDER BY`s over multiple fields for tiebreaking (see "Partial Ordering with Multiple Sort Fields" for a new feature that partially supports this).
-2. Using `paradedb.score` with an `ORDER BY` over another field. (This is supported, see "Sorting With Score Retrieval")
-3. `ORDER BY` without a `LIMIT`.
+1. `ORDER BY` without a `LIMIT`.
 </Note>
 
 ## Partial Ordering with Multiple Sort Fields

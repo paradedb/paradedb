@@ -8,10 +8,6 @@ use tantivy::index::{DeleteMeta, InnerSegmentMeta, SegmentId};
 use tantivy::indexer::{MergeCandidate, MergePolicy};
 use tantivy::{Directory, Inventory, SegmentMeta};
 
-// Because the size of segments that merge together is usually less than the sum of their parts,
-// we multiply the size of the segments by this factor to ensure we don't merge segments too soon
-const LAYER_FUDGE_FACTOR: f64 = 1.33;
-
 #[derive(Debug)]
 pub struct LayeredMergePolicy {
     #[allow(dead_code)]
@@ -76,6 +72,12 @@ impl MergePolicy for LayeredMergePolicy {
         layer_sizes.sort_by_key(|size| Reverse(*size)); // largest to smallest
 
         for layer_size in layer_sizes {
+            // individual segments that total a certain byte amount typically merge together into
+            // a segment of a smaller size than the individual source segments.  So we fudge things
+            // by a third more in the hopes the final segment will be >= to this layer size, ensuring
+            // it doesn't merge again
+            let extended_layer_size = layer_size + layer_size / 3;
+
             // collect the list of mergeable segments so that we can combine those that fit in the next layer
             let segments =
                 self.collect_mergeable_segments(original_segments, &merged_segments, avg_doc_size);
@@ -99,14 +101,14 @@ impl MergePolicy for LayeredMergePolicy {
                 candidate_byte_size += segment_size;
                 candidates.last_mut().unwrap().1 .0.push(segment.id());
 
-                if (candidate_byte_size as f64 * LAYER_FUDGE_FACTOR) >= layer_size as f64 {
+                if candidate_byte_size >= extended_layer_size {
                     // the candidate now exceeds the layer size so we start a new candidate
                     candidate_byte_size = 0;
                     candidates.push((layer_size, MergeCandidate(vec![])));
                 }
             }
 
-            if candidate_byte_size < layer_size {
+            if candidate_byte_size < extended_layer_size {
                 // the last candidate isn't full, so throw it away
                 candidates.pop();
             }

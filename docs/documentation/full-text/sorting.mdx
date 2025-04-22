@@ -130,7 +130,7 @@ Not all `ORDER BY`s are pushed down. The following queries are not pushed down:
 
 ## Partial Ordering with Multiple Sort Fields
 
-When using `ORDER BY` with multiple sort fields, ParadeDB can now partially push down the sorting operation. In this case, only the first column is pushed down to the BM25 index, and PostgreSQL handles the additional columns using an `Incremental Sort` or a regular `Sort` node.
+When using `ORDER BY` with multiple sort fields, ParadeDB can now partially push down the sorting operation. In this case, only the first column is pushed down to the BM25 index, and PostgreSQL handles the additional columns using sort operations.
 
 For example, in the following query with multiple sort fields, sorting by `sale_date` is pushed down to the BM25 index, while sorting by `amount` is handled by PostgreSQL:
 
@@ -142,12 +142,12 @@ ORDER BY sale_date, amount
 LIMIT 10;
 ```
 
-You can verify if partial ORDER BY pushdown occurred by running `EXPLAIN` on the query. If partial pushdown occurred, the query plan will show:
+You can verify if partial ORDER BY pushdown occurred by running `EXPLAIN` on the query. The query plan will show a `Custom Scan` with our ParadeDB scan provider, followed by an appropriate sort operation based on your PostgreSQL version:
 
-- In PostgreSQL 15+: A `Custom Scan` with a `Sort Field` for the first column, wrapped in an `Incremental Sort` node
-- In PostgreSQL 13-14: A `Custom Scan` with a `Sort Field`, followed by a regular `Sort` node
+- In PostgreSQL 16+: Often uses an `Incremental Sort` node which can take advantage of the already-sorted first column
+- In older PostgreSQL: Uses a regular `Sort` node, but still benefits from our optimized ordering
 
-<Accordion title="Expected Response (PostgreSQL 15+)">
+<Accordion title="Example Query Plan">
 ```csv
                                                                               QUERY PLAN
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -170,7 +170,7 @@ You can verify if partial ORDER BY pushdown occurred by running `EXPLAIN` on the
 ```
 </Accordion>
 
-This feature significantly improves performance when sorting by multiple columns, as the index is used for the first level of sorting, requiring PostgreSQL to only perform an incremental sort for the remaining columns.
+This feature significantly improves performance when sorting by multiple columns, as the index is used for the first level of sorting, requiring PostgreSQL to perform less work to produce the final ordered results.
 
 <Note>
 Limitations for partial `ORDER BY` pushdown:
@@ -178,7 +178,6 @@ Limitations for partial `ORDER BY` pushdown:
 1. Only the first sort field is pushed down to the BM25 index.
 2. The first sort field must be indexed as a fast field.
 3. A `LIMIT` clause is still required.
-4. The `Incremental Sort` optimization is only available in PostgreSQL 15 and newer. In PostgreSQL 14, the feature still works, but uses a regular `Sort` node instead.
 </Note>
 
 ## Sorting With Score Retrieval
@@ -195,9 +194,9 @@ ORDER BY sale_date, amount
 LIMIT 10;
 ```
 
-When requesting scores using `paradedb.score()`, ParadeDB still pushes down the first sort field to the BM25 index. In PostgreSQL 15+, this triggers the `Incremental Sort` optimization for additional fields. This gives you the best of both worlds: efficient sorting and relevance score information.
+When requesting scores using `paradedb.score()`, ParadeDB still pushes down the first sort field to the BM25 index. PostgreSQL then uses an appropriate sort operation to handle any additional sort fields. This gives you the best of both worlds: efficient sorting and relevance score information.
 
-<Accordion title="Expected Response with Scores (PostgreSQL 15+)">
+<Accordion title="Example Query Plan with Scores">
 ```csv
                                                                               QUERY PLAN
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -226,5 +225,5 @@ Benefits of optimized sorting with scores:
 1. Better performance compared to full sorting when scoring is required.
 2. Retained ability to get relevance scores via `paradedb.score()`.
 3. Efficient hybrid sorting that leverages both index-based sorting and PostgreSQL's sorting capabilities.
-4. Full `Incremental Sort` optimization in PostgreSQL 15+. In PostgreSQL 14, a regular `Sort` node is used, but sorting is still optimized by ParadeDB's presorted output.
+4. Full `Incremental Sort` optimization in PostgreSQL 16+. In older PostgreSQL version, a regular `Sort` node is used, but sorting is still optimized by ParadeDB's presorted output.
 </Note>

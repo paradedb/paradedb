@@ -255,9 +255,6 @@ impl CustomScan for PdbScan {
                         }
                         _ => {}
                     }
-
-                    // Even for TopN cases, add the pathkey to ensure Incremental Sort gets considered
-                    builder = builder.add_path_key(pathkey);
                 } else if limit.is_some()
                     && PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys)
                         .is_empty()
@@ -297,7 +294,7 @@ impl CustomScan for PdbScan {
                 let segment_count = index.searchable_segments().unwrap_or_default().len();
                 let sorted = matches!(
                     builder.custom_private().sort_direction(),
-                    Some(SortDirection::Asc | SortDirection::Desc)
+                    None | Some(SortDirection::Asc | SortDirection::Desc)
                 );
                 let nworkers = if (*builder.args().rel).consider_parallel {
                     compute_nworkers(limit, segment_count, sorted)
@@ -369,10 +366,7 @@ impl CustomScan for PdbScan {
                 // TODO: To allow sorted output with parallel workers, we would need to partition
                 // our segments across the workers so that each worker emitted all of its results
                 // in sorted order.
-                if nworkers == 0
-                    && builder.custom_private().sort_direction().is_some()
-                    && limit.is_some()
-                {
+                if nworkers == 0 && sorted && limit.is_some() {
                     if let Some(pathkey) = pathkey.as_ref() {
                         builder = builder.add_path_key(pathkey);
                     }

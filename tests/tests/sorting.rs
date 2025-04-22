@@ -423,7 +423,7 @@ async fn test_incremental_sort_with_partial_order(mut conn: PgConnection) {
 
     // Extract the Custom Scan nodes from the JSON plan for inspection
     let mut custom_scan_nodes = Vec::new();
-    if let Some(plan) = serde_json::from_str::<Value>(&plan_json).ok() {
+    if let Ok(plan) = serde_json::from_str::<Value>(&plan_json) {
         // Navigate through the plan to find Custom Scan nodes
         if let Some(main_plan) = plan.pointer("/0/Plan") {
             collect_custom_scan_nodes(main_plan, &mut custom_scan_nodes);

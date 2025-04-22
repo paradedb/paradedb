@@ -78,6 +78,7 @@ impl From<SortDirection> for u32 {
     }
 }
 
+#[derive(Debug)]
 pub enum OrderByStyle {
     Score(*mut pg_sys::PathKey),
     Field(*mut pg_sys::PathKey, String),
@@ -277,17 +278,15 @@ impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
         self
     }
 
-    pub fn add_path_key(mut self, pathkey: &Option<OrderByStyle>) -> Self {
+    pub fn add_path_key(mut self, style: &OrderByStyle) -> Self {
         unsafe {
-            if let Some(style) = pathkey {
-                let mut pklist =
-                    PgList::<pg_sys::PathKey>::from_pg(self.custom_path_node.path.pathkeys);
-                pklist.push(style.pathkey());
+            let mut pklist =
+                PgList::<pg_sys::PathKey>::from_pg(self.custom_path_node.path.pathkeys);
+            pklist.push(style.pathkey());
 
-                self.custom_path_node.path.pathkeys = pklist.into_pg();
-            }
-            self
+            self.custom_path_node.path.pathkeys = pklist.into_pg();
         }
+        self
     }
 
     pub fn set_force_path(mut self, force: bool) -> Self {
@@ -299,52 +298,13 @@ impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
         self
     }
 
-    pub fn set_parallel(
-        mut self,
-        is_topn: bool,
-        row_estimate: Cardinality,
-        limit: Option<Cardinality>,
-        segment_count: usize,
-        sorted: bool,
-    ) -> Self {
-        unsafe {
-            let mut nworkers = segment_count.min(pg_sys::max_parallel_workers as usize);
+    pub fn set_parallel(mut self, nworkers: usize) -> Self {
+        self.custom_path_node.path.parallel_aware = true;
+        self.custom_path_node.path.parallel_safe = true;
+        self.custom_path_node.path.parallel_workers =
+            nworkers.try_into().expect("nworkers should be a valid i32");
 
-            if limit.is_some() {
-                let limit = limit.unwrap();
-                if !sorted
-                    && limit <= (segment_count * segment_count * segment_count) as Cardinality
-                {
-                    // not worth it to do a parallel scan
-                    return self;
-                }
-
-                // if the limit is less than some arbitrarily large value
-                // use at most half the number of parallel workers as there are segments
-                // this generally seems to perform better than directly using `max_parallel_workers`
-                if limit < 1_000_000.0 {
-                    nworkers = (segment_count / 2).min(nworkers);
-                }
-            }
-
-            #[cfg(not(any(feature = "pg14", feature = "pg15")))]
-            {
-                if nworkers == 0 && pg_sys::debug_parallel_query != 0 {
-                    // force a parallel worker if the `debug_parallel_query` GUC is on
-                    nworkers = 1;
-                }
-            }
-
-            // we will try to parallelize based on the number of index segments
-            if nworkers > 0 && (*self.args.rel).consider_parallel {
-                self.custom_path_node.path.parallel_aware = true;
-                self.custom_path_node.path.parallel_safe = true;
-                self.custom_path_node.path.parallel_workers =
-                    nworkers.try_into().expect("nworkers should be a valid i32");
-            }
-
-            self
-        }
+        self
     }
 
     pub fn set_already_presorted(mut self, presorted: bool) -> Self {

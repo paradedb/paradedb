@@ -78,14 +78,12 @@ impl PrivateData {
         self.sort_direction = sort_direction;
     }
 
-    pub fn set_sort_info(&mut self, pathkey: &Option<OrderByStyle>) {
-        if let Some(style) = pathkey {
-            match style {
-                OrderByStyle::Score(_) => {}
-                OrderByStyle::Field(_, name) => self.sort_field = Some(name.clone()),
-            }
-            self.sort_direction = Some(style.direction())
+    pub fn set_sort_info(&mut self, style: &OrderByStyle) {
+        match &style {
+            OrderByStyle::Score(_) => {}
+            OrderByStyle::Field(_, name) => self.sort_field = Some(name.clone()),
         }
+        self.sort_direction = Some(style.direction())
     }
 
     pub fn set_var_attname_lookup(&mut self, var_attname_lookup: *mut pg_sys::List) {

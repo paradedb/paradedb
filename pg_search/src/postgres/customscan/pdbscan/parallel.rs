@@ -7,6 +7,7 @@ use crate::postgres::customscan::CustomScan;
 use crate::postgres::ParallelScanState;
 use pgrx::pg_sys::{self, panic::ErrorReport, shm_toc, ParallelContext, Size};
 use pgrx::{function_name, PgLogLevel, PgRelation, PgSqlErrorCode};
+use rustc_hash::FxHashMap;
 use std::collections::HashSet;
 use std::os::raw::c_void;
 use tantivy::{index::SegmentId, Index};
@@ -149,7 +150,7 @@ pub unsafe fn check_for_concurrent_vacuum(pscan_state: &mut CustomScanStateWrapp
         .searchable_segment_metas()
         .expect("end_custom_scan: should be able to get segment metas");
 
-    let new_segments: std::collections::HashMap<_, _> = new_metas
+    let new_segments: FxHashMap<_, _> = new_metas
         .iter()
         .map(|meta| (meta.id(), meta.num_deleted_docs()))
         .collect();

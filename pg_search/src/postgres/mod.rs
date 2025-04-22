@@ -121,7 +121,7 @@ pub fn rel_get_bm25_index(relid: pg_sys::Oid) -> Option<(PgRelation, PgRelation)
     }
 }
 
-// 16 bytes for segment id + 4 bytes for num_deleted_docs
+// 16 bytes for segment id + 4 bytes for u32 num_deleted_docs
 const SEGMENT_INFO_SIZE: usize = 20;
 
 #[derive(Debug)]

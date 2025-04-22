@@ -18,6 +18,8 @@ pub struct LayeredMergePolicy {
 
     mergeable_segments: HashMap<SegmentId, SegmentMetaEntry>,
     already_processed: AtomicBool,
+
+    layer_fudge_factor: f64,
 }
 
 pub type NumCandidates = usize;
@@ -72,12 +74,6 @@ impl MergePolicy for LayeredMergePolicy {
         layer_sizes.sort_by_key(|size| Reverse(*size)); // largest to smallest
 
         for layer_size in layer_sizes {
-            // individual segments that total a certain byte amount typically merge together into
-            // a segment of a smaller size than the individual source segments.  So we fudge things
-            // by a third more in the hopes the final segment will be >= to this layer size, ensuring
-            // it doesn't merge again
-            let extended_layer_size = layer_size + layer_size / 3;
-
             // collect the list of mergeable segments so that we can combine those that fit in the next layer
             let segments =
                 self.collect_mergeable_segments(original_segments, &merged_segments, avg_doc_size);
@@ -96,18 +92,17 @@ impl MergePolicy for LayeredMergePolicy {
                 }
 
                 // add this segment as a candidate
-                candidate_byte_size +=
-                    actual_byte_size(segment, &self.mergeable_segments, avg_doc_size);
+                candidate_byte_size += self.segment_size(segment, avg_doc_size);
                 candidates.last_mut().unwrap().1 .0.push(segment.id());
 
-                if candidate_byte_size >= extended_layer_size {
+                if (candidate_byte_size as f64 * self.layer_fudge_factor) >= layer_size as f64 {
                     // the candidate now exceeds the layer size so we start a new candidate
                     candidate_byte_size = 0;
                     candidates.push((layer_size, MergeCandidate(vec![])));
                 }
             }
 
-            if candidate_byte_size < extended_layer_size {
+            if candidate_byte_size < layer_size {
                 // the last candidate isn't full, so throw it away
                 candidates.pop();
             }
@@ -176,7 +171,7 @@ impl MergePolicy for LayeredMergePolicy {
 }
 
 impl LayeredMergePolicy {
-    pub fn new(layer_sizes: Vec<u64>) -> LayeredMergePolicy {
+    pub fn new(layer_sizes: Vec<u64>, layer_fudge_factor: f64) -> LayeredMergePolicy {
         Self {
             n: std::thread::available_parallelism()
                 .expect("your computer should have at least one CPU")
@@ -187,6 +182,7 @@ impl LayeredMergePolicy {
 
             mergeable_segments: Default::default(),
             already_processed: Default::default(),
+            layer_fudge_factor,
         }
     }
 

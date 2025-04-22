@@ -123,7 +123,103 @@ LIMIT 5;
 <Note>
 Not all `ORDER BY`s are pushed down. The following queries are not pushed down:
 
-1. `ORDER BY`s over multiple fields for tiebreaking.
-2. Using `paradedb.score` with an `ORDER BY` over another field.
+1. `ORDER BY`s over multiple fields for tiebreaking (see "Partial Ordering with Multiple Sort Fields" for a new feature that partially supports this).
+2. Using `paradedb.score` with an `ORDER BY` over another field. (This is now supported, see "Sorting With Score Retrieval")
 3. `ORDER BY` without a `LIMIT`.
+</Note>
+
+## Partial Ordering with Multiple Sort Fields
+
+When using `ORDER BY` with multiple sort fields, ParadeDB can now partially push down the sorting operation. In this case, only the first column is pushed down to the BM25 index, and PostgreSQL handles the additional columns using an `Incremental Sort` node.
+
+For example, in the following query with multiple sort fields, sorting by `sale_date` is pushed down to the BM25 index, while sorting by `amount` is handled by PostgreSQL:
+
+```sql
+SELECT description, sale_date, amount, paradedb.score(id)
+FROM sales
+WHERE description @@@ 'laptop'
+ORDER BY sale_date, amount
+LIMIT 10;
+```
+
+You can verify if partial ORDER BY pushdown occurred by running `EXPLAIN` on the query. If partial pushdown occurred, the query plan will show a `Custom Scan` with a `Sort Field` for the first column, wrapped in an `Incremental Sort` node.
+
+<Accordion title="Expected Response">
+```csv
+                                                                              QUERY PLAN
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.19..0.34 rows=10 width=44) (actual time=0.708..0.709 rows=0 loops=1)
+   ->  Incremental Sort  (cost=0.19..0.34 rows=10 width=44) (actual time=0.707..0.708 rows=0 loops=1)
+         Sort Key: sale_date, amount
+         Presorted Key: sale_date
+         Full-sort Groups: 1  Sort Method: quicksort  Average Memory: 25kB  Peak Memory: 25kB
+         ->  Custom Scan (ParadeDB Scan) on sales  (cost=0.00..0.03 rows=10 width=44) (actual time=0.702..0.703 rows=0 loops=1)
+               Table: sales
+               Index: sales_index
+               Segment Count: 1
+               Heap Fetches: 0
+               Exec Method: NormalScanExecState
+               Scores: true
+               Tantivy Query: {"with_index":{"oid":631060,"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
+ Planning Time: 1.343 ms
+ Execution Time: 1.167 ms
+(15 rows)
+```
+</Accordion>
+
+This feature significantly improves performance when sorting by multiple columns, as the index is used for the first level of sorting, requiring PostgreSQL to only perform an incremental sort for the remaining columns.
+
+<Note>
+Limitations for partial `ORDER BY` pushdown:
+
+1. Only the first sort field is pushed down to the BM25 index.
+2. The first sort field must be indexed as a fast field.
+3. A `LIMIT` clause is still required.
+</Note>
+
+## Sorting With Score Retrieval
+
+ParadeDB now supports using the Incremental Sort optimization even when retrieving scores. This enables efficient sorting while still benefiting from score retrieval, which is a common use case in search applications.
+
+For example, the following query will use the Incremental Sort optimization:
+
+```sql
+SELECT description, sale_date, amount, paradedb.score(id)
+FROM sales
+WHERE description @@@ 'laptop'
+ORDER BY sale_date, amount
+LIMIT 10;
+```
+
+When requesting scores using `paradedb.score()`, ParadeDB still pushes down the first sort field to the BM25 index and uses PostgreSQL's Incremental Sort for additional fields. This gives you the best of both worlds: efficient sorting and relevance score information.
+
+<Accordion title="Expected Response with Scores">
+```csv
+                                                                              QUERY PLAN
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.19..0.34 rows=10 width=44) (actual time=0.708..0.709 rows=0 loops=1)
+   ->  Incremental Sort  (cost=0.19..0.34 rows=10 width=44) (actual time=0.707..0.708 rows=0 loops=1)
+         Sort Key: sale_date, amount
+         Presorted Key: sale_date
+         Full-sort Groups: 1  Sort Method: quicksort  Average Memory: 25kB  Peak Memory: 25kB
+         ->  Custom Scan (ParadeDB Scan) on sales  (cost=0.00..0.03 rows=10 width=44) (actual time=0.702..0.703 rows=0 loops=1)
+               Table: sales
+               Index: sales_index
+               Segment Count: 1
+               Heap Fetches: 0
+               Exec Method: NormalScanExecState
+               Scores: true
+               Tantivy Query: {"with_index":{"oid":631060,"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
+ Planning Time: 1.343 ms
+ Execution Time: 1.167 ms
+(15 rows)
+```
+</Accordion>
+
+<Note>
+Benefits of using Incremental Sort with scores:
+
+1. Better performance compared to full sorting when scoring is required.
+2. Retained ability to get relevance scores via `paradedb.score()`.
+3. Efficient hybrid sorting that leverages both index-based sorting and PostgreSQL's sorting capabilities.
 </Note>

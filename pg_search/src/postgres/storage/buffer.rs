@@ -36,10 +36,6 @@ impl Buffer {
         }
     }
 
-    pub fn page_contents<T: Copy>(&self) -> T {
-        self.page().contents()
-    }
-
     pub fn number(&self) -> pg_sys::BlockNumber {
         unsafe { pg_sys::BufferGetBlockNumber(self.pg_buffer) }
     }
@@ -114,8 +110,8 @@ impl BufferMut {
     pub fn return_to_fsm(mut self, bman: &mut BufferManager) {
         unsafe {
             let blockno = self.page_mut().mark_deleted();
-            assert!(
-                blockno > *FIXED_BLOCK_NUMBERS.last().unwrap(),
+            debug_assert!(
+                FIXED_BLOCK_NUMBERS.iter().all(|fb| *fb != blockno),
                 "record_free_index_page: blockno {blockno} cannot ever be recycled"
             );
             pg_sys::RecordPageWithFreeSpace(bman.bcache.indexrel(), blockno, bm25_max_free_space());
@@ -478,6 +474,18 @@ impl BufferManager {
         }
     }
 
+    ///
+    /// A convenience wrapper around `get_buffer` to handle acquiring a lock on the Buffer for the
+    /// given blockno before releasing the lock on the given Buffer.
+    ///
+    /// Useful for hand-over-hand locking.
+    ///
+    pub fn get_buffer_exchange(&self, blockno: pg_sys::BlockNumber, old_buffer: Buffer) -> Buffer {
+        let buffer = self.get_buffer(blockno);
+        std::mem::drop(old_buffer);
+        buffer
+    }
+
     pub fn get_buffer_mut(&mut self, blockno: pg_sys::BlockNumber) -> BufferMut {
         unsafe {
             BufferMut {
@@ -488,6 +496,19 @@ impl BufferManager {
                 ),
             }
         }
+    }
+
+    ///
+    /// See `get_buffer_exchange`.
+    ///
+    pub fn get_buffer_exchange_mut(
+        &mut self,
+        blockno: pg_sys::BlockNumber,
+        old_buffer: BufferMut,
+    ) -> BufferMut {
+        let buffer = self.get_buffer_mut(blockno);
+        std::mem::drop(old_buffer);
+        buffer
     }
 
     #[allow(dead_code)]

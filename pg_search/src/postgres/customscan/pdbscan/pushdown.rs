@@ -115,7 +115,7 @@ pub unsafe fn try_pushdown(
 
     let search_field = schema.get_search_field(&SearchFieldName(attname.clone()))?;
     
-    if search_field.is_text() && !search_field.is_raw() {
+    if search_field.is_text() && !search_field.is_keyword() {
         return None;
     }
     

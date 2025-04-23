@@ -98,5 +98,5 @@ pub mod linked_items;
 pub mod merge;
 pub mod utils;
 
-pub use self::linked_bytes::LinkedBytesList;
+pub use self::linked_bytes::{LinkedBytesList, LinkedBytesListWriter};
 pub use self::linked_items::LinkedItemList;

@@ -1,9 +1,10 @@
+use crate::api::Cardinality;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::pdbscan::PdbScan;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::ParallelScanState;
-use pgrx::pg_sys::{shm_toc, ParallelContext, Size};
+use pgrx::pg_sys::{self, shm_toc, ParallelContext, Size};
 use std::collections::HashSet;
 use std::os::raw::c_void;
 use tantivy::index::SegmentId;
@@ -83,6 +84,39 @@ impl ParallelQueryCapable for PdbScan {
     }
 }
 
+///
+/// Compute the number of workers that should be used for the given limit, segment_count, and sort
+/// condition, or return 0 if workers cannot or should not be used.
+///
+pub fn compute_nworkers(limit: Option<Cardinality>, segment_count: usize, sorted: bool) -> usize {
+    // we will try to parallelize based on the number of index segments
+    let mut nworkers = unsafe { segment_count.min(pg_sys::max_parallel_workers as usize) };
+
+    if let Some(limit) = limit {
+        if !sorted && limit <= (segment_count * segment_count * segment_count) as Cardinality {
+            // not worth it to do a parallel scan
+            return 0;
+        }
+
+        // if the limit is less than some arbitrarily large value
+        // use at most half the number of parallel workers as there are segments
+        // this generally seems to perform better than directly using `max_parallel_workers`
+        if limit < 1_000_000.0 {
+            nworkers = (segment_count / 2).min(nworkers);
+        }
+    }
+
+    #[cfg(not(any(feature = "pg14", feature = "pg15")))]
+    unsafe {
+        if nworkers == 0 && pg_sys::debug_parallel_query != 0 {
+            // force a parallel worker if the `debug_parallel_query` GUC is on
+            nworkers = 1;
+        }
+    }
+
+    nworkers
+}
+
 pub unsafe fn checkout_segment(pscan_state: *mut ParallelScanState) -> Option<SegmentId> {
     let mutex = (*pscan_state).acquire_mutex();
     if (*pscan_state).remaining_segments() > 0 {
@@ -94,5 +128,5 @@ pub unsafe fn checkout_segment(pscan_state: *mut ParallelScanState) -> Option<Se
 }
 
 pub unsafe fn list_segment_ids(pscan_state: *mut ParallelScanState) -> HashSet<SegmentId> {
-    (*pscan_state).segments()
+    (*pscan_state).segments().keys().cloned().collect()
 }

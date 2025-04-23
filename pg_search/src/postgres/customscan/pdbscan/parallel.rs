@@ -128,5 +128,5 @@ pub unsafe fn checkout_segment(pscan_state: *mut ParallelScanState) -> Option<Se
 }
 
 pub unsafe fn list_segment_ids(pscan_state: *mut ParallelScanState) -> HashSet<SegmentId> {
-    (*pscan_state).segments()
+    (*pscan_state).segments().keys().cloned().collect()
 }

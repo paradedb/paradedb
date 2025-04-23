@@ -69,16 +69,18 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedList for 
         self.header_blockno
     }
 
+    fn bman(&self) -> &BufferManager {
+        &self.bman
+    }
+
+    fn bman_mut(&mut self) -> &mut BufferManager {
+        &mut self.bman
+    }
+
     fn block_for_ord(&self, ord: usize) -> Option<BlockNumber> {
         unimplemented!(
             "block_for_ord is not implemented for LinkedItemList.  caller requested ord: {ord}"
         )
-    }
-
-    unsafe fn get_linked_list_data(&self) -> LinkedListData {
-        let header_buffer = self.bman.get_buffer(self.get_header_blockno());
-        let page = header_buffer.page();
-        page.contents::<LinkedListData>()
     }
 }
 
@@ -91,15 +93,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         }
     }
 
-    pub fn bman(&self) -> &BufferManager {
-        &self.bman
-    }
-
-    pub fn bman_mut(&mut self) -> &mut BufferManager {
-        &mut self.bman
-    }
-
-    pub unsafe fn create(relation_oid: pg_sys::Oid) -> Self {
+    pub fn create(relation_oid: pg_sys::Oid) -> Self {
         let (mut _self, mut header_buffer) = Self::create_without_start_page(relation_oid);
 
         let mut start_buffer = _self.bman.new_buffer();
@@ -115,7 +109,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         _self
     }
 
-    unsafe fn create_without_start_page(relation_oid: pg_sys::Oid) -> (Self, BufferMut) {
+    fn create_without_start_page(relation_oid: pg_sys::Oid) -> (Self, BufferMut) {
         let mut bman = BufferManager::new(relation_oid);
 
         let mut header_buffer = bman.new_buffer();
@@ -135,10 +129,10 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
     /// Return a Vec of all the items in this linked list
     pub unsafe fn list(&self) -> Vec<T> {
         let mut items = vec![];
-        let mut blockno = self.get_start_blockno();
+        let (mut blockno, mut buffer) = self.get_start_blockno();
 
         while blockno != pg_sys::InvalidBlockNumber {
-            let buffer = self.bman.get_buffer(blockno);
+            buffer = self.bman.get_buffer_exchange(blockno, buffer);
             let page = buffer.page();
             let mut offsetno = pg_sys::FirstOffsetNumber;
             let max_offset = page.max_offset_number();
@@ -155,10 +149,10 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
     }
 
     pub unsafe fn is_empty(&self) -> bool {
-        let mut blockno = self.get_start_blockno();
+        let (mut blockno, mut buffer) = self.get_start_blockno();
 
         while blockno != pg_sys::InvalidBlockNumber {
-            let buffer = self.bman.get_buffer(blockno);
+            buffer = self.bman.get_buffer_exchange(blockno, buffer);
             let page = buffer.page();
             let mut offsetno = pg_sys::FirstOffsetNumber;
             let max_offset = page.max_offset_number();
@@ -174,15 +168,129 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         true
     }
 
-    pub unsafe fn add_items(&mut self, items: &[T], buffer: Option<BufferMut>) -> Result<()> {
-        let need_hold = buffer.is_some();
-        let mut buffer =
-            buffer.unwrap_or_else(|| self.bman.get_buffer_mut(self.get_start_blockno()));
+    pub unsafe fn garbage_collect(&mut self) -> Vec<T> {
+        // Delete all items that are definitely dead
+        let heap_relation = self.bman().bm25cache().heaprel();
+        let freeze_limit = vacuum_get_freeze_limit(heap_relation);
+        self.retain(|bman, entry| {
+            if entry.recyclable(bman) {
+                RetainItem::Remove(entry)
+            } else {
+                let xmin_needs_freeze = entry.xmin_needs_freeze(freeze_limit);
+                let xmax_needs_freeze = entry.xmax_needs_freeze(freeze_limit);
 
-        // this will get set to the `buffer` argument above and remain open (ie, exclusive locked)
-        // until we're done adding all the items, so long as the original `buffer` argument was
-        // Some(BufferMut)
-        let mut hold_open = None;
+                if xmin_needs_freeze || xmax_needs_freeze {
+                    RetainItem::Replace(entry.into_frozen(xmin_needs_freeze, xmax_needs_freeze))
+                } else {
+                    RetainItem::Retain
+                }
+            }
+        })
+    }
+
+    ///
+    /// Mutate the list in-place by optionally removing, replacing, or retaining each entry. Returns
+    /// the list of removed entries.
+    ///
+    /// Note that this method will necessarily write WAL entries for every buffer in the list,
+    /// because it must acquire each buffer as mutable.
+    ///
+    pub unsafe fn retain(
+        &mut self,
+        mut f: impl FnMut(&mut BufferManager, T) -> RetainItem<T>,
+    ) -> Vec<T> {
+        let (mut blockno, mut previous_buffer) = self.get_start_blockno_mut();
+        let mut is_first_block = true;
+
+        let mut recycled_entries = Vec::new();
+        let mut delete_offsets = vec![];
+        while blockno != pg_sys::InvalidBlockNumber {
+            let mut buffer = self.bman.get_buffer_mut(blockno);
+            let mut page = buffer.page_mut();
+            let mut offsetno = pg_sys::FirstOffsetNumber;
+            let max_offset = page.max_offset_number();
+
+            while offsetno <= max_offset {
+                if let Some((entry, _)) = page.deserialize_item::<T>(offsetno) {
+                    match f(self.bman_mut(), entry) {
+                        RetainItem::Remove(entry) => {
+                            page.mark_item_dead(offsetno);
+
+                            recycled_entries.push(entry);
+                            delete_offsets.push(offsetno);
+                        }
+                        RetainItem::Replace(entry) => {
+                            let PgItem(item, size) = entry.clone().into();
+                            let did_replace = page.replace_item(offsetno, item, size);
+                            assert!(did_replace);
+                        }
+                        RetainItem::Retain => {}
+                    }
+                }
+                offsetno += 1;
+            }
+
+            if !delete_offsets.is_empty() {
+                page.delete_items(&mut delete_offsets);
+                delete_offsets.clear();
+            }
+
+            let new_max_offset = page.max_offset_number();
+            blockno = page.next_blockno();
+
+            // Compaction step: If the page is entirely empty, mark as deleted
+            // Adjust the pointer from the last known non-empty node to point to the next non-empty node
+            if new_max_offset == pg_sys::InvalidOffsetNumber && !is_first_block {
+                // this page is no longer useful to us: remove it from the linked list by adjusting
+                // the previous page to point at the next page.
+                previous_buffer
+                    .page_mut()
+                    .special_mut::<BM25PageSpecialData>()
+                    .next_blockno = blockno;
+
+                // return it to the FSM. Doing so will also drop the lock, but we are still
+                // holding the lock on the previous page, so hand-over-hand is ensured.
+                buffer.return_to_fsm(&mut self.bman);
+            } else {
+                // this is either the start page, or a page containing valid data. move its buffer
+                // into previous_buffer to ensure that it is held hand-over-hand until we decide
+                // that we might need to free some future buffer.
+                previous_buffer = buffer;
+            }
+
+            is_first_block = false;
+        }
+
+        recycled_entries
+    }
+
+    ///
+    /// Visit each entry, without mutating entries or the list structure.
+    ///
+    pub unsafe fn for_each(&mut self, mut f: impl FnMut(&mut BufferManager, T)) {
+        let (mut blockno, mut buffer) = self.get_start_blockno();
+        while blockno != pg_sys::InvalidBlockNumber {
+            buffer = self.bman().get_buffer_exchange(blockno, buffer);
+            let page = buffer.page();
+            let mut offsetno = pg_sys::FirstOffsetNumber;
+            let max_offset = page.max_offset_number();
+            while offsetno <= max_offset {
+                if let Some((deserialized, _)) = page.deserialize_item(offsetno) {
+                    f(self.bman_mut(), deserialized);
+                }
+                offsetno += 1;
+            }
+            blockno = page.next_blockno();
+        }
+    }
+
+    pub unsafe fn add_items(&mut self, items: &[T], buffer: Option<BufferMut>) {
+        let mut buffer = if let Some(buffer) = buffer {
+            buffer
+        } else {
+            let (start_blockno, buffer) = self.get_start_blockno_mut();
+            self.bman.get_buffer_exchange_mut(start_blockno, buffer)
+        };
 
         for item in items {
             let PgItem(pg_item, size) = item.clone().into();
@@ -196,9 +304,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
                 } else if page.next_blockno() != pg_sys::InvalidBlockNumber {
                     // go to the next block
                     let next_blockno = page.next_blockno();
-                    if need_hold && hold_open.is_none() {
-                        hold_open = Some(buffer);
-                    }
                     buffer = self.bman.get_buffer_mut(next_blockno);
                 } else {
                     // need to create new block and link it to this one
@@ -209,15 +314,10 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
                     let special = page.special_mut::<BM25PageSpecialData>();
                     special.next_blockno = new_blockno;
 
-                    if need_hold && hold_open.is_none() {
-                        hold_open = Some(buffer);
-                    }
                     buffer = new_page;
                 }
             }
         }
-
-        Ok(())
     }
 
     pub unsafe fn remove_item<Cmp: Fn(&T) -> bool>(&mut self, cmp: Cmp) -> Result<T> {
@@ -239,9 +339,9 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         &self,
         cmp: Cmp,
     ) -> Result<(T, pg_sys::BlockNumber, pg_sys::OffsetNumber)> {
-        let mut blockno = self.get_start_blockno();
+        let (mut blockno, mut buffer) = self.get_start_blockno();
         while blockno != pg_sys::InvalidBlockNumber {
-            let buffer = self.bman.get_buffer(blockno);
+            buffer = self.bman.get_buffer_exchange(blockno, buffer);
             let page = buffer.page();
             let mut offsetno = pg_sys::FirstOffsetNumber;
             let max_offset = page.max_offset_number();
@@ -275,7 +375,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
     /// better off converting it into a Rust collection (which would be easier to manipulate), and
     /// then re-storing it from scratch to commit.
     ///
-    pub unsafe fn atomically(mut self) -> AtomicGuard<T> {
+    pub unsafe fn atomically(&mut self) -> AtomicGuard<'_, T> {
         // While we're operating on the List atomically, hold an exclusive lock on its header.
         let original_header_lock = {
             let header_blockno = self.header_blockno;
@@ -284,7 +384,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
 
         // We create the duplicate without a start page: it will be filled in in the first
         // iteration of the loop below.
-        let (mut cloned, mut header_buffer) =
+        let (mut cloned, mut previous_buffer) =
             LinkedItemList::create_without_start_page(self.bman.relation_oid());
 
         // TODO: This code could either:
@@ -301,7 +401,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         );
         let mut previous_new_buffer: Option<BufferMut> = None;
         while blockno != pg_sys::InvalidBlockNumber {
-            let buffer = self.bman.get_buffer(blockno);
+            let buffer = self.bman.get_buffer_mut(blockno);
             let page = buffer.page();
             let mut offsetno = pg_sys::FirstOffsetNumber;
             let max_offset = page.max_offset_number();
@@ -317,7 +417,8 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
                     .special_mut::<BM25PageSpecialData>()
                     .next_blockno = new_blockno;
             } else {
-                header_buffer
+                // In the case of the first block, our previous buffer points to the header.
+                previous_buffer
                     .page_mut()
                     .contents_mut::<LinkedListData>()
                     .start_blockno = new_blockno;
@@ -334,24 +435,32 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             *new_page.special_mut::<BM25PageSpecialData>() =
                 (*page.special::<BM25PageSpecialData>()).clone();
             blockno = page.next_blockno();
+
+            // We hold the previous_buffer in order to ensure hand-over-hand locking on the
+            // original list.
+            previous_buffer = buffer;
             previous_new_buffer = Some(new_buffer);
         }
 
         AtomicGuard {
-            original: Some(self),
-            original_header_lock,
+            original: Some((self, original_header_lock)),
             cloned,
         }
     }
 }
 
-pub struct AtomicGuard<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> {
-    original: Option<LinkedItemList<T>>,
-    original_header_lock: BufferMut,
+pub enum RetainItem<T> {
+    Remove(T),
+    Replace(T),
+    Retain,
+}
+
+pub struct AtomicGuard<'s, T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> {
+    original: Option<(&'s mut LinkedItemList<T>, BufferMut)>,
     cloned: LinkedItemList<T>,
 }
 
-impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> Deref for AtomicGuard<T> {
+impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> Deref for AtomicGuard<'_, T> {
     type Target = LinkedItemList<T>;
 
     fn deref(&self) -> &Self::Target {
@@ -359,105 +468,21 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> Deref for Atomi
     }
 }
 
-impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> DerefMut for AtomicGuard<T> {
+impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> DerefMut for AtomicGuard<'_, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.cloned
     }
 }
 
-impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> AtomicGuard<T> {
-    pub unsafe fn garbage_collect(&mut self) -> Vec<T> {
-        // Delete all items that are definitely dead
-        let heap_relation = self.bman().bm25cache().heaprel();
-        let freeze_limit = vacuum_get_freeze_limit(heap_relation);
-        let start_blockno = self.get_start_blockno();
-        let mut blockno = start_blockno;
-        let mut last_filled_blockno = start_blockno;
-
-        let mut recycled_entries = Vec::new();
-
-        while blockno != pg_sys::InvalidBlockNumber {
-            let mut buffer = self.bman.get_buffer_mut(blockno);
-            let mut page = buffer.page_mut();
-            let mut offsetno = pg_sys::FirstOffsetNumber;
-            let max_offset = page.max_offset_number();
-            let mut delete_offsets = vec![];
-
-            while offsetno <= max_offset {
-                if let Some((entry, _)) = page.deserialize_item::<T>(offsetno) {
-                    if entry.recyclable(self.bman_mut()) {
-                        page.mark_item_dead(offsetno);
-
-                        recycled_entries.push(entry);
-                        delete_offsets.push(offsetno);
-                    } else {
-                        let xmin_needs_freeze = entry.xmin_needs_freeze(freeze_limit);
-                        let xmax_needs_freeze = entry.xmax_needs_freeze(freeze_limit);
-
-                        if xmin_needs_freeze || xmax_needs_freeze {
-                            let frozen_entry =
-                                entry.into_frozen(xmin_needs_freeze, xmax_needs_freeze);
-                            let PgItem(item, size) = frozen_entry.clone().into();
-                            let did_replace = page.replace_item(offsetno, item, size);
-                            assert!(did_replace);
-                        }
-                    }
-                }
-                offsetno += 1;
-            }
-
-            if !delete_offsets.is_empty() {
-                page.delete_items(&mut delete_offsets);
-            }
-
-            let new_max_offset = page.max_offset_number();
-            let current_blockno = blockno;
-            blockno = page.next_blockno();
-
-            // Compaction step: If the page is entirely empty, mark as deleted
-            // Adjust the pointer from the last known non-empty node to point to the next non-empty node
-            if new_max_offset == pg_sys::InvalidOffsetNumber && current_blockno != start_blockno {
-                // this page is no longer useful to us so go ahead and return it to the FSM.  Doing
-                // so will also drop the lock
-                buffer.return_to_fsm(&mut self.bman);
-
-                // We've reached the end of the list, which means the last filled block is now the
-                // last entry in the list
-                if blockno == pg_sys::InvalidBlockNumber {
-                    let mut last_filled_buffer = self.bman.get_buffer_mut(last_filled_blockno);
-                    let mut last_filled_page = last_filled_buffer.page_mut();
-                    let special = last_filled_page.special_mut::<BM25PageSpecialData>();
-                    special.next_blockno = pg_sys::InvalidBlockNumber;
-                }
-            } else if new_max_offset != pg_sys::InvalidOffsetNumber
-                && current_blockno != start_blockno
-            {
-                // drop the buffer were holding onto as we might acquire an exclusive lock on another
-                // one below and we don't want concurrent backends that are otherwise racing through
-                // this linked list to end up causing a lock inversion where they've locked the page
-                // we want while we have this page locked
-                drop(buffer);
-
-                let mut last_filled_buffer = self.bman.get_buffer_mut(last_filled_blockno);
-                let mut last_filled_page = last_filled_buffer.page_mut();
-                if last_filled_page.next_blockno() != current_blockno {
-                    let special = last_filled_page.special_mut::<BM25PageSpecialData>();
-                    special.next_blockno = current_blockno;
-                }
-                last_filled_blockno = current_blockno;
-            }
-        }
-
-        recycled_entries
-    }
-
-    pub fn commit(mut self) -> LinkedItemList<T> {
-        let mut original = self.original.take().expect("Cannot commit twice!");
+impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> AtomicGuard<'_, T> {
+    pub fn commit(mut self) {
+        let (original, mut original_header_lock) =
+            self.original.take().expect("Cannot commit twice!");
 
         // Update our header page to point to the new start block, and return the old one.
         let mut blockno = {
             // Open both header pages.
-            let mut original_header_page = self.original_header_lock.page_mut();
+            let mut original_header_page = original_header_lock.page_mut();
             let mut cloned_header_buffer =
                 self.cloned.bman.get_buffer_mut(self.cloned.header_blockno);
             let mut cloned_header_page = cloned_header_buffer.page_mut();
@@ -473,18 +498,20 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> AtomicGuard<T> 
             old_start_blockno
         };
 
+        // Drop the header, to ensure that the new header content is written to the WAL before
+        // we begin cleaning up its old pages.
+        std::mem::drop(original_header_lock);
+
         // And then collect our old contents, which are no longer reachable.
         while blockno != pg_sys::InvalidBlockNumber {
             let buffer = original.bman_mut().get_buffer_mut(blockno);
             blockno = buffer.page().next_blockno();
             buffer.return_to_fsm(&mut original.bman);
         }
-
-        original
     }
 }
 
-impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> Drop for AtomicGuard<T> {
+impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> Drop for AtomicGuard<'_, T> {
     fn drop(&mut self) {
         if self.original.is_none() {
             // We committed successfully.
@@ -533,7 +560,7 @@ mod tests {
     fn linked_list_block_numbers(
         list: &LinkedItemList<SegmentMetaEntry>,
     ) -> HashSet<pg_sys::BlockNumber> {
-        let mut blockno = list.get_start_blockno();
+        let (mut blockno, _) = list.get_start_blockno();
         let mut block_numbers = HashSet::new();
 
         while blockno != pg_sys::InvalidBlockNumber {
@@ -553,7 +580,7 @@ mod tests {
         let snapshot = pg_sys::GetActiveSnapshot();
         let delete_xid = (*snapshot).xmin - 1;
 
-        let mut list = LinkedItemList::<SegmentMetaEntry>::create(relation_oid).atomically();
+        let mut list = LinkedItemList::<SegmentMetaEntry>::create(relation_oid);
         let entries_to_delete = vec![SegmentMetaEntry {
             segment_id: random_segment_id(),
             xmin: delete_xid,
@@ -569,8 +596,8 @@ mod tests {
             ..Default::default()
         }];
 
-        list.add_items(&entries_to_delete, None).unwrap();
-        list.add_items(&entries_to_keep, None).unwrap();
+        list.add_items(&entries_to_delete, None);
+        list.add_items(&entries_to_keep, None);
         list.garbage_collect();
 
         assert!(list
@@ -592,7 +619,7 @@ mod tests {
 
         // Add 2000 entries, delete every 10th entry
         {
-            let mut list = LinkedItemList::<SegmentMetaEntry>::create(relation_oid).atomically();
+            let mut list = LinkedItemList::<SegmentMetaEntry>::create(relation_oid);
             let entries = (1..2000)
                 .map(|i| SegmentMetaEntry {
                     segment_id: random_segment_id(),
@@ -607,7 +634,7 @@ mod tests {
                 })
                 .collect::<Vec<_>>();
 
-            list.add_items(&entries, None).unwrap();
+            list.add_items(&entries, None);
             list.garbage_collect();
 
             for entry in entries {
@@ -620,7 +647,7 @@ mod tests {
         }
         // First n pages are full, next m pages need to be compacted, next n are full
         {
-            let mut list = LinkedItemList::<SegmentMetaEntry>::create(relation_oid).atomically();
+            let mut list = LinkedItemList::<SegmentMetaEntry>::create(relation_oid);
             let entries_1 = (1..500)
                 .map(|_| SegmentMetaEntry {
                     segment_id: random_segment_id(),
@@ -630,7 +657,7 @@ mod tests {
                     ..Default::default()
                 })
                 .collect::<Vec<_>>();
-            list.add_items(&entries_1, None).unwrap();
+            list.add_items(&entries_1, None);
 
             let entries_2 = (1..1000)
                 .map(|_| SegmentMetaEntry {
@@ -641,7 +668,7 @@ mod tests {
                     ..Default::default()
                 })
                 .collect::<Vec<_>>();
-            list.add_items(&entries_2, None).unwrap();
+            list.add_items(&entries_2, None);
 
             let entries_3 = (1..500)
                 .map(|_| SegmentMetaEntry {
@@ -653,7 +680,7 @@ mod tests {
                 })
                 .collect::<Vec<_>>();
 
-            list.add_items(&entries_3, None).unwrap();
+            list.add_items(&entries_3, None);
 
             let pre_gc_blocks = linked_list_block_numbers(&list);
             list.garbage_collect();
@@ -692,7 +719,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        list.add_items(&entries, None).unwrap();
+        list.add_items(&entries, None);
 
         // Atomically modify the list, and then confirm that it contains unique blocks, and the
         // same contents.
@@ -712,7 +739,7 @@ mod tests {
 
         // Then `commit()` the guard, and confirm that the structure of the original list
         // matches afterwards.
-        let list = guard.commit();
+        guard.commit();
         assert_eq!(linked_list_block_numbers(&list), duplicate_block_numbers);
         assert_eq!(list.list(), duplicate_contents);
     }

@@ -86,8 +86,9 @@ WITH (
 
 ### Keyword
 
-Treats the entire text as a single token, as-is. If a field is tokenized as `keyword`, using the `=` operator over that field can be pushed down to the index.
-support against fields that are `text` or `varchar`.
+Treats the entire text as a single token, as-is. If a field is tokenized as `keyword`, using equality operators such as `=`, `<=`, `<`, `>`, `>=`, `<>` with that field can be pushed down to the index.
+
+The `keyword` tokenizer is supported for both `TEXT` and `VARCHAR` fields.
 
 ```sql
 CREATE INDEX search_idx ON mock_items

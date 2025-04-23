@@ -284,9 +284,8 @@ impl CustomScan for PdbScan {
 
                 let total_cost = startup_cost + (rows * per_tuple_cost);
                 let segment_count = index.searchable_segments().unwrap_or_default().len();
-                let sorted = builder.custom_private().is_sorted();
                 let nworkers = if (*builder.args().rel).consider_parallel {
-                    compute_nworkers(limit, segment_count, sorted)
+                    compute_nworkers(limit, segment_count, builder.custom_private().is_sorted())
                 } else {
                     0
                 };
@@ -355,7 +354,7 @@ impl CustomScan for PdbScan {
                 // TODO: To allow sorted output with parallel workers, we would need to partition
                 // our segments across the workers so that each worker emitted all of its results
                 // in sorted order.
-                if nworkers == 0 && sorted && limit.is_some() {
+                if nworkers == 0 && builder.custom_private().is_sorted() && limit.is_some() {
                     if let Some(pathkey) = pathkey.as_ref() {
                         builder = builder.add_path_key(pathkey);
                     }

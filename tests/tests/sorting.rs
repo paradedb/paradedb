@@ -289,16 +289,16 @@ async fn test_incremental_sort_with_partial_order(mut conn: PgConnection) {
         .await
         .unwrap();
 
-    // Check Postgres version - Incremental Sort only exists in PG 15+
+    // Check Postgres version - Incremental Sort only exists in PG 16+
     let pg_version = pg_major_version(&mut conn);
-    let pg_supports_incremental_sort = pg_version >= 15;
+    let pg_supports_incremental_sort = pg_version >= 16;
 
     // Test BM25 with ORDER BY ... LIMIT to confirm sort optimization works
     let (explain_bm25,) = sqlx::query_as::<_, (Value,)>(
         "EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON) 
-        SELECT description, sale_date, paradedb.score(id) FROM sales 
+        SELECT description, sale_date, paradedb.score(id) as score FROM sales 
         WHERE description @@@ 'keyboard' 
-        ORDER BY sale_date, amount LIMIT 10;",
+        ORDER BY score, sale_date, amount LIMIT 10;",
     )
     .fetch_one(&mut conn)
     .await
@@ -325,9 +325,9 @@ async fn test_incremental_sort_with_partial_order(mut conn: PgConnection) {
     // Additional debug query - check what happens with a simpler query
     let (explain_simple,) = sqlx::query_as::<_, (String,)>(
         "EXPLAIN (ANALYZE, VERBOSE) 
-        SELECT description, sale_date, paradedb.score(id) FROM sales 
+        SELECT description, sale_date, paradedb.score(id) as score FROM sales 
         WHERE description @@@ 'keyboard' 
-        ORDER BY sale_date LIMIT 10;",
+        ORDER BY score, sale_date LIMIT 10;",
     )
     .fetch_one(&mut conn)
     .await
@@ -341,14 +341,19 @@ async fn test_incremental_sort_with_partial_order(mut conn: PgConnection) {
     // 3. Scores are enabled in the Custom Scan
 
     // Check that we have a Sort node somewhere in the plan
-    let has_sort_node = plan_json.contains("\"Node Type\":\"Sort\"")
-        || plan_json.contains("\"Node Type\":\"Incremental Sort\"")
-        || explain_simple.contains("Sort")
-        || explain_simple.contains("Incremental Sort");
+    let has_sort_node = if pg_supports_incremental_sort {
+        plan_json.contains("\"Node Type\":\"Incremental Sort\"")
+            || explain_simple.contains("Incremental Sort")
+    } else {
+        plan_json.contains("\"Node Type\":\"Sort\"")
+            || plan_json.contains("\"Node Type\":\"Incremental Sort\"")
+            || explain_simple.contains("Sort")
+            || explain_simple.contains("Incremental Sort")
+    };
 
     assert!(
         has_sort_node,
-        "Plan should include a Sort or Incremental Sort node to handle ORDER BY"
+        "Plan should include an Incremental Sort node to handle ORDER BY"
     );
 
     // Check that we have Custom Scan nodes that handle our search
@@ -372,18 +377,11 @@ async fn test_incremental_sort_with_partial_order(mut conn: PgConnection) {
         "At least one Custom Scan node should have Scores enabled"
     );
 
-    // Log information about Sort or Incremental Sort in the plan
-    if pg_supports_incremental_sort {
-        println!("Note: PostgreSQL 15+ supports Incremental Sort, but standard Sort may be used depending on cost model decisions");
-    } else {
-        println!("Note: PostgreSQL 14 does not support Incremental Sort, using standard Sort");
-    }
-
     // Verify we get results and they're in the correct order
     let results = sqlx::query(
-        "SELECT description, sale_date, paradedb.score(id) FROM sales 
+        "SELECT description, sale_date, paradedb.score(id) as score FROM sales 
         WHERE description @@@ 'keyboard' 
-        ORDER BY sale_date, amount LIMIT 10;",
+        ORDER BY score, sale_date, amount LIMIT 10;",
     )
     .fetch_all(&mut conn)
     .await

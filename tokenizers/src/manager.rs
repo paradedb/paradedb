@@ -14,6 +14,7 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
+#![allow(deprecated)]
 
 use std::fmt::Write;
 
@@ -47,8 +48,8 @@ impl SearchTokenizerFilters {
     ///
     /// This should be used for declaring the "key field" in an index.  It can be used for other
     /// text types that don't want tokenization too.
-    pub fn raw() -> Self {
-        SearchTokenizerFilters {
+    pub const fn keyword() -> &'static Self {
+        &SearchTokenizerFilters {
             remove_long: Some(usize::MAX),
             lowercase: Some(false),
             stemmer: None,
@@ -160,7 +161,14 @@ impl SearchTokenizerFilters {
 #[strum(serialize_all = "snake_case")]
 pub enum SearchTokenizer {
     Default(SearchTokenizerFilters),
+    Keyword,
+
+    #[deprecated(
+        since = "0.15.17",
+        note = "use the `SearchTokenizer::Keyword` variant instead"
+    )]
     Raw(SearchTokenizerFilters),
+
     EnStem(SearchTokenizerFilters),
     Stem {
         language: Language,
@@ -198,6 +206,8 @@ impl SearchTokenizer {
     pub fn to_json_value(&self) -> serde_json::Value {
         let mut json = match self {
             SearchTokenizer::Default(_filters) => json!({ "type": "default" }),
+            SearchTokenizer::Keyword => json!({ "type": "keyword" }),
+            #[allow(deprecated)]
             SearchTokenizer::Raw(_filters) => json!({ "type": "raw" }),
             SearchTokenizer::EnStem(_filters) => json!({ "type": "en_stem" }),
             SearchTokenizer::Stem {
@@ -251,6 +261,8 @@ impl SearchTokenizer {
 
         match tokenizer_type {
             "default" => Ok(SearchTokenizer::Default(filters)),
+            "keyword" => Ok(SearchTokenizer::Keyword),
+            #[allow(deprecated)]
             "raw" => Ok(SearchTokenizer::Raw(filters)),
             "en_stem" => Ok(SearchTokenizer::EnStem(filters)),
             "stem" => {
@@ -312,6 +324,18 @@ impl SearchTokenizer {
                     .filter(filters.stemmer())
                     .build(),
             ),
+
+            SearchTokenizer::Keyword => {
+                Some(TextAnalyzer::builder(RawTokenizer::default()).build())
+            }
+
+            // this Tokenizer is deprecated because it's bugged.  The `filters.remove_long_filter()`
+            // and `filters.lower_caser()` provide defaults that do those things, but that is the
+            // opposite of what the `raw` tokenizer should do.
+            //
+            // the decision was made to introduce the `keyword` tokenizer which does the correct thing
+            // that is, doesn't mutate the input tokens
+            #[allow(deprecated)]
             SearchTokenizer::Raw(filters) => Some(
                 TextAnalyzer::builder(RawTokenizer::default())
                     .filter(filters.remove_long_filter())
@@ -422,6 +446,8 @@ impl SearchTokenizer {
     fn filters(&self) -> &SearchTokenizerFilters {
         match self {
             SearchTokenizer::Default(filters) => filters,
+            SearchTokenizer::Keyword => SearchTokenizerFilters::keyword(),
+            #[allow(deprecated)]
             SearchTokenizer::Raw(filters) => filters,
             SearchTokenizer::EnStem(filters) => filters,
             SearchTokenizer::Stem { filters, .. } => filters,
@@ -468,6 +494,8 @@ impl SearchTokenizer {
         let filters_suffix = self.filters().name_suffix();
         match self {
             SearchTokenizer::Default(_filters) => format!("default{filters_suffix}"),
+            SearchTokenizer::Keyword => format!("keyword{filters_suffix}"),
+            #[allow(deprecated)]
             SearchTokenizer::Raw(_filters) => format!("raw{filters_suffix}"),
             SearchTokenizer::EnStem(_filters) => format!("en_stem{filters_suffix}"),
             SearchTokenizer::Stem {

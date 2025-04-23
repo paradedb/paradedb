@@ -27,9 +27,7 @@ use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
 use crate::postgres::customscan::pdbscan::projections::score::{score_funcoid, uses_scores};
-use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
-use crate::postgres::customscan::pdbscan::PdbScan;
-use crate::postgres::customscan::CustomScanState;
+use crate::postgres::customscan::pdbscan::{ExecMethodType, PdbScan};
 use crate::schema::SearchIndexSchema;
 use itertools::Itertools;
 use pgrx::{pg_sys, IntoDatum, PgList, PgOid, PgRelation, PgTupleDesc};
@@ -262,26 +260,19 @@ pub unsafe fn pullup_fast_fields(
     Some(matches)
 }
 
-pub fn is_string_agg_capable(state: &PdbScanState) -> Option<String> {
-    is_string_agg_capable_ex(state.limit, &state.which_fast_fields)
-}
-
-pub fn is_string_agg_capable_ex(
-    limit: Option<usize>,
-    which_fast_fields: &Option<Vec<WhichFastField>>,
-) -> Option<String> {
-    if limit.is_some() {
+pub fn is_string_agg_capable(privdata: &PrivateData) -> Option<String> {
+    if privdata.limit().is_some() {
         // doing a string_agg when there's a limit is always a loss, performance-wise
         return None;
     }
-    if is_all_junk(which_fast_fields) {
+    if is_all_junk(privdata.which_fast_fields()) {
         // if all the fast fields we have are Junk fields, then we're not actually
         // projecting fast fields
         return None;
     }
 
     let mut string_field = None;
-    for ff in which_fast_fields.iter().flatten() {
+    for ff in privdata.which_fast_fields().iter().flatten() {
         match ff {
             WhichFastField::Named(_, FastFieldType::String) if string_field.is_none() => {
                 string_field = Some(ff.name())
@@ -298,22 +289,23 @@ pub fn is_string_agg_capable_ex(
     string_field
 }
 
-pub fn is_numeric_fast_field_capable(state: &PdbScanState) -> bool {
-    if state.targetlist_len == 0 {
+pub fn is_numeric_fast_field_capable(privdata: &PrivateData) -> bool {
+    if privdata.targetlist_len() == 0 {
         return true;
     }
 
-    if state.which_fast_fields.is_none() {
+    let which_fast_fields = privdata.which_fast_fields();
+    if which_fast_fields.is_none() {
         return false;
     }
 
-    if is_all_junk(&state.which_fast_fields) {
+    if is_all_junk(which_fast_fields) {
         // if all the fast fields we have are Junk fields, then we're not actually
         // projecting fast fields
         return false;
     }
 
-    for ff in state.which_fast_fields.iter().flatten() {
+    for ff in which_fast_fields.iter().flatten() {
         if matches!(ff, WhichFastField::Named(_, FastFieldType::String)) {
             return false;
         }
@@ -330,20 +322,25 @@ fn is_all_junk(which_fast_fields: &Option<Vec<WhichFastField>>) -> bool {
 
 /// Add nodes to `EXPLAIN` output to describe the "fast fields" being used by the query, if any
 pub fn explain(state: &CustomScanStateWrapper<PdbScan>, explainer: &mut Explainer) {
-    if state.custom_state().is_top_n_capable().is_none() {
-        if let Some(fast_fields) = state.custom_state().which_fast_fields.as_ref() {
-            explainer.add_text(
-                "Fast Fields",
-                fast_fields
-                    .iter()
-                    .map(|field| field.name())
-                    .collect::<Vec<_>>()
-                    .join(", "),
-            );
-            if let Some(string_agg_field) = is_string_agg_capable(state.custom_state()) {
-                explainer.add_text("String Agg Field", string_agg_field);
-            }
-        }
+    if let ExecMethodType::FastFieldString {
+        which_fast_fields, ..
+    }
+    | ExecMethodType::FastFieldNumeric {
+        which_fast_fields, ..
+    } = &state.custom_state().exec_method_type
+    {
+        explainer.add_text(
+            "Fast Fields",
+            which_fast_fields
+                .iter()
+                .map(|field| field.name())
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+    }
+
+    if let ExecMethodType::FastFieldString { field, .. } = &state.custom_state().exec_method_type {
+        explainer.add_text("String Agg Field", field);
     }
 }
 

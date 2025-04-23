@@ -104,7 +104,7 @@ impl OrderByStyle {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub enum ExecMethodType {
     #[default]
     Normal,

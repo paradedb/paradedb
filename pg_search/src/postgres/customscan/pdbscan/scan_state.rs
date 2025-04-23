@@ -96,20 +96,6 @@ impl CustomScanState for PdbScanState {
             (*self.exec_method.get()).init(self, cstate)
         }
     }
-
-    fn is_top_n_capable(&self) -> Option<(usize, SortDirection)> {
-        match (self.limit, self.sort_direction) {
-            (Some(limit), Some(sort_direction)) => Some((limit, sort_direction)),
-            _ => None,
-        }
-    }
-
-    fn is_unsorted_top_n_capable(&self) -> Option<usize> {
-        match (self.limit, self.sort_direction) {
-            (Some(limit), Some(SortDirection::None)) => Some(limit),
-            _ => None,
-        }
-    }
 }
 
 impl PdbScanState {

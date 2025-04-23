@@ -41,7 +41,7 @@ use crate::postgres::customscan::builders::custom_state::{
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::{
-    estimate_cardinality, is_string_agg_capable_ex,
+    estimate_cardinality, is_string_agg_capable,
 };
 use crate::postgres::customscan::pdbscan::parallel::{compute_nworkers, list_segment_ids};
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
@@ -155,18 +155,23 @@ impl CustomScan for PdbScan {
 
             // quick look at the target list to see if we might need to do our const projections
             let target_list = (*(*builder.args().root).parse).targetList;
+            builder
+                .custom_private()
+                .set_targetlist_len(PgList::<pg_sys::TargetEntry>::from_pg(target_list).len());
             let maybe_needs_const_projections = maybe_needs_const_projections(target_list.cast());
             let ff_cnt =
                 exec_methods::fast_fields::count(&mut builder, rti, &table, &schema, target_list);
             let maybe_ff = builder.custom_private().maybe_ff();
             let is_topn = limit.is_some() && pathkey.is_some();
-            let which_fast_fields = exec_methods::fast_fields::collect(
-                builder.custom_private().maybe_ff(),
-                target_list,
-                rti,
-                &schema,
-                &table,
-            );
+            builder
+                .custom_private()
+                .set_which_fast_fields(exec_methods::fast_fields::collect(
+                    maybe_ff,
+                    target_list,
+                    rti,
+                    &schema,
+                    &table,
+                ));
 
             //
             // look for quals we can support
@@ -309,8 +314,7 @@ impl CustomScan for PdbScan {
 
             if pathkey.is_some()
                 && !is_topn
-                && is_string_agg_capable_ex(builder.custom_private().limit(), &which_fast_fields)
-                    .is_some()
+                && is_string_agg_capable(builder.custom_private()).is_some()
             {
                 let pathkey = pathkey.as_ref().unwrap();
 
@@ -349,6 +353,11 @@ impl CustomScan for PdbScan {
             } else if nworkers > 0 {
                 builder = builder.set_parallel(nworkers);
             }
+
+            let exec_method_type = choose_exec_method(builder.custom_private());
+            builder
+                .custom_private()
+                .set_exec_method_type(exec_method_type);
 
             // If we are sorting our output (which we will only do if we have a limit!) and we
             // are _not_ using parallel workers, then we can claim that the output is sorted.
@@ -436,24 +445,11 @@ impl CustomScan for PdbScan {
                 .range_table_index()
                 .expect("range table index should have been set");
 
-            {
-                let indexrel = PgRelation::open(builder.custom_state().indexrelid);
-                let heaprel = indexrel
-                    .heap_relation()
-                    .expect("index should belong to a table");
-                let directory = MVCCDirectory::snapshot(indexrel.oid());
-                let index = Index::open(directory)
-                    .expect("create_custom_scan_state: should be able to open index");
-                let schema = SearchIndexSchema::open(index.schema(), &indexrel);
+            builder.custom_state().exec_method_type =
+                builder.custom_private().exec_method_type().clone();
 
-                builder.custom_state().which_fast_fields = exec_methods::fast_fields::collect(
-                    builder.custom_private().maybe_ff(),
-                    builder.target_list().as_ptr(),
-                    builder.custom_state().rti,
-                    &schema,
-                    &heaprel,
-                );
-            }
+            builder.custom_state().which_fast_fields =
+                builder.custom_private().which_fast_fields().clone();
 
             builder.custom_state().targetlist_len = builder.target_list().len();
 
@@ -502,7 +498,6 @@ impl CustomScan for PdbScan {
 
             let need_snippets = builder.custom_state().need_snippets();
 
-            builder.custom_state().exec_method_type = choose_exec_method(builder.custom_state());
             assign_exec_method(builder.custom_state());
 
             builder.build()
@@ -910,31 +905,25 @@ impl CustomScan for PdbScan {
 ///
 /// `paradedb.score()`, `ctid`, and `tableoid` are considered fast fields for the purposes of
 /// these specialized [`ExecMethod`]s.
-fn choose_exec_method(custom_state: &PdbScanState) -> ExecMethodType {
-    if let Some((limit, sort_direction)) = custom_state.is_top_n_capable() {
+///
+fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
+    if let Some((limit, sort_direction)) = privdata.limit().zip(privdata.sort_direction()) {
         // having a valid limit and sort direction means we can do a TopN query
         // and TopN can do snippets
         ExecMethodType::TopN {
-            heaprelid: custom_state.heaprelid,
+            heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
             limit,
             sort_direction,
-            need_scores: custom_state.need_scores,
+            need_scores: privdata.need_scores(),
         }
-    } else if let Some(limit) = custom_state.is_unsorted_top_n_capable() {
-        ExecMethodType::TopN {
-            heaprelid: custom_state.heaprelid,
-            limit,
-            sort_direction: SortDirection::None,
-            need_scores: custom_state.need_scores,
-        }
-    } else if let Some(field) = exec_methods::fast_fields::is_string_agg_capable(custom_state) {
+    } else if let Some(field) = exec_methods::fast_fields::is_string_agg_capable(privdata) {
         ExecMethodType::FastFieldString {
             field,
-            which_fast_fields: custom_state.which_fast_fields.clone().unwrap(),
+            which_fast_fields: privdata.which_fast_fields().clone().unwrap(),
         }
-    } else if exec_methods::fast_fields::is_numeric_fast_field_capable(custom_state) {
+    } else if exec_methods::fast_fields::is_numeric_fast_field_capable(privdata) {
         ExecMethodType::FastFieldNumeric {
-            which_fast_fields: custom_state.which_fast_fields.clone().unwrap_or_default(),
+            which_fast_fields: privdata.which_fast_fields().clone().unwrap_or_default(),
         }
     } else {
         ExecMethodType::Normal

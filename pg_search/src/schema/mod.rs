@@ -22,7 +22,8 @@ pub mod range;
 use anyhow::{Context, Result};
 use derive_more::{AsRef, Display, From, Into};
 pub use document::*;
-use pgrx::{PgBuiltInOids, PgOid, PgRelation};
+use pgrx::pg_sys::panic::ErrorReport;
+use pgrx::{function_name, PgBuiltInOids, PgLogLevel, PgOid, PgRelation, PgSqlErrorCode};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
@@ -255,6 +256,17 @@ impl SearchFieldConfig {
             Some(v) => SearchTokenizer::from_json_value(v),
             None => Ok(SearchTokenizer::default()),
         }?;
+
+        #[allow(deprecated)]
+        if matches!(tokenizer, SearchTokenizer::Raw(_)) {
+            ErrorReport::new(
+                PgSqlErrorCode::ERRCODE_WARNING_DEPRECATED_FEATURE,
+                "the `raw` tokenizer is deprecated",
+                function_name!(),
+            )
+                .set_detail("the `raw` tokenizer is deprecated as it also lowercases and truncates the input and this is probably not what you want")
+            .set_hint("use `keyword` instead").report(PgLogLevel::WARNING);
+        }
 
         let record = match obj.get("record") {
             Some(v) => serde_json::from_value(v.clone()),
@@ -544,7 +556,12 @@ impl SearchFieldConfig {
             fast: true,
             stored: false,
             fieldnorms: false,
-            tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::raw()),
+
+            // NB:  This should use the `SearchTokenizer::Keyword` tokenizer but for historical
+            // reasons it uses the `SearchTokenizer::Raw` tokenizer but with the same filters
+            // configuration as the `SearchTokenizer::Keyword` tokenizer.
+            #[allow(deprecated)]
+            tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::keyword().clone()),
             record: IndexRecordOption::Basic,
             normalizer: SearchNormalizer::Raw,
             column: None,
@@ -738,15 +755,11 @@ impl SearchField {
         matches!(self.type_, SearchFieldType::Text)
     }
 
-    pub fn is_raw(&self) -> bool {
+    pub fn is_keyword(&self) -> bool {
         matches!(
             self.config,
             SearchFieldConfig::Text {
-                tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters {
-                    remove_long: None,
-                    lowercase: None,
-                    stemmer: None
-                }),
+                tokenizer: SearchTokenizer::Keyword,
                 normalizer: SearchNormalizer::Raw,
                 ..
             }

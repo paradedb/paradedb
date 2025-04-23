@@ -133,7 +133,10 @@ impl PrivateData {
     }
 
     pub fn is_sorted(&self) -> bool {
-        !matches!(self.sort_direction, Some(SortDirection::None))
+        matches!(
+            self.sort_direction,
+            Some(SortDirection::Asc | SortDirection::Desc)
+        )
     }
 
     pub fn var_attname_lookup(&self) -> Option<PgList<pg_sys::Node>> {

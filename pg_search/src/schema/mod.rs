@@ -274,11 +274,6 @@ impl SearchFieldConfig {
         }?;
 
         let normalizer = match obj.get("normalizer") {
-            Some(_) if !fast => {
-                return Err(anyhow::anyhow!(
-                    "'normalizer' is only valid when `\"fast\": true`"
-                ))
-            }
             Some(v) => serde_json::from_value(v.clone()),
             None => Ok(SearchNormalizer::Raw),
         }?;

@@ -176,7 +176,7 @@ fn text_term(mut conn: PgConnection) {
     USING bm25 (id, value_text, value_varchar, value_uuid) WITH (key_field='id', text_fields='{
         "value_text": {}, 
         "value_varchar": {}, 
-        "value_uuid": {"tokenizer": {"type": "raw"}, "normalizer": "raw", "record": "basic", "fieldnorms": false, "fast": true}
+        "value_uuid": {"tokenizer": {"type": "raw"}, "normalizer": "raw", "record": "basic", "fieldnorms": false}
     }');
     "#
     .execute(&mut conn);

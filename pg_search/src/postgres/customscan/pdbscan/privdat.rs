@@ -132,6 +132,13 @@ impl PrivateData {
         self.sort_direction
     }
 
+    pub fn is_sorted(&self) -> bool {
+        matches!(
+            self.sort_direction,
+            Some(SortDirection::Asc | SortDirection::Desc)
+        )
+    }
+
     pub fn var_attname_lookup(&self) -> Option<PgList<pg_sys::Node>> {
         self.var_attname_lookup
             .map(|list| unsafe { PgList::from_pg(list) })

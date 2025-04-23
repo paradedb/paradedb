@@ -123,7 +123,60 @@ LIMIT 5;
 <Note>
 Not all `ORDER BY`s are pushed down. The following queries are not pushed down:
 
-1. `ORDER BY`s over multiple fields for tiebreaking.
-2. Using `paradedb.score` with an `ORDER BY` over another field.
-3. `ORDER BY` without a `LIMIT`.
+1. `ORDER BY` without a `LIMIT`.
+</Note>
+
+## Partial Ordering with Multiple Sort Fields
+
+When using `ORDER BY` with multiple sort fields, ParadeDB can partially push down the sorting operation. In this case, only the first column is pushed down to the BM25 index, and PostgreSQL handles the additional columns using sort operations.
+
+For example, in the following query with multiple sort fields, sorting by `sale_date` is pushed down to the BM25 index, while sorting by `amount` is handled by PostgreSQL:
+
+```sql
+SELECT description, sale_date, amount, paradedb.score(id) as score
+FROM sales
+WHERE description @@@ 'laptop'
+ORDER BY score, sale_date, amount
+LIMIT 10;
+```
+
+You can verify if partial ORDER BY pushdown occurred by running `EXPLAIN` on the query. The query plan will show a `Custom Scan` with our ParadeDB scan provider, followed by an appropriate sort operation based on your PostgreSQL version:
+
+- In PostgreSQL 16+: Often uses an `Incremental Sort` node which can take advantage of the already-sorted first column
+- In older PostgreSQL: Uses a regular `Sort` node, but still benefits from our optimized ordering
+
+<Accordion title="Example Query Plan">
+```csv
+                                                                              QUERY PLAN
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+  Limit  (cost=0.19..0.34 rows=10 width=44) (actual time=1.113..1.114 rows=0 loops=1)
+   ->  Incremental Sort  (cost=0.19..0.34 rows=10 width=44) (actual time=1.113..1.114 rows=0 loops=1)
+         Sort Key: (paradedb.score(id)), sale_date, amount
+         Presorted Key: (paradedb.score(id))
+         Full-sort Groups: 1  Sort Method: quicksort  Average Memory: 25kB  Peak Memory: 25kB
+         ->  Custom Scan (ParadeDB Scan) on sales  (cost=0.00..0.03 rows=10 width=44) (actual time=1.055..1.055 rows=0 loops=1)
+               Table: sales
+               Index: sales_index
+               Segment Count: 1
+               Heap Fetches: 0
+               Exec Method: TopNScanExecState
+               Scores: true
+                  Sort Field: paradedb.score()
+                  Sort Direction: asc
+                  Top N Limit: 10
+               Tantivy Query: {"with_index":{"oid":645598,"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
+ Planning Time: 1.488 ms
+ Execution Time: 1.651 ms
+(18 rows)
+```
+</Accordion>
+
+This feature significantly improves performance when sorting by multiple columns, as the index is used for the first level of sorting, requiring PostgreSQL to perform less work to produce the final ordered results.
+
+<Note>
+Limitations for partial `ORDER BY` pushdown:
+
+1. Only the first sort field is pushed down to the BM25 index.
+2. The first sort field must be indexed as a fast field.
+3. A `LIMIT` clause is still required.
 </Note>

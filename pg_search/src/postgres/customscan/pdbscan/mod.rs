@@ -231,17 +231,18 @@ impl CustomScan for PdbScan {
                 builder.custom_private().set_quals(quals);
                 builder.custom_private().set_limit(limit);
 
-                if is_topn {
+                if is_topn && pathkey.is_some() {
+                    let pathkey = pathkey.as_ref().unwrap();
                     // sorting by a field only works if we're not doing const projections
                     // the reason for this is that tantivy can't do both scoring and ordering by
                     // a fast field at the same time.
                     //
                     // and sorting by score always works
-                    match (maybe_needs_const_projections, &pathkey) {
-                        (false, Some(pathkey @ OrderByStyle::Field(..))) => {
+                    match (maybe_needs_const_projections, pathkey) {
+                        (false, OrderByStyle::Field(..)) => {
                             builder.custom_private().set_sort_info(pathkey);
                         }
-                        (_, Some(pathkey @ OrderByStyle::Score(..))) => {
+                        (_, OrderByStyle::Score(..)) => {
                             builder.custom_private().set_sort_info(pathkey);
                         }
                         _ => {}
@@ -283,12 +284,8 @@ impl CustomScan for PdbScan {
 
                 let total_cost = startup_cost + (rows * per_tuple_cost);
                 let segment_count = index.searchable_segments().unwrap_or_default().len();
-                let sorted = matches!(
-                    builder.custom_private().sort_direction(),
-                    Some(SortDirection::Asc | SortDirection::Desc)
-                );
                 let nworkers = if (*builder.args().rel).consider_parallel {
-                    compute_nworkers(limit, segment_count, sorted)
+                    compute_nworkers(limit, segment_count, builder.custom_private().is_sorted())
                 } else {
                     0
                 };
@@ -357,10 +354,7 @@ impl CustomScan for PdbScan {
                 // TODO: To allow sorted output with parallel workers, we would need to partition
                 // our segments across the workers so that each worker emitted all of its results
                 // in sorted order.
-                if nworkers == 0
-                    && builder.custom_private().sort_direction().is_some()
-                    && limit.is_some()
-                {
+                if nworkers == 0 && builder.custom_private().is_sorted() && limit.is_some() {
                     if let Some(pathkey) = pathkey.as_ref() {
                         builder = builder.add_path_key(pathkey);
                     }
@@ -621,25 +615,29 @@ impl CustomScan for PdbScan {
         exec_methods::fast_fields::explain(state, explainer);
 
         explainer.add_bool("Scores", state.custom_state().need_scores());
-        if let Some(sort_direction) = state.custom_state().sort_direction {
-            if !matches!(sort_direction, SortDirection::None) {
-                if let Some(sort_field) = &state.custom_state().sort_field {
-                    explainer.add_text("   Sort Field", sort_field);
-                } else {
-                    explainer.add_text("   Sort Field", "paradedb.score()");
-                }
-                explainer.add_text("   Sort Direction", sort_direction);
+        if state.custom_state().is_sorted() {
+            if let Some(sort_field) = &state.custom_state().sort_field {
+                explainer.add_text("   Sort Field", sort_field);
+            } else {
+                explainer.add_text("   Sort Field", "paradedb.score()");
             }
+            explainer.add_text(
+                "   Sort Direction",
+                state
+                    .custom_state()
+                    .sort_direction
+                    .unwrap_or(SortDirection::Asc),
+            );
+        }
 
-            if let Some(limit) = state.custom_state().limit {
-                explainer.add_unsigned_integer("   Top N Limit", limit as u64, None);
-                if explainer.is_analyze() && state.custom_state().retry_count > 0 {
-                    explainer.add_unsigned_integer(
-                        "   Invisible Tuple Retries",
-                        state.custom_state().retry_count as u64,
-                        None,
-                    );
-                }
+        if let Some(limit) = state.custom_state().limit {
+            explainer.add_unsigned_integer("   Top N Limit", limit as u64, None);
+            if explainer.is_analyze() && state.custom_state().retry_count > 0 {
+                explainer.add_unsigned_integer(
+                    "   Invisible Tuple Retries",
+                    state.custom_state().retry_count as u64,
+                    None,
+                );
             }
         }
 

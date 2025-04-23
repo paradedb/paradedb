@@ -133,10 +133,10 @@ When using `ORDER BY` with multiple sort fields, ParadeDB can partially push dow
 For example, in the following query with multiple sort fields, sorting by `sale_date` is pushed down to the BM25 index, while sorting by `amount` is handled by PostgreSQL:
 
 ```sql
-SELECT description, sale_date, amount, paradedb.score(id)
+SELECT description, sale_date, amount, paradedb.score(id) as score
 FROM sales
 WHERE description @@@ 'laptop'
-ORDER BY sale_date, amount
+ORDER BY score, sale_date, amount
 LIMIT 10;
 ```
 
@@ -149,22 +149,25 @@ You can verify if partial ORDER BY pushdown occurred by running `EXPLAIN` on the
 ```csv
                                                                               QUERY PLAN
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=0.19..0.34 rows=10 width=44) (actual time=0.708..0.709 rows=0 loops=1)
-   ->  Incremental Sort  (cost=0.19..0.34 rows=10 width=44) (actual time=0.707..0.708 rows=0 loops=1)
-         Sort Key: sale_date, amount
-         Presorted Key: sale_date
+  Limit  (cost=0.19..0.34 rows=10 width=44) (actual time=1.113..1.114 rows=0 loops=1)
+   ->  Incremental Sort  (cost=0.19..0.34 rows=10 width=44) (actual time=1.113..1.114 rows=0 loops=1)
+         Sort Key: (paradedb.score(id)), sale_date, amount
+         Presorted Key: (paradedb.score(id))
          Full-sort Groups: 1  Sort Method: quicksort  Average Memory: 25kB  Peak Memory: 25kB
-         ->  Custom Scan (ParadeDB Scan) on sales  (cost=0.00..0.03 rows=10 width=44) (actual time=0.702..0.703 rows=0 loops=1)
+         ->  Custom Scan (ParadeDB Scan) on sales  (cost=0.00..0.03 rows=10 width=44) (actual time=1.055..1.055 rows=0 loops=1)
                Table: sales
                Index: sales_index
                Segment Count: 1
                Heap Fetches: 0
-               Exec Method: NormalScanExecState
+               Exec Method: TopNScanExecState
                Scores: true
-               Tantivy Query: {"with_index":{"oid":631060,"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
- Planning Time: 1.343 ms
- Execution Time: 1.167 ms
-(15 rows)
+                  Sort Field: paradedb.score()
+                  Sort Direction: asc
+                  Top N Limit: 10
+               Tantivy Query: {"with_index":{"oid":645598,"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
+ Planning Time: 1.488 ms
+ Execution Time: 1.651 ms
+(18 rows)
 ```
 </Accordion>
 

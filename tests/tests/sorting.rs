@@ -92,68 +92,16 @@ fn sort_by_lower_parallel(mut conn: PgConnection) {
 
     let plan = field_sort_fixture(&mut conn);
 
-    // Check the plan structure to see if we have a parallel plan
-    let gather_node = plan
-        .pointer("/0/Plan/Plans/0")
-        .and_then(|n| n.as_object())
+    let plan = plan
+        .pointer("/0/Plan/Plans/0/Plans/0")
+        .unwrap()
+        .as_object()
         .unwrap();
 
-    // With parallel plans, check that the parallel worker is doing the right thing
-    let worker_node = gather_node
-        .get("Plans")
-        .and_then(|plans| plans.as_array())
-        .and_then(|plans| plans.first())
-        .and_then(|plan| plan.as_object())
-        .unwrap();
-
-    assert!(
-        worker_node
-            .get("Parallel Aware")
-            .is_some_and(|p| p.as_bool().unwrap_or(false)),
-        "Worker should be parallel aware"
+    assert_eq!(
+        plan.get("Node Type").unwrap(),
+        &Value::String("Sort".to_owned())
     );
-
-    // In our implementation, we might use either a CustomScan or a Sort node
-    let node_type = worker_node.get("Node Type").unwrap().as_str().unwrap();
-
-    if node_type == "Custom Scan" {
-        // If it's a Custom Scan, ensure Sort Field and Sort Mode are set correctly
-        let sort_field = worker_node.get("   Sort Field");
-        assert!(
-            sort_field.is_some(),
-            "Custom Scan should have a Sort Field: {:?}",
-            worker_node
-        );
-
-        // Check if the category field is being used for sorting
-        if let Some(sort_field_value) = sort_field {
-            assert_eq!(
-                sort_field_value,
-                &Value::String("category".to_string()),
-                "Sort Field should be 'category'"
-            );
-        }
-
-        // Verify that the Sort Mode is set
-        let sort_mode = worker_node.get("   Sort Mode");
-        assert!(
-            sort_mode.is_some() && sort_mode.unwrap() == "Partial (first pathkey only)",
-            "Custom Scan should indicate if partial sort is enabled"
-        );
-
-        // Check if scores are enabled
-        let scores = worker_node.get("Scores");
-        assert!(
-            scores.is_some(),
-            "Custom Scan should indicate if scores are enabled"
-        );
-    } else {
-        // If not a Custom Scan, ensure it's a Sort node
-        assert_eq!(
-            node_type, "Sort",
-            "Expected either Custom Scan or Sort node in parallel worker"
-        );
-    }
 }
 
 #[rstest]
@@ -243,69 +191,14 @@ fn sort_by_row_return_scores(mut conn: PgConnection) {
     eprintln!("{plan:#?}");
 
     // Get the first plan node in the plans array
-    let plan_node = plan
-        .pointer("/0/Plan/Plans/0")
-        .unwrap_or_else(|| {
-            // If we can't find the expected path, try another common path
-            plan.pointer("/0/Plan").unwrap_or(&plan)
-        })
+    let plan = plan
+        .pointer("/0/Plan/Plans/0/Plans/0")
+        .unwrap()
         .as_object()
         .unwrap();
 
-    // Find the Custom Scan node which could be at different levels based on the plan
-    let custom_scan_node = if plan_node
-        .get("Node Type")
-        .is_some_and(|v| v.as_str() == Some("Custom Scan"))
-    {
-        plan_node
-    } else if let Some(plans) = plan_node.get("Plans").and_then(|p| p.as_array()) {
-        // If we have nested plans, look for Custom Scan in them
-        plans
-            .iter()
-            .find(|p| {
-                p.get("Node Type")
-                    .is_some_and(|v| v.as_str() == Some("Custom Scan"))
-            })
-            .and_then(|p| p.as_object())
-            .unwrap_or(plan_node)
-    } else {
-        // If we can't find a Custom Scan node, use the plan_node anyway
-        plan_node
-    };
-
-    // When scores are enabled and ordering by category, we should still see:
-
-    // 1. Check that scores are enabled
-    assert!(
-        custom_scan_node
-            .get("Scores")
-            .is_some_and(|v| v.as_bool() == Some(true)),
-        "Plan should indicate Scores are enabled: {:#?}",
-        custom_scan_node
-    );
-
-    // 2. We may have a Sort Field even with scores, but the planner might decide to
-    // use a different approach when requesting scores, so we don't strictly require it
-    let has_sort_field = custom_scan_node.get("   Sort Field").is_some();
-    let has_sort_mode = custom_scan_node.get("   Sort Mode").is_some();
-
-    // 3. If we have a sort field, then partial sort flag should also be set
-    if has_sort_field {
-        assert_eq!(
-            custom_scan_node.get("   Sort Field").unwrap(),
-            &Value::String("category".to_string()),
-            "Sort Field should be 'category' when present"
-        );
-
-        // 4. If Sort Field is present, Sort Mode should also be set
-        if has_sort_mode {
-            assert_eq!(
-                custom_scan_node.get("   Sort Mode").unwrap(),
-                &Value::String("Partial (first pathkey only)".to_string()),
-                "Sort Mode should be 'Partial (first pathkey only)' when present"
-            );
-        }
-    }
+    assert_eq!(plan.get("   Sort Field"), None);
+    assert_eq!(plan.get("Scores"), Some(&Value::Bool(true)));
 }
 
 #[rstest]
@@ -395,12 +288,6 @@ async fn test_incremental_sort_with_partial_order(mut conn: PgConnection) {
         .execute(&mut conn)
         .await
         .unwrap();
-
-    // For testing purposes, try to force PostgreSQL to use our path
-    // sqlx::query("SET enable_sort = off;")
-    //     .execute(&mut conn)
-    //     .await
-    //     .unwrap();
 
     // Check Postgres version - Incremental Sort only exists in PG 15+
     let pg_version = pg_major_version(&mut conn);

@@ -203,74 +203,8 @@ fn sort_by_row_return_scores(mut conn: PgConnection) {
 
 #[rstest]
 async fn test_incremental_sort_with_partial_order(mut conn: PgConnection) {
-    // Create the test table
-    sqlx::query(
-        r#"
-        CREATE TABLE sales (
-            id SERIAL,
-            sale_date DATE NOT NULL,
-            amount REAL NOT NULL,
-            description TEXT,
-            PRIMARY KEY (id, sale_date)
-        ) PARTITION BY RANGE (sale_date);
-        "#,
-    )
-    .execute(&mut conn)
-    .await
-    .unwrap();
-
-    // Create partitions
-    sqlx::query(
-        r#"
-        CREATE TABLE sales_2023_q1 PARTITION OF sales
-          FOR VALUES FROM ('2023-01-01') TO ('2023-04-01');
-        "#,
-    )
-    .execute(&mut conn)
-    .await
-    .unwrap();
-
-    sqlx::query(
-        r#"
-        CREATE TABLE sales_2023_q2 PARTITION OF sales
-          FOR VALUES FROM ('2023-04-01') TO ('2023-06-30');
-        "#,
-    )
-    .execute(&mut conn)
-    .await
-    .unwrap();
-
-    // Insert test data
-    sqlx::query(
-        r#"
-        INSERT INTO sales (sale_date, amount, description)
-        SELECT
-           (DATE '2023-01-01' + (random() * 179)::integer) AS sale_date,
-           (random() * 1000)::real AS amount,
-           ('thing '::text || md5(random()::text)) AS description
-        FROM generate_series(1, 1000);
-        "#,
-    )
-    .execute(&mut conn)
-    .await
-    .unwrap();
-
-    // Create a bm25 index
-    sqlx::query(
-        r#"
-        CREATE INDEX sales_index ON sales
-          USING bm25 (id, description, sale_date)
-          WITH (
-            key_field='id',
-            datetime_fields = '{
-                "sale_date": {"fast": true}
-            }'
-          );
-        "#,
-    )
-    .execute(&mut conn)
-    .await
-    .unwrap();
+    // Create the partitioned sales table
+    PartitionedTable::setup().execute(&mut conn);
 
     // Enable debugging logs
     sqlx::query("SET client_min_messages TO DEBUG1;")

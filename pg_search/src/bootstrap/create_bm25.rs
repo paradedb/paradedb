@@ -470,7 +470,7 @@ fn force_merge_raw_bytes(
         PgRelation::with_lock(oid, pg_sys::RowExclusiveLock as _)
     };
 
-    let merge_policy = LayeredMergePolicy::new(vec![oversized_layer_size_bytes.try_into()?]);
+    let merge_policy = LayeredMergePolicy::new(vec![oversized_layer_size_bytes.try_into()?], false);
     let (ncandidates, nmerged) =
         unsafe { merge_index_with_policy(index, merge_policy, true, true, true) };
     Ok(TableIterator::once((

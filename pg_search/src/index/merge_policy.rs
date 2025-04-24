@@ -18,6 +18,7 @@ pub struct LayeredMergePolicy {
 
     mergeable_segments: HashMap<SegmentId, SegmentMetaEntry>,
     already_processed: AtomicBool,
+    exclude_already_merged_segments: bool,
 }
 
 pub type NumCandidates = usize;
@@ -71,12 +72,14 @@ impl MergePolicy for LayeredMergePolicy {
         let mut layer_sizes = self.layer_sizes.clone();
         layer_sizes.sort_by_key(|size| Reverse(*size)); // largest to smallest
 
-        for layer_size in layer_sizes {
+        // Process layer sizes in order from largest to smallest
+        for (i, &layer_size) in layer_sizes.iter().enumerate() {
             // individual segments that total a certain byte amount typically merge together into
             // a segment of a smaller size than the individual source segments.  So we fudge things
             // by a third more in the hopes the final segment will be >= to this layer size, ensuring
             // it doesn't merge again
             let extended_layer_size = layer_size + layer_size / 3;
+            let next_smaller_layer = layer_sizes.get(i + 1).copied().unwrap_or(0);
 
             // collect the list of mergeable segments so that we can combine those that fit in the next layer
             let segments =
@@ -90,15 +93,26 @@ impl MergePolicy for LayeredMergePolicy {
                     continue;
                 }
 
-                let segment_size =
+                let adjusted_size =
                     adjusted_byte_size(segment, &self.mergeable_segments, avg_doc_size);
-                if segment_size > layer_size {
+                let actual_size = actual_byte_size(segment, &self.mergeable_segments, avg_doc_size);
+
+                if adjusted_size > layer_size {
                     // this segment is larger than this layer_size... skip it
                     continue;
                 }
 
+                if self.exclude_already_merged_segments
+                    && is_merged(segment.id(), &self.mergeable_segments)
+                    && (next_smaller_layer < actual_size)
+                    && (layer_size - actual_size) > (actual_size - next_smaller_layer)
+                {
+                    // this segment was likely created by a previous merge but fell below the target layer size... skip it
+                    continue;
+                }
+
                 // add this segment as a candidate
-                candidate_byte_size += segment_size;
+                candidate_byte_size += actual_size;
                 candidates.last_mut().unwrap().1 .0.push(segment.id());
 
                 if candidate_byte_size >= extended_layer_size {
@@ -177,7 +191,7 @@ impl MergePolicy for LayeredMergePolicy {
 }
 
 impl LayeredMergePolicy {
-    pub fn new(layer_sizes: Vec<u64>) -> LayeredMergePolicy {
+    pub fn new(layer_sizes: Vec<u64>, exclude_already_merged_segments: bool) -> LayeredMergePolicy {
         Self {
             n: std::thread::available_parallelism()
                 .expect("your computer should have at least one CPU")
@@ -188,6 +202,7 @@ impl LayeredMergePolicy {
 
             mergeable_segments: Default::default(),
             already_processed: Default::default(),
+            exclude_already_merged_segments,
         }
     }
 
@@ -272,6 +287,18 @@ impl LayeredMergePolicy {
 }
 
 #[inline]
+fn actual_byte_size(
+    meta: &SegmentMeta,
+    all_entries: &HashMap<SegmentId, SegmentMetaEntry>,
+    avg_doc_size: u64,
+) -> u64 {
+    all_entries
+        .get(&meta.id())
+        .map(|entry| entry.byte_size())
+        .unwrap_or(meta.num_docs() as u64 * avg_doc_size)
+}
+
+#[inline]
 fn adjusted_byte_size(
     meta: &SegmentMeta,
     all_entries: &HashMap<SegmentId, SegmentMetaEntry>,
@@ -290,4 +317,12 @@ fn adjusted_byte_size(
         })
         .unwrap_or(meta.num_docs() as u64 * avg_doc_size)
         .max(avg_doc_size)
+}
+
+#[inline]
+fn is_merged(segment_id: SegmentId, all_entries: &HashMap<SegmentId, SegmentMetaEntry>) -> bool {
+    all_entries
+        .get(&segment_id)
+        .map(|entry| entry.xmin == pg_sys::FrozenTransactionId)
+        .unwrap_or(false)
 }

@@ -105,8 +105,15 @@ impl MergePolicy for LayeredMergePolicy {
                 if self.exclude_already_merged_segments
                     && is_merged(segment.id(), &self.mergeable_segments)
                     && (next_smaller_layer < actual_size)
-                    && (layer_size - actual_size) > (actual_size - next_smaller_layer)
+                    && (layer_size - actual_size) < (actual_size - next_smaller_layer)
                 {
+                    logger(
+                        directory,
+                        &format!(
+                            "compute_merge_candidates: segment {} was likely created by a previous merge but fell below the target layer size... skipping",
+                            segment.id()
+                        ),
+                    );
                     // this segment was likely created by a previous merge but fell below the target layer size... skip it
                     continue;
                 }

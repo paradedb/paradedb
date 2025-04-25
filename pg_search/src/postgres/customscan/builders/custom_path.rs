@@ -156,7 +156,7 @@ pub struct CustomPathBuilder<P: Into<*mut pg_sys::List> + Default> {
     custom_private: P,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum RestrictInfoType {
     BaseRelation,
     Join,

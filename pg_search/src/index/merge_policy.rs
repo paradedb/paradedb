@@ -78,7 +78,6 @@ impl MergePolicy for LayeredMergePolicy {
             // a segment of a smaller size than the individual source segments.  So we fudge things
             // by a third more in the hopes the final segment will be >= to this layer size, ensuring
             // it doesn't merge again
-            let extended_layer_size = layer_size + layer_size / 3;
             let next_smaller_layer = layer_sizes.get(i + 1).copied().unwrap_or(0);
 
             // collect the list of mergeable segments so that we can combine those that fit in the next layer
@@ -127,12 +126,12 @@ impl MergePolicy for LayeredMergePolicy {
                 candidate_byte_size += actual_size_minus_terms;
                 candidates.last_mut().unwrap().1 .0.push(segment.id());
 
-                if (candidate_byte_size + largest_terms_size) >= extended_layer_size {
+                if (candidate_byte_size + largest_terms_size) >= layer_size {
                     logger(
                         directory,
                         &format!(
                             "compute_merge_candidates: candidate size {} exceeds layer size {}",
-                            candidate_byte_size, extended_layer_size
+                            candidate_byte_size, layer_size
                         ),
                     );
 
@@ -146,13 +145,13 @@ impl MergePolicy for LayeredMergePolicy {
                         &format!(
                             "compute_merge_candidates: candidate size {} too small for layer size {}",
                             candidate_byte_size,
-                            extended_layer_size
+                            layer_size
                         ),
                     );
                 }
             }
 
-            if (candidate_byte_size + largest_terms_size) < extended_layer_size {
+            if (candidate_byte_size + largest_terms_size) < layer_size {
                 // the last candidate isn't full, so throw it away
                 candidates.pop();
             }

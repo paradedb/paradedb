@@ -33,7 +33,7 @@ fn merge_with_no_positions(mut conn: PgConnection) {
     .execute(&mut conn);
 
     // this will merge on the 12th insert
-    for _ in 0..13 {
+    for _ in 0..11 {
         "insert into test (message) select null from generate_series(1, 1000);".execute(&mut conn);
     }
 

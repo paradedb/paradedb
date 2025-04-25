@@ -38,9 +38,10 @@ macro_rules! nodecast {
 // came to life in pg15
 pub type Cardinality = f64;
 
-pub trait AsInt {
-    unsafe fn as_int(&self) -> Option<i32>;
-}
+#[cfg(feature = "pg14")]
+pub type Varno = pgrx::pg_sys::Index;
+#[cfg(not(feature = "pg14"))]
+pub type Varno = i32;
 
 #[allow(dead_code)]
 pub trait AsBool {
@@ -49,22 +50,6 @@ pub trait AsBool {
 
 pub trait AsCStr {
     unsafe fn as_c_str(&self) -> Option<&std::ffi::CStr>;
-}
-
-#[cfg(feature = "pg14")]
-impl AsInt for *mut pgrx::pg_sys::Node {
-    unsafe fn as_int(&self) -> Option<i32> {
-        let node = nodecast!(Value, T_Integer, *self)?;
-        Some((*node).val.ival)
-    }
-}
-
-#[cfg(not(feature = "pg14"))]
-impl AsInt for *mut pgrx::pg_sys::Node {
-    unsafe fn as_int(&self) -> Option<i32> {
-        let node = nodecast!(Integer, T_Integer, *self)?;
-        Some((*node).ival)
-    }
 }
 
 #[cfg(feature = "pg14")]

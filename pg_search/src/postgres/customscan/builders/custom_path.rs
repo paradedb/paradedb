@@ -18,10 +18,11 @@
 use crate::api::Cardinality;
 use crate::postgres::customscan::CustomScan;
 use pgrx::{pg_sys, PgList};
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fmt::{Debug, Display, Formatter};
 
-#[derive(Debug, Default, Copy, Clone)]
+#[derive(Debug, Default, Copy, Clone, Serialize, Deserialize)]
 #[repr(i32)]
 pub enum SortDirection {
     #[default]

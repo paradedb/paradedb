@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::Varno;
 use crate::nodecast;
 use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{
@@ -66,13 +67,13 @@ pub fn snippet_funcoid() -> pg_sys::Oid {
 
 pub unsafe fn uses_snippets(
     rti: pg_sys::Index,
-    attname_lookup: &FxHashMap<(i32, pg_sys::AttrNumber), String>,
+    attname_lookup: &FxHashMap<(Varno, pg_sys::AttrNumber), String>,
     node: *mut pg_sys::Node,
     snippet_funcoid: pg_sys::Oid,
 ) -> Vec<SnippetInfo> {
     struct Context<'a> {
         rti: pg_sys::Index,
-        attname_lookup: &'a FxHashMap<(i32, pg_sys::AttrNumber), String>,
+        attname_lookup: &'a FxHashMap<(Varno, pg_sys::AttrNumber), String>,
         snippet_funcoid: pg_sys::Oid,
         snippet_info: Vec<SnippetInfo>,
     }

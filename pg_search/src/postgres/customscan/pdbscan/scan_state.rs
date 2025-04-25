@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::Varno;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::reader::index::{SearchIndexReader, SearchResults};
 use crate::postgres::customscan::builders::custom_path::SortDirection;
@@ -77,7 +78,7 @@ pub struct PdbScanState {
     pub snippet_funcoid: pg_sys::Oid,
     pub snippet_generators:
         FxHashMap<SnippetInfo, Option<(tantivy::schema::Field, SnippetGenerator)>>,
-    pub var_attname_lookup: FxHashMap<(i32, pg_sys::AttrNumber), String>,
+    pub var_attname_lookup: FxHashMap<(Varno, pg_sys::AttrNumber), String>,
 
     pub placeholder_targetlist: Option<*mut pg_sys::List>,
 

@@ -18,7 +18,7 @@
 use crate::api::Cardinality;
 use crate::postgres::customscan::builders::custom_path::OrderByStyle;
 use crate::postgres::customscan::builders::custom_path::SortDirection;
-use crate::postgres::customscan::pdbscan::qual_inspect::Qual;
+use crate::query::SearchQueryInput;
 use pgrx::{pg_sys, PgList};
 
 #[derive(Default, Debug)]
@@ -26,7 +26,7 @@ pub struct PrivateData {
     heaprelid: Option<pg_sys::Oid>,
     indexrelid: Option<pg_sys::Oid>,
     range_table_index: Option<pg_sys::Index>,
-    quals: Option<*mut pg_sys::List>,
+    query: Option<SearchQueryInput>,
     limit: Option<usize>,
     sort_field: Option<String>,
     sort_direction: Option<SortDirection>,
@@ -64,9 +64,8 @@ impl PrivateData {
         self.range_table_index = Some(rti);
     }
 
-    pub fn set_quals(&mut self, quals: Qual) {
-        let serialized: PgList<pg_sys::Node> = quals.into();
-        self.quals = Some(serialized.into_pg().cast())
+    pub fn set_query(&mut self, query: SearchQueryInput) {
+        self.query = Some(query);
     }
 
     pub fn set_limit(&mut self, limit: Option<Cardinality>) {
@@ -115,9 +114,8 @@ impl PrivateData {
         self.range_table_index
     }
 
-    pub fn quals(&self) -> Option<Qual> {
-        self.quals
-            .map(|ri| unsafe { Qual::from(PgList::<pg_sys::Node>::from_pg(ri)) })
+    pub fn query(&self) -> &Option<SearchQueryInput> {
+        &self.query
     }
 
     pub fn limit(&self) -> Option<usize> {

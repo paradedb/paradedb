@@ -196,6 +196,7 @@ impl CustomScan for PdbScan {
                 // to a join, and would require more planning).
                 return None;
             };
+            let query = SearchQueryInput::from(&quals);
 
             let has_expressions = quals.contains_exprs();
             let selectivity = if let Some(limit) = limit {
@@ -220,7 +221,6 @@ impl CustomScan for PdbScan {
                     // we have no idea, so assume PARAMETERIZED_SELECTIVITY
                     PARAMETERIZED_SELECTIVITY
                 } else {
-                    let query = SearchQueryInput::from(&quals);
                     estimate_selectivity(&bm25_index, &query).unwrap_or(UNKNOWN_SELECTIVITY)
                 }
             };
@@ -234,7 +234,7 @@ impl CustomScan for PdbScan {
             builder.custom_private().set_heaprelid(table.oid());
             builder.custom_private().set_indexrelid(bm25_index.oid());
             builder.custom_private().set_range_table_index(rti);
-            builder.custom_private().set_quals(quals);
+            builder.custom_private().set_query(query);
             builder.custom_private().set_limit(limit);
 
             if is_topn && pathkey.is_some() {
@@ -464,13 +464,15 @@ impl CustomScan for PdbScan {
             builder.custom_state().sort_field = builder.custom_private().sort_field();
             builder.custom_state().sort_direction = builder.custom_private().sort_direction();
 
-            // store our query quals into our custom state too
-            builder.custom_state().quals = Some(
-                builder
-                    .custom_private()
-                    .quals()
-                    .expect("should have a Qual structure"),
-            );
+            // store our query into our custom state too
+            // TODO: Clone? Take?
+            builder.custom_state().search_query_input = builder
+                .custom_private()
+                .query()
+                .as_ref()
+                .cloned()
+                .expect("should have a SearchQueryInput");
+
             builder.custom_state().segment_count = builder.custom_private().segment_count();
 
             // now build up the var attribute name lookup map
@@ -683,13 +685,6 @@ impl CustomScan for PdbScan {
                 PgRelation::from_pg(heaprel).namespace().to_string();
             state.custom_state_mut().heaprel_relname =
                 PgRelation::from_pg(heaprel).name().to_string();
-
-            let quals = state
-                .custom_state_mut()
-                .quals
-                .take()
-                .expect("quals should have been set");
-            state.custom_state_mut().search_query_input = SearchQueryInput::from(&quals);
 
             if eflags & (pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) != 0 {
                 // don't do anything else if we're only explaining the query

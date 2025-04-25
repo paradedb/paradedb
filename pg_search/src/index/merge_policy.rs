@@ -98,7 +98,7 @@ impl MergePolicy for LayeredMergePolicy {
                 let adjusted_size =
                     adjusted_byte_size(segment, &self.mergeable_segments, avg_doc_size);
                 let actual_size = actual_byte_size(segment, &self.mergeable_segments, avg_doc_size);
-                let terms_size = terms_size(segment, &self.mergeable_segments);
+                let terms_size = terms_byte_size(segment, &self.mergeable_segments);
                 largest_terms_size = largest_terms_size.max(terms_size);
                 let actual_size_minus_terms = actual_size - terms_size;
 
@@ -329,7 +329,7 @@ fn actual_byte_size(
 }
 
 #[inline]
-fn terms_size(meta: &SegmentMeta, all_entries: &HashMap<SegmentId, SegmentMetaEntry>) -> u64 {
+fn terms_byte_size(meta: &SegmentMeta, all_entries: &HashMap<SegmentId, SegmentMetaEntry>) -> u64 {
     all_entries
         .get(&meta.id())
         .map(|entry| entry.terms.map(|file| file.total_bytes).unwrap_or(0) as u64)

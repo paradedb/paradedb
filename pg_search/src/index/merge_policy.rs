@@ -87,6 +87,8 @@ impl MergePolicy for LayeredMergePolicy {
             let mut candidate_byte_size = 0;
             candidates.push((layer_size, MergeCandidate(vec![])));
 
+            let mut largest_terms_size = 0;
+
             for segment in segments {
                 if merged_segments.contains(&segment.id()) {
                     // we've already merged it
@@ -96,6 +98,9 @@ impl MergePolicy for LayeredMergePolicy {
                 let adjusted_size =
                     adjusted_byte_size(segment, &self.mergeable_segments, avg_doc_size);
                 let actual_size = actual_byte_size(segment, &self.mergeable_segments, avg_doc_size);
+                let terms_size = terms_size(segment, &self.mergeable_segments);
+                largest_terms_size = largest_terms_size.max(terms_size);
+                let actual_size_minus_terms = actual_size - terms_size;
 
                 if adjusted_size > layer_size {
                     // this segment is larger than this layer_size... skip it
@@ -119,17 +124,35 @@ impl MergePolicy for LayeredMergePolicy {
                 }
 
                 // add this segment as a candidate
-                candidate_byte_size += actual_size;
+                candidate_byte_size += actual_size_minus_terms;
                 candidates.last_mut().unwrap().1 .0.push(segment.id());
 
-                if candidate_byte_size >= extended_layer_size {
+                if (candidate_byte_size + largest_terms_size) >= extended_layer_size {
+                    logger(
+                        directory,
+                        &format!(
+                            "compute_merge_candidates: candidate size {} exceeds layer size {}",
+                            candidate_byte_size, extended_layer_size
+                        ),
+                    );
+
                     // the candidate now exceeds the layer size so we start a new candidate
+                    largest_terms_size = 0;
                     candidate_byte_size = 0;
                     candidates.push((layer_size, MergeCandidate(vec![])));
+                } else {
+                    logger(
+                        directory,
+                        &format!(
+                            "compute_merge_candidates: candidate size {} too small for layer size {}",
+                            candidate_byte_size,
+                            extended_layer_size
+                        ),
+                    );
                 }
             }
 
-            if candidate_byte_size < extended_layer_size {
+            if (candidate_byte_size + largest_terms_size) < extended_layer_size {
                 // the last candidate isn't full, so throw it away
                 candidates.pop();
             }
@@ -303,6 +326,14 @@ fn actual_byte_size(
         .get(&meta.id())
         .map(|entry| entry.byte_size())
         .unwrap_or(meta.num_docs() as u64 * avg_doc_size)
+}
+
+#[inline]
+fn terms_size(meta: &SegmentMeta, all_entries: &HashMap<SegmentId, SegmentMetaEntry>) -> u64 {
+    all_entries
+        .get(&meta.id())
+        .map(|entry| entry.terms.map(|file| file.total_bytes).unwrap_or(0) as u64)
+        .unwrap_or(0)
 }
 
 #[inline]

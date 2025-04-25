@@ -74,12 +74,6 @@ impl MergePolicy for LayeredMergePolicy {
 
         // Process layer sizes in order from largest to smallest
         for (i, &layer_size) in layer_sizes.iter().enumerate() {
-            // individual segments that total a certain byte amount typically merge together into
-            // a segment of a smaller size than the individual source segments.  So we fudge things
-            // by a third more in the hopes the final segment will be >= to this layer size, ensuring
-            // it doesn't merge again
-            let next_smaller_layer = layer_sizes.get(i + 1).copied().unwrap_or(0);
-
             // collect the list of mergeable segments so that we can combine those that fit in the next layer
             let segments =
                 self.collect_mergeable_segments(original_segments, &merged_segments, avg_doc_size);
@@ -106,6 +100,8 @@ impl MergePolicy for LayeredMergePolicy {
                     continue;
                 }
 
+                // determine whether this segment is closer to the lower or upper layer size
+                let next_smaller_layer = layer_sizes.get(i + 1).copied().unwrap_or(0);
                 if self.exclude_already_merged_segments
                     && is_merged(segment.id(), &self.mergeable_segments)
                     && (next_smaller_layer < actual_size)

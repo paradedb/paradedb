@@ -26,7 +26,8 @@ mod scan_state;
 mod solve_expr;
 
 use crate::api::operator::{
-    anyelement_query_input_opoid, attname_from_var, estimate_selectivity, find_var_relation,
+    anyelement_query_input_opoid, anyelement_text_opoid, attname_from_var, estimate_selectivity,
+    find_var_relation,
 };
 use crate::api::{AsCStr, AsInt, Cardinality};
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
@@ -291,6 +292,25 @@ impl CustomScan for PdbScan {
                 &schema,
                 &mut uses_our_operator,
             );
+            if !uses_our_operator {
+                pgrx::log!("PdbScan: extract_quals failed, trying anyelement_text_opoid");
+                let quals = extract_quals(
+                    root,
+                    rti,
+                    restrict_info.as_ptr().cast(),
+                    anyelement_text_opoid(),
+                    ri_type,
+                    &schema,
+                    &mut uses_our_operator,
+                );
+                if uses_our_operator {
+                    pgrx::log!("PdbScan: extract_quals succeeded with anyelement_text_opoid");
+                } else {
+                    pgrx::log!("PdbScan: extract_quals failed with anyelement_text_opoid");
+                }
+            } else {
+                pgrx::log!("PdbScan: extract_quals succeeded with anyelement_query_input_opoid");
+            }
 
             pgrx::log!(
                 "PdbScan: extract_quals returned uses_our_operator={}, has_quals={}",
@@ -1370,7 +1390,7 @@ unsafe fn find_bm25_index_in_join_condition(
             let op_oid = (*opexpr).opno;
 
             // Check if this is our BM25 operator
-            if op_oid == anyelement_query_input_opoid() {
+            if op_oid == anyelement_query_input_opoid() || op_oid == anyelement_text_opoid() {
                 let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
                 if let Some(larg) = args.get_ptr(0) {
                     // Find the left argument which should be a column reference (Var)
@@ -1662,7 +1682,7 @@ unsafe fn find_bm25_index_in_quals(
             );
 
             // Check if this is our BM25 operator
-            if op_oid == anyelement_query_input_opoid() {
+            if op_oid == anyelement_query_input_opoid() || op_oid == anyelement_text_opoid() {
                 pgrx::log!("find_bm25_index_in_quals: Found BM25 operator");
 
                 let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
@@ -1896,21 +1916,44 @@ unsafe fn search_for_bm25_operator(node: *mut pg_sys::Node) -> bool {
 
             // Check if this is our BM25 operator
             let our_opno = anyelement_query_input_opoid();
+            let our_opno_text = anyelement_text_opoid();
 
             // Enhanced logging for operator details
             pgrx::log!(
-                "search_for_bm25_operator: Examining OpExpr with opno={} (BM25 opno={}), is_match={}",
+                "search_for_bm25_operator: Examining OpExpr with opno={} (BM25 opno={}, BM25 text opno={}), is_match={}",
                 opno.as_u32(),
                 our_opno.as_u32(),
-                opno == our_opno
+                our_opno_text.as_u32(),
+                opno == our_opno || opno == our_opno_text
             );
 
+            // More detailed OID comparison for debugging
+            if opno != our_opno && opno != our_opno_text {
+                pgrx::log!(
+                    "search_for_bm25_operator: OID comparison failed: opno({:?}) != our_opno({:?}, {:?}), as_u32 equality={}, equality={}",
+                    opno,
+                    our_opno,
+                    our_opno_text,
+                    opno.as_u32() == our_opno.as_u32(),
+                    opno.as_u32() == our_opno_text.as_u32()
+                );
+            }
+
             // Try to get operator name
-            unsafe {
-                if let Ok(op_name) = std::ffi::CStr::from_ptr(pg_sys::get_opname(opno)).to_str() {
+            if let Ok(op_name) = std::ffi::CStr::from_ptr(pg_sys::get_opname(opno)).to_str() {
+                pgrx::log!(
+                    "search_for_bm25_operator: OpExpr operator name: {}",
+                    op_name
+                );
+
+                // Special check for operators with @@ or @@@ to catch potential mismatches
+                if op_name.contains("@") {
                     pgrx::log!(
-                        "search_for_bm25_operator: OpExpr operator name: {}",
-                        op_name
+                        "search_for_bm25_operator: Found operator with @ symbol: '{}' (opno={:?}, BM25 opno={:?}, BM25 text opno={:?})",
+                        op_name,
+                        opno,
+                        our_opno,
+                        our_opno_text
                     );
                 }
             }
@@ -1949,7 +1992,7 @@ unsafe fn search_for_bm25_operator(node: *mut pg_sys::Node) -> bool {
                 }
             }
 
-            if opno == our_opno {
+            if opno == our_opno || opno == our_opno_text {
                 pgrx::log!(
                     "search_for_bm25_operator: Found BM25 operator! opno={}",
                     opno.as_u32()
@@ -2366,14 +2409,16 @@ unsafe fn trace_quals_for_bm25(quals: *mut pg_sys::Node) {
             let opexpr = quals.cast::<pg_sys::OpExpr>();
             let opno = (*opexpr).opno;
             let bm25_opno = anyelement_query_input_opoid();
+            let bm25_text_opno = anyelement_text_opoid();
 
             pgrx::log!(
-                "trace_quals_for_bm25: OpExpr with opno={} (BM25 opno={})",
+                "trace_quals_for_bm25: OpExpr with opno={} (BM25 opno={}, BM25 text opno={})",
                 opno.as_u32(),
-                bm25_opno.as_u32()
+                bm25_opno.as_u32(),
+                bm25_text_opno.as_u32()
             );
 
-            if opno == bm25_opno {
+            if opno == bm25_opno || opno == bm25_text_opno {
                 pgrx::log!("trace_quals_for_bm25: Found BM25 operator!");
 
                 // Examine arguments in detail
@@ -2426,14 +2471,28 @@ unsafe fn analyze_where_clause_operators(quals: *mut pg_sys::Node, cte_idx: usiz
             let opexpr = quals.cast::<pg_sys::OpExpr>();
             let opno = (*opexpr).opno;
             let our_opno = anyelement_query_input_opoid();
+            let our_opno_text = anyelement_text_opoid();
 
             pgrx::log!(
-                "analyze_where_clause_operators: CTE #{} WHERE clause has OpExpr with opno={} (BM25 opno={}), is_match={}",
+                "analyze_where_clause_operators: CTE #{} WHERE clause has OpExpr with opno={:?} (BM25 opno={:?}, BM25 text opno={:?}), is_match={}",
                 cte_idx,
-                opno.as_u32(),
-                our_opno.as_u32(),
-                opno == our_opno
+                opno,
+                our_opno,
+                our_opno_text,
+                opno == our_opno || opno == our_opno_text
             );
+
+            // More detailed OID comparison for debugging
+            if opno != our_opno && opno != our_opno_text {
+                pgrx::log!(
+                    "analyze_where_clause_operators: OID comparison failed: opno({:?}) != our_opno({:?}, {:?}), equality={}, as_u32 equality={}",
+                    opno,
+                    our_opno,
+                    our_opno_text,
+                    opno == our_opno || opno == our_opno_text,
+                    opno.as_u32() == our_opno.as_u32() || opno.as_u32() == our_opno_text.as_u32()
+                );
+            }
 
             // Try to get operator name
             unsafe {
@@ -2448,13 +2507,14 @@ unsafe fn analyze_where_clause_operators(quals: *mut pg_sys::Node, cte_idx: usiz
 
             // Special check for BM25-like operators
             if let Ok(op_name) = std::ffi::CStr::from_ptr(pg_sys::get_opname(opno)).to_str() {
-                if op_name == "@@@" || op_name == "@@" || op_name == "@" {
+                if op_name == "@@@" {
                     pgrx::log!(
-                        "analyze_where_clause_operators: CTE #{} WHERE clause has SUSPICIOUS BM25-like operator '{}' (opno={}, BM25 opno={})",
+                        "analyze_where_clause_operators: CTE #{} WHERE clause has SUSPICIOUS BM25-like operator '{}' (opno={}, BM25 opno={}, BM25 text opno={})",
                         cte_idx,
                         op_name,
                         opno.as_u32(),
-                        our_opno.as_u32()
+                        our_opno.as_u32(),
+                        our_opno_text.as_u32()
                     );
                 }
             }

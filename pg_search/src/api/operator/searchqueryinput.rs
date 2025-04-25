@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 use super::{
-    anyelement_query_input_opoid, anyelement_query_input_procoid,
+    anyelement_query_input_opoid, anyelement_query_input_procoid, anyelement_text_opoid,
     make_search_query_input_opexpr_node,
 };
 use crate::api::operator::{estimate_selectivity, find_var_relation, ReturnedNodePointer};
@@ -139,44 +139,282 @@ pub unsafe fn query_input_support(arg: Internal) -> ReturnedNodePointer {
         return node;
     }
 
+    if let Some(node) = query_input_support_request_index_condition(datum) {
+        return node;
+    }
+
     ReturnedNodePointer(None)
 }
 
 fn query_input_support_request_simplify(arg: pg_sys::Datum) -> Option<ReturnedNodePointer> {
     unsafe {
-        let srs = nodecast!(
+        pgrx::log!("query_input_support_request_simplify: Starting function");
+
+        // Try to cast the input arg to a SupportRequestSimplify node
+        let srs = match nodecast!(
             SupportRequestSimplify,
             T_SupportRequestSimplify,
             arg.cast_mut_ptr::<pg_sys::Node>()
-        )?;
+        ) {
+            Some(node) => {
+                pgrx::log!("query_input_support_request_simplify: Successfully cast to SupportRequestSimplify");
+                node
+            }
+            None => {
+                pgrx::log!("query_input_support_request_simplify: Failed to cast to SupportRequestSimplify");
+                pgrx::log!(
+                    "query_input_support_request_simplify: Node type={:?}",
+                    (*arg.cast_mut_ptr::<pg_sys::Node>()).type_
+                );
+                return None;
+            }
+        };
 
-        // Rewrite this node touse the @@@(key_field, paradedb.searchqueryinput) operator.
+        // Log if the fcall is null
+        if (*srs).fcall.is_null() {
+            pgrx::log!("query_input_support_request_simplify: fcall is null");
+            return None;
+        }
+
+        // Log function details
+        let func_oid = (*(*srs).fcall).funcid;
+        pgrx::log!(
+            "query_input_support_request_simplify: Function OID={:?}",
+            func_oid
+        );
+
+        if let Ok(func_name) = std::ffi::CStr::from_ptr(pg_sys::get_func_name(func_oid)).to_str() {
+            pgrx::log!(
+                "query_input_support_request_simplify: Function name={}",
+                func_name
+            );
+        }
+
+        // Rewrite this node to use the @@@(key_field, paradedb.searchqueryinput) operator.
         // This involves converting the rhs of the operator into a SearchQueryInput.
         let mut input_args = PgList::<pg_sys::Node>::from_pg((*(*srs).fcall).args);
-        let var = nodecast!(Var, T_Var, input_args.get_ptr(0)?)?;
 
-        // NB:  there was a point where we only allowed a relation reference on the left of @@@
-        // when the right side uses a builder function, but we've decided that also allowing a field
-        // name is materially better as the relation reference might be an artificial ROW(...) whereas
-        // a field will be a legitimate Var from which we can derive the physical table.
-        // if (*var).varattno != 0 {
-        //     panic!("the left side of the `@@@` operator must be a relation reference when the right side uses a builder function");
-        // }
+        pgrx::log!(
+            "query_input_support_request_simplify: Input args length={}",
+            input_args.len()
+        );
 
-        let rhs = input_args.get_ptr(1)?;
+        // Log arg types
+        for (i, arg) in input_args.iter_ptr().enumerate() {
+            pgrx::log!(
+                "query_input_support_request_simplify: Arg #{} type={:?}",
+                i,
+                (*arg).type_
+            );
+        }
+
+        // Get the left-hand side variable
+        let var = match nodecast!(Var, T_Var, input_args.get_ptr(0)?) {
+            Some(v) => {
+                pgrx::log!(
+                    "query_input_support_request_simplify: Left arg is Var with varno={}, varattno={}, varlevelsup={}",
+                    (*v).varno, (*v).varattno, (*v).varlevelsup
+                );
+                v
+            }
+            None => {
+                pgrx::log!("query_input_support_request_simplify: Left arg is not a Var");
+                return None;
+            }
+        };
+
+        // Get the right-hand side
+        let rhs = match input_args.get_ptr(1) {
+            Some(node) => {
+                pgrx::log!(
+                    "query_input_support_request_simplify: Right arg type={:?}",
+                    (*node).type_
+                );
+                node
+            }
+            None => {
+                pgrx::log!("query_input_support_request_simplify: Right arg is missing");
+                return None;
+            }
+        };
+
+        // Try to get the query from the right-hand side
         let query = nodecast!(Const, T_Const, rhs)
-            .map(|const_| SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull))
+            .map(|const_| {
+                pgrx::log!(
+                    "query_input_support_request_simplify: Right arg is Const with consttype={:?}, constisnull={}",
+                    (*const_).consttype, (*const_).constisnull
+                );
+                SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull)
+            })
             .flatten();
 
-        Some(make_search_query_input_opexpr_node(
+        if query.is_none() {
+            pgrx::log!("query_input_support_request_simplify: Failed to convert right arg to SearchQueryInput");
+        } else {
+            pgrx::log!("query_input_support_request_simplify: Successfully converted right arg to SearchQueryInput");
+        }
+
+        // Get operator OIDs for logging
+        let op_oid = anyelement_query_input_opoid();
+        let proc_oid = anyelement_query_input_procoid();
+        pgrx::log!(
+            "query_input_support_request_simplify: Using operator OID={:?}, proc OID={:?}",
+            op_oid,
+            proc_oid
+        );
+
+        // Create the node
+        let result = make_search_query_input_opexpr_node(
             srs,
             &mut input_args,
             var,
             query,
             None,
-            anyelement_query_input_opoid(),
-            anyelement_query_input_procoid(),
-        ))
+            op_oid,
+            proc_oid,
+        );
+
+        pgrx::log!(
+            "query_input_support_request_simplify: Result node created={}",
+            result.0.is_some()
+        );
+
+        Some(result)
+    }
+}
+
+fn query_input_support_request_index_condition(arg: pg_sys::Datum) -> Option<ReturnedNodePointer> {
+    unsafe {
+        pgrx::log!("query_input_support_request_index_condition: Starting function");
+
+        // Try to cast the input arg to a SupportRequestIndexCondition node
+        let src = match nodecast!(
+            SupportRequestIndexCondition,
+            T_SupportRequestIndexCondition,
+            arg.cast_mut_ptr::<pg_sys::Node>()
+        ) {
+            Some(node) => {
+                pgrx::log!("query_input_support_request_index_condition: Successfully cast to SupportRequestIndexCondition");
+                node
+            }
+            None => {
+                pgrx::log!("query_input_support_request_index_condition: Failed to cast to SupportRequestIndexCondition");
+                pgrx::log!(
+                    "query_input_support_request_index_condition: Node type={:?}",
+                    (*arg.cast_mut_ptr::<pg_sys::Node>()).type_
+                );
+                return None;
+            }
+        };
+
+        // Log node information
+        pgrx::log!("query_input_support_request_index_condition: Examining node");
+
+        if (*src).node.is_null() {
+            pgrx::log!("query_input_support_request_index_condition: node is null");
+            return None;
+        }
+
+        // Check if the node is an OpExpr and uses our operator
+        let node_type = (*(*src).node).type_;
+        pgrx::log!(
+            "query_input_support_request_index_condition: Node type={:?}",
+            node_type
+        );
+
+        // Verify it's our operator
+        if node_type == pg_sys::NodeTag::T_OpExpr {
+            let opexpr = (*src).node.cast::<pg_sys::OpExpr>();
+            let op_oid = (*opexpr).opno;
+            let our_query_input_op_oid = anyelement_query_input_opoid();
+            let our_text_op_oid = anyelement_text_opoid(); // Get the text version of the operator OID
+
+            pgrx::log!(
+                "query_input_support_request_index_condition: Checking if op_oid={:?} matches our BM25 operators (query_input={:?}, text={:?})",
+                op_oid,
+                our_query_input_op_oid,
+                our_text_op_oid
+            );
+
+            // Check if it's either of our operators
+            let is_our_operator = op_oid == our_query_input_op_oid || op_oid == our_text_op_oid;
+
+            if is_our_operator {
+                pgrx::log!("query_input_support_request_index_condition: Found our BM25 operator");
+
+                // Get the index of the argument that corresponds to the index column
+                let indexarg = (*src).indexarg;
+                pgrx::log!(
+                    "query_input_support_request_index_condition: indexarg={}",
+                    indexarg
+                );
+
+                // Get all arguments
+                let mut args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
+                if args.len() >= 2 && indexarg >= 0 && (indexarg as usize) < args.len() {
+                    pgrx::log!(
+                        "query_input_support_request_index_condition: Examining operator arguments: {:?}",
+                        args.len()
+                    );
+
+                    // For BM25, we typically expect the index column to be the left arg (0)
+                    // and our query to be the right arg (1)
+                    if let (Some(larg), Some(rarg)) = (args.get_ptr(0), args.get_ptr(1)) {
+                        // Check that this looks like a proper BM25 operator usage
+                        if let Some(var) = nodecast!(Var, T_Var, larg) {
+                            // Check right argument - can be either a Const with text or with SearchQueryInput
+                            if let Some(const_) = nodecast!(Const, T_Const, rarg) {
+                                // For text operator
+                                if op_oid == our_text_op_oid {
+                                    // This is our text operator - mark it as not lossy
+                                    (*src).lossy = false;
+
+                                    // Create a list with the original expression
+                                    let result_list = pg_sys::NIL.cast_mut();
+                                    let result_list =
+                                        pg_sys::lappend(result_list, (*src).node.cast());
+
+                                    pgrx::log!("query_input_support_request_index_condition: Created result list for text operator");
+
+                                    return Some(ReturnedNodePointer(NonNull::new(
+                                        result_list.cast(),
+                                    )));
+                                }
+                                // For SearchQueryInput operator
+                                else {
+                                    let query = SearchQueryInput::from_datum(
+                                        (*const_).constvalue,
+                                        (*const_).constisnull,
+                                    );
+                                    if query.is_some() {
+                                        pgrx::log!("query_input_support_request_index_condition: Successfully extracted search query");
+
+                                        // For BM25, we can handle the condition exactly as is
+                                        // This is not a "lossy" index condition
+                                        (*src).lossy = false;
+
+                                        // Create a list with the original expression
+                                        let result_list = pg_sys::NIL.cast_mut();
+                                        let result_list =
+                                            pg_sys::lappend(result_list, (*src).node.cast());
+
+                                        pgrx::log!("query_input_support_request_index_condition: Created result list for query_input operator");
+
+                                        return Some(ReturnedNodePointer(NonNull::new(
+                                            result_list.cast(),
+                                        )));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        pgrx::log!("query_input_support_request_index_condition: Could not handle index condition");
+        None
     }
 }
 

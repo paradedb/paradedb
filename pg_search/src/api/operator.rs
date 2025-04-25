@@ -80,7 +80,7 @@ pub fn anyelement_query_input_procoid() -> pg_sys::Oid {
     }
 }
 
-fn anyelement_text_procoid() -> pg_sys::Oid {
+pub fn anyelement_text_procoid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(
             pg_sys::regprocedurein,
@@ -90,7 +90,7 @@ fn anyelement_text_procoid() -> pg_sys::Oid {
     }
 }
 
-fn anyelement_text_opoid() -> pg_sys::Oid {
+pub fn anyelement_text_opoid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(
             pg_sys::regoperatorin,
@@ -102,11 +102,20 @@ fn anyelement_text_opoid() -> pg_sys::Oid {
 
 pub fn anyelement_query_input_opoid() -> pg_sys::Oid {
     unsafe {
-        direct_function_call::<pg_sys::Oid>(
+        let op_oid = direct_function_call::<pg_sys::Oid>(
             pg_sys::regoperatorin,
             &[c"@@@(anyelement, paradedb.searchqueryinput)".into_datum()],
         )
-        .expect("the `@@@(anyelement, paradedb.searchqueryinput)` operator should exist")
+        .expect("the `@@@(anyelement, paradedb.searchqueryinput)` operator should exist");
+
+        pgrx::log!("anyelement_query_input_opoid returning OID={:?}", op_oid);
+
+        // Try to get the operator name to double check
+        if let Ok(op_name) = std::ffi::CStr::from_ptr(pg_sys::get_opname(op_oid)).to_str() {
+            pgrx::log!("anyelement_query_input_opoid operator name='{}'", op_name);
+        }
+
+        op_oid
     }
 }
 
@@ -302,6 +311,168 @@ unsafe fn make_search_query_input_opexpr_node(
     newopexpr.opcollid = pg_sys::Oid::INVALID;
     newopexpr.inputcollid = pg_sys::DEFAULT_COLLATION_OID;
     newopexpr.location = (*(*srs).fcall).location;
+
+    // then assign that list to our new OpExpr node
+    newopexpr.args = input_args.as_ptr();
+
+    let newopexpr = newopexpr.into_pg();
+
+    ReturnedNodePointer(NonNull::new(newopexpr.cast()))
+}
+
+unsafe fn make_search_query_index_input_opexpr_node(
+    srs: *mut pg_sys::SupportRequestIndexCondition,
+    input_args: &mut PgList<pg_sys::Node>,
+    var: *mut pg_sys::Var,
+    query: Option<SearchQueryInput>,
+    parse_with_field: Option<(*mut pg_sys::Node, String)>,
+    opoid: pg_sys::Oid,
+    procoid: pg_sys::Oid,
+) -> ReturnedNodePointer {
+    let (relid, _varattno, targetlist) = find_var_relation(var, (*srs).root);
+    if relid == pg_sys::Oid::INVALID {
+        panic!("could not determine relation for var");
+    }
+
+    // we need to use what should be the only `USING bm25` index on the table
+    let heaprel = PgRelation::open(relid);
+    let indexrel = locate_bm25_index(relid).unwrap_or_else(|| {
+        panic!(
+            "relation `{}.{}` must have a `USING bm25` index",
+            heaprel.namespace(),
+            heaprel.name()
+        )
+    });
+
+    let keys = &(*indexrel.rd_index).indkey;
+    let keys = keys.values.as_slice(keys.dim1 as usize);
+    let tupdesc = PgTupleDesc::from_pg_unchecked(indexrel.rd_att);
+    let att = tupdesc
+        .get(0)
+        .unwrap_or_else(|| panic!("attribute `{}` not found", keys[0]));
+
+    if let Some(targetlist) = &targetlist {
+        // if we have a targetlist, find the first field of the index definition in it -- its location
+        // in the target list becomes the var's attno
+        let mut found = false;
+        for (i, te) in targetlist.iter_ptr().enumerate() {
+            if te.is_null() {
+                continue;
+            }
+            if (*te).resorigcol == keys[0] {
+                (*var).varattno = (i + 1) as _;
+                (*var).varattnosyn = (*var).varattno;
+                found = true;
+                break;
+            }
+        }
+
+        if !found {
+            panic!("index's first column is not in the var's targetlist");
+        }
+    } else {
+        // the Var must look like the first attribute from the index definition
+        (*var).varattno = keys[0];
+        (*var).varattnosyn = (*var).varattno;
+    }
+
+    // the Var must also assume the type of the first attribute from the index definition,
+    // regardless of where we found the Var
+    (*var).vartype = att.atttypid;
+    (*var).vartypmod = att.atttypmod;
+    (*var).varcollid = att.attcollation;
+
+    // we're about to fabricate a new pg_sys::OpExpr node to return
+    // that represents the `@@@(anyelement, paradedb.searchqueryinput)` operator
+    let mut newopexpr = PgBox::<pg_sys::OpExpr>::alloc_node(pg_sys::NodeTag::T_OpExpr);
+
+    if let Some(query) = query {
+        // In case a sequential scan gets triggered, we need a way to pass the index oid
+        // to the scan function. It otherwise will not know which index to use.
+        let wrapped_query = SearchQueryInput::WithIndex {
+            oid: indexrel.oid(),
+            query: Box::new(query),
+        };
+
+        // create a new pg_sys::Const node
+        let search_query_input_const = pg_sys::makeConst(
+            searchqueryinput_typoid(),
+            -1,
+            pg_sys::Oid::INVALID,
+            -1,
+            wrapped_query.into_datum().unwrap(),
+            false,
+            false,
+        );
+
+        // and assign it to the original argument list
+        input_args.replace_ptr(1, search_query_input_const.cast());
+
+        newopexpr.opno = anyelement_query_input_opoid();
+        newopexpr.opfuncid = anyelement_query_input_procoid();
+    } else if let Some((param, attname)) = parse_with_field {
+        // rewrite the rhs to be a function call to our `paradedb.parse_with_field(...)` function
+        let mut parse_with_field_args = PgList::<pg_sys::Node>::new();
+
+        parse_with_field_args.push(
+            pg_sys::makeConst(
+                fieldname_typoid(),
+                -1,
+                pg_sys::Oid::INVALID,
+                -1,
+                FieldName::from(attname).into_datum().unwrap(),
+                false,
+                false,
+            )
+            .cast(),
+        );
+        parse_with_field_args.push(param.cast());
+        parse_with_field_args.push(
+            pg_sys::makeConst(
+                pg_sys::BOOLOID,
+                -1,
+                pg_sys::Oid::INVALID,
+                size_of::<bool>() as _,
+                pg_sys::Datum::from(false),
+                false,
+                true,
+            )
+            .cast(),
+        );
+        parse_with_field_args.push(
+            pg_sys::makeConst(
+                pg_sys::BOOLOID,
+                -1,
+                pg_sys::Oid::INVALID,
+                size_of::<bool>() as _,
+                pg_sys::Datum::from(false),
+                false,
+                true,
+            )
+            .cast(),
+        );
+
+        let funcexpr = pg_sys::makeFuncExpr(
+            parse_with_field_procoid(),
+            searchqueryinput_typoid(),
+            parse_with_field_args.into_pg(),
+            pg_sys::Oid::INVALID,
+            pg_sys::DEFAULT_COLLATION_OID,
+            pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
+        );
+
+        input_args.replace_ptr(1, funcexpr.cast());
+        newopexpr.opno = anyelement_query_input_opoid();
+        newopexpr.opfuncid = anyelement_query_input_procoid();
+    } else {
+        newopexpr.opno = opoid;
+        newopexpr.opfuncid = procoid;
+    }
+
+    newopexpr.opresulttype = pg_sys::BOOLOID;
+    newopexpr.opcollid = pg_sys::Oid::INVALID;
+    newopexpr.inputcollid = (*srs).indexcollation;
+    newopexpr.location = 0;
 
     // then assign that list to our new OpExpr node
     newopexpr.args = input_args.as_ptr();

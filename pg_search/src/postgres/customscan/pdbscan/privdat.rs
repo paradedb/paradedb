@@ -19,7 +19,13 @@ use crate::api::Cardinality;
 use crate::postgres::customscan::builders::custom_path::OrderByStyle;
 use crate::postgres::customscan::builders::custom_path::SortDirection;
 use crate::query::SearchQueryInput;
-use pgrx::{pg_sys, PgList};
+use pgrx::pg_sys;
+use rustc_hash::FxHashMap;
+
+#[cfg(feature = "pg14")]
+type Varno = pg_sys::Index;
+#[cfg(not(feature = "pg14"))]
+type Varno = i32;
 
 #[derive(Default, Debug)]
 pub struct PrivateData {
@@ -30,7 +36,7 @@ pub struct PrivateData {
     limit: Option<usize>,
     sort_field: Option<String>,
     sort_direction: Option<SortDirection>,
-    var_attname_lookup: Option<*mut pg_sys::List>,
+    var_attname_lookup: Option<FxHashMap<(Varno, pg_sys::AttrNumber), String>>,
     maybe_ff: bool,
     segment_count: usize,
 }
@@ -84,7 +90,10 @@ impl PrivateData {
         self.sort_direction = Some(style.direction())
     }
 
-    pub fn set_var_attname_lookup(&mut self, var_attname_lookup: *mut pg_sys::List) {
+    pub fn set_var_attname_lookup(
+        &mut self,
+        var_attname_lookup: FxHashMap<(Varno, pg_sys::AttrNumber), String>,
+    ) {
         self.var_attname_lookup = Some(var_attname_lookup);
     }
 
@@ -137,9 +146,8 @@ impl PrivateData {
         )
     }
 
-    pub fn var_attname_lookup(&self) -> Option<PgList<pg_sys::Node>> {
-        self.var_attname_lookup
-            .map(|list| unsafe { PgList::from_pg(list) })
+    pub fn var_attname_lookup(&self) -> &Option<FxHashMap<(Varno, pg_sys::AttrNumber), String>> {
+        &self.var_attname_lookup
     }
 
     pub fn maybe_ff(&self) -> bool {

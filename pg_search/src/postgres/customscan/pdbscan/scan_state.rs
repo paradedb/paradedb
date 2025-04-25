@@ -29,8 +29,8 @@ use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
 use pgrx::heap_tuple::PgHeapTuple;
 use pgrx::{name_data_to_str, pg_sys, PgRelation, PgTupleDesc};
+use rustc_hash::FxHashMap;
 use std::cell::UnsafeCell;
-use std::collections::HashMap;
 use tantivy::snippet::SnippetGenerator;
 
 #[derive(Default)]
@@ -73,11 +73,11 @@ pub struct PdbScanState {
     pub const_score_node: Option<*mut pg_sys::Const>,
     pub score_funcoid: pg_sys::Oid,
 
-    pub const_snippet_nodes: HashMap<SnippetInfo, Vec<*mut pg_sys::Const>>,
+    pub const_snippet_nodes: FxHashMap<SnippetInfo, Vec<*mut pg_sys::Const>>,
     pub snippet_funcoid: pg_sys::Oid,
     pub snippet_generators:
-        HashMap<SnippetInfo, Option<(tantivy::schema::Field, SnippetGenerator)>>,
-    pub var_attname_lookup: HashMap<(i32, pg_sys::AttrNumber), String>,
+        FxHashMap<SnippetInfo, Option<(tantivy::schema::Field, SnippetGenerator)>>,
+    pub var_attname_lookup: FxHashMap<(i32, pg_sys::AttrNumber), String>,
 
     pub placeholder_targetlist: Option<*mut pg_sys::List>,
 

@@ -28,7 +28,7 @@ mod solve_expr;
 use crate::api::operator::{
     anyelement_query_input_opoid, attname_from_var, estimate_selectivity, find_var_relation,
 };
-use crate::api::{AsCStr, AsInt, Cardinality};
+use crate::api::Cardinality;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::builders::custom_path::{
@@ -64,9 +64,9 @@ use crate::schema::SearchIndexSchema;
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
 use exec_methods::top_n::TopNScanExecState;
 use exec_methods::ExecState;
-use pgrx::pg_sys::{AsPgCStr, CustomExecMethods};
+use pgrx::pg_sys::CustomExecMethods;
 use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts, PgRelation};
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::ffi::CStr;
 use std::ptr::addr_of_mut;
 use tantivy::snippet::SnippetGenerator;
@@ -380,7 +380,7 @@ impl CustomScan for PdbScan {
             let processed_tlist =
                 PgList::<pg_sys::TargetEntry>::from_pg((*builder.args().root).processed_tlist);
 
-            let mut attname_lookup = PgList::<pg_sys::Node>::new();
+            let mut attname_lookup = FxHashMap::default();
             let score_funcoid = score_funcoid();
             let snippet_funcoid = snippet_funcoid();
             for te in processed_tlist.iter_ptr() {
@@ -407,15 +407,13 @@ impl CustomScan for PdbScan {
                     let attname = attname_from_var(builder.args().root, var)
                         .1
                         .expect("function call argument should be a column name");
-                    attname_lookup.push(pg_sys::makeInteger((*var).varno as _).cast());
-                    attname_lookup.push(pg_sys::makeInteger((*var).varattno as _).cast());
-                    attname_lookup.push(pg_sys::makeString(attname.as_pg_cstr()).cast());
+                    attname_lookup.insert(((*var).varno, (*var).varattno), attname);
                 }
             }
 
             builder
                 .custom_private_mut()
-                .set_var_attname_lookup(attname_lookup.into_pg());
+                .set_var_attname_lookup(attname_lookup);
             builder.build()
         }
     }
@@ -475,48 +473,13 @@ impl CustomScan for PdbScan {
 
             builder.custom_state().segment_count = builder.custom_private().segment_count();
 
-            // now build up the var attribute name lookup map
-            unsafe fn populate_var_attname_lookup(
-                lookup: &mut HashMap<(i32, pg_sys::AttrNumber), String>,
-                iter: impl Iterator<Item = *mut pg_sys::Node>,
-            ) -> Option<()> {
-                let mut iter = iter.peekable();
-                while let Some(node) = iter.next() {
-                    let (varno, varattno, attname) = {
-                        let varno = node.as_int()?;
-                        let varattno = iter.next()?.as_int()?;
-                        let attname = iter.next()?.as_c_str()?.as_ptr();
-
-                        (varno, varattno, attname)
-                    };
-
-                    lookup.insert(
-                        (varno as _, varattno as _),
-                        CStr::from_ptr(attname).to_string_lossy().to_string(),
-                    );
-                }
-
-                Some(())
-            }
-
-            let var_attname_lookup = builder
+            // TODO: Clone? Take?
+            builder.custom_state().var_attname_lookup = builder
                 .custom_private()
                 .var_attname_lookup()
+                .as_ref()
+                .cloned()
                 .expect("should have an attribute name lookup");
-            assert_eq!(
-                var_attname_lookup.len() % 3,
-                0,
-                "correct number of var_attname_lookup entries"
-            );
-
-            if populate_var_attname_lookup(
-                &mut builder.custom_state().var_attname_lookup,
-                var_attname_lookup.iter_ptr(),
-            )
-            .is_none()
-            {
-                panic!("failed to properly build `var_attname_lookup` due to mis-typed List");
-            }
 
             let score_funcoid = score_funcoid();
             let snippet_funcoid = snippet_funcoid();
@@ -781,7 +744,7 @@ impl CustomScan for PdbScan {
         state.custom_state_mut().init_exec_method(csstate);
 
         if need_snippets {
-            let mut snippet_generators: HashMap<
+            let mut snippet_generators: FxHashMap<
                 SnippetInfo,
                 Option<(tantivy::schema::Field, SnippetGenerator)>,
             > = state

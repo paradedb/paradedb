@@ -129,10 +129,10 @@ impl CustomScan for PdbScan {
                     // );
 
                     // Analyze parent query structure for diagnostics
-                    analyze_query_restrictions((*root).parent_root);
+                    // analyze_query_restrictions((*root).parent_root);
                 } else {
                     // Not a subquery, analyze the main query
-                    analyze_query_restrictions(root);
+                    // analyze_query_restrictions(root);
                 }
 
                 return None;
@@ -1119,10 +1119,57 @@ fn check_visibility(
     ctid: u64,
     bslot: *mut pg_sys::BufferHeapTupleTableSlot,
 ) -> Option<*mut pg_sys::TupleTableSlot> {
-    state
+    // Enhanced logging for the visibility check
+    pgrx::warning!(
+        "check_visibility: Checking visibility for ctid={}, rte={:?}, join_type={}, relation={}",
+        ctid,
+        state.custom_state().rti,
+        if unsafe { pg_sys::CurrentMemoryContext.is_null() } {
+            "Unknown"
+        } else {
+            "Known"
+        },
+        state.custom_state().heaprelname()
+    );
+
+    // Call the visibility checker with enhanced logging
+    let result = state
         .custom_state_mut()
         .visibility_checker()
-        .exec_if_visible(ctid, bslot.cast(), move |heaprel| bslot.cast())
+        .exec_if_visible(ctid, bslot.cast(), move |heaprel| {
+            // Log if it was visible
+            pgrx::warning!("check_visibility: ctid={} IS VISIBLE", ctid);
+
+            unsafe {
+                // Attempt to extract more information about what's in the tuple
+                // For debugging purposes only
+                let heap_tuple = (*bslot).base.tuple;
+                if !heap_tuple.is_null() {
+                    pgrx::warning!("check_visibility: ctid={} has heap_tuple data", ctid);
+                } else {
+                    pgrx::warning!("check_visibility: ctid={} has NULL heap_tuple", ctid);
+                }
+            }
+
+            bslot.cast()
+        });
+
+    // Log the result of the visibility check with more context
+    if result.is_some() {
+        pgrx::warning!(
+            "check_visibility: ctid={} visibility check PASSED in context={:?}",
+            ctid,
+            unsafe { pg_sys::CurrentMemoryContext }
+        );
+    } else {
+        pgrx::warning!(
+            "check_visibility: ctid={} visibility check FAILED in context={:?}",
+            ctid,
+            unsafe { pg_sys::CurrentMemoryContext }
+        );
+    }
+
+    result
 }
 
 unsafe fn inject_score_and_snippet_placeholders(state: &mut CustomScanStateWrapper<PdbScan>) {
@@ -1492,7 +1539,7 @@ unsafe fn is_cte_query(root: *mut pg_sys::PlannerInfo) -> bool {
 
                     // More detailed analysis of CTE query structure
                     pgrx::warning!("is_cte_query: Analyzing CTE #{} query structure:", i);
-                    analyze_query_restrictions((*cte).ctequery.cast());
+                    // analyze_query_restrictions((*cte).ctequery.cast());
 
                     // // Log target list
                     // if let Some(target_list) =
@@ -1531,7 +1578,7 @@ unsafe fn is_cte_query(root: *mut pg_sys::PlannerInfo) -> bool {
 
             // Analyze the main query too
             pgrx::warning!("is_cte_query: Analyzing main query structure:");
-            analyze_query_restrictions(root);
+            // analyze_query_restrictions(root);
 
             return true;
         }
@@ -2592,28 +2639,87 @@ pub fn debug_document_id(searcher: &tantivy::Searcher, doc_address: tantivy::Doc
     if let Ok(doc) = searcher.doc::<tantivy::schema::TantivyDocument>(doc_address) {
         let schema = searcher.schema();
 
-        // Extract the id field which is critical for joins
+        // Create a comprehensive debug representation of the document
+        let mut doc_info = format!(
+            "DocAddr({},{})",
+            doc_address.segment_ord, doc_address.doc_id
+        );
+        let mut found_id = false;
+        let mut is_company_15 = false;
+
+        // First, specifically look for ID fields to report them prominently
         for (field, field_entry) in schema.fields() {
             let field_name = field_entry.name();
+
             // Check if this is an ID field
-            if field_name == "id" || field_name.ends_with(".id") || field_name.ends_with("_id") {
+            if field_name == "id"
+                || field_name.ends_with(".id")
+                || field_name.ends_with("_id")
+                || field_name.contains("id")
+            {
                 if let Some(field_value) = doc.get_first(field) {
-                    // Use debug format for the field value
-                    return format!("ID Field '{}' = {:?}", field_name, field_value);
+                    // Add this ID field to our output with special formatting
+                    let val_str = format!("{:?}", field_value);
+                    doc_info.push_str(&format!(" | ID:'{}={}'", field_name, val_str));
+                    found_id = true;
+
+                    // Specifically check for company_id = 15
+                    // More precise matching for "company_id" field
+                    if (field_name == "company_id"
+                        || field_name == "company.id"
+                        || field_name == "companyid")
+                        && val_str.trim_matches('"') == "15"
+                    {
+                        is_company_15 = true;
+                        doc_info.push_str(" [COMPANY 15 FOUND!]");
+                    }
+                    // Also check if the field is just "id" and the parent object might be a company
+                    else if field_name == "id" && val_str.trim_matches('"') == "15" {
+                        // This might be company 15, mark it for further analysis
+                        doc_info.push_str(" [POSSIBLE COMPANY 15]");
+                    }
+                } else {
+                    doc_info.push_str(&format!(" | [{} NOT FOUND]", field_name));
+                }
+            } else {
+                if let Some(field_value) = doc.get_first(field) {
+                    // Add this field to our output
+                    let val_str = format!("{:?}", field_value);
+                    doc_info.push_str(&format!(" | {}={}", field_name, val_str));
+
+                    // Also check for company name field
+                    if (field_name == "company_name"
+                        || field_name == "company.name"
+                        || field_name == "name")
+                        && val_str.contains("Important Testing")
+                    {
+                        is_company_15 = true;
+                        doc_info.push_str(" [COMPANY 15 BY NAME!]");
+                    }
+                } else {
+                    doc_info.push_str(&format!(" | [{} NOT FOUND EITHER]", field_name));
                 }
             }
         }
 
-        // If no ID field found, return a summary of available fields
-        let mut field_names = Vec::new();
-        for (field, field_entry) in schema.fields() {
-            if doc.get_first(field).is_some() {
-                field_names.push(field_entry.name().to_string());
-            }
+        if schema.fields().next().is_none() {
+            doc_info.push_str(" | [NO FIELDS EXISTED!]");
+        } else {
+            doc_info.push_str(" | [FIELDS EXISTED!]");
         }
 
-        format!("Doc (no ID field) with fields: {:?}", field_names)
+        // Additional marker if this is company 15
+        if is_company_15 {
+            doc_info = format!("COMPANY_15: {}", doc_info);
+        }
+
+        // If we didn't find any ID field, add a warning
+        if !found_id {
+            doc_info.push_str(" | [NO ID FIELD FOUND]");
+        }
+
+        return doc_info;
     } else {
-        "Failed to retrieve document".to_string()
+        format!("Failed to retrieve document at {:?}", doc_address)
     }
 }

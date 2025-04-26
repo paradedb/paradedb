@@ -24,6 +24,7 @@ use crate::postgres::customscan::pdbscan::is_block_all_visible;
 use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::utils::u64_to_item_pointer;
+use crate::query::AsHumanReadable;
 use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::pg_sys;
 
@@ -250,10 +251,19 @@ impl ExecMethod for NormalScanExecState {
                     "no reader available".to_string()
                 };
 
+                // Enhanced logging with detailed document inspection
                 pgrx::warning!(
                     "NormalScanExecState::internal_next: Got result with ctid={}, score={}, {}, can use VM for rti={:?}",
                     scored.ctid, scored.bm25, doc_id_info, state.rti
                 );
+
+                // Enhanced logging to inspect document details - look for company ID 15
+                if doc_id_info.contains("15:") {
+                    pgrx::warning!(
+                        "NormalScanExecState::internal_next: FOUND COMPANY 15! ctid={}, score={}, doc_id_info={}",
+                        scored.ctid, scored.bm25, doc_id_info
+                    );
+                }
 
                 let mut tid = pg_sys::ItemPointerData::default();
                 u64_to_item_pointer(scored.ctid, &mut tid);
@@ -318,10 +328,19 @@ impl ExecMethod for NormalScanExecState {
                     "no reader available".to_string()
                 };
 
+                // Enhanced logging with detailed document inspection
                 pgrx::warning!(
                     "NormalScanExecState::internal_next: Got result with ctid={}, score={}, {}, can't use VM for rti={:?}",
                     scored.ctid, scored.bm25, doc_id_info, state.rti
                 );
+
+                // Enhanced logging to inspect document details - look for company ID 15
+                if doc_id_info.contains("15:") {
+                    pgrx::warning!(
+                        "NormalScanExecState::internal_next: FOUND COMPANY 15! ctid={}, score={}, doc_id_info={}",
+                        scored.ctid, scored.bm25, doc_id_info
+                    );
+                }
 
                 // Convert to heap tuple coordinates for better logging
                 let mut tid = pg_sys::ItemPointerData::default();
@@ -358,11 +377,19 @@ impl NormalScanExecState {
             return false;
         }
 
+        // Log the query details in detail for debugging
         pgrx::warning!(
             "NormalScanExecState::do_query: Executing search with need_scores={}, limit={:?}, query={:?} for rti={:?}",
             state.need_scores(),
             state.limit,
             &state.search_query_input,
+            state.rti
+        );
+
+        // Log the human readable query form for debugging
+        pgrx::warning!(
+            "NormalScanExecState::do_query: Human readable query: {} for rti={:?}",
+            state.search_query_input.as_human_readable(),
             state.rti
         );
 
@@ -382,6 +409,14 @@ impl NormalScanExecState {
         // Use a large default limit to ensure we get all results, but respect any actual limit
         // For CTE queries, using a sufficiently large limit ensures we process all possible matches
         let large_limit = state.limit.unwrap_or(100000); // Increased limit for better coverage
+
+        // Enhanced debugging for search_top_n call
+        pgrx::warning!(
+            "NormalScanExecState::do_query: Calling search_top_n with query_input={:?}, limit={} for rti={:?}",
+            state.search_query_input,
+            large_limit,
+            state.rti
+        );
 
         // Use search_top_n directly for deterministic ordering by score and then by ctid
         self.search_results = reader.search_top_n(
@@ -411,10 +446,19 @@ impl NormalScanExecState {
                 let mut results_clone = results.clone();
                 for i in 0..std::cmp::min(10, results_clone.len()) {
                     if let Some((score, doc_address)) = results_clone.next() {
+                        let doc_id_info = debug_document_id(&reader.searcher(), doc_address);
                         pgrx::warning!(
-                            "NormalScanExecState::do_query: Result #{} - score={}, segment={}, doc_id={} for rti={:?}",
-                            i, score, doc_address.segment_ord, doc_address.doc_id, state.rti
+                            "NormalScanExecState::do_query: Result #{} - score={}, segment={}, doc_id={}, doc_info={} for rti={:?}",
+                            i, score, doc_address.segment_ord, doc_address.doc_id, doc_id_info, state.rti
                         );
+
+                        // Enhanced logging to inspect document details - look for company ID 15
+                        if doc_id_info.contains("15:") {
+                            pgrx::warning!(
+                                "NormalScanExecState::do_query: FOUND COMPANY 15! Result #{} - score={}, segment={}, doc_id={}, doc_info={} for rti={:?}",
+                                i, score, doc_address.segment_ord, doc_address.doc_id, doc_id_info, state.rti
+                            );
+                        }
                     }
                 }
             }
@@ -429,10 +473,19 @@ impl NormalScanExecState {
                 let mut results_clone = results.clone();
                 for i in 0..std::cmp::min(10, results_clone.len()) {
                     if let Some((tweaked_score, doc_address)) = results_clone.next() {
+                        let doc_id_info = debug_document_id(&reader.searcher(), doc_address);
                         pgrx::warning!(
-                            "NormalScanExecState::do_query: Result #{} - tweaked_score={:?}, segment={}, doc_id={} for rti={:?}",
-                            i, tweaked_score, doc_address.segment_ord, doc_address.doc_id, state.rti
+                            "NormalScanExecState::do_query: Result #{} - tweaked_score={:?}, segment={}, doc_id={}, doc_info={} for rti={:?}",
+                            i, tweaked_score, doc_address.segment_ord, doc_address.doc_id, doc_id_info, state.rti
                         );
+
+                        // Enhanced logging to inspect document details - look for company ID 15
+                        if doc_id_info.contains("15:") {
+                            pgrx::warning!(
+                                "NormalScanExecState::do_query: FOUND COMPANY 15! Result #{} - score={:?}, segment={}, doc_id={}, doc_info={} for rti={:?}",
+                                i, tweaked_score, doc_address.segment_ord, doc_address.doc_id, doc_id_info, state.rti
+                            );
+                        }
                     }
                 }
             }

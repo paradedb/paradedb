@@ -42,10 +42,11 @@ use tantivy::{
     SegmentOrdinal, SegmentReader, TantivyDocument,
 };
 use tantivy::{snippet::SnippetGenerator, Executor};
+use crate::postgres::customscan::pdbscan::debug_document_id;
 
 /// Represents a matching document from a tantivy search.  Typically, it is returned as an Iterator
 /// Item alongside the originating tantivy [`DocAddress`]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy)]
 pub struct SearchIndexScore {
     pub ctid: u64,
     pub bm25: f32,
@@ -58,9 +59,34 @@ impl SearchIndexScore {
     }
 }
 
+impl PartialEq for SearchIndexScore {
+    fn eq(&self, other: &Self) -> bool {
+        self.ctid == other.ctid && self.bm25.to_bits() == other.bm25.to_bits()
+    }
+}
+
+// Manual implementation of Eq that delegates to PartialEq
+// This is technically not completely correct for f32, but works for our ordering needs
+impl Eq for SearchIndexScore {}
+
 impl PartialOrd for SearchIndexScore {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.bm25.partial_cmp(&other.bm25)
+        match self.bm25.partial_cmp(&other.bm25) {
+            Some(Ordering::Equal) => Some(self.ctid.cmp(&other.ctid)),
+            Some(ordering) => Some(ordering),
+            None => Some(self.ctid.cmp(&other.ctid)), // If score comparison fails, use ctid
+        }
+    }
+}
+
+impl Ord for SearchIndexScore {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // First compare by score (bm25)
+        match self.bm25.partial_cmp(&other.bm25) {
+            Some(Ordering::Equal) => self.ctid.cmp(&other.ctid), // For equal scores, sort by ctid
+            Some(ordering) => ordering,
+            None => self.ctid.cmp(&other.ctid), // If score comparison fails, use ctid
+        }
     }
 }
 
@@ -112,19 +138,31 @@ pub enum SearchResults {
     AllSegments(Searcher, Option<FFType>, Vec<scorer_iter::ScorerIter>),
 }
 
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Debug)]
 pub struct TweakedScore {
-    dir: SortDirection,
-    score: Score,
+    pub dir: SortDirection,
+    pub score: Score,
+    pub ctid: u64,
 }
 
 impl PartialOrd for TweakedScore {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        let cmp = self.score.partial_cmp(&other.score);
-        match self.dir {
-            SortDirection::Desc => cmp,
-            SortDirection::Asc => cmp.map(|o| o.reverse()),
-            SortDirection::None => Some(Ordering::Equal),
+        let score_cmp = self.score.partial_cmp(&other.score);
+
+        // First check scores
+        match score_cmp {
+            // If scores are equal, use CTID as tie-breaker for deterministic ordering
+            Some(Ordering::Equal) => Some(self.ctid.cmp(&other.ctid)),
+
+            // Otherwise, use the score comparison with the direction modifier
+            Some(cmp) => match self.dir {
+                SortDirection::Desc => Some(cmp),
+                SortDirection::Asc => Some(cmp.reverse()),
+                SortDirection::None => Some(Ordering::Equal),
+            },
+
+            // If scores can't be compared, fall back to CTID
+            None => Some(self.ctid.cmp(&other.ctid)),
         }
     }
 }
@@ -140,6 +178,137 @@ impl SearchResults {
             SearchResults::AllSegments(_, _, _) => None,
         }
     }
+
+    /// Convert AllSegments to TopNByScore for more deterministic results
+    /// This is particularly important for CTEs which may not be materialized
+    pub fn merge_all_segments(
+        &self,
+        _query: &SearchQueryInput,
+        segment_iters: Vec<Box<dyn Iterator<Item = (f32, DocAddress)> + Send>>,
+        limit: Option<usize>,
+    ) -> SearchResults {
+        pgrx::warning!(
+            "merge_all_segments: Merging {} segment iterators with limit={:?}",
+            segment_iters.len(),
+            limit
+        );
+
+        if segment_iters.is_empty() {
+            pgrx::warning!("merge_all_segments: No segments to merge, returning None");
+            return SearchResults::None;
+        }
+
+        // For CTE compatibility, always collect all results then sort them deterministically
+        // This ensures consistent ordering regardless of segment processing order
+        pgrx::warning!("merge_all_segments: Collecting all results for deterministic ordering");
+
+        // Collect all results from all segments
+        let mut all_results = Vec::new();
+        for (idx, mut iter) in segment_iters.into_iter().enumerate() {
+            let mut count = 0;
+            pgrx::warning!("merge_all_segments: Processing segment iterator #{}", idx);
+            while let Some((score, doc_address)) = iter.next() {
+                count += 1;
+                
+                let doc_id_info = match self {
+                    SearchResults::AllSegments(_searcher, _, _) => debug_document_id(_searcher, doc_address),
+                    _ => "searcher not available".to_string(),
+                };
+                
+                pgrx::warning!(
+                    "merge_all_segments: Segment #{} - document with score={}, segment={}, doc_id={}, {}",
+                    idx, score, doc_address.segment_ord, doc_address.doc_id, doc_id_info
+                );
+                all_results.push((score, doc_address));
+            }
+            pgrx::warning!("merge_all_segments: Segment #{} yielded {} documents", idx, count);
+        }
+
+        pgrx::warning!(
+            "merge_all_segments: Collected {} total results from all segments",
+            all_results.len()
+        );
+
+        if all_results.is_empty() {
+            pgrx::warning!("merge_all_segments: No results after collection, returning None");
+            return SearchResults::None;
+        }
+
+        // Sort deterministically - first by score (descending), then by CTID (ascending)
+        // This ensures we have a stable sort order regardless of segment processing
+        pgrx::warning!("merge_all_segments: Sorting results by score (desc) and then CTID");
+        all_results.sort_by(|(score_a, doc_a), (score_b, doc_b)| {
+            // First sort by score descending (higher scores first)
+            let cmp = score_b
+                .partial_cmp(score_a)
+                .unwrap_or(std::cmp::Ordering::Equal);
+                
+            pgrx::warning!(
+                "merge_all_segments: Comparing doc({},{}) score={} with doc({},{}) score={} => {:?}",
+                doc_a.segment_ord, doc_a.doc_id, score_a,
+                doc_b.segment_ord, doc_b.doc_id, score_b,
+                cmp
+            );
+            
+            cmp
+                // Then sort by segment_ord for stability
+                .then_with(|| doc_a.segment_ord.cmp(&doc_b.segment_ord))
+                // Finally sort by doc_id for complete determinism
+                .then_with(|| doc_a.doc_id.cmp(&doc_b.doc_id))
+        });
+
+        // Apply limit if specified
+        if let Some(limit) = limit {
+            if limit < all_results.len() {
+                pgrx::warning!(
+                    "merge_all_segments: Applying limit {} to {} results",
+                    limit,
+                    all_results.len()
+                );
+                all_results.truncate(limit);
+            }
+        }
+
+        // Log final sorted results
+        for (i, (score, doc_address)) in all_results.iter().enumerate() {
+            let doc_id_info = match self {
+                SearchResults::AllSegments(_searcher, _, _) => debug_document_id(_searcher, *doc_address),
+                _ => "searcher not available".to_string(),
+            };
+            
+            pgrx::warning!(
+                "merge_all_segments: Final sorted result #{}: score={}, segment={}, doc_id={}, {}",
+                i, score, doc_address.segment_ord, doc_address.doc_id, doc_id_info
+            );
+        }
+
+        // Return as TopNByScore for consistent behavior
+        pgrx::warning!(
+            "merge_all_segments: Returning TopNByScore with {} results",
+            all_results.len()
+        );
+        SearchResults::TopNByScore(
+            match self {
+                SearchResults::AllSegments(searcher, _, _) => searcher.clone(),
+                _ => panic!("merge_all_segments must be called on AllSegments"),
+            },
+            Default::default(),
+            all_results.into_iter(),
+        )
+    }
+
+    // Helper method to get segment iterators for merge_all_segments
+    fn get_segment_iterators(&self) -> Vec<Box<dyn Iterator<Item = (f32, DocAddress)> + Send>> {
+        match self {
+            SearchResults::AllSegments(searcher, _, _) => {
+                // We can't use clone directly because ScorerIter doesn't implement Clone
+                // Instead, create an empty vector and return it
+                // The caller should handle this special case
+                Vec::new() // Return empty vector - we can't clone ScorerIter
+            }
+            _ => Vec::new(),
+        }
+    }
 }
 
 impl Iterator for SearchResults {
@@ -147,62 +316,124 @@ impl Iterator for SearchResults {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        let (searcher, ff_lookup, (score, doc_address)) = match self {
-            SearchResults::None => return None,
-            SearchResults::TopNByScore(searcher, ff_lookup, iter) => {
-                (searcher, ff_lookup, iter.next()?)
-            }
-            SearchResults::TopNByTweakedScore(searcher, ff_lookup, iter) => {
-                let (score, doc_id) = iter.next()?;
-                (searcher, ff_lookup, (score.score, doc_id))
-            }
-            SearchResults::TopNByField(searcher, ff_lookup, iter) => {
-                let (_, doc_id) = iter.next()?;
-                (searcher, ff_lookup, (1.0, doc_id))
-            }
-            SearchResults::SingleSegment(searcher, segment_ord, fftype, iter) => {
-                let (score, doc_address) = iter.next()?;
-                let ctid_ff = fftype.get_or_insert_with(|| {
-                    FFType::new_ctid(searcher.segment_reader(*segment_ord).fast_fields())
-                });
-                let scored = SearchIndexScore {
-                    ctid: ctid_ff
-                        .as_u64(doc_address.doc_id)
-                        .expect("ctid should be present"),
-                    bm25: score,
-                };
-                return Some((scored, doc_address));
-            }
-            SearchResults::AllSegments(searcher, fftype, iters) => loop {
-                let last = iters.last_mut()?;
-                match last.next() {
-                    Some((score, doc_address)) => {
-                        let ctid_ff = fftype.get_or_insert_with(|| {
-                            FFType::new_ctid(
-                                searcher
-                                    .segment_reader(doc_address.segment_ord)
-                                    .fast_fields(),
-                            )
-                        });
-                        let scored = SearchIndexScore {
-                            ctid: ctid_ff
-                                .as_u64(doc_address.doc_id)
-                                .expect("ctid should be present"),
-                            bm25: score,
-                        };
-
-                        return Some((scored, doc_address));
-                    }
-                    None => {
-                        // last iterator is empty, so pop it off, clear the fast field type cache,
-                        // and loop back around to get the next one
-                        iters.pop();
-                        *fftype = None;
-                        continue;
-                    }
+        let (searcher, ff_lookup, (score, doc_address)) =
+            match self {
+                SearchResults::None => return None,
+                SearchResults::TopNByScore(searcher, ff_lookup, iter) => {
+                    (searcher, ff_lookup, iter.next()?)
                 }
-            },
-        };
+                SearchResults::TopNByTweakedScore(searcher, ff_lookup, iter) => {
+                    let (score, doc_id) = iter.next()?;
+                    (searcher, ff_lookup, (score.score, doc_id))
+                }
+                SearchResults::TopNByField(searcher, ff_lookup, iter) => {
+                    let (_, doc_id) = iter.next()?;
+                    (searcher, ff_lookup, (1.0, doc_id))
+                }
+                SearchResults::SingleSegment(searcher, segment_ord, fftype, iter) => {
+                    let (score, doc_address) = iter.next()?;
+                    let ctid_ff = fftype.get_or_insert_with(|| {
+                        FFType::new_ctid(searcher.segment_reader(*segment_ord).fast_fields())
+                    });
+                    let scored = SearchIndexScore {
+                        ctid: ctid_ff
+                            .as_u64(doc_address.doc_id)
+                            .expect("ctid should be present"),
+                        bm25: score,
+                    };
+
+                    pgrx::warning!(
+                    "SearchResults::next: SingleSegment returning ctid={}, score={}, segment={}",
+                    scored.ctid, scored.bm25, doc_address.segment_ord
+                );
+                    return Some((scored, doc_address));
+                }
+                SearchResults::AllSegments(searcher, fftype, iters) => {
+                    // For deterministic ordering from parallel workers, we need to
+                    // collect all available docs, sort them, and return them in order
+                    // This ensures predictable order in CTEs and JOIN operations
+                    pgrx::warning!("SearchResults::next: Processing AllSegments with {} iterators", iters.len());
+                    let mut all_results = Vec::new();
+
+                    // Process all iterators to collect available results
+                    for (i, iter) in iters.iter_mut().enumerate() {
+                        pgrx::warning!("SearchResults::next: Processing iterator #{}", i);
+                        let mut count = 0;
+                        while let Some((score, doc_address)) = iter.next() {
+                            count += 1;
+                            let ctid_ff = fftype.get_or_insert_with(|| {
+                                FFType::new_ctid(
+                                    searcher
+                                        .segment_reader(doc_address.segment_ord)
+                                        .fast_fields(),
+                                )
+                            });
+                            let ctid = ctid_ff
+                                .as_u64(doc_address.doc_id)
+                                .expect("ctid should be present");
+
+                            pgrx::warning!(
+                                "SearchResults::next: Iterator #{} yielded doc with ctid={}, score={}, segment={}, doc_id={}",
+                                i, ctid, score, doc_address.segment_ord, doc_address.doc_id
+                            );
+                            all_results.push((SearchIndexScore { ctid, bm25: score }, doc_address));
+                        }
+                        pgrx::warning!(
+                            "SearchResults::next: Iterator #{} yielded {} total documents",
+                            i, count
+                        );
+                    }
+
+                    pgrx::warning!(
+                        "SearchResults::next: Collected {} total results from all iterators",
+                        all_results.len()
+                    );
+
+                    // If we collected results, sort them deterministically
+                    if !all_results.is_empty() {
+                        // Sort by score (desc) and then by ctid for equal scores
+                        all_results.sort_by(|(a, _), (b, _)| {
+                            pgrx::warning!(
+                                "SearchResults::next: Comparing scores a={} b={}, ctids a={} b={}",
+                                a.bm25, b.bm25, a.ctid, b.ctid
+                            );
+                            b.cmp(a)
+                        });
+
+                        // Log sorted results
+                        for (i, (score, doc_address)) in all_results.iter().enumerate() {
+                            pgrx::warning!(
+                                "SearchResults::next: Sorted result #{}: ctid={}, score={}, segment={}, doc_id={}",
+                                i, score.ctid, score.bm25, doc_address.segment_ord, doc_address.doc_id
+                            );
+                        }
+
+                        // Convert AllSegments to TopNByScore with sorted results
+                        let scored_results = all_results
+                            .into_iter()
+                            .map(|(scored, addr)| (scored.bm25, addr))
+                            .collect::<Vec<_>>();
+
+                        pgrx::warning!(
+                            "SearchResults::next: Converting AllSegments to TopNByScore with {} results",
+                            scored_results.len()
+                        );
+
+                        *self = SearchResults::TopNByScore(
+                            searcher.clone(),
+                            Default::default(),
+                            scored_results.into_iter(),
+                        );
+
+                        // Now that we've converted to TopNByScore, call next() again
+                        return self.next();
+                    }
+
+                    // If we didn't collect any results, we're done
+                    pgrx::warning!("SearchResults::next: No results collected from iterators, returning None");
+                    return None;
+                }
+            };
 
         let ctid_ff = ff_lookup.entry(doc_address.segment_ord).or_insert_with(|| {
             FFType::new_ctid(
@@ -217,6 +448,13 @@ impl Iterator for SearchResults {
                 .expect("ctid should be present"),
             bm25: score,
         };
+
+        pgrx::warning!(
+            "SearchResults::next: Returning ctid={}, score={}, segment={}",
+            scored.ctid,
+            scored.bm25,
+            doc_address.segment_ord
+        );
         Some((scored, doc_address))
     }
 
@@ -400,18 +638,27 @@ impl SearchIndexReader {
         need_scores: bool,
         _sort_segments_by_ctid: bool,
         query: &SearchQueryInput,
-        _estimated_rows: Option<usize>,
+        estimated_rows: Option<usize>,
     ) -> SearchResults {
-        let query = self.query(query);
+        pgrx::warning!(
+            "SearchIndexReader::search: Starting search with need_scores={}, estimated_rows={:?}",
+            need_scores, estimated_rows
+        );
+        
+        let tantivy_query = self.query(query);
         let iters = self
             .searcher()
             .segment_readers()
             .iter()
             .enumerate()
             .map(move |(segment_ord, segment_reader)| {
+                pgrx::warning!(
+                    "SearchIndexReader::search: Creating iterator for segment_ord={}, num_docs={}",
+                    segment_ord, segment_reader.num_docs()
+                );
                 scorer_iter::ScorerIter::new(
                     DeferredScorer::new(
-                        query.box_clone(),
+                        tantivy_query.box_clone(),
                         need_scores,
                         segment_reader.clone(),
                         self.searcher.clone(),
@@ -422,7 +669,101 @@ impl SearchIndexReader {
             })
             .collect::<Vec<_>>();
 
-        SearchResults::AllSegments(self.searcher.clone(), Default::default(), iters)
+        pgrx::warning!(
+            "SearchIndexReader::search: Created {} segment iterators",
+            iters.len()
+        );
+
+        // Create AllSegments for deterministic results
+        let allsegments =
+            SearchResults::AllSegments(self.searcher.clone(), Default::default(), iters);
+            
+        // Instead of attempting to get iterators (which can't be cloned),
+        // collect all results directly into a vec by processing the AllSegments
+        match &allsegments {
+            SearchResults::AllSegments(searcher, _fftype, _iters) => {
+                // For CTE compatibility, always collect all results then sort them deterministically
+                // This ensures consistent ordering regardless of segment processing order
+                pgrx::warning!("SearchIndexReader::search: Collecting all results for deterministic ordering");
+
+                // Collect all results from all segment iterators
+                let mut all_results = Vec::new();
+                for segment_reader in self.searcher().segment_readers() {
+                    let segment_id = segment_reader.segment_id();
+                    pgrx::warning!(
+                        "SearchIndexReader::search: Processing segment_id={}, num_docs={}",
+                        segment_id, segment_reader.num_docs()
+                    );
+                    
+                    // Create a new segment search for each segment
+                    let segment_results = self.search_segment(need_scores, segment_id, query);
+                    
+                    // Process and collect results from this segment
+                    let mut count = 0;
+                    for result in segment_results {
+                        count += 1;
+                        let (score, doc_address) = (result.0.bm25, result.1);
+                        pgrx::warning!(
+                            "SearchIndexReader::search: Segment {} yielded doc with ctid={}, score={}, segment={}, doc_id={}",
+                            segment_id, result.0.ctid, score, doc_address.segment_ord, doc_address.doc_id
+                        );
+                        all_results.push((score, doc_address));
+                    }
+                    pgrx::warning!(
+                        "SearchIndexReader::search: Segment {} yielded {} total documents",
+                        segment_id, count
+                    );
+                }
+
+                pgrx::warning!(
+                    "SearchIndexReader::search: Collected {} total results from all segments",
+                    all_results.len()
+                );
+
+                // Sort deterministically by score and doc_address
+                all_results.sort_by(|(score_a, doc_a), (score_b, doc_b)| {
+                    // First sort by score descending (higher scores first)
+                    score_b
+                        .partial_cmp(score_a)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                        // Then sort by segment_ord for stability
+                        .then_with(|| doc_a.segment_ord.cmp(&doc_b.segment_ord))
+                        // Finally sort by doc_id for complete determinism
+                        .then_with(|| doc_a.doc_id.cmp(&doc_b.doc_id))
+                });
+
+                // Apply limit if specified
+                if let Some(limit) = estimated_rows {
+                    if limit < all_results.len() {
+                        pgrx::warning!(
+                            "SearchIndexReader::search: Applying limit {} to {} results",
+                            limit, all_results.len()
+                        );
+                        all_results.truncate(limit);
+                    }
+                }
+
+                // Log final sorted results
+                for (i, (score, doc_address)) in all_results.iter().enumerate() {
+                    pgrx::warning!(
+                        "SearchIndexReader::search: Final sorted result #{}: score={}, segment={}, doc_id={}",
+                        i, score, doc_address.segment_ord, doc_address.doc_id
+                    );
+                }
+
+                // Return as TopNByScore for consistent behavior
+                pgrx::warning!(
+                    "SearchIndexReader::search: Returning TopNByScore with {} results",
+                    all_results.len()
+                );
+                SearchResults::TopNByScore(
+                    searcher.clone(),
+                    Default::default(),
+                    all_results.into_iter(),
+                )
+            }
+            _ => allsegments, // Should never happen, but return as is
+        }
     }
 
     /// Search a specific index segment for matching documents.
@@ -549,6 +890,7 @@ impl SearchIndexReader {
                         move |_doc: DocId, original_score: Score| TweakedScore {
                             dir: sortdir,
                             score: original_score,
+                            ctid: 0,
                         }
                     },
                 );
@@ -643,6 +985,11 @@ impl SearchIndexReader {
         n: usize,
         _need_scores: bool,
     ) -> SearchResults {
+        pgrx::warning!(
+            "top_by_score_in_segment: Starting with segment_id={}, sortdir={:?}, n={}",
+            segment_id, sortdir, n
+        );
+    
         let (segment_ord, segment_reader) = self
             .searcher
             .segment_readers()
@@ -650,6 +997,11 @@ impl SearchIndexReader {
             .enumerate()
             .find(|(_, reader)| reader.segment_id() == segment_id)
             .unwrap_or_else(|| panic!("segment {segment_id} should exist"));
+
+        pgrx::warning!(
+            "top_by_score_in_segment: Found segment_ord={} with num_docs={}",
+            segment_ord, segment_reader.num_docs()
+        );
 
         let query = self.query(query);
         let weight = query
@@ -662,14 +1014,29 @@ impl SearchIndexReader {
         match sortdir {
             // requires tweaking the score, which is a bit slower
             SortDirection::Asc => {
+                // Create a tweak_score function that also captures the document ID to ensure
+                // deterministic ordering when scores are equal
                 let collector = TopDocs::with_limit(n).tweak_score(
-                    move |_segment_reader: &tantivy::SegmentReader| {
-                        move |_doc: DocId, original_score: Score| TweakedScore {
-                            dir: sortdir,
-                            score: original_score,
+                    move |segment_reader: &tantivy::SegmentReader| {
+                        let ctid_ff = FFType::new_ctid(segment_reader.fast_fields());
+                        move |doc: DocId, original_score: Score| {
+                            // Get the document's CTID
+                            let ctid = ctid_ff.as_u64(doc).expect("ctid should be present");
+                            
+                            pgrx::warning!(
+                                "top_by_score_in_segment: ASC - doc_id={}, score={}, ctid={}",
+                                doc, original_score, ctid
+                            );
+
+                            TweakedScore {
+                                dir: sortdir,
+                                score: original_score,
+                                ctid, // Store CTID to use as secondary sort key
+                            }
                         }
                     },
                 );
+
                 let top_docs = collector
                     .collect_segment(
                         weight.as_ref(),
@@ -678,9 +1045,27 @@ impl SearchIndexReader {
                     )
                     .expect("should be able to collect top-n in segment");
 
+                pgrx::warning!(
+                    "top_by_score_in_segment: ASC - Collected docs from segment {}",
+                    segment_id
+                );
+
                 let top_docs = collector
                     .merge_fruits(vec![top_docs])
                     .expect("should be able to merge top-n in segment");
+
+                pgrx::warning!(
+                    "top_by_score_in_segment: ASC - Merged result has docs"
+                );
+                
+                // Log top docs details
+                for (i, (score, doc_address)) in top_docs.iter().enumerate() {
+                    let doc_id_info = debug_document_id(&self.searcher, *doc_address);
+                    pgrx::warning!(
+                        "top_by_score_in_segment: ASC - Result #{}: score={:?}, segment={}, doc_id={}, {}",
+                        i, score, doc_address.segment_ord, doc_address.doc_id, doc_id_info
+                    );
+                }
 
                 SearchResults::TopNByTweakedScore(
                     self.searcher.clone(),
@@ -691,7 +1076,35 @@ impl SearchIndexReader {
 
             // can use tantivy's score directly
             SortDirection::Desc => {
-                let collector = TopDocs::with_limit(n);
+                // Create a custom collector that sorts by score and then by document ID
+                // for deterministic ordering when scores are equal
+                pgrx::warning!(
+                    "top_by_score_in_segment: Using score+CTID ordering for deterministic results"
+                );
+
+                // Custom collector to ensure deterministic ordering
+                let collector = TopDocs::with_limit(n).tweak_score(
+                    move |segment_reader: &tantivy::SegmentReader| {
+                        let ctid_ff = FFType::new_ctid(segment_reader.fast_fields());
+                        move |doc: DocId, original_score: Score| {
+                            // Get the document's CTID for secondary sorting
+                            let ctid = ctid_ff.as_u64(doc).expect("ctid should be present");
+                            
+                            pgrx::warning!(
+                                "top_by_score_in_segment: DESC - doc_id={}, score={}, ctid={}",
+                                doc, original_score, ctid
+                            );
+
+                            // Store the original score and CTID for sorting
+                            TweakedScore {
+                                dir: SortDirection::Desc,
+                                score: original_score,
+                                ctid,
+                            }
+                        }
+                    },
+                );
+
                 let top_docs = collector
                     .collect_segment(
                         weight.as_ref(),
@@ -700,11 +1113,30 @@ impl SearchIndexReader {
                     )
                     .expect("should be able to collect top-n in segment");
 
+                pgrx::warning!(
+                    "top_by_score_in_segment: DESC - Collected docs from segment {}",
+                    segment_id
+                );
+
                 let top_docs = collector
                     .merge_fruits(vec![top_docs])
                     .expect("should be able to merge top-n in segment");
 
-                SearchResults::TopNByScore(
+                pgrx::warning!(
+                    "top_by_score_in_segment: DESC - Merged result has docs"
+                );
+                
+                // Log top docs details
+                for (i, (score, doc_address)) in top_docs.iter().enumerate() {
+                    let doc_id_info = debug_document_id(&self.searcher, *doc_address);
+                    pgrx::warning!(
+                        "top_by_score_in_segment: DESC - Result #{}: score={:?}, segment={}, doc_id={}, {}",
+                        i, score, doc_address.segment_ord, doc_address.doc_id, doc_id_info
+                    );
+                }
+
+                // Convert to TopNByTweakedScore to preserve our CTID-based ordering
+                SearchResults::TopNByTweakedScore(
                     self.searcher.clone(),
                     Default::default(),
                     top_docs.into_iter(),

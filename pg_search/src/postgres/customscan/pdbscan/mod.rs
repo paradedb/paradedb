@@ -70,7 +70,9 @@ use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts, Pg
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::ffi::CStr;
+use std::mem;
 use std::ptr::addr_of_mut;
+use tantivy::schema::Value;
 use tantivy::snippet::SnippetGenerator;
 use tantivy::Index;
 
@@ -93,7 +95,7 @@ impl CustomScan for PdbScan {
         unsafe {
             let (restrict_info, ri_type) = builder.restrict_info();
             let rti = builder.args().rti;
-            pgrx::log!(
+            pgrx::warning!(
                 "PdbScan: Got restrict_info for rti={}, ri_type={:?}, list len={}",
                 rti,
                 ri_type,
@@ -106,13 +108,13 @@ impl CustomScan for PdbScan {
             if matches!(ri_type, RestrictInfoType::None) {
                 // this relation has no restrictions (WHERE clause predicates), so there's no need
                 // to continue with the scan
-                pgrx::log!("PdbScan: No restrictions found for rti={}, skipping", rti);
+                pgrx::warning!("PdbScan: No restrictions found for rti={}, skipping", rti);
 
                 // Add more context logging when no restrictions are found
                 let root = builder.args().root;
                 if !(*root).parent_root.is_null() {
-                    pgrx::log!("PdbScan: This is a subquery with parent_root");
-                    // pgrx::log!(
+                    pgrx::warning!("PdbScan: This is a subquery with parent_root");
+                    // pgrx::warning!(
                     //     "PdbScan: Parent query has {} CTEs and {} RTEs",
                     //     if !(*(*root).parent_root).cteinfo.is_null() {
                     //         (*(*(*root).parent_root).cteinfo).nctes
@@ -139,7 +141,7 @@ impl CustomScan for PdbScan {
             let rti = builder.args().rti;
             // Log query node type (useful for CTEs and subqueries)
             let query_type = (*(*builder.args().root).parse).type_;
-            pgrx::log!(
+            pgrx::warning!(
                 "PdbScan: Processing query type={:?} for rti={}",
                 query_type,
                 rti
@@ -147,7 +149,7 @@ impl CustomScan for PdbScan {
 
             // Log range table entry details
             let rte = builder.args().rte();
-            pgrx::log!(
+            pgrx::warning!(
                 "PdbScan: RTE kind={}, relid={:?}, ctename={}",
                 rte.rtekind,
                 rte.relid,
@@ -160,13 +162,13 @@ impl CustomScan for PdbScan {
 
             // For CTEs, log additional information
             if !(*builder.args().root).parent_root.is_null() {
-                pgrx::log!("PdbScan: This is a subquery with parent_root");
+                pgrx::warning!("PdbScan: This is a subquery with parent_root");
             }
 
             // Check if this is a CTE query
             let ctequery = is_cte_query(builder.args().root);
             if ctequery {
-                pgrx::log!("PdbScan: This appears to be a CTE query");
+                pgrx::warning!("PdbScan: This appears to be a CTE query");
             }
 
             let (table, bm25_index, is_join) = {
@@ -211,7 +213,7 @@ impl CustomScan for PdbScan {
                 let (restrict_info, ri_type) = builder.restrict_info();
                 if !matches!(ri_type, RestrictInfoType::None) {
                     // Look through the restrict_info to find tables that might have BM25 indexes
-                    pgrx::log!("Examining join condition for BM25 index in rti={}", rti);
+                    pgrx::warning!("Examining join condition for BM25 index in rti={}", rti);
                     find_bm25_index_in_join_condition(restrict_info.as_ptr().cast(), root)?
                 } else {
                     return None;
@@ -222,11 +224,11 @@ impl CustomScan for PdbScan {
 
             // Safety check to make sure we have valid relations
             if join_bm25_index.is_null() || join_table.is_null() {
-                pgrx::log!("Unable to find valid BM25 index for join relation");
+                pgrx::warning!("Unable to find valid BM25 index for join relation");
                 return None;
             }
 
-            pgrx::log!(
+            pgrx::warning!(
                 "Found BM25 index: table={} index={}",
                 join_table.name(),
                 join_bm25_index.name()
@@ -293,7 +295,7 @@ impl CustomScan for PdbScan {
                 &mut uses_our_operator,
             );
             if !uses_our_operator {
-                pgrx::log!("PdbScan: extract_quals failed, trying anyelement_text_opoid");
+                pgrx::warning!("PdbScan: extract_quals failed, trying anyelement_text_opoid");
                 let quals = extract_quals(
                     root,
                     rti,
@@ -304,15 +306,17 @@ impl CustomScan for PdbScan {
                     &mut uses_our_operator,
                 );
                 if uses_our_operator {
-                    pgrx::log!("PdbScan: extract_quals succeeded with anyelement_text_opoid");
+                    pgrx::warning!("PdbScan: extract_quals succeeded with anyelement_text_opoid");
                 } else {
-                    pgrx::log!("PdbScan: extract_quals failed with anyelement_text_opoid");
+                    pgrx::warning!("PdbScan: extract_quals failed with anyelement_text_opoid");
                 }
             } else {
-                pgrx::log!("PdbScan: extract_quals succeeded with anyelement_query_input_opoid");
+                pgrx::warning!(
+                    "PdbScan: extract_quals succeeded with anyelement_query_input_opoid"
+                );
             }
 
-            pgrx::log!(
+            pgrx::warning!(
                 "PdbScan: extract_quals returned uses_our_operator={}, has_quals={}",
                 uses_our_operator,
                 quals.is_some()
@@ -1332,18 +1336,18 @@ unsafe fn find_bm25_index_in_join_condition(
 ) -> Option<(PgRelation, PgRelation)> {
     // Safety check for null pointers
     if restrict_info.is_null() || root.is_null() {
-        pgrx::log!("find_bm25_index_in_join_condition: Null pointers detected");
+        pgrx::warning!("find_bm25_index_in_join_condition: Null pointers detected");
         return None;
     }
 
-    pgrx::log!(
+    pgrx::warning!(
         "find_bm25_index_in_join_condition: Examining node type {:?}",
         (*restrict_info).type_
     );
 
     // First, check for CTEs in this query
     if !(*root).parse.is_null() && !(*(*root).parse).cteList.is_null() {
-        pgrx::log!(
+        pgrx::warning!(
             "find_bm25_index_in_join_condition: This query contains CTEs, performing deep trace"
         );
         trace_cte_structure(root);
@@ -1405,7 +1409,7 @@ unsafe fn find_bm25_index_in_join_condition(
                     if let Some(var) = nodecast!(Var, T_Var, arg) {
                         // Get information about the referenced table
                         let (heaprelid, attno, attname) = find_var_relation(var, root);
-                        pgrx::log!(
+                        pgrx::warning!(
                             "Found BM25 operator referencing var: rel={:?} att={} name={} varlevelsup={}",
                             heaprelid,
                             attno,
@@ -1415,7 +1419,7 @@ unsafe fn find_bm25_index_in_join_condition(
 
                         // Special handling for variables that reference outer queries or CTEs
                         if (*var).varlevelsup > 0 {
-                            pgrx::log!(
+                            pgrx::warning!(
                                 "find_bm25_index_in_join_condition: IMPORTANT - BM25 operator references outer query or CTE (varlevelsup={})",
                                 (*var).varlevelsup
                             );
@@ -1426,7 +1430,7 @@ unsafe fn find_bm25_index_in_join_condition(
                             if let Some((table, bm25_index)) = rel_get_bm25_index(heaprelid) {
                                 // Make sure both relations are valid
                                 if !table.is_null() && !bm25_index.is_null() {
-                                    pgrx::log!(
+                                    pgrx::warning!(
                                         "Found BM25 index in join: table={} index={}",
                                         table.name(),
                                         bm25_index.name()
@@ -1472,7 +1476,7 @@ unsafe fn is_cte_query(root: *mut pg_sys::PlannerInfo) -> bool {
     if !parse.is_null() && !(*parse).cteList.is_null() {
         let cte_list = PgList::<pg_sys::CommonTableExpr>::from_pg((*parse).cteList);
         if !cte_list.is_empty() {
-            pgrx::log!("is_cte_query: Found {} CTEs in query", cte_list.len());
+            pgrx::warning!("is_cte_query: Found {} CTEs in query", cte_list.len());
             for (i, cte) in cte_list.iter_ptr().enumerate() {
                 let cte_name = if !(*cte).ctename.is_null() {
                     std::ffi::CStr::from_ptr((*cte).ctename).to_string_lossy()
@@ -1480,21 +1484,21 @@ unsafe fn is_cte_query(root: *mut pg_sys::PlannerInfo) -> bool {
                     "unnamed".into()
                 };
 
-                pgrx::log!("is_cte_query: CTE #{} name={}", i, cte_name);
+                pgrx::warning!("is_cte_query: CTE #{} name={}", i, cte_name);
 
                 if !(*cte).ctequery.is_null() {
                     let query_type = (*(*cte).ctequery).type_;
-                    pgrx::log!("is_cte_query: CTE #{} query type={:?}", i, query_type);
+                    pgrx::warning!("is_cte_query: CTE #{} query type={:?}", i, query_type);
 
                     // More detailed analysis of CTE query structure
-                    pgrx::log!("is_cte_query: Analyzing CTE #{} query structure:", i);
+                    pgrx::warning!("is_cte_query: Analyzing CTE #{} query structure:", i);
                     analyze_query_restrictions((*cte).ctequery.cast());
 
                     // // Log target list
                     // if let Some(target_list) =
                     //     PgList::<pg_sys::Node>::from_pg((*(*cte).ctequery).targetList).get_ptr(0)
                     // {
-                    //     pgrx::log!(
+                    //     pgrx::warning!(
                     //         "is_cte_query: CTE #{} has target list with node type {:?}",
                     //         i,
                     //         (*target_list).type_
@@ -1506,14 +1510,14 @@ unsafe fn is_cte_query(root: *mut pg_sys::PlannerInfo) -> bool {
                     //     let fromlist = (*(*(*cte).ctequery).jointree).fromlist;
                     //     if !fromlist.is_null() {
                     //         let fromlist_items = PgList::<pg_sys::Node>::from_pg(fromlist);
-                    //         pgrx::log!(
+                    //         pgrx::warning!(
                     //             "is_cte_query: CTE #{} has {} fromlist items",
                     //             i,
                     //             fromlist_items.len()
                     //         );
 
                     //         for (j, item) in fromlist_items.iter_ptr().enumerate() {
-                    //             pgrx::log!(
+                    //             pgrx::warning!(
                     //                 "is_cte_query: CTE #{} fromlist item #{} has node type {:?}",
                     //                 i,
                     //                 j,
@@ -1526,7 +1530,7 @@ unsafe fn is_cte_query(root: *mut pg_sys::PlannerInfo) -> bool {
             }
 
             // Analyze the main query too
-            pgrx::log!("is_cte_query: Analyzing main query structure:");
+            pgrx::warning!("is_cte_query: Analyzing main query structure:");
             analyze_query_restrictions(root);
 
             return true;
@@ -1544,7 +1548,7 @@ unsafe fn check_for_cte_subquery(
         return None;
     }
 
-    pgrx::log!(
+    pgrx::warning!(
         "check_for_cte_subquery: Checking node type={:?}",
         (*node).type_
     );
@@ -1553,7 +1557,7 @@ unsafe fn check_for_cte_subquery(
         let rtr = node as *mut pg_sys::RangeTblRef;
         let rtindex = (*rtr).rtindex;
 
-        pgrx::log!(
+        pgrx::warning!(
             "check_for_cte_subquery: Found RangeTblRef with rtindex={}",
             rtindex
         );
@@ -1562,15 +1566,15 @@ unsafe fn check_for_cte_subquery(
         let rte = pg_sys::rt_fetch(rtindex.try_into().unwrap(), (*(*root).parse).rtable);
 
         if !rte.is_null() {
-            pgrx::log!("check_for_cte_subquery: RTE kind={}", (*rte).rtekind);
+            pgrx::warning!("check_for_cte_subquery: RTE kind={}", (*rte).rtekind);
 
             if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY {
-                pgrx::log!("check_for_cte_subquery: Found subquery RTE");
+                pgrx::warning!("check_for_cte_subquery: Found subquery RTE");
 
                 // Check if this is a subquery from a CTE
                 if !(*rte).ctename.is_null() {
                     let cte_name = std::ffi::CStr::from_ptr((*rte).ctename).to_string_lossy();
-                    pgrx::log!(
+                    pgrx::warning!(
                         "check_for_cte_subquery: Subquery is from CTE '{}'",
                         cte_name
                     );
@@ -1579,22 +1583,22 @@ unsafe fn check_for_cte_subquery(
                 // Examine the subquery for BM25 operators
                 let subquery = (*rte).subquery;
                 if !subquery.is_null() {
-                    pgrx::log!("check_for_cte_subquery: Examining subquery");
+                    pgrx::warning!("check_for_cte_subquery: Examining subquery");
 
                     // Check WHERE clause for BM25 operators
                     if !(*subquery).jointree.is_null() && !(*(*subquery).jointree).quals.is_null() {
-                        pgrx::log!("check_for_cte_subquery: Examining subquery WHERE clause");
+                        pgrx::warning!("check_for_cte_subquery: Examining subquery WHERE clause");
 
                         let quals = (*(*subquery).jointree).quals;
                         if !quals.is_null() {
-                            pgrx::log!(
+                            pgrx::warning!(
                                 "check_for_cte_subquery: WHERE clause has node type {:?}",
                                 (*quals).type_
                             );
 
                             // See if there's a BM25 operator in the quals
                             if let Some(result) = find_bm25_index_in_quals(quals, root) {
-                                pgrx::log!("check_for_cte_subquery: Found BM25 index in subquery WHERE clause");
+                                pgrx::warning!("check_for_cte_subquery: Found BM25 index in subquery WHERE clause");
                                 return Some(result);
                             }
                         }
@@ -1603,13 +1607,13 @@ unsafe fn check_for_cte_subquery(
                     // Check target list for BM25 operators (for cases like SELECT score(...))
                     let target_list = (*subquery).targetList;
                     if !target_list.is_null() {
-                        pgrx::log!("check_for_cte_subquery: Examining subquery target list");
+                        pgrx::warning!("check_for_cte_subquery: Examining subquery target list");
 
                         let target_entries = PgList::<pg_sys::TargetEntry>::from_pg(target_list);
                         for (i, te) in target_entries.iter_ptr().enumerate() {
                             let expr = (*te).expr;
                             if !expr.is_null() {
-                                pgrx::log!(
+                                pgrx::warning!(
                                     "check_for_cte_subquery: Target entry #{} has expr type {:?}",
                                     i,
                                     (*expr).type_
@@ -1619,7 +1623,7 @@ unsafe fn check_for_cte_subquery(
                                 if (*expr).type_ == pg_sys::NodeTag::T_FuncExpr {
                                     let funcexpr = expr as *mut pg_sys::FuncExpr;
                                     if (*funcexpr).funcid == score_funcoid() {
-                                        pgrx::log!("check_for_cte_subquery: Found score function in target list");
+                                        pgrx::warning!("check_for_cte_subquery: Found score function in target list");
 
                                         // Get the table from the score function arg
                                         let args =
@@ -1628,7 +1632,7 @@ unsafe fn check_for_cte_subquery(
                                             if let Some(var) = nodecast!(Var, T_Var, arg) {
                                                 let (heaprelid, attno, attname) =
                                                     find_var_relation(var, root);
-                                                pgrx::log!("check_for_cte_subquery: Score function references rel={:?}, att={}", heaprelid, attno);
+                                                pgrx::warning!("check_for_cte_subquery: Score function references rel={:?}, att={}", heaprelid, attno);
 
                                                 if heaprelid != pg_sys::Oid::INVALID {
                                                     if let Some((table, bm25_index)) =
@@ -1636,7 +1640,7 @@ unsafe fn check_for_cte_subquery(
                                                     {
                                                         if !table.is_null() && !bm25_index.is_null()
                                                         {
-                                                            pgrx::log!("check_for_cte_subquery: Found BM25 index in score function: table={}, index={}", 
+                                                            pgrx::warning!("check_for_cte_subquery: Found BM25 index in score function: table={}, index={}", 
                                                                      table.name(), bm25_index.name());
                                                             return Some((table, bm25_index));
                                                         }
@@ -1666,7 +1670,7 @@ unsafe fn find_bm25_index_in_quals(
         return None;
     }
 
-    pgrx::log!(
+    pgrx::warning!(
         "find_bm25_index_in_quals: Examining quals of type {:?}",
         (*quals).type_
     );
@@ -1676,14 +1680,14 @@ unsafe fn find_bm25_index_in_quals(
             let opexpr = quals as *mut pg_sys::OpExpr;
             let op_oid = (*opexpr).opno;
 
-            pgrx::log!(
+            pgrx::warning!(
                 "find_bm25_index_in_quals: Checking if op_oid={:?} is the BM25 operator",
                 op_oid
             );
 
             // Check if this is our BM25 operator
             if op_oid == anyelement_query_input_opoid() || op_oid == anyelement_text_opoid() {
-                pgrx::log!("find_bm25_index_in_quals: Found BM25 operator");
+                pgrx::warning!("find_bm25_index_in_quals: Found BM25 operator");
 
                 let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
                 if let Some(larg) = args.get_ptr(0) {
@@ -1700,7 +1704,7 @@ unsafe fn find_bm25_index_in_quals(
                         // Get information about the referenced table
                         let (heaprelid, attno, attname) = find_var_relation(var, root);
 
-                        pgrx::log!(
+                        pgrx::warning!(
                             "find_bm25_index_in_quals: BM25 operator references rel={:?}, att={}, varno={}, varlevelsup={}",
                             heaprelid,
                             attno,
@@ -1712,7 +1716,7 @@ unsafe fn find_bm25_index_in_quals(
                             // We found a table reference, check if it has a BM25 index
                             if let Some((table, bm25_index)) = rel_get_bm25_index(heaprelid) {
                                 if !table.is_null() && !bm25_index.is_null() {
-                                    pgrx::log!("find_bm25_index_in_quals: Found BM25 index: table={}, index={}", 
+                                    pgrx::warning!("find_bm25_index_in_quals: Found BM25 index: table={}, index={}", 
                                              table.name(), bm25_index.name());
                                     return Some((table, bm25_index));
                                 }
@@ -1726,7 +1730,7 @@ unsafe fn find_bm25_index_in_quals(
             let boolexpr = quals as *mut pg_sys::BoolExpr;
             let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
 
-            pgrx::log!(
+            pgrx::warning!(
                 "find_bm25_index_in_quals: Examining boolean expression with {} args and boolop={}",
                 args.len(),
                 (*boolexpr).boolop
@@ -1734,7 +1738,7 @@ unsafe fn find_bm25_index_in_quals(
 
             // Check all args (AND/OR conditions)
             for (i, arg) in args.iter_ptr().enumerate() {
-                pgrx::log!(
+                pgrx::warning!(
                     "find_bm25_index_in_quals: Examining boolean arg #{} of type {:?}",
                     i,
                     (*arg).type_
@@ -1746,7 +1750,7 @@ unsafe fn find_bm25_index_in_quals(
         }
         // Add more cases as needed
         _ => {
-            pgrx::log!(
+            pgrx::warning!(
                 "find_bm25_index_in_quals: Unhandled qual type {:?}",
                 (*quals).type_
             );
@@ -1759,68 +1763,70 @@ unsafe fn find_bm25_index_in_quals(
 // Add this new diagnostic function to analyze query structure and find BM25 operators
 unsafe fn analyze_query_restrictions(root: *mut pg_sys::PlannerInfo) {
     if root.is_null() {
-        pgrx::log!("analyze_query_restrictions: Root is null");
+        pgrx::warning!("analyze_query_restrictions: Root is null");
         return;
     }
 
     // Log basic query structure
-    pgrx::log!("analyze_query_restrictions: Analyzing query structure");
+    pgrx::warning!("analyze_query_restrictions: Analyzing query structure");
 
     // Check if this query has a jointree (this is where restrictions are)
     if !(*root).parse.is_null() && !(*(*root).parse).jointree.is_null() {
         let jointree = (*(*root).parse).jointree;
-        pgrx::log!("analyze_query_restrictions: Jointree found");
+        pgrx::warning!("analyze_query_restrictions: Jointree found");
 
         // Check what's in the jointree quals
         if !(*jointree).quals.is_null() {
-            pgrx::log!("analyze_query_restrictions: Jointree has quals");
+            pgrx::warning!("analyze_query_restrictions: Jointree has quals");
             log_node_type((*jointree).quals);
 
             // Search for BM25 operators in the quals
             let has_bm25 = search_for_bm25_operator((*jointree).quals);
-            pgrx::log!(
+            pgrx::warning!(
                 "analyze_query_restrictions: Jointree quals contain BM25 operators: {}",
                 has_bm25
             );
 
             // If BM25 operators are found, do a detailed trace
             if has_bm25 {
-                pgrx::log!("analyze_query_restrictions: Performing detailed BM25 operator trace");
+                pgrx::warning!(
+                    "analyze_query_restrictions: Performing detailed BM25 operator trace"
+                );
                 trace_quals_for_bm25((*jointree).quals);
             }
         } else {
-            pgrx::log!("analyze_query_restrictions: Jointree has no quals");
+            pgrx::warning!("analyze_query_restrictions: Jointree has no quals");
         }
     }
 
     // Check for CTEs with enhanced tracing
     if !(*root).parse.is_null() && !(*(*root).parse).cteList.is_null() {
-        pgrx::log!("analyze_query_restrictions: Performing detailed CTE structure analysis");
+        pgrx::warning!("analyze_query_restrictions: Performing detailed CTE structure analysis");
         trace_cte_structure(root);
     } else {
         let cte_list = (*(*root).parse).cteList;
         let cte_len = PgList::<pg_sys::Node>::from_pg(cte_list).len();
-        pgrx::log!("analyze_query_restrictions: Found {} CTEs", cte_len);
+        pgrx::warning!("analyze_query_restrictions: Found {} CTEs", cte_len);
 
         // Examine each CTE
         let cte_items = PgList::<pg_sys::CommonTableExpr>::from_pg(cte_list);
         for (i, cte) in cte_items.iter_ptr().enumerate() {
-            pgrx::log!("analyze_query_restrictions: Examining CTE #{}", i);
+            pgrx::warning!("analyze_query_restrictions: Examining CTE #{}", i);
 
             if !(*cte).ctequery.is_null() {
-                pgrx::log!("analyze_query_restrictions: CTE has query");
+                pgrx::warning!("analyze_query_restrictions: CTE has query");
                 log_node_type((*cte).ctequery);
 
                 // Check if this CTE contains BM25 operators
                 let has_bm25 = search_for_bm25_operator((*cte).ctequery);
-                pgrx::log!(
+                pgrx::warning!(
                     "analyze_query_restrictions: CTE query contains BM25 operators: {}",
                     has_bm25
                 );
 
                 // If BM25 operators are found, do a detailed trace
                 if has_bm25 {
-                    pgrx::log!("analyze_query_restrictions: Performing detailed BM25 operator trace for CTE #{}", i);
+                    pgrx::warning!("analyze_query_restrictions: Performing detailed BM25 operator trace for CTE #{}", i);
                     trace_quals_for_bm25((*cte).ctequery);
                 }
             }
@@ -1830,7 +1836,7 @@ unsafe fn analyze_query_restrictions(root: *mut pg_sys::PlannerInfo) {
     // Enhanced check for relations with BM25 indexes in the query
     if !(*root).simple_rte_array.is_null() {
         let rte_count = (*root).simple_rel_array_size as usize;
-        pgrx::log!("analyze_query_restrictions: Query has {} RTEs", rte_count);
+        pgrx::warning!("analyze_query_restrictions: Query has {} RTEs", rte_count);
 
         // Track all relations with BM25 indexes
         for rti in 1..rte_count {
@@ -1840,7 +1846,7 @@ unsafe fn analyze_query_restrictions(root: *mut pg_sys::PlannerInfo) {
                 let relid = (*simple_rel).relid;
                 // Skip invalid OIDs and likely system relations (OIDs < 1000)
                 if relid != pg_sys::Oid::INVALID.as_u32() && relid >= 1000 {
-                    pgrx::log!(
+                    pgrx::warning!(
                         "analyze_query_restrictions: RTE {} has relid: {:?}",
                         rti,
                         relid
@@ -1848,7 +1854,7 @@ unsafe fn analyze_query_restrictions(root: *mut pg_sys::PlannerInfo) {
 
                     // Check if this relation has a BM25 index
                     if let Some((table, index)) = rel_get_bm25_index(relid.into()) {
-                        pgrx::log!(
+                        pgrx::warning!(
                             "analyze_query_restrictions: RTE {} has BM25 index: {} (table: {})",
                             rti,
                             index.name(),
@@ -1860,7 +1866,7 @@ unsafe fn analyze_query_restrictions(root: *mut pg_sys::PlannerInfo) {
                     if !(*simple_rel).baserestrictinfo.is_null() {
                         let restrict_len =
                             PgList::<pg_sys::Node>::from_pg((*simple_rel).baserestrictinfo).len();
-                        pgrx::log!(
+                        pgrx::warning!(
                             "analyze_query_restrictions: RTE {} has {} restriction clauses",
                             rti,
                             restrict_len
@@ -1873,7 +1879,7 @@ unsafe fn analyze_query_restrictions(root: *mut pg_sys::PlannerInfo) {
                             if !(*rinfo).clause.is_null() {
                                 let has_bm25 = search_for_bm25_operator((*rinfo).clause.cast());
                                 if has_bm25 {
-                                    pgrx::log!("analyze_query_restrictions: Found BM25 operator in RTE {} restriction #{}", 
+                                    pgrx::warning!("analyze_query_restrictions: Found BM25 operator in RTE {} restriction #{}", 
                                         rti, j);
 
                                     // Do detailed tracing
@@ -1882,7 +1888,7 @@ unsafe fn analyze_query_restrictions(root: *mut pg_sys::PlannerInfo) {
                             }
                         }
                     } else {
-                        pgrx::log!(
+                        pgrx::warning!(
                             "analyze_query_restrictions: RTE {} has no restrictions",
                             rti
                         );
@@ -1896,11 +1902,11 @@ unsafe fn analyze_query_restrictions(root: *mut pg_sys::PlannerInfo) {
 // Helper function to log node type
 unsafe fn log_node_type(node: *mut pg_sys::Node) {
     if node.is_null() {
-        pgrx::log!("log_node_type: Node is null");
+        pgrx::warning!("log_node_type: Node is null");
         return;
     }
 
-    pgrx::log!("log_node_type: Node type={:?}", (*node).type_);
+    pgrx::warning!("log_node_type: Node type={:?}", (*node).type_);
 }
 
 // Helper function to search for BM25 operator in a tree
@@ -1919,7 +1925,7 @@ unsafe fn search_for_bm25_operator(node: *mut pg_sys::Node) -> bool {
             let our_opno_text = anyelement_text_opoid();
 
             // Enhanced logging for operator details
-            pgrx::log!(
+            pgrx::warning!(
                 "search_for_bm25_operator: Examining OpExpr with opno={} (BM25 opno={}, BM25 text opno={}), is_match={}",
                 opno.as_u32(),
                 our_opno.as_u32(),
@@ -1929,7 +1935,7 @@ unsafe fn search_for_bm25_operator(node: *mut pg_sys::Node) -> bool {
 
             // More detailed OID comparison for debugging
             if opno != our_opno && opno != our_opno_text {
-                pgrx::log!(
+                pgrx::warning!(
                     "search_for_bm25_operator: OID comparison failed: opno({:?}) != our_opno({:?}, {:?}), as_u32 equality={}, equality={}",
                     opno,
                     our_opno,
@@ -1941,14 +1947,14 @@ unsafe fn search_for_bm25_operator(node: *mut pg_sys::Node) -> bool {
 
             // Try to get operator name
             if let Ok(op_name) = std::ffi::CStr::from_ptr(pg_sys::get_opname(opno)).to_str() {
-                pgrx::log!(
+                pgrx::warning!(
                     "search_for_bm25_operator: OpExpr operator name: {}",
                     op_name
                 );
 
                 // Special check for operators with @@ or @@@ to catch potential mismatches
                 if op_name.contains("@") {
-                    pgrx::log!(
+                    pgrx::warning!(
                         "search_for_bm25_operator: Found operator with @ symbol: '{}' (opno={:?}, BM25 opno={:?}, BM25 text opno={:?})",
                         op_name,
                         opno,
@@ -1961,11 +1967,11 @@ unsafe fn search_for_bm25_operator(node: *mut pg_sys::Node) -> bool {
             // Log details about arguments
             if !(*opexpr).args.is_null() {
                 let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
-                pgrx::log!("search_for_bm25_operator: OpExpr has {} args", args.len());
+                pgrx::warning!("search_for_bm25_operator: OpExpr has {} args", args.len());
 
                 // Log each argument's type
                 for (i, arg) in args.iter_ptr().enumerate() {
-                    pgrx::log!(
+                    pgrx::warning!(
                         "search_for_bm25_operator: OpExpr arg #{} type={:?}",
                         i,
                         (*arg).type_
@@ -1974,7 +1980,7 @@ unsafe fn search_for_bm25_operator(node: *mut pg_sys::Node) -> bool {
                     // Special case for Var nodes
                     if (*arg).type_ == pg_sys::NodeTag::T_Var {
                         let var = arg.cast::<pg_sys::Var>();
-                        pgrx::log!(
+                        pgrx::warning!(
                             "search_for_bm25_operator: OpExpr arg #{} is Var with varno={}, varattno={}, varlevelsup={}",
                             i, (*var).varno, (*var).varattno, (*var).varlevelsup
                         );
@@ -1983,7 +1989,7 @@ unsafe fn search_for_bm25_operator(node: *mut pg_sys::Node) -> bool {
                     // Special case for Const nodes
                     if (*arg).type_ == pg_sys::NodeTag::T_Const {
                         let const_node = arg.cast::<pg_sys::Const>();
-                        pgrx::log!(
+                        pgrx::warning!(
                             "search_for_bm25_operator: OpExpr arg #{} is Const with consttype={:?}",
                             i,
                             (*const_node).consttype
@@ -1993,7 +1999,7 @@ unsafe fn search_for_bm25_operator(node: *mut pg_sys::Node) -> bool {
             }
 
             if opno == our_opno || opno == our_opno_text {
-                pgrx::log!(
+                pgrx::warning!(
                     "search_for_bm25_operator: Found BM25 operator! opno={}",
                     opno.as_u32()
                 );
@@ -2001,14 +2007,14 @@ unsafe fn search_for_bm25_operator(node: *mut pg_sys::Node) -> bool {
                 // Log more info about operands
                 if !(*opexpr).args.is_null() {
                     let args_len = PgList::<pg_sys::Node>::from_pg((*opexpr).args).len();
-                    pgrx::log!(
+                    pgrx::warning!(
                         "search_for_bm25_operator: BM25 operator has {} args",
                         args_len
                     );
 
                     let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
                     for (i, arg) in args.iter_ptr().enumerate() {
-                        pgrx::log!(
+                        pgrx::warning!(
                             "search_for_bm25_operator: Arg #{} type={:?}",
                             i,
                             (*arg).type_
@@ -2017,12 +2023,12 @@ unsafe fn search_for_bm25_operator(node: *mut pg_sys::Node) -> bool {
                         // If it's a Var, log more details
                         if (*arg).type_ == pg_sys::NodeTag::T_Var {
                             let var = arg.cast::<pg_sys::Var>();
-                            pgrx::log!("search_for_bm25_operator: Var details - varno={}, varattno={}, varlevelsup={}", 
+                            pgrx::warning!("search_for_bm25_operator: Var details - varno={}, varattno={}, varlevelsup={}", 
                                 (*var).varno, (*var).varattno, (*var).varlevelsup);
 
                             // Enhanced CTE debugging: Log more details for variables that reference outer queries
                             if (*var).varlevelsup > 0 {
-                                pgrx::log!("search_for_bm25_operator: IMPORTANT - Var references an outer query or CTE (varlevelsup={})", 
+                                pgrx::warning!("search_for_bm25_operator: IMPORTANT - Var references an outer query or CTE (varlevelsup={})", 
                                     (*var).varlevelsup);
 
                                 // Try to get more information about what relation this references
@@ -2030,12 +2036,12 @@ unsafe fn search_for_bm25_operator(node: *mut pg_sys::Node) -> bool {
                                     get_varno_relid(var, (*var).varlevelsup.try_into().unwrap());
                                 if relid != pg_sys::Oid::INVALID {
                                     let rel = PgRelation::open(relid);
-                                    pgrx::log!("search_for_bm25_operator: Var likely references relation: {} (oid={:?})",
+                                    pgrx::warning!("search_for_bm25_operator: Var likely references relation: {} (oid={:?})",
                                         rel.name(), relid);
 
                                     // Check if this relation has a BM25 index
                                     if let Some((table, index)) = rel_get_bm25_index(relid) {
-                                        pgrx::log!("search_for_bm25_operator: Referenced relation has BM25 index: {}", 
+                                        pgrx::warning!("search_for_bm25_operator: Referenced relation has BM25 index: {}", 
                                             index.name());
                                     }
                                 }
@@ -2098,7 +2104,7 @@ unsafe fn search_for_bm25_operator(node: *mut pg_sys::Node) -> bool {
                 let cte_list = PgList::<pg_sys::CommonTableExpr>::from_pg((*query).cteList);
                 for (i, cte) in cte_list.iter_ptr().enumerate() {
                     if !(*cte).ctequery.is_null() {
-                        pgrx::log!("search_for_bm25_operator: Checking CTE #{} query", i);
+                        pgrx::warning!("search_for_bm25_operator: Checking CTE #{} query", i);
                         if search_for_bm25_operator((*cte).ctequery) {
                             return true;
                         }
@@ -2112,7 +2118,7 @@ unsafe fn search_for_bm25_operator(node: *mut pg_sys::Node) -> bool {
                 for (i, rte) in rtable.iter_ptr().enumerate() {
                     if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY && !(*rte).subquery.is_null()
                     {
-                        pgrx::log!("search_for_bm25_operator: Checking RTE #{} subquery", i);
+                        pgrx::warning!("search_for_bm25_operator: Checking RTE #{} subquery", i);
                         if search_for_bm25_operator((*rte).subquery.cast()) {
                             return true;
                         }
@@ -2125,7 +2131,7 @@ unsafe fn search_for_bm25_operator(node: *mut pg_sys::Node) -> bool {
         pg_sys::NodeTag::T_SubLink => {
             let sublink = node.cast::<pg_sys::SubLink>();
             if !(*sublink).subselect.is_null() {
-                pgrx::log!(
+                pgrx::warning!(
                     "search_for_bm25_operator: Examining SubLink of type {}",
                     (*sublink).subLinkType
                 );
@@ -2150,7 +2156,7 @@ unsafe fn get_varno_relid(var: *mut pg_sys::Var, levels_up: u16) -> pg_sys::Oid 
 
     // This is a complex case that would require access to the parent query's range table
     // We can't easily access this information here, but log what we know
-    pgrx::log!(
+    pgrx::warning!(
         "get_varno_relid: Attempting to resolve Var with varno={}, varattno={}, varlevelsup={}",
         (*var).varno,
         (*var).varattno,
@@ -2165,19 +2171,19 @@ unsafe fn get_varno_relid(var: *mut pg_sys::Var, levels_up: u16) -> pg_sys::Oid 
 // New function to deeply trace CTE queries for BM25 operators
 unsafe fn trace_cte_structure(root: *mut pg_sys::PlannerInfo) {
     if root.is_null() || (*root).parse.is_null() {
-        pgrx::log!("trace_cte_structure: Root or parse tree is null");
+        pgrx::warning!("trace_cte_structure: Root or parse tree is null");
         return;
     }
 
     // Check for CTEs in the query
     let cte_list = (*(*root).parse).cteList;
     if cte_list.is_null() {
-        pgrx::log!("trace_cte_structure: Query has no CTEs");
+        pgrx::warning!("trace_cte_structure: Query has no CTEs");
         return;
     }
 
     let ctes = PgList::<pg_sys::CommonTableExpr>::from_pg(cte_list);
-    pgrx::log!("trace_cte_structure: Found {} CTEs in query", ctes.len());
+    pgrx::warning!("trace_cte_structure: Found {} CTEs in query", ctes.len());
 
     // Examine each CTE
     for (i, cte) in ctes.iter_ptr().enumerate() {
@@ -2187,20 +2193,20 @@ unsafe fn trace_cte_structure(root: *mut pg_sys::PlannerInfo) {
             "unnamed".into()
         };
 
-        pgrx::log!(
+        pgrx::warning!(
             "trace_cte_structure: Examining CTE #{} name={}",
             i,
             cte_name
         );
 
         if (*cte).ctequery.is_null() {
-            pgrx::log!("trace_cte_structure: CTE #{} has null query", i);
+            pgrx::warning!("trace_cte_structure: CTE #{} has null query", i);
             continue;
         }
 
         // Check the query type
         let query_type = (*(*cte).ctequery).type_;
-        pgrx::log!(
+        pgrx::warning!(
             "trace_cte_structure: CTE #{} query type={:?}",
             i,
             query_type
@@ -2211,7 +2217,7 @@ unsafe fn trace_cte_structure(root: *mut pg_sys::PlannerInfo) {
             let query = (*cte).ctequery.cast::<pg_sys::Query>();
 
             // Check command type
-            pgrx::log!(
+            pgrx::warning!(
                 "trace_cte_structure: CTE #{} command type={}",
                 i,
                 (*query).commandType
@@ -2220,17 +2226,17 @@ unsafe fn trace_cte_structure(root: *mut pg_sys::PlannerInfo) {
             // Check for WHERE clause
             if !(*query).jointree.is_null() {
                 if !(*(*query).jointree).quals.is_null() {
-                    pgrx::log!("trace_cte_structure: CTE #{} has WHERE clause", i);
+                    pgrx::warning!("trace_cte_structure: CTE #{} has WHERE clause", i);
 
                     // Log quals type
-                    pgrx::log!(
+                    pgrx::warning!(
                         "trace_cte_structure: CTE #{} WHERE clause type={:?}",
                         i,
                         (*(*(*query).jointree).quals).type_
                     );
 
                     // Enhanced logging for WHERE clause operators
-                    pgrx::log!(
+                    pgrx::warning!(
                         "trace_cte_structure: Detailed analysis of WHERE clause in CTE #{}",
                         i
                     );
@@ -2238,7 +2244,7 @@ unsafe fn trace_cte_structure(root: *mut pg_sys::PlannerInfo) {
 
                     // Deep search for BM25 operators
                     let has_bm25 = search_for_bm25_operator((*(*query).jointree).quals);
-                    pgrx::log!(
+                    pgrx::warning!(
                         "trace_cte_structure: CTE #{} WHERE clause has BM25 operator: {}",
                         i,
                         has_bm25
@@ -2247,14 +2253,14 @@ unsafe fn trace_cte_structure(root: *mut pg_sys::PlannerInfo) {
                     if has_bm25 {
                         trace_quals_for_bm25((*(*query).jointree).quals);
                     } else {
-                        pgrx::log!("trace_cte_structure: CTE #{} has no WHERE clause", i);
+                        pgrx::warning!("trace_cte_structure: CTE #{} has no WHERE clause", i);
                     }
                 }
 
                 // Check from list
                 if !(*(*query).jointree).fromlist.is_null() {
                     let fromlist = PgList::<pg_sys::Node>::from_pg((*(*query).jointree).fromlist);
-                    pgrx::log!(
+                    pgrx::warning!(
                         "trace_cte_structure: CTE #{} has {} fromlist items",
                         i,
                         fromlist.len()
@@ -2262,7 +2268,7 @@ unsafe fn trace_cte_structure(root: *mut pg_sys::PlannerInfo) {
 
                     // Check each from item
                     for (j, item) in fromlist.iter_ptr().enumerate() {
-                        pgrx::log!(
+                        pgrx::warning!(
                             "trace_cte_structure: CTE #{} fromlist item #{} type={:?}",
                             i,
                             j,
@@ -2272,7 +2278,7 @@ unsafe fn trace_cte_structure(root: *mut pg_sys::PlannerInfo) {
                         // For RangeTblRef, get more info
                         if (*item).type_ == pg_sys::NodeTag::T_RangeTblRef {
                             let rtr = item.cast::<pg_sys::RangeTblRef>();
-                            pgrx::log!(
+                            pgrx::warning!(
                                 "trace_cte_structure: CTE #{} fromlist item #{} is RangeTblRef with rtindex={}",
                                 i, j, (*rtr).rtindex
                             );
@@ -2283,7 +2289,7 @@ unsafe fn trace_cte_structure(root: *mut pg_sys::PlannerInfo) {
                                 (*query).rtable,
                             );
                             if !rte.is_null() {
-                                pgrx::log!(
+                                pgrx::warning!(
                                     "trace_cte_structure: CTE #{} fromlist item #{} RTE kind={}",
                                     i,
                                     j,
@@ -2292,14 +2298,14 @@ unsafe fn trace_cte_structure(root: *mut pg_sys::PlannerInfo) {
 
                                 // If it's a relation, examine it further
                                 if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
-                                    pgrx::log!(
+                                    pgrx::warning!(
                                         "trace_cte_structure: CTE #{} fromlist item #{} references relation with oid={:?}",
                                         i, j, (*rte).relid
                                     );
 
                                     // Check if it has a BM25 index
                                     if let Some((table, index)) = rel_get_bm25_index((*rte).relid) {
-                                        pgrx::log!(
+                                        pgrx::warning!(
                                             "trace_cte_structure: CTE #{} fromlist item #{} relation has BM25 index: {}",
                                             i, j, index.name()
                                         );
@@ -2314,7 +2320,7 @@ unsafe fn trace_cte_structure(root: *mut pg_sys::PlannerInfo) {
             // Check target list for score function or other BM25 references
             if !(*query).targetList.is_null() {
                 let targetlist = PgList::<pg_sys::TargetEntry>::from_pg((*query).targetList);
-                pgrx::log!(
+                pgrx::warning!(
                     "trace_cte_structure: CTE #{} has {} target entries",
                     i,
                     targetlist.len()
@@ -2323,7 +2329,7 @@ unsafe fn trace_cte_structure(root: *mut pg_sys::PlannerInfo) {
                 // Check each target entry
                 for (j, te) in targetlist.iter_ptr().enumerate() {
                     if !(*te).expr.is_null() {
-                        pgrx::log!(
+                        pgrx::warning!(
                             "trace_cte_structure: CTE #{} target entry #{} expr type={:?}",
                             i,
                             j,
@@ -2334,7 +2340,7 @@ unsafe fn trace_cte_structure(root: *mut pg_sys::PlannerInfo) {
                         if (*(*te).expr).type_ == pg_sys::NodeTag::T_FuncExpr {
                             let funcexpr = (*te).expr.cast::<pg_sys::FuncExpr>();
                             if (*funcexpr).funcid == score_funcoid() {
-                                pgrx::log!(
+                                pgrx::warning!(
                                     "trace_cte_structure: CTE #{} target entry #{} uses score function",
                                     i, j
                                 );
@@ -2346,7 +2352,7 @@ unsafe fn trace_cte_structure(root: *mut pg_sys::PlannerInfo) {
 
             // Check for BM25 operators in the entire query tree
             let has_bm25 = search_for_bm25_operator((*cte).ctequery);
-            pgrx::log!(
+            pgrx::warning!(
                 "trace_cte_structure: CTE #{} contains BM25 operators anywhere: {}",
                 i,
                 has_bm25
@@ -2357,13 +2363,13 @@ unsafe fn trace_cte_structure(root: *mut pg_sys::PlannerInfo) {
     // Also examine the main query's RTEs for references to the CTEs
     if !(*(*root).parse).rtable.is_null() {
         let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*(*root).parse).rtable);
-        pgrx::log!("trace_cte_structure: Main query has {} RTEs", rtable.len());
+        pgrx::warning!("trace_cte_structure: Main query has {} RTEs", rtable.len());
 
         for (i, rte) in rtable.iter_ptr().enumerate() {
             // Check if this RTE references a CTE
             if !(*rte).ctename.is_null() {
                 let cte_name = std::ffi::CStr::from_ptr((*rte).ctename).to_string_lossy();
-                pgrx::log!(
+                pgrx::warning!(
                     "trace_cte_structure: Main query RTE #{} references CTE '{}'",
                     i,
                     cte_name
@@ -2376,11 +2382,11 @@ unsafe fn trace_cte_structure(root: *mut pg_sys::PlannerInfo) {
 // Function to trace through quals specifically looking for BM25 operators
 unsafe fn trace_quals_for_bm25(quals: *mut pg_sys::Node) {
     if quals.is_null() {
-        pgrx::log!("trace_quals_for_bm25: Quals node is null");
+        pgrx::warning!("trace_quals_for_bm25: Quals node is null");
         return;
     }
 
-    pgrx::log!(
+    pgrx::warning!(
         "trace_quals_for_bm25: Examining quals of type {:?}",
         (*quals).type_
     );
@@ -2388,7 +2394,7 @@ unsafe fn trace_quals_for_bm25(quals: *mut pg_sys::Node) {
     match (*quals).type_ {
         pg_sys::NodeTag::T_BoolExpr => {
             let boolexpr = quals.cast::<pg_sys::BoolExpr>();
-            pgrx::log!(
+            pgrx::warning!(
                 "trace_quals_for_bm25: Boolean expression with op={}",
                 (*boolexpr).boolop
             );
@@ -2396,7 +2402,7 @@ unsafe fn trace_quals_for_bm25(quals: *mut pg_sys::Node) {
             if !(*boolexpr).args.is_null() {
                 let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
                 for (i, arg) in args.iter_ptr().enumerate() {
-                    pgrx::log!(
+                    pgrx::warning!(
                         "trace_quals_for_bm25: Examining bool arg #{} of type {:?}",
                         i,
                         (*arg).type_
@@ -2411,7 +2417,7 @@ unsafe fn trace_quals_for_bm25(quals: *mut pg_sys::Node) {
             let bm25_opno = anyelement_query_input_opoid();
             let bm25_text_opno = anyelement_text_opoid();
 
-            pgrx::log!(
+            pgrx::warning!(
                 "trace_quals_for_bm25: OpExpr with opno={} (BM25 opno={}, BM25 text opno={})",
                 opno.as_u32(),
                 bm25_opno.as_u32(),
@@ -2419,14 +2425,14 @@ unsafe fn trace_quals_for_bm25(quals: *mut pg_sys::Node) {
             );
 
             if opno == bm25_opno || opno == bm25_text_opno {
-                pgrx::log!("trace_quals_for_bm25: Found BM25 operator!");
+                pgrx::warning!("trace_quals_for_bm25: Found BM25 operator!");
 
                 // Examine arguments in detail
                 if !(*opexpr).args.is_null() {
                     let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
 
                     for (i, arg) in args.iter_ptr().enumerate() {
-                        pgrx::log!(
+                        pgrx::warning!(
                             "trace_quals_for_bm25: BM25 arg #{} type={:?}",
                             i,
                             (*arg).type_
@@ -2435,7 +2441,7 @@ unsafe fn trace_quals_for_bm25(quals: *mut pg_sys::Node) {
                         // Special handling for Var nodes
                         if (*arg).type_ == pg_sys::NodeTag::T_Var {
                             let var = arg.cast::<pg_sys::Var>();
-                            pgrx::log!(
+                            pgrx::warning!(
                                 "trace_quals_for_bm25: BM25 arg #{} is Var with varno={}, varattno={}, varlevelsup={}",
                                 i, (*var).varno, (*var).varattno, (*var).varlevelsup
                             );
@@ -2445,7 +2451,7 @@ unsafe fn trace_quals_for_bm25(quals: *mut pg_sys::Node) {
             }
         }
         _ => {
-            pgrx::log!(
+            pgrx::warning!(
                 "trace_quals_for_bm25: Unhandled quals type {:?}",
                 (*quals).type_
             );
@@ -2457,11 +2463,11 @@ unsafe fn trace_quals_for_bm25(quals: *mut pg_sys::Node) {
 // Function to analyze operators in WHERE clauses with additional context
 unsafe fn analyze_where_clause_operators(quals: *mut pg_sys::Node, cte_idx: usize) {
     if quals.is_null() {
-        pgrx::log!("analyze_where_clause_operators: Quals node is null");
+        pgrx::warning!("analyze_where_clause_operators: Quals node is null");
         return;
     }
 
-    pgrx::log!(
+    pgrx::warning!(
         "analyze_where_clause_operators: Examining WHERE clause of type {:?}",
         (*quals).type_
     );
@@ -2473,7 +2479,7 @@ unsafe fn analyze_where_clause_operators(quals: *mut pg_sys::Node, cte_idx: usiz
             let our_opno = anyelement_query_input_opoid();
             let our_opno_text = anyelement_text_opoid();
 
-            pgrx::log!(
+            pgrx::warning!(
                 "analyze_where_clause_operators: CTE #{} WHERE clause has OpExpr with opno={:?} (BM25 opno={:?}, BM25 text opno={:?}), is_match={}",
                 cte_idx,
                 opno,
@@ -2484,7 +2490,7 @@ unsafe fn analyze_where_clause_operators(quals: *mut pg_sys::Node, cte_idx: usiz
 
             // More detailed OID comparison for debugging
             if opno != our_opno && opno != our_opno_text {
-                pgrx::log!(
+                pgrx::warning!(
                     "analyze_where_clause_operators: OID comparison failed: opno({:?}) != our_opno({:?}, {:?}), equality={}, as_u32 equality={}",
                     opno,
                     our_opno,
@@ -2497,7 +2503,7 @@ unsafe fn analyze_where_clause_operators(quals: *mut pg_sys::Node, cte_idx: usiz
                 unsafe {
                     if let Ok(op_name) = std::ffi::CStr::from_ptr(pg_sys::get_opname(opno)).to_str()
                     {
-                        pgrx::log!(
+                        pgrx::warning!(
                         "analyze_where_clause_operators: CTE #{} WHERE clause operator name: {}",
                         cte_idx,
                         op_name
@@ -2508,7 +2514,7 @@ unsafe fn analyze_where_clause_operators(quals: *mut pg_sys::Node, cte_idx: usiz
                 // Special check for BM25-like operators
                 if let Ok(op_name) = std::ffi::CStr::from_ptr(pg_sys::get_opname(opno)).to_str() {
                     if op_name == "@@@" {
-                        pgrx::log!(
+                        pgrx::warning!(
                         "analyze_where_clause_operators: CTE #{} WHERE clause has SUSPICIOUS BM25-like operator '{}' (opno={}, BM25 opno={}, BM25 text opno={})",
                         cte_idx,
                         op_name,
@@ -2525,7 +2531,7 @@ unsafe fn analyze_where_clause_operators(quals: *mut pg_sys::Node, cte_idx: usiz
 
                     // Log each argument and its type
                     for (i, arg) in args.iter_ptr().enumerate() {
-                        pgrx::log!(
+                        pgrx::warning!(
                         "analyze_where_clause_operators: CTE #{} WHERE clause OpExpr arg #{} type={:?}",
                         cte_idx,
                         i,
@@ -2535,7 +2541,7 @@ unsafe fn analyze_where_clause_operators(quals: *mut pg_sys::Node, cte_idx: usiz
                         // Special handling for Var nodes
                         if (*arg).type_ == pg_sys::NodeTag::T_Var {
                             let var = arg.cast::<pg_sys::Var>();
-                            pgrx::log!(
+                            pgrx::warning!(
                             "analyze_where_clause_operators: CTE #{} WHERE clause OpExpr arg #{} is Var with varno={}, varattno={}, varlevelsup={}",
                             cte_idx, i, (*var).varno, (*var).varattno, (*var).varlevelsup
                         );
@@ -2547,7 +2553,7 @@ unsafe fn analyze_where_clause_operators(quals: *mut pg_sys::Node, cte_idx: usiz
         pg_sys::NodeTag::T_BoolExpr => {
             let boolexpr = quals.cast::<pg_sys::BoolExpr>();
 
-            pgrx::log!(
+            pgrx::warning!(
                 "analyze_where_clause_operators: CTE #{} WHERE clause has BoolExpr with boolop={}",
                 cte_idx,
                 (*boolexpr).boolop
@@ -2557,7 +2563,7 @@ unsafe fn analyze_where_clause_operators(quals: *mut pg_sys::Node, cte_idx: usiz
             if !(*boolexpr).args.is_null() {
                 let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
                 for (i, arg) in args.iter_ptr().enumerate() {
-                    pgrx::log!(
+                    pgrx::warning!(
                         "analyze_where_clause_operators: CTE #{} WHERE clause BoolExpr arg #{} type={:?}",
                         cte_idx,
                         i,
@@ -2571,11 +2577,43 @@ unsafe fn analyze_where_clause_operators(quals: *mut pg_sys::Node, cte_idx: usiz
         }
         // Add other cases as needed
         _ => {
-            pgrx::log!(
+            pgrx::warning!(
                 "analyze_where_clause_operators: CTE #{} WHERE clause has unhandled node type {:?}",
                 cte_idx,
                 (*quals).type_
             );
         }
+    }
+}
+
+// Add this function to help diagnose the issue
+pub fn debug_document_id(searcher: &tantivy::Searcher, doc_address: tantivy::DocAddress) -> String {
+    // Specify the concrete type parameter for doc()
+    if let Ok(doc) = searcher.doc::<tantivy::schema::TantivyDocument>(doc_address) {
+        let schema = searcher.schema();
+
+        // Extract the id field which is critical for joins
+        for (field, field_entry) in schema.fields() {
+            let field_name = field_entry.name();
+            // Check if this is an ID field
+            if field_name == "id" || field_name.ends_with(".id") || field_name.ends_with("_id") {
+                if let Some(field_value) = doc.get_first(field) {
+                    // Use debug format for the field value
+                    return format!("ID Field '{}' = {:?}", field_name, field_value);
+                }
+            }
+        }
+
+        // If no ID field found, return a summary of available fields
+        let mut field_names = Vec::new();
+        for (field, field_entry) in schema.fields() {
+            if doc.get_first(field).is_some() {
+                field_names.push(field_entry.name().to_string());
+            }
+        }
+
+        format!("Doc (no ID field) with fields: {:?}", field_names)
+    } else {
+        "Failed to retrieve document".to_string()
     }
 }

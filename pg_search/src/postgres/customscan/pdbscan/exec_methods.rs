@@ -48,19 +48,46 @@ pub trait ExecMethod {
         true
     }
 
-    fn query(&mut self, state: &mut PdbScanState) -> bool {
-        false
-    }
+    fn query(&mut self, state: &mut PdbScanState) -> bool;
 
     fn next(&mut self, state: &mut PdbScanState) -> ExecState {
+        pgrx::warning!("ExecMethod::next: Starting next loop");
         loop {
+            pgrx::warning!("ExecMethod::next: Calling internal_next");
             match self.internal_next(state) {
                 ExecState::Eof => {
+                    pgrx::warning!(
+                        "ExecMethod::next: Got Eof, calling query to check for more results"
+                    );
                     if !self.query(state) {
+                        pgrx::warning!("ExecMethod::next: No more query results, returning Eof");
                         return ExecState::Eof;
                     }
+                    pgrx::warning!(
+                        "ExecMethod::next: Query returned more results, continuing loop"
+                    );
                 }
-                other => return other,
+                other => {
+                    match &other {
+                        ExecState::RequiresVisibilityCheck { ctid, score, .. } => {
+                            pgrx::warning!(
+                                "ExecMethod::next: Got RequiresVisibilityCheck with ctid={}, score={}",
+                                ctid, score
+                            );
+                        }
+                        ExecState::Virtual { .. } => {
+                            pgrx::warning!("ExecMethod::next: Got Virtual slot");
+                        }
+                        ExecState::Eof => {
+                            // Should never happen due to the match pattern above
+                            pgrx::warning!(
+                                "ExecMethod::next: Unexpected Eof state (should never happen)"
+                            );
+                        }
+                    }
+                    pgrx::warning!("ExecMethod::next: Returning state");
+                    return other;
+                }
             }
         }
     }
@@ -85,5 +112,9 @@ impl ExecMethod for UnknownScanStyle {
         unimplemented!(
             "logic error in pg_search:  `UnknownScanStyle::internal_next()` should never be called"
         )
+    }
+
+    fn query(&mut self, _state: &mut PdbScanState) -> bool {
+        false
     }
 }

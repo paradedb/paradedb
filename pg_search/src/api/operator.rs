@@ -108,11 +108,11 @@ pub fn anyelement_query_input_opoid() -> pg_sys::Oid {
         )
         .expect("the `@@@(anyelement, paradedb.searchqueryinput)` operator should exist");
 
-        pgrx::log!("anyelement_query_input_opoid returning OID={:?}", op_oid);
+        pgrx::warning!("anyelement_query_input_opoid returning OID={:?}", op_oid);
 
         // Try to get the operator name to double check
         if let Ok(op_name) = std::ffi::CStr::from_ptr(pg_sys::get_opname(op_oid)).to_str() {
-            pgrx::log!("anyelement_query_input_opoid operator name='{}'", op_name);
+            pgrx::warning!("anyelement_query_input_opoid operator name='{}'", op_name);
         }
 
         op_oid

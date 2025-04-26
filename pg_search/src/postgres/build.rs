@@ -200,7 +200,7 @@ unsafe extern "C" fn build_callback(
         if crate::gucs::log_create_index_progress() && build_state.count % 100_000 == 0 {
             let secs = build_state.start.elapsed().as_secs_f64();
             let rate = build_state.count as f64 / secs;
-            pgrx::log!(
+            pgrx::warning!(
                 "processed {} rows in {secs:.2} seconds ({rate:.2} per second)",
                 build_state.count,
             );

@@ -366,46 +366,46 @@ fn query_input_support_request_index_condition(arg: pg_sys::Datum) -> Option<Ret
                             // Check right argument - can be either a Const with text or with SearchQueryInput
                             if let Some(const_) = nodecast!(Const, T_Const, rarg) {
                                 // For text operator
-                                if op_oid == our_text_op_oid {
-                                    // This is our text operator - mark it as not lossy
-                                    (*src).lossy = false;
+                                // if op_oid == our_text_op_oid {
+                                //     // This is our text operator - mark it as not lossy
+                                //     (*src).lossy = false;
 
-                                    // Create a list with the original expression
-                                    let result_list = pg_sys::NIL.cast_mut();
-                                    let result_list =
-                                        pg_sys::lappend(result_list, (*src).node.cast());
+                                //     // Create a list with the original expression
+                                //     let result_list = pg_sys::NIL.cast_mut();
+                                //     let result_list =
+                                //         pg_sys::lappend(result_list, (*src).node.cast());
 
-                                    pgrx::log!("query_input_support_request_index_condition: Created result list for text operator");
+                                //     pgrx::log!("query_input_support_request_index_condition: Created result list for text operator");
 
-                                    return Some(ReturnedNodePointer(NonNull::new(
-                                        result_list.cast(),
-                                    )));
-                                }
-                                // For SearchQueryInput operator
-                                else {
-                                    let query = SearchQueryInput::from_datum(
-                                        (*const_).constvalue,
-                                        (*const_).constisnull,
-                                    );
-                                    if query.is_some() {
-                                        pgrx::log!("query_input_support_request_index_condition: Successfully extracted search query");
+                                //     return Some(ReturnedNodePointer(NonNull::new(
+                                //         result_list.cast(),
+                                //     )));
+                                // }
+                                // // For SearchQueryInput operator
+                                // else {
+                                //     let query = SearchQueryInput::from_datum(
+                                //         (*const_).constvalue,
+                                //         (*const_).constisnull,
+                                //     );
+                                //     if query.is_some() {
+                                //         pgrx::log!("query_input_support_request_index_condition: Successfully extracted search query");
 
-                                        // For BM25, we can handle the condition exactly as is
-                                        // This is not a "lossy" index condition
-                                        (*src).lossy = false;
+                                //         // For BM25, we can handle the condition exactly as is
+                                //         // This is not a "lossy" index condition
+                                //         (*src).lossy = false;
 
-                                        // Create a list with the original expression
-                                        let result_list = pg_sys::NIL.cast_mut();
-                                        let result_list =
-                                            pg_sys::lappend(result_list, (*src).node.cast());
+                                //         // Create a list with the original expression
+                                //         let result_list = pg_sys::NIL.cast_mut();
+                                //         let result_list =
+                                //             pg_sys::lappend(result_list, (*src).node.cast());
 
-                                        pgrx::log!("query_input_support_request_index_condition: Created result list for query_input operator");
+                                //         pgrx::log!("query_input_support_request_index_condition: Created result list for query_input operator");
 
-                                        return Some(ReturnedNodePointer(NonNull::new(
-                                            result_list.cast(),
-                                        )));
-                                    }
-                                }
+                                //         return Some(ReturnedNodePointer(NonNull::new(
+                                //             result_list.cast(),
+                                //         )));
+                                //     }
+                                // }
                             }
                         }
                     }

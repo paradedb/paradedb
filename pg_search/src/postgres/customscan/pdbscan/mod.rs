@@ -2492,23 +2492,23 @@ unsafe fn analyze_where_clause_operators(quals: *mut pg_sys::Node, cte_idx: usiz
                     opno == our_opno || opno == our_opno_text,
                     opno.as_u32() == our_opno.as_u32() || opno.as_u32() == our_opno_text.as_u32()
                 );
-            }
 
-            // Try to get operator name
-            unsafe {
-                if let Ok(op_name) = std::ffi::CStr::from_ptr(pg_sys::get_opname(opno)).to_str() {
-                    pgrx::log!(
+                // Try to get operator name
+                unsafe {
+                    if let Ok(op_name) = std::ffi::CStr::from_ptr(pg_sys::get_opname(opno)).to_str()
+                    {
+                        pgrx::log!(
                         "analyze_where_clause_operators: CTE #{} WHERE clause operator name: {}",
                         cte_idx,
                         op_name
                     );
+                    }
                 }
-            }
 
-            // Special check for BM25-like operators
-            if let Ok(op_name) = std::ffi::CStr::from_ptr(pg_sys::get_opname(opno)).to_str() {
-                if op_name == "@@@" {
-                    pgrx::log!(
+                // Special check for BM25-like operators
+                if let Ok(op_name) = std::ffi::CStr::from_ptr(pg_sys::get_opname(opno)).to_str() {
+                    if op_name == "@@@" {
+                        pgrx::log!(
                         "analyze_where_clause_operators: CTE #{} WHERE clause has SUSPICIOUS BM25-like operator '{}' (opno={}, BM25 opno={}, BM25 text opno={})",
                         cte_idx,
                         op_name,
@@ -2516,29 +2516,30 @@ unsafe fn analyze_where_clause_operators(quals: *mut pg_sys::Node, cte_idx: usiz
                         our_opno.as_u32(),
                         our_opno_text.as_u32()
                     );
+                    }
                 }
-            }
 
-            // Log details about the arguments
-            if !(*opexpr).args.is_null() {
-                let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
+                // Log details about the arguments
+                if !(*opexpr).args.is_null() {
+                    let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
 
-                // Log each argument and its type
-                for (i, arg) in args.iter_ptr().enumerate() {
-                    pgrx::log!(
+                    // Log each argument and its type
+                    for (i, arg) in args.iter_ptr().enumerate() {
+                        pgrx::log!(
                         "analyze_where_clause_operators: CTE #{} WHERE clause OpExpr arg #{} type={:?}",
                         cte_idx,
                         i,
                         (*arg).type_
                     );
 
-                    // Special handling for Var nodes
-                    if (*arg).type_ == pg_sys::NodeTag::T_Var {
-                        let var = arg.cast::<pg_sys::Var>();
-                        pgrx::log!(
+                        // Special handling for Var nodes
+                        if (*arg).type_ == pg_sys::NodeTag::T_Var {
+                            let var = arg.cast::<pg_sys::Var>();
+                            pgrx::log!(
                             "analyze_where_clause_operators: CTE #{} WHERE clause OpExpr arg #{} is Var with varno={}, varattno={}, varlevelsup={}",
                             cte_idx, i, (*var).varno, (*var).varattno, (*var).varlevelsup
                         );
+                        }
                     }
                 }
             }

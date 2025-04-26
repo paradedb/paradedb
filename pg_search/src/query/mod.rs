@@ -2028,7 +2028,7 @@ impl<'de> Deserialize<'de> for PostgresPointer {
         D: Deserializer<'de>,
     {
         struct NodeVisitor;
-        impl Visitor<'_> for NodeVisitor {
+        impl<'de2> Visitor<'de2> for NodeVisitor {
             type Value = PostgresPointer;
 
             fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
@@ -2044,6 +2044,20 @@ impl<'de> Deserialize<'de> for PostgresPointer {
                     let node = pg_sys::stringToNode(cstr.as_ptr());
                     Ok(PostgresPointer(node.cast()))
                 }
+            }
+
+            fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+            where
+                D: Deserializer<'de2>,
+            {
+                deserializer.deserialize_str(self)
+            }
+
+            fn visit_none<E>(self) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(PostgresPointer::default())
             }
         }
 

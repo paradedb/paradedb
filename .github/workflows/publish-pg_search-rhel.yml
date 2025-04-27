@@ -183,6 +183,16 @@ jobs:
           echo "ICU_CFLAGS=-I/usr/local/icu76/include" >> $GITHUB_ENV
           echo "ICU_LDFLAGS=-L/usr/local/icu76/lib -licui18n -licuuc -licudata" >> $GITHUB_ENV
 
+          # Configure pkg-config for ICU 76
+          echo "PKG_CONFIG_PATH=/usr/local/icu76/lib/pkgconfig:/usr/lib64/pkgconfig" >> $GITHUB_ENV
+          echo "PKG_CONFIG_ALLOW_SYSTEM_CFLAGS=1" >> $GITHUB_ENV
+          echo "PKG_CONFIG_ALLOW_SYSTEM_LIBS=1" >> $GITHUB_ENV
+
+          # Verify pkg-config ICU 76
+          pkg-config --modversion icu-i18n   # should print 76.1
+          pkg-config --cflags icu-i18n       # should print -I/usr/local/icu76/include
+          pkg-config --libs icu-i18n         # should include -L/usr/local/icu76/lib
+
       # Used to upload the release to GitHub Releases
       - name: Install GitHub CLI
         run: |

@@ -166,6 +166,12 @@ jobs:
           # configure the build environment for creating the RPM package via rpmbuild
           sudo dnf install -y rpmdevtools
 
+      # Tell rust_icu_sys how to find ICU’s headers & libs
+      - name: Configure ICU environment
+        run: |
+          echo "ICU_CFLAGS=$(icu-config --cppflags)" >> $GITHUB_ENV
+          echo "ICU_LDFLAGS=$(icu-config --ldflags)" >> $GITHUB_ENV
+
       # Used to upload the release to GitHub Releases
       - name: Install GitHub CLI
         run: |
@@ -233,12 +239,15 @@ jobs:
 
       - name: Package pg_search Extension with pgrx
         working-directory: pg_search/
-        run: |
-          PG_CONFIG_PATH="/usr/pgsql-${{ matrix.pg_version }}/bin/pg_config"
-          cargo pgrx package --features icu --pg-config $PG_CONFIG_PATH
         env:
           COMMIT_SHA: ${{ steps.version.outputs.commit_sha }}
           PARADEDB_VERSION: ${{ steps.version.outputs.tag_version }}
+        run: |
+          # make sure the ICU flags get passed into bindgen
+          export ICU_CFLAGS=${ICU_CFLAGS}
+          export ICU_LDFLAGS=${ICU_LDFLAGS}
+          PG_CONFIG_PATH="/usr/pgsql-${{ matrix.pg_version }}/bin/pg_config"
+          cargo pgrx package --features icu --pg-config $PG_CONFIG_PATH
 
       - name: Create .rpm Package
         run: |

@@ -9,6 +9,8 @@ name: Publish pg_search (Red Hat)
 
 on:
   push:
+    branches:
+      - phil/rhel-icu
     tags:
       - "v*"
   workflow_dispatch:

@@ -91,6 +91,7 @@ jobs:
             echo "Error: Invalid branch" && false
           fi
 
+      # The tag_name will have -rc.X suffix for staging releases, and no suffix for prod releases
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:

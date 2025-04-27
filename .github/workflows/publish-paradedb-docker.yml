@@ -141,34 +141,3 @@ jobs:
           subject-name: index.docker.io/paradedb/paradedb
           subject-digest: ${{ steps.build-push.outputs.digest }}
           push-to-registry: true
-
-  publish-paradedb-helm-chart:
-    name: Publish ParadeDB Helm Chart
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Retrieve GitHub Release Version
-        id: version
-        run: |
-          # If no workflow_dispatch version is provided, we use workflow tag trigger version
-          if [ -z "${{ github.event.inputs.version }}" ]; then
-            if [[ $GITHUB_REF == refs/tags/v* ]]; then
-              VERSION=${GITHUB_REF#refs/tags/v}
-            else
-              # If there is no tag and no provided version, it's a test run and we set a default version
-              VERSION="0.0.0"
-            fi
-          else
-            VERSION=${{ github.event.inputs.version }}
-          fi
-          echo "GitHub Tag Version: $VERSION"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
-      - name: Trigger paradedb/charts Release Workflow
-        uses: multinarity/workflow-dispatch@master
-        with:
-          token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
-          workflow: paradedb-publish-chart.yml
-          repo: paradedb/charts
-          ref: main
-          inputs: '{ "appVersion": "${{ steps.version.outputs.version }}" }'

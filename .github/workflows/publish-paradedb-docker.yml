@@ -95,8 +95,9 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       # The pg_version-tag Docker tag syntax is necessary for our CloudNativePG Helm chart. We only deploy
-      # the `latest` and `latest-pg` tags on production releases.
-      - name: Setup Docker Image tags (Production)
+      # the `latest` and `latest-pg` tags on production releases, not for beta releases. All other tags get
+      # deployed by both releases and will have a `-rc.X` suffix inherited from the GitHub tag.
+      - name: Setup Docker Image tags
         id: meta
         uses: docker/metadata-action@v5
         with:

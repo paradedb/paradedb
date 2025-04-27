@@ -1,7 +1,8 @@
 # workflows/publish-github-release.yml
 #
 # Publish GitHub Release
-# Publish the ParadeDB GitHub Release.
+# Publish the ParadeDB GitHub Release. Pushes to `main` publish an official release while
+# pushes to `staging` publish a beta release.
 
 name: Publish GitHub Release
 
@@ -9,7 +10,7 @@ on:
   push:
     branches:
       - main
-      - dev
+      - staging
   workflow_dispatch:
 
 concurrency:
@@ -25,17 +26,6 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
-      - name: Set Environment
-        id: env
-        run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            echo "environment=prod" >> $GITHUB_OUTPUT
-            echo "Using prod configuration..."
-          else
-            echo "environment=dev" >> $GITHUB_OUTPUT
-            echo "Using dev configuration..."
-          fi
-
       # We store the GitHub Release version number in GitHub Actions Variables. Since it's
       # not possible for a GHA variable to be negative, we store the version of the next
       # release, to allow 0-indexing. This is why we immediately release the version stored,
@@ -43,22 +33,23 @@ jobs:
       - name: Retrieve & Increment Release Version Number
         id: version
         run: |
-          if [[ "${{ steps.env.outputs.environment }}" == "prod" ]]; then
+          if [[ ${{ github.ref }} == "refs/heads/main" ]]; then
             echo 'Using prod configuration...'
             CURRENT_RELEASE_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}"
 
             # Increment GHA variable version by 0.0.1 for next release
             GHA_VAR_NAME="VERSION_PATCH"
             GHA_VAR_VALUE="$(( ${{ vars.VERSION_PATCH }} + 1 ))"
-          elif [[ "${{ steps.env.outputs.environment }}" == "dev" ]]; then
-            echo 'Using dev configuration...'
-            CURRENT_RELEASE_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-dev-rc.${{ vars.VERSION_DEV_RC }}"
+          elif [[ ${{ github.ref }} == "refs/heads/staging" ]]; then
+            echo 'Using staging configuration...'
+            CURRENT_RELEASE_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-rc.${{ vars.VERSION_RC }}"
 
-            # Increment GHA variable version by dev-rc.1 for next release
-            GHA_VAR_NAME="VERSION_DEV_RC"
-            GHA_VAR_VALUE="$(( ${{ vars.VERSION_DEV_RC }} + 1 ))"
+            # Increment GHA variable version by -rc.1 for next release
+            GHA_VAR_NAME="VERSION_RC"
+            GHA_VAR_VALUE="$(( ${{ vars.VERSION_RC }} + 1 ))"
           else
-            echo "Error: Invalid branch" && false
+            echo "Error: Invalid branch, exiting..."
+            exit 1
           fi
 
           # Output the current release version to create the GitHub Release tag, and the new version to update GitHub Actions variable
@@ -71,7 +62,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
         run: |
           # on prod we update patch and reset dev RC to 0
-          if [[ "${{ steps.env.outputs.environment }}" == "prod" ]]; then
+          if [[ ${{ github.ref }} == "refs/heads/main" ]]; then
             gh api \
               --method PATCH \
               -H "Accept: application/vnd.github+json" \
@@ -84,11 +75,11 @@ jobs:
               --method PATCH \
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
-              /repos/paradedb/paradedb/actions/variables/VERSION_DEV_RC \
-              -f name='VERSION_DEV_RC' \
+              /repos/paradedb/paradedb/actions/variables/VERSION_RC \
+              -f name='VERSION_RC' \
               -f value='0'
-          # on dev we only update dev RC
-          elif [[ "${{ steps.env.outputs.environment }}" == "dev" ]]; then
+          # on staging we only update RC
+          elif [[ ${{ github.ref }} == "refs/heads/staging" ]]; then
             gh api \
               --method PATCH \
               -H "Accept: application/vnd.github+json" \
@@ -100,8 +91,8 @@ jobs:
             echo "Error: Invalid branch" && false
           fi
 
-      - name: Create GitHub Release (prod only)
-        if: steps.env.outputs.environment == 'prod'
+      # The tag_name will have `-rc.X` suffix for staging releases, and no suffix for prod releases
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.version }}

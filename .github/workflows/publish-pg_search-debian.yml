@@ -1,7 +1,9 @@
 # workflows/publish-pg_search-debian.yml
 #
 # Publish pg_search (Debian)
-# Build and publish the pg_search extension as .deb to GitHub Releases.
+# Build and publish the pg_search extension as .deb to GitHub Releases. This workflow is
+# gets triggered for both pushes to `main` and `staging`, but beta releases get filtered
+# out by the `if` condition of the job.
 
 name: Publish pg_search (Debian)
 
@@ -31,6 +33,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     container:
       image: ${{ matrix.image }}
+    if: ${{ !contains(github.ref, '-rc') }}
     strategy:
       matrix:
         include:

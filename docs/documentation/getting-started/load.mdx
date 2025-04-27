@@ -32,7 +32,7 @@ If your database is large, this can take some time. You can speed this up by dum
 pg_dump -Fc --no-acl --no-owner \
     -h <host> \
     -U <username> \
-    -t <table_name_1> -t <table_name_2>
+    -t <table_name_1> -t <table_name_2> \
     <dbname> > old_db.dump
 ```
 

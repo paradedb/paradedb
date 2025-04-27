@@ -19,7 +19,7 @@
 use crate::postgres::parallel::Spinlock;
 use crate::query::SearchQueryInput;
 use pgrx::*;
-use std::collections::HashSet;
+use rustc_hash::FxHashMap;
 use std::io::Write;
 use tantivy::index::SegmentId;
 use tantivy::SegmentReader;
@@ -121,6 +121,10 @@ pub fn rel_get_bm25_index(relid: pg_sys::Oid) -> Option<(PgRelation, PgRelation)
     }
 }
 
+// 16 bytes for segment id + 4 bytes for u32 num_deleted_docs
+const SEGMENT_INFO_SIZE: usize = 20;
+
+#[derive(Debug)]
 #[repr(C, packed)]
 struct ParallelScanPayload {
     query: (usize, usize),
@@ -132,7 +136,10 @@ impl ParallelScanPayload {
     fn init(&mut self, segments: &[SegmentReader], query: &[u8]) {
         unsafe {
             self.query = (0, query.len());
-            self.segments = (self.query.1, self.query.1 + segments.len() * 16);
+            self.segments = (
+                self.query.1,
+                self.query.1 + segments.len() * SEGMENT_INFO_SIZE,
+            );
 
             let query_start = self.query.0;
             let query_end = self.query.1;
@@ -143,13 +150,17 @@ impl ParallelScanPayload {
             let segments_start = self.segments.0;
             let segments_end = self.segments.1;
             let ptr = &mut self.data_mut()[segments_start..segments_end].as_mut_ptr();
-            let segments_slice: &mut [[u8; 16]] =
+            let segments_slice: &mut [[u8; SEGMENT_INFO_SIZE]] =
                 std::slice::from_raw_parts_mut(ptr.cast(), segments.len());
 
             for (segment, target) in segments.iter().zip(segments_slice.iter_mut()) {
-                let _ = (&mut target[..])
-                    .write(segment.segment_id().uuid_bytes())
+                let mut writer = &mut target[..];
+                writer
+                    .write_all(segment.segment_id().uuid_bytes())
                     .expect("failed to write segment bytes");
+                writer
+                    .write_all(&segment.num_deleted_docs().to_le_bytes())
+                    .expect("failed to write deleted docs count");
             }
         }
     }
@@ -184,12 +195,12 @@ impl ParallelScanPayload {
         Ok(Some(serde_json::from_slice(query_data)?))
     }
 
-    fn segments(&self) -> &[[u8; 16]] {
+    fn segments(&self) -> &[[u8; SEGMENT_INFO_SIZE]] {
         let segments_start = self.segments.0;
         let segments_end = self.segments.1;
         let segments_data = &self.data()[segments_start..segments_end];
         assert!(
-            segments_data.len() % 16 == 0,
+            segments_data.len() % SEGMENT_INFO_SIZE == 0,
             "segment data length mismatch"
         );
 
@@ -209,7 +220,10 @@ impl ParallelScanState {
     #[inline]
     fn size_of(nsegments: usize, serialized_query: &[u8]) -> usize {
         // a SegmentId, in byte form, is 16 bytes
-        size_of::<Self>() + size_of::<Self>() + (nsegments * 16) + serialized_query.len()
+        size_of::<Self>()
+            + size_of::<Self>()
+            + (nsegments * SEGMENT_INFO_SIZE)
+            + serialized_query.len()
     }
 
     fn init(&mut self, segments: &[SegmentReader], query: &[u8]) {
@@ -241,16 +255,20 @@ impl ParallelScanState {
         self.remaining_segments
     }
 
-    pub fn segments(&self) -> HashSet<SegmentId> {
-        let mut segments = HashSet::new();
+    pub fn segments(&self) -> FxHashMap<SegmentId, u32> {
+        let mut segments = FxHashMap::default();
         for i in 0..self.nsegments {
-            segments.insert(self.segment_id(i));
+            segments.insert(self.segment_id(i), self.num_deleted_docs(i));
         }
         segments
     }
 
     fn segment_id(&self, i: usize) -> SegmentId {
-        SegmentId::from_bytes(self.payload.segments()[i])
+        SegmentId::from_bytes(self.payload.segments()[i][..16].try_into().unwrap())
+    }
+
+    fn num_deleted_docs(&self, i: usize) -> u32 {
+        u32::from_le_bytes(self.payload.segments()[i][16..].try_into().unwrap())
     }
 
     fn query(&self) -> anyhow::Result<Option<SearchQueryInput>> {

@@ -134,7 +134,13 @@ pub unsafe fn maybe_claim_segment(scan: pg_sys::IndexScanDesc) -> Option<Segment
 }
 
 pub unsafe fn list_segment_ids(scan: pg_sys::IndexScanDesc) -> Option<HashSet<SegmentId>> {
-    Some(get_bm25_scan_state(&scan)?.segments())
+    Some(
+        get_bm25_scan_state(&scan)?
+            .segments()
+            .keys()
+            .cloned()
+            .collect(),
+    )
 }
 
 fn get_bm25_scan_state(scan: &pg_sys::IndexScanDesc) -> Option<&mut ParallelScanState> {

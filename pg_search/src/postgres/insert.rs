@@ -250,7 +250,7 @@ unsafe fn do_merge(indexrelid: pg_sys::Oid) -> (NumCandidates, NumMerged) {
     let index_options = SearchIndexCreateOptions::from_relation(&indexrel);
     let merge_policy = LayeredMergePolicy::new(index_options.layer_sizes(DEFAULT_LAYER_SIZES));
 
-    merge_index_with_policy(indexrel, merge_policy, false, false)
+    merge_index_with_policy(indexrel, merge_policy, false, false, false)
 }
 
 pub unsafe fn merge_index_with_policy(
@@ -258,6 +258,7 @@ pub unsafe fn merge_index_with_policy(
     mut merge_policy: LayeredMergePolicy,
     verbose: bool,
     gc_after_merge: bool,
+    consider_create_index_segments: bool,
 ) -> (NumCandidates, NumMerged) {
     let indexrelid = indexrel.oid();
 
@@ -276,19 +277,35 @@ pub unsafe fn merge_index_with_policy(
     // the non_mergeable_segments are those that are concurrently being vacuumed *and* merged
     let mut non_mergeable_segments = merge_lock.list_vacuuming_segments();
     non_mergeable_segments.extend(merge_lock.in_progress_segment_ids());
+    let create_index_segment_ids = merge_lock.create_index_segment_ids();
 
     if pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) {
         pgrx::debug1!("do_merge: non_mergeable_segments={non_mergeable_segments:?}");
         pgrx::debug1!("do_merge: merger_segment_ids={merger_segment_ids:?}");
+        pgrx::debug1!("do_merge: create_index_segment_ids={create_index_segment_ids:?}");
     }
 
     // tell the MergePolicy which segments it's initially allowed to consider for merging
-    merge_policy.set_mergeable_segment_entries(
-        merger
-            .all_entries()
-            .into_iter()
-            .filter(|(segment_id, _)| !non_mergeable_segments.contains(segment_id)),
-    );
+    merge_policy.set_mergeable_segment_entries(merger.all_entries().into_iter().filter(
+        |(segment_id, entry)| {
+            // skip segments that are already being vacuumed or merged
+            if non_mergeable_segments.contains(segment_id) {
+                return false;
+            }
+
+            // skip segments that were created by CREATE INDEX and have no deletes
+            if !consider_create_index_segments
+                && create_index_segment_ids.contains(segment_id)
+                && entry
+                    .delete
+                    .is_none_or(|delete_entry| delete_entry.num_deleted_docs == 0)
+            {
+                return false;
+            }
+
+            true
+        },
+    ));
 
     // further reduce the set of segments that the LayeredMergePolicy will operate on by internally
     // simulating the process, allowing concurrent merges to consider segments we're not, only retaining
@@ -400,16 +417,45 @@ pub unsafe fn merge_index_with_policy(
     (ncandidates, nmerged)
 }
 
+///
+/// Garbage collect the segments, removing any which are no longer visible in transactions
+/// occurring in this process.
+///
+/// If physical replicas might still be executing transactions on some segments, then they are
+/// moved to the `SEGMENT_METAS_GARBAGE` list until those replicas indicate that they are no longer
+/// in use, at which point they can be freed by `free_garbage`.
+///
 unsafe fn garbage_collect_index(indexrel: &PgRelation) {
     let indexrelid = indexrel.oid();
-    let mut segment_meta_list =
-        LinkedItemList::<SegmentMetaEntry>::open(indexrelid, SEGMENT_METAS_START).atomically();
-    let recycled_entries = segment_meta_list.garbage_collect();
-    segment_meta_list.commit();
-    for entry in recycled_entries {
+
+    // Remove items which are no longer visible to active local transactions from SEGMENT_METAS,
+    // and place them in SEGMENT_METAS_RECYLCABLE until they are no longer visible to remote
+    // transactions either.
+    //
+    // SEGMENT_METAS must be updated atomically so that a consistent list is visible for consumers:
+    // SEGMENT_METAS_GARBAGE need not be because it is only ever consumed on the physical
+    // replication primary.
+    let mut segment_metas_linked_list =
+        LinkedItemList::<SegmentMetaEntry>::open(indexrelid, SEGMENT_METAS_START);
+    let mut segment_metas = segment_metas_linked_list.atomically();
+    let entries = segment_metas.garbage_collect();
+
+    // Replication is not enabled: immediately free the entries. It doesn't matter when we
+    // commit the segment metas list in this case.
+    segment_metas.commit();
+    free_entries(indexrel, entries);
+}
+
+pub fn free_entries(indexrel: &PgRelation, freeable_entries: Vec<SegmentMetaEntry>) {
+    for entry in freeable_entries {
         for (file_entry, _) in entry.file_entries() {
-            LinkedBytesList::open(indexrelid, file_entry.starting_block).return_to_fsm();
-            pg_sys::IndexFreeSpaceMapVacuum(indexrel.as_ptr());
+            unsafe {
+                LinkedBytesList::open(indexrel.oid(), file_entry.starting_block).return_to_fsm();
+            }
         }
+    }
+
+    unsafe {
+        pg_sys::IndexFreeSpaceMapVacuum(indexrel.as_ptr());
     }
 }

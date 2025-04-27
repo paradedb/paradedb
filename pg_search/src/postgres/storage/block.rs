@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::storage::buffer::BufferManager;
+use crate::postgres::storage::buffer::{Buffer, BufferManager, BufferMut};
 use pgrx::pg_sys::BlockNumber;
 use pgrx::*;
 use serde::{Deserialize, Serialize};
@@ -88,20 +88,43 @@ impl Debug for LinkedListData {
 
 /// Every linked list must implement this trait
 pub trait LinkedList {
-    // Required methods
     fn get_header_blockno(&self) -> pg_sys::BlockNumber;
 
-    // Provided methods
-    fn get_start_blockno(&self) -> pg_sys::BlockNumber {
-        let metadata = unsafe { self.get_linked_list_data() };
+    fn bman(&self) -> &BufferManager;
+
+    fn bman_mut(&mut self) -> &mut BufferManager;
+
+    ///
+    /// Get the start blockno of the LinkedList, and return a Buffer for the header block of
+    /// the list, which must be held until the start blockno is actually dereferenced.
+    ///
+    fn get_start_blockno(&self) -> (pg_sys::BlockNumber, Buffer) {
+        let buffer = self.bman().get_buffer(self.get_header_blockno());
+        let metadata = buffer.page().contents::<LinkedListData>();
         let start_blockno = metadata.start_blockno;
         assert!(start_blockno != 0);
         assert!(start_blockno != pg_sys::InvalidBlockNumber);
-        start_blockno
+        (start_blockno, buffer)
+    }
+
+    ///
+    /// See `get_start_blockno`.
+    ///
+    fn get_start_blockno_mut(&mut self) -> (pg_sys::BlockNumber, BufferMut) {
+        let header_blockno = self.get_header_blockno();
+        let buffer = self.bman_mut().get_buffer_mut(header_blockno);
+        let metadata = buffer.page().contents::<LinkedListData>();
+        let start_blockno = metadata.start_blockno;
+        assert!(start_blockno != 0);
+        assert!(start_blockno != pg_sys::InvalidBlockNumber);
+        (start_blockno, buffer)
     }
 
     fn get_last_blockno(&self) -> pg_sys::BlockNumber {
-        let metadata = unsafe { self.get_linked_list_data() };
+        // TODO: If concurrency is a concern for "append" cases, then we'd want to iterate from the
+        // hand-over-hand from the head to the tail rather than jumping immediately to the tail.
+        let buffer = self.bman().get_buffer(self.get_header_blockno());
+        let metadata = buffer.page().contents::<LinkedListData>();
         let last_blockno = metadata.last_blockno;
         assert!(last_blockno != 0);
         assert!(last_blockno != pg_sys::InvalidBlockNumber);
@@ -109,13 +132,21 @@ pub trait LinkedList {
     }
 
     fn npages(&self) -> u32 {
-        let metadata = unsafe { self.get_linked_list_data() };
-        metadata.npages - 1
+        let buffer = self.bman().get_buffer(self.get_header_blockno());
+        buffer.page().contents::<LinkedListData>().npages - 1
     }
 
     fn block_for_ord(&self, ord: usize) -> Option<pg_sys::BlockNumber>;
 
-    unsafe fn get_linked_list_data(&self) -> LinkedListData;
+    ///
+    /// Note: It is not safe to begin iteration of the list using this method, as the buffer for
+    /// the metadata is released when it returns. Use `get_start_blockno` to begin iteration.
+    unsafe fn get_linked_list_data(&self) -> LinkedListData {
+        self.bman()
+            .get_buffer(self.get_header_blockno())
+            .page()
+            .contents::<LinkedListData>()
+    }
 }
 
 // ---------------------------------------------------------

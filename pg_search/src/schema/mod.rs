@@ -22,7 +22,8 @@ pub mod range;
 use anyhow::{Context, Result};
 use derive_more::{AsRef, Display, From, Into};
 pub use document::*;
-use pgrx::{PgBuiltInOids, PgOid, PgRelation};
+use pgrx::pg_sys::panic::ErrorReport;
+use pgrx::{function_name, PgBuiltInOids, PgLogLevel, PgOid, PgRelation, PgSqlErrorCode};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
@@ -146,7 +147,7 @@ pub enum SearchFieldConfig {
         indexed: bool,
         #[serde(default)]
         fast: bool,
-        #[serde(default = "default_as_false")]
+        #[serde(default)]
         stored: bool,
         #[serde(default = "default_as_true")]
         fieldnorms: bool,
@@ -164,7 +165,7 @@ pub enum SearchFieldConfig {
         indexed: bool,
         #[serde(default)]
         fast: bool,
-        #[serde(default = "default_as_false")]
+        #[serde(default)]
         stored: bool,
         #[serde(default = "default_as_true")]
         fieldnorms: bool,
@@ -180,7 +181,7 @@ pub enum SearchFieldConfig {
         column: Option<String>,
     },
     Range {
-        #[serde(default = "default_as_false")]
+        #[serde(default)]
         stored: bool,
         #[serde(default)]
         column: Option<String>,
@@ -190,7 +191,7 @@ pub enum SearchFieldConfig {
         indexed: bool,
         #[serde(default = "default_as_true")]
         fast: bool,
-        #[serde(default = "default_as_false")]
+        #[serde(default)]
         stored: bool,
         #[serde(default)]
         column: Option<String>,
@@ -200,7 +201,7 @@ pub enum SearchFieldConfig {
         indexed: bool,
         #[serde(default = "default_as_true")]
         fast: bool,
-        #[serde(default = "default_as_false")]
+        #[serde(default)]
         stored: bool,
         #[serde(default)]
         column: Option<String>,
@@ -210,7 +211,7 @@ pub enum SearchFieldConfig {
         indexed: bool,
         #[serde(default = "default_as_true")]
         fast: bool,
-        #[serde(default = "default_as_false")]
+        #[serde(default)]
         stored: bool,
         #[serde(default)]
         column: Option<String>,
@@ -255,6 +256,17 @@ impl SearchFieldConfig {
             Some(v) => SearchTokenizer::from_json_value(v),
             None => Ok(SearchTokenizer::default()),
         }?;
+
+        #[allow(deprecated)]
+        if matches!(tokenizer, SearchTokenizer::Raw(_)) {
+            ErrorReport::new(
+                PgSqlErrorCode::ERRCODE_WARNING_DEPRECATED_FEATURE,
+                "the `raw` tokenizer is deprecated",
+                function_name!(),
+            )
+                .set_detail("the `raw` tokenizer is deprecated as it also lowercases and truncates the input and this is probably not what you want")
+            .set_hint("use `keyword` instead").report(PgLogLevel::WARNING);
+        }
 
         let record = match obj.get("record") {
             Some(v) => serde_json::from_value(v.clone()),
@@ -539,7 +551,12 @@ impl SearchFieldConfig {
             fast: true,
             stored: false,
             fieldnorms: false,
-            tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::raw()),
+
+            // NB:  This should use the `SearchTokenizer::Keyword` tokenizer but for historical
+            // reasons it uses the `SearchTokenizer::Raw` tokenizer but with the same filters
+            // configuration as the `SearchTokenizer::Keyword` tokenizer.
+            #[allow(deprecated)]
+            tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::keyword().clone()),
             record: IndexRecordOption::Basic,
             normalizer: SearchNormalizer::Raw,
             column: None,
@@ -733,15 +750,11 @@ impl SearchField {
         matches!(self.type_, SearchFieldType::Text)
     }
 
-    pub fn is_raw(&self) -> bool {
+    pub fn is_keyword(&self) -> bool {
         matches!(
             self.config,
             SearchFieldConfig::Text {
-                tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters {
-                    remove_long: None,
-                    lowercase: None,
-                    stemmer: None
-                }),
+                tokenizer: SearchTokenizer::Keyword,
                 normalizer: SearchNormalizer::Raw,
                 ..
             }
@@ -989,10 +1002,6 @@ fn default_as_true() -> bool {
     true
 }
 
-fn default_as_false() -> bool {
-    true
-}
-
 fn default_as_freqs_and_positions() -> IndexRecordOption {
     IndexRecordOption(tantivy::schema::IndexRecordOption::WithFreqsAndPositions)
 }
@@ -1087,7 +1096,7 @@ mod tests {
         let json = r#"{
             "indexed": true,
             "fast": false,
-            "stored": true,
+            "stored": false,
             "fieldnorms": true,
             "type": "default",
             "record": "basic",
@@ -1113,7 +1122,7 @@ mod tests {
     fn test_search_numeric_options() {
         let json = r#"{
             "indexed": true,
-            "stored": true,
+            "stored": false,
             "fieldnorms": false,
             "fast": true
         }"#;
@@ -1129,7 +1138,7 @@ mod tests {
     fn test_search_boolean_options() {
         let json = r#"{
             "indexed": true,
-            "stored": true,
+            "stored": false,
             "fieldnorms": false,
             "fast": true
         }"#;
@@ -1146,7 +1155,7 @@ mod tests {
         let json = r#"{
             "indexed": true,
             "fast": false,
-            "stored": true,
+            "stored": false,
             "expand_dots": true,
             "type": "default",
             "record": "basic",

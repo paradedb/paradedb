@@ -98,7 +98,7 @@ pub fn init() {
             .get()
             .try_into()
             .expect("your computer has too many cores"),
-        GucContext::Suset,
+        GucContext::Userset,
         GucFlags::default(),
     );
 

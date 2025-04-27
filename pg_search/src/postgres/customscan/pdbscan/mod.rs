@@ -43,7 +43,7 @@ use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::{
     estimate_cardinality, is_string_agg_capable_ex,
 };
-use crate::postgres::customscan::pdbscan::parallel::list_segment_ids;
+use crate::postgres::customscan::pdbscan::parallel::{compute_nworkers, list_segment_ids};
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
 use crate::postgres::customscan::pdbscan::projections::score::{
     is_score_func, score_funcoid, uses_scores,
@@ -131,12 +131,24 @@ impl CustomScan for PdbScan {
             #[cfg(any(feature = "pg16", feature = "pg17"))]
             let baserels = (*builder.args().root).all_query_rels;
 
-            let limit = if (*builder.args().root).limit_tuples > -1.0
-                && pg_sys::bms_equal((*builder.args().rel).relids, baserels)
-            {
-                // we can only use the limit for estimates if a) we have one, and b) we know
-                // the query is only querying one relation
-                Some((*builder.args().root).limit_tuples)
+            let limit = if (*builder.args().root).limit_tuples > -1.0 {
+                // Check if this is a single relation or a partitioned table setup
+                let rel_is_single_or_partitioned =
+                    pg_sys::bms_equal((*builder.args().rel).relids, baserels)
+                        || is_partitioned_table_setup(
+                            builder.args().root,
+                            (*builder.args().rel).relids,
+                            baserels,
+                        );
+
+                if rel_is_single_or_partitioned {
+                    // We can use the limit for estimates if:
+                    // a) we have a limit, and
+                    // b) we're querying a single relation OR partitions of a partitioned table
+                    Some((*builder.args().root).limit_tuples)
+                } else {
+                    None
+                }
             } else {
                 None
             };
@@ -178,119 +190,135 @@ impl CustomScan for PdbScan {
                 return None;
             }
 
-            if let Some(quals) = quals {
-                let has_expressions = quals.contains_exprs();
-                let selectivity = if let Some(limit) = limit {
-                    // use the limit
-                    limit
-                        / table
-                            .reltuples()
-                            .map(|n| n as Cardinality)
-                            .unwrap_or(UNKNOWN_SELECTIVITY)
-                } else if restrict_info.len() == 1 {
-                    // we can use the norm_selec that already happened
-                    let norm_select = (*restrict_info.get_ptr(0).unwrap()).norm_selec;
-                    if norm_select != UNKNOWN_SELECTIVITY {
-                        norm_select
-                    } else {
-                        // assume PARAMETERIZED_SELECTIVITY
-                        PARAMETERIZED_SELECTIVITY
-                    }
+            let Some(quals) = quals else {
+                // if we are not able to push down all of the quals, then do not propose the custom
+                // scan, as that would mean executing filtering against heap tuples (which amounts
+                // to a join, and would require more planning).
+                return None;
+            };
+
+            let has_expressions = quals.contains_exprs();
+            let selectivity = if let Some(limit) = limit {
+                // use the limit
+                limit
+                    / table
+                        .reltuples()
+                        .map(|n| n as Cardinality)
+                        .unwrap_or(UNKNOWN_SELECTIVITY)
+            } else if restrict_info.len() == 1 {
+                // we can use the norm_selec that already happened
+                let norm_select = (*restrict_info.get_ptr(0).unwrap()).norm_selec;
+                if norm_select != UNKNOWN_SELECTIVITY {
+                    norm_select
                 } else {
-                    // ask the index
-                    if has_expressions {
-                        // we have no idea, so assume PARAMETERIZED_SELECTIVITY
-                        PARAMETERIZED_SELECTIVITY
-                    } else {
-                        let query = SearchQueryInput::from(&quals);
-                        estimate_selectivity(&bm25_index, &query).unwrap_or(UNKNOWN_SELECTIVITY)
-                    }
-                };
-
-                // we must use this path if we need to do const projections for scores or snippets
-                builder = builder.set_force_path(
-                    has_expressions
-                        && (maybe_needs_const_projections || is_topn || quals.contains_all()),
-                );
-
-                builder.custom_private().set_heaprelid(table.oid());
-                builder.custom_private().set_indexrelid(bm25_index.oid());
-                builder.custom_private().set_range_table_index(rti);
-                builder.custom_private().set_quals(quals);
-                builder.custom_private().set_limit(limit);
-
-                if is_topn {
-                    // sorting by a field only works if we're not doing const projections
-                    // the reason for this is that tantivy can't do both scoring and ordering by
-                    // a fast field at the same time.
-                    //
-                    // and sorting by score always works
-                    if !(maybe_needs_const_projections
-                        && matches!(&pathkey, Some(OrderByStyle::Field(..))))
-                    {
-                        builder.custom_private().set_sort_info(&pathkey);
-                    }
-                } else if limit.is_some()
-                    && PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys)
-                        .is_empty()
-                {
-                    // we have a limit but no order by, so record that.  this will let us go through
-                    // our "top n" machinery, but getting "limit" (essentially) random docs, which
-                    // is what the user asked for
-                    builder
-                        .custom_private()
-                        .set_sort_direction(Some(SortDirection::None));
+                    // assume PARAMETERIZED_SELECTIVITY
+                    PARAMETERIZED_SELECTIVITY
                 }
-
-                let reltuples = table.reltuples().unwrap_or(1.0) as f64;
-                let rows = (reltuples * selectivity).max(1.0);
-
-                let per_tuple_cost = {
-                    // if we think we need scores, we need a much cheaper plan so that Postgres will
-                    // prefer it over all the others.
-                    if is_join || maybe_needs_const_projections {
-                        0.0
-                    } else if maybe_ff {
-                        // returns fields from fast fields
-                        pg_sys::cpu_index_tuple_cost / 100.0
-                    } else {
-                        // requires heap access to return fields
-                        pg_sys::cpu_tuple_cost * 200.0
-                    }
-                };
-
-                let startup_cost = if is_join || maybe_needs_const_projections {
-                    0.0
+            } else {
+                // ask the index
+                if has_expressions {
+                    // we have no idea, so assume PARAMETERIZED_SELECTIVITY
+                    PARAMETERIZED_SELECTIVITY
                 } else {
-                    DEFAULT_STARTUP_COST
-                };
+                    let query = SearchQueryInput::from(&quals);
+                    estimate_selectivity(&bm25_index, &query).unwrap_or(UNKNOWN_SELECTIVITY)
+                }
+            };
 
-                let total_cost = startup_cost + (rows * per_tuple_cost);
-                let segment_count = index.searchable_segments().unwrap_or_default().len();
+            // we must use this path if we need to do const projections for scores or snippets
+            builder = builder.set_force_path(
+                has_expressions
+                    && (maybe_needs_const_projections || is_topn || quals.contains_all()),
+            );
 
-                builder.custom_private().set_segment_count(
-                    index
-                        .searchable_segments()
-                        .map(|segments| segments.len())
-                        .unwrap_or(0),
-                );
-                builder = builder.set_rows(rows);
-                builder = builder.set_startup_cost(startup_cost);
-                builder = builder.set_total_cost(total_cost);
-                builder = builder.set_flag(Flags::Projection);
+            builder.custom_private().set_heaprelid(table.oid());
+            builder.custom_private().set_indexrelid(bm25_index.oid());
+            builder.custom_private().set_range_table_index(rti);
+            builder.custom_private().set_quals(quals);
+            builder.custom_private().set_limit(limit);
 
-                if pathkey.is_some()
-                    && !is_topn
-                    && is_string_agg_capable_ex(
-                        builder.custom_private().limit(),
-                        &which_fast_fields,
-                    )
+            if is_topn && pathkey.is_some() {
+                let pathkey = pathkey.as_ref().unwrap();
+                // sorting by a field only works if we're not doing const projections
+                // the reason for this is that tantivy can't do both scoring and ordering by
+                // a fast field at the same time.
+                //
+                // and sorting by score always works
+                match (maybe_needs_const_projections, pathkey) {
+                    (false, OrderByStyle::Field(..)) => {
+                        builder.custom_private().set_sort_info(pathkey);
+                    }
+                    (_, OrderByStyle::Score(..)) => {
+                        builder.custom_private().set_sort_info(pathkey);
+                    }
+                    _ => {}
+                }
+            } else if limit.is_some()
+                && PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys)
+                    .is_empty()
+            {
+                // we have a limit but no order by, so record that.  this will let us go through
+                // our "top n" machinery, but getting "limit" (essentially) random docs, which
+                // is what the user asked for
+                builder
+                    .custom_private()
+                    .set_sort_direction(Some(SortDirection::None));
+            }
+
+            let reltuples = table.reltuples().unwrap_or(1.0) as f64;
+            let rows = (reltuples * selectivity).max(1.0);
+
+            let per_tuple_cost = {
+                // if we think we need scores, we need a much cheaper plan so that Postgres will
+                // prefer it over all the others.
+                if is_join || maybe_needs_const_projections {
+                    0.0
+                } else if maybe_ff {
+                    // returns fields from fast fields
+                    pg_sys::cpu_index_tuple_cost / 100.0
+                } else {
+                    // requires heap access to return fields
+                    pg_sys::cpu_tuple_cost * 200.0
+                }
+            };
+
+            let startup_cost = if is_join || maybe_needs_const_projections {
+                0.0
+            } else {
+                DEFAULT_STARTUP_COST
+            };
+
+            let total_cost = startup_cost + (rows * per_tuple_cost);
+            let segment_count = index.searchable_segments().unwrap_or_default().len();
+            let nworkers = if (*builder.args().rel).consider_parallel {
+                compute_nworkers(limit, segment_count, builder.custom_private().is_sorted())
+            } else {
+                0
+            };
+
+            builder.custom_private().set_segment_count(
+                index
+                    .searchable_segments()
+                    .map(|segments| segments.len())
+                    .unwrap_or(0),
+            );
+            builder = builder.set_rows(rows);
+            builder = builder.set_startup_cost(startup_cost);
+            builder = builder.set_total_cost(total_cost);
+            builder = builder.set_flag(Flags::Projection);
+
+            if pathkey.is_some()
+                && !is_topn
+                && is_string_agg_capable_ex(builder.custom_private().limit(), &which_fast_fields)
                     .is_some()
-                {
-                    // we're going to do a StringAgg, and it may or may not be more efficient to use
-                    // parallel queries, depending on the cardinality of what we're going to select
+            {
+                let pathkey = pathkey.as_ref().unwrap();
+
+                // we're going to do a StringAgg, and it may or may not be more efficient to use
+                // parallel queries, depending on the cardinality of what we're going to select
+                let parallel_scan_preferred = || -> bool {
                     let cardinality = {
-                        let estimate = if let Some(OrderByStyle::Field(_, field)) = &pathkey {
+                        let estimate = if let OrderByStyle::Field(_, field) = &pathkey {
                             // NB:  '4' is a magic number
                             estimate_cardinality(&bm25_index, field).unwrap_or(0) * 4
                         } else {
@@ -303,32 +331,39 @@ impl CustomScan for PdbScan {
                         PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys)
                             .len();
 
-                    if pathkey_cnt == 1 || cardinality > 1_000_000.0 {
-                        // if we only have 1 path key or if our estimated cardinality is over some
-                        // hardcoded value, it's seemingly more efficient to do a parallel scan
-                        builder = builder.set_parallel(false, rows, limit, segment_count, true);
-                    } else {
-                        // otherwise we'll do a regular scan and indicate that we're emitting results
-                        // sorted by the first pathkey
-                        builder = builder.add_path_key(&pathkey);
-                        builder.custom_private().set_sort_info(&pathkey);
-                    }
+                    // if we only have 1 path key or if our estimated cardinality is over some
+                    // hardcoded value, it's seemingly more efficient to do a parallel scan
+                    pathkey_cnt == 1 || cardinality > 1_000_000.0
+                };
+
+                if nworkers > 0 && parallel_scan_preferred() {
+                    // If we use parallel workers, there is no point in sorting, because the
+                    // plan will already need to sort and merge the outputs from the workers.
+                    // See the TODO below about being able to claim sorting for parallel
+                    // workers.
+                    builder = builder.set_parallel(nworkers);
                 } else {
-                    let sortdir = builder.custom_private().sort_direction();
-                    builder = builder.set_parallel(
-                        is_topn,
-                        rows,
-                        limit,
-                        segment_count,
-                        !matches!(sortdir, Some(SortDirection::None)) && sortdir.is_some(),
-                    );
+                    // otherwise we'll do a regular scan
+                    builder.custom_private().set_sort_info(pathkey);
                 }
-
-                return Some(builder.build());
+            } else if nworkers > 0 {
+                builder = builder.set_parallel(nworkers);
             }
-        }
 
-        None
+            // If we are sorting our output (which we will only do if we have a limit!) and we
+            // are _not_ using parallel workers, then we can claim that the output is sorted.
+            //
+            // TODO: To allow sorted output with parallel workers, we would need to partition
+            // our segments across the workers so that each worker emitted all of its results
+            // in sorted order.
+            if nworkers == 0 && builder.custom_private().is_sorted() && limit.is_some() {
+                if let Some(pathkey) = pathkey.as_ref() {
+                    builder = builder.add_path_key(pathkey);
+                }
+            }
+
+            Some(builder.build())
+        }
     }
 
     fn plan_custom_path(mut builder: CustomScanBuilder<Self::PrivateData>) -> pg_sys::CustomScan {
@@ -579,25 +614,29 @@ impl CustomScan for PdbScan {
         exec_methods::fast_fields::explain(state, explainer);
 
         explainer.add_bool("Scores", state.custom_state().need_scores());
-        if let Some(sort_direction) = state.custom_state().sort_direction {
-            if !matches!(sort_direction, SortDirection::None) {
-                if let Some(sort_field) = &state.custom_state().sort_field {
-                    explainer.add_text("   Sort Field", sort_field);
-                } else {
-                    explainer.add_text("   Sort Field", "paradedb.score()");
-                }
-                explainer.add_text("   Sort Direction", sort_direction);
+        if state.custom_state().is_sorted() {
+            if let Some(sort_field) = &state.custom_state().sort_field {
+                explainer.add_text("   Sort Field", sort_field);
+            } else {
+                explainer.add_text("   Sort Field", "paradedb.score()");
             }
+            explainer.add_text(
+                "   Sort Direction",
+                state
+                    .custom_state()
+                    .sort_direction
+                    .unwrap_or(SortDirection::Asc),
+            );
+        }
 
-            if let Some(limit) = state.custom_state().limit {
-                explainer.add_unsigned_integer("   Top N Limit", limit as u64, None);
-                if explainer.is_analyze() && state.custom_state().retry_count > 0 {
-                    explainer.add_unsigned_integer(
-                        "   Invisible Tuple Retries",
-                        state.custom_state().retry_count as u64,
-                        None,
-                    );
-                }
+        if let Some(limit) = state.custom_state().limit {
+            explainer.add_unsigned_integer("   Top N Limit", limit as u64, None);
+            if explainer.is_analyze() && state.custom_state().retry_count > 0 {
+                explainer.add_unsigned_integer(
+                    "   Invisible Tuple Retries",
+                    state.custom_state().retry_count as u64,
+                    None,
+                );
             }
         }
 
@@ -1070,4 +1109,76 @@ pub fn is_block_all_visible(
         let status = pg_sys::visibilitymap_get_status(heaprel, heap_blockno, vmbuff);
         status != 0
     }
+}
+
+// Helper function to create an iterator over Bitmapset members
+unsafe fn bms_iter(bms: *mut pg_sys::Bitmapset) -> impl Iterator<Item = i32> {
+    let mut set_bit: i32 = -1;
+    std::iter::from_fn(move || {
+        set_bit = pg_sys::bms_next_member(bms, set_bit);
+        if set_bit < 0 {
+            None
+        } else {
+            Some(set_bit)
+        }
+    })
+}
+
+// Helper function to check if a Bitmapset is empty
+unsafe fn bms_is_empty(bms: *mut pg_sys::Bitmapset) -> bool {
+    bms_iter(bms).next().is_none()
+}
+
+// Helper function to determine if we're dealing with a partitioned table setup
+unsafe fn is_partitioned_table_setup(
+    root: *mut pg_sys::PlannerInfo,
+    rel_relids: *mut pg_sys::Bitmapset,
+    baserels: *mut pg_sys::Bitmapset,
+) -> bool {
+    // If the relation bitmap is empty, early return
+    if bms_is_empty(rel_relids) {
+        return false;
+    }
+
+    // Get the rtable for relkind checks
+    let rtable = (*(*root).parse).rtable;
+
+    // For each relation in baserels
+    for baserel_idx in bms_iter(baserels) {
+        // Skip invalid indices
+        if baserel_idx <= 0 || baserel_idx as usize >= (*root).simple_rel_array_size as usize {
+            continue;
+        }
+
+        // Get the RTE to check if this is a partitioned table
+        let rte = pg_sys::rt_fetch(baserel_idx as pg_sys::Index, rtable);
+        if (*rte).relkind as u8 != pg_sys::RELKIND_PARTITIONED_TABLE {
+            continue;
+        }
+
+        // Access RelOptInfo safely using offset and read
+        if (*root).simple_rel_array.is_null() {
+            continue;
+        }
+
+        // This is a partitioned table, get its RelOptInfo to find partitions
+        let rel_info_ptr = *(*root).simple_rel_array.add(baserel_idx as usize);
+        if rel_info_ptr.is_null() {
+            continue;
+        }
+
+        let rel_info = &*rel_info_ptr;
+
+        // Check if it has partitions
+        if rel_info.all_partrels.is_null() {
+            continue;
+        }
+
+        // Check if any relation in rel_relids is among the partitions
+        if pg_sys::bms_overlap(rel_info.all_partrels, rel_relids) {
+            return true;
+        }
+    }
+
+    false
 }

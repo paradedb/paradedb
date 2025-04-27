@@ -346,11 +346,11 @@ fn storage_info(
     let segment_components =
         LinkedItemList::<SegmentMetaEntry>::open(index.oid(), SEGMENT_METAS_START);
     let bman = segment_components.bman();
-    let mut blockno = segment_components.get_start_blockno();
+    let (mut blockno, mut buffer) = segment_components.get_start_blockno();
     let mut data = vec![];
 
     while blockno != pg_sys::InvalidBlockNumber {
-        let buffer = bman.get_buffer(blockno);
+        buffer = bman.get_buffer_exchange(blockno, buffer);
         let page = buffer.page();
         let max_offset = page.max_offset_number();
         data.push((blockno as i64, max_offset as i32));
@@ -472,7 +472,7 @@ fn force_merge_raw_bytes(
 
     let merge_policy = LayeredMergePolicy::new(vec![oversized_layer_size_bytes.try_into()?]);
     let (ncandidates, nmerged) =
-        unsafe { merge_index_with_policy(index, merge_policy, true, true) };
+        unsafe { merge_index_with_policy(index, merge_policy, true, true, true) };
     Ok(TableIterator::once((
         ncandidates.try_into()?,
         nmerged.try_into()?,
@@ -539,7 +539,7 @@ from (select relname,
       where low < high
       group by relname, low, high
       order by relname, low desc) x;
-      
+
 GRANT SELECT ON paradedb.index_layer_info TO PUBLIC;
 "#,
     name = "index_layer_info",

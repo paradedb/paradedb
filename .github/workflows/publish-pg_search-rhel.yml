@@ -166,11 +166,19 @@ jobs:
           # configure the build environment for creating the RPM package via rpmbuild
           sudo dnf install -y rpmdevtools
 
-      # Tell rust_icu_sys how to find ICU’s headers & libs
-      - name: Configure ICU environment
+      # Create an icu-config shim so rust_icu_sys can detect headers/libs
+      - name: Install icu-config wrapper
         run: |
-          echo "ICU_CFLAGS=$(icu-config --cppflags)" >> $GITHUB_ENV
-          echo "ICU_LDFLAGS=$(icu-config --ldflags)" >> $GITHUB_ENV
+          cat << 'EOF' > /usr/local/bin/icu-config
+          #!/usr/bin/env bash
+          case "$1" in
+            --cppflags) pkg-config --cflags icu-i18n ;;
+            --ldflags)  pkg-config --libs  icu-i18n ;;
+            --version)  pkg-config --modversion icu-i18n ;;
+            *)           pkg-config "$@"    icu-i18n ;;
+          esac
+          EOF
+          chmod +x /usr/local/bin/icu-config
 
       # Used to upload the release to GitHub Releases
       - name: Install GitHub CLI
@@ -243,9 +251,6 @@ jobs:
           COMMIT_SHA: ${{ steps.version.outputs.commit_sha }}
           PARADEDB_VERSION: ${{ steps.version.outputs.tag_version }}
         run: |
-          # make sure the ICU flags get passed into bindgen
-          export ICU_CFLAGS=${ICU_CFLAGS}
-          export ICU_LDFLAGS=${ICU_LDFLAGS}
           PG_CONFIG_PATH="/usr/pgsql-${{ matrix.pg_version }}/bin/pg_config"
           cargo pgrx package --features icu --pg-config $PG_CONFIG_PATH
 

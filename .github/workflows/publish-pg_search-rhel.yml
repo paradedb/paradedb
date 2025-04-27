@@ -132,7 +132,7 @@ jobs:
           RHEL_VERSION=$(echo "${{ matrix.image }}" | awk -F'ubi|:' '{print $2}')
 
           # Install dependencies (including ICU devel for cargo pgrx --features icu)
-          dnf install -y sudo wget gcc llvm-toolset pkgconf-pkg-config openssl-devel jq rpm-build icu-devel
+          dnf install -y sudo wget gcc llvm-toolset pkgconf-pkg-config openssl-devel jq rpm-build libicu-devel clang clang-devel
 
           # Add Oracle Linux ${RHEL_VERSION} repositories to enable epel-release
           sudo tee /etc/yum.repos.d/oracle-linux-ol${RHEL_VERSION}.repo > /dev/null <<EOF

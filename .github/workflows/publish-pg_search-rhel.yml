@@ -161,7 +161,7 @@ jobs:
           sudo dnf install -y epel-release
 
           # This package requires epel-release, which is why we install it last. It is required to
-          # configure the build environment for creating the RPM package via rpmbuild
+          # configure the build environment for creating the RPM package via rpmbuild icu-devel
           sudo dnf install -y rpmdevtools
 
       # Used to upload the release to GitHub Releases
@@ -233,7 +233,7 @@ jobs:
         working-directory: pg_search/
         run: |
           PG_CONFIG_PATH="/usr/pgsql-${{ matrix.pg_version }}/bin/pg_config"
-          cargo pgrx package --pg-config $PG_CONFIG_PATH
+          cargo pgrx package --features icu --pg-config $PG_CONFIG_PATH
         env:
           COMMIT_SHA: ${{ steps.version.outputs.commit_sha }}
           PARADEDB_VERSION: ${{ steps.version.outputs.tag_version }}

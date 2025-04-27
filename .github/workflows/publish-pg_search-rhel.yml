@@ -166,10 +166,10 @@ jobs:
           # configure the build environment for creating the RPM package via rpmbuild
           sudo dnf install -y rpmdevtools
 
-      # Create an icu-config shim so rust_icu_sys can detect headers/libs
+      # Install an icu-config shim into /usr/bin so rust_icu_sys will find it
       - name: Install icu-config wrapper
         run: |
-          cat << 'EOF' > /usr/local/bin/icu-config
+          cat << 'EOF' > /usr/bin/icu-config
           #!/usr/bin/env bash
           case "$1" in
             --cppflags) pkg-config --cflags icu-i18n ;;
@@ -178,7 +178,14 @@ jobs:
             *)           pkg-config "$@"    icu-i18n ;;
           esac
           EOF
-          chmod +x /usr/local/bin/icu-config
+          chmod +x /usr/bin/icu-config
+
+      # (Optional) sanity-check that our shim is being used:
+      - name: Verify icu-config shim
+        run: |
+          which icu-config
+          icu-config --cppflags
+          icu-config --ldflags
 
       # Used to upload the release to GitHub Releases
       - name: Install GitHub CLI

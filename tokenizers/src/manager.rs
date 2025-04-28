@@ -34,6 +34,7 @@ use tantivy::tokenizer::{
     AsciiFoldingFilter, Language, LowerCaser, NgramTokenizer, RawTokenizer, RegexTokenizer,
     RemoveLongFilter, SimpleTokenizer, Stemmer, TextAnalyzer, WhitespaceTokenizer,
 };
+use tantivy_jieba;
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq, Eq)]
 pub struct SearchTokenizerFilters {
@@ -194,6 +195,7 @@ pub enum SearchTokenizer {
     #[cfg(feature = "icu")]
     #[strum(serialize = "icu")]
     ICUTokenizer(SearchTokenizerFilters),
+    Jieba(SearchTokenizerFilters),
 }
 
 impl Default for SearchTokenizer {
@@ -240,6 +242,7 @@ impl SearchTokenizer {
             SearchTokenizer::KoreanLindera(_filters) => json!({ "type": "korean_lindera" }),
             #[cfg(feature = "icu")]
             SearchTokenizer::ICUTokenizer(_filters) => json!({ "type": "icu" }),
+            SearchTokenizer::Jieba(_filters) => json!({ "type": "jieba" }),
         };
 
         // Serialize filters to the enclosing json object.
@@ -308,6 +311,7 @@ impl SearchTokenizer {
             "korean_lindera" => Ok(SearchTokenizer::KoreanLindera(filters)),
             #[cfg(feature = "icu")]
             "icu" => Ok(SearchTokenizer::ICUTokenizer(filters)),
+            "jieba" => Ok(SearchTokenizer::Jieba(filters)),
             _ => Err(anyhow::anyhow!(
                 "unknown tokenizer type: {}",
                 tokenizer_type
@@ -440,6 +444,13 @@ impl SearchTokenizer {
                     .filter(filters.stemmer())
                     .build(),
             ),
+            SearchTokenizer::Jieba(filters) => Some(
+                TextAnalyzer::builder(tantivy_jieba::JiebaTokenizer {})
+                    .filter(filters.remove_long_filter())
+                    .filter(filters.lower_caser())
+                    .filter(filters.stemmer())
+                    .build(),
+            ),
         }
     }
 
@@ -462,6 +473,7 @@ impl SearchTokenizer {
             SearchTokenizer::KoreanLindera(filters) => filters,
             #[cfg(feature = "icu")]
             SearchTokenizer::ICUTokenizer(filters) => filters,
+            SearchTokenizer::Jieba(filters) => filters,
         }
     }
 }
@@ -525,6 +537,7 @@ impl SearchTokenizer {
             SearchTokenizer::KoreanLindera(_filters) => format!("korean_lindera{filters_suffix}"),
             #[cfg(feature = "icu")]
             SearchTokenizer::ICUTokenizer(_filters) => format!("icu{filters_suffix}"),
+            SearchTokenizer::Jieba(_filters) => format!("jieba{filters_suffix}"),
         }
     }
 }

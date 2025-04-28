@@ -80,7 +80,7 @@ impl TerminatingWrite for SegmentComponentWriter {
     }
 }
 
-pub struct InnerSegmentComponentWriter {
+struct InnerSegmentComponentWriter {
     header_blockno: pg_sys::BlockNumber,
     total_bytes: Arc<AtomicUsize>,
     buffer: ExactBuffer<{ bm25_max_free_space() }, LinkedBytesListWriter>,

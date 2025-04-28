@@ -1,5 +1,5 @@
 DROP FUNCTION IF EXISTS index_info(index regclass, show_invisible bool);
-CREATE OR REPLACE FUNCTION index_info(index regclass, show_invisible bool DEFAULT '((' f ')::pg_catalog.bool)')
+CREATE OR REPLACE FUNCTION index_info(index regclass, show_invisible bool DEFAULT false)
     RETURNS TABLE
             (
                 index_name        text,

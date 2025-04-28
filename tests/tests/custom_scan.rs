@@ -1139,3 +1139,43 @@ fn custom_scan_respects_parentheses_issue2526(mut conn: PgConnection) {
     let result: Vec<(i64,)> = "SELECT COUNT(*) from mock_items WHERE description @@@ 'shoes' AND (description @@@ 'keyboard' OR description @@@ 'hat')".fetch(&mut conn);
     assert_eq!(result, vec![(0,)]);
 }
+
+#[rstest]
+fn stable_limit_and_offset(mut conn: PgConnection) {
+    if pg_major_version(&mut conn) < 16 {
+        // the `debug_parallel_query` was added in pg16, so we simply cannot run this test on anything
+        // less than pg16
+        return;
+    }
+
+    // We use multiple segments, and force multiple workers to be used.
+    SimpleProductsTable::setup_multi_segment().execute(&mut conn);
+
+    "SET max_parallel_workers = 8;".execute(&mut conn);
+    "SET debug_parallel_query TO on".execute(&mut conn);
+
+    let mut query = |offset: usize, limit: usize| -> Vec<(i32, String, f32)> {
+        format!(
+            "SELECT id, description, paradedb.score(id) FROM paradedb.bm25_search WHERE bm25_search @@@ 'category:electronics'
+             ORDER BY paradedb.score(id), id OFFSET {offset} LIMIT {limit}"
+        )
+        .fetch_collect(&mut conn)
+    };
+
+    let mut previous = Vec::new();
+    for limit in 1..50 {
+        let current = query(0, limit);
+        assert_eq!(
+            previous[0..],
+            current[..previous.len()],
+            "With limit {limit}"
+        );
+        previous = current;
+    }
+
+    let all_results = query(0, 50);
+    for (offset, expected) in all_results.into_iter().enumerate() {
+        let current = query(offset, 1);
+        assert_eq!(expected, current[0]);
+    }
+}

@@ -1,16 +1,14 @@
 # Investigation Plan for Issue #2472: ParadeDB Nested Loop Join Bug
 
 ## Problem Confirmation
-
 We have confirmed the issue with a simple test case:
 
 1. When using a query with a `status = 'NORMAL'` condition that forces a **Nested Loop Join**:
-
    ```sql
    WITH target_users AS (
        SELECT u.id, u.company_id
        FROM "user" u
-       WHERE
+       WHERE 
          u.status = 'NORMAL' AND
          u.company_id in (13, 15)
    ),
@@ -27,7 +25,6 @@ We have confirmed the issue with a simple test case:
    FROM target_users u
    LEFT JOIN matched_companies mc ON u.company_id = mc.id;
    ```
-
    The join fails to match company_id 15 even though it exists and matches the search criteria.
 
 2. When the query is modified to remove the `status = 'NORMAL'` condition, forcing a **Hash Join**:
@@ -65,13 +62,11 @@ Our custom scan operator appears to be losing state or not correctly preserving 
 ## Exact Code Locations to Modify
 
 1. **Rescan Logic**
-
    - Modify `rescan_custom_scan` in `pg_search/src/postgres/customscan/pdbscan/mod.rs`
    - Ensure search state is properly preserved between rescans
    - Add special handling for detecting and handling nested loop joins
 
 2. **Visibility Checking**
-
    - Enhance `check_visibility` function to better handle nested loop join context
    - Possibly add special handling for different join types
 
@@ -82,7 +77,6 @@ Our custom scan operator appears to be losing state or not correctly preserving 
 ## Testing Plan
 
 1. **Reproduce with Detailed Logging**
-
    - Add extensive logging to track the execution flow in both join types
    - Specifically focus on what happens with company_id 15
    - Log all nested loop iterations and visibility checks
@@ -97,7 +91,6 @@ Our custom scan operator appears to be losing state or not correctly preserving 
 If direct fixing of the scanning behavior is too complex, consider:
 
 1. **Query Hint Approach**
-
    - Add a query hint mechanism to suggest Hash Join over Nested Loop
    - Less intrusive than restructuring the custom scan operator
 
@@ -117,7 +110,6 @@ If direct fixing of the scanning behavior is too complex, consider:
 For reference, PostgreSQL join execution works as follows:
 
 - **Nested Loop Join**:
-
   - For each outer tuple, scan the inner relation for matches
   - Rescan calls are made for each new outer tuple
   - State between inner scans should be completely reset unless explicitly saved
@@ -127,4 +119,4 @@ For reference, PostgreSQL join execution works as follows:
   - Probe the hash table for each outer tuple
   - No rescans are needed for the inner relation
 
-Our custom scan operator likely has issues with the rescan pattern in the nested loop execution strategy.
+Our custom scan operator likely has issues with the rescan pattern in the nested loop execution strategy. 

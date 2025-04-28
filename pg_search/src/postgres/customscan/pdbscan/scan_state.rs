@@ -83,8 +83,6 @@ pub struct PdbScanState {
 
     exec_method: UnsafeCell<Box<dyn ExecMethod>>,
     exec_method_name: String,
-
-    pub in_nested_loop_join: bool,
 }
 
 impl CustomScanState for PdbScanState {

@@ -5,8 +5,7 @@ Based on our investigation, the issue appears to be in the custom scan operator'
 ## Root Cause
 
 During a nested loop join:
-
-1. PostgreSQL executes the outer relation (target_users)
+1. PostgreSQL executes the outer relation (target_users) 
 2. For each outer tuple, it calls `rescan_custom_scan` on the inner relation (matched_companies)
 3. Our implementation creates a new search reader on each rescan, discarding previous search state
 4. For company_id 15 specifically, this leads to the search results being lost between rescans
@@ -23,7 +22,7 @@ unsafe {
     let parent_plan = (*state.csstate.ss.ps.plan).lefttree;
     if !parent_plan.is_null() {
         let is_nested_loop = (*parent_plan).type_ == pg_sys::NodeTag::T_NestLoop;
-
+        
         // Store detection in custom state for later use
         state.custom_state_mut().in_nested_loop_join = is_nested_loop;
     }
@@ -75,7 +74,7 @@ fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
             }
         })
         .expect("should be able to open the search index reader");
-
+        
         state.custom_state_mut().search_reader = Some(search_reader);
     }
 
@@ -127,7 +126,7 @@ fn check_visibility(
 ) -> Option<*mut pg_sys::TupleTableSlot> {
     // Determine if we're in a nested loop join
     let in_nested_loop = state.custom_state().in_nested_loop_join;
-
+    
     // Special handling for nested loop joins
     if in_nested_loop {
         // Get the outer tuple from the join context
@@ -145,7 +144,7 @@ fn check_visibility(
             }
         }
     }
-
+    
     // Rest of visibility checking logic
     // ...
 }
@@ -159,7 +158,7 @@ Test the fix with the original problematic query:
 WITH target_users AS (
     SELECT u.id, u.company_id
     FROM "user" u
-    WHERE
+    WHERE 
       u.status = 'NORMAL' AND
       u.company_id in (13, 15)
 ),
@@ -213,9 +212,8 @@ Since this is a bug fix, no migration strategy is needed. The change should be t
 ## Risk Assessment
 
 This change carries minimal risk since it:
-
 - Only affects behavior in nested loop join context
 - Preserves existing functionality for hash joins
 - Focuses on a very specific edge case
 
-The main risk is ensuring that all state is properly tracked and managed between rescans, which requires careful testing.
+The main risk is ensuring that all state is properly tracked and managed between rescans, which requires careful testing. 

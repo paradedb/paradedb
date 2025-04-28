@@ -1,9 +1,7 @@
 # Plan for Issue #2472: Query Planner Bug with BM25 Search Results
 
 ## Issue Summary
-
 PostgreSQL's query planner fails to properly join records with ParadeDB BM25 search results under specific conditions:
-
 - Multiple tables with relationships
 - A filter on company_id that includes company_id 15
 - ParadeDB fulltext search on companies
@@ -12,7 +10,6 @@ PostgreSQL's query planner fails to properly join records with ParadeDB BM25 sea
 This results in missing matches in the query results, despite the data existing and matching the search criteria.
 
 ## Reproduction and Verification
-
 We've verified the issue with a simple test case:
 
 ```sql
@@ -20,7 +17,7 @@ We've verified the issue with a simple test case:
 WITH target_users AS (
     SELECT u.id, u.company_id
     FROM "user" u
-    WHERE
+    WHERE 
       u.status = 'NORMAL' AND
       u.company_id in (13, 15)
 ),
@@ -40,7 +37,7 @@ LEFT JOIN matched_companies mc ON u.company_id = mc.id;
 
 ```
 -- Results:
-id | company_id | mc_company_id | score
+id | company_id | mc_company_id | score 
 ----+------------+---------------+-------
   3 |         13 |               |     0
   4 |         15 |               |     0
@@ -69,7 +66,7 @@ LEFT JOIN matched_companies mc ON u.company_id = mc.id;
 
 ```
 -- Results:
-id | company_id | mc_company_id |   score
+id | company_id | mc_company_id |   score    
 ----+------------+---------------+------------
   3 |         13 |               |          0
   4 |         15 |            15 | 0.32542244
@@ -80,7 +77,6 @@ id | company_id | mc_company_id |   score
 We've identified that the issue is directly related to the join strategy chosen by PostgreSQL:
 
 1. **Query Plan with Status Filter:**
-
    - Uses a **Nested Loop Left Join** (cost=1000.00..1026.50)
    - Join Filter: (u.company_id = c.id)
    - Parallel Custom Scan (ParadeDB Scan) on company
@@ -99,7 +95,6 @@ The problem appears to be related to how our ParadeDB custom scan operator inter
 To pinpoint the exact issue in the code, we'll add detailed logging to the custom scan operator's iteration methods:
 
 ### 1. Iterator and Rescan Logic
-
 - Add logging to trace the execution flow of the custom scan operator's iterator functions
 - Focus on the `ExecMethod::next` function and related rescan operations
 - Track how many times the custom scan is executed for each outer tuple in the nested loop join
@@ -132,17 +127,14 @@ We noticed the visibility check passes for company_id 15 when tested directly bu
 Based on our improved understanding, we're focusing on these potential solutions:
 
 ### Option 1: Fix Iterator Reset Logic
-
 - Ensure the custom scan operator properly resets its state between iterations in a nested loop join
 - Add appropriate state tracking to ensure all results are returned for each iteration
 
 ### Option 2: Improve Custom Scan Integration
-
 - Enhance how the ParadeDB scan operator interacts with PostgreSQL's join strategies
 - Implement proper handling of rescan requests from the PostgreSQL executor
 
 ### Option 3: Optimizer Hint to Prefer Hash Joins
-
 - Add logic to the query planner to suggest hash joins when a ParadeDB scan is used in specific join contexts
 - This would be less invasive than forcing materialization but still guide the planner to use more compatible join strategies
 
@@ -156,12 +148,10 @@ Based on our improved understanding, we're focusing on these potential solutions
 ## Testing Strategy
 
 1. **Unit Tests**
-
    - Create tests specifically for the fixed component
    - Test with various data distributions and filter values
 
 2. **Integration Tests**
-
    - Test the original failure case and variations
    - Create comprehensive test suite with edge cases:
      - Different filter values and combinations
@@ -176,12 +166,10 @@ Based on our improved understanding, we're focusing on these potential solutions
 ## Potential Challenges
 
 1. **PostgreSQL Version Compatibility**
-
    - The fix may need to be adapted for different PostgreSQL versions
    - Planner behavior changes between major versions
 
 2. **General vs. Specific Fix**
-
    - Need to balance fixing this specific case vs. general planner improvements
    - Avoid over-optimization for this test case that might harm other queries
 
@@ -194,4 +182,4 @@ Based on our improved understanding, we're focusing on these potential solutions
 - Investigation and reproduction: By April 28, 2025
 - Initial implementation: By May 2, 2025
 - Testing and refinement: By May 5, 2025
-- PR submission: By May 6, 2025
+- PR submission: By May 6, 2025 

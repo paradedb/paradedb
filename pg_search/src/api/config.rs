@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::*;
 use serde_json::{json, Map, Value};
 
@@ -31,10 +32,20 @@ pub fn field(
     tokenizer: default!(Option<JsonB>, "NULL"),
     normalizer: default!(Option<String>, "NULL"),
 ) -> JsonB {
+    if let Some(true) = stored {
+        ErrorReport::new(
+            PgSqlErrorCode::ERRCODE_WARNING_DEPRECATED_FEATURE,
+            "the `stored` option is deprecated",
+            function_name!(),
+        )
+        .set_detail("the `stored` option is deprecated sine it is no longer needed by the index")
+        .set_hint("remove it from the index configuration")
+        .report(PgLogLevel::WARNING);
+    }
+
     let mut config = Map::new();
 
     indexed.map(|v| config.insert("indexed".to_string(), Value::Bool(v)));
-    stored.map(|v| config.insert("stored".to_string(), Value::Bool(v)));
     fast.map(|v| config.insert("fast".to_string(), Value::Bool(v)));
     fieldnorms.map(|v| config.insert("fieldnorms".to_string(), Value::Bool(v)));
     record.map(|v| config.insert("record".to_string(), Value::String(v)));

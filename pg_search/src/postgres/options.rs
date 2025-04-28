@@ -420,14 +420,12 @@ impl SearchIndexCreateOptions {
                 SearchFieldConfig::Numeric {
                     indexed: true,
                     fast: true,
-                    stored: false,
                     column: None,
                 }
             }
             SearchFieldType::Text => SearchFieldConfig::Text {
                 indexed: true,
                 fast: true,
-                stored: false,
                 fieldnorms: false,
 
                 // NB:  This should use the `SearchTokenizer::Keyword` tokenizer but for historical
@@ -443,7 +441,6 @@ impl SearchIndexCreateOptions {
             SearchFieldType::Json => SearchFieldConfig::Json {
                 indexed: true,
                 fast: true,
-                stored: false,
                 fieldnorms: false,
                 expand_dots: false,
                 #[allow(deprecated)]
@@ -452,20 +449,15 @@ impl SearchIndexCreateOptions {
                 normalizer: SearchNormalizer::Raw,
                 column: None,
             },
-            SearchFieldType::Range => SearchFieldConfig::Range {
-                stored: false,
-                column: None,
-            },
+            SearchFieldType::Range => SearchFieldConfig::Range { column: None },
             SearchFieldType::Bool => SearchFieldConfig::Boolean {
                 indexed: true,
                 fast: true,
-                stored: false,
                 column: None,
             },
             SearchFieldType::Date => SearchFieldConfig::Date {
                 indexed: true,
                 fast: true,
-                stored: false,
                 column: None,
             },
         };
@@ -481,7 +473,6 @@ impl SearchIndexCreateOptions {
             SearchFieldConfig::Numeric {
                 indexed: true,
                 fast: true,
-                stored: false,
                 column: None,
             },
             Some(SearchFieldType::U64),

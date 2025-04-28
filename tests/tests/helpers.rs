@@ -361,7 +361,6 @@ fn test_index_fields(mut conn: PgConnection) {
     let id_config = fields.get("id").unwrap().get("Numeric").unwrap();
     assert_eq!(id_config.get("indexed").unwrap(), true);
     assert_eq!(id_config.get("fast").unwrap(), true);
-    assert_eq!(id_config.get("stored").unwrap(), false);
 
     // Check text field (title)
     assert!(fields.contains_key("title"));
@@ -377,10 +376,6 @@ fn test_index_fields(mut conn: PgConnection) {
     assert_eq!(
         title_config.get("indexed").unwrap().as_bool().unwrap(),
         true
-    );
-    assert_eq!(
-        title_config.get("stored").unwrap().as_bool().unwrap(),
-        false
     );
 
     // Check numeric field (price)
@@ -415,10 +410,6 @@ fn test_index_fields(mut conn: PgConnection) {
         stock_config.get("indexed").unwrap().as_bool().unwrap(),
         true
     );
-    assert_eq!(
-        stock_config.get("stored").unwrap().as_bool().unwrap(),
-        false
-    );
 
     // Check JSON field (metadata)
     assert!(fields.contains_key("metadata"));
@@ -435,10 +426,6 @@ fn test_index_fields(mut conn: PgConnection) {
         metadata_config.get("indexed").unwrap().as_bool().unwrap(),
         true
     );
-    assert_eq!(
-        metadata_config.get("stored").unwrap().as_bool().unwrap(),
-        false
-    );
 
     // Check range field (price_range)
     assert!(fields.contains_key("price_range"));
@@ -451,10 +438,6 @@ fn test_index_fields(mut conn: PgConnection) {
         .unwrap()
         .as_object()
         .unwrap();
-    assert_eq!(
-        range_config.get("stored").unwrap().as_bool().unwrap(),
-        false
-    );
 
     // Check datetime field (created_at)
     assert!(fields.contains_key("created_at"));
@@ -468,7 +451,6 @@ fn test_index_fields(mut conn: PgConnection) {
         .as_object()
         .unwrap();
     assert_eq!(date_config.get("indexed").unwrap().as_bool().unwrap(), true);
-    assert_eq!(date_config.get("stored").unwrap().as_bool().unwrap(), false);
 
     // Cleanup
     r#"DROP TABLE test_fields CASCADE;"#.execute(&mut conn);

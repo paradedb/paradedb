@@ -44,20 +44,6 @@ BEGIN;
     CREATE INDEX bm25_search_bm25_index
     ON paradedb.bm25_search
     USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
-    WITH (
-        key_field='id',
-        text_fields='{
-            "description": { "stored": true },
-            "category": { "stored": true }
-        }',
-        numeric_fields='{"rating": { "stored": true } }',
-        boolean_fields='{"in_stock": { "stored": true } }',
-        json_fields='{"metadata": { "stored": true } }',
-        datetime_fields='{
-            "created_at": { "stored": true },
-            "last_updated_date": { "stored": true },
-            "latest_available_time": { "stored": true }
-        }'
-    );
+    WITH (key_field='id');
 COMMIT;
 "#;

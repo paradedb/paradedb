@@ -12,7 +12,7 @@
 
 # Source the common setup script
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-# shellcheck source=./scripts/pg_search_common.sh
+# shellcheck source=./pg_search_common.sh
 source "${SCRIPT_DIR}/pg_search_common.sh"
 
 # Run the test suite with backtrace enabled and pass along all arguments

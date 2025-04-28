@@ -64,23 +64,26 @@ impl Drop for AcquiredSpinLock {
 }
 
 #[pg_guard]
-pub unsafe extern "C" fn aminitparallelscan(target: *mut ::core::ffi::c_void) {
+pub unsafe extern "C-unwind" fn aminitparallelscan(target: *mut ::core::ffi::c_void) {
     let state = target.cast::<ParallelScanState>();
     (*state).init_mutex();
 }
 
 #[pg_guard]
-pub unsafe extern "C" fn amparallelrescan(_scan: pg_sys::IndexScanDesc) {}
+pub unsafe extern "C-unwind" fn amparallelrescan(_scan: pg_sys::IndexScanDesc) {}
 
 #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
 #[pg_guard]
-pub unsafe extern "C" fn amestimateparallelscan() -> pg_sys::Size {
+pub unsafe extern "C-unwind" fn amestimateparallelscan() -> pg_sys::Size {
     ParallelScanState::size_of(u16::MAX as usize, &[])
 }
 
 #[cfg(feature = "pg17")]
 #[pg_guard]
-pub unsafe extern "C" fn amestimateparallelscan(_nkeys: i32, _norderbys: i32) -> pg_sys::Size {
+pub unsafe extern "C-unwind" fn amestimateparallelscan(
+    _nkeys: i32,
+    _norderbys: i32,
+) -> pg_sys::Size {
     // NB:  in this function, we have no idea how many segments we have.  We don't even know which
     // index we're querying.  So we choose a, hopefully, large enough value at 65536, or u16::MAX
     ParallelScanState::size_of(u16::MAX as usize, &[])

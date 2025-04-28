@@ -1,7 +1,8 @@
 # workflows/test-pg_search-upgrade.yml
 #
 # Test pg_search Upgrade
-# Test that the pg_search extension can upgrade via ALTER EXTENSION.
+# Test that the pg_search extension can upgrade via ALTER EXTENSION. This test is only run on
+# promotion PRs to `main` and `staging`.
 
 name: Test pg_search Upgrade
 
@@ -9,7 +10,8 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches:
-      - main # We only run the extension upgrade test on PRs to `main`, since it's when we do the release
+      - main
+      - staging
     paths:
       - ".github/workflows/test-pg_search-upgrade.yml"
       - "pg_search/**"
@@ -45,6 +47,20 @@ jobs:
         run: |
           version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
           echo "version=$version" >> $GITHUB_OUTPUT
+
+      # This checks that the version in the top-level Cargo.toml is incremented to that of the upcoming release. For both
+      # PRs to `main` and `staging`, we check that the version in the top-level Cargo.toml is incremented to that of the
+      # upcoming production release (e.g. without `-rc.X`), so that we can publish the release from `staging` to `main`
+      # without needing any further changes.
+      - name: Check Version Upgrade in Cargo.toml
+        run: |
+          CARGO_VERSION=$(grep "^version" Cargo.toml | head -1 | awk -F '"' '{print $2}')
+          PROD_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}"
+          if [ "$CARGO_VERSION" != "$PROD_VERSION" ]; then
+            echo "Version in top-level Cargo.toml ($CARGO_VERSION) does not match upcoming release version ($PROD_VERSION). Did you forget to increment it?"
+            exit 1
+          fi
+          echo "Version check passed!"
 
       # Caches from base branches are available to PRs, but not across unrelated branches, so we only
       # save the cache on the 'dev' branch, but load it on all branches.

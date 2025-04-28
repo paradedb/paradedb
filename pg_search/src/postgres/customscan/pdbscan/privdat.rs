@@ -201,7 +201,7 @@ pub mod serialize {
 
     impl AsValueNode for pg_sys::Oid {
         fn as_value_node(&self) -> *mut Node {
-            unsafe { makeString(Some(&format!("{}", self.as_u32()))) }
+            unsafe { makeString(Some(&format!("{}", self.to_u32()))) }
         }
         fn from_value_node(node: *mut Node) -> Option<Self> {
             let as_u32 = unsafe { u32::from_str(node.as_c_str()?.to_str().ok()?).ok() }?;

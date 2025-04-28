@@ -61,7 +61,7 @@ pub struct SearchIndexCreateOptions {
 }
 
 #[pg_guard]
-extern "C" fn validate_text_fields(value: *const std::os::raw::c_char) {
+extern "C-unwind" fn validate_text_fields(value: *const std::os::raw::c_char) {
     let json_str = cstr_to_rust_str(value);
     if json_str.is_empty() {
         return;
@@ -73,7 +73,7 @@ extern "C" fn validate_text_fields(value: *const std::os::raw::c_char) {
 }
 
 #[pg_guard]
-extern "C" fn validate_numeric_fields(value: *const std::os::raw::c_char) {
+extern "C-unwind" fn validate_numeric_fields(value: *const std::os::raw::c_char) {
     let json_str = cstr_to_rust_str(value);
     if json_str.is_empty() {
         return;
@@ -85,7 +85,7 @@ extern "C" fn validate_numeric_fields(value: *const std::os::raw::c_char) {
 }
 
 #[pg_guard]
-extern "C" fn validate_boolean_fields(value: *const std::os::raw::c_char) {
+extern "C-unwind" fn validate_boolean_fields(value: *const std::os::raw::c_char) {
     let json_str = cstr_to_rust_str(value);
     if json_str.is_empty() {
         return;
@@ -97,7 +97,7 @@ extern "C" fn validate_boolean_fields(value: *const std::os::raw::c_char) {
 }
 
 #[pg_guard]
-extern "C" fn validate_json_fields(value: *const std::os::raw::c_char) {
+extern "C-unwind" fn validate_json_fields(value: *const std::os::raw::c_char) {
     let json_str = cstr_to_rust_str(value);
     if json_str.is_empty() {
         return;
@@ -109,7 +109,7 @@ extern "C" fn validate_json_fields(value: *const std::os::raw::c_char) {
 }
 
 #[pg_guard]
-extern "C" fn validate_range_fields(value: *const std::os::raw::c_char) {
+extern "C-unwind" fn validate_range_fields(value: *const std::os::raw::c_char) {
     let json_str = cstr_to_rust_str(value);
     if json_str.is_empty() {
         return;
@@ -121,7 +121,7 @@ extern "C" fn validate_range_fields(value: *const std::os::raw::c_char) {
 }
 
 #[pg_guard]
-extern "C" fn validate_datetime_fields(value: *const std::os::raw::c_char) {
+extern "C-unwind" fn validate_datetime_fields(value: *const std::os::raw::c_char) {
     let json_str = cstr_to_rust_str(value);
     if json_str.is_empty() {
         return;
@@ -133,7 +133,7 @@ extern "C" fn validate_datetime_fields(value: *const std::os::raw::c_char) {
 }
 
 #[pg_guard]
-extern "C" fn validate_fields(value: *const std::os::raw::c_char) {
+extern "C-unwind" fn validate_fields(value: *const std::os::raw::c_char) {
     let json_str = cstr_to_rust_str(value);
     if json_str.is_empty() {
         return;
@@ -145,12 +145,12 @@ extern "C" fn validate_fields(value: *const std::os::raw::c_char) {
 }
 
 #[pg_guard]
-extern "C" fn validate_key_field(value: *const std::os::raw::c_char) {
+extern "C-unwind" fn validate_key_field(value: *const std::os::raw::c_char) {
     cstr_to_rust_str(value);
 }
 
 #[pg_guard]
-extern "C" fn validate_layer_sizes(value: *const std::os::raw::c_char) {
+extern "C-unwind" fn validate_layer_sizes(value: *const std::os::raw::c_char) {
     if value.is_null() {
         // a NULL value means we're to use whatever our defaults are
         return;
@@ -193,7 +193,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
 
 const NUM_REL_OPTS: usize = 8;
 #[pg_guard]
-pub unsafe extern "C" fn amoptions(
+pub unsafe extern "C-unwind" fn amoptions(
     reloptions: pg_sys::Datum,
     validate: bool,
 ) -> *mut pg_sys::bytea {
@@ -420,14 +420,12 @@ impl SearchIndexCreateOptions {
                 SearchFieldConfig::Numeric {
                     indexed: true,
                     fast: true,
-                    stored: false,
                     column: None,
                 }
             }
             SearchFieldType::Text => SearchFieldConfig::Text {
                 indexed: true,
                 fast: true,
-                stored: false,
                 fieldnorms: false,
 
                 // NB:  This should use the `SearchTokenizer::Keyword` tokenizer but for historical
@@ -443,7 +441,6 @@ impl SearchIndexCreateOptions {
             SearchFieldType::Json => SearchFieldConfig::Json {
                 indexed: true,
                 fast: true,
-                stored: false,
                 fieldnorms: false,
                 expand_dots: false,
                 #[allow(deprecated)]
@@ -452,20 +449,15 @@ impl SearchIndexCreateOptions {
                 normalizer: SearchNormalizer::Raw,
                 column: None,
             },
-            SearchFieldType::Range => SearchFieldConfig::Range {
-                stored: false,
-                column: None,
-            },
+            SearchFieldType::Range => SearchFieldConfig::Range { column: None },
             SearchFieldType::Bool => SearchFieldConfig::Boolean {
                 indexed: true,
                 fast: true,
-                stored: false,
                 column: None,
             },
             SearchFieldType::Date => SearchFieldConfig::Date {
                 indexed: true,
                 fast: true,
-                stored: false,
                 column: None,
             },
         };
@@ -481,7 +473,6 @@ impl SearchIndexCreateOptions {
             SearchFieldConfig::Numeric {
                 indexed: true,
                 fast: true,
-                stored: false,
                 column: None,
             },
             Some(SearchFieldType::U64),

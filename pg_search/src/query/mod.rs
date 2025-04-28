@@ -16,10 +16,12 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 pub mod iter_mut;
+mod more_like_this;
 mod range;
 mod score;
 
 use crate::postgres::utils::convert_pg_date_string;
+use crate::query::more_like_this::MoreLikeThisQuery;
 use crate::query::range::{Comparison, RangeField};
 use crate::query::score::ScoreFilter;
 use crate::schema::IndexRecordOption;
@@ -33,13 +35,11 @@ use std::fmt::{Debug, Formatter};
 use std::{collections::HashMap, ops::Bound};
 use tantivy::DateTime;
 use tantivy::{
-    collector::DocSetCollector,
     json_utils::split_json_path,
     query::{
         AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, DisjunctionMaxQuery, EmptyQuery,
-        ExistsQuery, FastFieldRangeQuery, FuzzyTermQuery, MoreLikeThisQuery, PhrasePrefixQuery,
-        PhraseQuery, Query, QueryParser, RangeQuery, RegexPhraseQuery, RegexQuery, TermQuery,
-        TermSetQuery,
+        ExistsQuery, FastFieldRangeQuery, FuzzyTermQuery, PhrasePrefixQuery, PhraseQuery, Query,
+        QueryParser, RangeQuery, RegexPhraseQuery, RegexQuery, TermQuery, TermSetQuery,
     },
     query_grammar::Occur,
     schema::{Field, FieldType, OwnedValue, DATE_TIME_PRECISION_INDEXED},
@@ -154,7 +154,7 @@ pub enum SearchQueryInput {
         boost_factor: Option<f32>,
         stop_words: Option<Vec<String>>,
         document_fields: Option<Vec<(String, tantivy::schema::OwnedValue)>>,
-        document_id: Option<tantivy::schema::OwnedValue>,
+        document_id: Option<OwnedValue>,
     },
     Parse {
         query_string: String,
@@ -717,6 +717,7 @@ impl SearchQueryInput {
         field_lookup: &impl AsFieldType<String>,
         parser: &mut QueryParser,
         searcher: &Searcher,
+        index_oid: pg_sys::Oid,
     ) -> Result<Box<dyn Query>, Box<dyn std::error::Error>> {
         match self {
             Self::Uninitialized => panic!("this `SearchQueryInput` instance is uninitialized"),
@@ -730,36 +731,36 @@ impl SearchQueryInput {
                 for input in must {
                     subqueries.push((
                         Occur::Must,
-                        input.into_tantivy_query(field_lookup, parser, searcher)?,
+                        input.into_tantivy_query(field_lookup, parser, searcher, index_oid)?,
                     ));
                 }
                 for input in should {
                     subqueries.push((
                         Occur::Should,
-                        input.into_tantivy_query(field_lookup, parser, searcher)?,
+                        input.into_tantivy_query(field_lookup, parser, searcher, index_oid)?,
                     ));
                 }
                 for input in must_not {
                     subqueries.push((
                         Occur::MustNot,
-                        input.into_tantivy_query(field_lookup, parser, searcher)?,
+                        input.into_tantivy_query(field_lookup, parser, searcher, index_oid)?,
                     ));
                 }
                 Ok(Box::new(BooleanQuery::new(subqueries)))
             }
             Self::Boost { query, factor } => Ok(Box::new(BoostQuery::new(
-                query.into_tantivy_query(field_lookup, parser, searcher)?,
+                query.into_tantivy_query(field_lookup, parser, searcher, index_oid)?,
                 factor,
             ))),
             Self::ConstScore { query, score } => Ok(Box::new(ConstScoreQuery::new(
-                query.into_tantivy_query(field_lookup, parser, searcher)?,
+                query.into_tantivy_query(field_lookup, parser, searcher, index_oid)?,
                 score,
             ))),
             Self::ScoreFilter { bounds, query } => Ok(Box::new(ScoreFilter::new(
                 bounds,
                 query
                     .expect("ScoreFilter's query should have been set")
-                    .into_tantivy_query(field_lookup, parser, searcher)?,
+                    .into_tantivy_query(field_lookup, parser, searcher, index_oid)?,
             ))),
             Self::DisjunctionMax {
                 disjuncts,
@@ -767,7 +768,9 @@ impl SearchQueryInput {
             } => {
                 let disjuncts = disjuncts
                     .into_iter()
-                    .map(|query| query.into_tantivy_query(field_lookup, parser, searcher))
+                    .map(|query| {
+                        query.into_tantivy_query(field_lookup, parser, searcher, index_oid)
+                    })
                     .collect::<Result<_, _>>()?;
                 if let Some(tie_breaker) = tie_breaker {
                     Ok(Box::new(DisjunctionMaxQuery::with_tie_breaker(
@@ -949,17 +952,7 @@ impl SearchQueryInput {
 
                 match (document_id, document_fields) {
                     (Some(key_value), None) => {
-                        let (field_type, _, field) = field_lookup.key_field();
-                        let term = value_to_term(field, &key_value, &field_type, None, false)?;
-                        let query: Box<dyn Query> =
-                            Box::new(TermQuery::new(term, IndexRecordOption::Basic.into()));
-                        let addresses = searcher.search(&query, &DocSetCollector)?;
-                        let disjuncts: Vec<Box<dyn Query>> = addresses
-                            .into_iter()
-                            .map(|address| builder.clone().with_document(address))
-                            .map(|query| Box::new(query) as Box<dyn Query>)
-                            .collect();
-                        Ok(Box::new(DisjunctionMaxQuery::new(disjuncts)))
+                        Ok(Box::new(builder.with_document(key_value, index_oid)))
                     }
                     (None, Some(doc_fields)) => {
                         let mut fields_map = HashMap::new();
@@ -1048,7 +1041,7 @@ impl SearchQueryInput {
                     lenient,
                     conjunction_mode,
                 }
-                .into_tantivy_query(field_lookup, parser, searcher)
+                .into_tantivy_query(field_lookup, parser, searcher, index_oid)
             }
             Self::Phrase {
                 field,
@@ -1829,7 +1822,7 @@ impl SearchQueryInput {
                 Ok(Box::new(TermSetQuery::new(terms)))
             }
             Self::WithIndex { query, .. } => {
-                query.into_tantivy_query(field_lookup, parser, searcher)
+                query.into_tantivy_query(field_lookup, parser, searcher, index_oid)
             }
             Self::PostgresExpression { .. } => panic!("postgres expressions have not been solved"),
         }

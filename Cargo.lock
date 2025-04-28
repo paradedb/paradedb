@@ -355,7 +355,7 @@ checksum = "89e25b6adfb930f02d1981565a6e5d9c547ac15a96606256d3b59040e5cd4ca3"
 
 [[package]]
 name = "benchmarks"
-version = "0.15.18"
+version = "0.15.19"
 dependencies = [
  "clap",
 ]
@@ -589,9 +589,9 @@ dependencies = [
 
 [[package]]
 name = "cargo_toml"
-version = "0.21.0"
+version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5fbd1fe9db3ebf71b89060adaf7b0504c2d6a425cf061313099547e382c2e472"
+checksum = "02260d489095346e5cafd04dea8e8cb54d1d74fcd759022a9b72986ebe9a1257"
 dependencies = [
  "serde",
  "toml",
@@ -767,6 +767,15 @@ name = "convert_case"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bb402b8d4c85569410425650ce3eddc7d698ed96d39a73f941b08fb63082f1e7"
+dependencies = [
+ "unicode-segmentation",
+]
+
+[[package]]
+name = "convert_case"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "baaaa0ecca5b51987b9423ccdc971514dd8b0bb7b4060b983d3664dad3f1f89f"
 dependencies = [
  "unicode-segmentation",
 ]
@@ -1015,7 +1024,7 @@ version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bda628edc44c4bb645fbe0f758797143e4e07926f7ebf4e9bdfbd3d2ce621df3"
 dependencies = [
- "convert_case",
+ "convert_case 0.7.1",
  "proc-macro2",
  "quote",
  "syn 2.0.100",
@@ -2639,6 +2648,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "objc2-core-foundation"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "daeaf60f25471d26948a1c2f840e3f7d86f4109e3af4e8e4b5cd70c39690d925"
+dependencies = [
+ "bitflags 2.9.0",
+]
+
+[[package]]
 name = "object"
 version = "0.36.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2725,7 +2743,7 @@ dependencies = [
 [[package]]
 name = "ownedbytes"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=5e99b796d5101c0d82d1aafc46da15d67d48fc3c#5e99b796d5101c0d82d1aafc46da15d67d48fc3c"
+source = "git+https://github.com/paradedb/tantivy.git?rev=eb9027a8590475b1435bad764c7fd1bcd95dc8c7#eb9027a8590475b1435bad764c7fd1bcd95dc8c7"
 dependencies = [
  "stable_deref_trait",
 ]
@@ -2853,17 +2871,19 @@ dependencies = [
 
 [[package]]
 name = "petgraph"
-version = "0.7.1"
+version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3672b37090dbd86368a4145bc067582552b29c27377cad4e0a306c97f9bd7772"
+checksum = "7a98c6720655620a521dcc722d0ad66cd8afd5d86e34a89ef691c50b7b24de06"
 dependencies = [
  "fixedbitset",
+ "hashbrown",
  "indexmap",
+ "serde",
 ]
 
 [[package]]
 name = "pg_search"
-version = "0.15.18"
+version = "0.15.19"
 dependencies = [
  "anyhow",
  "bincode",
@@ -2899,9 +2919,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx"
-version = "0.13.0"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f32870c0d673283ccaf8eb0125697f8fe31b9467f30f7fe75dd9b31ebe0f8c51"
+checksum = "ab5a7f1a5bac3a76a4fa056655eb80e394c5216717bf4673c99d9d10583e960d"
 dependencies = [
  "atomic-traits",
  "bitflags 2.9.0",
@@ -2923,9 +2943,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx-bindgen"
-version = "0.13.0"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e86d7f730341275cc190aebdafd9c90007a1be85d94d07159ff41e3890c87c59"
+checksum = "09e1a6df74e60ac82d6ad52f8a2a85e5d7004f9dfc7c52c94d461d9193aafa0b"
 dependencies = [
  "bindgen 0.71.1",
  "cc",
@@ -2934,6 +2954,7 @@ dependencies = [
  "pgrx-pg-config",
  "proc-macro2",
  "quote",
+ "regex",
  "shlex",
  "syn 2.0.100",
  "walkdir",
@@ -2941,9 +2962,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx-macros"
-version = "0.13.0"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5d1d23b8ea7c09737da4644a498988d07eee53f8e23d102c128a36d1d784b17"
+checksum = "868ae3cb1762dcca0e236d4b5368315d4f377acbfff31d8fad9f47394d2e4bcd"
 dependencies = [
  "pgrx-sql-entity-graph",
  "proc-macro2",
@@ -2953,9 +2974,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx-pg-config"
-version = "0.13.0"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad6c216342756abe96fe0a27f91bd8b84ec5358b7f5db63d0ddce9a6b4660fa9"
+checksum = "421be70840655a502381d4ac84b263da83c6714018e27bfdcd7c48f32ff60ef6"
 dependencies = [
  "cargo_toml",
  "eyre",
@@ -2971,9 +2992,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx-pg-sys"
-version = "0.13.0"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36d3a2bffad1ea90d0a1088777dac1a69b9552383a021a00a63fa779f982155e"
+checksum = "c844a49ee575cf4bd3340c483e49160a99b1bd8c5fd2e87fc7a9231566cb07f2"
 dependencies = [
  "cee-scape",
  "libc",
@@ -2986,11 +3007,11 @@ dependencies = [
 
 [[package]]
 name = "pgrx-sql-entity-graph"
-version = "0.13.0"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be0453a5055e013544c380ca605a18643dc396a61d965c0139b765578b93a9c3"
+checksum = "391595ab6d13f65728bdd691fdd58e69bb31f1f092886ed0a11c838de1d01ae9"
 dependencies = [
- "convert_case",
+ "convert_case 0.8.0",
  "eyre",
  "petgraph",
  "proc-macro2",
@@ -3002,9 +3023,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx-tests"
-version = "0.13.0"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d904b59419c0e3eba782097cc674a7c0f63a2d48dcc137dcb53faccbb4311088"
+checksum = "c526ae1a3c5cdf10fb4a4a7179759d557da1724b38bcfee3f1d0d8fb5fd67509"
 dependencies = [
  "clap-cargo",
  "eyre",
@@ -3021,8 +3042,10 @@ dependencies = [
  "serde",
  "serde_json",
  "shlex",
- "sysinfo",
+ "sysinfo 0.34.2",
+ "tempfile",
  "thiserror 2.0.12",
+ "winapi",
 ]
 
 [[package]]
@@ -4404,6 +4427,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "sysinfo"
+version = "0.34.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4b93974b3d3aeaa036504b8eefd4c039dced109171c1ae973f1dc63b2c7e4b2"
+dependencies = [
+ "libc",
+ "memchr",
+ "ntapi",
+ "objc2-core-foundation",
+ "windows",
+]
+
+[[package]]
 name = "system-configuration"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4427,7 +4463,7 @@ dependencies = [
 [[package]]
 name = "tantivy"
 version = "0.23.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=5e99b796d5101c0d82d1aafc46da15d67d48fc3c#5e99b796d5101c0d82d1aafc46da15d67d48fc3c"
+source = "git+https://github.com/paradedb/tantivy.git?rev=eb9027a8590475b1435bad764c7fd1bcd95dc8c7#eb9027a8590475b1435bad764c7fd1bcd95dc8c7"
 dependencies = [
  "aho-corasick",
  "arc-swap",
@@ -4479,7 +4515,7 @@ dependencies = [
 [[package]]
 name = "tantivy-bitpacker"
 version = "0.6.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=5e99b796d5101c0d82d1aafc46da15d67d48fc3c#5e99b796d5101c0d82d1aafc46da15d67d48fc3c"
+source = "git+https://github.com/paradedb/tantivy.git?rev=eb9027a8590475b1435bad764c7fd1bcd95dc8c7#eb9027a8590475b1435bad764c7fd1bcd95dc8c7"
 dependencies = [
  "bitpacking",
 ]
@@ -4487,7 +4523,7 @@ dependencies = [
 [[package]]
 name = "tantivy-columnar"
 version = "0.3.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=5e99b796d5101c0d82d1aafc46da15d67d48fc3c#5e99b796d5101c0d82d1aafc46da15d67d48fc3c"
+source = "git+https://github.com/paradedb/tantivy.git?rev=eb9027a8590475b1435bad764c7fd1bcd95dc8c7#eb9027a8590475b1435bad764c7fd1bcd95dc8c7"
 dependencies = [
  "downcast-rs",
  "fastdivide",
@@ -4502,7 +4538,7 @@ dependencies = [
 [[package]]
 name = "tantivy-common"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=5e99b796d5101c0d82d1aafc46da15d67d48fc3c#5e99b796d5101c0d82d1aafc46da15d67d48fc3c"
+source = "git+https://github.com/paradedb/tantivy.git?rev=eb9027a8590475b1435bad764c7fd1bcd95dc8c7#eb9027a8590475b1435bad764c7fd1bcd95dc8c7"
 dependencies = [
  "async-trait",
  "byteorder",
@@ -4524,7 +4560,7 @@ dependencies = [
 [[package]]
 name = "tantivy-query-grammar"
 version = "0.22.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=5e99b796d5101c0d82d1aafc46da15d67d48fc3c#5e99b796d5101c0d82d1aafc46da15d67d48fc3c"
+source = "git+https://github.com/paradedb/tantivy.git?rev=eb9027a8590475b1435bad764c7fd1bcd95dc8c7#eb9027a8590475b1435bad764c7fd1bcd95dc8c7"
 dependencies = [
  "nom",
 ]
@@ -4532,7 +4568,7 @@ dependencies = [
 [[package]]
 name = "tantivy-sstable"
 version = "0.3.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=5e99b796d5101c0d82d1aafc46da15d67d48fc3c#5e99b796d5101c0d82d1aafc46da15d67d48fc3c"
+source = "git+https://github.com/paradedb/tantivy.git?rev=eb9027a8590475b1435bad764c7fd1bcd95dc8c7#eb9027a8590475b1435bad764c7fd1bcd95dc8c7"
 dependencies = [
  "futures-util",
  "itertools 0.14.0",
@@ -4545,7 +4581,7 @@ dependencies = [
 [[package]]
 name = "tantivy-stacker"
 version = "0.3.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=5e99b796d5101c0d82d1aafc46da15d67d48fc3c#5e99b796d5101c0d82d1aafc46da15d67d48fc3c"
+source = "git+https://github.com/paradedb/tantivy.git?rev=eb9027a8590475b1435bad764c7fd1bcd95dc8c7#eb9027a8590475b1435bad764c7fd1bcd95dc8c7"
 dependencies = [
  "murmurhash32",
  "rand_distr",
@@ -4555,7 +4591,7 @@ dependencies = [
 [[package]]
 name = "tantivy-tokenizer-api"
 version = "0.3.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=5e99b796d5101c0d82d1aafc46da15d67d48fc3c#5e99b796d5101c0d82d1aafc46da15d67d48fc3c"
+source = "git+https://github.com/paradedb/tantivy.git?rev=eb9027a8590475b1435bad764c7fd1bcd95dc8c7#eb9027a8590475b1435bad764c7fd1bcd95dc8c7"
 dependencies = [
  "serde",
 ]
@@ -4601,7 +4637,7 @@ dependencies = [
 
 [[package]]
 name = "tests"
-version = "0.15.18"
+version = "0.15.19"
 dependencies = [
  "anyhow",
  "approx",
@@ -4732,7 +4768,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokenizers"
-version = "0.15.18"
+version = "0.15.19"
 dependencies = [
  "anyhow",
  "lindera",
@@ -5092,7 +5128,7 @@ dependencies = [
  "regex",
  "rustc_version",
  "rustversion",
- "sysinfo",
+ "sysinfo 0.33.1",
  "time",
  "vergen-lib",
 ]

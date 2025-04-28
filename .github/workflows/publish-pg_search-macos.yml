@@ -1,7 +1,9 @@
 # workflows/publish-pg_search-macos.yml
 #
 # Publish pg_search (macOS)
-# Build and publish the pg_search extension for macOS as .pkg to GitHub Releases.
+# Build and publish the pg_search extension for macOS as .pkg to GitHub Releases. This
+# workflow is gets triggered for both pushes to `main` and `staging`, but beta releases
+# get filtered out by the `if` condition of the job.
 
 name: Publish pg_search (macOS)
 
@@ -29,6 +31,7 @@ jobs:
   publish-pg_search:
     name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.name }} arm64
     runs-on: ${{ matrix.runner }}
+    if: ${{ !contains(github.ref, '-rc') }}
     strategy:
       matrix:
         include:

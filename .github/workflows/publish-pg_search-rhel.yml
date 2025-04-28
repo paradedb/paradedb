@@ -175,7 +175,7 @@ jobs:
 
           # Compile and install ICU
           cd icu/source
-          ./configure --prefix=/usr/local/icu76 --disable-shared --enable-static
+          ./configure --prefix=/usr/local/icu76 --enable-shared --disable-static
           make -j$(nproc)
           sudo make install
 

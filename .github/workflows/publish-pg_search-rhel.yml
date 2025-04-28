@@ -277,6 +277,8 @@ jobs:
           # Required for bindgen to find the ICU headers
           ICU_CFLAGS: ${{ env.ICU_CFLAGS }}
           ICU_LDFLAGS: ${{ env.ICU_LDFLAGS }}
+          # Required for pgrx_embed to open the shared ICU library
+          LD_LIBRARY_PATH: /usr/local/icu76/lib:${LD_LIBRARY_PATH}
         run: |
           PG_CONFIG_PATH="/usr/pgsql-${{ matrix.pg_version }}/bin/pg_config"
           cargo pgrx package --features icu --pg-config $PG_CONFIG_PATH

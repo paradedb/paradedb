@@ -493,12 +493,13 @@ impl TryFrom<TantivyValue> for i32 {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::I64(val) = value.0 {
-            Ok(val as i32)
-        } else {
-            Err(TantivyValueError::UnsupportedIntoConversion(
+        match value.0 {
+            OwnedValue::U64(val) => Ok(val as i32),
+            OwnedValue::I64(val) => Ok(val as i32),
+            OwnedValue::F64(val) => Ok(val as i32),
+            _ => Err(TantivyValueError::UnsupportedIntoConversion(
                 "i32".to_string(),
-            ))
+            )),
         }
     }
 }
@@ -515,12 +516,13 @@ impl TryFrom<TantivyValue> for i64 {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::I64(val) = value.0 {
-            Ok(val)
-        } else {
-            Err(TantivyValueError::UnsupportedIntoConversion(
+        match value.0 {
+            OwnedValue::U64(val) => Ok(val as i64),
+            OwnedValue::I64(val) => Ok(val),
+            OwnedValue::F64(val) => Ok(val as i64),
+            _ => Err(TantivyValueError::UnsupportedIntoConversion(
                 "i64".to_string(),
-            ))
+            )),
         }
     }
 }
@@ -591,12 +593,13 @@ impl TryFrom<TantivyValue> for u32 {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::U64(val) = value.0 {
-            Ok(val as u32)
-        } else {
-            Err(TantivyValueError::UnsupportedIntoConversion(
+        match value.0 {
+            OwnedValue::U64(val) => Ok(val as u32),
+            OwnedValue::I64(val) => Ok(val as u32),
+            OwnedValue::F64(val) => Ok(val as u32),
+            _ => Err(TantivyValueError::UnsupportedIntoConversion(
                 "u32".to_string(),
-            ))
+            )),
         }
     }
 }
@@ -613,12 +616,13 @@ impl TryFrom<TantivyValue> for u64 {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::U64(val) = value.0 {
-            Ok(val)
-        } else {
-            Err(TantivyValueError::UnsupportedIntoConversion(
+        match value.0 {
+            OwnedValue::U64(val) => Ok(val),
+            OwnedValue::I64(val) => Ok(val as u64),
+            OwnedValue::F64(val) => Ok(val as u64),
+            _ => Err(TantivyValueError::UnsupportedIntoConversion(
                 "u64".to_string(),
-            ))
+            )),
         }
     }
 }
@@ -637,12 +641,13 @@ impl TryFrom<TantivyValue> for pgrx::AnyNumeric {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::F64(val) = value.0 {
-            Ok(val.try_into()?)
-        } else {
-            Err(TantivyValueError::UnsupportedIntoConversion(
+        match value.0 {
+            OwnedValue::U64(val) => Ok(pgrx::AnyNumeric::from(val)),
+            OwnedValue::I64(val) => Ok(pgrx::AnyNumeric::from(val)),
+            OwnedValue::F64(val) => Ok(val.try_into()?),
+            _ => Err(TantivyValueError::UnsupportedIntoConversion(
                 "numeric".to_string(),
-            ))
+            )),
         }
     }
 }

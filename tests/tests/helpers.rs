@@ -46,7 +46,7 @@ fn tokenizer_filters(mut conn: PgConnection) {
     // Test en_stem tokenizer with default layers (lowercase => true, remove_long => 255).
     let rows: Vec<(String, i32)> = r#"
     SELECT * FROM paradedb.tokenize(
-      paradedb.tokenizer('en_stem'), 
+      paradedb.tokenizer('en_stem'),
       'Hello, hello, ladiesandgentlemen!'
     );
     "#
@@ -113,6 +113,7 @@ fn list_tokenizers(mut conn: PgConnection) {
             rows,
             vec![
                 ("default".into(),),
+                ("keyword".into(),),
                 ("raw".into(),),
                 ("en_stem".into(),),
                 ("stem".into(),),
@@ -149,16 +150,16 @@ fn test_format_create_bm25_basic(mut conn: PgConnection) {
     // Get the CREATE INDEX statement
     let sql = r#"
         SELECT paradedb.format_create_bm25(
-            'my_index'::text, 
-            'my_table'::text, 
-            'id'::text, 
-            'public'::text, 
-            '{"title": {}}'::jsonb, 
-            '{"price": {}}'::jsonb, 
-            '{"is_available": {}}'::jsonb, 
-            '{"details": {}}'::jsonb, 
-            '{"price_range": {}}'::jsonb, 
-            '{"published_date": {}}'::jsonb, 
+            'my_index'::text,
+            'my_table'::text,
+            'id'::text,
+            'public'::text,
+            '{"title": {}}'::jsonb,
+            '{"price": {}}'::jsonb,
+            '{"is_available": {}}'::jsonb,
+            '{"details": {}}'::jsonb,
+            '{"price_range": {}}'::jsonb,
+            '{"published_date": {}}'::jsonb,
             'price > 0'::text
         );
     "#
@@ -188,16 +189,16 @@ fn test_format_create_index_no_predicate(mut conn: PgConnection) {
     // Get and execute CREATE INDEX statement
     let sql = r#"
         SELECT paradedb.format_create_bm25(
-            'another_index', 
-            'products', 
-            'product_id', 
-            'inventory', 
-            '{"name": {}}'::jsonb, 
-            '{}'::jsonb, 
-            '{}'::jsonb, 
-            '{}'::jsonb, 
-            '{}'::jsonb, 
-            '{}'::jsonb, 
+            'another_index',
+            'products',
+            'product_id',
+            'inventory',
+            '{"name": {}}'::jsonb,
+            '{}'::jsonb,
+            '{}'::jsonb,
+            '{}'::jsonb,
+            '{}'::jsonb,
+            '{}'::jsonb,
             ''
         );
     "#
@@ -360,7 +361,6 @@ fn test_index_fields(mut conn: PgConnection) {
     let id_config = fields.get("id").unwrap().get("Numeric").unwrap();
     assert_eq!(id_config.get("indexed").unwrap(), true);
     assert_eq!(id_config.get("fast").unwrap(), true);
-    assert_eq!(id_config.get("stored").unwrap(), false);
 
     // Check text field (title)
     assert!(fields.contains_key("title"));
@@ -376,10 +376,6 @@ fn test_index_fields(mut conn: PgConnection) {
     assert_eq!(
         title_config.get("indexed").unwrap().as_bool().unwrap(),
         true
-    );
-    assert_eq!(
-        title_config.get("stored").unwrap().as_bool().unwrap(),
-        false
     );
 
     // Check numeric field (price)
@@ -414,10 +410,6 @@ fn test_index_fields(mut conn: PgConnection) {
         stock_config.get("indexed").unwrap().as_bool().unwrap(),
         true
     );
-    assert_eq!(
-        stock_config.get("stored").unwrap().as_bool().unwrap(),
-        false
-    );
 
     // Check JSON field (metadata)
     assert!(fields.contains_key("metadata"));
@@ -434,26 +426,8 @@ fn test_index_fields(mut conn: PgConnection) {
         metadata_config.get("indexed").unwrap().as_bool().unwrap(),
         true
     );
-    assert_eq!(
-        metadata_config.get("stored").unwrap().as_bool().unwrap(),
-        false
-    );
 
-    // Check range field (price_range)
     assert!(fields.contains_key("price_range"));
-    let range_config = fields
-        .get("price_range")
-        .unwrap()
-        .as_object()
-        .unwrap()
-        .get("Range")
-        .unwrap()
-        .as_object()
-        .unwrap();
-    assert_eq!(
-        range_config.get("stored").unwrap().as_bool().unwrap(),
-        false
-    );
 
     // Check datetime field (created_at)
     assert!(fields.contains_key("created_at"));
@@ -467,7 +441,6 @@ fn test_index_fields(mut conn: PgConnection) {
         .as_object()
         .unwrap();
     assert_eq!(date_config.get("indexed").unwrap().as_bool().unwrap(), true);
-    assert_eq!(date_config.get("stored").unwrap().as_bool().unwrap(), false);
 
     // Cleanup
     r#"DROP TABLE test_fields CASCADE;"#.execute(&mut conn);

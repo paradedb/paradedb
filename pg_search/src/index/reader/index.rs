@@ -335,6 +335,7 @@ impl SearchIndexReader {
                 ),
                 &mut parser,
                 &self.searcher,
+                self.index_oid,
             )
             .expect("must be able to parse query")
     }

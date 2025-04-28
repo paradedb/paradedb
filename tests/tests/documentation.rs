@@ -1789,19 +1789,7 @@ fn specialized_queries(mut conn: PgConnection) {
 
     CREATE INDEX search_idx ON mock_items
     USING bm25 (id, description, category, rating, in_stock, created_at, metadata)
-    WITH (
-        key_field='id',
-        text_fields='{
-            "description": { "stored": true },
-            "category": { "stored": true }
-        }',
-        numeric_fields='{"rating": { "stored": true } }',
-        boolean_fields='{"in_stock": { "stored": true } }',
-        json_fields='{"metadata": { "stored": true } }',
-        datetime_fields='{
-            "created_at": { "stored": true }
-        }'
-    );
+    WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -2300,12 +2288,7 @@ fn field_configuration(mut conn: PgConnection) {
     r#"
     CREATE INDEX search_idx ON mock_items
     USING bm25 (id, weight_range)
-    WITH (
-    key_field = 'id',
-    range_fields = '{
-        "weight_range": {"stored": true}
-    }'
-    );
+    WITH (key_field='id');
     DROP INDEX search_idx;
     "#
     .execute(&mut conn);

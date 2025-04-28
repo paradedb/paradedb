@@ -40,7 +40,7 @@ cargo pgrx install --package pg_search --features=icu --pg-config "${HOME}/.pgrx
 RUST_BACKTRACE=1 cargo pgrx start "${FEATURE}" --package pg_search
 
 # Create a new database for testing
-createdb -h localhost -p "${PORT}" pg_search
+createdb -h localhost -p "${PORT}" pg_search || true
 
 # Set database connection URL
 export DATABASE_URL="postgresql://${USER}@localhost:${PORT}/pg_search"

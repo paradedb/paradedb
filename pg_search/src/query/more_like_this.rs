@@ -1,13 +1,14 @@
 use crate::index::mvcc::MVCCDirectory;
-use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::types::TantivyValue;
-use std::collections::HashMap;
+use crate::postgres::utils::categorize_fields;
+use crate::query::AsFieldType;
+use crate::schema::SearchIndexSchema;
 use tantivy::index::Index;
 use tantivy::query::{
-    BooleanQuery, EnableScoring, MoreLikeThis as TantivyMoreLikeThis, Query, ScoreTerm, Weight,
+    BooleanQuery, EnableScoring, MoreLikeThis as TantivyMoreLikeThis, Query, Weight,
 };
 use tantivy::schema::{Field, OwnedValue, Value};
-use tantivy::{Result, Searcher, TantivyError, Term};
+use tantivy::{Result, Searcher, TantivyError};
 
 #[derive(Debug, Default, Clone)]
 pub struct MoreLikeThis {
@@ -114,51 +115,77 @@ impl MoreLikeThisQueryBuilder {
 
     pub fn with_document(
         self,
-        key_field: pgrx::AnyElement,
+        key_value: OwnedValue,
         index_oid: pgrx::pg_sys::Oid,
     ) -> MoreLikeThisQuery {
         let index_relation = unsafe { pgrx::PgRelation::open(index_oid) };
-        let heap_relation = index_relation.heap_relation();
-        let heap_oid = heap_relation
-            .expect("index should have a heap relation")
-            .oid();
-        let options = unsafe { SearchIndexCreateOptions::from_relation(&index_relation) };
-        let key_field = options.get_key_field().expect("key_field is required").0;
+        let heap_relation = index_relation
+            .heap_relation()
+            .expect("index should have a heap relation");
         let directory = MVCCDirectory::snapshot(index_relation.oid());
-        let index = Index::open(directory).expect("custom_scan: should be able to open index");
-        let schema = index.schema();
+        let index = Index::open(directory).expect("more_like_this: should be able to open index");
+        let schema = SearchIndexSchema::open(index.schema(), &index_relation);
+        let key_field_name = schema.key_field().name.0;
+        let key_oid = (&index_relation, &schema).key_field().1;
+        let categorized_fields = categorize_fields(&index_relation.tuple_desc(), &schema);
 
         let doc_fields: Vec<(Field, Vec<OwnedValue>)> = pgrx::Spi::connect(|client| {
-            if let Some(htup) = client
+            let mut doc_fields = Vec::new();
+            let result = client
                 .select(
                     &format!(
-                        "SELECT * FROM {}::regclass WHERE {} = $1",
-                        heap_oid.as_u32(),
-                        key_field
+                        "SELECT * FROM {}.{} WHERE {} = $1",
+                        pgrx::spi::quote_identifier(heap_relation.namespace()),
+                        pgrx::spi::quote_identifier(heap_relation.name()),
+                        key_field_name
                     ),
                     None,
-                    &[key_field.into()],
+                    unsafe {
+                        &[TantivyValue(key_value)
+                            .try_into_datum(key_oid)
+                            .expect("should be able to convert key value to datum")
+                            .into()]
+                    },
                 )?
-                .first()
-                .get_heap_tuple()?
-            {
-                let mut fields_map = vec![];
-                for (field, entry) in schema.fields() {
-                    let spi_datum = htup.get_datum_by_name(entry.name())?;
-                    if let Some(datum) = spi_datum.value::<pgrx::pg_sys::Datum>()? {
-                        let value = unsafe { TantivyValue::try_from_datum(
-                            datum,
-                            pgrx::PgOid::from(spi_datum.oid()),
-                        ).expect("should be able to convert datum to tantivy value") };
-                        fields_map.push((field, vec![value.into()]));
-                    }
+                .first();
+
+            for (field, categorized) in categorized_fields {
+                if field.name.0 == "ctid" {
+                    continue;
                 }
 
-                Ok::<_, pgrx::spi::SpiError>(fields_map)
-            } else {
-                Ok::<_, pgrx::spi::SpiError>(vec![])
+                if let Some(datum) = result.get_datum_by_name(field.name.0)? {
+                    if categorized.is_array {
+                        let values = unsafe {
+                            TantivyValue::try_from_datum_array(datum, categorized.base_oid)
+                                .expect("should be able to convert datum to tantivy value")
+                                .into_iter()
+                                .map(|v| v.into())
+                                .collect::<Vec<_>>()
+                        };
+                        doc_fields.push((field.id.0, values));
+                    } else if categorized.is_json {
+                        let values = unsafe {
+                            TantivyValue::try_from_datum_json(datum, categorized.base_oid)
+                                .expect("should be able to convert datum to tantivy value")
+                                .into_iter()
+                                .map(|v| v.into())
+                                .collect::<Vec<_>>()
+                        };
+                        doc_fields.push((field.id.0, values));
+                    } else {
+                        let value = unsafe {
+                            TantivyValue::try_from_datum(datum, categorized.base_oid)
+                                .expect("should be able to convert datum to tantivy value")
+                        };
+                        doc_fields.push((field.id.0, vec![value.into()]));
+                    }
+                }
             }
-        }).expect("should be able to construct document");
+
+            Ok::<_, pgrx::spi::SpiError>(doc_fields)
+        })
+        .expect("should be able to construct document");
 
         MoreLikeThisQuery {
             mlt: self.mlt,

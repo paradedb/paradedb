@@ -21,6 +21,7 @@ mod range;
 mod score;
 
 use crate::postgres::utils::convert_pg_date_string;
+use crate::query::more_like_this::MoreLikeThisQuery;
 use crate::query::range::{Comparison, RangeField};
 use crate::query::score::ScoreFilter;
 use crate::schema::IndexRecordOption;
@@ -34,13 +35,11 @@ use std::fmt::{Debug, Formatter};
 use std::{collections::HashMap, ops::Bound};
 use tantivy::DateTime;
 use tantivy::{
-    collector::DocSetCollector,
     json_utils::split_json_path,
     query::{
         AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, DisjunctionMaxQuery, EmptyQuery,
-        ExistsQuery, FastFieldRangeQuery, FuzzyTermQuery, MoreLikeThisQuery, PhrasePrefixQuery,
-        PhraseQuery, Query, QueryParser, RangeQuery, RegexPhraseQuery, RegexQuery, TermQuery,
-        TermSetQuery,
+        ExistsQuery, FastFieldRangeQuery, FuzzyTermQuery, PhrasePrefixQuery, PhraseQuery, Query,
+        QueryParser, RangeQuery, RegexPhraseQuery, RegexQuery, TermQuery, TermSetQuery,
     },
     query_grammar::Occur,
     schema::{Field, FieldType, OwnedValue, DATE_TIME_PRECISION_INDEXED},
@@ -155,7 +154,7 @@ pub enum SearchQueryInput {
         boost_factor: Option<f32>,
         stop_words: Option<Vec<String>>,
         document_fields: Option<Vec<(String, tantivy::schema::OwnedValue)>>,
-        document_id: Option<tantivy::schema::OwnedValue>,
+        document_id: Option<OwnedValue>,
     },
     Parse {
         query_string: String,
@@ -953,17 +952,7 @@ impl SearchQueryInput {
 
                 match (document_id, document_fields) {
                     (Some(key_value), None) => {
-                        let (field_type, _, field) = field_lookup.key_field();
-                        let term = value_to_term(field, &key_value, &field_type, None, false)?;
-                        let query: Box<dyn Query> =
-                            Box::new(TermQuery::new(term, IndexRecordOption::Basic.into()));
-                        let addresses = searcher.search(&query, &DocSetCollector)?;
-                        let disjuncts: Vec<Box<dyn Query>> = addresses
-                            .into_iter()
-                            .map(|address| builder.clone().with_document(address))
-                            .map(|query| Box::new(query) as Box<dyn Query>)
-                            .collect();
-                        Ok(Box::new(DisjunctionMaxQuery::new(disjuncts)))
+                        Ok(Box::new(builder.with_document(key_value, index_oid)))
                     }
                     (None, Some(doc_fields)) => {
                         let mut fields_map = HashMap::new();

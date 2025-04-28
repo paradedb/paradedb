@@ -46,7 +46,7 @@ fn tokenizer_filters(mut conn: PgConnection) {
     // Test en_stem tokenizer with default layers (lowercase => true, remove_long => 255).
     let rows: Vec<(String, i32)> = r#"
     SELECT * FROM paradedb.tokenize(
-      paradedb.tokenizer('en_stem'), 
+      paradedb.tokenizer('en_stem'),
       'Hello, hello, ladiesandgentlemen!'
     );
     "#
@@ -113,6 +113,7 @@ fn list_tokenizers(mut conn: PgConnection) {
             rows,
             vec![
                 ("default".into(),),
+                ("keyword".into(),),
                 ("raw".into(),),
                 ("en_stem".into(),),
                 ("stem".into(),),
@@ -149,16 +150,16 @@ fn test_format_create_bm25_basic(mut conn: PgConnection) {
     // Get the CREATE INDEX statement
     let sql = r#"
         SELECT paradedb.format_create_bm25(
-            'my_index'::text, 
-            'my_table'::text, 
-            'id'::text, 
-            'public'::text, 
-            '{"title": {}}'::jsonb, 
-            '{"price": {}}'::jsonb, 
-            '{"is_available": {}}'::jsonb, 
-            '{"details": {}}'::jsonb, 
-            '{"price_range": {}}'::jsonb, 
-            '{"published_date": {}}'::jsonb, 
+            'my_index'::text,
+            'my_table'::text,
+            'id'::text,
+            'public'::text,
+            '{"title": {}}'::jsonb,
+            '{"price": {}}'::jsonb,
+            '{"is_available": {}}'::jsonb,
+            '{"details": {}}'::jsonb,
+            '{"price_range": {}}'::jsonb,
+            '{"published_date": {}}'::jsonb,
             'price > 0'::text
         );
     "#
@@ -188,16 +189,16 @@ fn test_format_create_index_no_predicate(mut conn: PgConnection) {
     // Get and execute CREATE INDEX statement
     let sql = r#"
         SELECT paradedb.format_create_bm25(
-            'another_index', 
-            'products', 
-            'product_id', 
-            'inventory', 
-            '{"name": {}}'::jsonb, 
-            '{}'::jsonb, 
-            '{}'::jsonb, 
-            '{}'::jsonb, 
-            '{}'::jsonb, 
-            '{}'::jsonb, 
+            'another_index',
+            'products',
+            'product_id',
+            'inventory',
+            '{"name": {}}'::jsonb,
+            '{}'::jsonb,
+            '{}'::jsonb,
+            '{}'::jsonb,
+            '{}'::jsonb,
+            '{}'::jsonb,
             ''
         );
     "#

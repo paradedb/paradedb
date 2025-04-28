@@ -1,0 +1,40 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# PGRX Integration Guidelines
+
+## Core Concepts
+
+- ParadeDB uses the pgrx framework for Rust-based PostgreSQL extension development
+- Follow proper memory management patterns to avoid memory leaks
+- Respect PostgreSQL's transaction and memory contexts
+
+## PGRX API Usage
+
+- Use appropriate pgrx API features for different PostgreSQL versions
+- Properly handle pgrx versions in code with feature flags
+- Use pgrx macros consistently according to established patterns
+- Ensure proper error propagation between Rust and PostgreSQL
+
+## PostgreSQL Integration
+
+- Follow PostgreSQL's extension design patterns
+- Use appropriate operator and function signatures
+- Handle NULL values correctly in all functions
+- Follow PostgreSQL's type system conventions
+
+## Custom Operators and Functions
+
+- Follow consistent naming patterns for custom operators
+- Document operator behavior thoroughly
+- Ensure proper error handling in all custom functions
+- Provide appropriate examples in function documentation
+
+## Debugging with PGRX
+
+- Use `pgrx::warning!` for logging debug information
+- Ensure debug information doesn't leak into production
+- Follow established patterns for error reporting
+- Use appropriate PostgreSQL error codes

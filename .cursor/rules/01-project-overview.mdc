@@ -1,0 +1,24 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# ParadeDB Overview
+
+ParadeDB is a modern Elasticsearch alternative built on Postgres, designed for real-time, update-heavy workloads. It extends Postgres with powerful search and analytics capabilities.
+
+## Key Components
+
+- **pg_search**: Provides full-text search with BM25 and faceted search capabilities
+
+## Project Goals
+
+- Provide powerful search capabilities directly in Postgres
+- Support analytics over Postgres data
+- Be a viable alternative to Elasticsearch with PostgreSQL compatibility
+- Focus on real-time, update-heavy workloads
+
+## Deployment Options
+
+- Docker image based on Postgres
+- Kubernetes Helm chart based on CloudNativePG

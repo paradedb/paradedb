@@ -1,0 +1,36 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# Code Style and Conventions
+
+## Rust Code
+
+- Follow Rust idioms and standard patterns
+- Use `cargo fmt` for code formatting
+- Ensure code passes `cargo clippy` checks
+- Always include appropriate error handling
+- Write comprehensive documentation comments for public APIs
+- Use meaningful variable and function names that clearly convey purpose
+- Prefer explicit type annotations where it helps readability
+
+## Logging
+
+- Use `pgrx::warning!` for logging information that should be visible in query output
+- This is especially useful for debugging as these logs will appear in the output of `scripts/pg_search_run.sh`
+- Use appropriate log levels for different types of information
+- Avoid excessive logging in performance-critical paths
+
+## SQL Code
+
+- Use consistent indentation and formatting
+- Use snake_case for SQL identifiers (table names, column names, etc.)
+- Include comments for complex SQL queries
+- Prefer parameterized queries to avoid SQL injection
+
+## Tests
+
+- Every feature should have appropriate tests
+- For Rust code, use both unit tests and integration tests
+- For SQL functionality, ensure there are appropriate SQL tests

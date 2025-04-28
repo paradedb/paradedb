@@ -1,0 +1,41 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# Docker Development Guidelines
+
+## Docker Image Structure
+
+- ParadeDB is distributed as a Docker image based on PostgreSQL
+- All images should be properly tagged with version information
+- Use multi-stage builds where appropriate to minimize image size
+- Follow Docker best practices for security and efficiency
+
+## Docker Best Practices
+
+- Keep images as small as possible
+- Use specific versions for base images instead of `latest`
+- Follow the principle of least privilege
+- Include appropriate health checks
+- Properly document environment variables and volumes
+
+## Docker Compose
+
+- When using Docker Compose for development, ensure consistent environment across all developers
+- Document all services and their purposes
+- Include appropriate networking configuration
+- Use volumes for persistent data
+
+## Docker Build Process
+
+- Follow the existing build pipeline
+- Ensure images are properly scanned for vulnerabilities
+- Test images thoroughly before release
+- Document any changes to the Docker build process
+
+## CI/CD for Docker
+
+- Automated builds should be set up for different tags and branches
+- Test Docker images in CI to ensure they work as expected
+- Document the release process for Docker images

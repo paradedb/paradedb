@@ -33,3 +33,5 @@ CREATE OR REPLACE FUNCTION merge_info(index regclass)
 AS
 'MODULE_PATHNAME',
 'merge_info_wrapper' LANGUAGE c STRICT;
+
+ALTER FUNCTION paradedb.jsonb_to_searchqueryinput IMMUTABLE STRICT PARALLEL SAFE;

@@ -153,9 +153,9 @@ impl Qual {
             Qual::PushdownVarIsFalse { .. } => false,
             Qual::PushdownIsNotNull { .. } => false,
             Qual::ScoreExpr { .. } => true,
-            Qual::And(quals) => quals.iter().any(|q| q.contains_exprs()),
-            Qual::Or(quals) => quals.iter().any(|q| q.contains_exprs()),
-            Qual::Not(qual) => qual.contains_exprs(),
+            Qual::And(quals) => quals.iter().any(|q| q.contains_score_exprs()),
+            Qual::Or(quals) => quals.iter().any(|q| q.contains_score_exprs()),
+            Qual::Not(qual) => qual.contains_score_exprs(),
         }
     }
 

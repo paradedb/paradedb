@@ -178,7 +178,7 @@ pub struct SegmentMetaEntry {
     pub _unused: pg_sys::TransactionId,
 
     /// If set to [`pg_sys::FrozenTransactionId`] then this entry has been deleted via a Tantivy merge
-    /// and a) is no longer visible to new transactions and b) is subject to being garbage collected
+    /// and a) is no longer visible to any transaction and b) is subject to being garbage collected
     pub xmax: pg_sys::TransactionId,
 
     pub postings: Option<FileEntry>,

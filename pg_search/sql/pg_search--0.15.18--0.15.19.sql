@@ -1,11 +1,10 @@
 DROP FUNCTION IF EXISTS index_info(index regclass, show_invisible bool);
-CREATE OR REPLACE FUNCTION index_info(index regclass, show_invisible bool DEFAULT false)
+CREATE OR REPLACE FUNCTION index_info(index regclass, show_invisible bool DEFAULT '((' f ')::pg_catalog.bool)')
     RETURNS TABLE
             (
                 index_name        text,
                 visible           bool,
                 recyclable        bool,
-                xmin              xid,
                 xmax              xid,
                 segno             text,
                 byte_size         pg_catalog."numeric",
@@ -22,7 +21,6 @@ CREATE OR REPLACE FUNCTION index_info(index regclass, show_invisible bool DEFAUL
 AS
 'MODULE_PATHNAME',
 'index_info_wrapper' LANGUAGE c STRICT;
-
 DROP FUNCTION IF EXISTS merge_info(index regclass);
 CREATE OR REPLACE FUNCTION merge_info(index regclass)
     RETURNS TABLE
@@ -30,7 +28,6 @@ CREATE OR REPLACE FUNCTION merge_info(index regclass)
                 index_name text,
                 pid        pg_catalog.int4,
                 xmin       xid,
-                xmax       xid,
                 segno      text
             )
 AS

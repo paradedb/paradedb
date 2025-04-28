@@ -1,6 +1,6 @@
 ---
-description:
-globs:
+description: 
+globs: 
 alwaysApply: false
 ---
 # Development Workflow
@@ -31,7 +31,7 @@ alwaysApply: false
 ## SQL Queries
 
 - Use the `scripts/pg_search_run.sh` script for running SQL queries:
-  - Example: `PGVER=17.4 ../scripts/pg_search_run.sh psql -c "SELECT 1"`
+  - Example: `PGVER=17.4 ./scripts/pg_search_run.sh -c "SELECT 1"`
   - This script sets up the proper environment and database connection
 
 ## Debugging

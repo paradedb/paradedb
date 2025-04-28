@@ -75,3 +75,43 @@ fn dont_do_parallel_index_scan(mut conn: PgConnection) {
     .fetch::<(i64,)>(&mut conn);
     assert_eq!(count, vec![(3,)]);
 }
+
+#[rstest]
+fn stable_limit_and_offset(mut conn: PgConnection) {
+    if pg_major_version(&mut conn) < 16 {
+        // the `debug_parallel_query` was added in pg16, so we simply cannot run this test on anything
+        // less than pg16
+        return;
+    }
+
+    // We use multiple segments, and force multiple workers to be used.
+    SimpleProductsTable::setup_multi_segment().execute(&mut conn);
+
+    "SET max_parallel_workers = 8;".execute(&mut conn);
+    "SET debug_parallel_query TO on".execute(&mut conn);
+
+    let mut query = |offset: usize, limit: usize| -> Vec<(i32, String, f32)> {
+        format!(
+            "SELECT id, description, paradedb.score(id) FROM paradedb.bm25_search WHERE bm25_search @@@ 'category:electronics'
+             ORDER BY paradedb.score(id), id OFFSET {offset} LIMIT {limit}"
+        )
+        .fetch_collect(&mut conn)
+    };
+
+    let mut previous = Vec::new();
+    for limit in 1..50 {
+        let current = query(0, limit);
+        assert_eq!(
+            previous[0..],
+            current[..previous.len()],
+            "With limit {limit}"
+        );
+        previous = current;
+    }
+
+    let all_results = query(0, 50);
+    for offset in 0..all_results.len() {
+        let current = query(offset, 1);
+        assert_eq!(all_results[offset], current[0]);
+    }
+}

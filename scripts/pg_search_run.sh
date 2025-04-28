@@ -1,4 +1,4 @@
-#! /bin/sh
+#!/bin/bash
 
 # pg_search_run.sh - Script to install, start and interact with pg_search extension
 #
@@ -12,7 +12,8 @@
 
 # Source the common setup script
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-. ${SCRIPT_DIR}/pg_search_common.sh
+# shellcheck source=./scripts/pg_search_common.sh
+source "${SCRIPT_DIR}/pg_search_common.sh"
 
 # Connect to the database with psql and pass any additional arguments
-psql $DATABASE_URL "$@"
+psql "${DATABASE_URL}" "$@"

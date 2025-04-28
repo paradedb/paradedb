@@ -17,8 +17,6 @@ alwaysApply: false
 
 ## Logging
 
-- Use `pgrx::warning!` for logging information that should be visible in query output
-- This is especially useful for debugging as these logs will appear in the output of `scripts/pg_search_run.sh`
 - Use appropriate log levels for different types of information
 - Avoid excessive logging in performance-critical paths
 

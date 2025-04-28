@@ -12,10 +12,8 @@ alwaysApply: false
 
 ## Development Process
 
-1. Before making changes, run the test suite to ensure your environment is set up correctly
-2. Implement your changes with appropriate tests
-3. Run all tests to verify they pass
-4. Run benchmarks if your change might affect performance
+1. Implement your changes with appropriate tests
+2. Run all added/modified tests to verify they pass
 
 ## Testing
 

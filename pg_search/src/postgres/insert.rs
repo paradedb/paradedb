@@ -33,10 +33,6 @@ use std::ffi::CStr;
 use std::panic::{catch_unwind, resume_unwind};
 use tantivy::SegmentMeta;
 
-extern "C" {
-    fn IsLogicalWorker() -> bool;
-}
-
 pub struct InsertState {
     #[allow(dead_code)] // field is used by pg<16 for the fakeaminsertcleanup stuff
     pub indexrelid: pg_sys::Oid,
@@ -122,7 +118,7 @@ pub unsafe fn init_insert_state(
 
 #[allow(clippy::too_many_arguments)]
 #[pg_guard]
-pub unsafe extern "C" fn aminsert(
+pub unsafe extern "C-unwind" fn aminsert(
     index_relation: pg_sys::Relation,
     values: *mut pg_sys::Datum,
     isnull: *mut bool,
@@ -143,7 +139,7 @@ unsafe fn aminsert_internal(
     ctid: pg_sys::ItemPointer,
     index_info: *mut pg_sys::IndexInfo,
 ) -> bool {
-    if IsLogicalWorker() {
+    if pg_sys::IsLogicalWorker() {
         panic!("pg_search logical replication is an enterprise feature");
     }
 
@@ -194,7 +190,7 @@ unsafe fn aminsert_internal(
 
 #[cfg(feature = "pg17")]
 #[pg_guard]
-pub unsafe extern "C" fn aminsertcleanup(
+pub unsafe extern "C-unwind" fn aminsertcleanup(
     _index_relation: pg_sys::Relation,
     index_info: *mut pg_sys::IndexInfo,
 ) {

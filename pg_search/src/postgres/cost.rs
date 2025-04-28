@@ -20,7 +20,7 @@ use pgrx::*;
 
 #[allow(clippy::too_many_arguments)]
 #[pg_guard(immutable, parallel_safe)]
-pub unsafe extern "C" fn amcostestimate(
+pub unsafe extern "C-unwind" fn amcostestimate(
     _root: *mut pg_sys::PlannerInfo,
     path: *mut pg_sys::IndexPath,
     _loop_count: f64,

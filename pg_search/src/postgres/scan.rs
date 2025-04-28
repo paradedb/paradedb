@@ -36,7 +36,7 @@ pub struct Bm25ScanState {
 }
 
 #[pg_guard]
-pub extern "C" fn ambeginscan(
+pub extern "C-unwind" fn ambeginscan(
     indexrel: pg_sys::Relation,
     nkeys: ::std::os::raw::c_int,
     norderbys: ::std::os::raw::c_int,
@@ -54,7 +54,7 @@ pub extern "C" fn ambeginscan(
 
 // An annotation to guard the function for PostgreSQL's threading model.
 #[pg_guard]
-pub extern "C" fn amrescan(
+pub extern "C-unwind" fn amrescan(
     scan: pg_sys::IndexScanDesc,
     keys: pg_sys::ScanKey,
     nkeys: ::std::os::raw::c_int,
@@ -184,7 +184,7 @@ pub extern "C" fn amrescan(
 }
 
 #[pg_guard]
-pub extern "C" fn amendscan(scan: pg_sys::IndexScanDesc) {
+pub extern "C-unwind" fn amendscan(scan: pg_sys::IndexScanDesc) {
     unsafe {
         let scan_state = (*(*scan).opaque.cast::<Option<Bm25ScanState>>()).take();
         drop(scan_state);
@@ -192,7 +192,7 @@ pub extern "C" fn amendscan(scan: pg_sys::IndexScanDesc) {
 }
 
 #[pg_guard]
-pub unsafe extern "C" fn amgettuple(
+pub unsafe extern "C-unwind" fn amgettuple(
     scan: pg_sys::IndexScanDesc,
     _direction: pg_sys::ScanDirection::Type,
 ) -> bool {
@@ -242,7 +242,7 @@ pub unsafe extern "C" fn amgettuple(
                             pg_sys::heap_form_tuple((*scan).xs_hitupdesc, values, nulls);
                     } else {
                         pg_sys::ffi::pg_guard_ffi_boundary(|| {
-                            extern "C" {
+                            extern "C-unwind" {
                                 fn heap_compute_data_size(
                                     tupleDesc: pg_sys::TupleDesc,
                                     values: *mut pg_sys::Datum,
@@ -292,7 +292,7 @@ pub unsafe extern "C" fn amgettuple(
 }
 
 #[pg_guard]
-pub unsafe extern "C" fn amgetbitmap(
+pub unsafe extern "C-unwind" fn amgetbitmap(
     scan: pg_sys::IndexScanDesc,
     tbm: *mut pg_sys::TIDBitmap,
 ) -> i64 {
@@ -345,7 +345,7 @@ unsafe fn search_next_segment(scan: IndexScanDesc, state: &mut Bm25ScanState) ->
 }
 
 #[pg_guard]
-pub extern "C" fn amcanreturn(indexrel: pg_sys::Relation, attno: i32) -> bool {
+pub extern "C-unwind" fn amcanreturn(indexrel: pg_sys::Relation, attno: i32) -> bool {
     if attno != 1 {
         // currently, we only support returning the "key_field", which will always be the first
         // index attribute

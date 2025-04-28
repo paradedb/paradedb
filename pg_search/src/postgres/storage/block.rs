@@ -354,7 +354,7 @@ impl From<PgItem> for SegmentMetaEntry {
 impl SegmentMetaEntry {
     /// Fake an opstamp value based on our internal `xmin` and `xmax` values
     pub fn opstamp(&self) -> Opstamp {
-        self.xmin.max(self.xmax) as Opstamp // ((self.xmax as u64) << 32) | (self.xmin as u64)
+        self.xmin.into_inner().max(self.xmax.into_inner()) as Opstamp // ((self.xmax as u64) << 32) | (self.xmin as u64)
     }
 }
 
@@ -491,10 +491,10 @@ mod tests {
 
     #[pg_test]
     unsafe fn test_needs_freeze() {
-        let freeze_limit = 100;
+        let freeze_limit = pg_sys::TransactionId::from(100);
         let segment = SegmentMetaEntry {
-            xmin: 50,
-            xmax: 150,
+            xmin: pg_sys::TransactionId::from(50),
+            xmax: pg_sys::TransactionId::from(150),
             ..Default::default()
         };
 

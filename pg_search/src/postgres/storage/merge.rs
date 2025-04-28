@@ -22,7 +22,6 @@ use crate::postgres::storage::block::{
 use crate::postgres::storage::buffer::{BufferManager, BufferMut, PinnedBuffer};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use pgrx::pg_sys;
-use pgrx::pg_sys::TransactionId;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::slice::from_raw_parts;
@@ -308,8 +307,8 @@ impl MergeLock {
         let xid = pg_sys::GetCurrentTransactionId();
         let merge_entry = MergeEntry {
             pid: pg_sys::MyProcPid,
-            xmin: xid, // the entry is transient
-            xmax: xid, // so it will be considered deleted by this transaction
+            xmin: xid,
+            _unused: pg_sys::InvalidTransactionId,
             segment_ids_start_blockno,
         };
 
@@ -502,8 +501,15 @@ impl VacuumList {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct MergeEntry {
     pub pid: i32,
+
+    /// The transaction id performing the merge indicated by this [`MergeEntry`]
     pub xmin: pg_sys::TransactionId,
-    pub xmax: pg_sys::TransactionId,
+
+    /// used space where we once stored an `xmax` value
+    #[doc(hidden)]
+    #[serde(alias = "xmax")]
+    _unused: pg_sys::TransactionId,
+
     pub segment_ids_start_blockno: pg_sys::BlockNumber,
 }
 
@@ -531,32 +537,23 @@ impl From<MergeEntry> for PgItem {
 }
 
 impl MVCCEntry for MergeEntry {
-    fn get_xmin(&self) -> TransactionId {
-        self.xmin
+    fn pintest_blockno(&self) -> pg_sys::BlockNumber {
+        pg_sys::InvalidBlockNumber
     }
 
-    fn get_xmax(&self) -> TransactionId {
-        self.xmax
+    unsafe fn visible(&self) -> bool {
+        true
     }
 
-    fn into_frozen(self, should_freeze_xmin: bool, should_freeze_xmax: bool) -> Self {
-        Self {
-            xmin: if should_freeze_xmin {
-                pg_sys::FrozenTransactionId
-            } else {
-                self.xmin
-            },
-            xmax: if should_freeze_xmax {
-                pg_sys::FrozenTransactionId
-            } else {
-                self.xmax
-            },
-            ..self
+    unsafe fn recyclable(&self, _: &mut BufferManager) -> bool {
+        unsafe {
+            self.xmin != pg_sys::InvalidTransactionId
+                && !pg_sys::TransactionIdIsInProgress(self.xmin)
         }
     }
 
-    fn pintest_blockno(&self) -> pg_sys::BlockNumber {
-        pg_sys::InvalidBlockNumber
+    unsafe fn mergeable(&self) -> bool {
+        unimplemented!("`MVCCEntry::mergeable()` is not supported for `MergeEntry")
     }
 }
 

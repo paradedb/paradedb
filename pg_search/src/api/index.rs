@@ -1043,7 +1043,7 @@ fn jsonb_to_searchqueryinput(query: JsonB) -> SearchQueryInput {
 }
 
 extension_sql!(
-    "ALTER FUNCTION jsonb_to_searchqueryinput IMMUTABLE;",
+    "ALTER FUNCTION jsonb_to_searchqueryinput IMMUTABLE STRICT PARALLEL SAFE;",
     name = "jsonb_to_searchqueryinput",
     requires = [jsonb_to_searchqueryinput]
 );

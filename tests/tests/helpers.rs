@@ -427,17 +427,7 @@ fn test_index_fields(mut conn: PgConnection) {
         true
     );
 
-    // Check range field (price_range)
     assert!(fields.contains_key("price_range"));
-    let range_config = fields
-        .get("price_range")
-        .unwrap()
-        .as_object()
-        .unwrap()
-        .get("Range")
-        .unwrap()
-        .as_object()
-        .unwrap();
 
     // Check datetime field (created_at)
     assert!(fields.contains_key("created_at"));

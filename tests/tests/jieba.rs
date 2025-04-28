@@ -49,34 +49,18 @@ fn test_jieba_tokenizer_basic(mut conn: PgConnection) {
     );
 
     let tokens = get_tokens(&mut conn, "jieba", "李宇");
-     assert_eq!(
-        tokens,
-        vec![
-            ("李宇".to_string(), 0),
-        ],
-        "Failed on '李宇'"
-    );
+    assert_eq!(tokens, vec![("李宇".to_string(), 0),], "Failed on '李宇'");
 
-     let tokens = get_tokens(&mut conn, "jieba", "公安");
-     assert_eq!(
-        tokens,
-        vec![
-            ("公安".to_string(), 0),
-        ],
-        "Failed on '公安'"
-    );
+    let tokens = get_tokens(&mut conn, "jieba", "公安");
+    assert_eq!(tokens, vec![("公安".to_string(), 0),], "Failed on '公安'");
 
-     let tokens = get_tokens(&mut conn, "jieba", "转移就业");
-     assert_eq!(
+    let tokens = get_tokens(&mut conn, "jieba", "转移就业");
+    assert_eq!(
         tokens,
-        vec![
-            ("转移".to_string(), 0),
-            ("就业".to_string(), 2),
-        ],
+        vec![("转移".to_string(), 0), ("就业".to_string(), 2),],
         "Failed on '转移就业'"
     );
 }
-
 
 #[rstest]
 fn test_jieba_tokenizer_indexing(mut conn: PgConnection) {
@@ -84,13 +68,14 @@ fn test_jieba_tokenizer_indexing(mut conn: PgConnection) {
     r#"CREATE TABLE chinese_texts (
             id SERIAL PRIMARY KEY,
             content TEXT
-        );"#.execute(&mut conn);
+        );"#
+    .execute(&mut conn);
 
     r#"INSERT INTO chinese_texts (content) VALUES
             ('我们都有光明的前途'),
             ('李宇给公安局打了电话'),
             ('这项政策旨在促进劳动力转移就业');"#
-         .execute(&mut conn);
+        .execute(&mut conn);
 
     r#"CREATE INDEX chinese_texts_idx ON chinese_texts
         USING bm25 (id, content)
@@ -99,7 +84,8 @@ fn test_jieba_tokenizer_indexing(mut conn: PgConnection) {
             text_fields = '{
                 "content": { "tokenizer": {"type": "jieba"} }
             }'
-        );"#.execute(&mut conn);
+        );"#
+    .execute(&mut conn);
 
     // Test searching using fetch/fetch_one extension methods
     let rows: Vec<(i32,)> =
@@ -110,10 +96,10 @@ fn test_jieba_tokenizer_indexing(mut conn: PgConnection) {
     let row: (i32,) =
         r#"SELECT id FROM chinese_texts WHERE chinese_texts @@@ 'content:公安局' ORDER BY id"#
             .fetch_one(&mut conn);
-     assert_eq!(row, (2,), "Failed on 'content:公安局'");
+    assert_eq!(row, (2,), "Failed on 'content:公安局'");
 
     let row: (i32,) =
         r#"SELECT id FROM chinese_texts WHERE chinese_texts @@@ 'content:就业' ORDER BY id"#
             .fetch_one(&mut conn);
     assert_eq!(row, (3,), "Failed on 'content:就业'");
-} 
+}

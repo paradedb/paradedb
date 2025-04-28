@@ -235,6 +235,75 @@ impl ExecMethod for NormalScanExecState {
             state.rti
         );
 
+        // Track if we're in a nested loop context for better debugging
+        // unsafe {
+        //     let plan_state = &state.cs_state.ss.ps;
+        //     let plan = (*plan_state).plan;
+        //     if !plan.is_null() {
+        //         let parent_plan = (*plan).lefttree;
+        //         if !parent_plan.is_null() && (*parent_plan).type_ == pg_sys::NodeTag_T_NestLoop {
+        //             pgrx::warning!(
+        //                 "NormalScanExecState::internal_next: In nested loop join context for rti={:?}",
+        //                 state.rti
+        //             );
+
+        //             // Try to track current outer tuple in the join
+        //             let expr_context = (*plan_state).ps_ExprContext;
+        //             if !expr_context.is_null() {
+        //                 let outer_tuple = (*expr_context).ecxt_outertuple;
+        //                 if !outer_tuple.is_null() {
+        //                     pgrx::warning!(
+        //                         "NormalScanExecState::internal_next: Processing for outer tuple with address={:?} for rti={:?}",
+        //                         outer_tuple, state.rti
+        //                     );
+
+        //                     // Try to extract outer tuple company_id for debugging
+        //                     let outer_desc = (*outer_tuple).tts_tupleDescriptor;
+        //                     if !outer_desc.is_null() {
+        //                         let outer_natts = (*outer_desc).natts;
+
+        //                         for i in 0..outer_natts {
+        //                             let attr = (*outer_desc).attrs.as_ptr().add(i as usize);
+        //                             if !attr.is_null() {
+        //                                 let attr_name =
+        //                                     std::ffi::CStr::from_ptr((*attr).attname.data.as_ptr())
+        //                                         .to_string_lossy();
+
+        //                                 if attr_name.contains("company_id") {
+        //                                     let is_null = pg_sys::att_isnull(outer_tuple, i + 1);
+        //                                     if !is_null {
+        //                                         let company_id =
+        //                                             pg_sys::DatumGetInt64(pg_sys::heap_getattr(
+        //                                                 (*outer_tuple).tts_tuple,
+        //                                                 i + 1,
+        //                                                 outer_desc,
+        //                                                 &mut (*outer_tuple).tts_isnull[i as usize],
+        //                                             ));
+
+        //                                         pgrx::warning!(
+        //                                             "NormalScanExecState::internal_next: Processing outer tuple with company_id={} for rti={:?}",
+        //                                             company_id, state.rti
+        //                                         );
+
+        //                                         // Special logging for company_id 15 to track the critical case
+        //                                         if company_id == 15 {
+        //                                             pgrx::warning!(
+        //                                                 "NormalScanExecState::internal_next: CRITICAL CASE - Processing for company_id=15 for rti={:?}",
+        //                                                 state.rti
+        //                                             );
+        //                                         }
+        //                                     }
+        //                                 }
+        //                             }
+        //                         }
+        //                     }
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
+
+        // Get the next result from our search results
         match self.search_results.next() {
             // no more rows
             None => {
@@ -258,10 +327,13 @@ impl ExecMethod for NormalScanExecState {
                 );
 
                 // Enhanced logging to inspect document details - look for company ID 15
-                if doc_id_info.contains("15:") {
+                if doc_id_info.contains("15:")
+                    || doc_id_info.contains("15,")
+                    || doc_id_info.contains("id=15")
+                {
                     pgrx::warning!(
-                        "NormalScanExecState::internal_next: FOUND COMPANY 15! ctid={}, score={}, doc_id_info={}",
-                        scored.ctid, scored.bm25, doc_id_info
+                        "NormalScanExecState::internal_next: FOUND COMPANY 15! ctid={}, score={}, doc_id_info={} for rti={:?}",
+                        scored.ctid, scored.bm25, doc_id_info, state.rti
                     );
                 }
 
@@ -335,10 +407,13 @@ impl ExecMethod for NormalScanExecState {
                 );
 
                 // Enhanced logging to inspect document details - look for company ID 15
-                if doc_id_info.contains("15:") {
+                if doc_id_info.contains("15:")
+                    || doc_id_info.contains("15,")
+                    || doc_id_info.contains("id=15")
+                {
                     pgrx::warning!(
-                        "NormalScanExecState::internal_next: FOUND COMPANY 15! ctid={}, score={}, doc_id_info={}",
-                        scored.ctid, scored.bm25, doc_id_info
+                        "NormalScanExecState::internal_next: FOUND COMPANY 15! ctid={}, score={}, doc_id_info={} for rti={:?}",
+                        scored.ctid, scored.bm25, doc_id_info, state.rti
                     );
                 }
 

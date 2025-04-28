@@ -65,6 +65,7 @@ use crate::schema::SearchIndexSchema;
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
 use exec_methods::top_n::TopNScanExecState;
 use exec_methods::ExecState;
+use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::pg_sys::{AsPgCStr, CustomExecMethods};
 use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts, PgRelation};
 use std::collections::HashMap;
@@ -75,6 +76,11 @@ use std::ptr::addr_of_mut;
 use tantivy::schema::Value;
 use tantivy::snippet::SnippetGenerator;
 use tantivy::Index;
+
+// Import the necessary types from state.rs
+use crate::postgres::customscan::pdbscan::state::{
+    CustomState, ExecMethod, SearchParams, SearchReader, SearchResult,
+};
 
 #[derive(Default)]
 pub struct PdbScan;
@@ -795,168 +801,185 @@ impl CustomScan for PdbScan {
     }
 
     fn begin_custom_scan(
-        state: &mut CustomScanStateWrapper<Self>,
-        estate: *mut pg_sys::EState,
-        eflags: i32,
-    ) {
+        node: *mut pg_sys::CustomScanState,
+        eflags: ::std::os::raw::c_int,
+    ) -> pg_sys::Datum {
         unsafe {
-            // open the heap and index relations with the proper locks
-            let rte = pg_sys::exec_rt_fetch(state.custom_state().rti, estate);
-            assert!(!rte.is_null());
-            let lockmode = (*rte).rellockmode as pg_sys::LOCKMODE;
+            let mut state = PdbScan::get_mut_custom_state(node);
+            let parent_node = (*node).ss.ps.plan.parentNode;
 
-            let (heaprel, indexrel) = if lockmode == pg_sys::NoLock as pg_sys::LOCKMODE {
-                (
-                    pg_sys::RelationIdGetRelation(state.custom_state().heaprelid),
-                    pg_sys::RelationIdGetRelation(state.custom_state().indexrelid),
-                )
+            // Initialize scan state and check for potential nested loop join
+            state.heaprel = if !(*node).ss.ss_currentRelation.is_null() {
+                Some((*node).ss.ss_currentRelation)
             } else {
-                (
-                    pg_sys::relation_open(state.custom_state().heaprelid, lockmode),
-                    pg_sys::relation_open(state.custom_state().indexrelid, lockmode),
-                )
+                None
             };
 
-            state.custom_state_mut().heaprel = Some(heaprel);
-            state.custom_state_mut().indexrel = Some(indexrel);
-            state.custom_state_mut().lockmode = lockmode;
+            // Check parent node for nested loop join
+            let in_nested_loop_join = if !parent_node.is_null() {
+                let parent_type = (*parent_node).type_;
+                parent_type == pg_sys::NodeTag_T_NestLoop
+            } else {
+                false
+            };
 
-            state.custom_state_mut().heaprel_namespace =
-                PgRelation::from_pg(heaprel).namespace().to_string();
-            state.custom_state_mut().heaprel_relname =
-                PgRelation::from_pg(heaprel).name().to_string();
+            // Store nested loop join status in state
+            state.in_nested_loop_join = in_nested_loop_join;
 
-            let quals = state
-                .custom_state_mut()
-                .quals
-                .take()
-                .expect("quals should have been set");
-            state.custom_state_mut().search_query_input = SearchQueryInput::from(&quals);
+            pgrx::log!(
+                "Beginning custom scan with eflags: {}, in_nested_loop_join: {}",
+                eflags,
+                in_nested_loop_join
+            );
 
-            if eflags & (pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) != 0 {
-                // don't do anything else if we're only explaining the query
-                return;
+            // Extract expressions from the custom scan
+            let custom_exprs = (*node).custom_ps.as_mut();
+            if !custom_exprs.is_null() {
+                state.nexprs = unsafe_expr_count(custom_exprs);
+                pgrx::log!("Found {} custom expressions", state.nexprs);
             }
 
-            // setup the structures we need to do mvcc checking
-            state.custom_state_mut().visibility_checker = Some(
-                VisibilityChecker::with_rel_and_snap(heaprel, pg_sys::GetActiveSnapshot()),
-            );
+            // Initialize search query parameters
+            if let Some(search_params_json) = state.search_params_json.as_ref() {
+                let search_params: SearchParams = serde_json::from_str(search_params_json)
+                    .wrap_error_msg("Failed to parse search params JSON")?;
 
-            // and finally, get the custom scan itself properly initialized
-            let tupdesc = state.custom_state().heaptupdesc();
-            pg_sys::ExecInitScanTupleSlot(
-                estate,
-                addr_of_mut!(state.csstate.ss),
-                tupdesc,
-                pg_sys::table_slot_callbacks(state.custom_state().heaprel()),
-            );
-            pg_sys::ExecInitResultTypeTL(addr_of_mut!(state.csstate.ss.ps));
-            pg_sys::ExecAssignProjectionInfo(
-                state.planstate(),
-                (*state.csstate.ss.ss_ScanTupleSlot).tts_tupleDescriptor,
-            );
-
-            let planstate = state.planstate();
-            let nexprs = state
-                .custom_state_mut()
-                .search_query_input
-                .init_postgres_expressions(planstate);
-            state.custom_state_mut().nexprs = nexprs;
-
-            if nexprs > 0 {
-                // we have some runtime Postgres expressions that need to be evaluated in `rescan_custom_scan`
-                //
-                // Our planstate's ExprContext isn't sufficiently configured for that, so we need to
-                // make a new one and swap some pointers around
-
-                // hold onto the planstate's current ExprContext
-                let stdecontext = (*planstate).ps_ExprContext;
-
-                // assign a new one
-                pg_sys::ExecAssignExprContext(estate, planstate);
-
-                // take that one and assign it to our state's `runtime_context`.  This is what
-                // will be used during `rescan_custom_state` to evaluate expressions
-                state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
-
-                // and restore our planstate's original ExprContext
-                (*planstate).ps_ExprContext = stdecontext;
+                state.search_query_input.search_params = search_params;
+                pgrx::log!("Search params initialized from JSON: {:?}", search_params);
             }
+
+            // Only initialize the search reader if not in a nested loop join or if we don't have one yet
+            let need_new_search_reader = !in_nested_loop_join || state.search_reader.is_none();
+
+            if need_new_search_reader {
+                pgrx::log!("Creating initial search reader");
+                let search_reader = SearchReader::new(
+                    &state.search_query_input.search_query,
+                    &state.search_query_input.search_params,
+                )
+                .wrap_error_msg("failed to create search reader")?;
+
+                state.search_reader = Some(search_reader);
+            } else if in_nested_loop_join {
+                pgrx::log!("Preserving existing search reader in nested loop join context");
+            }
+
+            // Initialize execution method
+            state.exec_method = Some(ExecMethod::new(
+                node,
+                state.search_reader.as_ref().unwrap(),
+                &state.search_query_input.search_params,
+            ));
+
+            pgrx::log!("Custom scan initialization completed, ready for execution");
+            pg_sys::Datum::from(0)
         }
     }
 
-    fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        if state.custom_state().nexprs > 0 {
-            let expr_context = state.runtime_context;
-            state
-                .custom_state_mut()
-                .search_query_input
-                .solve_postgres_expressions(expr_context);
-        }
-
-        let need_snippets = state.custom_state().need_snippets();
-
-        // Open the index
-        let indexrel = state
-            .custom_state()
-            .indexrel
-            .as_ref()
-            .map(|indexrel| unsafe { PgRelation::from_pg(*indexrel) })
-            .expect("custom_state.indexrel should already be open");
-
-        let search_reader = SearchIndexReader::open(&indexrel, unsafe {
-            if pg_sys::ParallelWorkerNumber == -1 {
-                // the leader only sees snapshot-visible segments
-                MvccSatisfies::Snapshot
-            } else {
-                // the workers have their own rules, which is literally every segment
-                // this is because the workers pick a specific segment to query that
-                // is known to be held open/pinned by the leader but might not pass a ::Snapshot
-                // visibility test due to concurrent merges/garbage collects
-                MvccSatisfies::ParallelWorker(list_segment_ids(
-                    state.custom_state().parallel_state.expect(
-                        "Parallel Custom Scan rescan_custom_scan should have a parallel state",
-                    ),
-                ))
-            }
-        })
-        .expect("should be able to open the search index reader");
-        state.custom_state_mut().search_reader = Some(search_reader);
-
-        let csstate = addr_of_mut!(state.csstate);
-        state.custom_state_mut().init_exec_method(csstate);
-
-        if need_snippets {
-            let mut snippet_generators: HashMap<
-                SnippetInfo,
-                Option<(tantivy::schema::Field, SnippetGenerator)>,
-            > = state
-                .custom_state_mut()
-                .snippet_generators
-                .drain()
-                .collect();
-            for (snippet_info, generator) in &mut snippet_generators {
-                let mut new_generator = state
-                    .custom_state()
-                    .search_reader
-                    .as_ref()
-                    .unwrap()
-                    .snippet_generator(
-                        &snippet_info.field,
-                        &state.custom_state().search_query_input,
-                    );
-                new_generator
-                    .1
-                    .set_max_num_chars(snippet_info.max_num_chars);
-                *generator = Some(new_generator);
-            }
-
-            state.custom_state_mut().snippet_generators = snippet_generators;
-        }
-
+    fn rescan_custom_scan(
+        node: *mut pg_sys::CustomScanState,
+        exprCtxt: *mut pg_sys::ExprContext,
+    ) -> pg_sys::Datum {
         unsafe {
-            inject_score_and_snippet_placeholders(state);
+            let state = PdbScan::get_mut_custom_state(node);
+            let parent_node = (*node).ss.ps.plan.parentNode;
+
+            // Log RTE info if available
+            if let Some(heaprel) = state.heaprel {
+                pgrx::log!(
+                    "Rescanning custom scan for heap relation OID: {:?}",
+                    (*heaprel).rd_id
+                );
+            }
+
+            // Detect if we're in a nested loop join by checking the parent node
+            let in_nested_loop_join = if !parent_node.is_null() {
+                let parent_type = (*parent_node).type_;
+                let is_nested_loop = parent_type == pg_sys::NodeTag_T_NestLoop;
+
+                if is_nested_loop {
+                    // Check if we're the right child (inner relation) of the nested loop
+                    let nl_plan = parent_node as *mut pg_sys::NestLoop;
+                    let left_tree = (*nl_plan).join.plan.lefttree;
+
+                    if !left_tree.is_null() {
+                        pgrx::log!("In nested loop join context, we're the right (inner) relation");
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+
+            // Update the state to reflect if we're in a nested loop join
+            state.in_nested_loop_join = in_nested_loop_join;
+
+            // Log the current state
+            pgrx::log!(
+                "Rescanning custom scan, search query input: {:?}, memory context: {:?}, in_nested_loop_join: {}",
+                state.search_query_input, (*node).ss.ps.ps_ExprContext, in_nested_loop_join
+            );
+
+            // Process parameters and execute expressions
+            let nparams = (*node).ss.ps.plan.allParam.param_count;
+            if nparams > 0 {
+                pgrx::log!("Parameter count: {}", nparams);
+                let param_values =
+                    ParamListInfo_param_values((*node).ss.ps.state.es_param_list_info);
+
+                for i in 0..state.nexprs {
+                    let params = (*node).ss.ps.ps_PlannerInfo.unwrap();
+                    let expr = unsafe_expr_with_idx((*node).custom_ps, i as u32);
+                    let param = unsafe_expr_eval::execute_expr(expr, exprCtxt);
+                    pgrx::log!("Expression {} executed: {:?}", i, param);
+                }
+            }
+
+            // Only create a new search reader if we're not in a nested loop join context
+            // or if we don't already have a search reader
+            let need_new_search_reader = !in_nested_loop_join || state.search_reader.is_none();
+
+            if need_new_search_reader {
+                pgrx::log!("Creating new search reader");
+                let search_reader = SearchReader::new(
+                    &state.search_query_input.search_query,
+                    &state.search_query_input.search_params,
+                )
+                .wrap_error_msg("failed to create search reader");
+
+                if search_reader.is_ok() {
+                    state.search_reader = Some(search_reader.unwrap());
+                    pgrx::log!("Search reader created successfully");
+                } else {
+                    pgrx::log!("Failed to create search reader: {:?}", search_reader.err());
+                }
+            } else {
+                pgrx::log!("Reusing existing search reader in nested loop join context");
+            }
+
+            // Only initialize the execution method if we either:
+            // 1. Are not in a nested loop join, or
+            // 2. Don't already have an execution method
+            if !in_nested_loop_join || state.exec_method.is_none() {
+                state.exec_method = Some(ExecMethod::new(
+                    node,
+                    state.search_reader.as_ref().unwrap(),
+                    &state.search_query_input.search_params,
+                ));
+                pgrx::log!("Execution method initialized");
+            } else {
+                pgrx::log!("Preserving execution method in nested loop join context");
+            }
+
+            pgrx::log!(
+                "Custom scan rescan completed, in_nested_loop_join: {}",
+                in_nested_loop_join
+            );
+            pg_sys::Datum::from(0)
         }
     }
 
@@ -1106,6 +1129,50 @@ impl CustomScan for PdbScan {
             }
         }
     }
+
+    fn next_custom_scan(
+        node: *mut pg_sys::CustomScanState,
+        _direction: pg_sys::ScanDirection,
+    ) -> *mut pg_sys::TupleTableSlot {
+        unsafe {
+            let state = PdbScan::get_mut_custom_state(node);
+
+            // If in nested loop join, respect and use the saved state
+            if state.in_nested_loop_join {
+                pgrx::log!(
+                    "Executing next_custom_scan in nested loop join mode, preserving reader state"
+                );
+            }
+
+            // If we have an execution method, use it
+            if let Some(exec_method) = state.exec_method.as_mut() {
+                let tuple = exec_method.next();
+
+                if !tuple.is_null() {
+                    return tuple;
+                }
+            } else {
+                pgrx::log!("No execution method available, returning NULL tuple");
+            }
+
+            std::ptr::null_mut()
+        }
+    }
+
+    /// Gets a mutable reference to the CustomState from a CustomScanState pointer
+    unsafe fn get_mut_custom_state(node: *mut pg_sys::CustomScanState) -> &'static mut CustomState {
+        let custom_ps = (*node).custom_ps.as_mut();
+        if custom_ps.is_null() {
+            panic!("custom_ps is null");
+        }
+
+        let state_ptr = (*custom_ps).data.as_mut_ptr() as *mut CustomState;
+        if state_ptr.is_null() {
+            panic!("custom state is null");
+        }
+
+        &mut *state_ptr
+    }
 }
 
 /// Use the [`VisibilityChecker`] to lookup the [`SearchIndexScore`] document in the underlying heap
@@ -1129,8 +1196,99 @@ fn check_visibility(
         state.custom_state().heaprelname()
     );
 
+    // Extract ItemPointer information for more detailed debugging
+    unsafe {
+        let mut tid = pg_sys::ItemPointerData::default();
+        crate::postgres::utils::u64_to_item_pointer(ctid, &mut tid);
+        let blockno = item_pointer_get_block_number(&tid);
+        let offno = pg_sys::ItemPointerGetOffsetNumber(&tid);
+        pgrx::warning!(
+            "check_visibility: Decomposed ctid={} to blockno={}, offno={} for rti={:?}",
+            ctid,
+            blockno,
+            offno,
+            state.custom_state().rti
+        );
+
+        // Try to detect if we're in a nested loop join by examining scan state and context
+        let is_nested_loop = (*state.csstate.ss.ps.plan).lefttree != std::ptr::null_mut()
+            && (*(*state.csstate.ss.ps.plan).lefttree).type_ == pg_sys::NodeTag::T_NestLoop;
+
+        if is_nested_loop {
+            pgrx::warning!(
+                "check_visibility: In nested loop join context for rti={:?}, ctid={}",
+                state.custom_state().rti,
+                ctid
+            );
+
+            // Try to examine the outer tuple info in the join context
+            let outer_tuple = (*state.csstate.ss.ps.ps_ExprContext).ecxt_outertuple;
+            if !outer_tuple.is_null() {
+                pgrx::warning!(
+                    "check_visibility: Found outer tuple in join for rti={:?}, ctid={}",
+                    state.custom_state().rti,
+                    ctid
+                );
+
+                // Try to extract company_id information from the outer tuple if available
+                let outer_desc = (*outer_tuple).tts_tupleDescriptor;
+                if !outer_desc.is_null() {
+                    let outer_natts = (*outer_desc).natts;
+                    pgrx::warning!(
+                        "check_visibility: Outer tuple has {} attributes for rti={:?}, ctid={}",
+                        outer_natts,
+                        state.custom_state().rti,
+                        ctid
+                    );
+
+                    // Look for company_id column to examine outer join condition values
+                    for i in 0..outer_natts {
+                        let attr = (*outer_desc).attrs.as_ptr().add(i as usize);
+                        if !attr.is_null() {
+                            let attr_name = std::ffi::CStr::from_ptr((*attr).attname.data.as_ptr())
+                                .to_string_lossy();
+
+                            if attr_name.contains("company_id") {
+                                pgrx::warning!(
+                                    "check_visibility: Found company_id attribute at position {} for rti={:?}, ctid={}",
+                                    i, state.custom_state().rti, ctid
+                                );
+
+                                // // Try to get the value of company_id from the outer tuple
+                                // let is_null = pg_sys::att_isnull(outer_tuple, i + 1);
+                                // if !is_null {
+                                //     let company_id = pg_sys::DatumGetInt64(
+                                //         pg_sys::heap_getattr(
+                                //             (*outer_tuple).tts_tuple,
+                                //             i + 1,
+                                //             outer_desc,
+                                //             &mut (*outer_tuple).tts_isnull[i as usize]
+                                //         )
+                                //     );
+
+                                //     pgrx::warning!(
+                                //         "check_visibility: Outer tuple's company_id={} for rti={:?}, ctid={}",
+                                //         company_id, state.custom_state().rti, ctid
+                                //     );
+
+                                //     // Special logging for company_id 15
+                                //     if company_id == 15 {
+                                //         pgrx::warning!(
+                                //             "check_visibility: CRITICAL CASE - Found company_id=15 in outer tuple for rti={:?}, ctid={}",
+                                //             state.custom_state().rti, ctid
+                                //         );
+                                //     }
+                                // }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Call the visibility checker with enhanced logging
-    let result = state
+    let result: Option<*mut pg_sys::TupleTableSlot> = state
         .custom_state_mut()
         .visibility_checker()
         .exec_if_visible(ctid, bslot.cast(), move |heaprel| {
@@ -1143,6 +1301,48 @@ fn check_visibility(
                 let heap_tuple = (*bslot).base.tuple;
                 if !heap_tuple.is_null() {
                     pgrx::warning!("check_visibility: ctid={} has heap_tuple data", ctid);
+
+                    // // Try to extract company_id from the tuple to check if it's company 15
+                    // let tupdesc = (*bslot).base.tts_tupleDescriptor;
+                    // if !tupdesc.is_null() {
+                    //     let natts = (*tupdesc).natts;
+
+                    //     // Look for company_id in the attributes
+                    //     for i in 0..natts {
+                    //         let attr = (*tupdesc).attrs.as_ptr().add(i as usize);
+                    //         if !attr.is_null() {
+                    //             let attr_name = std::ffi::CStr::from_ptr((*attr).attname.data.as_ptr())
+                    //                 .to_string_lossy();
+
+                    //             if attr_name == "id" {
+                    //                 let is_null = pg_sys::att_isnull(bslot.cast(), i + 1);
+                    //                 if !is_null {
+                    //                     let id = pg_sys::DatumGetInt64(
+                    //                         pg_sys::heap_getattr(
+                    //                             (*bslot).base.tuple,
+                    //                             i + 1,
+                    //                             tupdesc,
+                    //                             &mut (*bslot).base.tts_isnull[i as usize]
+                    //                         )
+                    //                     );
+
+                    //                     pgrx::warning!(
+                    //                         "check_visibility: Tuple has id={} for rti={:?}, ctid={}",
+                    //                         id, state.custom_state().rti, ctid
+                    //                     );
+
+                    //                     // Special logging for company_id 15
+                    //                     if id == 15 {
+                    //                         pgrx::warning!(
+                    //                             "check_visibility: FOUND COMPANY 15! ctid={} for rti={:?}",
+                    //                             ctid, state.custom_state().rti
+                    //                         );
+                    //                     }
+                    //                 }
+                    //             }
+                    //         }
+                    //     }
+                    // }
                 } else {
                     pgrx::warning!("check_visibility: ctid={} has NULL heap_tuple", ctid);
                 }
@@ -1151,19 +1351,68 @@ fn check_visibility(
             bslot.cast()
         });
 
-    // Log the result of the visibility check with more context
+    // Detailed logging about the visibility check result
+    let current_memory_context = unsafe { pg_sys::CurrentMemoryContext };
+
     if result.is_some() {
         pgrx::warning!(
-            "check_visibility: ctid={} visibility check PASSED in context={:?}",
+            "check_visibility: ctid={} visibility check PASSED in context={:?} for rti={:?}",
             ctid,
-            unsafe { pg_sys::CurrentMemoryContext }
+            current_memory_context,
+            state.custom_state().rti
         );
+
+        // When a tuple passes visibility, try to log its attributes
+        unsafe {
+            if let Some(slot) = result {
+                let tupdesc = (*slot).tts_tupleDescriptor;
+                if !tupdesc.is_null() {
+                    pgrx::warning!(
+                        "check_visibility: Examining visible tuple attributes for ctid={} with rti={:?}",
+                        ctid, state.custom_state().rti
+                    );
+
+                    let natts = (*tupdesc).natts;
+                    let mut values: Vec<String> = Vec::new();
+
+                    for i in 0..natts {
+                        let attr = (*tupdesc).attrs.as_ptr().add(i as usize);
+                        if !attr.is_null() {
+                            let attr_name = std::ffi::CStr::from_ptr((*attr).attname.data.as_ptr())
+                                .to_string_lossy();
+
+                            // let is_null = pg_sys::att_isnull(slot, i + 1);
+                            // if !is_null {
+                            //     values.push(format!("{}=<non-null>", attr_name));
+                            // } else {
+                            //     values.push(format!("{}=NULL", attr_name));
+                            // }
+                        }
+                    }
+
+                    pgrx::warning!(
+                        "check_visibility: Visible tuple has attributes: [{}] for rti={:?}, ctid={}",
+                        values.join(", "), state.custom_state().rti, ctid
+                    );
+                }
+            }
+        }
     } else {
         pgrx::warning!(
-            "check_visibility: ctid={} visibility check FAILED in context={:?}",
+            "check_visibility: ctid={} visibility check FAILED in context={:?} for rti={:?}",
             ctid,
-            unsafe { pg_sys::CurrentMemoryContext }
+            current_memory_context,
+            state.custom_state().rti
         );
+
+        // // Try to get VisibilityChecker details to understand why it failed
+        // if let Some(visibility_checker) = &state.custom_state().visibility_checker {
+        //     let mvcc_snapshot_id = format!("{:?}", visibility_checker);
+        //     pgrx::warning!(
+        //         "check_visibility: Visibility check failed with visibility_checker={} for rti={:?}, ctid={}",
+        //         mvcc_snapshot_id, state.custom_state().rti, ctid
+        //     );
+        // }
     }
 
     result
@@ -1629,73 +1878,19 @@ unsafe fn check_for_cte_subquery(
                 if !subquery.is_null() {
                     pgrx::warning!("check_for_cte_subquery: Examining subquery");
 
-                    // Check WHERE clause for BM25 operators
-                    if !(*subquery).jointree.is_null() && !(*(*subquery).jointree).quals.is_null() {
-                        pgrx::warning!("check_for_cte_subquery: Examining subquery WHERE clause");
-
-                        let quals = (*(*subquery).jointree).quals;
-                        if !quals.is_null() {
-                            pgrx::warning!(
-                                "check_for_cte_subquery: WHERE clause has node type {:?}",
-                                (*quals).type_
-                            );
-
-                            // See if there's a BM25 operator in the quals
-                            if let Some(result) = find_bm25_index_in_quals(quals, root) {
-                                pgrx::warning!("check_for_cte_subquery: Found BM25 index in subquery WHERE clause");
-                                return Some(result);
-                            }
-                        }
+                    // Check if this is a subquery from a CTE
+                    if !(*rte).ctename.is_null() {
+                        let cte_name = std::ffi::CStr::from_ptr((*rte).ctename).to_string_lossy();
+                        pgrx::warning!(
+                            "check_for_cte_subquery: Subquery is from CTE '{}'",
+                            cte_name
+                        );
                     }
 
-                    // Check target list for BM25 operators (for cases like SELECT score(...))
-                    let target_list = (*subquery).targetList;
-                    if !target_list.is_null() {
-                        pgrx::warning!("check_for_cte_subquery: Examining subquery target list");
-
-                        let target_entries = PgList::<pg_sys::TargetEntry>::from_pg(target_list);
-                        for (i, te) in target_entries.iter_ptr().enumerate() {
-                            let expr = (*te).expr;
-                            if !expr.is_null() {
-                                pgrx::warning!(
-                                    "check_for_cte_subquery: Target entry #{} has expr type {:?}",
-                                    i,
-                                    (*expr).type_
-                                );
-
-                                // Check if this is the score function
-                                if (*expr).type_ == pg_sys::NodeTag::T_FuncExpr {
-                                    let funcexpr = expr as *mut pg_sys::FuncExpr;
-                                    if (*funcexpr).funcid == score_funcoid() {
-                                        pgrx::warning!("check_for_cte_subquery: Found score function in target list");
-
-                                        // Get the table from the score function arg
-                                        let args =
-                                            PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-                                        if let Some(arg) = args.get_ptr(0) {
-                                            if let Some(var) = nodecast!(Var, T_Var, arg) {
-                                                let (heaprelid, attno, attname) =
-                                                    find_var_relation(var, root);
-                                                pgrx::warning!("check_for_cte_subquery: Score function references rel={:?}, att={}", heaprelid, attno);
-
-                                                if heaprelid != pg_sys::Oid::INVALID {
-                                                    if let Some((table, bm25_index)) =
-                                                        rel_get_bm25_index(heaprelid)
-                                                    {
-                                                        if !table.is_null() && !bm25_index.is_null()
-                                                        {
-                                                            pgrx::warning!("check_for_cte_subquery: Found BM25 index in score function: table={}, index={}", 
-                                                                     table.name(), bm25_index.name());
-                                                            return Some((table, bm25_index));
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                    // Examine the subquery for BM25 operators
+                    let subquery_result = find_bm25_index_in_join_condition(subquery, root);
+                    if subquery_result.is_some() {
+                        return subquery_result;
                     }
                 }
             }
@@ -1705,1018 +1900,70 @@ unsafe fn check_for_cte_subquery(
     None
 }
 
-/// Find a BM25 operator in query quals (WHERE clause expressions)
-unsafe fn find_bm25_index_in_quals(
-    quals: *mut pg_sys::Node,
-    root: *mut pg_sys::PlannerInfo,
-) -> Option<(PgRelation, PgRelation)> {
-    if quals.is_null() {
+/// Counts the number of expressions in a custom plan state
+unsafe fn unsafe_expr_count(custom_ps: *mut pg_sys::CustomScanState) -> usize {
+    if custom_ps.is_null() {
+        return 0;
+    }
+
+    let exprs = (*custom_ps).custom_exprs;
+    if exprs.is_null() {
+        return 0;
+    }
+
+    (*exprs).length as usize
+}
+
+/// Retrieves an expression at a specific index from a custom plan state
+unsafe fn unsafe_expr_with_idx(custom_ps: *mut pg_sys::CustomScan, idx: u32) -> *mut pg_sys::Expr {
+    if custom_ps.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    let exprs = (*custom_ps).custom_exprs;
+    if exprs.is_null() || idx >= (*exprs).length {
+        return std::ptr::null_mut();
+    }
+
+    let ptr = (*exprs).elements.add(idx as usize);
+    // Convert to usize as an intermediate step to avoid non-primitive cast error
+    let addr = *ptr as usize;
+    addr as *mut pg_sys::Expr
+}
+
+/// Helper module for expression evaluation
+mod unsafe_expr_eval {
+    use pgrx::*;
+    use std::ffi::c_void;
+
+    /// Execute an expression and return its value
+    pub unsafe fn execute_expr(
+        expr: *mut pg_sys::Expr,
+        context: *mut pg_sys::ExprContext,
+    ) -> Option<pg_sys::Datum> {
+        if expr.is_null() || context.is_null() {
+            return None;
+        }
+
+        let is_null: *mut bool = &mut false;
+        // The ExecEvalExpr function in this version of PostgreSQL takes 3 arguments
+        let result = pg_sys::ExecEvalExpr(expr, context, is_null as *mut bool);
+
+        if *is_null {
+            None
+        } else {
+            Some(result)
+        }
+    }
+}
+
+/// Helper function to get parameter values from ParamListInfo
+unsafe fn ParamListInfo_param_values(
+    param_list_info: *mut pg_sys::ParamListInfo,
+) -> Option<*mut pg_sys::ParamExternData> {
+    if param_list_info.is_null() {
         return None;
     }
 
-    pgrx::warning!(
-        "find_bm25_index_in_quals: Examining quals of type {:?}",
-        (*quals).type_
-    );
-
-    match (*quals).type_ {
-        pg_sys::NodeTag::T_OpExpr => {
-            let opexpr = quals as *mut pg_sys::OpExpr;
-            let op_oid = (*opexpr).opno;
-
-            pgrx::warning!(
-                "find_bm25_index_in_quals: Checking if op_oid={:?} is the BM25 operator",
-                op_oid
-            );
-
-            // Check if this is our BM25 operator
-            if op_oid == anyelement_query_input_opoid() || op_oid == anyelement_text_opoid() {
-                pgrx::warning!("find_bm25_index_in_quals: Found BM25 operator");
-
-                let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
-                if let Some(larg) = args.get_ptr(0) {
-                    // Find the left argument which should be a column reference (Var)
-                    let mut arg = larg;
-
-                    // Unwrap any RelabelType nodes
-                    while (*arg).type_ == pg_sys::NodeTag::T_RelabelType {
-                        let relabel_type = arg as *mut pg_sys::RelabelType;
-                        arg = (*relabel_type).arg.cast();
-                    }
-
-                    if let Some(var) = nodecast!(Var, T_Var, arg) {
-                        // Get information about the referenced table
-                        let (heaprelid, attno, attname) = find_var_relation(var, root);
-
-                        pgrx::warning!(
-                            "find_bm25_index_in_quals: BM25 operator references rel={:?}, att={}, varno={}, varlevelsup={}",
-                            heaprelid,
-                            attno,
-                            (*var).varno,
-                            (*var).varlevelsup
-                        );
-
-                        if heaprelid != pg_sys::Oid::INVALID {
-                            // We found a table reference, check if it has a BM25 index
-                            if let Some((table, bm25_index)) = rel_get_bm25_index(heaprelid) {
-                                if !table.is_null() && !bm25_index.is_null() {
-                                    pgrx::warning!("find_bm25_index_in_quals: Found BM25 index: table={}, index={}", 
-                                             table.name(), bm25_index.name());
-                                    return Some((table, bm25_index));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        pg_sys::NodeTag::T_BoolExpr => {
-            let boolexpr = quals as *mut pg_sys::BoolExpr;
-            let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
-
-            pgrx::warning!(
-                "find_bm25_index_in_quals: Examining boolean expression with {} args and boolop={}",
-                args.len(),
-                (*boolexpr).boolop
-            );
-
-            // Check all args (AND/OR conditions)
-            for (i, arg) in args.iter_ptr().enumerate() {
-                pgrx::warning!(
-                    "find_bm25_index_in_quals: Examining boolean arg #{} of type {:?}",
-                    i,
-                    (*arg).type_
-                );
-                if let Some(result) = find_bm25_index_in_quals(arg, root) {
-                    return Some(result);
-                }
-            }
-        }
-        // Add more cases as needed
-        _ => {
-            pgrx::warning!(
-                "find_bm25_index_in_quals: Unhandled qual type {:?}",
-                (*quals).type_
-            );
-        }
-    }
-
-    None
-}
-
-// Add this new diagnostic function to analyze query structure and find BM25 operators
-unsafe fn analyze_query_restrictions(root: *mut pg_sys::PlannerInfo) {
-    if root.is_null() {
-        pgrx::warning!("analyze_query_restrictions: Root is null");
-        return;
-    }
-
-    // Log basic query structure
-    pgrx::warning!("analyze_query_restrictions: Analyzing query structure");
-
-    // Check if this query has a jointree (this is where restrictions are)
-    if !(*root).parse.is_null() && !(*(*root).parse).jointree.is_null() {
-        let jointree = (*(*root).parse).jointree;
-        pgrx::warning!("analyze_query_restrictions: Jointree found");
-
-        // Check what's in the jointree quals
-        if !(*jointree).quals.is_null() {
-            pgrx::warning!("analyze_query_restrictions: Jointree has quals");
-            log_node_type((*jointree).quals);
-
-            // Search for BM25 operators in the quals
-            let has_bm25 = search_for_bm25_operator((*jointree).quals);
-            pgrx::warning!(
-                "analyze_query_restrictions: Jointree quals contain BM25 operators: {}",
-                has_bm25
-            );
-
-            // If BM25 operators are found, do a detailed trace
-            if has_bm25 {
-                pgrx::warning!(
-                    "analyze_query_restrictions: Performing detailed BM25 operator trace"
-                );
-                trace_quals_for_bm25((*jointree).quals);
-            }
-        } else {
-            pgrx::warning!("analyze_query_restrictions: Jointree has no quals");
-        }
-    }
-
-    // Check for CTEs with enhanced tracing
-    if !(*root).parse.is_null() && !(*(*root).parse).cteList.is_null() {
-        pgrx::warning!("analyze_query_restrictions: Performing detailed CTE structure analysis");
-        trace_cte_structure(root);
-    } else {
-        let cte_list = (*(*root).parse).cteList;
-        let cte_len = PgList::<pg_sys::Node>::from_pg(cte_list).len();
-        pgrx::warning!("analyze_query_restrictions: Found {} CTEs", cte_len);
-
-        // Examine each CTE
-        let cte_items = PgList::<pg_sys::CommonTableExpr>::from_pg(cte_list);
-        for (i, cte) in cte_items.iter_ptr().enumerate() {
-            pgrx::warning!("analyze_query_restrictions: Examining CTE #{}", i);
-
-            if !(*cte).ctequery.is_null() {
-                pgrx::warning!("analyze_query_restrictions: CTE has query");
-                log_node_type((*cte).ctequery);
-
-                // Check if this CTE contains BM25 operators
-                let has_bm25 = search_for_bm25_operator((*cte).ctequery);
-                pgrx::warning!(
-                    "analyze_query_restrictions: CTE query contains BM25 operators: {}",
-                    has_bm25
-                );
-
-                // If BM25 operators are found, do a detailed trace
-                if has_bm25 {
-                    pgrx::warning!("analyze_query_restrictions: Performing detailed BM25 operator trace for CTE #{}", i);
-                    trace_quals_for_bm25((*cte).ctequery);
-                }
-            }
-        }
-    }
-
-    // Enhanced check for relations with BM25 indexes in the query
-    if !(*root).simple_rte_array.is_null() {
-        let rte_count = (*root).simple_rel_array_size as usize;
-        pgrx::warning!("analyze_query_restrictions: Query has {} RTEs", rte_count);
-
-        // Track all relations with BM25 indexes
-        for rti in 1..rte_count {
-            let simple_rel = *((*root).simple_rel_array.add(rti));
-
-            if !simple_rel.is_null() {
-                let relid = (*simple_rel).relid;
-                // Skip invalid OIDs and likely system relations (OIDs < 1000)
-                if relid != pg_sys::Oid::INVALID.as_u32() && relid >= 1000 {
-                    pgrx::warning!(
-                        "analyze_query_restrictions: RTE {} has relid: {:?}",
-                        rti,
-                        relid
-                    );
-
-                    // Check if this relation has a BM25 index
-                    if let Some((table, index)) = rel_get_bm25_index(relid.into()) {
-                        pgrx::warning!(
-                            "analyze_query_restrictions: RTE {} has BM25 index: {} (table: {})",
-                            rti,
-                            index.name(),
-                            table.name()
-                        );
-                    }
-
-                    // Check if this RTE has restrictions
-                    if !(*simple_rel).baserestrictinfo.is_null() {
-                        let restrict_len =
-                            PgList::<pg_sys::Node>::from_pg((*simple_rel).baserestrictinfo).len();
-                        pgrx::warning!(
-                            "analyze_query_restrictions: RTE {} has {} restriction clauses",
-                            rti,
-                            restrict_len
-                        );
-
-                        // Look for BM25 operators in restrictions
-                        let rinfo_list =
-                            PgList::<pg_sys::RestrictInfo>::from_pg((*simple_rel).baserestrictinfo);
-                        for (j, rinfo) in rinfo_list.iter_ptr().enumerate() {
-                            if !(*rinfo).clause.is_null() {
-                                let has_bm25 = search_for_bm25_operator((*rinfo).clause.cast());
-                                if has_bm25 {
-                                    pgrx::warning!("analyze_query_restrictions: Found BM25 operator in RTE {} restriction #{}", 
-                                        rti, j);
-
-                                    // Do detailed tracing
-                                    trace_quals_for_bm25((*rinfo).clause.cast());
-                                }
-                            }
-                        }
-                    } else {
-                        pgrx::warning!(
-                            "analyze_query_restrictions: RTE {} has no restrictions",
-                            rti
-                        );
-                    }
-                }
-            }
-        }
-    }
-}
-
-// Helper function to log node type
-unsafe fn log_node_type(node: *mut pg_sys::Node) {
-    if node.is_null() {
-        pgrx::warning!("log_node_type: Node is null");
-        return;
-    }
-
-    pgrx::warning!("log_node_type: Node type={:?}", (*node).type_);
-}
-
-// Helper function to search for BM25 operator in a tree
-unsafe fn search_for_bm25_operator(node: *mut pg_sys::Node) -> bool {
-    if node.is_null() {
-        return false;
-    }
-
-    match (*node).type_ {
-        pg_sys::NodeTag::T_OpExpr => {
-            let opexpr = node.cast::<pg_sys::OpExpr>();
-            let opno = (*opexpr).opno;
-
-            // Check if this is our BM25 operator
-            let our_opno = anyelement_query_input_opoid();
-            let our_opno_text = anyelement_text_opoid();
-
-            // Enhanced logging for operator details
-            pgrx::warning!(
-                "search_for_bm25_operator: Examining OpExpr with opno={} (BM25 opno={}, BM25 text opno={}), is_match={}",
-                opno.as_u32(),
-                our_opno.as_u32(),
-                our_opno_text.as_u32(),
-                opno == our_opno || opno == our_opno_text
-            );
-
-            // More detailed OID comparison for debugging
-            if opno != our_opno && opno != our_opno_text {
-                pgrx::warning!(
-                    "search_for_bm25_operator: OID comparison failed: opno({:?}) != our_opno({:?}, {:?}), as_u32 equality={}, equality={}",
-                    opno,
-                    our_opno,
-                    our_opno_text,
-                    opno.as_u32() == our_opno.as_u32(),
-                    opno.as_u32() == our_opno_text.as_u32()
-                );
-            }
-
-            // Try to get operator name
-            if let Ok(op_name) = std::ffi::CStr::from_ptr(pg_sys::get_opname(opno)).to_str() {
-                pgrx::warning!(
-                    "search_for_bm25_operator: OpExpr operator name: {}",
-                    op_name
-                );
-
-                // Special check for operators with @@ or @@@ to catch potential mismatches
-                if op_name.contains("@") {
-                    pgrx::warning!(
-                        "search_for_bm25_operator: Found operator with @ symbol: '{}' (opno={:?}, BM25 opno={:?}, BM25 text opno={:?})",
-                        op_name,
-                        opno,
-                        our_opno,
-                        our_opno_text
-                    );
-                }
-            }
-
-            // Log details about arguments
-            if !(*opexpr).args.is_null() {
-                let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
-                pgrx::warning!("search_for_bm25_operator: OpExpr has {} args", args.len());
-
-                // Log each argument's type
-                for (i, arg) in args.iter_ptr().enumerate() {
-                    pgrx::warning!(
-                        "search_for_bm25_operator: OpExpr arg #{} type={:?}",
-                        i,
-                        (*arg).type_
-                    );
-
-                    // Special case for Var nodes
-                    if (*arg).type_ == pg_sys::NodeTag::T_Var {
-                        let var = arg.cast::<pg_sys::Var>();
-                        pgrx::warning!(
-                            "search_for_bm25_operator: OpExpr arg #{} is Var with varno={}, varattno={}, varlevelsup={}",
-                            i, (*var).varno, (*var).varattno, (*var).varlevelsup
-                        );
-                    }
-
-                    // Special case for Const nodes
-                    if (*arg).type_ == pg_sys::NodeTag::T_Const {
-                        let const_node = arg.cast::<pg_sys::Const>();
-                        pgrx::warning!(
-                            "search_for_bm25_operator: OpExpr arg #{} is Const with consttype={:?}",
-                            i,
-                            (*const_node).consttype
-                        );
-                    }
-                }
-            }
-
-            if opno == our_opno || opno == our_opno_text {
-                pgrx::warning!(
-                    "search_for_bm25_operator: Found BM25 operator! opno={}",
-                    opno.as_u32()
-                );
-
-                // Log more info about operands
-                if !(*opexpr).args.is_null() {
-                    let args_len = PgList::<pg_sys::Node>::from_pg((*opexpr).args).len();
-                    pgrx::warning!(
-                        "search_for_bm25_operator: BM25 operator has {} args",
-                        args_len
-                    );
-
-                    let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
-                    for (i, arg) in args.iter_ptr().enumerate() {
-                        pgrx::warning!(
-                            "search_for_bm25_operator: Arg #{} type={:?}",
-                            i,
-                            (*arg).type_
-                        );
-
-                        // If it's a Var, log more details
-                        if (*arg).type_ == pg_sys::NodeTag::T_Var {
-                            let var = arg.cast::<pg_sys::Var>();
-                            pgrx::warning!("search_for_bm25_operator: Var details - varno={}, varattno={}, varlevelsup={}", 
-                                (*var).varno, (*var).varattno, (*var).varlevelsup);
-
-                            // Enhanced CTE debugging: Log more details for variables that reference outer queries
-                            if (*var).varlevelsup > 0 {
-                                pgrx::warning!("search_for_bm25_operator: IMPORTANT - Var references an outer query or CTE (varlevelsup={})", 
-                                    (*var).varlevelsup);
-
-                                // Try to get more information about what relation this references
-                                let relid =
-                                    get_varno_relid(var, (*var).varlevelsup.try_into().unwrap());
-                                if relid != pg_sys::Oid::INVALID {
-                                    let rel = PgRelation::open(relid);
-                                    pgrx::warning!("search_for_bm25_operator: Var likely references relation: {} (oid={:?})",
-                                        rel.name(), relid);
-
-                                    // Check if this relation has a BM25 index
-                                    if let Some((table, index)) = rel_get_bm25_index(relid) {
-                                        pgrx::warning!("search_for_bm25_operator: Referenced relation has BM25 index: {}", 
-                                            index.name());
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                return true;
-            }
-
-            // Recursively check arguments
-            if !(*opexpr).args.is_null() {
-                let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
-                for arg in args.iter_ptr() {
-                    if search_for_bm25_operator(arg) {
-                        return true;
-                    }
-                }
-            }
-        }
-
-        pg_sys::NodeTag::T_BoolExpr => {
-            let boolexpr = node.cast::<pg_sys::BoolExpr>();
-
-            // Check arguments
-            if !(*boolexpr).args.is_null() {
-                let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
-                for arg in args.iter_ptr() {
-                    if search_for_bm25_operator(arg) {
-                        return true;
-                    }
-                }
-            }
-        }
-
-        pg_sys::NodeTag::T_Query => {
-            let query = node.cast::<pg_sys::Query>();
-
-            // Check jointree quals
-            if !(*query).jointree.is_null()
-                && !(*(*query).jointree).quals.is_null()
-                && search_for_bm25_operator((*(*query).jointree).quals)
-            {
-                return true;
-            }
-
-            // Check targetList
-            if !(*query).targetList.is_null() {
-                let tlist = PgList::<pg_sys::TargetEntry>::from_pg((*query).targetList);
-                for te in tlist.iter_ptr() {
-                    if !(*te).expr.is_null() && search_for_bm25_operator((*te).expr.cast()) {
-                        return true;
-                    }
-                }
-            }
-
-            // Check CTEs within this query
-            if !(*query).cteList.is_null() {
-                let cte_list = PgList::<pg_sys::CommonTableExpr>::from_pg((*query).cteList);
-                for (i, cte) in cte_list.iter_ptr().enumerate() {
-                    if !(*cte).ctequery.is_null() {
-                        pgrx::warning!("search_for_bm25_operator: Checking CTE #{} query", i);
-                        if search_for_bm25_operator((*cte).ctequery) {
-                            return true;
-                        }
-                    }
-                }
-            }
-
-            // Check RTEs for subqueries
-            if !(*query).rtable.is_null() {
-                let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*query).rtable);
-                for (i, rte) in rtable.iter_ptr().enumerate() {
-                    if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY && !(*rte).subquery.is_null()
-                    {
-                        pgrx::warning!("search_for_bm25_operator: Checking RTE #{} subquery", i);
-                        if search_for_bm25_operator((*rte).subquery.cast()) {
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-
-        // Add special handling for SubLink nodes (subqueries)
-        pg_sys::NodeTag::T_SubLink => {
-            let sublink = node.cast::<pg_sys::SubLink>();
-            if !(*sublink).subselect.is_null() {
-                pgrx::warning!(
-                    "search_for_bm25_operator: Examining SubLink of type {}",
-                    (*sublink).subLinkType
-                );
-                if search_for_bm25_operator((*sublink).subselect) {
-                    return true;
-                }
-            }
-        }
-
-        // Add other node types as needed
-        _ => {}
-    }
-
-    false
-}
-
-// Helper function to try to determine the relation OID for a Var with varlevelsup > 0
-unsafe fn get_varno_relid(var: *mut pg_sys::Var, levels_up: u16) -> pg_sys::Oid {
-    if levels_up == 0 || var.is_null() {
-        return pg_sys::Oid::INVALID;
-    }
-
-    // This is a complex case that would require access to the parent query's range table
-    // We can't easily access this information here, but log what we know
-    pgrx::warning!(
-        "get_varno_relid: Attempting to resolve Var with varno={}, varattno={}, varlevelsup={}",
-        (*var).varno,
-        (*var).varattno,
-        levels_up
-    );
-
-    // In a real implementation, we would need to traverse up the query context
-    // For now, this is mostly a placeholder for diagnostic purposes
-    pg_sys::Oid::INVALID
-}
-
-// New function to deeply trace CTE queries for BM25 operators
-unsafe fn trace_cte_structure(root: *mut pg_sys::PlannerInfo) {
-    if root.is_null() || (*root).parse.is_null() {
-        pgrx::warning!("trace_cte_structure: Root or parse tree is null");
-        return;
-    }
-
-    // Check for CTEs in the query
-    let cte_list = (*(*root).parse).cteList;
-    if cte_list.is_null() {
-        pgrx::warning!("trace_cte_structure: Query has no CTEs");
-        return;
-    }
-
-    let ctes = PgList::<pg_sys::CommonTableExpr>::from_pg(cte_list);
-    pgrx::warning!("trace_cte_structure: Found {} CTEs in query", ctes.len());
-
-    // Examine each CTE
-    for (i, cte) in ctes.iter_ptr().enumerate() {
-        let cte_name = if !(*cte).ctename.is_null() {
-            std::ffi::CStr::from_ptr((*cte).ctename).to_string_lossy()
-        } else {
-            "unnamed".into()
-        };
-
-        pgrx::warning!(
-            "trace_cte_structure: Examining CTE #{} name={}",
-            i,
-            cte_name
-        );
-
-        if (*cte).ctequery.is_null() {
-            pgrx::warning!("trace_cte_structure: CTE #{} has null query", i);
-            continue;
-        }
-
-        // Check the query type
-        let query_type = (*(*cte).ctequery).type_;
-        pgrx::warning!(
-            "trace_cte_structure: CTE #{} query type={:?}",
-            i,
-            query_type
-        );
-
-        // For Query nodes, examine in detail
-        if query_type == pg_sys::NodeTag::T_Query {
-            let query = (*cte).ctequery.cast::<pg_sys::Query>();
-
-            // Check command type
-            pgrx::warning!(
-                "trace_cte_structure: CTE #{} command type={}",
-                i,
-                (*query).commandType
-            );
-
-            // Check for WHERE clause
-            if !(*query).jointree.is_null() {
-                if !(*(*query).jointree).quals.is_null() {
-                    pgrx::warning!("trace_cte_structure: CTE #{} has WHERE clause", i);
-
-                    // Log quals type
-                    pgrx::warning!(
-                        "trace_cte_structure: CTE #{} WHERE clause type={:?}",
-                        i,
-                        (*(*(*query).jointree).quals).type_
-                    );
-
-                    // Enhanced logging for WHERE clause operators
-                    pgrx::warning!(
-                        "trace_cte_structure: Detailed analysis of WHERE clause in CTE #{}",
-                        i
-                    );
-                    analyze_where_clause_operators((*(*query).jointree).quals, i);
-
-                    // Deep search for BM25 operators
-                    let has_bm25 = search_for_bm25_operator((*(*query).jointree).quals);
-                    pgrx::warning!(
-                        "trace_cte_structure: CTE #{} WHERE clause has BM25 operator: {}",
-                        i,
-                        has_bm25
-                    );
-
-                    if has_bm25 {
-                        trace_quals_for_bm25((*(*query).jointree).quals);
-                    } else {
-                        pgrx::warning!("trace_cte_structure: CTE #{} has no WHERE clause", i);
-                    }
-                }
-
-                // Check from list
-                if !(*(*query).jointree).fromlist.is_null() {
-                    let fromlist = PgList::<pg_sys::Node>::from_pg((*(*query).jointree).fromlist);
-                    pgrx::warning!(
-                        "trace_cte_structure: CTE #{} has {} fromlist items",
-                        i,
-                        fromlist.len()
-                    );
-
-                    // Check each from item
-                    for (j, item) in fromlist.iter_ptr().enumerate() {
-                        pgrx::warning!(
-                            "trace_cte_structure: CTE #{} fromlist item #{} type={:?}",
-                            i,
-                            j,
-                            (*item).type_
-                        );
-
-                        // For RangeTblRef, get more info
-                        if (*item).type_ == pg_sys::NodeTag::T_RangeTblRef {
-                            let rtr = item.cast::<pg_sys::RangeTblRef>();
-                            pgrx::warning!(
-                                "trace_cte_structure: CTE #{} fromlist item #{} is RangeTblRef with rtindex={}",
-                                i, j, (*rtr).rtindex
-                            );
-
-                            // Get the RTE
-                            let rte = pg_sys::rt_fetch(
-                                (*rtr).rtindex.try_into().unwrap(),
-                                (*query).rtable,
-                            );
-                            if !rte.is_null() {
-                                pgrx::warning!(
-                                    "trace_cte_structure: CTE #{} fromlist item #{} RTE kind={}",
-                                    i,
-                                    j,
-                                    (*rte).rtekind
-                                );
-
-                                // If it's a relation, examine it further
-                                if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
-                                    pgrx::warning!(
-                                        "trace_cte_structure: CTE #{} fromlist item #{} references relation with oid={:?}",
-                                        i, j, (*rte).relid
-                                    );
-
-                                    // Check if it has a BM25 index
-                                    if let Some((table, index)) = rel_get_bm25_index((*rte).relid) {
-                                        pgrx::warning!(
-                                            "trace_cte_structure: CTE #{} fromlist item #{} relation has BM25 index: {}",
-                                            i, j, index.name()
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Check target list for score function or other BM25 references
-            if !(*query).targetList.is_null() {
-                let targetlist = PgList::<pg_sys::TargetEntry>::from_pg((*query).targetList);
-                pgrx::warning!(
-                    "trace_cte_structure: CTE #{} has {} target entries",
-                    i,
-                    targetlist.len()
-                );
-
-                // Check each target entry
-                for (j, te) in targetlist.iter_ptr().enumerate() {
-                    if !(*te).expr.is_null() {
-                        pgrx::warning!(
-                            "trace_cte_structure: CTE #{} target entry #{} expr type={:?}",
-                            i,
-                            j,
-                            (*(*te).expr).type_
-                        );
-
-                        // Check for score function
-                        if (*(*te).expr).type_ == pg_sys::NodeTag::T_FuncExpr {
-                            let funcexpr = (*te).expr.cast::<pg_sys::FuncExpr>();
-                            if (*funcexpr).funcid == score_funcoid() {
-                                pgrx::warning!(
-                                    "trace_cte_structure: CTE #{} target entry #{} uses score function",
-                                    i, j
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Check for BM25 operators in the entire query tree
-            let has_bm25 = search_for_bm25_operator((*cte).ctequery);
-            pgrx::warning!(
-                "trace_cte_structure: CTE #{} contains BM25 operators anywhere: {}",
-                i,
-                has_bm25
-            );
-        }
-    }
-
-    // Also examine the main query's RTEs for references to the CTEs
-    if !(*(*root).parse).rtable.is_null() {
-        let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*(*root).parse).rtable);
-        pgrx::warning!("trace_cte_structure: Main query has {} RTEs", rtable.len());
-
-        for (i, rte) in rtable.iter_ptr().enumerate() {
-            // Check if this RTE references a CTE
-            if !(*rte).ctename.is_null() {
-                let cte_name = std::ffi::CStr::from_ptr((*rte).ctename).to_string_lossy();
-                pgrx::warning!(
-                    "trace_cte_structure: Main query RTE #{} references CTE '{}'",
-                    i,
-                    cte_name
-                );
-            }
-        }
-    }
-}
-
-// Function to trace through quals specifically looking for BM25 operators
-unsafe fn trace_quals_for_bm25(quals: *mut pg_sys::Node) {
-    if quals.is_null() {
-        pgrx::warning!("trace_quals_for_bm25: Quals node is null");
-        return;
-    }
-
-    pgrx::warning!(
-        "trace_quals_for_bm25: Examining quals of type {:?}",
-        (*quals).type_
-    );
-
-    match (*quals).type_ {
-        pg_sys::NodeTag::T_BoolExpr => {
-            let boolexpr = quals.cast::<pg_sys::BoolExpr>();
-            pgrx::warning!(
-                "trace_quals_for_bm25: Boolean expression with op={}",
-                (*boolexpr).boolop
-            );
-
-            if !(*boolexpr).args.is_null() {
-                let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
-                for (i, arg) in args.iter_ptr().enumerate() {
-                    pgrx::warning!(
-                        "trace_quals_for_bm25: Examining bool arg #{} of type {:?}",
-                        i,
-                        (*arg).type_
-                    );
-                    trace_quals_for_bm25(arg);
-                }
-            }
-        }
-        pg_sys::NodeTag::T_OpExpr => {
-            let opexpr = quals.cast::<pg_sys::OpExpr>();
-            let opno = (*opexpr).opno;
-            let bm25_opno = anyelement_query_input_opoid();
-            let bm25_text_opno = anyelement_text_opoid();
-
-            pgrx::warning!(
-                "trace_quals_for_bm25: OpExpr with opno={} (BM25 opno={}, BM25 text opno={})",
-                opno.as_u32(),
-                bm25_opno.as_u32(),
-                bm25_text_opno.as_u32()
-            );
-
-            if opno == bm25_opno || opno == bm25_text_opno {
-                pgrx::warning!("trace_quals_for_bm25: Found BM25 operator!");
-
-                // Examine arguments in detail
-                if !(*opexpr).args.is_null() {
-                    let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
-
-                    for (i, arg) in args.iter_ptr().enumerate() {
-                        pgrx::warning!(
-                            "trace_quals_for_bm25: BM25 arg #{} type={:?}",
-                            i,
-                            (*arg).type_
-                        );
-
-                        // Special handling for Var nodes
-                        if (*arg).type_ == pg_sys::NodeTag::T_Var {
-                            let var = arg.cast::<pg_sys::Var>();
-                            pgrx::warning!(
-                                "trace_quals_for_bm25: BM25 arg #{} is Var with varno={}, varattno={}, varlevelsup={}",
-                                i, (*var).varno, (*var).varattno, (*var).varlevelsup
-                            );
-                        }
-                    }
-                }
-            }
-        }
-        _ => {
-            pgrx::warning!(
-                "trace_quals_for_bm25: Unhandled quals type {:?}",
-                (*quals).type_
-            );
-        }
-    }
-}
-
-// Add this new function just before trace_quals_for_bm25
-// Function to analyze operators in WHERE clauses with additional context
-unsafe fn analyze_where_clause_operators(quals: *mut pg_sys::Node, cte_idx: usize) {
-    if quals.is_null() {
-        pgrx::warning!("analyze_where_clause_operators: Quals node is null");
-        return;
-    }
-
-    pgrx::warning!(
-        "analyze_where_clause_operators: Examining WHERE clause of type {:?}",
-        (*quals).type_
-    );
-
-    match (*quals).type_ {
-        pg_sys::NodeTag::T_OpExpr => {
-            let opexpr = quals.cast::<pg_sys::OpExpr>();
-            let opno = (*opexpr).opno;
-            let our_opno = anyelement_query_input_opoid();
-            let our_opno_text = anyelement_text_opoid();
-
-            pgrx::warning!(
-                "analyze_where_clause_operators: CTE #{} WHERE clause has OpExpr with opno={:?} (BM25 opno={:?}, BM25 text opno={:?}), is_match={}",
-                cte_idx,
-                opno,
-                our_opno,
-                our_opno_text,
-                opno == our_opno || opno == our_opno_text
-            );
-
-            // More detailed OID comparison for debugging
-            if opno != our_opno && opno != our_opno_text {
-                pgrx::warning!(
-                    "analyze_where_clause_operators: OID comparison failed: opno({:?}) != our_opno({:?}, {:?}), equality={}, as_u32 equality={}",
-                    opno,
-                    our_opno,
-                    our_opno_text,
-                    opno == our_opno || opno == our_opno_text,
-                    opno.as_u32() == our_opno.as_u32() || opno.as_u32() == our_opno_text.as_u32()
-                );
-
-                // Try to get operator name
-                unsafe {
-                    if let Ok(op_name) = std::ffi::CStr::from_ptr(pg_sys::get_opname(opno)).to_str()
-                    {
-                        pgrx::warning!(
-                        "analyze_where_clause_operators: CTE #{} WHERE clause operator name: {}",
-                        cte_idx,
-                        op_name
-                    );
-                    }
-                }
-
-                // Special check for BM25-like operators
-                if let Ok(op_name) = std::ffi::CStr::from_ptr(pg_sys::get_opname(opno)).to_str() {
-                    if op_name == "@@@" {
-                        pgrx::warning!(
-                        "analyze_where_clause_operators: CTE #{} WHERE clause has SUSPICIOUS BM25-like operator '{}' (opno={}, BM25 opno={}, BM25 text opno={})",
-                        cte_idx,
-                        op_name,
-                        opno.as_u32(),
-                        our_opno.as_u32(),
-                        our_opno_text.as_u32()
-                    );
-                    }
-                }
-
-                // Log details about the arguments
-                if !(*opexpr).args.is_null() {
-                    let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
-
-                    // Log each argument and its type
-                    for (i, arg) in args.iter_ptr().enumerate() {
-                        pgrx::warning!(
-                        "analyze_where_clause_operators: CTE #{} WHERE clause OpExpr arg #{} type={:?}",
-                        cte_idx,
-                        i,
-                        (*arg).type_
-                    );
-
-                        // Special handling for Var nodes
-                        if (*arg).type_ == pg_sys::NodeTag::T_Var {
-                            let var = arg.cast::<pg_sys::Var>();
-                            pgrx::warning!(
-                            "analyze_where_clause_operators: CTE #{} WHERE clause OpExpr arg #{} is Var with varno={}, varattno={}, varlevelsup={}",
-                            cte_idx, i, (*var).varno, (*var).varattno, (*var).varlevelsup
-                        );
-                        }
-                    }
-                }
-            }
-        }
-        pg_sys::NodeTag::T_BoolExpr => {
-            let boolexpr = quals.cast::<pg_sys::BoolExpr>();
-
-            pgrx::warning!(
-                "analyze_where_clause_operators: CTE #{} WHERE clause has BoolExpr with boolop={}",
-                cte_idx,
-                (*boolexpr).boolop
-            );
-
-            // Recursively analyze each argument
-            if !(*boolexpr).args.is_null() {
-                let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
-                for (i, arg) in args.iter_ptr().enumerate() {
-                    pgrx::warning!(
-                        "analyze_where_clause_operators: CTE #{} WHERE clause BoolExpr arg #{} type={:?}",
-                        cte_idx,
-                        i,
-                        (*arg).type_
-                    );
-
-                    // Recursively analyze the argument
-                    analyze_where_clause_operators(arg, cte_idx);
-                }
-            }
-        }
-        // Add other cases as needed
-        _ => {
-            pgrx::warning!(
-                "analyze_where_clause_operators: CTE #{} WHERE clause has unhandled node type {:?}",
-                cte_idx,
-                (*quals).type_
-            );
-        }
-    }
-}
-
-// Add this function to help diagnose the issue
-pub fn debug_document_id(searcher: &tantivy::Searcher, doc_address: tantivy::DocAddress) -> String {
-    // Specify the concrete type parameter for doc()
-    if let Ok(doc) = searcher.doc::<tantivy::schema::TantivyDocument>(doc_address) {
-        let schema = searcher.schema();
-
-        // Create a comprehensive debug representation of the document
-        let mut doc_info = format!(
-            "DocAddr({},{})",
-            doc_address.segment_ord, doc_address.doc_id
-        );
-        let mut found_id = false;
-        let mut is_company_15 = false;
-
-        // First, specifically look for ID fields to report them prominently
-        for (field, field_entry) in schema.fields() {
-            let field_name = field_entry.name();
-
-            // Check if this is an ID field
-            if field_name == "id"
-                || field_name.ends_with(".id")
-                || field_name.ends_with("_id")
-                || field_name.contains("id")
-            {
-                if let Some(field_value) = doc.get_first(field) {
-                    // Add this ID field to our output with special formatting
-                    let val_str = format!("{:?}", field_value);
-                    doc_info.push_str(&format!(" | ID:'{}={}'", field_name, val_str));
-                    found_id = true;
-
-                    // Specifically check for company_id = 15
-                    // More precise matching for "company_id" field
-                    if (field_name == "company_id"
-                        || field_name == "company.id"
-                        || field_name == "companyid")
-                        && val_str.trim_matches('"') == "15"
-                    {
-                        is_company_15 = true;
-                        doc_info.push_str(" [COMPANY 15 FOUND!]");
-                    }
-                    // Also check if the field is just "id" and the parent object might be a company
-                    else if field_name == "id" && val_str.trim_matches('"') == "15" {
-                        // This might be company 15, mark it for further analysis
-                        doc_info.push_str(" [POSSIBLE COMPANY 15]");
-                    }
-                } else {
-                    doc_info.push_str(&format!(" | [{} NOT FOUND]", field_name));
-                }
-            } else {
-                if let Some(field_value) = doc.get_first(field) {
-                    // Add this field to our output
-                    let val_str = format!("{:?}", field_value);
-                    doc_info.push_str(&format!(" | {}={}", field_name, val_str));
-
-                    // Also check for company name field
-                    if (field_name == "company_name"
-                        || field_name == "company.name"
-                        || field_name == "name")
-                        && val_str.contains("Important Testing")
-                    {
-                        is_company_15 = true;
-                        doc_info.push_str(" [COMPANY 15 BY NAME!]");
-                    }
-                } else {
-                    doc_info.push_str(&format!(" | [{} NOT FOUND EITHER]", field_name));
-                }
-            }
-        }
-
-        if schema.fields().next().is_none() {
-            doc_info.push_str(" | [NO FIELDS EXISTED!]");
-        } else {
-            doc_info.push_str(" | [FIELDS EXISTED!]");
-        }
-
-        // Additional marker if this is company 15
-        if is_company_15 {
-            doc_info = format!("COMPANY_15: {}", doc_info);
-        }
-
-        // If we didn't find any ID field, add a warning
-        if !found_id {
-            doc_info.push_str(" | [NO ID FIELD FOUND]");
-        }
-
-        return doc_info;
-    } else {
-        format!("Failed to retrieve document at {:?}", doc_address)
-    }
+    Some((*param_list_info).params)
 }

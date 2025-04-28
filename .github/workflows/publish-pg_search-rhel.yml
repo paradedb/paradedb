@@ -188,7 +188,14 @@ jobs:
           echo "PKG_CONFIG_ALLOW_SYSTEM_CFLAGS=1" >> $GITHUB_ENV
           echo "PKG_CONFIG_ALLOW_SYSTEM_LIBS=1" >> $GITHUB_ENV
 
-          # Verify pkg-config ICU 76
+      # This is required to confirm the installation was successful and that the correct version will
+      # be picked up when doing `cargo pgrx package`
+      - name: Verify pkg-config is on ICU 76
+        run: |
+          export PKG_CONFIG_PATH="/usr/local/icu76/lib/pkgconfig:/usr/lib64/pkgconfig"
+          export PKG_CONFIG_ALLOW_SYSTEM_CFLAGS=1
+          export PKG_CONFIG_ALLOW_SYSTEM_LIBS=1
+
           pkg-config --modversion icu-i18n   # should print 76.1
           pkg-config --cflags icu-i18n       # should print -I/usr/local/icu76/include
           pkg-config --libs icu-i18n         # should include -L/usr/local/icu76/lib
@@ -263,9 +270,14 @@ jobs:
         env:
           COMMIT_SHA: ${{ steps.version.outputs.commit_sha }}
           PARADEDB_VERSION: ${{ steps.version.outputs.tag_version }}
+          # Point pkg-config at our custom ICU 76.1 installation
+          PKG_CONFIG_PATH: /usr/local/icu76/lib/pkgconfig:/usr/lib64/pkgconfig
+          PKG_CONFIG_ALLOW_SYSTEM_CFLAGS: 1
+          PKG_CONFIG_ALLOW_SYSTEM_LIBS: 1
+          # Required for bindgen to find the ICU headers
+          ICU_CFLAGS: ${{ env.ICU_CFLAGS }}
+          ICU_LDFLAGS: ${{ env.ICU_LDFLAGS }}
         run: |
-          export ICU_CFLAGS=${ICU_CFLAGS}
-          export ICU_LDFLAGS=${ICU_LDFLAGS}
           PG_CONFIG_PATH="/usr/pgsql-${{ matrix.pg_version }}/bin/pg_config"
           cargo pgrx package --features icu --pg-config $PG_CONFIG_PATH
 

@@ -121,7 +121,7 @@ impl MoreLikeThisQueryBuilder {
         let index_relation = unsafe { pgrx::PgRelation::open(index_oid) };
         let heap_relation = index_relation
             .heap_relation()
-            .expect("index should have a heap relation");
+            .expect("more_like_this: index should have a heap relation");
         let directory = MVCCDirectory::snapshot(index_relation.oid());
         let index = Index::open(directory).expect("more_like_this: should be able to open index");
         let schema = SearchIndexSchema::open(index.schema(), &index_relation);
@@ -143,7 +143,7 @@ impl MoreLikeThisQueryBuilder {
                     unsafe {
                         &[TantivyValue(key_value)
                             .try_into_datum(key_oid)
-                            .expect("should be able to convert key value to datum")
+                            .expect("more_like_this: should be able to convert key value to datum")
                             .into()]
                     },
                 )?
@@ -158,7 +158,7 @@ impl MoreLikeThisQueryBuilder {
                     if categorized.is_array {
                         let values = unsafe {
                             TantivyValue::try_from_datum_array(datum, categorized.base_oid)
-                                .expect("should be able to convert datum to tantivy value")
+                                .expect("more_like_this: should be able to convert array to tantivy value")
                                 .into_iter()
                                 .map(|v| v.into())
                                 .collect::<Vec<_>>()
@@ -167,7 +167,7 @@ impl MoreLikeThisQueryBuilder {
                     } else if categorized.is_json {
                         let values = unsafe {
                             TantivyValue::try_from_datum_json(datum, categorized.base_oid)
-                                .expect("should be able to convert datum to tantivy value")
+                                .expect("more_like_this: should be able to convert json to tantivy value")
                                 .into_iter()
                                 .map(|v| v.into())
                                 .collect::<Vec<_>>()
@@ -176,7 +176,7 @@ impl MoreLikeThisQueryBuilder {
                     } else {
                         let value = unsafe {
                             TantivyValue::try_from_datum(datum, categorized.base_oid)
-                                .expect("should be able to convert datum to tantivy value")
+                                .expect("more_like_this: should be able to convert datum to tantivy value")
                         };
                         doc_fields.push((field.id.0, vec![value.into()]));
                     }
@@ -185,7 +185,7 @@ impl MoreLikeThisQueryBuilder {
 
             Ok::<_, pgrx::spi::SpiError>(doc_fields)
         })
-        .expect("should be able to construct document");
+        .expect("more_like_this: should be able to construct document");
 
         MoreLikeThisQuery {
             mlt: self.mlt,

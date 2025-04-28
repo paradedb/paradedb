@@ -463,7 +463,6 @@ impl CustomScan for PdbScan {
             builder.custom_state().sort_direction = builder.custom_private().sort_direction();
 
             // store our query into our custom state too
-            // TODO: Clone? Take?
             builder.custom_state().search_query_input = builder
                 .custom_private()
                 .query()
@@ -473,7 +472,6 @@ impl CustomScan for PdbScan {
 
             builder.custom_state().segment_count = builder.custom_private().segment_count();
 
-            // TODO: Clone? Take?
             builder.custom_state().var_attname_lookup = builder
                 .custom_private()
                 .var_attname_lookup()

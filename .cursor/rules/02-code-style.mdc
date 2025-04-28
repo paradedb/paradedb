@@ -25,7 +25,6 @@ alwaysApply: false
 - Use consistent indentation and formatting
 - Use snake_case for SQL identifiers (table names, column names, etc.)
 - Include comments for complex SQL queries
-- Prefer parameterized queries to avoid SQL injection
 
 ## Tests
 

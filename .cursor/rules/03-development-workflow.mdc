@@ -7,7 +7,7 @@ alwaysApply: false
 
 ## Getting Started
 
-- ParadeDB extensions are developed using `pgrx`, a framework for Postgres extension development in Rust
+- ParadeDB extension (`pg_search`) is developed using `pgrx`, a framework for Postgres extension development in Rust
 - Install development tools according to the instructions in the `pg_search/README.md` file
 
 ## Development Process

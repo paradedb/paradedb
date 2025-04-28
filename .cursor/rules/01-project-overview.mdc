@@ -20,5 +20,6 @@ ParadeDB is a modern Elasticsearch alternative built on Postgres, designed for r
 
 ## Deployment Options
 
+- Self-hosted PostgreSQL
 - Docker image based on Postgres
 - Kubernetes Helm chart based on CloudNativePG

@@ -123,6 +123,24 @@ pub enum ExecMethodType {
     },
 }
 
+impl ExecMethodType {
+    ///
+    /// Returns true if this execution method will emit results in sorted order with the given
+    /// number of workers.
+    ///
+    pub fn is_sorted(&self, nworkers: usize) -> bool {
+        match self {
+            ExecMethodType::TopN { .. } if nworkers == 0 => {
+                // TODO: To allow sorted output with parallel workers, we would need to partition
+                // our segments across the workers so that each worker emitted all of its results
+                // in sorted order.
+                true
+            }
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Args {
     pub root: *mut pg_sys::PlannerInfo,

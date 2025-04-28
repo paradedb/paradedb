@@ -359,13 +359,13 @@ impl CustomScan for PdbScan {
                 .custom_private()
                 .set_exec_method_type(exec_method_type);
 
-            // If we are sorting our output (which we will only do if we have a limit!) and we
-            // are _not_ using parallel workers, then we can claim that the output is sorted.
-            //
-            // TODO: To allow sorted output with parallel workers, we would need to partition
-            // our segments across the workers so that each worker emitted all of its results
-            // in sorted order.
-            if nworkers == 0 && builder.custom_private().is_sorted() && limit.is_some() {
+            // Once we have chosen an execution method type, we have a final determination of the
+            // properties of the output, and can make claims about whether it is sorted.
+            if builder
+                .custom_private()
+                .exec_method_type()
+                .is_sorted(nworkers)
+            {
                 if let Some(pathkey) = pathkey.as_ref() {
                     builder = builder.add_path_key(pathkey);
                 }

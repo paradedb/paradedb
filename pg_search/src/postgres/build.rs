@@ -27,10 +27,12 @@ use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use crate::postgres::utils::{
     categorize_fields, item_pointer_to_u64, row_to_search_document, CategorizedFieldData,
 };
-use crate::schema::SearchField;
+use crate::schema::{SearchField, SearchFieldConfig};
+use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::*;
 use std::ffi::CStr;
 use std::time::Instant;
+use tokenizers::SearchTokenizer;
 
 // For now just pass the count on the build callback state
 struct BuildState {
@@ -113,8 +115,31 @@ fn do_heap_scan<'a>(
     unsafe {
         let writer = SearchIndexWriter::create_index(index_relation)
             .expect("do_heap_scan: should be able to open a SearchIndexWriter");
-        let mut state = BuildState::new(index_relation, writer);
 
+        // warn that the `raw` tokenizer is deprecated
+        for field in &writer.schema.fields {
+            #[allow(deprecated)]
+            if matches!(
+                field.config,
+                SearchFieldConfig::Text {
+                    tokenizer: SearchTokenizer::Raw(_),
+                    ..
+                } | SearchFieldConfig::Json {
+                    tokenizer: SearchTokenizer::Raw(_),
+                    ..
+                }
+            ) {
+                ErrorReport::new(
+                        PgSqlErrorCode::ERRCODE_WARNING_DEPRECATED_FEATURE,
+                        "the `raw` tokenizer is deprecated",
+                        function_name!(),
+                    )
+                        .set_detail("the `raw` tokenizer is deprecated as it also lowercases and truncates the input and this is probably not what you want")
+                    .set_hint("use `keyword` instead").report(PgLogLevel::WARNING);
+            }
+        }
+
+        let mut state = BuildState::new(index_relation, writer);
         pg_sys::IndexBuildHeapScan(
             heap_relation.as_ptr(),
             index_relation.as_ptr(),

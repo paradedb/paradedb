@@ -29,7 +29,7 @@ use sqlx::{PgConnection, Row};
 fn boolean_tree(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@
     paradedb.boolean(
         should => ARRAY[
             paradedb.parse('description:shoes'),
@@ -54,14 +54,14 @@ fn fuzzy_term(mut conn: PgConnection) {
     assert_eq!(columns.id, vec![1, 2, 12, 22, 32], "wrong results");
 
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@
     paradedb.term(field => 'category', value => 'electornics')
     ORDER BY id"#
         .fetch_collect(&mut conn);
     assert!(columns.is_empty(), "without fuzzy field should be empty");
 
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@
         paradedb.fuzzy_term(
             field => 'description',
             value => 'keybaord',
@@ -76,7 +76,7 @@ fn fuzzy_term(mut conn: PgConnection) {
     );
 
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@
         paradedb.fuzzy_term(
             field => 'description',
             value => 'keybaord',
@@ -92,7 +92,7 @@ fn fuzzy_term(mut conn: PgConnection) {
     );
 
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@
         paradedb.fuzzy_term(
             field => 'description',
             value => 'keybaord',
@@ -108,14 +108,14 @@ fn single_queries(mut conn: PgConnection) {
 
     // All
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@
     paradedb.all() ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 41);
 
     // Boost
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@
     paradedb.boost(query => paradedb.all(), factor => 1.5)
     ORDER BY id"#
         .fetch_collect(&mut conn);
@@ -131,7 +131,7 @@ fn single_queries(mut conn: PgConnection) {
 
     // DisjunctionMax
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@
     paradedb.disjunction_max(disjuncts => ARRAY[paradedb.parse('description:shoes')])
     ORDER BY id"#
         .fetch_collect(&mut conn);
@@ -157,14 +157,14 @@ fn single_queries(mut conn: PgConnection) {
 
     // Parse
     let columns: SimpleProductsTableVec = r#"
-        SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+        SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@
         paradedb.parse('description:teddy') ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 1);
 
     // PhrasePrefix
     let columns: SimpleProductsTableVec = r#"
-        SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+        SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@
         paradedb.phrase_prefix(field => 'description', phrases => ARRAY['har'])
         ORDER BY id"#
         .fetch_collect(&mut conn);
@@ -172,7 +172,7 @@ fn single_queries(mut conn: PgConnection) {
 
     // Phrase with invalid term list
     match r#"
-        SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+        SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@
         paradedb.phrase(field => 'description', phrases => ARRAY['robot'])
         ORDER BY id"#
         .fetch_result::<SimpleProductsTable>(&mut conn)
@@ -194,7 +194,7 @@ fn single_queries(mut conn: PgConnection) {
 
     // Range
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@
         paradedb.range(field => 'last_updated_date', range => '[2023-05-01,2023-05-03]'::daterange)
     ORDER BY id"#
         .fetch_collect(&mut conn);
@@ -323,7 +323,7 @@ fn exists_query(mut conn: PgConnection) {
 
     // Simple exists query
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@
         paradedb.exists('rating')
     "#
     .fetch_collect(&mut conn);
@@ -331,7 +331,7 @@ fn exists_query(mut conn: PgConnection) {
 
     // Non fast field should fail
     match r#"
-    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@
         paradedb.exists('description')
     "#
     .execute_result(&mut conn)
@@ -345,7 +345,7 @@ fn exists_query(mut conn: PgConnection) {
         .execute(&mut conn);
 
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@
         paradedb.boolean(
             must => ARRAY[
                 paradedb.exists('rating'),
@@ -365,27 +365,22 @@ fn more_like_this_raw(mut conn: PgConnection) {
         flavour TEXT
     );
 
-    INSERT INTO test_more_like_this_table (flavour) VALUES 
+    INSERT INTO test_more_like_this_table (flavour) VALUES
         ('apple'),
-        ('banana'), 
-        ('cherry'), 
+        ('banana'),
+        ('cherry'),
         ('banana split');
     "#
     .execute(&mut conn);
 
     r#"
         CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour)
-        WITH (
-            key_field='id',
-            text_fields='{
-                "flavour": { "stored": true }
-            }'
-        );
+        WITH (key_field='id');
     "#
     .execute(&mut conn);
 
     match r#"
-    SELECT id, flavour FROM test_more_like_this_table WHERE test_more_like_this_table @@@ 
+    SELECT id, flavour FROM test_more_like_this_table WHERE test_more_like_this_table @@@
         paradedb.more_like_this();
     "#
     .fetch_result::<()>(&mut conn)
@@ -429,22 +424,17 @@ fn more_like_this_empty(mut conn: PgConnection) {
         flavour TEXT
     );
 
-    INSERT INTO test_more_like_this_table (flavour) VALUES 
+    INSERT INTO test_more_like_this_table (flavour) VALUES
         ('apple'),
-        ('banana'), 
-        ('cherry'), 
+        ('banana'),
+        ('cherry'),
         ('banana split');
     "#
     .execute(&mut conn);
 
     r#"
         CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour)
-        WITH (
-            key_field='id',
-            text_fields='{
-                "flavour": { "stored": true }
-            }'
-        );
+        WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -472,22 +462,17 @@ fn more_like_this_text(mut conn: PgConnection) {
         flavour TEXT
     );
 
-    INSERT INTO test_more_like_this_table (flavour) VALUES 
+    INSERT INTO test_more_like_this_table (flavour) VALUES
         ('apple'),
-        ('banana'), 
-        ('cherry'), 
+        ('banana'),
+        ('cherry'),
         ('banana split');
     "#
     .execute(&mut conn);
 
     r#"
         CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour)
-        WITH (
-            key_field='id',
-            text_fields='{
-                "flavour": { "stored": true }
-            }'
-        );
+        WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -511,7 +496,7 @@ fn more_like_this_boolean_key(mut conn: PgConnection) {
         flavour TEXT
     );
 
-    INSERT INTO test_more_like_this_table (id, flavour) VALUES 
+    INSERT INTO test_more_like_this_table (id, flavour) VALUES
         (true, 'apple'),
         (false, 'banana')
     "#
@@ -519,18 +504,13 @@ fn more_like_this_boolean_key(mut conn: PgConnection) {
 
     r#"
         CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour)
-        WITH (
-            key_field='id',
-            text_fields='{
-                "flavour": { "stored": true }
-            }'
-        );
+        WITH (key_field='id');
     "#
     .execute(&mut conn);
 
     let rows: Vec<(bool, String)> = r#"
     SELECT id, flavour FROM test_more_like_this_table
-    WHERE test_more_like_this_table @@@ 
+    WHERE test_more_like_this_table @@@
     paradedb.more_like_this(
        min_doc_frequency => 0,
        min_term_frequency => 0,
@@ -549,22 +529,17 @@ fn more_like_this_uuid_key(mut conn: PgConnection) {
         flavour TEXT
     );
 
-    INSERT INTO test_more_like_this_table (id, flavour) VALUES 
+    INSERT INTO test_more_like_this_table (id, flavour) VALUES
         ('f159c89e-2162-48cd-85e3-e42b71d2ecd0', 'apple'),
-        ('38bf27a0-1aa8-42cd-9cb0-993025e0b8d0', 'banana'), 
-        ('b5faacc0-9eba-441a-81f8-820b46a3b57e', 'cherry'), 
+        ('38bf27a0-1aa8-42cd-9cb0-993025e0b8d0', 'banana'),
+        ('b5faacc0-9eba-441a-81f8-820b46a3b57e', 'cherry'),
         ('eb833eb6-c598-4042-b84a-0045828fceea', 'banana split');
     "#
     .execute(&mut conn);
 
     r#"
         CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour)
-        WITH (
-            key_field='id',
-            text_fields='{
-                "flavour": { "stored": true }
-            }'
-        );
+        WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -588,28 +563,23 @@ fn more_like_this_i64_key(mut conn: PgConnection) {
         flavour TEXT
     );
 
-    INSERT INTO test_more_like_this_table (id, flavour) VALUES 
+    INSERT INTO test_more_like_this_table (id, flavour) VALUES
         (1, 'apple'),
-        (2, 'banana'), 
-        (3, 'cherry'), 
+        (2, 'banana'),
+        (3, 'cherry'),
         (4, 'banana split');
     "#
     .execute(&mut conn);
 
     r#"
         CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour)
-        WITH (
-            key_field='id',
-            text_fields='{
-                "flavour": { "stored": true }
-            }'
-        );
+        WITH (key_field='id');
     "#
     .execute(&mut conn);
 
     let rows: Vec<(i64, String)> = r#"
     SELECT id, flavour FROM test_more_like_this_table
-    WHERE test_more_like_this_table @@@ 
+    WHERE test_more_like_this_table @@@
     paradedb.more_like_this(
         min_doc_frequency => 0,
         min_term_frequency => 0,
@@ -628,22 +598,17 @@ fn more_like_this_i32_key(mut conn: PgConnection) {
         flavour TEXT
     );
 
-    INSERT INTO test_more_like_this_table (id, flavour) VALUES 
+    INSERT INTO test_more_like_this_table (id, flavour) VALUES
         (1, 'apple'),
-        (2, 'banana'), 
-        (3, 'cherry'), 
+        (2, 'banana'),
+        (3, 'cherry'),
         (4, 'banana split');
     "#
     .execute(&mut conn);
 
     r#"
         CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour)
-        WITH (
-            key_field='id',
-            text_fields='{
-                "flavour": { "stored": true }
-            }'
-        );
+        WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -667,22 +632,17 @@ fn more_like_this_i16_key(mut conn: PgConnection) {
         flavour TEXT
     );
 
-    INSERT INTO test_more_like_this_table (id, flavour) VALUES 
+    INSERT INTO test_more_like_this_table (id, flavour) VALUES
         (1, 'apple'),
-        (2, 'banana'), 
-        (3, 'cherry'), 
+        (2, 'banana'),
+        (3, 'cherry'),
         (4, 'banana split');
     "#
     .execute(&mut conn);
 
     r#"
         CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour)
-        WITH (
-            key_field='id',
-            text_fields='{
-                "flavour": { "stored": true }
-            }'
-        );
+        WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -706,7 +666,7 @@ fn more_like_this_f32_key(mut conn: PgConnection) {
         flavour TEXT
     );
 
-    INSERT INTO test_more_like_this_table (id, flavour) VALUES 
+    INSERT INTO test_more_like_this_table (id, flavour) VALUES
         (1.1, 'apple'),
         (2.2, 'banana'),
         (3.3, 'cherry'),
@@ -716,12 +676,7 @@ fn more_like_this_f32_key(mut conn: PgConnection) {
 
     r#"
         CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour)
-        WITH (
-            key_field='id',
-            text_fields='{
-                "flavour": { "stored": true }
-            }'
-        );
+        WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -744,28 +699,23 @@ fn more_like_this_f64_key(mut conn: PgConnection) {
     id FLOAT8 PRIMARY KEY,
     flavour TEXT
     );
-    INSERT INTO test_more_like_this_table (id, flavour) VALUES 
+    INSERT INTO test_more_like_this_table (id, flavour) VALUES
         (1.1, 'apple'),
-        (2.2, 'banana'), 
-        (3.3, 'cherry'), 
+        (2.2, 'banana'),
+        (3.3, 'cherry'),
         (4.4, 'banana split');
     "#
     .execute(&mut conn);
 
     r#"
         CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour)
-        WITH (
-            key_field='id',
-            text_fields='{
-                "flavour": { "stored": true }
-            }'
-        );
+        WITH (key_field='id');
     "#
     .execute(&mut conn);
 
     let rows: Vec<(f64, String)> = r#"
     SELECT id, flavour FROM test_more_like_this_table
-    WHERE test_more_like_this_table @@@ 
+    WHERE test_more_like_this_table @@@
     paradedb.more_like_this(
         min_doc_frequency => 0,
         min_term_frequency => 0,
@@ -783,23 +733,18 @@ fn more_like_this_numeric_key(mut conn: PgConnection) {
     id NUMERIC PRIMARY KEY,
     flavour TEXT
     );
-    
-    INSERT INTO test_more_like_this_table (id, flavour) VALUES 
+
+    INSERT INTO test_more_like_this_table (id, flavour) VALUES
         (1.1, 'apple'),
-        (2.2, 'banana'), 
-        (3.3, 'cherry'), 
+        (2.2, 'banana'),
+        (3.3, 'cherry'),
         (4.4, 'banana split');
     "#
     .execute(&mut conn);
 
     r#"
         CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour)
-        WITH (
-            key_field='id',
-            text_fields='{
-                "flavour": { "stored": true }
-            }'
-        );
+        WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -822,22 +767,17 @@ fn more_like_this_date_key(mut conn: PgConnection) {
     id DATE PRIMARY KEY,
     flavour TEXT
     );
-    INSERT INTO test_more_like_this_table (id, flavour) VALUES 
+    INSERT INTO test_more_like_this_table (id, flavour) VALUES
         ('2023-05-03', 'apple'),
-        ('2023-05-04', 'banana'), 
-        ('2023-05-05', 'cherry'), 
+        ('2023-05-04', 'banana'),
+        ('2023-05-05', 'cherry'),
         ('2023-05-06', 'banana split');
     "#
     .execute(&mut conn);
 
     r#"
         CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour)
-        WITH (
-            key_field='id',
-            text_fields='{
-                "flavour": { "stored": true }
-            }'
-        );
+        WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -860,29 +800,24 @@ fn more_like_this_time_key(mut conn: PgConnection) {
     id TIME PRIMARY KEY,
     flavour TEXT
     );
-    
-    INSERT INTO test_more_like_this_table (id, flavour) VALUES 
+
+    INSERT INTO test_more_like_this_table (id, flavour) VALUES
         ('08:09:10', 'apple'),
-        ('09:10:11', 'banana'), 
-        ('10:11:12', 'cherry'), 
+        ('09:10:11', 'banana'),
+        ('10:11:12', 'cherry'),
         ('11:12:13', 'banana split');
     "#
     .execute(&mut conn);
 
     r#"
         CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour)
-        WITH (
-            key_field='id',
-            text_fields='{
-                "flavour": { "stored": true }
-            }'
-        );
+        WITH (key_field='id');
     "#
     .execute(&mut conn);
 
     let rows: Vec<(String, String)> = r#"
     SELECT CAST(id AS TEXT), flavour FROM test_more_like_this_table
-    WHERE test_more_like_this_table @@@ 
+    WHERE test_more_like_this_table @@@
     paradedb.more_like_this(
         min_doc_frequency => 0,
         min_term_frequency => 0,
@@ -900,29 +835,24 @@ fn more_like_this_timestamp_key(mut conn: PgConnection) {
         id TIMESTAMP PRIMARY KEY,
         flavour TEXT
     );
-    
-    INSERT INTO test_more_like_this_table (id, flavour) VALUES 
+
+    INSERT INTO test_more_like_this_table (id, flavour) VALUES
         ('2023-05-03 08:09:10', 'apple'),
-        ('2023-05-04 09:10:11', 'banana'), 
-        ('2023-05-05 10:11:12', 'cherry'), 
+        ('2023-05-04 09:10:11', 'banana'),
+        ('2023-05-05 10:11:12', 'cherry'),
         ('2023-05-06 11:12:13', 'banana split');
     "#
     .execute(&mut conn);
 
     r#"
         CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour)
-        WITH (
-            key_field='id',
-            text_fields='{
-                "flavour": { "stored": true }
-            }'
-        );
+        WITH (key_field='id');
     "#
     .execute(&mut conn);
 
     let rows: Vec<(String, String)> = r#"
     SELECT CAST(id AS TEXT), flavour FROM test_more_like_this_table
-    WHERE test_more_like_this_table @@@ 
+    WHERE test_more_like_this_table @@@
     paradedb.more_like_this(
         min_doc_frequency => 0,
         min_term_frequency => 0,
@@ -940,29 +870,24 @@ fn more_like_this_timestamptz_key(mut conn: PgConnection) {
     id TIMESTAMP WITH TIME ZONE PRIMARY KEY,
     flavour TEXT
     );
-    
-    INSERT INTO test_more_like_this_table (id, flavour) VALUES 
+
+    INSERT INTO test_more_like_this_table (id, flavour) VALUES
         ('2023-05-03 08:09:10 EST', 'apple'),
-        ('2023-05-04 09:10:11 PST', 'banana'), 
-        ('2023-05-05 10:11:12 MST', 'cherry'), 
+        ('2023-05-04 09:10:11 PST', 'banana'),
+        ('2023-05-05 10:11:12 MST', 'cherry'),
         ('2023-05-06 11:12:13 CST', 'banana split');
     "#
     .execute(&mut conn);
 
     r#"
         CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour)
-        WITH (
-            key_field='id',
-            text_fields='{
-                "flavour": { "stored": true }
-            }'
-        );
+        WITH (key_field='id');
     "#
     .execute(&mut conn);
 
     let rows: Vec<(String, String)> = r#"
     SELECT CAST(id AS TEXT), flavour FROM test_more_like_this_table
-    WHERE test_more_like_this_table @@@ 
+    WHERE test_more_like_this_table @@@
     paradedb.more_like_this(
         min_doc_frequency => 0,
         min_term_frequency => 0,
@@ -980,7 +905,7 @@ fn more_like_this_timetz_key(mut conn: PgConnection) {
         id TIME WITH TIME ZONE PRIMARY KEY,
         flavour TEXT
     );
-    INSERT INTO test_more_like_this_table (id, flavour) VALUES 
+    INSERT INTO test_more_like_this_table (id, flavour) VALUES
         ('08:09:10 EST',
         'apple'),
         ('09:10:11 PST', 'banana'),
@@ -990,12 +915,7 @@ fn more_like_this_timetz_key(mut conn: PgConnection) {
     .execute(&mut conn);
     r#"
         CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour)
-        WITH (
-            key_field='id',
-            text_fields='{
-                "flavour": { "stored": true }
-            }'
-        );
+        WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -1047,7 +967,7 @@ fn parse_lenient(mut conn: PgConnection) {
 
     // Default lenient should be false
     let result = r#"
-    SELECT id FROM paradedb.bm25_search 
+    SELECT id FROM paradedb.bm25_search
     WHERE paradedb.bm25_search.id @@@ paradedb.parse('shoes keyboard')
     ORDER BY id;
     "#
@@ -1056,7 +976,7 @@ fn parse_lenient(mut conn: PgConnection) {
 
     // With lenient enabled
     let rows: Vec<(i32,)> = r#"
-    SELECT id FROM paradedb.bm25_search 
+    SELECT id FROM paradedb.bm25_search
     WHERE paradedb.bm25_search.id @@@ paradedb.parse('shoes keyboard', lenient => true)
     ORDER BY id;
     "#
@@ -1069,7 +989,7 @@ fn parse_conjunction(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let rows: Vec<(i32,)> = r#"
-    SELECT id FROM paradedb.bm25_search 
+    SELECT id FROM paradedb.bm25_search
     WHERE paradedb.bm25_search.id @@@ paradedb.parse('description:(shoes running)', conjunction_mode => true)
     ORDER BY id;
     "#.fetch(&mut conn);
@@ -1081,7 +1001,7 @@ fn parse_with_field_conjunction(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let rows: Vec<(i32,)> = r#"
-    SELECT id FROM paradedb.bm25_search 
+    SELECT id FROM paradedb.bm25_search
     WHERE paradedb.bm25_search.id @@@ paradedb.parse_with_field('description', 'shoes running', conjunction_mode => true)
     ORDER BY id;
     "#.fetch(&mut conn);

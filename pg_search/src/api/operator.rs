@@ -572,7 +572,10 @@ pub unsafe fn find_var_relation(
 /// Find all the Vars referenced in the specified node
 pub unsafe fn find_vars(node: *mut pg_sys::Node) -> Vec<*mut pg_sys::Var> {
     #[pg_guard]
-    unsafe extern "C" fn walker(node: *mut pg_sys::Node, data: *mut core::ffi::c_void) -> bool {
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        data: *mut core::ffi::c_void,
+    ) -> bool {
         if node.is_null() {
             return false;
         }

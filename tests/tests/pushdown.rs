@@ -50,6 +50,34 @@ fn verify_custom_scan(plan: &Value, description: &str) {
 }
 
 #[rstest]
+fn pushdown_is_true_doesnt_require_scores_with_parallel_custom_scan(mut conn: PgConnection) {
+    r#"CREATE TABLE pushdown_is_true(
+        id serial8 not null primary key,
+        bool_field bool
+    );
+    CREATE INDEX idxpushdown_is_true ON pushdown_is_true USING bm25 (id, bool_field) WITH (key_field = 'id');
+    INSERT INTO pushdown_is_true (bool_field) SELECT true FROM generate_series(1, 100);
+    INSERT INTO pushdown_is_true (bool_field) SELECT true FROM generate_series(1, 100);
+    INSERT INTO pushdown_is_true (bool_field) SELECT true FROM generate_series(1, 100);
+    INSERT INTO pushdown_is_true (bool_field) SELECT true FROM generate_series(1, 100);
+    INSERT INTO pushdown_is_true (bool_field) SELECT true FROM generate_series(1, 100);
+    INSERT INTO pushdown_is_true (bool_field) SELECT true FROM generate_series(1, 100);
+    INSERT INTO pushdown_is_true (bool_field) SELECT true FROM generate_series(1, 100);
+    INSERT INTO pushdown_is_true (bool_field) SELECT true FROM generate_series(1, 100);
+    INSERT INTO pushdown_is_true (bool_field) SELECT true FROM generate_series(1, 100);
+    INSERT INTO pushdown_is_true (bool_field) SELECT true FROM generate_series(1, 100);
+    "#
+    .execute(&mut conn);
+
+    // the test is simply that this doesn't cause postgres to raise an ERROR: cannot sort by field and get scores in the same query
+    //
+    // user reported a bug where, specifically, a `bool_field = TRUE|FALSE` pushdown would cause the
+    // query to think it needed scores, which, clearly, the query doesn't use
+    "SELECT * FROM pushdown_is_true WHERE bool_field = TRUE AND id @@@ paradedb.all() ORDER BY id desc LIMIT 25 OFFSET 0"
+        .execute(&mut conn);
+}
+
+#[rstest]
 fn pushdown(mut conn: PgConnection) {
     const OPERATORS: [&str; 6] = ["=", ">", "<", ">=", "<=", "<>"];
     const TYPES: &[[&str; 2]] = &[

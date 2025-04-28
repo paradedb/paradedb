@@ -27,7 +27,7 @@ use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::merge::MergeLock;
 
 #[pg_guard]
-pub unsafe extern "C" fn ambulkdelete(
+pub unsafe extern "C-unwind" fn ambulkdelete(
     info: *mut pg_sys::IndexVacuumInfo,
     stats: *mut pg_sys::IndexBulkDeleteResult,
     callback: pg_sys::IndexBulkDeleteCallback,

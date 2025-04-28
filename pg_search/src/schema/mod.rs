@@ -22,8 +22,7 @@ pub mod range;
 use anyhow::{Context, Result};
 use derive_more::{AsRef, Display, From, Into};
 pub use document::*;
-use pgrx::pg_sys::panic::ErrorReport;
-use pgrx::{function_name, PgBuiltInOids, PgLogLevel, PgOid, PgRelation, PgSqlErrorCode};
+use pgrx::{PgBuiltInOids, PgOid, PgRelation};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
@@ -147,8 +146,6 @@ pub enum SearchFieldConfig {
         indexed: bool,
         #[serde(default)]
         fast: bool,
-        #[serde(default)]
-        stored: bool,
         #[serde(default = "default_as_true")]
         fieldnorms: bool,
         #[serde(default)]
@@ -165,8 +162,6 @@ pub enum SearchFieldConfig {
         indexed: bool,
         #[serde(default)]
         fast: bool,
-        #[serde(default)]
-        stored: bool,
         #[serde(default = "default_as_true")]
         fieldnorms: bool,
         #[serde(default = "default_as_true")]
@@ -182,8 +177,6 @@ pub enum SearchFieldConfig {
     },
     Range {
         #[serde(default)]
-        stored: bool,
-        #[serde(default)]
         column: Option<String>,
     },
     Numeric {
@@ -191,8 +184,6 @@ pub enum SearchFieldConfig {
         indexed: bool,
         #[serde(default = "default_as_true")]
         fast: bool,
-        #[serde(default)]
-        stored: bool,
         #[serde(default)]
         column: Option<String>,
     },
@@ -202,8 +193,6 @@ pub enum SearchFieldConfig {
         #[serde(default = "default_as_true")]
         fast: bool,
         #[serde(default)]
-        stored: bool,
-        #[serde(default)]
         column: Option<String>,
     },
     Date {
@@ -211,8 +200,6 @@ pub enum SearchFieldConfig {
         indexed: bool,
         #[serde(default = "default_as_true")]
         fast: bool,
-        #[serde(default)]
-        stored: bool,
         #[serde(default)]
         column: Option<String>,
     },
@@ -238,13 +225,6 @@ impl SearchFieldConfig {
             None => Ok(false),
         }?;
 
-        let stored = match obj.get("stored") {
-            Some(v) => v
-                .as_bool()
-                .ok_or_else(|| anyhow::anyhow!("'stored' field should be a boolean")),
-            None => Ok(false),
-        }?;
-
         let fieldnorms = match obj.get("fieldnorms") {
             Some(v) => v
                 .as_bool()
@@ -256,17 +236,6 @@ impl SearchFieldConfig {
             Some(v) => SearchTokenizer::from_json_value(v),
             None => Ok(SearchTokenizer::default()),
         }?;
-
-        #[allow(deprecated)]
-        if matches!(tokenizer, SearchTokenizer::Raw(_)) {
-            ErrorReport::new(
-                PgSqlErrorCode::ERRCODE_WARNING_DEPRECATED_FEATURE,
-                "the `raw` tokenizer is deprecated",
-                function_name!(),
-            )
-                .set_detail("the `raw` tokenizer is deprecated as it also lowercases and truncates the input and this is probably not what you want")
-            .set_hint("use `keyword` instead").report(PgLogLevel::WARNING);
-        }
 
         let record = match obj.get("record") {
             Some(v) => serde_json::from_value(v.clone()),
@@ -289,7 +258,6 @@ impl SearchFieldConfig {
         Ok(SearchFieldConfig::Text {
             indexed,
             fast,
-            stored,
             fieldnorms,
             tokenizer,
             record,
@@ -314,13 +282,6 @@ impl SearchFieldConfig {
             Some(v) => v
                 .as_bool()
                 .ok_or_else(|| anyhow::anyhow!("'fast' field should be a boolean")),
-            None => Ok(false),
-        }?;
-
-        let stored = match obj.get("stored") {
-            Some(v) => v
-                .as_bool()
-                .ok_or_else(|| anyhow::anyhow!("'stored' field should be a boolean")),
             None => Ok(false),
         }?;
 
@@ -364,7 +325,6 @@ impl SearchFieldConfig {
         Ok(SearchFieldConfig::Json {
             indexed,
             fast,
-            stored,
             fieldnorms,
             expand_dots,
             tokenizer,
@@ -379,13 +339,6 @@ impl SearchFieldConfig {
             .as_object()
             .context("Expected a JSON object for Json configuration")?;
 
-        let stored = match obj.get("stored") {
-            Some(v) => v
-                .as_bool()
-                .ok_or_else(|| anyhow::anyhow!("'stored' field should be a boolean")),
-            None => Ok(false),
-        }?;
-
         let column = match obj.get("column") {
             Some(v) => v
                 .as_str()
@@ -394,7 +347,7 @@ impl SearchFieldConfig {
             None => Ok(None),
         }?;
 
-        Ok(SearchFieldConfig::Range { stored, column })
+        Ok(SearchFieldConfig::Range { column })
     }
 
     pub fn numeric_from_json(value: serde_json::Value) -> Result<Self> {
@@ -416,13 +369,6 @@ impl SearchFieldConfig {
             None => Ok(true),
         }?;
 
-        let stored = match obj.get("stored") {
-            Some(v) => v
-                .as_bool()
-                .ok_or_else(|| anyhow::anyhow!("'stored' field should be a boolean")),
-            None => Ok(false),
-        }?;
-
         let column = match obj.get("column") {
             Some(v) => v
                 .as_str()
@@ -434,7 +380,6 @@ impl SearchFieldConfig {
         Ok(SearchFieldConfig::Numeric {
             indexed,
             fast,
-            stored,
             column,
         })
     }
@@ -458,13 +403,6 @@ impl SearchFieldConfig {
             None => Ok(true),
         }?;
 
-        let stored = match obj.get("stored") {
-            Some(v) => v
-                .as_bool()
-                .ok_or_else(|| anyhow::anyhow!("'stored' field should be a boolean")),
-            None => Ok(false),
-        }?;
-
         let column = match obj.get("column") {
             Some(v) => v
                 .as_str()
@@ -476,7 +414,6 @@ impl SearchFieldConfig {
         Ok(SearchFieldConfig::Boolean {
             indexed,
             fast,
-            stored,
             column,
         })
     }
@@ -500,13 +437,6 @@ impl SearchFieldConfig {
             None => Ok(true),
         }?;
 
-        let stored = match obj.get("stored") {
-            Some(v) => v
-                .as_bool()
-                .ok_or_else(|| anyhow::anyhow!("'stored' field should be a boolean")),
-            None => Ok(false),
-        }?;
-
         let column = match obj.get("column") {
             Some(v) => v
                 .as_str()
@@ -518,7 +448,6 @@ impl SearchFieldConfig {
         Ok(SearchFieldConfig::Date {
             indexed,
             fast,
-            stored,
             column,
         })
     }
@@ -549,7 +478,6 @@ impl SearchFieldConfig {
         SearchFieldConfig::Text {
             indexed: true,
             fast: true,
-            stored: false,
             fieldnorms: false,
 
             // NB:  This should use the `SearchTokenizer::Keyword` tokenizer but for historical
@@ -591,16 +519,12 @@ impl From<SearchFieldConfig> for TextOptions {
             SearchFieldConfig::Text {
                 indexed,
                 fast,
-                stored,
                 fieldnorms,
                 tokenizer,
                 record,
                 normalizer,
                 ..
             } => {
-                if stored {
-                    text_options = text_options.set_stored();
-                }
                 if fast {
                     text_options = text_options.set_fast(Some(normalizer.name()));
                 }
@@ -626,14 +550,10 @@ impl From<SearchFieldConfig> for NumericOptions {
             SearchFieldConfig::Numeric {
                 indexed,
                 fast,
-                stored,
                 ..
             }
             // Following the example of Quickwit, which uses NumericOptions for boolean options.
-            | SearchFieldConfig::Boolean { indexed, fast, stored, .. } => {
-                if stored {
-                    numeric_options = numeric_options.set_stored();
-                }
+            | SearchFieldConfig::Boolean { indexed, fast, .. } => {
                 if fast {
                     numeric_options = numeric_options.set_fast();
                 }
@@ -658,7 +578,6 @@ impl From<SearchFieldConfig> for JsonObjectOptions {
             SearchFieldConfig::Json {
                 indexed,
                 fast,
-                stored,
                 fieldnorms,
                 expand_dots,
                 tokenizer,
@@ -666,9 +585,6 @@ impl From<SearchFieldConfig> for JsonObjectOptions {
                 normalizer,
                 ..
             } => {
-                if stored {
-                    json_options = json_options.set_stored();
-                }
                 if fast {
                     json_options = json_options.set_fast(Some(normalizer.name()));
                 }
@@ -684,10 +600,7 @@ impl From<SearchFieldConfig> for JsonObjectOptions {
                     json_options = json_options.set_indexing_options(text_field_indexing);
                 }
             }
-            SearchFieldConfig::Range { stored, .. } => {
-                if stored {
-                    json_options = json_options.set_stored();
-                }
+            SearchFieldConfig::Range { .. } => {
                 // Range must be indexed and fast to be searchable
                 let text_field_indexing = TextFieldIndexing::default();
                 json_options = json_options.set_indexing_options(text_field_indexing);
@@ -706,15 +619,7 @@ impl From<SearchFieldConfig> for DateOptions {
     fn from(config: SearchFieldConfig) -> Self {
         let mut date_options = DateOptions::default();
         match config {
-            SearchFieldConfig::Date {
-                indexed,
-                fast,
-                stored,
-                ..
-            } => {
-                if stored {
-                    date_options = date_options.set_stored();
-                }
+            SearchFieldConfig::Date { indexed, fast, .. } => {
                 if fast {
                     date_options = date_options
                         .set_fast()
@@ -1032,7 +937,7 @@ impl AsTypeOid for (&PgRelation, &SearchIndexSchema) {
             "search field {} not found in index '{}' with oid: {}",
             search_field.name.0,
             indexrel.name(),
-            indexrel.oid().as_u32()
+            indexrel.oid().to_u32()
         );
     }
 }
@@ -1096,7 +1001,6 @@ mod tests {
         let json = r#"{
             "indexed": true,
             "fast": false,
-            "stored": false,
             "fieldnorms": true,
             "type": "default",
             "record": "basic",
@@ -1108,7 +1012,6 @@ mod tests {
         let expected: TextOptions = search_text_option.into();
 
         let text_options: TextOptions = SearchFieldConfig::default_text().into();
-        assert_eq!(expected.is_stored(), text_options.is_stored());
         assert_eq!(
             expected.get_fast_field_tokenizer_name(),
             text_options.get_fast_field_tokenizer_name()
@@ -1122,7 +1025,6 @@ mod tests {
     fn test_search_numeric_options() {
         let json = r#"{
             "indexed": true,
-            "stored": false,
             "fieldnorms": false,
             "fast": true
         }"#;
@@ -1138,7 +1040,6 @@ mod tests {
     fn test_search_boolean_options() {
         let json = r#"{
             "indexed": true,
-            "stored": false,
             "fieldnorms": false,
             "fast": true
         }"#;
@@ -1155,7 +1056,6 @@ mod tests {
         let json = r#"{
             "indexed": true,
             "fast": false,
-            "stored": false,
             "expand_dots": true,
             "type": "default",
             "record": "basic",
@@ -1167,7 +1067,6 @@ mod tests {
         let expected: JsonObjectOptions = search_json_option.into();
 
         let json_object_options: JsonObjectOptions = SearchFieldConfig::default_json().into();
-        assert_eq!(expected.is_stored(), json_object_options.is_stored());
         assert_eq!(
             expected.get_fast_field_tokenizer_name(),
             json_object_options.get_fast_field_tokenizer_name()

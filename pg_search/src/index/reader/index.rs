@@ -19,6 +19,7 @@ use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::scorer_iter::DeferredScorer;
 use crate::index::setup_tokenizers;
+use crate::postgres::customscan::pdbscan::debug_document_id;
 use crate::postgres::storage::block::CLEANUP_LOCK;
 use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
 use crate::query::SearchQueryInput;
@@ -42,7 +43,6 @@ use tantivy::{
     SegmentOrdinal, SegmentReader, TantivyDocument,
 };
 use tantivy::{snippet::SnippetGenerator, Executor};
-use crate::postgres::customscan::pdbscan::debug_document_id;
 
 /// Represents a matching document from a tantivy search.  Typically, it is returned as an Iterator
 /// Item alongside the originating tantivy [`DocAddress`]
@@ -223,28 +223,31 @@ impl SearchResults {
                 idx,
                 unsafe { pg_sys::CurrentMemoryContext }
             );
-            
+
             while let Some((score, doc_address)) = iter.next() {
                 count += 1;
-                
+
                 // Get CTID for the document - critical for stable ordering
                 let ctid = match self {
-                    SearchResults::AllSegments(searcher, _, _) => 
-                        Self::get_ctid_from_fast_fields(searcher, doc_address).unwrap_or(0),
+                    SearchResults::AllSegments(searcher, _, _) => {
+                        Self::get_ctid_from_fast_fields(searcher, doc_address).unwrap_or(0)
+                    }
                     _ => 0,
                 };
-                
+
                 let doc_id_info = match self {
-                    SearchResults::AllSegments(searcher, _, _) => debug_document_id(searcher, doc_address),
+                    SearchResults::AllSegments(searcher, _, _) => {
+                        debug_document_id(searcher, doc_address)
+                    }
                     _ => "searcher not available".to_string(),
                 };
-                
+
                 pgrx::warning!(
                     "merge_all_segments: Segment #{} - document with score={}, ctid={}, segment={}, doc_id={}, {} in context={:?}",
                     idx, score, ctid, doc_address.segment_ord, doc_address.doc_id, doc_id_info,
                     unsafe { pg_sys::CurrentMemoryContext }
                 );
-                
+
                 // Special logging for company ID 15
                 if doc_id_info.contains("15:") {
                     pgrx::warning!(
@@ -253,13 +256,15 @@ impl SearchResults {
                         unsafe { pg_sys::CurrentMemoryContext }
                     );
                 }
-                
+
                 // Store with score and CTID for stable ordering
                 all_results.push((score, ctid, doc_address));
             }
             pgrx::warning!(
                 "merge_all_segments: Segment #{} yielded {} documents in context={:?}",
-                idx, count, unsafe { pg_sys::CurrentMemoryContext }
+                idx,
+                count,
+                unsafe { pg_sys::CurrentMemoryContext }
             );
         }
 
@@ -282,7 +287,7 @@ impl SearchResults {
             "merge_all_segments: Sorting results by score (desc) and then CTID in context={:?}",
             unsafe { pg_sys::CurrentMemoryContext }
         );
-        
+
         all_results.sort_by(|(score_a, ctid_a, doc_a), (score_b, ctid_b, doc_b)| {
             // First sort by score descending (higher scores first)
             let cmp = score_b
@@ -322,16 +327,18 @@ impl SearchResults {
         // Log final sorted results with special focus on company ID 15
         for (i, (score, ctid, doc_address)) in all_results.iter().enumerate() {
             let doc_id_info = match self {
-                SearchResults::AllSegments(searcher, _, _) => debug_document_id(searcher, *doc_address),
+                SearchResults::AllSegments(searcher, _, _) => {
+                    debug_document_id(searcher, *doc_address)
+                }
                 _ => "searcher not available".to_string(),
             };
-            
+
             pgrx::warning!(
                 "merge_all_segments: Final sorted result #{}: score={}, ctid={}, segment={}, doc_id={}, {} in context={:?}",
                 i, score, ctid, doc_address.segment_ord, doc_address.doc_id, doc_id_info,
                 unsafe { pg_sys::CurrentMemoryContext }
             );
-            
+
             // Special logging for company ID 15
             if doc_id_info.contains("15:") {
                 pgrx::warning!(
@@ -354,7 +361,7 @@ impl SearchResults {
             final_results.len(),
             unsafe { pg_sys::CurrentMemoryContext }
         );
-        
+
         SearchResults::TopNByScore(
             match self {
                 SearchResults::AllSegments(searcher, _, _) => searcher.clone(),
@@ -384,124 +391,134 @@ impl Iterator for SearchResults {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        let (searcher, ff_lookup, (score, doc_address)) =
-            match self {
-                SearchResults::None => return None,
-                SearchResults::TopNByScore(searcher, ff_lookup, iter) => {
-                    (searcher, ff_lookup, iter.next()?)
-                }
-                SearchResults::TopNByTweakedScore(searcher, ff_lookup, iter) => {
-                    let (score, doc_id) = iter.next()?;
-                    (searcher, ff_lookup, (score.score, doc_id))
-                }
-                SearchResults::TopNByField(searcher, ff_lookup, iter) => {
-                    let (_, doc_id) = iter.next()?;
-                    (searcher, ff_lookup, (1.0, doc_id))
-                }
-                SearchResults::SingleSegment(searcher, segment_ord, fftype, iter) => {
-                    let (score, doc_address) = iter.next()?;
-                    let ctid_ff = fftype.get_or_insert_with(|| {
-                        FFType::new_ctid(searcher.segment_reader(*segment_ord).fast_fields())
-                    });
-                    let scored = SearchIndexScore {
-                        ctid: ctid_ff
-                            .as_u64(doc_address.doc_id)
-                            .expect("ctid should be present"),
-                        bm25: score,
-                    };
+        let (searcher, ff_lookup, (score, doc_address)) = match self {
+            SearchResults::None => return None,
+            SearchResults::TopNByScore(searcher, ff_lookup, iter) => {
+                (searcher, ff_lookup, iter.next()?)
+            }
+            SearchResults::TopNByTweakedScore(searcher, ff_lookup, iter) => {
+                let (score, doc_id) = iter.next()?;
+                (searcher, ff_lookup, (score.score, doc_id))
+            }
+            SearchResults::TopNByField(searcher, ff_lookup, iter) => {
+                let (_, doc_id) = iter.next()?;
+                (searcher, ff_lookup, (1.0, doc_id))
+            }
+            SearchResults::SingleSegment(searcher, segment_ord, fftype, iter) => {
+                let (score, doc_address) = iter.next()?;
+                let ctid_ff = fftype.get_or_insert_with(|| {
+                    FFType::new_ctid(searcher.segment_reader(*segment_ord).fast_fields())
+                });
+                let scored = SearchIndexScore {
+                    ctid: ctid_ff
+                        .as_u64(doc_address.doc_id)
+                        .expect("ctid should be present"),
+                    bm25: score,
+                };
 
-                    pgrx::warning!(
+                pgrx::warning!(
                     "SearchResults::next: SingleSegment returning ctid={}, score={}, segment={}",
-                    scored.ctid, scored.bm25, doc_address.segment_ord
+                    scored.ctid,
+                    scored.bm25,
+                    doc_address.segment_ord
                 );
-                    return Some((scored, doc_address));
-                }
-                SearchResults::AllSegments(searcher, fftype, iters) => {
-                    // For deterministic ordering from parallel workers, we need to
-                    // collect all available docs, sort them, and return them in order
-                    // This ensures predictable order in CTEs and JOIN operations
-                    pgrx::warning!("SearchResults::next: Processing AllSegments with {} iterators", iters.len());
-                    let mut all_results = Vec::new();
+                return Some((scored, doc_address));
+            }
+            SearchResults::AllSegments(searcher, fftype, iters) => {
+                // For deterministic ordering from parallel workers, we need to
+                // collect all available docs, sort them, and return them in order
+                // This ensures predictable order in CTEs and JOIN operations
+                pgrx::warning!(
+                    "SearchResults::next: Processing AllSegments with {} iterators",
+                    iters.len()
+                );
+                let mut all_results = Vec::new();
 
-                    // Process all iterators to collect available results
-                    for (i, iter) in iters.iter_mut().enumerate() {
-                        pgrx::warning!("SearchResults::next: Processing iterator #{}", i);
-                        let mut count = 0;
-                        while let Some((score, doc_address)) = iter.next() {
-                            count += 1;
-                            let ctid_ff = fftype.get_or_insert_with(|| {
-                                FFType::new_ctid(
-                                    searcher
-                                        .segment_reader(doc_address.segment_ord)
-                                        .fast_fields(),
-                                )
-                            });
-                            let ctid = ctid_ff
-                                .as_u64(doc_address.doc_id)
-                                .expect("ctid should be present");
+                // Process all iterators to collect available results
+                for (i, iter) in iters.iter_mut().enumerate() {
+                    pgrx::warning!("SearchResults::next: Processing iterator #{}", i);
+                    let mut count = 0;
+                    while let Some((score, doc_address)) = iter.next() {
+                        count += 1;
+                        let ctid_ff = fftype.get_or_insert_with(|| {
+                            FFType::new_ctid(
+                                searcher
+                                    .segment_reader(doc_address.segment_ord)
+                                    .fast_fields(),
+                            )
+                        });
+                        let ctid = ctid_ff
+                            .as_u64(doc_address.doc_id)
+                            .expect("ctid should be present");
 
-                            pgrx::warning!(
+                        pgrx::warning!(
                                 "SearchResults::next: Iterator #{} yielded doc with ctid={}, score={}, segment={}, doc_id={}",
                                 i, ctid, score, doc_address.segment_ord, doc_address.doc_id
                             );
-                            all_results.push((SearchIndexScore { ctid, bm25: score }, doc_address));
-                        }
-                        pgrx::warning!(
-                            "SearchResults::next: Iterator #{} yielded {} total documents",
-                            i, count
-                        );
+                        all_results.push((SearchIndexScore { ctid, bm25: score }, doc_address));
                     }
-
                     pgrx::warning!(
-                        "SearchResults::next: Collected {} total results from all iterators",
-                        all_results.len()
+                        "SearchResults::next: Iterator #{} yielded {} total documents",
+                        i,
+                        count
                     );
+                }
 
-                    // If we collected results, sort them deterministically
-                    if !all_results.is_empty() {
-                        // Sort by score (desc) and then by ctid for equal scores
-                        all_results.sort_by(|(a, _), (b, _)| {
-                            pgrx::warning!(
-                                "SearchResults::next: Comparing scores a={} b={}, ctids a={} b={}",
-                                a.bm25, b.bm25, a.ctid, b.ctid
-                            );
-                            b.cmp(a)
-                        });
+                pgrx::warning!(
+                    "SearchResults::next: Collected {} total results from all iterators",
+                    all_results.len()
+                );
 
-                        // Log sorted results
-                        for (i, (score, doc_address)) in all_results.iter().enumerate() {
-                            pgrx::warning!(
+                // If we collected results, sort them deterministically
+                if !all_results.is_empty() {
+                    // Sort by score (desc) and then by ctid for equal scores
+                    all_results.sort_by(|(a, _), (b, _)| {
+                        pgrx::warning!(
+                            "SearchResults::next: Comparing scores a={} b={}, ctids a={} b={}",
+                            a.bm25,
+                            b.bm25,
+                            a.ctid,
+                            b.ctid
+                        );
+                        b.cmp(a)
+                    });
+
+                    // Log sorted results
+                    for (i, (score, doc_address)) in all_results.iter().enumerate() {
+                        pgrx::warning!(
                                 "SearchResults::next: Sorted result #{}: ctid={}, score={}, segment={}, doc_id={}",
                                 i, score.ctid, score.bm25, doc_address.segment_ord, doc_address.doc_id
                             );
-                        }
+                    }
 
-                        // Convert AllSegments to TopNByScore with sorted results
-                        let scored_results = all_results
-                            .into_iter()
-                            .map(|(scored, addr)| (scored.bm25, addr))
-                            .collect::<Vec<_>>();
+                    // Convert AllSegments to TopNByScore with sorted results
+                    let scored_results = all_results
+                        .into_iter()
+                        .map(|(scored, addr)| (scored.bm25, addr))
+                        .collect::<Vec<_>>();
 
-                        pgrx::warning!(
+                    pgrx::warning!(
                             "SearchResults::next: Converting AllSegments to TopNByScore with {} results",
                             scored_results.len()
                         );
 
-                        *self = SearchResults::TopNByScore(
-                            searcher.clone(),
-                            Default::default(),
-                            scored_results.into_iter(),
-                        );
+                    *self = SearchResults::TopNByScore(
+                        searcher.clone(),
+                        Default::default(),
+                        scored_results.into_iter(),
+                    );
 
-                        // Now that we've converted to TopNByScore, call next() again
-                        return self.next();
-                    }
-
-                    // If we didn't collect any results, we're done
-                    pgrx::warning!("SearchResults::next: No results collected from iterators, returning None");
-                    return None;
+                    // Now that we've converted to TopNByScore, call next() again
+                    return self.next();
                 }
-            };
+
+                // If we didn't collect any results, we're done
+                pgrx::warning!(
+                    "SearchResults::next: No results collected from iterators, returning None"
+                );
+                return None;
+            }
+        };
 
         let ctid_ff = ff_lookup.entry(doc_address.segment_ord).or_insert_with(|| {
             FFType::new_ctid(
@@ -641,6 +658,7 @@ impl SearchIndexReader {
                 ),
                 &mut parser,
                 &self.searcher,
+                self.index_oid,
             )
             .expect("must be able to parse query")
     }
@@ -712,7 +730,7 @@ impl SearchIndexReader {
             "SearchIndexReader::search: Starting search with need_scores={}, estimated_rows={:?}, memory_context={:?}",
             need_scores, estimated_rows, unsafe { pg_sys::CurrentMemoryContext }
         );
-        
+
         // Log memory context details for diagnostics
         unsafe {
             if !pg_sys::CurrentMemoryContext.is_null() {
@@ -723,7 +741,7 @@ impl SearchIndexReader {
                 );
             }
         }
-        
+
         let tantivy_query = self.query(query);
         let iters = self
             .searcher()
@@ -757,7 +775,7 @@ impl SearchIndexReader {
         // Create AllSegments for deterministic results
         let allsegments =
             SearchResults::AllSegments(self.searcher.clone(), Default::default(), iters);
-            
+
         // Instead of attempting to get iterators (which can't be cloned),
         // collect all results directly into a vec by processing the AllSegments
         match &allsegments {
@@ -777,10 +795,10 @@ impl SearchIndexReader {
                         "SearchIndexReader::search: Processing segment_id={}, num_docs={}, context={:?}",
                         segment_id, segment_reader.num_docs(), unsafe { pg_sys::CurrentMemoryContext }
                     );
-                    
+
                     // Create a new segment search for each segment
                     let segment_results = self.search_segment(need_scores, segment_id, query);
-                    
+
                     // Process and collect results from this segment
                     let mut count = 0;
                     for result in segment_results {
@@ -788,13 +806,13 @@ impl SearchIndexReader {
                         let (score_info, doc_address) = (result.0, result.1);
                         let score = score_info.bm25;
                         let ctid = score_info.ctid;
-                        
+
                         pgrx::warning!(
                             "SearchIndexReader::search: Segment {} yielded doc with ctid={}, score={}, segment={}, doc_id={}, context={:?}",
                             segment_id, ctid, score, doc_address.segment_ord, doc_address.doc_id,
                             unsafe { pg_sys::CurrentMemoryContext }
                         );
-                        
+
                         // Special logging for company ID 15
                         if ctid == 15 {
                             pgrx::warning!(
@@ -802,7 +820,7 @@ impl SearchIndexReader {
                                 segment_id, ctid, doc_address.doc_id, unsafe { pg_sys::CurrentMemoryContext }
                             );
                         }
-                        
+
                         // Store score, CTID, and doc_address for deterministic ordering
                         all_results.push((score, ctid, doc_address));
                     }
@@ -857,13 +875,13 @@ impl SearchIndexReader {
                     let doc_id_info = match self {
                         _ => debug_document_id(&self.searcher, *doc_address),
                     };
-                    
+
                     pgrx::warning!(
                         "SearchIndexReader::search: Final sorted result #{}: score={}, ctid={}, segment={}, doc_id={}, {}, context={:?}",
                         i, score, ctid, doc_address.segment_ord, doc_address.doc_id, doc_id_info,
                         unsafe { pg_sys::CurrentMemoryContext }
                     );
-                    
+
                     // Special logging for company ID 15
                     if *ctid == 15 || doc_id_info.contains("15") {
                         pgrx::warning!(
@@ -1118,7 +1136,7 @@ impl SearchIndexReader {
             "top_by_score_in_segment: Starting with segment_id={}, sortdir={:?}, n={}, context={:?}",
             segment_id, sortdir, n, unsafe { pg_sys::CurrentMemoryContext }
         );
-    
+
         let (segment_ord, segment_reader) = self
             .searcher
             .segment_readers()
@@ -1129,7 +1147,9 @@ impl SearchIndexReader {
 
         pgrx::warning!(
             "top_by_score_in_segment: Found segment_ord={} with num_docs={}, context={:?}",
-            segment_ord, segment_reader.num_docs(), unsafe { pg_sys::CurrentMemoryContext }
+            segment_ord,
+            segment_reader.num_docs(),
+            unsafe { pg_sys::CurrentMemoryContext }
         );
 
         let query = self.query(query);
@@ -1179,7 +1199,8 @@ impl SearchIndexReader {
 
                 pgrx::warning!(
                     "top_by_score_in_segment: ASC - Collected docs from segment {} in context={:?}",
-                    segment_id, unsafe { pg_sys::CurrentMemoryContext }
+                    segment_id,
+                    unsafe { pg_sys::CurrentMemoryContext }
                 );
 
                 let top_docs = collector
@@ -1190,7 +1211,7 @@ impl SearchIndexReader {
                     "top_by_score_in_segment: ASC - Merged result has docs in context={:?}",
                     unsafe { pg_sys::CurrentMemoryContext }
                 );
-                
+
                 // Log top docs details
                 for (i, (score, doc_address)) in top_docs.iter().enumerate() {
                     let doc_id_info = debug_document_id(&self.searcher, *doc_address);
@@ -1199,7 +1220,7 @@ impl SearchIndexReader {
                         i, score, doc_address.segment_ord, doc_address.doc_id, doc_id_info,
                         unsafe { pg_sys::CurrentMemoryContext }
                     );
-                    
+
                     // Special logging for company ID 15
                     if doc_id_info.contains("15:") {
                         pgrx::warning!(
@@ -1272,7 +1293,7 @@ impl SearchIndexReader {
                     "top_by_score_in_segment: DESC - Merged result has docs in context={:?}",
                     unsafe { pg_sys::CurrentMemoryContext }
                 );
-                
+
                 // Log top docs details
                 for (i, (score, doc_address)) in top_docs.iter().enumerate() {
                     let doc_id_info = debug_document_id(&self.searcher, *doc_address);
@@ -1281,7 +1302,7 @@ impl SearchIndexReader {
                         i, score, doc_address.segment_ord, doc_address.doc_id, doc_id_info,
                         unsafe { pg_sys::CurrentMemoryContext }
                     );
-                    
+
                     // Special logging for company ID 15
                     if doc_id_info.contains("15") {
                         pgrx::warning!(
@@ -1304,7 +1325,7 @@ impl SearchIndexReader {
                     "top_by_score_in_segment: Using SortDirection::None in context={:?}",
                     unsafe { pg_sys::CurrentMemoryContext }
                 );
-                
+
                 let iter = scorer_iter::ScorerIter::new(
                     DeferredScorer::new(
                         query,

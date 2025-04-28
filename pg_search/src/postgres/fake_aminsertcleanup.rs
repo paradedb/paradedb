@@ -85,7 +85,7 @@ pub unsafe fn register() {
     #[allow(clippy::too_many_arguments)]
     #[rustfmt::skip]
     #[pg_guard]
-    unsafe extern "C" fn process_utility_hook(
+    unsafe extern "C-unwind" fn process_utility_hook(
         pstmt: *mut pg_sys::PlannedStmt,
         query_string: *const ::core::ffi::c_char,
         read_only_tree: bool,
@@ -106,7 +106,7 @@ pub unsafe fn register() {
     }
 
     #[pg_guard]
-    unsafe extern "C" fn executor_run_hook(
+    unsafe extern "C-unwind" fn executor_run_hook(
         query_desc: *mut QueryDesc,
         direction: ScanDirection::Type,
         count: uint64,
@@ -117,7 +117,7 @@ pub unsafe fn register() {
     }
 
     #[pg_guard]
-    unsafe extern "C" fn executor_finish_hook(query_desc: *mut pg_sys::QueryDesc) {
+    unsafe extern "C-unwind" fn executor_finish_hook(query_desc: *mut pg_sys::QueryDesc) {
         aminsertcleanup_stack();
         if let Some(prev_hook) = PREV_EXECUTOR_FINISH_HOOK {
             prev_hook(query_desc);

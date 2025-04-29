@@ -229,15 +229,6 @@ impl MixedFastFieldExecState {
             slot
         }
     }
-
-    // Create a valid ctid from document address
-    fn create_valid_ctid(&self, doc_address: DocAddress) -> u64 {
-        // Create a valid ctid from the document address
-        // Use 1 as blockno (0 is invalid) and doc_address.doc_id + 1 as offset
-        let blockno: u32 = 1; // First valid block number
-        let offset: u16 = (doc_address.doc_id + 1) as u16; // Must be >= 1
-        ((blockno as u64) << 32) | (offset as u64)
-    }
 }
 
 impl ExecMethod for MixedFastFieldExecState {

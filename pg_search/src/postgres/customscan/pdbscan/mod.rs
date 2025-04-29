@@ -925,7 +925,7 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
         pgrx::warning!("Chose TopN execution method");
         ExecMethodType::TopN {
             heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
-            limit: limit,
+            limit,
             sort_direction,
             need_scores: privdata.need_scores(),
         }

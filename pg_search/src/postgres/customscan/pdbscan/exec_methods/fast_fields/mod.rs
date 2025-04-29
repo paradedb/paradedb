@@ -28,7 +28,7 @@ use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
 use crate::postgres::customscan::pdbscan::projections::score::{score_funcoid, uses_scores};
-use crate::postgres::customscan::pdbscan::{scan_state::PdbScanState, ExecMethodType, PdbScan};
+use crate::postgres::customscan::pdbscan::{scan_state::PdbScanState, PdbScan};
 use crate::schema::SearchIndexSchema;
 use itertools::Itertools;
 use pgrx::{pg_sys, IntoDatum, PgList, PgOid, PgRelation, PgTupleDesc};
@@ -260,26 +260,6 @@ pub unsafe fn collect(
     } else {
         pgrx::warning!("maybe_ff is false, returning None");
         None
-    }
-}
-
-pub unsafe fn pullup_fast_fields(
-    node: *mut pg_sys::List,
-    schema: &SearchIndexSchema,
-    heaprel: &PgRelation,
-    rti: pg_sys::Index,
-) -> Option<Vec<WhichFastField>> {
-    // Using our new function that continues even if fields aren't fast fields
-    let fast_fields = collect_fast_fields(node, schema, heaprel, rti);
-
-    pgrx::warning!("Pulled up {} fast fields", fast_fields.len());
-
-    if fast_fields.is_empty() {
-        pgrx::warning!("No fast fields found in pullup");
-        None
-    } else {
-        pgrx::warning!("Successfully found fast fields: {:?}", fast_fields);
-        Some(fast_fields)
     }
 }
 

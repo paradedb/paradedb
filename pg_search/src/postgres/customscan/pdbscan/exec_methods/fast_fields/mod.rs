@@ -285,74 +285,84 @@ pub unsafe fn pullup_fast_fields(
 
 // Check if we can use the mixed fast field execution method
 pub fn is_mixed_fast_field_capable(privdata: &PrivateData) -> bool {
-    pgrx::warning!("Checking if mixed fast field capable...");
+    pgrx::warning!("⭐️ Checking if mixed fast field capable...");
     if let Some(which_fast_fields) = privdata.which_fast_fields() {
-        pgrx::warning!("Found fast fields: {:?}", which_fast_fields);
+        pgrx::warning!("⭐️ Found fast fields: {:?}", which_fast_fields);
 
-        // Filter out junk and system fields for our analysis
-        let real_fields: Vec<_> = which_fast_fields
+        // Filter out junk and system fields for our analysis - we only care about real column fast fields
+        let field_types = which_fast_fields
             .iter()
-            .filter(|ff| {
-                matches!(ff, WhichFastField::Named(_, _)) && !matches!(ff, WhichFastField::Junk(_))
+            .filter_map(|ff| match ff {
+                WhichFastField::Named(name, ff_type) => Some((name.clone(), ff_type.clone())),
+                _ => None,
             })
-            .collect();
+            .collect::<Vec<_>>();
 
-        if real_fields.len() < 1 {
-            pgrx::warning!(
-                "Not enough real fast fields for mixed execution: {}",
-                real_fields.len()
-            );
-            return false; // Need at least 1 actual field
+        pgrx::warning!("⭐️ Filtered field types: {:?}", field_types);
+
+        if field_types.is_empty() {
+            pgrx::warning!("⭐️ No named fast fields, returning false");
+            return false; // No named fast fields
         }
 
         // Count string and numeric fast fields
-        let string_field_count = real_fields
+        let string_field_count = field_types
             .iter()
-            .filter(|ff| matches!(ff, WhichFastField::Named(_, FastFieldType::String)))
+            .filter(|(_, ff_type)| matches!(ff_type, FastFieldType::String))
             .count();
 
-        let numeric_field_count = real_fields
+        let numeric_field_count = field_types
             .iter()
-            .filter(|ff| matches!(ff, WhichFastField::Named(_, FastFieldType::Numeric)))
+            .filter(|(_, ff_type)| matches!(ff_type, FastFieldType::Numeric))
             .count();
 
         pgrx::warning!(
-            "String fields: {}, Numeric fields: {}",
+            "⭐️ String fields: {}, Numeric fields: {}",
             string_field_count,
             numeric_field_count
         );
 
         // We should use mixed fast fields if:
-        // 1. We have multiple string fields (string-only case but more than one)
-        // 2. We have both string and numeric fields (truly mixed case)
-        let result = string_field_count > 1 || (string_field_count > 0 && numeric_field_count > 0);
-        pgrx::warning!("Is mixed fast field capable: {}", result);
-        return result;
+        // 1. We have at least two fast fields total
+        // 2. And either: multiple string fields OR a mix of string and numeric fields
+        if field_types.len() >= 2
+            && (string_field_count > 1 || (string_field_count > 0 && numeric_field_count > 0))
+        {
+            pgrx::warning!("⭐️ Condition 1 & 2 met: multiple fast fields with the right mix");
+
+            pgrx::warning!("⭐️ All conditions met, can use mixed fast fields");
+            return true;
+        } else {
+            pgrx::warning!("⭐️ Conditions not met for mixed fast fields");
+        }
+    } else {
+        pgrx::warning!("⭐️ No fast fields in privdata");
     }
-    pgrx::warning!("No fast fields found");
+
+    pgrx::warning!("⭐️ Returning false for mixed fast fields");
     false
 }
 
 // Update is_string_agg_capable to consider mixed fast fields
 pub fn is_string_agg_capable(privdata: &PrivateData) -> Option<String> {
-    pgrx::warning!("Checking if string agg capable...");
+    pgrx::warning!("⭐️ Checking if string agg capable...");
 
     // Don't use string_agg if we've determined this is a mixed field case
     if is_mixed_fast_field_capable(privdata) {
-        pgrx::warning!("Not string agg capable because mixed fast fields detected");
+        pgrx::warning!("⭐️ Not string agg capable because mixed fast fields detected");
         return None;
     }
 
     if privdata.limit().is_some() {
         // doing a string_agg when there's a limit is always a loss, performance-wise
-        pgrx::warning!("Not string agg capable because limit is set");
+        pgrx::warning!("⭐️ Not string agg capable because limit is set");
         return None;
     }
 
     if is_all_junk(privdata.which_fast_fields()) {
         // if all the fast fields we have are Junk fields, then we're not actually
         // projecting fast fields
-        pgrx::warning!("Not string agg capable because all fast fields are junk");
+        pgrx::warning!("⭐️ Not string agg capable because all fast fields are junk");
         return None;
     }
 
@@ -362,11 +372,11 @@ pub fn is_string_agg_capable(privdata: &PrivateData) -> Option<String> {
             match ff {
                 WhichFastField::Named(_, FastFieldType::String) if string_field.is_none() => {
                     string_field = Some(ff.name());
-                    pgrx::warning!("Found string field for string agg: {}", ff.name());
+                    pgrx::warning!("⭐️ Found string field for string agg: {}", ff.name());
                 }
                 WhichFastField::Named(_, FastFieldType::String) => {
                     // too many string fields for us to be capable of doing a string_agg
-                    pgrx::warning!("Too many string fields for string agg");
+                    pgrx::warning!("⭐️ Too many string fields for string agg");
                     return None;
                 }
                 _ => {
@@ -377,9 +387,9 @@ pub fn is_string_agg_capable(privdata: &PrivateData) -> Option<String> {
     }
 
     if string_field.is_some() {
-        pgrx::warning!("String agg capable with field: {:?}", string_field);
+        pgrx::warning!("⭐️ String agg capable with field: {:?}", string_field);
     } else {
-        pgrx::warning!("Not string agg capable - no string fields found");
+        pgrx::warning!("⭐️ Not string agg capable - no string fields found");
     }
 
     string_field

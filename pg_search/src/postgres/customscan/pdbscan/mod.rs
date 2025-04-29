@@ -917,7 +917,7 @@ impl CustomScan for PdbScan {
 /// these specialized [`ExecMethod`]s.
 ///
 fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
-    pgrx::warning!("Choosing execution method");
+    pgrx::warning!("⭐️ choose_exec_method called, examining options...");
 
     if let Some((limit, sort_direction)) = privdata.limit().zip(privdata.sort_direction()) {
         // having a valid limit and sort direction means we can do a TopN query
@@ -931,12 +931,16 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
         }
     } else if exec_methods::fast_fields::is_mixed_fast_field_capable(privdata) {
         // Check for mixed fields first, before string_agg_capable check
-        pgrx::warning!("Chose MixedFastField execution method");
+        pgrx::warning!("⭐️ Mixed fast field capable, choosing MixedFastField");
+        pgrx::warning!("⭐️ Fast fields: {:?}", privdata.which_fast_fields());
         ExecMethodType::FastFieldMixed {
             which_fast_fields: privdata.which_fast_fields().clone().unwrap(),
         }
     } else if let Some(field) = exec_methods::fast_fields::is_string_agg_capable(privdata) {
-        pgrx::warning!("Chose StringFastField execution method");
+        pgrx::warning!(
+            "⭐️ String agg capable, choosing StringFastField with field: {}",
+            field
+        );
         ExecMethodType::FastFieldString {
             field,
             which_fast_fields: privdata.which_fast_fields().clone().unwrap(),

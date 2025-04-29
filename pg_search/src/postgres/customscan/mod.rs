@@ -38,7 +38,7 @@ use crate::postgres::customscan::exec::{
     mark_pos_custom_scan, rescan_custom_scan, restr_pos_custom_scan, shutdown_custom_scan,
 };
 
-use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, SortDirection};
+use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
@@ -51,14 +51,6 @@ use std::ptr::NonNull;
 
 pub trait CustomScanState: Default {
     fn init_exec_method(&mut self, cstate: *mut pg_sys::CustomScanState);
-
-    fn is_top_n_capable(&self) -> Option<(usize, SortDirection)> {
-        None
-    }
-
-    fn is_unsorted_top_n_capable(&self) -> Option<usize> {
-        None
-    }
 }
 
 pub trait CustomScan: ExecMethod + Default + Sized {

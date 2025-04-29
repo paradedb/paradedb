@@ -20,6 +20,7 @@ use async_std::prelude::Stream;
 use async_std::stream::StreamExt;
 use async_std::task::block_on;
 use bytes::Bytes;
+use rand::Rng;
 use sqlx::{
     postgres::PgRow,
     testing::{TestArgs, TestContext, TestSupport},
@@ -33,12 +34,26 @@ pub struct Db {
 
 impl Db {
     pub async fn new() -> Self {
-        // Use a timestamp as a unique identifier.
-        let path = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("current time should be retrievable")
-            .as_micros()
-            .to_string();
+        let path =
+            // timestamp
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("current time should be retrievable")
+                .as_micros()
+                .to_string()
+
+                // plus the current thread name, which is typically going to be the test name
+                + &std::thread::current()
+                .name()
+                .map(String::from)
+                .unwrap_or_else(|| {
+                    // or a random 7-letter "word"
+                    rand::rng()
+                        .sample_iter(&rand::distr::Alphanumeric)
+                        .take(7)
+                        .map(char::from)
+                        .collect()
+                });
 
         let args = TestArgs::new(Box::leak(path.into_boxed_str()));
         let context = Postgres::test_context(&args)

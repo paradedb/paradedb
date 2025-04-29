@@ -344,23 +344,21 @@ pub struct PgItem(pub pg_sys::Item, pub pg_sys::Size);
 
 impl From<SegmentMetaEntry> for PgItem {
     fn from(val: SegmentMetaEntry) -> Self {
-        let bytes: Vec<u8> =
-            bincode::serialize(&val).expect("expected to serialize valid SegmentMetaEntry");
-        let pg_bytes = unsafe { pg_sys::palloc(bytes.len()) as *mut u8 };
-        unsafe {
-            std::ptr::copy_nonoverlapping(bytes.as_ptr(), pg_bytes, bytes.len());
-        }
-        PgItem(pg_bytes as pg_sys::Item, bytes.len() as pg_sys::Size)
+        let mut buf = pgrx::StringInfo::new();
+        let len = bincode::serde::encode_into_std_write(val, &mut buf, bincode::config::legacy())
+            .expect("expected to serialize valid SegmentMetaEntry");
+        PgItem(buf.into_char_ptr() as pg_sys::Item, len as pg_sys::Size)
     }
 }
 
 impl From<PgItem> for SegmentMetaEntry {
     fn from(pg_item: PgItem) -> Self {
         let PgItem(item, size) = pg_item;
-        let decoded: SegmentMetaEntry = unsafe {
-            bincode::deserialize(from_raw_parts(item as *const u8, size))
-                .expect("expected to deserialize valid SegmentMetaEntry")
-        };
+        let (decoded, _) = bincode::serde::decode_from_slice(
+            unsafe { from_raw_parts(item as *const u8, size) },
+            bincode::config::legacy(),
+        )
+        .expect("expected to deserialize valid SegmentMetaEntry");
         decoded
     }
 }

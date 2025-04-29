@@ -18,7 +18,6 @@
 use crate::index::reader::index::SearchResults;
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::is_block_all_visible;
-use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::utils::u64_to_item_pointer;
 use pgrx::itemptr::item_pointer_get_block_number;
@@ -81,24 +80,11 @@ impl ExecMethod for NormalScanExecState {
     }
 
     fn query(&mut self, state: &mut PdbScanState) -> bool {
-        if let Some(parallel_state) = state.parallel_state {
-            if let Some(segment_id) = unsafe { checkout_segment(parallel_state) } {
-                self.search_results = state.search_reader.as_ref().unwrap().search_segment(
-                    state.need_scores(),
-                    segment_id,
-                    &state.search_query_input,
-                );
-                return true;
-            }
-
-            // no more segments to query
-            self.search_results = SearchResults::None;
-            false
-        } else if self.did_query {
-            // not parallel, so we're done
+        if self.did_query {
+            // we're done
             false
         } else {
-            // not parallel, first time query
+            // first time query
             self.do_query(state);
             self.did_query = true;
             true

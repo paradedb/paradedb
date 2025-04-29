@@ -15,12 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::reader::index::{SearchIndexReader, SearchResults};
+use crate::index::reader::index::SearchResults;
 use crate::postgres::customscan::builders::custom_path::SortDirection;
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
-use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
-use crate::query::SearchQueryInput;
 use pgrx::{check_for_interrupts, direct_function_call, pg_sys, IntoDatum};
 use tantivy::index::SegmentId;
 
@@ -37,9 +35,6 @@ pub struct TopNScanExecState {
     need_scores: bool,
 
     // set during init
-    search_query_input: Option<SearchQueryInput>,
-    search_reader: Option<SearchIndexReader>,
-    sort_field: Option<String>,
     search_results: SearchResults,
     nresults: usize,
     have_less: bool,
@@ -75,38 +70,14 @@ impl TopNScanExecState {
         current_segment: Option<SegmentId>,
         expanding_results: bool,
     ) -> SearchResults {
-        let search_results = if let Some(parallel_state) = state.parallel_state {
-            // we're parallel, so either query the provided segment or go get a segment from the parallel state
-            let segment_id = current_segment
-                .map(Some)
-                .unwrap_or_else(|| unsafe { checkout_segment(parallel_state) });
-
-            if let Some(segment_id) = segment_id {
-                self.current_segment = segment_id;
-
-                let search_reader = state.search_reader.as_ref().unwrap();
-                search_reader.search_top_n_in_segment(
-                    segment_id,
-                    self.search_query_input.as_ref().unwrap(),
-                    self.sort_field.clone(),
-                    self.sort_direction.into(),
-                    self.limit.max(self.chunk_size),
-                    self.need_scores,
-                )
-            } else {
-                // no more segments to query
-                SearchResults::None
-            }
-        } else if self.did_query && !expanding_results {
-            // not parallel, so we're done
+        let search_results = if self.did_query && !expanding_results {
             SearchResults::None
         } else {
-            // not parallel, first time query or expanding
-            let search_reader = &self.search_reader.as_ref().unwrap();
+            let search_reader = &state.search_reader.as_ref().unwrap();
             self.did_query = true;
             search_reader.search_top_n(
-                self.search_query_input.as_ref().unwrap(),
-                self.sort_field.clone(),
+                &state.search_query_input,
+                state.sort_field.clone(),
                 self.sort_direction.into(),
                 self.limit.max(self.chunk_size),
                 self.need_scores,
@@ -119,13 +90,7 @@ impl TopNScanExecState {
 }
 
 impl ExecMethod for TopNScanExecState {
-    fn init(&mut self, state: &mut PdbScanState, _cstate: *mut pg_sys::CustomScanState) {
-        let sort_field = state.sort_field.clone();
-
-        self.search_query_input = Some(state.search_query_input.clone());
-        self.sort_field = sort_field;
-        self.search_reader = state.search_reader.clone();
-    }
+    fn init(&mut self, _state: &mut PdbScanState, _cstate: *mut pg_sys::CustomScanState) {}
 
     fn query(&mut self, state: &mut PdbScanState) -> bool {
         let search_results = self.query_more_results(state, None, false);

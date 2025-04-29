@@ -19,7 +19,7 @@
 use crate::postgres::parallel::Spinlock;
 use crate::query::SearchQueryInput;
 use pgrx::*;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::io::Write;
 use tantivy::index::SegmentId;
 use tantivy::SegmentReader;
@@ -211,6 +211,8 @@ impl ParallelScanPayload {
 #[repr(C)]
 pub struct ParallelScanState {
     mutex: Spinlock,
+    nworkers_expected: usize,
+    nworkers_claimed_segments: usize,
     remaining_segments: usize,
     nsegments: usize,
     payload: ParallelScanPayload, // must be last field, b/c it allocates on the heap after this struct
@@ -226,14 +228,22 @@ impl ParallelScanState {
             + serialized_query.len()
     }
 
-    fn init(&mut self, segments: &[SegmentReader], query: &[u8]) {
+    fn init(&mut self, nworkers_expected: usize, segments: &[SegmentReader], query: &[u8]) {
         self.mutex.init();
-        self.init_without_mutex(segments, query);
+        self.init_without_mutex(nworkers_expected, segments, query);
     }
 
-    fn init_without_mutex(&mut self, segments: &[SegmentReader], query: &[u8]) {
+    fn init_without_mutex(
+        &mut self,
+        nworkers_expected: usize,
+        segments: &[SegmentReader],
+        query: &[u8],
+    ) {
+        let _mutex = self.mutex.acquire();
         assert!(!segments.is_empty());
         self.payload.init(segments, query);
+        self.nworkers_expected = nworkers_expected;
+        self.nworkers_claimed_segments = 0;
         self.remaining_segments = segments.len();
         self.nsegments = segments.len();
     }
@@ -242,20 +252,83 @@ impl ParallelScanState {
         self.mutex.init();
     }
 
-    pub fn acquire_mutex(&mut self) -> impl Drop {
-        self.mutex.acquire()
+    ///
+    /// Wait until either:
+    /// * the given number of workers have acquired the mutex and claimed their segments.
+    /// * no additional workers have claimed segments within a poll period.
+    ///
+    /// The latter case is because unfortunately, we have no way to know how many workers to
+    /// expect.
+    ///
+    pub fn leader_heuristic_await_workers_checkout_segments(&mut self, nworkers: usize) {
+        let sleep_time = std::time::Duration::from_millis(10);
+        let mut previous_num_workers = 0;
+        loop {
+            std::thread::sleep(sleep_time);
+
+            let _guard = self.mutex.acquire();
+            if self.nworkers_claimed_segments >= nworkers {
+                // All the workers that we expected have joined.
+                break;
+            }
+            if self.nworkers_claimed_segments <= previous_num_workers {
+                // No additional workers joined within our poll period: give up.
+                break;
+            }
+            // More workers joined: wait a bit longer.
+            previous_num_workers = self.nworkers_claimed_segments;
+        }
     }
 
-    pub fn remaining_segments(&self) -> usize {
-        self.remaining_segments
+    ///
+    /// Return all segment ids in this scan, and the subset that this worker will search.
+    ///
+    pub fn worker_checkout_segments(&mut self) -> (FxHashSet<SegmentId>, FxHashSet<SegmentId>) {
+        let _guard = self.mutex.acquire();
+        self.nworkers_claimed_segments += 1;
+
+        // Determine how many segments to check out. We take the minimum of the number of segments
+        // remaining, or the number of segments that would be a fair share for one worker (if all
+        // workers have started).
+        let segment_count = std::cmp::min(
+            self.remaining_segments,
+            self.nsegments.div_ceil(self.nworkers_expected),
+        );
+
+        let prev_remaining_segments = self.remaining_segments;
+        self.remaining_segments -= segment_count;
+
+        // All segments.
+        let segments = (0..self.nsegments).map(|i| self.segment_id(i)).collect();
+        let segments_subset = (self.remaining_segments..prev_remaining_segments)
+            .map(|i| self.segment_id(i))
+            .collect();
+        unsafe {
+            pgrx::log!(
+                ">>> worker {} using segments: {segments_subset:?}",
+                pg_sys::ParallelWorkerNumber
+            );
+        }
+
+        (segments, segments_subset)
     }
 
-    pub fn decrement_remaining_segments(&mut self) -> usize {
-        self.remaining_segments -= 1;
-        self.remaining_segments
+    pub fn leader_checkout_remaining_segments(&mut self) -> FxHashSet<SegmentId> {
+        let _guard = self.mutex.acquire();
+
+        let prev_remaining_segments = self.remaining_segments;
+        self.remaining_segments = 0;
+
+        let subset = (0..prev_remaining_segments)
+            .map(|segment_idx| self.segment_id(segment_idx))
+            .collect();
+
+        pgrx::log!(">>> leader checking out remaining segments: {subset:?}");
+        subset
     }
 
-    pub fn segments(&self) -> FxHashMap<SegmentId, u32> {
+    pub fn segments(&mut self) -> FxHashMap<SegmentId, u32> {
+        let _guard = self.mutex.acquire();
         let mut segments = FxHashMap::default();
         for i in 0..self.nsegments {
             segments.insert(self.segment_id(i), self.num_deleted_docs(i));
@@ -276,6 +349,8 @@ impl ParallelScanState {
     }
 
     fn reset(&mut self) {
+        let _guard = self.mutex.acquire();
+        self.nworkers_claimed_segments = 0;
         self.remaining_segments = self.nsegments;
     }
 }

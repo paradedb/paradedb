@@ -18,9 +18,7 @@
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::ParallelScanState;
 use pgrx::{pg_guard, pg_sys};
-use std::collections::HashSet;
 use std::ptr::addr_of_mut;
-use tantivy::index::SegmentId;
 
 #[derive(Debug)]
 #[repr(transparent)]
@@ -112,38 +110,17 @@ pub unsafe fn maybe_init_parallel_scan(
 
     let state = get_bm25_scan_state(&scan)?;
     let worker_number = unsafe { pg_sys::ParallelWorkerNumber };
-    let _mutex = state.acquire_mutex();
     if worker_number == -1 {
         // ParallelWorkerNumber -1 is the main backend, which is where we'll set up
         // our shared memory information.  The mutex was already initialized, directly, in
         // `aminitparallelscan()`
-        state.init_without_mutex(searcher.segment_readers(), &[]);
+        state.init_without_mutex(
+            todo!("Update `maybe_init_parallel_scan`"),
+            searcher.segment_readers(),
+            &[],
+        );
     }
     Some(worker_number)
-}
-
-pub unsafe fn maybe_claim_segment(scan: pg_sys::IndexScanDesc) -> Option<SegmentId> {
-    let state = get_bm25_scan_state(&scan)?;
-
-    let _mutex = state.acquire_mutex();
-    if state.remaining_segments() == 0 {
-        // no more to claim
-        None
-    } else {
-        // claim the next one
-        let remaining_segments = state.decrement_remaining_segments();
-        Some(state.segment_id(remaining_segments))
-    }
-}
-
-pub unsafe fn list_segment_ids(scan: pg_sys::IndexScanDesc) -> Option<HashSet<SegmentId>> {
-    Some(
-        get_bm25_scan_state(&scan)?
-            .segments()
-            .keys()
-            .cloned()
-            .collect(),
-    )
 }
 
 fn get_bm25_scan_state(scan: &pg_sys::IndexScanDesc) -> Option<&mut ParallelScanState> {

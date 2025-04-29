@@ -23,6 +23,7 @@ use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use pgrx::pg_sys;
 use tantivy::{DocAddress, Score};
 
+#[derive(Debug)]
 pub enum ExecState {
     RequiresVisibilityCheck {
         ctid: u64,

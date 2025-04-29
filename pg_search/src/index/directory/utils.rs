@@ -381,7 +381,7 @@ pub unsafe fn load_metas(
                 let missing = only_these
                     .difference(&alive_entries.iter().map(|s| s.segment_id).collect())
                     .cloned()
-                    .collect::<std::collections::HashSet<SegmentId>>();
+                    .collect::<FxHashSet<SegmentId>>();
                 let found = only_these.difference(&missing).collect::<FxHashSet<_>>();
 
                 panic!(
@@ -396,7 +396,7 @@ pub unsafe fn load_metas(
                 let actual = alive_entries
                     .iter()
                     .map(|s| s.segment_id)
-                    .collect::<std::collections::HashSet<_>>();
+                    .collect::<FxHashSet<_>>();
                 assert_eq!(
                     &actual, only_these,
                     "Got the wrong segments in parallel worker: \

@@ -43,7 +43,7 @@ use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::{
     estimate_cardinality, is_string_agg_capable_ex,
 };
-use crate::postgres::customscan::pdbscan::parallel::{compute_nworkers, list_segment_ids};
+use crate::postgres::customscan::pdbscan::parallel::compute_nworkers;
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
 use crate::postgres::customscan::pdbscan::projections::score::{
     is_score_func, score_funcoid, uses_scores,
@@ -76,7 +76,9 @@ use tantivy::Index;
 pub struct PdbScan;
 
 impl PdbScan {
-    // This is the core logic for (re-)initializing the search reader
+    ///
+    /// This is the core logic for (re-)initializing the search reader
+    ///
     fn init_search_reader(state: &mut CustomScanStateWrapper<Self>) {
         if state.custom_state().nexprs > 0 {
             let expr_context = state.runtime_context;
@@ -96,23 +98,33 @@ impl PdbScan {
             .map(|indexrel| unsafe { PgRelation::from_pg(*indexrel) })
             .expect("custom_state.indexrel should already be open");
 
-        let search_reader = SearchIndexReader::open(&indexrel, unsafe {
+        let (mvcc_satisfies, segments_subset) = unsafe {
             if pg_sys::ParallelWorkerNumber == -1 {
-                // the leader only sees snapshot-visible segments
-                MvccSatisfies::Snapshot
+                // we are either the leader of a parallel scan, or the only worker in a
+                // single-process scan: either way, we open in `Snapshot` mode in order to collect
+                // _all_ segment ids which this scan will use.
+                //
+                // later (during `exec_custom_scan`) if it turns out that parallelism is used, the
+                // leader will adjust the set of segments that it actually uses based on which
+                // segments the workers have claimed.
+                (MvccSatisfies::Snapshot, None)
             } else {
-                // the workers have their own rules, which is literally every segment
-                // this is because the workers pick a specific segment to query that
-                // is known to be held open/pinned by the leader but might not pass a ::Snapshot
-                // visibility test due to concurrent merges/garbage collects
-                MvccSatisfies::ParallelWorker(list_segment_ids(
-                    state.custom_state().parallel_state.expect(
-                        "Parallel Custom Scan rescan_custom_scan should have a parallel state",
-                    ),
+                // workers checkout a subset of the segments which were previously selected and
+                // placed in the parallel_state from the leader's `MvccSatisfies::Snapshot`.
+                let (segments, segments_subset) = (*state.custom_state().parallel_state.expect(
+                    "Parallel Custom Scan rescan_custom_scan should have a parallel state",
                 ))
+                .worker_checkout_segments();
+                (
+                    MvccSatisfies::ParallelWorker(segments),
+                    Some(segments_subset),
+                )
             }
-        })
-        .expect("should be able to open the search index reader");
+        };
+
+        let search_reader =
+            SearchIndexReader::open_subset(&indexrel, mvcc_satisfies, segments_subset)
+                .expect("should be able to open the search index reader");
         state.custom_state_mut().search_reader = Some(search_reader);
 
         let csstate = addr_of_mut!(state.csstate);
@@ -149,6 +161,49 @@ impl PdbScan {
         unsafe {
             inject_score_and_snippet_placeholders(state);
         }
+    }
+
+    ///
+    /// For a leader operating in a parallel context, wait until all workers have launched, and
+    /// then adjust its SearchIndexReader to subset on the remaining segments.
+    ///
+    fn leader_assign_search_subset(
+        state: &mut CustomScanStateWrapper<Self>,
+        pcxt: *mut pg_sys::ParallelContext,
+    ) {
+        // If we're the leader, we wait until all of the workers have launched so that we have an
+        // accurate count of how many to expect. Then we wait (on a best effort basis: see below)
+        // until that many workers have claimed their segments. Finally, when we actually execute
+        // (as the leader), we will claim all of the remaining segments.
+        //
+        // We have not found a way to determine exactly how many workers we will have, so we use a
+        // heuristic to attempt to wait for them: see `leader_heuristic_await_workers_checkout_segments`.
+        let parallel_state = state
+            .custom_state_mut()
+            .parallel_state
+            .expect("When operating as a leader, there must be parallel state.");
+        unsafe {
+            pgrx::log!(">>> leader waiting for workers to attach");
+            pg_sys::WaitForParallelWorkersToAttach(pcxt);
+            let nworkers_launched = (*pcxt).nworkers_launched;
+            pgrx::log!(">>> leader thinks that workers have attached, and that there are {nworkers_launched} of them.");
+            (*parallel_state).leader_heuristic_await_workers_checkout_segments(
+                nworkers_launched.try_into().unwrap(),
+            );
+            pgrx::log!(
+                ">>> leader thinks that all workers have claimed their segments: reopening reader."
+            );
+        }
+
+        // Checkout the remaining segments, and assign them as our subset.
+        state
+            .custom_state_mut()
+            .search_reader
+            .as_mut()
+            .expect("leader should already have a search index reader")
+            .set_segment_subset(Some(unsafe {
+                (*parallel_state).leader_checkout_remaining_segments()
+            }));
     }
 }
 
@@ -784,6 +839,17 @@ impl CustomScan for PdbScan {
 
     #[allow(clippy::blocks_in_conditions)]
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
+        // If we're the leader and parallelism is in use, we adjust our SearchIndexReader to search
+        // any remaining unclaimed segments.
+        if !state.custom_state().is_not_leader_or_has_assigned_subset {
+            if let Some(pcxt) = state.custom_state_mut().pcxt {
+                PdbScan::leader_assign_search_subset(state, pcxt);
+            }
+            state
+                .custom_state_mut()
+                .is_not_leader_or_has_assigned_subset = true;
+        }
+
         if state.custom_state().search_reader.is_none() {
             PdbScan::init_search_reader(state);
         }
@@ -792,7 +858,15 @@ impl CustomScan for PdbScan {
             let exec_method = state.custom_state_mut().exec_method_mut();
 
             // get the next matching document from our search results and look for it in the heap
-            match exec_method.next(state.custom_state_mut()) {
+            let res = exec_method.next(state.custom_state_mut());
+            unsafe {
+                if pg_sys::ParallelWorkerNumber == -1 {
+                    pgrx::log!(">>> leader: {res:?}");
+                } else {
+                    pgrx::log!(">>> worker {}: {res:?}", pg_sys::ParallelWorkerNumber);
+                }
+            }
+            match res {
                 // reached the end of the SearchResults
                 ExecState::Eof => {
                     return std::ptr::null_mut();

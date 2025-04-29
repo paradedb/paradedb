@@ -16,13 +16,11 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
-use crate::index::reader::index::SearchResults;
 use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::{
     ff_to_datum, FastFieldExecState,
 };
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::is_block_all_visible;
-use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::pg_sys::CustomScanState;
@@ -59,24 +57,11 @@ impl ExecMethod for NumericFastFieldExecState {
     }
 
     fn query(&mut self, state: &mut PdbScanState) -> bool {
-        if let Some(parallel_state) = state.parallel_state {
-            if let Some(segment_id) = unsafe { checkout_segment(parallel_state) } {
-                self.inner.search_results = state.search_reader.as_ref().unwrap().search_segment(
-                    state.need_scores(),
-                    segment_id,
-                    &state.search_query_input,
-                );
-                return true;
-            }
-
-            // no more segments to query
-            self.inner.search_results = SearchResults::None;
-            false
-        } else if self.inner.did_query {
-            // not parallel, so we're done
+        if self.inner.did_query {
+            // we're done
             false
         } else {
-            // not parallel, first time query
+            // first time query
             self.inner.search_results = state.search_reader.as_ref().unwrap().search(
                 state.need_scores(),
                 false,

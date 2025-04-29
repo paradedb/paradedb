@@ -16,13 +16,12 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
-use crate::index::reader::index::{SearchIndexReader, SearchIndexScore, SearchResults};
+use crate::index::reader::index::{SearchIndexReader, SearchIndexScore};
 use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::{
     ff_to_datum, FastFieldExecState,
 };
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::is_block_all_visible;
-use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::query::SearchQueryInput;
 use parking_lot::Mutex;
@@ -33,9 +32,7 @@ use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 use std::collections::BTreeMap;
 use tantivy::collector::Collector;
-use tantivy::index::SegmentId;
-use tantivy::query::Query;
-use tantivy::{DocAddress, Executor, SegmentOrdinal};
+use tantivy::DocAddress;
 
 pub struct StringFastFieldExecState {
     inner: FastFieldExecState,
@@ -72,26 +69,11 @@ impl ExecMethod for StringFastFieldExecState {
     }
 
     fn query(&mut self, state: &mut PdbScanState) -> bool {
-        if let Some(parallel_state) = state.parallel_state {
-            if let Some(segment_id) = unsafe { checkout_segment(parallel_state) } {
-                let searcher = StringAggSearcher(state.search_reader.as_ref().unwrap());
-                self.search_results = searcher.string_agg_by_segment(
-                    state.need_scores(),
-                    &state.search_query_input,
-                    &self.field,
-                    segment_id,
-                );
-                return true;
-            }
-
-            // no more segments to query
-            self.inner.search_results = SearchResults::None;
-            false
-        } else if self.inner.did_query {
-            // not parallel, so we're done
+        if self.inner.did_query {
+            // we're done
             false
         } else {
-            // not parallel, first time query
+            // first time query
             let searcher = StringAggSearcher(state.search_reader.as_ref().unwrap());
             self.search_results =
                 searcher.string_agg(state.need_scores(), &state.search_query_input, &self.field);
@@ -199,7 +181,6 @@ enum StringAggResults {
         current: (Option<String>, SearchResultsIter),
         set: BatchedResultsIter,
     },
-    SingleSegment(crossbeam::channel::IntoIter<(SearchIndexScore, DocAddress, Option<String>)>),
 }
 
 impl Iterator for StringAggResults {
@@ -217,7 +198,6 @@ impl Iterator for StringAggResults {
                     return None;
                 }
             },
-            StringAggResults::SingleSegment(iter) => iter.next(),
         }
     }
 }
@@ -237,26 +217,28 @@ impl StringAggSearcher<'_> {
         };
 
         let query = self.0.query(query);
-        let results = self
-            .0
-            .searcher()
-            .search_with_executor(
-                &query,
-                &collector,
-                &Executor::SingleThread,
-                if need_scores {
-                    tantivy::query::EnableScoring::Enabled {
-                        searcher: self.0.searcher(),
-                        statistics_provider: self.0.searcher(),
-                    }
-                } else {
-                    tantivy::query::EnableScoring::Disabled {
-                        schema: &self.0.schema().schema,
-                        searcher_opt: Some(self.0.searcher()),
-                    }
-                },
-            )
-            .expect("failed to search");
+
+        let weight = query
+            .weight(if need_scores {
+                tantivy::query::EnableScoring::Enabled {
+                    searcher: self.0.searcher(),
+                    statistics_provider: self.0.searcher(),
+                }
+            } else {
+                tantivy::query::EnableScoring::Disabled {
+                    schema: &self.0.schema().schema,
+                    searcher_opt: Some(self.0.searcher()),
+                }
+            })
+            .expect("failed to create a weight");
+
+        let results: Vec<_> = collector
+            .merge_fruits(self.0.map(|segment_ord, segment_reader| {
+                collector
+                    .collect_segment(weight.as_ref(), segment_ord as u32, segment_reader)
+                    .expect("failed to collect segment")
+            }))
+            .expect("failed to merge collected segments");
 
         let field = field.to_string();
         let searcher = self.0.searcher().clone();
@@ -314,90 +296,6 @@ impl StringAggSearcher<'_> {
             current: (None, vec![].into_iter()),
             set,
         }
-    }
-
-    pub fn string_agg_by_segment(
-        &self,
-        need_scores: bool,
-        query: &SearchQueryInput,
-        field: &str,
-        segment_id: SegmentId,
-    ) -> StringAggResults {
-        let (segment_ord, segment_reader) = self
-            .0
-            .segment_readers()
-            .iter()
-            .enumerate()
-            .find(|(_, reader)| reader.segment_id() == segment_id)
-            .unwrap_or_else(|| panic!("segment {segment_id} should exist"));
-        let collector = term_ord_collector::TermOrdCollector {
-            need_scores,
-            field: field.into(),
-        };
-
-        let weight = self
-            .0
-            .query(query)
-            .weight(if need_scores {
-                tantivy::query::EnableScoring::Enabled {
-                    searcher: self.0.searcher(),
-                    statistics_provider: self.0.searcher(),
-                }
-            } else {
-                tantivy::query::EnableScoring::Disabled {
-                    schema: &self.0.schema().schema,
-                    searcher_opt: Some(self.0.searcher()),
-                }
-            })
-            .expect("weight should be constructable");
-
-        let (str_ff, results) = collector
-            .collect_segment(
-                weight.as_ref(),
-                segment_ord as SegmentOrdinal,
-                segment_reader,
-            )
-            .expect("single segment collection should succeed");
-
-        let field = field.to_string();
-        let searcher = self.0.searcher().clone();
-        let dictionary = str_ff.dictionary();
-        let term_ords = results.keys().cloned().collect::<Vec<_>>();
-        let mut results = results.into_iter();
-        let (sender, receiver) = crossbeam::channel::unbounded();
-        dictionary
-            .sorted_ords_to_term_cb(term_ords.into_iter(), |bytes| {
-                let term = std::str::from_utf8(bytes)
-                    .expect("term should be valid utf8")
-                    .to_string();
-
-                let (_, values) = results.next().unwrap_or_else(|| {
-                    panic!("internal error: don't have the same number of TermOrd keys and values")
-                });
-                for (scored, doc_address) in values {
-                    sender
-                        .send((scored, doc_address, Some(term.clone())))
-                        .map_err(|_| {
-                            std::io::Error::new(std::io::ErrorKind::Other, "failed to send term")
-                        })?;
-                }
-
-                Ok(())
-            })
-            .expect("term ord lookup should succeed");
-
-        if dictionary.num_terms() == 0 && results.len() > 0 {
-            let (_, values) = results.next().unwrap_or_else(|| {
-                panic!("internal error: don't have the same number of TermOrd keys and values")
-            });
-            for (scored, doc_address) in values {
-                let _ = sender.send((scored, doc_address, None)).map_err(|_| {
-                    std::io::Error::new(std::io::ErrorKind::Other, "failed to send term")
-                });
-            }
-        }
-
-        StringAggResults::SingleSegment(receiver.into_iter())
     }
 }
 

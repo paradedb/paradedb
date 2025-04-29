@@ -26,7 +26,7 @@ use crate::schema::SearchField;
 use crate::schema::{SearchFieldName, SearchIndexSchema};
 use anyhow::Result;
 use pgrx::{pg_sys, PgRelation};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::fmt::Debug;
@@ -103,13 +103,7 @@ pub enum SearchResults {
         FastFieldCache,
         std::vec::IntoIter<(TermOrdinal, DocAddress)>,
     ),
-    SingleSegment(
-        Searcher,
-        SegmentOrdinal,
-        Option<FFType>,
-        scorer_iter::ScorerIter,
-    ),
-    AllSegments(Searcher, Option<FFType>, Vec<scorer_iter::ScorerIter>),
+    MultiSegment(Searcher, Option<FFType>, Vec<scorer_iter::ScorerIter>),
 }
 
 #[derive(PartialEq, Clone)]
@@ -136,8 +130,7 @@ impl SearchResults {
             SearchResults::TopNByScore(_, _, iter) => Some(iter.len()),
             SearchResults::TopNByTweakedScore(_, _, iter) => Some(iter.len()),
             SearchResults::TopNByField(_, _, iter) => Some(iter.len()),
-            SearchResults::SingleSegment(_, _, _, _) => None,
-            SearchResults::AllSegments(_, _, _) => None,
+            SearchResults::MultiSegment(_, _, _) => None,
         }
     }
 }
@@ -160,20 +153,7 @@ impl Iterator for SearchResults {
                 let (_, doc_id) = iter.next()?;
                 (searcher, ff_lookup, (1.0, doc_id))
             }
-            SearchResults::SingleSegment(searcher, segment_ord, fftype, iter) => {
-                let (score, doc_address) = iter.next()?;
-                let ctid_ff = fftype.get_or_insert_with(|| {
-                    FFType::new_ctid(searcher.segment_reader(*segment_ord).fast_fields())
-                });
-                let scored = SearchIndexScore {
-                    ctid: ctid_ff
-                        .as_u64(doc_address.doc_id)
-                        .expect("ctid should be present"),
-                    bm25: score,
-                };
-                return Some((scored, doc_address));
-            }
-            SearchResults::AllSegments(searcher, fftype, iters) => loop {
+            SearchResults::MultiSegment(searcher, fftype, iters) => loop {
                 let last = iters.last_mut()?;
                 match last.next() {
                     Some((score, doc_address)) => {
@@ -227,8 +207,7 @@ impl Iterator for SearchResults {
             SearchResults::TopNByScore(_, _, iter) => iter.size_hint(),
             SearchResults::TopNByTweakedScore(_, _, iter) => iter.size_hint(),
             SearchResults::TopNByField(_, _, iter) => iter.size_hint(),
-            SearchResults::SingleSegment(_, _, _, iter) => iter.size_hint(),
-            SearchResults::AllSegments(_, _, iters) => {
+            SearchResults::MultiSegment(_, _, iters) => {
                 let hint = iters
                     .first()
                     .map(|iter| iter.size_hint())
@@ -247,8 +226,7 @@ impl Iterator for SearchResults {
             SearchResults::TopNByScore(_, _, iter) => iter.count(),
             SearchResults::TopNByTweakedScore(_, _, iter) => iter.count(),
             SearchResults::TopNByField(_, _, iter) => iter.count(),
-            SearchResults::SingleSegment(_, _, _, iter) => iter.count(),
-            SearchResults::AllSegments(_, _, iters) => {
+            SearchResults::MultiSegment(_, _, iters) => {
                 iters.into_iter().map(|iter| iter.count()).sum()
             }
         }
@@ -259,6 +237,8 @@ impl Iterator for SearchResults {
 pub struct SearchIndexReader {
     index_oid: pg_sys::Oid,
     searcher: Searcher,
+    // If this `Searcher` queries a subset of the index, the set of SegmentIds that it searches.
+    segments_subset: Option<FxHashSet<SegmentId>>,
     schema: SearchIndexSchema,
     underlying_reader: IndexReader,
     underlying_index: Index,
@@ -272,6 +252,18 @@ pub struct SearchIndexReader {
 
 impl SearchIndexReader {
     pub fn open(index_relation: &PgRelation, mvcc_style: MvccSatisfies) -> Result<Self> {
+        Self::open_subset(index_relation, mvcc_style, None)
+    }
+
+    ///
+    /// Open a `SearchIndexReader` for which the `search_.*_subset` methods may be used to query
+    /// the given subset of the index.
+    ///
+    pub fn open_subset(
+        index_relation: &PgRelation,
+        mvcc_style: MvccSatisfies,
+        segments_subset: Option<FxHashSet<SegmentId>>,
+    ) -> Result<Self> {
         // It is possible for index only scans and custom scans, which only check the visibility map
         // and do not fetch tuples from the heap, to suffer from the concurrent TID recycling problem.
         // This problem occurs due to a race condition: after vacuum is called, a concurrent index only or custom scan
@@ -298,11 +290,19 @@ impl SearchIndexReader {
         Ok(Self {
             index_oid: index_relation.oid(),
             searcher,
+            segments_subset,
             schema,
             underlying_reader: reader,
             underlying_index: index,
             _cleanup_lock: Arc::new(cleanup_lock),
         })
+    }
+
+    ///
+    /// Set the subset of segments that the `search_.*_subset` methods will query for this searcher.
+    ///
+    pub fn set_segment_subset(&mut self, segments_subset: Option<FxHashSet<SegmentId>>) {
+        self.segments_subset = segments_subset;
     }
 
     pub fn segment_ids(&self) -> HashSet<SegmentId> {
@@ -404,64 +404,19 @@ impl SearchIndexReader {
         _estimated_rows: Option<usize>,
     ) -> SearchResults {
         let query = self.query(query);
-        let iters = self
-            .searcher()
-            .segment_readers()
-            .iter()
-            .enumerate()
-            .map(move |(segment_ord, segment_reader)| {
-                scorer_iter::ScorerIter::new(
-                    DeferredScorer::new(
-                        query.box_clone(),
-                        need_scores,
-                        segment_reader.clone(),
-                        self.searcher.clone(),
-                    ),
-                    segment_ord as SegmentOrdinal,
+        let iters = self.map(|segment_ord, segment_reader| {
+            scorer_iter::ScorerIter::new(
+                DeferredScorer::new(
+                    query.box_clone(),
+                    need_scores,
                     segment_reader.clone(),
-                )
-            })
-            .collect::<Vec<_>>();
-
-        SearchResults::AllSegments(self.searcher.clone(), Default::default(), iters)
-    }
-
-    /// Search a specific index segment for matching documents.
-    ///
-    /// The order of returned docs is unspecified.
-    ///
-    /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
-    /// handle that, if it's necessary.
-    pub fn search_segment(
-        &self,
-        need_scores: bool,
-        segment_id: SegmentId,
-        query: &SearchQueryInput,
-    ) -> SearchResults {
-        let query = self.query(query);
-        let (segment_ord, segment_reader) = self
-            .searcher
-            .segment_readers()
-            .iter()
-            .enumerate()
-            .find(|(_, reader)| reader.segment_id() == segment_id)
-            .unwrap_or_else(|| panic!("segment {segment_id} should exist"));
-        let iter = scorer_iter::ScorerIter::new(
-            DeferredScorer::new(
-                query,
-                need_scores,
+                    self.searcher.clone(),
+                ),
+                segment_ord,
                 segment_reader.clone(),
-                self.searcher.clone(),
-            ),
-            segment_ord as SegmentOrdinal,
-            segment_reader.clone(),
-        );
-        SearchResults::SingleSegment(
-            self.searcher.clone(),
-            segment_ord as SegmentOrdinal,
-            None,
-            iter,
-        )
+            )
+        });
+        SearchResults::MultiSegment(self.searcher.clone(), Default::default(), iters)
     }
 
     /// Search the Tantivy index for the "top N" matching documents.
@@ -479,37 +434,23 @@ impl SearchIndexReader {
         n: usize,
         need_scores: bool,
     ) -> SearchResults {
-        if let Some(sort_field) = sort_field {
-            self.top_by_field(query, sort_field, sortdir, n)
+        // TODO: Merge these methods.
+        if self.segments_subset.is_some() {
+            if let Some(sort_field) = sort_field {
+                assert!(
+                    !need_scores,
+                    "cannot sort by field and get scores in the same query"
+                );
+                self.top_by_field_in_subset(query, sort_field, sortdir, n)
+            } else {
+                self.top_by_score_in_subset(query, sortdir, n, need_scores)
+            }
         } else {
-            self.top_by_score(query, sortdir, n, need_scores)
-        }
-    }
-
-    /// Search the Tantivy index for the "top N" matching documents in a specific segment.
-    ///
-    /// The documents are returned in score order.  Most relevant first if `sortdir` is [`SortDirection::Desc`],
-    /// or least relevant first if it's [`SortDirection::Asc`].
-    ///
-    /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
-    /// handle that, if it's necessary.
-    pub fn search_top_n_in_segment(
-        &self,
-        segment_id: SegmentId,
-        query: &SearchQueryInput,
-        sort_field: Option<String>,
-        sortdir: SortDirection,
-        n: usize,
-        need_scores: bool,
-    ) -> SearchResults {
-        if let Some(sort_field) = sort_field {
-            assert!(
-                !need_scores,
-                "cannot sort by field and get scores in the same query"
-            );
-            self.top_by_field_in_segment(segment_id, query, sort_field, sortdir, n)
-        } else {
-            self.top_by_score_in_segment(segment_id, query, sortdir, n, need_scores)
+            if let Some(sort_field) = sort_field {
+                self.top_by_field(query, sort_field, sortdir, n)
+            } else {
+                self.top_by_score(query, sortdir, n, need_scores)
+            }
         }
     }
 
@@ -583,21 +524,13 @@ impl SearchIndexReader {
     ///
     /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
     /// handle that, if it's necessary.
-    fn top_by_field_in_segment(
+    fn top_by_field_in_subset(
         &self,
-        segment_id: SegmentId,
         query: &SearchQueryInput,
         sort_field: String,
         sortdir: SortDirection,
         n: usize,
     ) -> SearchResults {
-        let (segment_ord, segment_reader) = self
-            .searcher
-            .segment_readers()
-            .iter()
-            .enumerate()
-            .find(|(_, reader)| reader.segment_id() == segment_id)
-            .unwrap_or_else(|| panic!("segment {segment_id} should exist"));
         let sort_field = self
             .schema
             .get_search_field(&SearchFieldName(sort_field.clone()))
@@ -612,15 +545,14 @@ impl SearchIndexReader {
                 statistics_provider: &self.searcher,
             })
             .expect("creating a Weight from a Query should not fail");
+        let top_docs = self.map_subset(|segment_ord, segment_reader| {
+            collector
+                .collect_segment(weight.as_ref(), segment_ord, segment_reader)
+                .expect("should be able to collect top-n in segment")
+        });
+
         let top_docs = collector
-            .collect_segment(
-                weight.as_ref(),
-                segment_ord as SegmentOrdinal,
-                segment_reader,
-            )
-            .expect("should be able to collect top-n in segment");
-        let top_docs = collector
-            .merge_fruits(vec![top_docs])
+            .merge_fruits(top_docs)
             .expect("should be able to merge top-n in segment");
         SearchResults::TopNByField(
             self.searcher.clone(),
@@ -636,22 +568,13 @@ impl SearchIndexReader {
     ///
     /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
     /// handle that, if it's necessary.
-    fn top_by_score_in_segment(
+    fn top_by_score_in_subset(
         &self,
-        segment_id: SegmentId,
         query: &SearchQueryInput,
         sortdir: SortDirection,
         n: usize,
         _need_scores: bool,
     ) -> SearchResults {
-        let (segment_ord, segment_reader) = self
-            .searcher
-            .segment_readers()
-            .iter()
-            .enumerate()
-            .find(|(_, reader)| reader.segment_id() == segment_id)
-            .unwrap_or_else(|| panic!("segment {segment_id} should exist"));
-
         let query = self.query(query);
         let weight = query
             .weight(tantivy::query::EnableScoring::Enabled {
@@ -671,16 +594,15 @@ impl SearchIndexReader {
                         }
                     },
                 );
-                let top_docs = collector
-                    .collect_segment(
-                        weight.as_ref(),
-                        segment_ord as SegmentOrdinal,
-                        segment_reader,
-                    )
-                    .expect("should be able to collect top-n in segment");
+
+                let top_docs = self.map_subset(|segment_ord, segment_reader| {
+                    collector
+                        .collect_segment(weight.as_ref(), segment_ord, segment_reader)
+                        .expect("should be able to collect top-n in segment")
+                });
 
                 let top_docs = collector
-                    .merge_fruits(vec![top_docs])
+                    .merge_fruits(top_docs)
                     .expect("should be able to merge top-n in segment");
 
                 SearchResults::TopNByTweakedScore(
@@ -693,16 +615,19 @@ impl SearchIndexReader {
             // can use tantivy's score directly
             SortDirection::Desc => {
                 let collector = TopDocs::with_limit(n);
-                let top_docs = collector
-                    .collect_segment(
-                        weight.as_ref(),
-                        segment_ord as SegmentOrdinal,
-                        segment_reader,
-                    )
-                    .expect("should be able to collect top-n in segment");
+
+                let top_docs = self.map_subset(|segment_ord, segment_reader| {
+                    collector
+                        .collect_segment(
+                            weight.as_ref(),
+                            segment_ord as SegmentOrdinal,
+                            segment_reader,
+                        )
+                        .expect("should be able to collect top-n in segment")
+                });
 
                 let top_docs = collector
-                    .merge_fruits(vec![top_docs])
+                    .merge_fruits(top_docs)
                     .expect("should be able to merge top-n in segment");
 
                 SearchResults::TopNByScore(
@@ -713,22 +638,19 @@ impl SearchIndexReader {
             }
 
             SortDirection::None => {
-                let iter = scorer_iter::ScorerIter::new(
-                    DeferredScorer::new(
-                        query,
-                        false,
+                let iters = self.map_subset(|segment_ord, segment_reader| {
+                    scorer_iter::ScorerIter::new(
+                        DeferredScorer::new(
+                            query.box_clone(),
+                            false,
+                            segment_reader.clone(),
+                            self.searcher.clone(),
+                        ),
+                        segment_ord,
                         segment_reader.clone(),
-                        self.searcher.clone(),
-                    ),
-                    segment_ord as SegmentOrdinal,
-                    segment_reader.clone(),
-                );
-                SearchResults::SingleSegment(
-                    self.searcher.clone(),
-                    segment_ord as SegmentOrdinal,
-                    None,
-                    iter,
-                )
+                    )
+                });
+                SearchResults::MultiSegment(self.searcher.clone(), None, iters)
             }
         }
     }
@@ -760,6 +682,54 @@ impl SearchIndexReader {
             largest_reader.num_docs() as f64 / self.searcher.num_docs() as f64;
 
         Some((count as f64 / segment_doc_proportion).ceil() as usize)
+    }
+
+    ///
+    /// Like `Executor::map`, but (potentially) for our filtered list of Segments.
+    ///
+    pub fn map<T>(&self, f: impl Fn(SegmentOrdinal, &SegmentReader) -> T) -> Vec<T> {
+        if self.segments_subset.is_some() {
+            return self.map_subset(f);
+        }
+
+        self.searcher
+            .segment_readers()
+            .iter()
+            .enumerate()
+            .map(|(segment_ord, segment_reader)| f(segment_ord as SegmentOrdinal, segment_reader))
+            .collect()
+    }
+
+    ///
+    /// Like `Executor::map`, but for our filtered list of Segments.
+    ///
+    /// TODO: Remove explicit use of this method in favor of adapting all callers to operate over
+    /// `map`.
+    ///
+    fn map_subset<T>(&self, f: impl Fn(SegmentOrdinal, &SegmentReader) -> T) -> Vec<T> {
+        // TODO: Do the segment filtering once at startup, and consider merging e.g. `top_by_field` and
+        // `top_by_field_in_subset`.
+        let segments_subset = self.segments_subset.as_ref().unwrap();
+
+        unsafe {
+            pgrx::log!(
+                ">>> worker {} operating on: {segments_subset:?}",
+                pg_sys::ParallelWorkerNumber
+            );
+        }
+
+        let mut fruits = Vec::with_capacity(segments_subset.len());
+        for (segment_ord, segment_reader) in self.searcher.segment_readers().iter().enumerate() {
+            if !segments_subset.contains(&segment_reader.segment_id()) {
+                continue;
+            }
+            fruits.push(f(segment_ord as SegmentOrdinal, segment_reader));
+        }
+        assert!(
+            fruits.len() == segments_subset.len(),
+            "Did not find all segments."
+        );
+        fruits
     }
 
     fn collect<C: Collector + 'static>(

@@ -38,6 +38,11 @@ use tantivy::snippet::SnippetGenerator;
 pub struct PdbScanState {
     pub parallel_state: Option<*mut ParallelScanState>,
 
+    // If we are a parallel worker leader, the ParallelContext that we are executing in.
+    pub pcxt: Option<*mut pg_sys::ParallelContext>,
+    // See `leader_reopen_search_index_reader`.
+    pub is_not_leader_or_has_assigned_subset: bool,
+
     pub rti: pg_sys::Index,
 
     pub search_query_input: SearchQueryInput,
@@ -288,11 +293,12 @@ impl PdbScanState {
             unsafe {
                 let worker_number = pg_sys::ParallelWorkerNumber;
                 if worker_number == -1 {
-                    let _mutex = (*parallel_state).acquire_mutex();
-                    ParallelScanState::reset(&mut *parallel_state);
+                    (*parallel_state).reset();
                 }
             }
         }
+        // TODO: Also the `pcxt`?
+        self.is_not_leader_or_has_assigned_subset = false;
         self.search_results = SearchResults::None;
         self.retry_count = 0;
         self.heap_tuple_check_count = 0;

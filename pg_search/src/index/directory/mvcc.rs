@@ -27,7 +27,7 @@ use crate::postgres::storage::LinkedItemList;
 use crossbeam::channel::Receiver;
 use parking_lot::Mutex;
 use pgrx::{pg_sys, PgRelation};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::any::Any;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
@@ -50,7 +50,11 @@ use tantivy::{index::SegmentMetaInventory, Directory, IndexMeta, TantivyError};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MvccSatisfies {
-    ParallelWorker(HashSet<SegmentId>),
+    ParallelWorker(
+        // All segments that a parallel worker observes: a parallel worker only searches some
+        // segments (tracked by `SearchIndexReader`), but must use statistics from all segments.
+        FxHashSet<SegmentId>,
+    ),
     Snapshot,
     Vacuum,
     Mergeable,
@@ -107,7 +111,7 @@ unsafe impl Send for MVCCDirectory {}
 unsafe impl Sync for MVCCDirectory {}
 
 impl MVCCDirectory {
-    pub fn parallel_worker(relation_oid: pg_sys::Oid, segment_ids: HashSet<SegmentId>) -> Self {
+    pub fn parallel_worker(relation_oid: pg_sys::Oid, segment_ids: FxHashSet<SegmentId>) -> Self {
         Self::with_mvcc_style(relation_oid, MvccSatisfies::ParallelWorker(segment_ids))
     }
 

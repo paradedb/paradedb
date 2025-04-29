@@ -31,7 +31,7 @@ jobs:
   test-pg_search-stressgres:
     name: Run Stressgres ${{ matrix.test_file }} on pg_search with PostgreSQL ${{ matrix.pg_version }} for ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
-    if: !cancelled() && github.event.pull_request.draft == false
+    if: ${{ !cancelled() && github.event.pull_request.draft == false }}
     strategy:
       matrix:
         include:

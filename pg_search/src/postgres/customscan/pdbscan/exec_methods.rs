@@ -71,7 +71,7 @@ pub trait ExecMethod {
 
     fn internal_next(&mut self, state: &mut PdbScanState) -> ExecState;
 
-    // This is called when the scan is rescaned.
+    // This is called when the scan is rescanned.
     // Implementations should override this if they need to reset their state
     fn reset(&mut self, state: &mut PdbScanState) {
         // Default implementation does nothing

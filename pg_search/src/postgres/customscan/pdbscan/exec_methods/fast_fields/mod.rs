@@ -27,7 +27,7 @@ use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
 use crate::postgres::customscan::pdbscan::projections::score::{score_funcoid, uses_scores};
-use crate::postgres::customscan::pdbscan::{ExecMethodType, PdbScan};
+use crate::postgres::customscan::pdbscan::{scan_state::PdbScanState, ExecMethodType, PdbScan};
 use crate::schema::SearchIndexSchema;
 use itertools::Itertools;
 use pgrx::{pg_sys, IntoDatum, PgList, PgOid, PgRelation, PgTupleDesc};

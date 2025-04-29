@@ -75,6 +75,7 @@ pub trait ExecMethod {
     // Implementations should override this if they need to reset their state
     fn reset(&mut self, state: &mut PdbScanState) {
         // Default implementation does nothing
+        // Note: SearchResults are handled by PdbScanState.reset() - don't clear them here.
     }
 }
 

@@ -75,6 +75,83 @@ use tantivy::Index;
 #[derive(Default)]
 pub struct PdbScan;
 
+impl PdbScan {
+    // This is the core logic for (re-)initializing the search reader
+    fn init_search_reader(state: &mut CustomScanStateWrapper<Self>) {
+        if state.custom_state().nexprs > 0 {
+            let expr_context = state.runtime_context;
+            state
+                .custom_state_mut()
+                .search_query_input
+                .solve_postgres_expressions(expr_context);
+        }
+
+        let need_snippets = state.custom_state().need_snippets();
+
+        // Open the index
+        let indexrel = state
+            .custom_state()
+            .indexrel
+            .as_ref()
+            .map(|indexrel| unsafe { PgRelation::from_pg(*indexrel) })
+            .expect("custom_state.indexrel should already be open");
+
+        let search_reader = SearchIndexReader::open(&indexrel, unsafe {
+            if pg_sys::ParallelWorkerNumber == -1 {
+                // the leader only sees snapshot-visible segments
+                MvccSatisfies::Snapshot
+            } else {
+                // the workers have their own rules, which is literally every segment
+                // this is because the workers pick a specific segment to query that
+                // is known to be held open/pinned by the leader but might not pass a ::Snapshot
+                // visibility test due to concurrent merges/garbage collects
+                MvccSatisfies::ParallelWorker(list_segment_ids(
+                    state.custom_state().parallel_state.expect(
+                        "Parallel Custom Scan rescan_custom_scan should have a parallel state",
+                    ),
+                ))
+            }
+        })
+        .expect("should be able to open the search index reader");
+        state.custom_state_mut().search_reader = Some(search_reader);
+
+        let csstate = addr_of_mut!(state.csstate);
+        state.custom_state_mut().init_exec_method(csstate);
+
+        if need_snippets {
+            let mut snippet_generators: FxHashMap<
+                SnippetInfo,
+                Option<(tantivy::schema::Field, SnippetGenerator)>,
+            > = state
+                .custom_state_mut()
+                .snippet_generators
+                .drain()
+                .collect();
+            for (snippet_info, generator) in &mut snippet_generators {
+                let mut new_generator = state
+                    .custom_state()
+                    .search_reader
+                    .as_ref()
+                    .unwrap()
+                    .snippet_generator(
+                        &snippet_info.field,
+                        &state.custom_state().search_query_input,
+                    );
+                new_generator
+                    .1
+                    .set_max_num_chars(snippet_info.max_num_chars);
+                *generator = Some(new_generator);
+            }
+
+            state.custom_state_mut().snippet_generators = snippet_generators;
+        }
+
+        unsafe {
+            inject_score_and_snippet_placeholders(state);
+        }
+    }
+}
+
 impl ExecMethod for PdbScan {
     fn exec_methods() -> *const CustomExecMethods {
         <PdbScan as ParallelQueryCapable>::exec_methods()
@@ -701,84 +778,14 @@ impl CustomScan for PdbScan {
     }
 
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        if state.custom_state().nexprs > 0 {
-            let expr_context = state.runtime_context;
-            state
-                .custom_state_mut()
-                .search_query_input
-                .solve_postgres_expressions(expr_context);
-        }
-
-        let need_snippets = state.custom_state().need_snippets();
-
-        // Open the index
-        let indexrel = state
-            .custom_state()
-            .indexrel
-            .as_ref()
-            .map(|indexrel| unsafe { PgRelation::from_pg(*indexrel) })
-            .expect("custom_state.indexrel should already be open");
-
-        let search_reader = SearchIndexReader::open(&indexrel, unsafe {
-            if pg_sys::ParallelWorkerNumber == -1 {
-                // the leader only sees snapshot-visible segments
-                MvccSatisfies::Snapshot
-            } else {
-                // the workers have their own rules, which is literally every segment
-                // this is because the workers pick a specific segment to query that
-                // is known to be held open/pinned by the leader but might not pass a ::Snapshot
-                // visibility test due to concurrent merges/garbage collects
-                MvccSatisfies::ParallelWorker(list_segment_ids(
-                    state.custom_state().parallel_state.expect(
-                        "Parallel Custom Scan rescan_custom_scan should have a parallel state",
-                    ),
-                ))
-            }
-        })
-        .expect("should be able to open the search index reader");
-        state.custom_state_mut().search_reader = Some(search_reader);
-
-        let csstate = addr_of_mut!(state.csstate);
-        state.custom_state_mut().init_exec_method(csstate);
-
-        if need_snippets {
-            let mut snippet_generators: FxHashMap<
-                SnippetInfo,
-                Option<(tantivy::schema::Field, SnippetGenerator)>,
-            > = state
-                .custom_state_mut()
-                .snippet_generators
-                .drain()
-                .collect();
-            for (snippet_info, generator) in &mut snippet_generators {
-                let mut new_generator = state
-                    .custom_state()
-                    .search_reader
-                    .as_ref()
-                    .unwrap()
-                    .snippet_generator(
-                        &snippet_info.field,
-                        &state.custom_state().search_query_input,
-                    );
-                new_generator
-                    .1
-                    .set_max_num_chars(snippet_info.max_num_chars);
-                *generator = Some(new_generator);
-            }
-
-            state.custom_state_mut().snippet_generators = snippet_generators;
-        }
-
-        unsafe {
-            inject_score_and_snippet_placeholders(state);
-        }
+        PdbScan::init_search_reader(state);
         state.custom_state_mut().reset();
     }
 
     #[allow(clippy::blocks_in_conditions)]
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
         if state.custom_state().search_reader.is_none() {
-            PdbScan::rescan_custom_scan(state);
+            PdbScan::init_search_reader(state);
         }
 
         loop {

@@ -276,7 +276,8 @@ impl ParallelScanState {
     }
 
     fn reset(&mut self) {
-        self.mutex.init();
-        self.remaining_segments = self.nsegments;
+        // We don't need to reset the parallel scan state,
+        // because the consumed results get cached in the inner search results
+        // and the parallel scan state is only used for the initial query
     }
 }

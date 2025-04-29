@@ -229,9 +229,9 @@ impl ExecMethod for TopNScanExecState {
     }
 
     fn reset(&mut self, _state: &mut PdbScanState) {
-        // Reset the search results and counters
-        self.search_results = SearchResults::None;
-        self.nresults = 0;
+        // Reset tracking state but don't clear search_results
+
+        // Reset counters - excluding nresults which tracks processed results
         self.have_less = false;
         self.did_query = false;
 

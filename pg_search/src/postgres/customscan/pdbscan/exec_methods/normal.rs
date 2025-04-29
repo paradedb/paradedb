@@ -154,10 +154,8 @@ impl ExecMethod for NormalScanExecState {
         }
     }
 
-    fn reset(&mut self, state: &mut PdbScanState) {
-        // Reset the search results and query state
-        self.search_results = SearchResults::None;
-        self.did_query = false;
+    fn reset(&mut self, _state: &mut PdbScanState) {
+        // Reset tracking state but don't clear search_results - that's handled by PdbScanState.reset()
 
         // Reset the block visibility cache
         self.blockvis = (pg_sys::InvalidBlockNumber, false);

@@ -15,9 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::Varno;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::reader::index::{SearchIndexReader, SearchResults};
-use crate::postgres::customscan::builders::custom_path::SortDirection;
+use crate::postgres::customscan::builders::custom_path::{ExecMethodType, SortDirection};
 use crate::postgres::customscan::pdbscan::exec_methods::ExecMethod;
 use crate::postgres::customscan::pdbscan::projections::snippet::SnippetInfo;
 use crate::postgres::customscan::pdbscan::qual_inspect::Qual;
@@ -29,8 +30,8 @@ use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
 use pgrx::heap_tuple::PgHeapTuple;
 use pgrx::{name_data_to_str, pg_sys, PgRelation, PgTupleDesc};
+use rustc_hash::FxHashMap;
 use std::cell::UnsafeCell;
-use std::collections::HashMap;
 use tantivy::snippet::SnippetGenerator;
 
 #[derive(Default)]
@@ -45,12 +46,15 @@ pub struct PdbScanState {
     pub search_reader: Option<SearchIndexReader>,
 
     pub search_results: SearchResults,
-    pub which_fast_fields: Option<Vec<WhichFastField>>,
     pub targetlist_len: usize,
 
+    // TODO: Remove in favor of `exec_method_type`.
+    pub which_fast_fields: Option<Vec<WhichFastField>>,
     pub limit: Option<usize>,
     pub sort_field: Option<String>,
     pub sort_direction: Option<SortDirection>,
+
+    pub exec_method_type: ExecMethodType,
     pub retry_count: usize,
     pub heap_tuple_check_count: usize,
     pub virtual_tuple_count: usize,
@@ -73,11 +77,11 @@ pub struct PdbScanState {
     pub const_score_node: Option<*mut pg_sys::Const>,
     pub score_funcoid: pg_sys::Oid,
 
-    pub const_snippet_nodes: HashMap<SnippetInfo, Vec<*mut pg_sys::Const>>,
+    pub const_snippet_nodes: FxHashMap<SnippetInfo, Vec<*mut pg_sys::Const>>,
     pub snippet_funcoid: pg_sys::Oid,
     pub snippet_generators:
-        HashMap<SnippetInfo, Option<(tantivy::schema::Field, SnippetGenerator)>>,
-    pub var_attname_lookup: HashMap<(i32, pg_sys::AttrNumber), String>,
+        FxHashMap<SnippetInfo, Option<(tantivy::schema::Field, SnippetGenerator)>>,
+    pub var_attname_lookup: FxHashMap<(Varno, pg_sys::AttrNumber), String>,
 
     pub placeholder_targetlist: Option<*mut pg_sys::List>,
 
@@ -90,20 +94,6 @@ impl CustomScanState for PdbScanState {
         unsafe {
             // SAFETY: inner_scan_state is always initialized and call to `init()` could never move `self`
             (*self.exec_method.get()).init(self, cstate)
-        }
-    }
-
-    fn is_top_n_capable(&self) -> Option<(usize, SortDirection)> {
-        match (self.limit, self.sort_direction) {
-            (Some(limit), Some(sort_direction)) => Some((limit, sort_direction)),
-            _ => None,
-        }
-    }
-
-    fn is_unsorted_top_n_capable(&self) -> Option<usize> {
-        match (self.limit, self.sort_direction) {
-            (Some(limit), Some(SortDirection::None)) => Some(limit),
-            _ => None,
         }
     }
 }

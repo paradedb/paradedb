@@ -200,6 +200,7 @@ RUN apt-get update \
 # extension requires a database to store its metadata tables. By using `postgres`, we ensure that it has a
 # stable, always-available database for its operations, no matter what other databases are created or deleted.
 RUN sed -i "s/^#shared_preload_libraries = ''/shared_preload_libraries = 'pg_search,pg_cron'/" /usr/share/postgresql/postgresql.conf.sample && \
+    grep "shared_preload_libraries = 'pg_search,pg_cron'" /usr/share/postgresql/postgresql.conf.sample && \
     echo "cron.database_name = 'postgres'" >> /usr/share/postgresql/postgresql.conf.sample
 
 # The pg_search extension requires the ICU library binaries to be installed at runtime. Therefore, we download

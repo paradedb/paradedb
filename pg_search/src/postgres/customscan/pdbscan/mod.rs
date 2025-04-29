@@ -28,11 +28,11 @@ mod solve_expr;
 use crate::api::operator::{
     anyelement_query_input_opoid, attname_from_var, estimate_selectivity, find_var_relation,
 };
-use crate::api::{AsCStr, AsInt, Cardinality};
+use crate::api::Cardinality;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::builders::custom_path::{
-    CustomPathBuilder, Flags, OrderByStyle, RestrictInfoType, SortDirection,
+    CustomPathBuilder, ExecMethodType, Flags, OrderByStyle, RestrictInfoType, SortDirection,
 };
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -41,7 +41,7 @@ use crate::postgres::customscan::builders::custom_state::{
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::{
-    estimate_cardinality, is_string_agg_capable_ex,
+    estimate_cardinality, is_string_agg_capable,
 };
 use crate::postgres::customscan::pdbscan::parallel::{compute_nworkers, list_segment_ids};
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
@@ -56,17 +56,17 @@ use crate::postgres::customscan::pdbscan::projections::{
 };
 use crate::postgres::customscan::pdbscan::qual_inspect::extract_quals;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
-use crate::postgres::customscan::{CustomScan, CustomScanState, ExecMethod};
+use crate::postgres::customscan::{self, CustomScan, CustomScanState};
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::query::{AsHumanReadable, SearchQueryInput};
 use crate::schema::SearchIndexSchema;
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
-use exec_methods::top_n::TopNScanExecState;
+use exec_methods::normal::NormalScanExecState;
 use exec_methods::ExecState;
-use pgrx::pg_sys::{AsPgCStr, CustomExecMethods};
+use pgrx::pg_sys::CustomExecMethods;
 use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts, PgRelation};
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::ffi::CStr;
 use std::ptr::addr_of_mut;
 use tantivy::snippet::SnippetGenerator;
@@ -75,7 +75,7 @@ use tantivy::Index;
 #[derive(Default)]
 pub struct PdbScan;
 
-impl ExecMethod for PdbScan {
+impl customscan::ExecMethod for PdbScan {
     fn exec_methods() -> *const CustomExecMethods {
         <PdbScan as ParallelQueryCapable>::exec_methods()
     }
@@ -155,18 +155,23 @@ impl CustomScan for PdbScan {
 
             // quick look at the target list to see if we might need to do our const projections
             let target_list = (*(*builder.args().root).parse).targetList;
+            builder
+                .custom_private()
+                .set_targetlist_len(PgList::<pg_sys::TargetEntry>::from_pg(target_list).len());
             let maybe_needs_const_projections = maybe_needs_const_projections(target_list.cast());
             let ff_cnt =
                 exec_methods::fast_fields::count(&mut builder, rti, &table, &schema, target_list);
             let maybe_ff = builder.custom_private().maybe_ff();
             let is_topn = limit.is_some() && pathkey.is_some();
-            let which_fast_fields = exec_methods::fast_fields::collect(
-                builder.custom_private().maybe_ff(),
-                target_list,
-                rti,
-                &schema,
-                &table,
-            );
+            builder
+                .custom_private()
+                .set_which_fast_fields(exec_methods::fast_fields::collect(
+                    maybe_ff,
+                    target_list,
+                    rti,
+                    &schema,
+                    &table,
+                ));
 
             //
             // look for quals we can support
@@ -196,6 +201,7 @@ impl CustomScan for PdbScan {
                 // to a join, and would require more planning).
                 return None;
             };
+            let query = SearchQueryInput::from(&quals);
 
             let has_expressions = quals.contains_exprs();
             let selectivity = if let Some(limit) = limit {
@@ -220,7 +226,6 @@ impl CustomScan for PdbScan {
                     // we have no idea, so assume PARAMETERIZED_SELECTIVITY
                     PARAMETERIZED_SELECTIVITY
                 } else {
-                    let query = SearchQueryInput::from(&quals);
                     estimate_selectivity(&bm25_index, &query).unwrap_or(UNKNOWN_SELECTIVITY)
                 }
             };
@@ -234,7 +239,7 @@ impl CustomScan for PdbScan {
             builder.custom_private().set_heaprelid(table.oid());
             builder.custom_private().set_indexrelid(bm25_index.oid());
             builder.custom_private().set_range_table_index(rti);
-            builder.custom_private().set_quals(quals);
+            builder.custom_private().set_query(query);
             builder.custom_private().set_limit(limit);
 
             if is_topn && pathkey.is_some() {
@@ -309,8 +314,7 @@ impl CustomScan for PdbScan {
 
             if pathkey.is_some()
                 && !is_topn
-                && is_string_agg_capable_ex(builder.custom_private().limit(), &which_fast_fields)
-                    .is_some()
+                && is_string_agg_capable(builder.custom_private()).is_some()
             {
                 let pathkey = pathkey.as_ref().unwrap();
 
@@ -350,13 +354,18 @@ impl CustomScan for PdbScan {
                 builder = builder.set_parallel(nworkers);
             }
 
-            // If we are sorting our output (which we will only do if we have a limit!) and we
-            // are _not_ using parallel workers, then we can claim that the output is sorted.
-            //
-            // TODO: To allow sorted output with parallel workers, we would need to partition
-            // our segments across the workers so that each worker emitted all of its results
-            // in sorted order.
-            if nworkers == 0 && builder.custom_private().is_sorted() && limit.is_some() {
+            let exec_method_type = choose_exec_method(builder.custom_private());
+            builder
+                .custom_private()
+                .set_exec_method_type(exec_method_type);
+
+            // Once we have chosen an execution method type, we have a final determination of the
+            // properties of the output, and can make claims about whether it is sorted.
+            if builder
+                .custom_private()
+                .exec_method_type()
+                .is_sorted(nworkers)
+            {
                 if let Some(pathkey) = pathkey.as_ref() {
                     builder = builder.add_path_key(pathkey);
                 }
@@ -380,7 +389,7 @@ impl CustomScan for PdbScan {
             let processed_tlist =
                 PgList::<pg_sys::TargetEntry>::from_pg((*builder.args().root).processed_tlist);
 
-            let mut attname_lookup = PgList::<pg_sys::Node>::new();
+            let mut attname_lookup = FxHashMap::default();
             let score_funcoid = score_funcoid();
             let snippet_funcoid = snippet_funcoid();
             for te in processed_tlist.iter_ptr() {
@@ -407,15 +416,13 @@ impl CustomScan for PdbScan {
                     let attname = attname_from_var(builder.args().root, var)
                         .1
                         .expect("function call argument should be a column name");
-                    attname_lookup.push(pg_sys::makeInteger((*var).varno as _).cast());
-                    attname_lookup.push(pg_sys::makeInteger((*var).varattno as _).cast());
-                    attname_lookup.push(pg_sys::makeString(attname.as_pg_cstr()).cast());
+                    attname_lookup.insert(((*var).varno, (*var).varattno), attname);
                 }
             }
 
             builder
                 .custom_private_mut()
-                .set_var_attname_lookup(attname_lookup.into_pg());
+                .set_var_attname_lookup(attname_lookup);
             builder.build()
         }
     }
@@ -438,24 +445,11 @@ impl CustomScan for PdbScan {
                 .range_table_index()
                 .expect("range table index should have been set");
 
-            {
-                let indexrel = PgRelation::open(builder.custom_state().indexrelid);
-                let heaprel = indexrel
-                    .heap_relation()
-                    .expect("index should belong to a table");
-                let directory = MVCCDirectory::snapshot(indexrel.oid());
-                let index = Index::open(directory)
-                    .expect("create_custom_scan_state: should be able to open index");
-                let schema = SearchIndexSchema::open(index.schema(), &indexrel);
+            builder.custom_state().exec_method_type =
+                builder.custom_private().exec_method_type().clone();
 
-                builder.custom_state().which_fast_fields = exec_methods::fast_fields::collect(
-                    builder.custom_private().maybe_ff(),
-                    builder.target_list().as_ptr(),
-                    builder.custom_state().rti,
-                    &schema,
-                    &heaprel,
-                );
-            }
+            builder.custom_state().which_fast_fields =
+                builder.custom_private().which_fast_fields().clone();
 
             builder.custom_state().targetlist_len = builder.target_list().len();
 
@@ -464,57 +458,22 @@ impl CustomScan for PdbScan {
             builder.custom_state().sort_field = builder.custom_private().sort_field();
             builder.custom_state().sort_direction = builder.custom_private().sort_direction();
 
-            // store our query quals into our custom state too
-            builder.custom_state().quals = Some(
-                builder
-                    .custom_private()
-                    .quals()
-                    .expect("should have a Qual structure"),
-            );
+            // store our query into our custom state too
+            builder.custom_state().search_query_input = builder
+                .custom_private()
+                .query()
+                .as_ref()
+                .cloned()
+                .expect("should have a SearchQueryInput");
+
             builder.custom_state().segment_count = builder.custom_private().segment_count();
 
-            // now build up the var attribute name lookup map
-            unsafe fn populate_var_attname_lookup(
-                lookup: &mut HashMap<(i32, pg_sys::AttrNumber), String>,
-                iter: impl Iterator<Item = *mut pg_sys::Node>,
-            ) -> Option<()> {
-                let mut iter = iter.peekable();
-                while let Some(node) = iter.next() {
-                    let (varno, varattno, attname) = {
-                        let varno = node.as_int()?;
-                        let varattno = iter.next()?.as_int()?;
-                        let attname = iter.next()?.as_c_str()?.as_ptr();
-
-                        (varno, varattno, attname)
-                    };
-
-                    lookup.insert(
-                        (varno as _, varattno as _),
-                        CStr::from_ptr(attname).to_string_lossy().to_string(),
-                    );
-                }
-
-                Some(())
-            }
-
-            let var_attname_lookup = builder
+            builder.custom_state().var_attname_lookup = builder
                 .custom_private()
                 .var_attname_lookup()
+                .as_ref()
+                .cloned()
                 .expect("should have an attribute name lookup");
-            assert_eq!(
-                var_attname_lookup.len() % 3,
-                0,
-                "correct number of var_attname_lookup entries"
-            );
-
-            if populate_var_attname_lookup(
-                &mut builder.custom_state().var_attname_lookup,
-                var_attname_lookup.iter_ptr(),
-            )
-            .is_none()
-            {
-                panic!("failed to properly build `var_attname_lookup` due to mis-typed List");
-            }
 
             let score_funcoid = score_funcoid();
             let snippet_funcoid = snippet_funcoid();
@@ -538,32 +497,8 @@ impl CustomScan for PdbScan {
                     .collect();
 
             let need_snippets = builder.custom_state().need_snippets();
-            let need_scores = builder.custom_state().need_scores();
-            if let Some((limit, sort_direction)) = builder.custom_state().is_top_n_capable() {
-                // having a valid limit and sort direction means we can do a TopN query
-                // and TopN can do snippets
-                let heaprelid = builder.custom_state().heaprelid;
-                builder
-                    .custom_state()
-                    .assign_exec_method(TopNScanExecState::new(
-                        heaprelid,
-                        limit,
-                        sort_direction,
-                        need_scores,
-                    ));
-            } else if let Some(limit) = builder.custom_state().is_unsorted_top_n_capable() {
-                let heaprelid = builder.custom_state().heaprelid;
-                builder
-                    .custom_state()
-                    .assign_exec_method(TopNScanExecState::new(
-                        heaprelid,
-                        limit,
-                        SortDirection::None,
-                        need_scores,
-                    ));
-            } else {
-                exec_methods::fast_fields::assign_exec_method(&mut builder);
-            }
+
+            assign_exec_method(builder.custom_state());
 
             builder.build()
         }
@@ -684,13 +619,6 @@ impl CustomScan for PdbScan {
             state.custom_state_mut().heaprel_relname =
                 PgRelation::from_pg(heaprel).name().to_string();
 
-            let quals = state
-                .custom_state_mut()
-                .quals
-                .take()
-                .expect("quals should have been set");
-            state.custom_state_mut().search_query_input = SearchQueryInput::from(&quals);
-
             if eflags & (pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) != 0 {
                 // don't do anything else if we're only explaining the query
                 return;
@@ -786,7 +714,7 @@ impl CustomScan for PdbScan {
         state.custom_state_mut().init_exec_method(csstate);
 
         if need_snippets {
-            let mut snippet_generators: HashMap<
+            let mut snippet_generators: FxHashMap<
                 SnippetInfo,
                 Option<(tantivy::schema::Field, SnippetGenerator)>,
             > = state
@@ -963,6 +891,73 @@ impl CustomScan for PdbScan {
                 pg_sys::relation_close(indexrel, state.custom_state().lockmode);
             }
         }
+    }
+}
+
+///
+/// Choose and return an ExecMethodType based on the properties of the builder.
+///
+/// If the query can return "fast fields", make that determination here, falling back to the
+/// [`NormalScanExecState`] if not.
+///
+/// We support [`StringFastFieldExecState`] when there's 1 fast field and it's a string, or
+/// [`NumericFastFieldExecState`] when there's one or more numeric fast fields
+///
+/// `paradedb.score()`, `ctid`, and `tableoid` are considered fast fields for the purposes of
+/// these specialized [`ExecMethod`]s.
+///
+fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
+    if let Some((limit, sort_direction)) = privdata.limit().zip(privdata.sort_direction()) {
+        // having a valid limit and sort direction means we can do a TopN query
+        // and TopN can do snippets
+        ExecMethodType::TopN {
+            heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
+            limit,
+            sort_direction,
+            need_scores: privdata.need_scores(),
+        }
+    } else if let Some(field) = exec_methods::fast_fields::is_string_agg_capable(privdata) {
+        ExecMethodType::FastFieldString {
+            field,
+            which_fast_fields: privdata.which_fast_fields().clone().unwrap(),
+        }
+    } else if exec_methods::fast_fields::is_numeric_fast_field_capable(privdata) {
+        ExecMethodType::FastFieldNumeric {
+            which_fast_fields: privdata.which_fast_fields().clone().unwrap_or_default(),
+        }
+    } else {
+        ExecMethodType::Normal
+    }
+}
+
+fn assign_exec_method(custom_state: &mut PdbScanState) {
+    match &custom_state.exec_method_type {
+        ExecMethodType::Normal => custom_state.assign_exec_method(NormalScanExecState::default()),
+        ExecMethodType::TopN {
+            heaprelid,
+            limit,
+            sort_direction,
+            need_scores,
+        } => custom_state.assign_exec_method(exec_methods::top_n::TopNScanExecState::new(
+            *heaprelid,
+            *limit,
+            *sort_direction,
+            *need_scores,
+        )),
+        ExecMethodType::FastFieldString {
+            field,
+            which_fast_fields,
+        } => custom_state.assign_exec_method(
+            exec_methods::fast_fields::string::StringFastFieldExecState::new(
+                field.to_owned(),
+                which_fast_fields.clone(),
+            ),
+        ),
+        ExecMethodType::FastFieldNumeric { which_fast_fields } => custom_state.assign_exec_method(
+            exec_methods::fast_fields::numeric::NumericFastFieldExecState::new(
+                which_fast_fields.clone(),
+            ),
+        ),
     }
 }
 

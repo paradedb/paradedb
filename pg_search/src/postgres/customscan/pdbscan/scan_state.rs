@@ -275,7 +275,11 @@ impl PdbScanState {
     pub fn reset(&mut self) {
         if let Some(parallel_state) = self.parallel_state {
             unsafe {
-                ParallelScanState::reset(&mut *parallel_state);
+                let worker_number = pg_sys::ParallelWorkerNumber;
+                if worker_number == -1 {
+                    let _mutex = (*parallel_state).acquire_mutex();
+                    ParallelScanState::reset(&mut *parallel_state);
+                }
             }
         }
         self.search_results = SearchResults::None;

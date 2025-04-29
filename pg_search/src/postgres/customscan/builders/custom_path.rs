@@ -16,12 +16,14 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::Cardinality;
+use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::CustomScan;
 use pgrx::{pg_sys, PgList};
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fmt::{Debug, Display, Formatter};
 
-#[derive(Debug, Default, Copy, Clone)]
+#[derive(Debug, Default, Copy, Clone, Serialize, Deserialize)]
 #[repr(i32)]
 pub enum SortDirection {
     #[default]
@@ -98,6 +100,43 @@ impl OrderByStyle {
             assert!(!pathkey.is_null());
 
             (*self.pathkey()).pk_strategy.into()
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub enum ExecMethodType {
+    #[default]
+    Normal,
+    TopN {
+        heaprelid: pg_sys::Oid,
+        limit: usize,
+        sort_direction: SortDirection,
+        need_scores: bool,
+    },
+    FastFieldString {
+        field: String,
+        which_fast_fields: Vec<WhichFastField>,
+    },
+    FastFieldNumeric {
+        which_fast_fields: Vec<WhichFastField>,
+    },
+}
+
+impl ExecMethodType {
+    ///
+    /// Returns true if this execution method will emit results in sorted order with the given
+    /// number of workers.
+    ///
+    pub fn is_sorted(&self, nworkers: usize) -> bool {
+        match self {
+            ExecMethodType::TopN { .. } if nworkers == 0 => {
+                // TODO: To allow sorted output with parallel workers, we would need to partition
+                // our segments across the workers so that each worker emitted all of its results
+                // in sorted order.
+                true
+            }
+            _ => false,
         }
     }
 }

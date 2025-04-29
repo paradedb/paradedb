@@ -79,7 +79,6 @@ impl BM25Page for pg_sys::Page {
 #[derive(Debug)]
 pub struct BM25BufferCache {
     indexrel: pg_sys::Relation,
-    heaprel: pg_sys::Relation,
     cache: Mutex<FxHashMap<pg_sys::BlockNumber, Vec<u8>>>,
 }
 
@@ -90,18 +89,11 @@ impl BM25BufferCache {
     pub fn open(indexrelid: pg_sys::Oid) -> Self {
         unsafe {
             let indexrel = pg_sys::RelationIdGetRelation(indexrelid);
-            let heaprelid = pg_sys::IndexGetRelation(indexrelid, false);
-            let heaprel = pg_sys::RelationIdGetRelation(heaprelid);
             Self {
                 indexrel,
-                heaprel,
                 cache: Default::default(),
             }
         }
-    }
-
-    pub unsafe fn heaprel(&self) -> *mut pg_sys::RelationData {
-        self.heaprel
     }
 
     pub unsafe fn indexrel(&self) -> *mut pg_sys::RelationData {
@@ -200,102 +192,7 @@ impl Drop for BM25BufferCache {
         unsafe {
             if crate::postgres::utils::IsTransactionState() {
                 pg_sys::RelationClose(self.indexrel);
-                pg_sys::RelationClose(self.heaprel);
             }
         }
-    }
-}
-
-/// Get the freeze limit for marking XIDs as frozen
-/// Inspired by vacuum_get_cutoffs in backend/commands/vacuum.c
-pub unsafe fn vacuum_get_freeze_limit(heap_relation: pg_sys::Relation) -> pg_sys::TransactionId {
-    extern "C" {
-        pub static mut autovacuum_freeze_max_age: ::std::os::raw::c_int;
-    }
-
-    let oldest_xmin = pg_sys::GetOldestNonRemovableTransactionId(heap_relation);
-
-    assert!(pg_sys::TransactionIdIsNormal(oldest_xmin));
-    assert!(pg_sys::vacuum_freeze_min_age >= 0);
-
-    let next_xid = pg_sys::TransactionId::from(pg_sys::ReadNextFullTransactionId().value as u32);
-    let freeze_min_age =
-        std::cmp::min(pg_sys::vacuum_freeze_min_age, autovacuum_freeze_max_age / 2);
-    if freeze_min_age > next_xid.into_inner() as i32 {
-        return pg_sys::FirstNormalTransactionId;
-    }
-
-    let mut freeze_limit =
-        pg_sys::TransactionId::from(next_xid.into_inner() - (freeze_min_age as u32));
-    // ensure that freeze_limit is a normal transaction ID
-    if !pg_sys::TransactionIdIsNormal(freeze_limit) {
-        freeze_limit = pg_sys::FirstNormalTransactionId;
-    }
-    // freeze_limit must always be <= oldest_xmin
-    if pg_sys::TransactionIdPrecedes(oldest_xmin, freeze_limit) {
-        freeze_limit = oldest_xmin;
-    }
-    freeze_limit
-}
-
-#[cfg(any(test, feature = "pg_test"))]
-#[pgrx::pg_schema]
-mod tests {
-    use super::*;
-    use pgrx::prelude::*;
-
-    #[pg_test]
-    unsafe fn test_freeze_limit_relaxed() {
-        let vacuum_freeze_min_age = 50_000_000;
-
-        Spi::run(&format!(
-            "SET vacuum_freeze_min_age = {};",
-            vacuum_freeze_min_age
-        ))
-        .unwrap();
-        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
-
-        let heap_oid: pg_sys::Oid =
-            Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't' AND relnamespace = current_schema()::regnamespace;")
-                .expect("spi should succeed")
-                .unwrap();
-        let heap_relation = pg_sys::RelationIdGetRelation(heap_oid);
-
-        if pg_sys::ReadNextFullTransactionId().value <= vacuum_freeze_min_age as u64 {
-            assert_eq!(
-                vacuum_get_freeze_limit(heap_relation),
-                pg_sys::FirstNormalTransactionId
-            );
-        } else {
-            assert!(vacuum_get_freeze_limit(heap_relation) > pg_sys::FirstNormalTransactionId);
-        }
-
-        pg_sys::RelationClose(heap_relation);
-    }
-
-    #[pg_test]
-    unsafe fn test_freeze_limit_aggressive() {
-        let vacuum_freeze_min_age = 0;
-
-        Spi::run(&format!(
-            "SET vacuum_freeze_min_age = {};",
-            vacuum_freeze_min_age
-        ))
-        .unwrap();
-        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
-        Spi::run("INSERT INTO t (data) VALUES ('test')").unwrap();
-
-        let heap_oid: pg_sys::Oid =
-            Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't' AND relnamespace = current_schema()::regnamespace;")
-                .expect("spi should succeed")
-                .unwrap();
-        let heap_relation = pg_sys::RelationIdGetRelation(heap_oid);
-
-        assert_eq!(
-            vacuum_get_freeze_limit(heap_relation),
-            pg_sys::GetOldestNonRemovableTransactionId(heap_relation),
-        );
-
-        pg_sys::RelationClose(heap_relation);
     }
 }

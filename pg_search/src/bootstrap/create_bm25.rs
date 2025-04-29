@@ -141,7 +141,6 @@ unsafe fn merge_info(
         name!(index_name, String),
         name!(pid, i32),
         name!(xmin, pg_sys::TransactionId),
-        name!(xmax, pg_sys::TransactionId),
         name!(segno, String),
     ),
 > {
@@ -161,7 +160,6 @@ unsafe fn merge_info(
                         index_name.clone(),
                         merge_entry.pid,
                         merge_entry.xmin,
-                        merge_entry.xmax,
                         segment_id.short_uuid_string(),
                     )
                 })
@@ -207,7 +205,6 @@ fn index_info(
             name!(index_name, String),
             name!(visible, bool),
             name!(recyclable, bool),
-            name!(xmin, pg_sys::TransactionId),
             name!(xmax, pg_sys::TransactionId),
             name!(segno, String),
             name!(byte_size, Option<AnyNumeric>),
@@ -241,16 +238,14 @@ fn index_info(
             LinkedItemList::<SegmentMetaEntry>::open(index.oid(), SEGMENT_METAS_START);
         let all_entries = unsafe { segment_components.list() };
 
-        let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
         for entry in all_entries {
-            if !show_invisible && unsafe { !entry.visible(snapshot) } {
+            if !show_invisible && unsafe { !entry.visible() } {
                 continue;
             }
             results.push((
                 index.name().to_owned(),
-                unsafe { entry.visible(snapshot) },
+                unsafe { entry.visible() },
                 unsafe { entry.recyclable(segment_components.bman_mut()) },
-                entry.xmin,
                 entry.xmax,
                 entry.segment_id.short_uuid_string(),
                 Some(entry.byte_size().into()),
@@ -389,7 +384,6 @@ fn page_info(
     }
 
     let mut data = vec![];
-    let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
     let heap_oid = unsafe { pg_sys::IndexGetRelation(index.oid(), false) };
     let heap_relation = unsafe { pg_sys::RelationIdGetRelation(heap_oid) };
 
@@ -399,7 +393,7 @@ fn page_info(
                 data.push((
                     offsetno as i32,
                     size as i32,
-                    entry.visible(snapshot),
+                    entry.visible(),
                     entry.recyclable(bman),
                     JsonB(serde_json::to_value(entry)?),
                 ))

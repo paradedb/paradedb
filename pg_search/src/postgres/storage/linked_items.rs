@@ -17,7 +17,6 @@
 
 use super::block::{BM25PageSpecialData, LinkedList, LinkedListData, MVCCEntry, PgItem};
 use super::buffer::{BufferManager, BufferMut};
-use super::utils::vacuum_get_freeze_limit;
 use anyhow::Result;
 use pgrx::pg_sys;
 use pgrx::pg_sys::BlockNumber;
@@ -170,20 +169,11 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
 
     pub unsafe fn garbage_collect(&mut self) -> Vec<T> {
         // Delete all items that are definitely dead
-        let heap_relation = self.bman().bm25cache().heaprel();
-        let freeze_limit = vacuum_get_freeze_limit(heap_relation);
         self.retain(|bman, entry| {
             if entry.recyclable(bman) {
                 RetainItem::Remove(entry)
             } else {
-                let xmin_needs_freeze = entry.xmin_needs_freeze(freeze_limit);
-                let xmax_needs_freeze = entry.xmax_needs_freeze(freeze_limit);
-
-                if xmin_needs_freeze || xmax_needs_freeze {
-                    RetainItem::Replace(entry.into_frozen(xmin_needs_freeze, xmax_needs_freeze))
-                } else {
-                    RetainItem::Retain
-                }
+                RetainItem::Retain
             }
         })
     }
@@ -218,11 +208,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
 
                             recycled_entries.push(entry);
                             delete_offsets.push(offsetno);
-                        }
-                        RetainItem::Replace(entry) => {
-                            let PgItem(item, size) = entry.clone().into();
-                            let did_replace = page.replace_item(offsetno, item, size);
-                            assert!(did_replace);
                         }
                         RetainItem::Retain => {}
                     }
@@ -451,7 +436,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
 
 pub enum RetainItem<T> {
     Remove(T),
-    Replace(T),
     Retain,
 }
 
@@ -577,20 +561,17 @@ mod tests {
     unsafe fn test_linked_items_garbage_collect_single_page() {
         let relation_oid = init_bm25_index();
 
-        let snapshot = pg_sys::GetActiveSnapshot();
-        let delete_xid = pg_sys::TransactionId::from((*snapshot).xmin.into_inner() - 1);
+        let delete_xid = pg_sys::FrozenTransactionId;
 
         let mut list = LinkedItemList::<SegmentMetaEntry>::create(relation_oid);
         let entries_to_delete = vec![SegmentMetaEntry {
             segment_id: random_segment_id(),
-            xmin: delete_xid,
             xmax: delete_xid,
             postings: Some(make_fake_postings(relation_oid)),
             ..Default::default()
         }];
         let entries_to_keep = vec![SegmentMetaEntry {
             segment_id: random_segment_id(),
-            xmin: pg_sys::TransactionId::from((*snapshot).xmin.into_inner() - 1),
             xmax: pg_sys::InvalidTransactionId,
             postings: Some(make_fake_postings(relation_oid)),
             ..Default::default()
@@ -612,10 +593,8 @@ mod tests {
     unsafe fn test_linked_items_garbage_collect_multiple_pages() {
         let relation_oid = init_bm25_index();
 
-        let snapshot = pg_sys::GetActiveSnapshot();
-        let deleted_xid = pg_sys::TransactionId::from((*snapshot).xmin.into_inner() - 1);
+        let deleted_xid = pg_sys::FrozenTransactionId;
         let not_deleted_xid = pg_sys::InvalidTransactionId;
-        let xmin = pg_sys::TransactionId::from((*snapshot).xmin.into_inner() - 1);
 
         // Add 2000 entries, delete every 10th entry
         {
@@ -623,7 +602,6 @@ mod tests {
             let entries = (1..2000)
                 .map(|i| SegmentMetaEntry {
                     segment_id: random_segment_id(),
-                    xmin,
                     xmax: if i % 10 == 0 {
                         deleted_xid
                     } else {
@@ -651,7 +629,6 @@ mod tests {
             let entries_1 = (1..500)
                 .map(|_| SegmentMetaEntry {
                     segment_id: random_segment_id(),
-                    xmin,
                     xmax: not_deleted_xid,
                     postings: Some(make_fake_postings(relation_oid)),
                     ..Default::default()
@@ -662,7 +639,6 @@ mod tests {
             let entries_2 = (1..1000)
                 .map(|_| SegmentMetaEntry {
                     segment_id: random_segment_id(),
-                    xmin,
                     xmax: deleted_xid,
                     postings: Some(make_fake_postings(relation_oid)),
                     ..Default::default()
@@ -673,7 +649,6 @@ mod tests {
             let entries_3 = (1..500)
                 .map(|_| SegmentMetaEntry {
                     segment_id: random_segment_id(),
-                    xmin,
                     xmax: not_deleted_xid,
                     postings: Some(make_fake_postings(relation_oid)),
                     ..Default::default()
@@ -705,14 +680,11 @@ mod tests {
     unsafe fn test_linked_items_duplicate_then_replace() {
         let relation_oid = init_bm25_index();
 
-        let snapshot = pg_sys::GetActiveSnapshot();
-
         // Add 2000 entries.
         let mut list = LinkedItemList::<SegmentMetaEntry>::create(relation_oid);
         let entries = (1..2000)
             .map(|_| SegmentMetaEntry {
                 segment_id: random_segment_id(),
-                xmin: pg_sys::TransactionId::from((*snapshot).xmin.into_inner() - 1),
                 xmax: pg_sys::InvalidTransactionId,
                 postings: Some(make_fake_postings(relation_oid)),
                 ..Default::default()

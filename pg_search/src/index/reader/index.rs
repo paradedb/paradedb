@@ -719,6 +719,8 @@ impl SearchIndexReader {
     ///
     /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
     /// handle that, if it's necessary.
+    ///
+    /// TODO: Remove `_estimated_rows`.
     pub fn search(
         &self,
         need_scores: bool,

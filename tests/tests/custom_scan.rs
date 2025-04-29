@@ -29,7 +29,7 @@ fn corrupt_targetlist(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let (id, score) = "select count(*), max(paradedb.score(id)) from paradedb.bm25_search where description @@@ 'keyboard'"
-        .fetch_one::<(i64,f32)>(&mut conn);
+        .fetch_one::<(i64, f32)>(&mut conn);
     assert_eq!((id, score), (2, 3.2668595));
 
     "PREPARE prep AS select count(*), max(paradedb.score(id)) from paradedb.bm25_search where description @@@ 'keyboard'".execute(&mut conn);
@@ -211,7 +211,7 @@ fn limit_without_order_by(mut conn: PgConnection) {
     let (plan, ) = r#"
 explain (analyze, format json) select * from paradedb.bm25_search where metadata @@@ 'color:white' limit 1;        
         "#
-        .fetch_one::<(Value, )>(&mut conn);
+        .fetch_one::<(Value,)>(&mut conn);
     let path = plan.pointer("/0/Plan/Plans/0").unwrap();
     assert_eq!(
         path.get("Node Type"),
@@ -232,7 +232,7 @@ fn score_and_limit_without_order_by(mut conn: PgConnection) {
     let (plan, ) = r#"
 explain (analyze, format json) select paradedb.score(id), * from paradedb.bm25_search where metadata @@@ 'color:white' limit 1;
         "#
-        .fetch_one::<(Value, )>(&mut conn);
+        .fetch_one::<(Value,)>(&mut conn);
     let path = plan.pointer("/0/Plan/Plans/0").unwrap();
     assert_eq!(
         path.get("Node Type"),
@@ -649,4 +649,57 @@ fn top_n_matches(mut conn: PgConnection) {
         let (b, count) = sql.fetch_one::<(bool, i64)>(&mut conn);
         assert_eq!((b, count), (true, n.min(8)));
     }
+}
+
+#[rstest]
+fn parallel_custom_scan_with_jsonb_issue2432(mut conn: PgConnection) {
+    r#"
+        DROP TABLE IF EXISTS test;
+        CREATE TABLE test (
+            id SERIAL8 NOT NULL PRIMARY KEY,
+            message TEXT,
+            severity INTEGER
+        ) WITH (autovacuum_enabled = false);
+
+        CREATE INDEX idxtest ON test USING bm25(id, message, severity) WITH (key_field = 'id', layer_sizes = '1GB, 1GB');
+        
+        INSERT INTO test (message, severity) VALUES ('beer wine cheese a', 1);
+        INSERT INTO test (message, severity) VALUES ('beer wine a', 2);
+        INSERT INTO test (message, severity) VALUES ('beer cheese a', 3);
+        INSERT INTO test (message, severity) VALUES ('beer a', 4);
+        INSERT INTO test (message, severity) VALUES ('wine cheese a', 5);
+        INSERT INTO test (message, severity) VALUES ('wine a', 6);
+        INSERT INTO test (message, severity) VALUES ('cheese a', 7);
+        INSERT INTO test (message, severity) VALUES ('beer wine cheese a', 1);
+        INSERT INTO test (message, severity) VALUES ('beer wine a', 2);
+        INSERT INTO test (message, severity) VALUES ('beer cheese a', 3);
+        INSERT INTO test (message, severity) VALUES ('beer a', 4);
+        INSERT INTO test (message, severity) VALUES ('wine cheese a', 5);
+        INSERT INTO test (message, severity) VALUES ('wine a', 6);
+        INSERT INTO test (message, severity) VALUES ('cheese a', 7);
+    "#.execute(&mut conn);
+
+    r#"
+        SET enable_indexonlyscan to OFF;
+        SET enable_indexscan to OFF;
+        SET max_parallel_workers = 32;
+    "#
+    .execute(&mut conn);
+
+    let (plan, ) = r#"
+        explain (FORMAT json) select id
+        from test 
+        where message @@@ '{"parse_with_field":{"field":"message","query_string":"beer","lenient":null,"conjunction_mode":null}}'::jsonb 
+        order by paradedb.score(id) desc
+        limit 10;
+    "#.fetch_one::<(serde_json::Value, )>(&mut conn);
+
+    eprintln!("{plan}");
+    let node = plan
+        .pointer("/0/Plan/Plans/0/Plans/0/Plans/0/Parallel Aware")
+        .unwrap();
+    let parallel_aware = node
+        .as_bool()
+        .expect("should have gotten the `Parallel Aware` node");
+    assert_eq!(parallel_aware, true);
 }

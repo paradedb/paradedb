@@ -15,35 +15,128 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::Cardinality;
-use crate::postgres::customscan::builders::custom_path::OrderByStyle;
-use crate::postgres::customscan::builders::custom_path::SortDirection;
-use crate::postgres::customscan::pdbscan::qual_inspect::Qual;
+use crate::api::{AsCStr, Cardinality, Varno};
+use crate::index::fast_fields_helper::WhichFastField;
+use crate::postgres::customscan::builders::custom_path::{OrderByStyle, SortDirection};
+use crate::postgres::customscan::pdbscan::ExecMethodType;
+use crate::query::SearchQueryInput;
+use pgrx::pg_sys::AsPgCStr;
 use pgrx::{pg_sys, PgList};
+use rustc_hash::FxHashMap;
+use serde::{Deserialize, Serialize};
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Serialize, Deserialize)]
 pub struct PrivateData {
     heaprelid: Option<pg_sys::Oid>,
     indexrelid: Option<pg_sys::Oid>,
     range_table_index: Option<pg_sys::Index>,
-    quals: Option<*mut pg_sys::List>,
+    query: Option<SearchQueryInput>,
     limit: Option<usize>,
     sort_field: Option<String>,
     sort_direction: Option<SortDirection>,
-    var_attname_lookup: Option<*mut pg_sys::List>,
+    #[serde(with = "var_attname_lookup_serializer")]
+    var_attname_lookup: Option<FxHashMap<(Varno, pg_sys::AttrNumber), String>>,
     maybe_ff: bool,
     segment_count: usize,
+    which_fast_fields: Option<Vec<WhichFastField>>,
+    targetlist_len: usize,
+    need_scores: bool,
+    exec_method_type: ExecMethodType,
+}
+
+mod var_attname_lookup_serializer {
+    use super::*;
+
+    use serde::{de::Error, Deserializer, Serializer};
+
+    fn key_to_string(key: &(Varno, i16)) -> String {
+        format!("{},{}", key.0, key.1)
+    }
+
+    fn key_from_string(s: &str) -> Result<(Varno, i16), String> {
+        let mut parts = s.splitn(2, ',');
+        let p1_str = parts
+            .next()
+            .ok_or_else(|| "Missing first part of key".to_string())?;
+        let p2_str = parts
+            .next()
+            .ok_or_else(|| "Missing second part of key".to_string())?;
+
+        let p1 = p1_str
+            .parse::<Varno>()
+            .map_err(|e| format!("Failed to parse first key part '{}': {}", p1_str, e))?;
+        let p2 = p2_str
+            .parse::<i16>()
+            .map_err(|e| format!("Failed to parse second key part '{}': {}", p2_str, e))?;
+
+        Ok((p1, p2))
+    }
+
+    pub fn serialize<S>(
+        map_option: &Option<FxHashMap<(Varno, i16), String>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let Some(map) = map_option else {
+            return serializer.serialize_none();
+        };
+
+        // Serialize as Vec<(String, String)>.
+        map.iter()
+            .map(|(k, v)| (key_to_string(k), v))
+            .collect::<Vec<(String, &String)>>()
+            .serialize(serializer)
+    }
+
+    #[allow(clippy::type_complexity)]
+    pub fn deserialize<'de, D>(
+        deserializer: D,
+    ) -> Result<Option<FxHashMap<(Varno, i16), String>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // Deserialize as Vec<(String, String)>.
+        let Some(string_map) = Option::<Vec<(&'de str, String)>>::deserialize(deserializer)? else {
+            return Ok(None);
+        };
+
+        let mut map = FxHashMap::default();
+        map.reserve(string_map.len());
+
+        for (k_str, v) in string_map {
+            let key_tuple = key_from_string(k_str)
+                .map_err(|e| D::Error::custom(format!("Invalid key format '{}': {}", k_str, e)))?;
+            map.insert(key_tuple, v);
+        }
+        Ok(Some(map))
+    }
 }
 
 impl From<*mut pg_sys::List> for PrivateData {
     fn from(list: *mut pg_sys::List) -> Self {
-        unsafe { deserialize::deserialize(list) }
+        unsafe {
+            let list = PgList::<pg_sys::Node>::from_pg(list);
+            let node = list.get_ptr(0).unwrap();
+            let content = node
+                .as_c_str()
+                .unwrap()
+                .to_str()
+                .expect("string node should be valid utf8");
+            serde_json::from_str(content).unwrap()
+        }
     }
 }
 
 impl From<PrivateData> for *mut pg_sys::List {
     fn from(value: PrivateData) -> Self {
-        unsafe { serialize::serialize(value).into_pg() }
+        let content = serde_json::to_string(&value).unwrap();
+        unsafe {
+            let mut ser = PgList::new();
+            ser.push(pg_sys::makeString(content.as_pg_cstr()).cast::<pg_sys::Node>());
+            ser.into_pg()
+        }
     }
 }
 
@@ -64,9 +157,8 @@ impl PrivateData {
         self.range_table_index = Some(rti);
     }
 
-    pub fn set_quals(&mut self, quals: Qual) {
-        let serialized: PgList<pg_sys::Node> = quals.into();
-        self.quals = Some(serialized.into_pg().cast())
+    pub fn set_query(&mut self, query: SearchQueryInput) {
+        self.query = Some(query);
     }
 
     pub fn set_limit(&mut self, limit: Option<Cardinality>) {
@@ -85,7 +177,10 @@ impl PrivateData {
         self.sort_direction = Some(style.direction())
     }
 
-    pub fn set_var_attname_lookup(&mut self, var_attname_lookup: *mut pg_sys::List) {
+    pub fn set_var_attname_lookup(
+        &mut self,
+        var_attname_lookup: FxHashMap<(Varno, pg_sys::AttrNumber), String>,
+    ) {
         self.var_attname_lookup = Some(var_attname_lookup);
     }
 
@@ -95,6 +190,22 @@ impl PrivateData {
 
     pub fn set_segment_count(&mut self, segment_count: usize) {
         self.segment_count = segment_count;
+    }
+
+    pub fn set_which_fast_fields(&mut self, which_fast_fields: Option<Vec<WhichFastField>>) {
+        self.which_fast_fields = which_fast_fields;
+    }
+
+    pub fn set_exec_method_type(&mut self, exec_method_type: ExecMethodType) {
+        self.exec_method_type = exec_method_type;
+    }
+
+    pub fn set_targetlist_len(&mut self, targetlist_len: usize) {
+        self.targetlist_len = targetlist_len;
+    }
+
+    pub fn set_need_scores(&mut self, maybe: bool) {
+        self.need_scores = maybe;
     }
 }
 
@@ -115,9 +226,8 @@ impl PrivateData {
         self.range_table_index
     }
 
-    pub fn quals(&self) -> Option<Qual> {
-        self.quals
-            .map(|ri| unsafe { Qual::from(PgList::<pg_sys::Node>::from_pg(ri)) })
+    pub fn query(&self) -> &Option<SearchQueryInput> {
+        &self.query
     }
 
     pub fn limit(&self) -> Option<usize> {
@@ -139,9 +249,8 @@ impl PrivateData {
         )
     }
 
-    pub fn var_attname_lookup(&self) -> Option<PgList<pg_sys::Node>> {
-        self.var_attname_lookup
-            .map(|list| unsafe { PgList::from_pg(list) })
+    pub fn var_attname_lookup(&self) -> &Option<FxHashMap<(Varno, pg_sys::AttrNumber), String>> {
+        &self.var_attname_lookup
     }
 
     pub fn maybe_ff(&self) -> bool {
@@ -151,182 +260,20 @@ impl PrivateData {
     pub fn segment_count(&self) -> usize {
         self.segment_count
     }
-}
 
-#[allow(non_snake_case)]
-pub mod serialize {
-    use crate::api::{AsCStr, AsInt};
-    use crate::postgres::customscan::builders::custom_path::SortDirection;
-    use crate::postgres::customscan::pdbscan::privdat::PrivateData;
-    use pgrx::pg_sys::{AsPgCStr, Node};
-    use pgrx::{pg_sys, PgList};
-    use std::fmt::Display;
-    use std::str::FromStr;
-
-    pub trait AsValueNode: Sized {
-        fn as_value_node(&self) -> *mut pg_sys::Node;
-
-        fn from_value_node(node: *mut pg_sys::Node) -> Option<Self>;
+    pub fn which_fast_fields(&self) -> &Option<Vec<WhichFastField>> {
+        &self.which_fast_fields
     }
 
-    impl AsValueNode for i32 {
-        fn as_value_node(&self) -> *mut Node {
-            unsafe { pg_sys::makeInteger(*self).cast() }
-        }
-
-        fn from_value_node(node: *mut Node) -> Option<Self> {
-            unsafe { node.as_int() }
-        }
+    pub fn exec_method_type(&self) -> &ExecMethodType {
+        &self.exec_method_type
     }
 
-    impl AsValueNode for u32 {
-        fn as_value_node(&self) -> *mut Node {
-            unsafe { makeString(Some(&format!("{self}"))) }
-        }
-
-        fn from_value_node(node: *mut Node) -> Option<Self> {
-            unsafe { Self::from_str(node.as_c_str()?.to_str().ok()?).ok() }
-        }
+    pub fn targetlist_len(&self) -> usize {
+        self.targetlist_len
     }
 
-    impl AsValueNode for usize {
-        fn as_value_node(&self) -> *mut Node {
-            unsafe { makeString(Some(&format!("{self}"))) }
-        }
-
-        fn from_value_node(node: *mut Node) -> Option<Self> {
-            unsafe { Self::from_str(node.as_c_str()?.to_str().ok()?).ok() }
-        }
-    }
-
-    impl AsValueNode for pg_sys::Oid {
-        fn as_value_node(&self) -> *mut Node {
-            unsafe { makeString(Some(&format!("{}", self.to_u32()))) }
-        }
-        fn from_value_node(node: *mut Node) -> Option<Self> {
-            let as_u32 = unsafe { u32::from_str(node.as_c_str()?.to_str().ok()?).ok() }?;
-            Some(pg_sys::Oid::from(as_u32))
-        }
-    }
-
-    impl AsValueNode for SortDirection {
-        fn as_value_node(&self) -> *mut Node {
-            unsafe { makeInteger(Some(*self as i32)) }
-        }
-
-        fn from_value_node(node: *mut Node) -> Option<Self> {
-            unsafe {
-                let integer = node.as_int()? as i32;
-                if integer == SortDirection::Asc as i32 {
-                    Some(Self::Asc)
-                } else if integer == SortDirection::Desc as i32 {
-                    Some(Self::Desc)
-                } else if integer == SortDirection::None as i32 {
-                    Some(Self::None)
-                } else {
-                    None
-                }
-            }
-        }
-    }
-
-    pub unsafe fn makeInteger<T: AsValueNode>(input: Option<T>) -> *mut pg_sys::Node {
-        unwrapOrNull(input.map(|i| i.as_value_node()))
-    }
-
-    pub unsafe fn makeString<T: Display>(input: Option<T>) -> *mut pg_sys::Node {
-        unwrapOrNull(
-            input.map(|s| pg_sys::makeString(s.to_string().as_pg_cstr()).cast::<pg_sys::Node>()),
-        )
-    }
-
-    #[allow(dead_code)]
-    pub unsafe fn makeBoolean<T: Into<bool>>(input: Option<T>) -> *mut pg_sys::Node {
-        #[cfg(feature = "pg14")]
-        {
-            unwrapOrNull(
-                input.map(|b| {
-                    pg_sys::makeInteger(if b.into() { 1 } else { 0 }).cast::<pg_sys::Node>()
-                }),
-            )
-        }
-
-        #[cfg(not(feature = "pg14"))]
-        {
-            unwrapOrNull(input.map(|b| pg_sys::makeBoolean(b.into()).cast::<pg_sys::Node>()))
-        }
-    }
-
-    unsafe fn unwrapOrNull(node: Option<*mut pg_sys::Node>) -> *mut pg_sys::Node {
-        node.unwrap_or_else(|| {
-            pg_sys::makeNullConst(pg_sys::OIDOID, -1, pg_sys::Oid::INVALID).cast::<pg_sys::Node>()
-        })
-    }
-
-    pub unsafe fn serialize(privdat: PrivateData) -> PgList<pg_sys::Node> {
-        let mut ser = PgList::new();
-
-        ser.push(makeInteger(privdat.heaprelid));
-        ser.push(makeInteger(privdat.indexrelid));
-        ser.push(makeInteger(privdat.range_table_index));
-        ser.push(unwrapOrNull(privdat.quals.map(|l| l.cast())));
-        ser.push(makeString(privdat.limit));
-        ser.push(makeString(privdat.sort_field));
-        ser.push(makeInteger(privdat.sort_direction));
-        ser.push(unwrapOrNull(
-            privdat.var_attname_lookup.map(|v| v.cast::<pg_sys::Node>()),
-        ));
-        ser.push(makeBoolean(Some(privdat.maybe_ff)));
-        ser.push(makeString(Some(privdat.segment_count)));
-        ser
-    }
-}
-
-#[allow(non_snake_case)]
-pub mod deserialize {
-    use crate::api::{AsBool, AsCStr};
-    use crate::nodecast;
-    use crate::postgres::customscan::pdbscan::privdat::serialize::AsValueNode;
-    use crate::postgres::customscan::pdbscan::privdat::PrivateData;
-    use pgrx::{pg_sys, PgList};
-    use std::str::FromStr;
-
-    pub unsafe fn decodeInteger<T: AsValueNode>(node: *mut pg_sys::Node) -> Option<T> {
-        T::from_value_node(node)
-    }
-
-    pub unsafe fn decodeString<T: FromStr>(node: *mut pg_sys::Node) -> Option<T> {
-        node.as_c_str().map(|i| {
-            let s = i.to_str().expect("string node should be valid utf8");
-            T::from_str(s)
-                .ok()
-                .expect("value should parse from a String")
-        })
-    }
-
-    #[allow(dead_code)]
-    pub unsafe fn decodeBoolean<T: From<bool>>(node: *mut pg_sys::Node) -> Option<T> {
-        node.as_bool().map(|b| b.into())
-    }
-
-    pub unsafe fn deserialize(input: *mut pg_sys::List) -> PrivateData {
-        let input = PgList::<pg_sys::Node>::from_pg(input);
-        PrivateData {
-            heaprelid: input.get_ptr(0).and_then(|n| decodeInteger(n)),
-            indexrelid: input.get_ptr(1).and_then(|n| decodeInteger(n)),
-            range_table_index: input.get_ptr(2).and_then(|n| decodeInteger(n)),
-            quals: input.get_ptr(3).and_then(|n| nodecast!(List, T_List, n)),
-            limit: input.get_ptr(4).and_then(|n| decodeString(n)),
-            sort_field: input.get_ptr(5).and_then(|n| decodeString(n)),
-            sort_direction: input.get_ptr(6).and_then(|n| decodeInteger(n)),
-            var_attname_lookup: input
-                .get_ptr(7)
-                .and_then(|n| nodecast!(List, T_List, n, true)),
-            maybe_ff: input
-                .get_ptr(8)
-                .and_then(|n| decodeBoolean(n))
-                .unwrap_or_default(),
-            segment_count: input.get_ptr(9).and_then(|n| decodeString(n)).unwrap_or(0),
-        }
+    pub fn need_scores(&self) -> bool {
+        self.need_scores
     }
 }

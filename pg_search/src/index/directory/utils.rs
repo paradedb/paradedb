@@ -114,18 +114,7 @@ pub unsafe fn save_new_metas(
             let meta_entry = SegmentMetaEntry {
                 segment_id: *id,
                 max_doc: created_segment.max_doc(),
-                xmin: if deleted_ids.is_empty() {
-                    // this is a new segment created by a tantivy index .commit()
-                    pg_sys::GetCurrentTransactionId()
-                } else {
-                    // this is a new segment created by a tantivy merge.  in this case it's imperative
-                    // this segment, which contains tuples that have previously bee on disk, be
-                    // written to a transaction that is known to be "not in progress anymore".  This
-                    // is because the data in this segment came from a transaction that was not in
-                    // progress and changing their "in progress" state will upset our visibility
-                    // expectations
-                    pg_sys::FrozenTransactionId
-                },
+                _unused: pg_sys::InvalidTransactionId,
                 xmax: pg_sys::InvalidTransactionId,
                 postings: files.remove(&SegmentComponent::Postings).map(|e| e.0),
                 positions: files.remove(&SegmentComponent::Positions).map(|e| e.0),
@@ -308,16 +297,9 @@ pub unsafe fn save_new_metas(
             .map(|(_, delete_entry)| SegmentMetaEntry {
                 segment_id: SegmentId::from_bytes([0; 16]), // all zeros
                 max_doc: delete_entry.num_deleted_docs,
-                xmin: pg_sys::FrozenTransactionId,
                 xmax: pg_sys::FrozenTransactionId, // immediately recyclable
-                postings: None,
-                positions: None,
-                fast_fields: None,
-                field_norms: None,
-                terms: None,
-                store: None,
-                temp_store: None,
                 delete: Some(delete_entry), // the file whose bytes we need to ensure get garbage collected in the future
+                ..Default::default()
             })
             .collect::<Vec<_>>();
         linked_list.add_items(&fake_entries, None);
@@ -332,7 +314,6 @@ pub unsafe fn save_new_metas(
 pub unsafe fn load_metas(
     relation_oid: pg_sys::Oid,
     inventory: &SegmentMetaInventory,
-    snapshot: Option<pg_sys::Snapshot>,
     solve_mvcc: &MvccSatisfies,
 ) -> tantivy::Result<(Vec<SegmentMetaEntry>, IndexMeta, PinCushion)> {
     let mut alive_segments = vec![];
@@ -357,7 +338,7 @@ pub unsafe fn load_metas(
                 || (matches!(solve_mvcc, MvccSatisfies::Vacuum) && entry.xmax == pg_sys::InvalidTransactionId)
 
                 // a snapshot can see any that are visible in its snapshot
-                || (matches!(solve_mvcc, MvccSatisfies::Snapshot) && entry.visible(snapshot.expect("snapshot must be provided for `MvccSatisfies::Snapshot`")))
+                || (matches!(solve_mvcc, MvccSatisfies::Snapshot) && entry.visible())
 
                 // mergeable can see any that are known to be mergeable
                 || (matches!(solve_mvcc, MvccSatisfies::Mergeable) && entry.mergeable())

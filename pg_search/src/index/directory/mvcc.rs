@@ -87,7 +87,6 @@ type AtomicFileEntry = (FileEntry, Arc<AtomicUsize>);
 #[derive(Clone, Debug)]
 pub struct MVCCDirectory {
     relation_oid: pg_sys::Oid,
-    snapshot: Option<pg_sys::Snapshot>,
     mvcc_style: MvccSatisfies,
 
     // keep a cache of readers behind an Arc<Mutex<_>> so that if/when this MVCCDirectory is
@@ -109,40 +108,24 @@ unsafe impl Sync for MVCCDirectory {}
 
 impl MVCCDirectory {
     pub fn parallel_worker(relation_oid: pg_sys::Oid, segment_ids: HashSet<SegmentId>) -> Self {
-        Self::with_mvcc_style(
-            relation_oid,
-            MvccSatisfies::ParallelWorker(segment_ids),
-            None,
-        )
+        Self::with_mvcc_style(relation_oid, MvccSatisfies::ParallelWorker(segment_ids))
     }
 
     pub fn snapshot(relation_oid: pg_sys::Oid) -> Self {
-        let snapshot = unsafe {
-            assert!(
-                pg_sys::ActiveSnapshotSet(),
-                "must have an active snapshot set"
-            );
-            pg_sys::GetActiveSnapshot()
-        };
-        Self::with_mvcc_style(relation_oid, MvccSatisfies::Snapshot, Some(snapshot))
+        Self::with_mvcc_style(relation_oid, MvccSatisfies::Snapshot)
     }
 
     pub fn vacuum(relation_oid: pg_sys::Oid) -> Self {
-        Self::with_mvcc_style(relation_oid, MvccSatisfies::Vacuum, None)
+        Self::with_mvcc_style(relation_oid, MvccSatisfies::Vacuum)
     }
 
     pub fn mergeable(relation_oid: pg_sys::Oid) -> Self {
-        Self::with_mvcc_style(relation_oid, MvccSatisfies::Mergeable, None)
+        Self::with_mvcc_style(relation_oid, MvccSatisfies::Mergeable)
     }
 
-    fn with_mvcc_style(
-        relation_oid: pg_sys::Oid,
-        mvcc_style: MvccSatisfies,
-        snapshot: Option<pg_sys::Snapshot>,
-    ) -> Self {
+    fn with_mvcc_style(relation_oid: pg_sys::Oid, mvcc_style: MvccSatisfies) -> Self {
         Self {
             relation_oid,
-            snapshot,
             mvcc_style,
             readers: Default::default(),
             new_files: Default::default(),
@@ -376,12 +359,7 @@ impl Directory for MVCCDirectory {
 
     fn load_metas(&self, inventory: &SegmentMetaInventory) -> tantivy::Result<IndexMeta> {
         let loaded_metas = self.loaded_metas.get_or_init(|| unsafe {
-            match load_metas(
-                self.relation_oid,
-                inventory,
-                self.snapshot,
-                &self.mvcc_style,
-            ) {
+            match load_metas(self.relation_oid, inventory, &self.mvcc_style) {
                 Err(e) => Arc::new(Err(e)),
                 Ok((all_entries, index_meta, pin_cushion)) => {
                     *self.all_entries.lock() = all_entries

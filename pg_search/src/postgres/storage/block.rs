@@ -16,7 +16,6 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::storage::buffer::{Buffer, BufferManager, BufferMut};
-use pgrx::pg_sys::BlockNumber;
 use pgrx::*;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
@@ -172,7 +171,14 @@ pub struct DeleteEntry {
 pub struct SegmentMetaEntry {
     pub segment_id: SegmentId,
     pub max_doc: u32,
-    pub xmin: pg_sys::TransactionId,
+
+    /// this is the unused space that was once where we stored the `xmin` transaction id that created this entry
+    #[doc(hidden)]
+    #[serde(alias = "xmin")]
+    pub _unused: pg_sys::TransactionId,
+
+    /// If set to [`pg_sys::FrozenTransactionId`] then this entry has been deleted via a Tantivy merge
+    /// and a) is no longer visible to any transaction and b) is subject to being garbage collected
     pub xmax: pg_sys::TransactionId,
 
     pub postings: Option<FileEntry>,
@@ -185,13 +191,12 @@ pub struct SegmentMetaEntry {
     pub delete: Option<DeleteEntry>,
 }
 
-#[cfg(any(test, feature = "pg_test"))]
 impl Default for SegmentMetaEntry {
     fn default() -> Self {
         Self {
             segment_id: SegmentId::generate_random(),
             max_doc: Default::default(),
-            xmin: pg_sys::InvalidTransactionId,
+            _unused: pg_sys::InvalidTransactionId,
             xmax: pg_sys::InvalidTransactionId,
             postings: None,
             positions: None,
@@ -206,6 +211,15 @@ impl Default for SegmentMetaEntry {
 }
 
 impl SegmentMetaEntry {
+    pub fn is_deleted(&self) -> bool {
+        self.xmax == pg_sys::FrozenTransactionId
+    }
+
+    /// Fake an `Opstamp` that's always zero
+    pub fn opstamp(&self) -> Opstamp {
+        0
+    }
+
     pub fn num_docs(&self) -> usize {
         self.max_doc as usize - self.num_deleted_docs()
     }
@@ -351,13 +365,6 @@ impl From<PgItem> for SegmentMetaEntry {
     }
 }
 
-impl SegmentMetaEntry {
-    /// Fake an opstamp value based on our internal `xmin` and `xmax` values
-    pub fn opstamp(&self) -> Opstamp {
-        self.xmin.into_inner().max(self.xmax.into_inner()) as Opstamp // ((self.xmax as u64) << 32) | (self.xmin as u64)
-    }
-}
-
 pub trait SegmentFileDetails {
     fn segment_id(&self) -> Option<SegmentId>;
     fn component_type(&self) -> Option<SegmentComponent>;
@@ -386,93 +393,40 @@ impl<T: AsRef<Path>> SegmentFileDetails for T {
 // ---------------------------------------------------------
 
 pub trait MVCCEntry {
-    // Required methods
-    fn get_xmin(&self) -> pg_sys::TransactionId;
-    fn get_xmax(&self) -> pg_sys::TransactionId;
-    fn into_frozen(self, should_freeze_xmin: bool, should_freeze_xmax: bool) -> Self;
-
     fn pintest_blockno(&self) -> pg_sys::BlockNumber;
 
     // Provided methods
-    unsafe fn visible(&self, snapshot: pg_sys::Snapshot) -> bool {
-        let xmin = self.get_xmin();
-        let xmax = self.get_xmax();
-        let xmin_visible = pg_sys::TransactionIdIsCurrentTransactionId(xmin)
-            || !pg_sys::XidInMVCCSnapshot(xmin, snapshot);
-        let deleted = xmax != pg_sys::InvalidTransactionId
-            && (pg_sys::TransactionIdIsCurrentTransactionId(xmax)
-                || !pg_sys::XidInMVCCSnapshot(xmax, snapshot));
-        xmin_visible && !deleted
-    }
+    unsafe fn visible(&self) -> bool;
 
-    unsafe fn recyclable(&self, bman: &mut BufferManager) -> bool {
-        let xmax = self.get_xmax();
-        if xmax == pg_sys::InvalidTransactionId {
-            return false;
-        }
+    unsafe fn recyclable(&self, bman: &mut BufferManager) -> bool;
 
-        // if the xmax transaction is no longer in progress
-        !pg_sys::TransactionIdIsInProgress(xmax)
-
-        // and there's no pin on our pintest buffer, assuming we have a valid buffer
-        && {
-            self.pintest_blockno() == pg_sys::InvalidBlockNumber
-                || bman.get_buffer_for_cleanup_conditional(self.pintest_blockno()).is_some()
-        }
-    }
-
-    unsafe fn mergeable(&self) -> bool {
-        let xmin = self.get_xmin();
-        let xmax = self.get_xmax();
-
-        // mergeable if we haven't deleted it
-        xmax == pg_sys::InvalidTransactionId
-
-            // and it's from a transaction that is not in progress.  we can't merge segments created
-            // by *this* transaction (ie, xmin == GetCurrentTransactionId()) because this transaction
-            // is considered in progress
-        && (!pg_sys::TransactionIdIsInProgress(xmin))
-    }
-
-    unsafe fn xmin_needs_freeze(&self, freeze_limit: pg_sys::TransactionId) -> bool {
-        let xmin = self.get_xmin();
-        pg_sys::TransactionIdIsNormal(xmin) && pg_sys::TransactionIdPrecedes(xmin, freeze_limit)
-    }
-
-    unsafe fn xmax_needs_freeze(&self, freeze_limit: pg_sys::TransactionId) -> bool {
-        let xmax = self.get_xmax();
-        pg_sys::TransactionIdIsNormal(xmax) && pg_sys::TransactionIdPrecedes(xmax, freeze_limit)
-    }
+    unsafe fn mergeable(&self) -> bool;
 }
 
 impl MVCCEntry for SegmentMetaEntry {
-    fn get_xmin(&self) -> pg_sys::TransactionId {
-        self.xmin
-    }
-    fn get_xmax(&self) -> pg_sys::TransactionId {
-        self.xmax
-    }
-    fn into_frozen(self, should_freeze_xmin: bool, should_freeze_xmax: bool) -> Self {
-        SegmentMetaEntry {
-            xmin: if should_freeze_xmin {
-                pg_sys::FrozenTransactionId
-            } else {
-                self.xmin
-            },
-            xmax: if should_freeze_xmax {
-                pg_sys::FrozenTransactionId
-            } else {
-                self.xmax
-            },
-            ..self
-        }
-    }
-
-    fn pintest_blockno(&self) -> BlockNumber {
+    fn pintest_blockno(&self) -> pg_sys::BlockNumber {
         match self.file_entries().next() {
             None => panic!("SegmentMetaEntry for `{}` has no files", self.segment_id),
             Some((file_entry, _)) => file_entry.starting_block,
         }
+    }
+
+    unsafe fn visible(&self) -> bool {
+        // visible if we haven't deleted it
+        !self.is_deleted()
+    }
+
+    unsafe fn recyclable(&self, bman: &mut BufferManager) -> bool {
+        // recyclable if we've deleted it
+        self.is_deleted()
+
+        // and there's no pin on our pintest buffer, assuming we have a valid buffer
+        && (self.pintest_blockno() == pg_sys::InvalidBlockNumber || bman.get_buffer_for_cleanup_conditional(self.pintest_blockno()).is_some())
+    }
+
+    unsafe fn mergeable(&self) -> bool {
+        // mergeable if we haven't deleted it
+        !self.is_deleted()
     }
 }
 
@@ -481,37 +435,5 @@ pub const fn bm25_max_free_space() -> usize {
         (pg_sys::BLCKSZ as usize)
             - pg_sys::MAXALIGN(size_of::<BM25PageSpecialData>())
             - pg_sys::MAXALIGN(offset_of!(pg_sys::PageHeaderData, pd_linp))
-    }
-}
-
-#[cfg(any(test, feature = "pg_test"))]
-#[pgrx::pg_schema]
-mod tests {
-    use super::*;
-
-    #[pg_test]
-    unsafe fn test_needs_freeze() {
-        let freeze_limit = pg_sys::TransactionId::from(100);
-        let segment = SegmentMetaEntry {
-            xmin: pg_sys::TransactionId::from(50),
-            xmax: pg_sys::TransactionId::from(150),
-            ..Default::default()
-        };
-
-        let xmin_needs_freeze = segment.xmin_needs_freeze(freeze_limit);
-        let xmax_needs_freeze = segment.xmax_needs_freeze(freeze_limit);
-
-        assert!(xmin_needs_freeze);
-        assert!(!xmax_needs_freeze);
-
-        let frozen_segment = segment.into_frozen(xmin_needs_freeze, xmax_needs_freeze);
-
-        assert_eq!(
-            frozen_segment,
-            SegmentMetaEntry {
-                xmin: pg_sys::FrozenTransactionId,
-                ..segment
-            }
-        );
     }
 }

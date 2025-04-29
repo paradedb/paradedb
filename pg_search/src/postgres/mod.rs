@@ -274,4 +274,9 @@ impl ParallelScanState {
     fn query(&self) -> anyhow::Result<Option<SearchQueryInput>> {
         self.payload.query()
     }
+
+    fn reset(&mut self) {
+        self.mutex.init();
+        self.remaining_segments = self.nsegments;
+    }
 }

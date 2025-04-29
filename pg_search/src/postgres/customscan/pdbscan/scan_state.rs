@@ -282,4 +282,17 @@ impl PdbScanState {
             Some(SortDirection::Asc | SortDirection::Desc)
         )
     }
+
+    pub fn reset(&mut self) {
+        if let Some(parallel_state) = self.parallel_state {
+            unsafe {
+                ParallelScanState::reset(&mut *parallel_state);
+            }
+        }
+        self.search_results = SearchResults::None;
+        self.retry_count = 0;
+        self.heap_tuple_check_count = 0;
+        self.virtual_tuple_count = 0;
+        self.invisible_tuple_count = 0;
+    }
 }

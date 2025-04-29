@@ -772,6 +772,7 @@ impl CustomScan for PdbScan {
         unsafe {
             inject_score_and_snippet_placeholders(state);
         }
+        state.custom_state_mut().reset();
     }
 
     #[allow(clippy::blocks_in_conditions)]

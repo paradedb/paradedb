@@ -283,7 +283,7 @@ impl Mergeable for SearchIndexMerger {
             "segment was already merged by this merger instance"
         );
 
-        let new_segment = self.writer.merge_foreground(segment_ids)?;
+        let new_segment = self.writer.merge_foreground(segment_ids, true)?;
         unsafe {
             // SAFETY:  The important thing here is that these segments are not used in any way
             // after their pins are dropped, and [`SearchIndexMerger`] ensures that

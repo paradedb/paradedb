@@ -16,8 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::fast_fields_helper::{FFHelper, FastFieldType, WhichFastField};
-use crate::index::reader::index::SearchResults;
+use crate::index::reader::index::{SearchIndexScore, SearchResults};
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
+use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use pgrx::{pg_sys, IntoDatum, PgTupleDesc};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -111,25 +112,27 @@ impl MixedFastFieldExecState {
 
     // Helper method to initialize search if needed
     fn ensure_search_initialized(&mut self, state: &mut PdbScanState) {
-        if self.search_iterator.is_none() {
-            self.search_results = state.search_results;
+        if self.search_iterator.is_none() && !self.query(state) {
+            // No more results to query or failed to initialize
+            return;
+        }
 
+        // If search_iterator is None after query, initialize it from search_results
+        if self.search_iterator.is_none() && !matches!(self.search_results, SearchResults::None) {
             // Convert search results to a map
             self.search_iterator = Some(BTreeMap::new());
-            let mut builder = state.search_reader.as_ref().unwrap();
-            let result = self.search_results.execute(&mut builder);
+            let mut i: DocId = 0;
 
-            if let Ok(result) = result {
-                for (i, doc) in result.iter().enumerate() {
-                    if let Some(address) = doc.address {
-                        self.search_iterator
-                            .as_mut()
-                            .unwrap()
-                            .insert(i as DocId, address);
-                    }
-                }
+            // Collect all available results into the BTreeMap
+            while let Some((scored, doc_address)) = self.search_results.next() {
+                self.search_iterator
+                    .as_mut()
+                    .unwrap()
+                    .insert(i, doc_address);
+                i += 1;
             }
 
+            // Move to first item
             self.advance_iterator();
         }
     }
@@ -271,6 +274,44 @@ impl ExecMethod for MixedFastFieldExecState {
                 state.search_reader.as_ref().unwrap(),
                 &self.which_fast_fields,
             );
+        }
+    }
+
+    fn query(&mut self, state: &mut PdbScanState) -> bool {
+        // Clear any previous iterator state
+        self.search_iterator = None;
+        self.current_item = None;
+
+        if let Some(parallel_state) = state.parallel_state {
+            if let Some(segment_id) = unsafe { checkout_segment(parallel_state) } {
+                self.search_results = state.search_reader.as_ref().unwrap().search_segment(
+                    state.need_scores(),
+                    segment_id,
+                    &state.search_query_input,
+                );
+                return true;
+            }
+
+            // no more segments to query
+            self.search_results = SearchResults::None;
+            false
+        } else if self.did_query {
+            // not parallel, so we're done
+            false
+        } else {
+            // not parallel, first time query
+            self.search_results = state
+                .search_reader
+                .as_ref()
+                .expect("must have a search_reader to do a query")
+                .search(
+                    state.need_scores(),
+                    false,
+                    &state.search_query_input,
+                    state.limit,
+                );
+            self.did_query = true;
+            true
         }
     }
 

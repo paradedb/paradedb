@@ -917,9 +917,12 @@ impl CustomScan for PdbScan {
 /// these specialized [`ExecMethod`]s.
 ///
 fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
+    pgrx::warning!("Choosing execution method");
+
     if let Some((limit, sort_direction)) = privdata.limit().zip(privdata.sort_direction()) {
         // having a valid limit and sort direction means we can do a TopN query
         // and TopN can do snippets
+        pgrx::warning!("Chose TopN execution method");
         ExecMethodType::TopN {
             heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
             limit: limit,
@@ -928,19 +931,23 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
         }
     } else if exec_methods::fast_fields::is_mixed_fast_field_capable(privdata) {
         // Check for mixed fields first, before string_agg_capable check
+        pgrx::warning!("Chose MixedFastField execution method");
         ExecMethodType::FastFieldMixed {
             which_fast_fields: privdata.which_fast_fields().clone().unwrap(),
         }
     } else if let Some(field) = exec_methods::fast_fields::is_string_agg_capable(privdata) {
+        pgrx::warning!("Chose StringFastField execution method");
         ExecMethodType::FastFieldString {
             field,
             which_fast_fields: privdata.which_fast_fields().clone().unwrap(),
         }
     } else if exec_methods::fast_fields::is_numeric_fast_field_capable(privdata) {
+        pgrx::warning!("Chose NumericFastField execution method");
         ExecMethodType::FastFieldNumeric {
             which_fast_fields: privdata.which_fast_fields().clone().unwrap_or_default(),
         }
     } else {
+        pgrx::warning!("Chose Normal execution method");
         ExecMethodType::Normal
     }
 }

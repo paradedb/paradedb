@@ -149,10 +149,91 @@ pub unsafe fn count(
     schema: &SearchIndexSchema,
     target_list: *mut pg_sys::List,
 ) -> f64 {
-    let ff = pullup_fast_fields(target_list, schema, table, rti).unwrap_or_default();
+    pgrx::warning!("Counting fast fields");
+    let ff = collect_fast_fields(target_list, schema, table, rti);
+
+    let ff_count = ff.len() as f64;
+    pgrx::warning!("Found {} fast fields in count", ff_count);
 
     builder.custom_private().set_maybe_ff(!ff.is_empty());
     ff.iter().sorted().dedup().count() as f64
+}
+
+/// Find all fields that can be used as "fast fields" without failing if some fields are not fast fields
+pub unsafe fn collect_fast_fields(
+    node: *mut pg_sys::List,
+    schema: &SearchIndexSchema,
+    heaprel: &PgRelation,
+    rti: pg_sys::Index,
+) -> Vec<WhichFastField> {
+    let mut matches = Vec::new();
+
+    let tupdesc = heaprel.tuple_desc();
+    let targetlist = PgList::<pg_sys::TargetEntry>::from_pg(node);
+
+    pgrx::warning!(
+        "Collecting fast fields from target list with {} entries",
+        targetlist.len()
+    );
+
+    for te in targetlist.iter_ptr() {
+        if (*te).resorigtbl != pg_sys::Oid::INVALID && (*te).resorigtbl != heaprel.oid() {
+            continue;
+        }
+
+        if let Some(var) = nodecast!(Var, T_Var, (*te).expr) {
+            if (*var).varno as i32 != rti as i32 {
+                continue;
+            }
+
+            match (*var).varattno as i32 {
+                // Special system attributes that are treated as fast fields
+                pg_sys::SelfItemPointerAttributeNumber => {
+                    matches.push(WhichFastField::Ctid);
+                }
+
+                pg_sys::TableOidAttributeNumber => {
+                    matches.push(WhichFastField::TableOid);
+                }
+
+                // Regular columns
+                attno => {
+                    let att = tupdesc.get((attno - 1) as usize).unwrap_or_else(|| {
+                        panic!(
+                            "attno {attno} should exist in tupdesc from relation {} (`{}`)",
+                            heaprel.oid().to_u32(),
+                            heaprel.name()
+                        )
+                    });
+
+                    if schema.is_fast_field(att.name()) {
+                        let ff_type = if (*var).vartype == pg_sys::TEXTOID
+                            || (*var).vartype == pg_sys::VARCHAROID
+                        {
+                            FastFieldType::String
+                        } else {
+                            FastFieldType::Numeric
+                        };
+
+                        matches.push(WhichFastField::Named(att.name().to_string(), ff_type));
+                    }
+                    // If not a fast field, simply continue without adding
+                }
+            }
+        } else if uses_scores((*te).expr.cast(), score_funcoid(), rti) {
+            matches.push(WhichFastField::Score);
+        } else if pgrx::is_a((*te).expr.cast(), pg_sys::NodeTag::T_Aggref) {
+            matches.push(WhichFastField::Junk("agg".into()));
+        } else if nodecast!(Const, T_Const, (*te).expr).is_some() {
+            matches.push(WhichFastField::Junk("const".into()));
+        } else if nodecast!(WindowFunc, T_WindowFunc, (*te).expr).is_some() {
+            matches.push(WhichFastField::Junk("window".into()));
+        }
+        // If it's not one of these types, simply continue without adding
+    }
+
+    pgrx::warning!("Found {} fast fields in collect_fast_fields", matches.len());
+    matches
 }
 
 /// Find all the fields that can be as "fast fields", categorize them as [`WhichFastField`]s, and
@@ -165,9 +246,19 @@ pub unsafe fn collect(
     schema: &SearchIndexSchema,
     heaprel: &PgRelation,
 ) -> Option<Vec<WhichFastField>> {
+    pgrx::warning!("Collecting fast fields, maybe_ff: {}", maybe_ff);
     if maybe_ff {
-        pullup_fast_fields(target_list, schema, heaprel, rti)
+        let fast_fields = collect_fast_fields(target_list, schema, heaprel, rti);
+
+        if fast_fields.is_empty() {
+            pgrx::warning!("No fast fields found");
+            None
+        } else {
+            pgrx::warning!("Found {} fast fields in collect", fast_fields.len());
+            Some(fast_fields)
+        }
     } else {
+        pgrx::warning!("maybe_ff is false, returning None");
         None
     }
 }
@@ -178,153 +269,119 @@ pub unsafe fn pullup_fast_fields(
     heaprel: &PgRelation,
     rti: pg_sys::Index,
 ) -> Option<Vec<WhichFastField>> {
-    let mut matches = Vec::new();
+    // Using our new function that continues even if fields aren't fast fields
+    let fast_fields = collect_fast_fields(node, schema, heaprel, rti);
 
-    let tupdesc = heaprel.tuple_desc();
-    let targetlist = PgList::<pg_sys::TargetEntry>::from_pg(node);
-    for te in targetlist.iter_ptr() {
-        if (*te).resorigtbl != pg_sys::Oid::INVALID && (*te).resorigtbl != heaprel.oid() {
-            continue;
-        }
-        if let Some(var) = nodecast!(Var, T_Var, (*te).expr) {
-            if (*var).varno as i32 != rti as i32 {
-                // this TargetEntry's Var isn't from the same RangeTable as we were asked to inspect,
-                // so just skip it
-                continue;
-            }
-            match (*var).varattno as i32 {
-                // any of these mean we can't use fast fields
-                pg_sys::MinTransactionIdAttributeNumber
-                | pg_sys::MaxTransactionIdAttributeNumber
-                | pg_sys::MinCommandIdAttributeNumber
-                | pg_sys::MaxCommandIdAttributeNumber => return None,
+    pgrx::warning!("Pulled up {} fast fields", fast_fields.len());
 
-                // these aren't _exactly_ fast fields, but we do have the information
-                // readily available during the scan, so we'll pretend
-                pg_sys::SelfItemPointerAttributeNumber => {
-                    // okay, "ctid" is a fast field but it's secret
-                    matches.push(WhichFastField::Ctid);
-                    continue;
-                }
-
-                pg_sys::TableOidAttributeNumber => {
-                    matches.push(WhichFastField::TableOid);
-                    continue;
-                }
-
-                attno => {
-                    let att = tupdesc.get((attno - 1) as usize).unwrap_or_else(|| {
-                        panic!(
-                            "attno {attno} should exist in tupdesc from relation {} (`{}`)",
-                            heaprel.oid().to_u32(),
-                            heaprel.name()
-                        )
-                    });
-                    if schema.is_fast_field(att.name()) {
-                        let ff_type = if (*var).vartype == pg_sys::TEXTOID
-                            || (*var).vartype == pg_sys::VARCHAROID
-                        {
-                            FastFieldType::String
-                        } else {
-                            FastFieldType::Numeric
-                        };
-
-                        matches.push(WhichFastField::Named(att.name().to_string(), ff_type));
-                        continue;
-                    }
-                }
-            }
-        } else if uses_scores((*te).expr.cast(), score_funcoid(), rti) {
-            matches.push(WhichFastField::Score);
-            continue;
-        } else if pgrx::is_a((*te).expr.cast(), pg_sys::NodeTag::T_Aggref) {
-            matches.push(WhichFastField::Junk("agg".into()));
-            continue;
-        } else if nodecast!(Const, T_Const, (*te).expr).is_some() {
-            matches.push(WhichFastField::Junk("const".into()));
-            continue;
-        } else if nodecast!(WindowFunc, T_WindowFunc, (*te).expr).is_some() {
-            matches.push(WhichFastField::Junk("window".into()));
-            continue;
-        }
-
-        // we only support Vars or our score function in the target list
-        return None;
+    if fast_fields.is_empty() {
+        pgrx::warning!("No fast fields found in pullup");
+        None
+    } else {
+        pgrx::warning!("Successfully found fast fields: {:?}", fast_fields);
+        Some(fast_fields)
     }
-
-    if matches
-        .iter()
-        .sorted()
-        .dedup()
-        .filter(|ff| matches!(ff, WhichFastField::Named(_, FastFieldType::String)))
-        .count()
-        > 1
-    {
-        // we cannot support more than 1 different String fast field
-        return None;
-    }
-
-    Some(matches)
 }
 
 // Check if we can use the mixed fast field execution method
 pub fn is_mixed_fast_field_capable(privdata: &PrivateData) -> bool {
+    pgrx::warning!("Checking if mixed fast field capable...");
     if let Some(which_fast_fields) = privdata.which_fast_fields() {
-        if which_fast_fields.len() < 2 {
-            return false; // Need at least 2 fields to qualify as mixed
+        pgrx::warning!("Found fast fields: {:?}", which_fast_fields);
+
+        // Filter out junk and system fields for our analysis
+        let real_fields: Vec<_> = which_fast_fields
+            .iter()
+            .filter(|ff| {
+                matches!(ff, WhichFastField::Named(_, _)) && !matches!(ff, WhichFastField::Junk(_))
+            })
+            .collect();
+
+        if real_fields.len() < 1 {
+            pgrx::warning!(
+                "Not enough real fast fields for mixed execution: {}",
+                real_fields.len()
+            );
+            return false; // Need at least 1 actual field
         }
 
         // Count string and numeric fast fields
-        let string_field_count = which_fast_fields
+        let string_field_count = real_fields
             .iter()
             .filter(|ff| matches!(ff, WhichFastField::Named(_, FastFieldType::String)))
             .count();
 
-        let numeric_field_count = which_fast_fields
+        let numeric_field_count = real_fields
             .iter()
             .filter(|ff| matches!(ff, WhichFastField::Named(_, FastFieldType::Numeric)))
             .count();
 
+        pgrx::warning!(
+            "String fields: {}, Numeric fields: {}",
+            string_field_count,
+            numeric_field_count
+        );
+
         // We should use mixed fast fields if:
         // 1. We have multiple string fields (string-only case but more than one)
         // 2. We have both string and numeric fields (truly mixed case)
-        return string_field_count > 1 || (string_field_count > 0 && numeric_field_count > 0);
+        let result = string_field_count > 1 || (string_field_count > 0 && numeric_field_count > 0);
+        pgrx::warning!("Is mixed fast field capable: {}", result);
+        return result;
     }
+    pgrx::warning!("No fast fields found");
     false
 }
 
 // Update is_string_agg_capable to consider mixed fast fields
 pub fn is_string_agg_capable(privdata: &PrivateData) -> Option<String> {
+    pgrx::warning!("Checking if string agg capable...");
+
     // Don't use string_agg if we've determined this is a mixed field case
     if is_mixed_fast_field_capable(privdata) {
+        pgrx::warning!("Not string agg capable because mixed fast fields detected");
         return None;
     }
 
     if privdata.limit().is_some() {
         // doing a string_agg when there's a limit is always a loss, performance-wise
+        pgrx::warning!("Not string agg capable because limit is set");
         return None;
     }
+
     if is_all_junk(privdata.which_fast_fields()) {
         // if all the fast fields we have are Junk fields, then we're not actually
         // projecting fast fields
+        pgrx::warning!("Not string agg capable because all fast fields are junk");
         return None;
     }
 
     let mut string_field = None;
-    for ff in privdata.which_fast_fields().iter().flatten() {
-        match ff {
-            WhichFastField::Named(_, FastFieldType::String) if string_field.is_none() => {
-                string_field = Some(ff.name())
-            }
-            WhichFastField::Named(_, FastFieldType::String) => {
-                // too many string fields for us to be capable of doing a string_agg
-                return None;
-            }
-            _ => {
-                // noop
+    if let Some(fast_fields) = privdata.which_fast_fields() {
+        for ff in fast_fields {
+            match ff {
+                WhichFastField::Named(_, FastFieldType::String) if string_field.is_none() => {
+                    string_field = Some(ff.name());
+                    pgrx::warning!("Found string field for string agg: {}", ff.name());
+                }
+                WhichFastField::Named(_, FastFieldType::String) => {
+                    // too many string fields for us to be capable of doing a string_agg
+                    pgrx::warning!("Too many string fields for string agg");
+                    return None;
+                }
+                _ => {
+                    // noop
+                }
             }
         }
     }
+
+    if string_field.is_some() {
+        pgrx::warning!("String agg capable with field: {:?}", string_field);
+    } else {
+        pgrx::warning!("Not string agg capable - no string fields found");
+    }
+
     string_field
 }
 

@@ -70,6 +70,12 @@ pub trait ExecMethod {
     }
 
     fn internal_next(&mut self, state: &mut PdbScanState) -> ExecState;
+
+    // This is called when the scan is rescaned.
+    // Implementations should override this if they need to reset their state
+    fn reset(&mut self, state: &mut PdbScanState) {
+        // Default implementation does nothing
+    }
 }
 
 struct UnknownScanStyle;
@@ -84,6 +90,12 @@ impl ExecMethod for UnknownScanStyle {
     fn internal_next(&mut self, _state: &mut PdbScanState) -> ExecState {
         unimplemented!(
             "logic error in pg_search:  `UnknownScanStyle::internal_next()` should never be called"
+        )
+    }
+
+    fn reset(&mut self, _state: &mut PdbScanState) {
+        unimplemented!(
+            "logic error in pg_search:  `UnknownScanStyle::reset()` should never be called"
         )
     }
 }

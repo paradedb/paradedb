@@ -227,4 +227,18 @@ impl ExecMethod for TopNScanExecState {
             }
         }
     }
+
+    fn reset(&mut self, _state: &mut PdbScanState) {
+        // Reset the search results and counters
+        self.search_results = SearchResults::None;
+        self.nresults = 0;
+        self.found = 0;
+        self.did_query = false;
+        self.have_less = false;
+
+        // Reset the tracking state
+        self.last_ctid = 0;
+        self.chunk_size = 0;
+        self.retry_count = 0;
+    }
 }

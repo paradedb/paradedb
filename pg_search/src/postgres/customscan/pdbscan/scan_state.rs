@@ -294,5 +294,6 @@ impl PdbScanState {
         self.heap_tuple_check_count = 0;
         self.virtual_tuple_count = 0;
         self.invisible_tuple_count = 0;
+        self.exec_method_mut().reset(self);
     }
 }

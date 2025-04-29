@@ -338,10 +338,7 @@ fn scores_survive_joins(mut conn: PgConnection) {
         result,
         vec![
             ("Generic shoes".into(), 2.8772602),
-            ("Generic shoes".into(), 2.8772602),
             ("Sleek running shoes".into(), 2.4849067),
-            ("Sleek running shoes".into(), 2.4849067),
-            ("White jogging shoes".into(), 2.4849067),
             ("White jogging shoes".into(), 2.4849067),
         ]
     );

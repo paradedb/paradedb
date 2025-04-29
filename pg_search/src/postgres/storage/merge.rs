@@ -21,7 +21,7 @@ use crate::postgres::storage::block::{
 };
 use crate::postgres::storage::buffer::{BufferManager, BufferMut, PinnedBuffer};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
-use pgrx::pg_sys;
+use pgrx::{pg_sys, StringInfo};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::slice::from_raw_parts;
@@ -516,23 +516,21 @@ pub struct MergeEntry {
 impl From<PgItem> for MergeEntry {
     fn from(value: PgItem) -> Self {
         let PgItem(item, size) = value;
-        let decoded: MergeEntry = unsafe {
-            bincode::deserialize(from_raw_parts(item as *const u8, size))
-                .expect("expected to deserialize valid MergeEntry")
-        };
+        let (decoded, _) = bincode::serde::decode_from_slice(
+            unsafe { from_raw_parts(item as *const u8, size) },
+            bincode::config::legacy(),
+        )
+        .expect("expected to deserialize valid MergeEntry");
         decoded
     }
 }
 
 impl From<MergeEntry> for PgItem {
     fn from(value: MergeEntry) -> Self {
-        let bytes: Vec<u8> =
-            bincode::serialize(&value).expect("expected to serialize valid MergeEntry");
-        let pg_bytes = unsafe { pg_sys::palloc(bytes.len()) as *mut u8 };
-        unsafe {
-            std::ptr::copy_nonoverlapping(bytes.as_ptr(), pg_bytes, bytes.len());
-        }
-        PgItem(pg_bytes as pg_sys::Item, bytes.len() as pg_sys::Size)
+        let mut buf = StringInfo::new();
+        let len = bincode::serde::encode_into_std_write(value, &mut buf, bincode::config::legacy())
+            .expect("expected to serialize valid MergeEntry");
+        PgItem(buf.into_char_ptr() as pg_sys::Item, len as pg_sys::Size)
     }
 }
 

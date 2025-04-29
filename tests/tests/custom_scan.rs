@@ -703,3 +703,196 @@ fn parallel_custom_scan_with_jsonb_issue2432(mut conn: PgConnection) {
         .expect("should have gotten the `Parallel Aware` node");
     assert_eq!(parallel_aware, true);
 }
+
+#[rstest]
+fn nested_loop_rescan_issue_2472(mut conn: PgConnection) {
+    // Setup tables and test data
+    r#"
+    -- Create extension
+    DROP EXTENSION IF EXISTS pg_search CASCADE;
+    CREATE EXTENSION IF NOT EXISTS pg_search;
+
+    -- Create tables
+    CREATE TABLE IF NOT EXISTS company (
+        id BIGINT PRIMARY KEY,
+        name TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS "user" (
+        id BIGINT PRIMARY KEY,
+        company_id BIGINT,
+        status TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS user_products (
+        user_id BIGINT,
+        product_id BIGINT,
+        deleted_at TIMESTAMP
+    );
+
+    -- Create ParadeDB BM25 index
+    DROP INDEX IF EXISTS company_name_search_idx;
+    CREATE INDEX company_name_search_idx ON company
+    USING bm25 (id, name)
+    WITH (key_field = 'id');
+
+    -- Insert test data
+    DELETE FROM company;
+    INSERT INTO company VALUES
+    (4, 'Testing Company'),
+    (5, 'Testing Org'),
+    (13, 'Something else'),
+    (15, 'Important Testing');
+
+    DELETE FROM "user";
+    INSERT INTO "user" VALUES 
+    (1, 4, 'NORMAL'),
+    (2, 5, 'NORMAL'),
+    (3, 13, 'NORMAL'),
+    (4, 15, 'NORMAL'),
+    (5, 7, 'NORMAL');
+
+    DELETE FROM user_products;
+    INSERT INTO user_products VALUES
+    (1, 100, NULL),
+    (2, 100, NULL),
+    (3, 200, NULL),
+    (4, 100, NULL);
+    "#
+    .execute(&mut conn);
+
+    // First test - complex query with grouping and ordering
+    let complex_results = r#"
+    -- This reproduces the issue with company_id 15
+    WITH target_users AS (
+        SELECT u.id, u.company_id
+        FROM "user" u
+        WHERE u.status = 'NORMAL'
+            AND u.company_id in (5, 4, 13, 15)
+    ),
+    matched_companies AS (
+        SELECT c.id, paradedb.score(c.id) AS company_score
+        FROM company c
+        WHERE c.id @@@ 'name:Testing'
+    ),
+    scored_users AS (
+        SELECT
+            u.id,
+            u.company_id,
+            mc.id as mc_company_id,
+            COALESCE(MAX(mc.company_score), 0) AS score
+        FROM target_users u
+        LEFT JOIN matched_companies mc ON u.company_id = mc.id
+        LEFT JOIN user_products up ON up.user_id = u.id
+        GROUP BY u.id, u.company_id, mc.id
+    )
+    SELECT su.id, su.company_id, su.mc_company_id, su.score
+    FROM scored_users su
+    ORDER BY score DESC;
+    "#
+    .fetch_result::<(i64, i64, Option<i64>, f32)>(&mut conn)
+    .expect("complex query failed");
+
+    // Test that we get results for all users, including the problematic company_id 15
+    // The reset functionality should ensure we get all matches
+    assert_eq!(complex_results.len(), 4);
+    let has_company_15 = complex_results
+        .iter()
+        .any(|(_, company_id, _, _)| *company_id == 15);
+    assert!(
+        has_company_15,
+        "Results should include user with company_id 15"
+    );
+
+    // Second test - simplified query without the WITH CTE
+    let simplified_results = r#"
+    WITH target_users AS (
+        SELECT u.id, u.company_id
+        FROM "user" u
+        WHERE u.status = 'NORMAL'
+            AND u.company_id in (5, 4, 13, 15)
+    ),
+    matched_companies AS (
+        SELECT c.id, paradedb.score(c.id) AS company_score
+        FROM company c
+        WHERE c.id @@@ 'name:Testing'
+    )
+    SELECT
+        u.id,
+        u.company_id,
+        mc.id as mc_company_id,
+        COALESCE(MAX(mc.company_score), 0) AS score
+    FROM target_users u
+    LEFT JOIN matched_companies mc ON u.company_id = mc.id
+    LEFT JOIN user_products up ON up.user_id = u.id
+    GROUP BY u.id, u.company_id, mc.id;
+    "#
+    .fetch_result::<(i64, i64, Option<i64>, f32)>(&mut conn)
+    .expect("simplified query failed");
+
+    // Verify the results match our expectations
+    assert_eq!(simplified_results.len(), 4);
+    let has_company_15 = simplified_results
+        .iter()
+        .any(|(_, company_id, _, _)| *company_id == 15);
+    assert!(
+        has_company_15,
+        "Results should include user with company_id 15"
+    );
+
+    // Third test - minimal query focusing on the problematic companies
+    let minimal_results = r#"
+    WITH target_users AS (
+        SELECT u.id, u.company_id
+        FROM "user" u
+        WHERE 
+          u.status = 'NORMAL' AND
+            u.company_id in (13, 15)
+    ),
+    matched_companies AS (
+        SELECT c.id, paradedb.score(c.id) AS company_score
+        FROM company c
+        WHERE c.id @@@ 'name:Testing'
+    )
+    SELECT
+        u.id,
+        u.company_id,
+        mc.id as mc_company_id,
+        COALESCE(mc.company_score, 0) AS score
+    FROM target_users u
+    LEFT JOIN matched_companies mc ON u.company_id = mc.id;
+    "#
+    .fetch_result::<(i64, i64, Option<i64>, f32)>(&mut conn)
+    .expect("minimal query failed");
+
+    // Verify that both companies 13 and 15 are in the results
+    assert_eq!(minimal_results.len(), 2);
+
+    // Check we have company_id 13
+    let has_company_13 = minimal_results
+        .iter()
+        .any(|(_, company_id, _, _)| *company_id == 13);
+    assert!(
+        has_company_13,
+        "Results should include user with company_id 13"
+    );
+
+    // Check we have company_id 15
+    let has_company_15 = minimal_results
+        .iter()
+        .any(|(_, company_id, _, _)| *company_id == 15);
+    assert!(
+        has_company_15,
+        "Results should include user with company_id 15"
+    );
+
+    // The score for company_id 15 should be non-zero since "Important Testing" matches "Testing"
+    let company_15_result = minimal_results
+        .iter()
+        .find(|(_, company_id, _, _)| *company_id == 15)
+        .unwrap();
+    assert!(
+        company_15_result.3 > 0.0,
+        "Company 15 should have a non-zero score"
+    );
+}

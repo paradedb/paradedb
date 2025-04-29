@@ -37,7 +37,7 @@ fn merges_to_1_100k_segment(mut conn: PgConnection) {
         "insert into layer_sizes select x from generate_series(1, 33) x;".execute(&mut conn);
     }
 
-    // assert we actually have 132 segments and that a merge didn't happen yet
+    // assert we actually have 165 segments and that a merge didn't happen yet
     let (nsegments,) = "select count(*) from paradedb.index_info('idxlayer_sizes');"
         .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(nsegments, 165);

@@ -21,8 +21,7 @@ use crate::postgres::storage::block::{
 };
 use crate::postgres::storage::buffer::{BufferManager, BufferMut, PinnedBuffer};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
-use pgrx::pg_sys;
-use pgrx::pg_sys::TransactionId;
+use pgrx::{pg_sys, StringInfo};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::slice::from_raw_parts;
@@ -308,8 +307,8 @@ impl MergeLock {
         let xid = pg_sys::GetCurrentTransactionId();
         let merge_entry = MergeEntry {
             pid: pg_sys::MyProcPid,
-            xmin: xid, // the entry is transient
-            xmax: xid, // so it will be considered deleted by this transaction
+            xmin: xid,
+            _unused: pg_sys::InvalidTransactionId,
             segment_ids_start_blockno,
         };
 
@@ -502,61 +501,57 @@ impl VacuumList {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct MergeEntry {
     pub pid: i32,
+
+    /// The transaction id performing the merge indicated by this [`MergeEntry`]
     pub xmin: pg_sys::TransactionId,
-    pub xmax: pg_sys::TransactionId,
+
+    /// used space where we once stored an `xmax` value
+    #[doc(hidden)]
+    #[serde(alias = "xmax")]
+    _unused: pg_sys::TransactionId,
+
     pub segment_ids_start_blockno: pg_sys::BlockNumber,
 }
 
 impl From<PgItem> for MergeEntry {
     fn from(value: PgItem) -> Self {
         let PgItem(item, size) = value;
-        let decoded: MergeEntry = unsafe {
-            bincode::deserialize(from_raw_parts(item as *const u8, size))
-                .expect("expected to deserialize valid MergeEntry")
-        };
+        let (decoded, _) = bincode::serde::decode_from_slice(
+            unsafe { from_raw_parts(item as *const u8, size) },
+            bincode::config::legacy(),
+        )
+        .expect("expected to deserialize valid MergeEntry");
         decoded
     }
 }
 
 impl From<MergeEntry> for PgItem {
     fn from(value: MergeEntry) -> Self {
-        let bytes: Vec<u8> =
-            bincode::serialize(&value).expect("expected to serialize valid MergeEntry");
-        let pg_bytes = unsafe { pg_sys::palloc(bytes.len()) as *mut u8 };
-        unsafe {
-            std::ptr::copy_nonoverlapping(bytes.as_ptr(), pg_bytes, bytes.len());
-        }
-        PgItem(pg_bytes as pg_sys::Item, bytes.len() as pg_sys::Size)
+        let mut buf = StringInfo::new();
+        let len = bincode::serde::encode_into_std_write(value, &mut buf, bincode::config::legacy())
+            .expect("expected to serialize valid MergeEntry");
+        PgItem(buf.into_char_ptr() as pg_sys::Item, len as pg_sys::Size)
     }
 }
 
 impl MVCCEntry for MergeEntry {
-    fn get_xmin(&self) -> TransactionId {
-        self.xmin
+    fn pintest_blockno(&self) -> pg_sys::BlockNumber {
+        pg_sys::InvalidBlockNumber
     }
 
-    fn get_xmax(&self) -> TransactionId {
-        self.xmax
+    unsafe fn visible(&self) -> bool {
+        true
     }
 
-    fn into_frozen(self, should_freeze_xmin: bool, should_freeze_xmax: bool) -> Self {
-        Self {
-            xmin: if should_freeze_xmin {
-                pg_sys::FrozenTransactionId
-            } else {
-                self.xmin
-            },
-            xmax: if should_freeze_xmax {
-                pg_sys::FrozenTransactionId
-            } else {
-                self.xmax
-            },
-            ..self
+    unsafe fn recyclable(&self, _: &mut BufferManager) -> bool {
+        unsafe {
+            self.xmin != pg_sys::InvalidTransactionId
+                && !pg_sys::TransactionIdIsInProgress(self.xmin)
         }
     }
 
-    fn pintest_blockno(&self) -> pg_sys::BlockNumber {
-        pg_sys::InvalidBlockNumber
+    unsafe fn mergeable(&self) -> bool {
+        unimplemented!("`MVCCEntry::mergeable()` is not supported for `MergeEntry")
     }
 }
 

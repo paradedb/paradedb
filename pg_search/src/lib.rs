@@ -100,18 +100,18 @@ pub unsafe extern "C-unwind" fn _PG_init() {
 
 #[pg_extern]
 fn random_words(num_words: i32) -> String {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let letters = "abcdefghijklmnopqrstuvwxyz";
     let mut result = String::new();
 
     for _ in 0..num_words {
         // Choose a random word length between 3 and 7.
-        let word_length = rng.gen_range(3..=7);
+        let word_length = rng.random_range(3..=7);
         let mut word = String::new();
 
         for _ in 0..word_length {
             // Pick a random letter from the letters string.
-            let random_index = rng.gen_range(0..letters.len());
+            let random_index = rng.random_range(0..letters.len());
             // Safe to use .unwrap() because the index is guaranteed to be valid.
             let letter = letters.chars().nth(random_index).unwrap();
             word.push(letter);

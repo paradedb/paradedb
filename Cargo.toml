@@ -30,6 +30,8 @@ tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy"
 ], default-features = false }
 pgrx = "=0.14.1"
 pgrx-tests = "=0.14.1"
+tantivy-jieba = "0.11.0"
 
 [patch.crates-io]
 rust_icu_sys = { git = "https://github.com/google/rust_icu.git", rev = "53e98c8" }
+tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "eb9027a8590475b1435bad764c7fd1bcd95dc8c7" }

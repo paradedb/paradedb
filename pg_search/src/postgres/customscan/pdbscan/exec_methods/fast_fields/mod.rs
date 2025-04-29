@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+pub mod mixed;
 pub mod numeric;
 pub mod string;
 
@@ -266,7 +267,39 @@ pub unsafe fn pullup_fast_fields(
     Some(matches)
 }
 
+// Check if we can use the mixed fast field execution method
+pub fn is_mixed_fast_field_capable(privdata: &PrivateData) -> bool {
+    if let Some(which_fast_fields) = privdata.which_fast_fields() {
+        if which_fast_fields.len() < 2 {
+            return false; // Need at least 2 fields to qualify as mixed
+        }
+
+        // Count string and numeric fast fields
+        let string_field_count = which_fast_fields
+            .iter()
+            .filter(|ff| matches!(ff, WhichFastField::Named(_, FastFieldType::String)))
+            .count();
+
+        let numeric_field_count = which_fast_fields
+            .iter()
+            .filter(|ff| matches!(ff, WhichFastField::Named(_, FastFieldType::Numeric)))
+            .count();
+
+        // We should use mixed fast fields if:
+        // 1. We have multiple string fields (string-only case but more than one)
+        // 2. We have both string and numeric fields (truly mixed case)
+        return string_field_count > 1 || (string_field_count > 0 && numeric_field_count > 0);
+    }
+    false
+}
+
+// Update is_string_agg_capable to consider mixed fast fields
 pub fn is_string_agg_capable(privdata: &PrivateData) -> Option<String> {
+    // Don't use string_agg if we've determined this is a mixed field case
+    if is_mixed_fast_field_capable(privdata) {
+        return None;
+    }
+
     if privdata.limit().is_some() {
         // doing a string_agg when there's a limit is always a loss, performance-wise
         return None;
@@ -328,25 +361,47 @@ fn is_all_junk(which_fast_fields: &Option<Vec<WhichFastField>>) -> bool {
 
 /// Add nodes to `EXPLAIN` output to describe the "fast fields" being used by the query, if any
 pub fn explain(state: &CustomScanStateWrapper<PdbScan>, explainer: &mut Explainer) {
-    if let ExecMethodType::FastFieldString {
-        which_fast_fields, ..
-    }
-    | ExecMethodType::FastFieldNumeric {
-        which_fast_fields, ..
-    } = &state.custom_state().exec_method_type
-    {
-        explainer.add_text(
-            "Fast Fields",
-            which_fast_fields
-                .iter()
-                .map(|field| field.name())
-                .collect::<Vec<_>>()
-                .join(", "),
-        );
-    }
+    use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 
-    if let ExecMethodType::FastFieldString { field, .. } = &state.custom_state().exec_method_type {
-        explainer.add_text("String Agg Field", field);
+    match &state.custom_state().exec_method_type {
+        ExecMethodType::FastFieldString {
+            field,
+            which_fast_fields,
+        } => {
+            explainer.add_text("Fast Fields", field);
+            explainer.add_text("String Agg Field", field);
+        }
+        ExecMethodType::FastFieldNumeric { which_fast_fields } => {
+            let fields: Vec<_> = which_fast_fields.iter().map(|ff| ff.name()).collect();
+            explainer.add_text("Fast Fields", fields.join(", "));
+        }
+        ExecMethodType::FastFieldMixed { which_fast_fields } => {
+            // Get all fast fields used
+            let string_fields: Vec<_> = which_fast_fields
+                .iter()
+                .filter(|ff| matches!(ff, WhichFastField::Named(_, FastFieldType::String)))
+                .map(|ff| ff.name())
+                .collect();
+
+            let numeric_fields: Vec<_> = which_fast_fields
+                .iter()
+                .filter(|ff| matches!(ff, WhichFastField::Named(_, FastFieldType::Numeric)))
+                .map(|ff| ff.name())
+                .collect();
+
+            let all_fields = [string_fields.clone(), numeric_fields.clone()].concat();
+
+            explainer.add_text("Fast Fields", all_fields.join(", "));
+
+            if !string_fields.is_empty() {
+                explainer.add_text("String Fast Fields", string_fields.join(", "));
+            }
+
+            if !numeric_fields.is_empty() {
+                explainer.add_text("Numeric Fast Fields", numeric_fields.join(", "));
+            }
+        }
+        _ => {}
     }
 }
 

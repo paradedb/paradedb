@@ -909,7 +909,9 @@ impl CustomScan for PdbScan {
 /// [`NormalScanExecState`] if not.
 ///
 /// We support [`StringFastFieldExecState`] when there's 1 fast field and it's a string, or
-/// [`NumericFastFieldExecState`] when there's one or more numeric fast fields
+/// [`NumericFastFieldExecState`] when there's one or more numeric fast fields, or
+/// [`MixedFastFieldExecState`] when there are multiple string fast fields or a mix of string
+/// and numeric fast fields.
 ///
 /// `paradedb.score()`, `ctid`, and `tableoid` are considered fast fields for the purposes of
 /// these specialized [`ExecMethod`]s.
@@ -920,9 +922,14 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
         // and TopN can do snippets
         ExecMethodType::TopN {
             heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
-            limit,
+            limit: limit,
             sort_direction,
             need_scores: privdata.need_scores(),
+        }
+    } else if exec_methods::fast_fields::is_mixed_fast_field_capable(privdata) {
+        // Check for mixed fields first, before string_agg_capable check
+        ExecMethodType::FastFieldMixed {
+            which_fast_fields: privdata.which_fast_fields().clone().unwrap(),
         }
     } else if let Some(field) = exec_methods::fast_fields::is_string_agg_capable(privdata) {
         ExecMethodType::FastFieldString {
@@ -963,6 +970,12 @@ fn assign_exec_method(custom_state: &mut PdbScanState) {
         ),
         ExecMethodType::FastFieldNumeric { which_fast_fields } => custom_state.assign_exec_method(
             exec_methods::fast_fields::numeric::NumericFastFieldExecState::new(
+                which_fast_fields.clone(),
+            ),
+        ),
+        // Check for mixed fast fields
+        ExecMethodType::FastFieldMixed { which_fast_fields } => custom_state.assign_exec_method(
+            exec_methods::fast_fields::mixed::MixedFastFieldExecState::new(
                 which_fast_fields.clone(),
             ),
         ),

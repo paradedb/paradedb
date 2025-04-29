@@ -164,4 +164,8 @@ impl ExecMethod for NumericFastFieldExecState {
             }
         }
     }
+
+    fn reset(&mut self, _state: &mut PdbScanState) {
+        self.inner.reset(_state);
+    }
 }

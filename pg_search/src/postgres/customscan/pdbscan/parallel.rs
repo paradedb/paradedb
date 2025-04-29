@@ -2,7 +2,6 @@ use crate::api::Cardinality;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::pdbscan::PdbScan;
-use crate::postgres::customscan::CustomScan;
 use crate::postgres::ParallelScanState;
 use pgrx::pg_sys::{self, shm_toc, ParallelContext, Size};
 use std::collections::HashSet;
@@ -15,7 +14,7 @@ impl ParallelQueryCapable for PdbScan {
         pcxt: *mut ParallelContext,
     ) -> Size {
         if state.custom_state().search_reader.is_none() {
-            PdbScan::rescan_custom_scan(state);
+            PdbScan::init_search_reader(state);
         }
 
         let serialized_query = serde_json::to_vec(&state.custom_state().search_query_input)

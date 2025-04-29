@@ -54,31 +54,51 @@ impl VisibilityChecker {
 
     /// If the specified `ctid` is visible in the heap, run the provided closure and return its
     /// result as `Some(T)`.  If it's not visible, return `None` without running the provided closure
-    pub fn exec_if_visible<T, F: FnMut(pg_sys::Relation) -> T>(
-        &mut self,
-        ctid: u64,
-        slot: *mut pg_sys::TupleTableSlot,
-        mut func: F,
-    ) -> Option<T> {
+    pub fn exec_if_visible<F, T>(&mut self, ctid: u64, slot: *mut pg_sys::TupleTableSlot, func: F) -> Option<T>
+    where
+        F: FnOnce(pg_sys::Relation) -> T,
+    {
         unsafe {
-            utils::u64_to_item_pointer(ctid, &mut self.tid);
+            pgrx::warning!("VISIBILITY_CHECKER: Checking visibility for ctid={}", ctid);
+            
+            let mut tid = pg_sys::ItemPointerData::default();
+            crate::postgres::utils::u64_to_item_pointer(ctid, &mut tid);
 
+            // Try to read the tuple into the provided slot to avoid allocating a new one
             let mut call_again = false;
             let mut all_dead = false;
-            let found = pg_sys::table_index_fetch_tuple(
-                self.scan,
-                &mut self.tid,
-                self.snapshot,
-                slot,
-                &mut call_again,
-                &mut all_dead,
-            );
 
-            if found {
-                Some(func((*self.scan).rel))
-            } else {
-                None
-            }
+            // Create a memory context for this operation
+            let context_name = format!("NestedLoopVisibilityContext_{}", ctid);
+            let mut memory_context = pgrx::PgMemoryContexts::new(&context_name);
+            pgrx::warning!("VISIBILITY_CHECKER: Created memory context '{}'", context_name);
+            
+            // Use the memory context for the operation
+            let result = memory_context.switch_to(|_| {
+                pgrx::warning!("VISIBILITY_CHECKER: Switched to visibility memory context for ctid={}", ctid);
+                
+                let found = pg_sys::table_index_fetch_tuple(
+                    self.scan,
+                    &mut tid,
+                    self.snapshot,
+                    slot,
+                    &mut call_again,
+                    &mut all_dead,
+                );
+                
+                pgrx::warning!("VISIBILITY_CHECKER: Fetch tuple result={}, call_again={}, all_dead={} for ctid={}", 
+                             found, call_again, all_dead, ctid);
+                
+                if found {
+                    pgrx::warning!("VISIBILITY_CHECKER: Document ctid={} is visible", ctid);
+                    Some(func((*self.scan).rel))
+                } else {
+                    pgrx::warning!("VISIBILITY_CHECKER: Document ctid={} is not visible", ctid);
+                    None
+                }
+            });
+            
+            result
         }
     }
 }

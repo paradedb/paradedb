@@ -918,6 +918,22 @@ fn nested_loop_rescan_issue_2472(mut conn: PgConnection) {
 
     // Test in parallel mode might not actually use parallelism due to small table sizes
     // But the setting is enabled, which is what we're testing
+    let node = plan.pointer("/0/Plan").unwrap();
+    let parallel_enabled = node
+        .pointer("/Parallel Aware")
+        .map(|v| v.as_bool().unwrap_or(false))
+        .unwrap_or(false)
+        || node.pointer("/Workers Planned").is_some()
+        || node.as_object().unwrap().contains_key("Parallel Aware");
+
+    println!(
+        "Plan in parallel mode: {}",
+        serde_json::to_string_pretty(&plan).unwrap()
+    );
+
+    // Due to small data sizes, PostgreSQL might choose not to use parallelism
+    // even when the settings allow it, so we don't assert but print info
+    println!("Parallelism indicators in plan: {}", parallel_enabled);
 
     // First test in parallel mode
     let parallel_complex_results = r#"

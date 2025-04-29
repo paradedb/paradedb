@@ -183,23 +183,8 @@ impl ExecMethod for StringFastFieldExecState {
     }
 
     fn reset(&mut self, _state: &mut PdbScanState) {
-        // Reset search results
-        self.inner.search_results = SearchResults::None;
+        self.inner.reset(_state);
         self.search_results = StringAggResults::None;
-        self.inner.did_query = false;
-
-        // Reset block visibility tracking
-        self.inner.blockvis = (pg_sys::InvalidBlockNumber, false);
-
-        // Release visibility map buffer if it's valid
-        unsafe {
-            if crate::postgres::utils::IsTransactionState()
-                && self.inner.vmbuff != pg_sys::InvalidBuffer as pg_sys::Buffer
-            {
-                pg_sys::ReleaseBuffer(self.inner.vmbuff);
-                self.inner.vmbuff = pg_sys::InvalidBuffer as pg_sys::Buffer;
-            }
-        }
     }
 }
 

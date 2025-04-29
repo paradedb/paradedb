@@ -161,16 +161,6 @@ impl ExecMethod for NormalScanExecState {
 
         // Reset the block visibility cache
         self.blockvis = (pg_sys::InvalidBlockNumber, false);
-
-        // Release the visibility map buffer if it's valid
-        unsafe {
-            if crate::postgres::utils::IsTransactionState()
-                && self.vmbuff != pg_sys::InvalidBuffer as pg_sys::Buffer
-            {
-                pg_sys::ReleaseBuffer(self.vmbuff);
-                self.vmbuff = pg_sys::InvalidBuffer as pg_sys::Buffer;
-            }
-        }
     }
 }
 

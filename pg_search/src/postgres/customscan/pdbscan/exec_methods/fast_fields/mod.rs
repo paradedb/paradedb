@@ -86,6 +86,12 @@ impl FastFieldExecState {
             did_query: false,
         }
     }
+
+    pub fn reset(&mut self, state: &mut PdbScanState) {
+        self.search_results = SearchResults::None;
+        self.did_query = false;
+        self.blockvis = (pg_sys::InvalidBlockNumber, false);
+    }
 }
 
 #[inline(always)]

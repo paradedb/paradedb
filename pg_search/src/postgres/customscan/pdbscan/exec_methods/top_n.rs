@@ -232,13 +232,14 @@ impl ExecMethod for TopNScanExecState {
         // Reset the search results and counters
         self.search_results = SearchResults::None;
         self.nresults = 0;
-        self.found = 0;
-        self.did_query = false;
         self.have_less = false;
+        self.did_query = false;
 
         // Reset the tracking state
         self.last_ctid = 0;
+        self.found = 0;
         self.chunk_size = 0;
         self.retry_count = 0;
+        self.current_segment = SegmentId::default();
     }
 }

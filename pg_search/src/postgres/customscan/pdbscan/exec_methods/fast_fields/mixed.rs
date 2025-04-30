@@ -89,21 +89,7 @@ impl MixedFastFieldExecState {
 
 impl ExecMethod for MixedFastFieldExecState {
     fn init(&mut self, state: &mut PdbScanState, cstate: *mut pg_sys::CustomScanState) {
-        // Initialize inner FastFieldExecState manually since it doesn't implement ExecMethod
-        unsafe {
-            self.inner.heaprel = state.heaprel();
-            self.inner.tupdesc = Some(pgrx::PgTupleDesc::from_pg_unchecked(
-                (*cstate).ss.ps.ps_ResultTupleDesc,
-            ));
-            self.inner.slot = pg_sys::MakeTupleTableSlot(
-                (*cstate).ss.ps.ps_ResultTupleDesc,
-                &pg_sys::TTSOpsVirtual,
-            );
-            self.inner.ffhelper = crate::index::fast_fields_helper::FFHelper::with_fields(
-                state.search_reader.as_ref().unwrap(),
-                &self.inner.which_fast_fields,
-            );
-        }
+        self.inner.init(state, cstate);
     }
 
     fn query(&mut self, state: &mut PdbScanState) -> bool {

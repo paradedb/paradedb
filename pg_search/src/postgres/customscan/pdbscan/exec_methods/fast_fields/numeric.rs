@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
+use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::reader::index::SearchResults;
 use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::{
     ff_to_datum, FastFieldExecState,
@@ -25,8 +25,8 @@ use crate::postgres::customscan::pdbscan::is_block_all_visible;
 use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use pgrx::itemptr::item_pointer_get_block_number;
+use pgrx::pg_sys;
 use pgrx::pg_sys::CustomScanState;
-use pgrx::{pg_sys, PgTupleDesc};
 
 pub struct NumericFastFieldExecState {
     inner: FastFieldExecState,
@@ -42,20 +42,7 @@ impl NumericFastFieldExecState {
 
 impl ExecMethod for NumericFastFieldExecState {
     fn init(&mut self, state: &mut PdbScanState, cstate: *mut CustomScanState) {
-        unsafe {
-            self.inner.heaprel = state.heaprel();
-            self.inner.tupdesc = Some(PgTupleDesc::from_pg_unchecked(
-                (*cstate).ss.ps.ps_ResultTupleDesc,
-            ));
-            self.inner.slot = pg_sys::MakeTupleTableSlot(
-                (*cstate).ss.ps.ps_ResultTupleDesc,
-                &pg_sys::TTSOpsVirtual,
-            );
-            self.inner.ffhelper = FFHelper::with_fields(
-                state.search_reader.as_ref().unwrap(),
-                &self.inner.which_fast_fields,
-            );
-        }
+        self.inner.init(state, cstate);
     }
 
     fn query(&mut self, state: &mut PdbScanState) -> bool {

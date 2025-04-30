@@ -31,6 +31,7 @@ use crate::postgres::customscan::pdbscan::projections::score::{score_funcoid, us
 use crate::postgres::customscan::pdbscan::{scan_state::PdbScanState, PdbScan};
 use crate::schema::SearchIndexSchema;
 use itertools::Itertools;
+use pgrx::pg_sys::CustomScanState;
 use pgrx::{pg_sys, IntoDatum, PgList, PgOid, PgRelation, PgTupleDesc};
 use tantivy::DocAddress;
 
@@ -78,6 +79,23 @@ impl FastFieldExecState {
             search_results: Default::default(),
             blockvis: (pg_sys::InvalidBlockNumber, false),
             did_query: false,
+        }
+    }
+
+    fn init(&mut self, state: &mut PdbScanState, cstate: *mut CustomScanState) {
+        unsafe {
+            self.heaprel = state.heaprel();
+            self.tupdesc = Some(PgTupleDesc::from_pg_unchecked(
+                (*cstate).ss.ps.ps_ResultTupleDesc,
+            ));
+            self.slot = pg_sys::MakeTupleTableSlot(
+                (*cstate).ss.ps.ps_ResultTupleDesc,
+                &pg_sys::TTSOpsVirtual,
+            );
+            self.ffhelper = FFHelper::with_fields(
+                state.search_reader.as_ref().unwrap(),
+                &self.which_fast_fields,
+            );
         }
     }
 

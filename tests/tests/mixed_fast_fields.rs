@@ -786,3 +786,213 @@ fn test_normal_scan_used_when_non_fast_fields_selected(mut conn: PgConnection) {
         );
     }
 }
+
+#[rstest]
+fn test_string_only_fields_performance_comparison(mut conn: PgConnection) {
+    TestMixedFastFields::setup().execute(&mut conn);
+
+    // Add many rows with string fields for performance testing
+    r#"
+        DO $$
+        DECLARE
+            i INTEGER;
+        BEGIN
+            FOR i IN 1..1000 LOOP
+                INSERT INTO mixed_numeric_string_test (
+                    id, 
+                    numeric_field1, 
+                    numeric_field2, 
+                    string_field1, 
+                    string_field2, 
+                    string_field3, 
+                    content
+                ) VALUES (
+                    'str_perf' || i,
+                    i,
+                    i,
+                    'String' || (i % 10),
+                    'Value' || (i % 5),
+                    'Type' || (i % 3),
+                    CASE WHEN i % 20 = 0 THEN 'performance test case' ELSE 'other content' END
+                );
+            END LOOP;
+        END $$;
+    "#
+    .execute(&mut conn);
+
+    // Compare StringFastField vs MixedFastField for string-only queries
+
+    // Force StringFastFieldExecState (by selecting only one string field)
+    let (string_plan,) = r#"
+        EXPLAIN (ANALYZE, FORMAT JSON)
+        SELECT string_field1
+        FROM mixed_numeric_string_test
+        WHERE content @@@ 'performance'
+    "#
+    .fetch_one::<(Value,)>(&mut conn);
+
+    // Force MixedFastFieldExecState (by selecting multiple string fields)
+    let (mixed_plan,) = r#"
+        EXPLAIN (ANALYZE, FORMAT JSON)
+        SELECT string_field1, string_field2, string_field3
+        FROM mixed_numeric_string_test
+        WHERE content @@@ 'performance'
+    "#
+    .fetch_one::<(Value,)>(&mut conn);
+
+    // Check if StringFastFieldExecState is used for the first query
+    let string_methods = get_all_exec_methods(&string_plan);
+    assert!(
+        string_methods.contains(&"StringFastFieldExecState".to_string()),
+        "Expected StringFastFieldExecState for single string field query"
+    );
+
+    // Check if MixedFastFieldExecState is used for the second query
+    assert!(
+        check_exec_method(&mixed_plan, "MixedFastFieldExecState"),
+        "Expected MixedFastFieldExecState for multiple string fields"
+    );
+
+    // Compare execution times and verify results match
+    let string_time = string_plan[0]["Plan"]["Actual Total Time"]
+        .as_f64()
+        .unwrap();
+    let mixed_time = mixed_plan[0]["Plan"]["Actual Total Time"].as_f64().unwrap();
+
+    println!("StringFastFieldExecState time: {}ms", string_time);
+    println!("MixedFastFieldExecState time: {}ms", mixed_time);
+
+    // Collect results from both execution methods
+    let string_results = r#"
+        SELECT string_field1
+        FROM mixed_numeric_string_test
+        WHERE content @@@ 'performance'
+        ORDER BY id
+    "#
+    .fetch_result::<(String,)>(&mut conn)
+    .unwrap();
+
+    let mixed_results = r#"
+        SELECT string_field1
+        FROM mixed_numeric_string_test
+        WHERE content @@@ 'performance'
+        ORDER BY id
+    "#
+    .fetch_result::<(String,)>(&mut conn)
+    .unwrap();
+
+    // Results should match despite different execution methods
+    assert_eq!(
+        string_results.len(),
+        mixed_results.len(),
+        "Result counts don't match"
+    );
+    for i in 0..string_results.len() {
+        assert_eq!(
+            string_results[i].0, mixed_results[i].0,
+            "Results at index {} don't match",
+            i
+        );
+    }
+}
+
+#[rstest]
+fn test_string_edge_cases(mut conn: PgConnection) {
+    TestMixedFastFields::setup().execute(&mut conn);
+
+    // Add edge cases: empty strings, special characters, very long strings
+    r#"
+        INSERT INTO mixed_numeric_string_test (id, numeric_field1, numeric_field2, string_field1, string_field2, string_field3, content) VALUES
+        ('edge1', 1, 1, '', 'empty_first', 'test', 'edge case test'),
+        ('edge2', 2, 2, 'special_chars_!@#$%^&*()', 'test', 'test', 'edge case test'),
+        ('edge3', 3, 3, repeat('very_long_string_', 100), 'test', 'test', 'edge case test');
+    "#.execute(&mut conn);
+
+    // Test with StringFastFieldExecState (single field)
+    let string_results = r#"
+        SELECT string_field1
+        FROM mixed_numeric_string_test
+        WHERE content @@@ 'edge case'
+        ORDER BY id
+    "#
+    .fetch_result::<(String,)>(&mut conn)
+    .unwrap();
+
+    // Test with MixedFastFieldExecState (multiple fields)
+    let mixed_results = r#"
+        SELECT string_field1, string_field2, string_field3
+        FROM mixed_numeric_string_test
+        WHERE content @@@ 'edge case'
+        ORDER BY id
+    "#
+    .fetch_result::<(String, String, String)>(&mut conn)
+    .unwrap();
+
+    // Get execution plans to verify execution methods
+    let (string_plan,) = r#"
+        EXPLAIN (ANALYZE, FORMAT JSON)
+        SELECT string_field1
+        FROM mixed_numeric_string_test
+        WHERE content @@@ 'edge case'
+        ORDER BY id
+    "#
+    .fetch_one::<(Value,)>(&mut conn);
+
+    let (mixed_plan,) = r#"
+        EXPLAIN (ANALYZE, FORMAT JSON)
+        SELECT string_field1, string_field2, string_field3
+        FROM mixed_numeric_string_test
+        WHERE content @@@ 'edge case'
+        ORDER BY id
+    "#
+    .fetch_one::<(Value,)>(&mut conn);
+
+    // Verify execution methods used
+    let string_methods = get_all_exec_methods(&string_plan);
+    let mixed_methods = get_all_exec_methods(&mixed_plan);
+
+    println!("String query execution methods: {:?}", string_methods);
+    println!("Mixed query execution methods: {:?}", mixed_methods);
+
+    // Verify edge cases are handled correctly in both execution methods
+    assert_eq!(
+        string_results.len(),
+        3,
+        "Expected 3 edge case results with StringFastFieldExecState"
+    );
+    assert_eq!(
+        mixed_results.len(),
+        3,
+        "Expected 3 edge case results with MixedFastFieldExecState"
+    );
+
+    // Verify empty string handling
+    assert_eq!(
+        string_results[0].0, "",
+        "Empty string not handled correctly by StringFastFieldExecState"
+    );
+    assert_eq!(
+        mixed_results[0].0, "",
+        "Empty string not handled correctly by MixedFastFieldExecState"
+    );
+
+    // Verify special characters
+    assert_eq!(
+        string_results[1].0, "special_chars_!@#$%^&*()",
+        "Special characters not handled correctly"
+    );
+    assert_eq!(
+        mixed_results[1].0, "special_chars_!@#$%^&*()",
+        "Special characters not handled correctly"
+    );
+
+    // Verify long string
+    assert!(
+        string_results[2].0.starts_with("very_long_string_"),
+        "Long string truncated"
+    );
+    assert!(
+        mixed_results[2].0.starts_with("very_long_string_"),
+        "Long string truncated"
+    );
+}

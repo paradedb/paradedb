@@ -217,7 +217,7 @@ mod string_fast_field_exec {
 fn with_partial_target_list(mut conn: PgConnection) {
     r#"
     CREATE TABLE a (
-        id TEXT,
+        table_a_primary_key TEXT,
         content TEXT
     );
 
@@ -228,12 +228,12 @@ fn with_partial_target_list(mut conn: PgConnection) {
     );
 
     CREATE INDEX idxa ON a
-        USING bm25 (id, content) WITH (key_field = 'id');
+        USING bm25 (table_a_primary_key, content) WITH (key_field = 'table_a_primary_key');
     CREATE INDEX idxb ON b
         USING bm25 (id, a_id, content)
         WITH (key_field = 'id', text_fields = '{ "a_id": { "fast": true, "tokenizer": { "type": "keyword" } } }');
 
-    INSERT INTO a (id, content) VALUES ('this-is-a-id', 'beer');
+    INSERT INTO a (table_a_primary_key, content) VALUES ('this-is-a-id', 'beer');
     INSERT INTO b (id, a_id, content) VALUES ('this-is-b-id', 'this-is-a-id', 'wine');
     "#.execute(&mut conn);
 
@@ -245,9 +245,9 @@ fn with_partial_target_list(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let result = r#"
-        SELECT a.id, b.id
+        SELECT a.table_a_primary_key, b.id
         FROM b
-        JOIN a ON a.id = b.a_id
+        JOIN a ON a.table_a_primary_key = b.a_id
         WHERE a.content @@@ 'beer' AND b.content @@@ 'wine';
     "#
     .fetch::<(String, String)>(&mut conn);

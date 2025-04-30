@@ -497,6 +497,14 @@ impl CustomScan for PdbScan {
                 }
             }
 
+            pgrx::log!(
+                ">>> `plan_custom_path` targetlist: {:#?}",
+                tlist
+                    .iter_ptr()
+                    .map(|te| unsafe { pgrx::node_to_string(te.cast()) }.unwrap_or("<null>"))
+                    .collect::<Vec<_>>()
+            );
+
             builder
                 .custom_private_mut()
                 .set_var_attname_lookup(attname_lookup);

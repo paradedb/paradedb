@@ -182,10 +182,18 @@ pub unsafe fn pullup_fast_fields(
     let mut matches = Vec::new();
 
     let tupdesc = heaprel.tuple_desc();
+
     let targetlist = PgList::<pg_sys::TargetEntry>::from_pg(node);
-    pgrx::log!(">>>   targetlist len: {}", targetlist.len());
+    pgrx::log!(
+        ">>>   targetlist: {:?}",
+        targetlist
+            .iter_ptr()
+            .map(|te| unsafe { pgrx::node_to_string(te.cast()) }.unwrap_or("<null>"))
+            .collect::<Vec<_>>()
+    );
     for te in targetlist.iter_ptr() {
         if (*te).resorigtbl != pg_sys::Oid::INVALID && (*te).resorigtbl != heaprel.oid() {
+            pgrx::log!(">>>   skipping entry from different/invalid table");
             continue;
         }
         if let Some(var) = nodecast!(Var, T_Var, (*te).expr) {
@@ -201,9 +209,12 @@ pub unsafe fn pullup_fast_fields(
                 | pg_sys::MaxTransactionIdAttributeNumber
                 | pg_sys::MinCommandIdAttributeNumber
                 | pg_sys::MaxCommandIdAttributeNumber => {
-                    pgrx::log!(">>>   can't use fast fields on synthetic varattno: {}", (*var).varattno as i32);
-                    return None
-                },
+                    pgrx::log!(
+                        ">>>   can't use fast fields on synthetic varattno: {}",
+                        (*var).varattno as i32
+                    );
+                    return None;
+                }
 
                 // these aren't _exactly_ fast fields, but we do have the information
                 // readily available during the scan, so we'll pretend

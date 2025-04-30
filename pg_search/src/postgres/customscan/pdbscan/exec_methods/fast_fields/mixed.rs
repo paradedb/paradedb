@@ -28,8 +28,7 @@ use parking_lot::Mutex;
 use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::pg_sys;
 use rayon::prelude::*;
-use rustc_hash::FxHashMap;
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 use tantivy::collector::Collector;
 use tantivy::index::SegmentId;
 use tantivy::query::Query;
@@ -112,7 +111,7 @@ impl ExecMethod for MixedFastFieldExecState {
                     self.mixed_results = searcher.mixed_agg_by_segment(
                         state.need_scores(),
                         &state.search_query_input,
-                        &self.string_fields[0], // Use first string field as primary for now
+                        &self.string_fields, // Pass all string fields
                         segment_id,
                     );
                     return true;
@@ -130,7 +129,7 @@ impl ExecMethod for MixedFastFieldExecState {
                 self.mixed_results = searcher.mixed_agg(
                     state.need_scores(),
                     &state.search_query_input,
-                    &self.string_fields[0], // Use first string field as primary for now
+                    &self.string_fields, // Pass all string fields
                 );
                 self.inner.did_query = true;
                 true
@@ -176,7 +175,7 @@ impl ExecMethod for MixedFastFieldExecState {
                 // Handle results from string optimization path
                 match self.mixed_results.next() {
                     None => ExecState::Eof,
-                    Some((scored, doc_address, mut term)) => {
+                    Some((scored, doc_address, terms)) => {
                         let slot = self.inner.slot;
                         let natts = (*(*slot).tts_tupleDescriptor).natts as usize;
 
@@ -221,17 +220,40 @@ impl ExecMethod for MixedFastFieldExecState {
                             let fast_fields = &mut self.inner.ffhelper;
                             let which_fast_fields = &self.inner.which_fast_fields;
 
+                            // Take the string buffer from inner
+                            let mut string_buf = self.inner.strbuf.take().unwrap_or_default();
+
                             for (i, att) in self.inner.tupdesc.as_ref().unwrap().iter().enumerate()
                             {
                                 let which_fast_field = &which_fast_fields[i];
 
+                                // If this is a string field and we have a term for it from our optimized results
+                                if let WhichFastField::Named(field_name, FastFieldType::String) =
+                                    which_fast_field
+                                {
+                                    if let Some(Some(term_string)) = terms.get(field_name) {
+                                        // Use the term directly for this string field if available
+                                        if let Some(datum) =
+                                            term_to_datum(term_string, att.atttypid, slot)
+                                        {
+                                            datums[i] = datum;
+                                            isnull[i] = false;
+                                            continue;
+                                        }
+                                    }
+                                }
+
+                                // Put the string into an Option for ff_to_datum
+                                let mut str_opt = Some(string_buf);
+
+                                // For other fields or if we don't have a preloaded term, use standard ff_to_datum
                                 match ff_to_datum(
                                     (which_fast_field, i),
                                     att.atttypid,
                                     scored.bm25,
                                     doc_address,
                                     fast_fields,
-                                    &mut term,
+                                    &mut str_opt,
                                     slot,
                                 ) {
                                     None => {
@@ -243,7 +265,13 @@ impl ExecMethod for MixedFastFieldExecState {
                                         isnull[i] = false;
                                     }
                                 }
+
+                                // Extract the string back
+                                string_buf = str_opt.unwrap_or_default();
                             }
+
+                            // Put the string buffer back
+                            self.inner.strbuf = Some(string_buf);
 
                             self.num_rows_fetched += 1;
                             ExecState::Virtual { slot }
@@ -306,7 +334,6 @@ impl ExecMethod for MixedFastFieldExecState {
 
                             let fast_fields = &mut self.inner.ffhelper;
                             let which_fast_fields = &self.inner.which_fast_fields;
-                            let mut strbuf = self.inner.strbuf.take();
 
                             for (i, att) in self.inner.tupdesc.as_ref().unwrap().iter().enumerate()
                             {
@@ -318,7 +345,7 @@ impl ExecMethod for MixedFastFieldExecState {
                                     scored.bm25,
                                     doc_address,
                                     fast_fields,
-                                    &mut strbuf,
+                                    &mut self.inner.strbuf,
                                     slot,
                                 ) {
                                     None => {
@@ -331,9 +358,6 @@ impl ExecMethod for MixedFastFieldExecState {
                                     }
                                 }
                             }
-
-                            // Put the string buffer back
-                            self.inner.strbuf = strbuf;
 
                             self.num_rows_fetched += 1;
                             ExecState::Virtual { slot }
@@ -369,24 +393,40 @@ impl ExecMethod for MixedFastFieldExecState {
     }
 }
 
-// Types for string optimization similar to StringFastFieldExecState
-type SearchResultsIter = std::vec::IntoIter<(SearchIndexScore, DocAddress)>;
-type BatchedResultsIter = std::vec::IntoIter<(Option<String>, SearchResultsIter)>;
-type MergedResultsMap = BTreeMap<Option<String>, Vec<(SearchIndexScore, DocAddress)>>;
+// Helper function to convert string term to PostgreSQL Datum
+#[inline]
+fn term_to_datum(
+    term: &str,
+    atttypid: pgrx::pg_sys::Oid,
+    slot: *mut pg_sys::TupleTableSlot,
+) -> Option<pg_sys::Datum> {
+    use pgrx::pg_sys;
+    unsafe {
+        let cstr = std::ffi::CString::new(term).ok()?;
+        let text_ptr = pg_sys::cstring_to_text_with_len(cstr.as_ptr(), term.len() as _);
+        // Convert text_ptr to Datum correctly by converting pointer to integer
+        Some(pg_sys::Datum::from(text_ptr as usize))
+    }
+}
 
+// Types for string optimization
+type SearchResultsIter = std::vec::IntoIter<(SearchIndexScore, DocAddress)>;
+type FieldTermsMap = HashMap<String, Option<String>>;
+
+// Define MixedAggResults enum
 #[derive(Default)]
 enum MixedAggResults {
     #[default]
     None,
     Batched {
-        current: (Option<String>, SearchResultsIter),
-        set: BatchedResultsIter,
+        current: (FieldTermsMap, SearchResultsIter),
+        set: std::vec::IntoIter<(FieldTermsMap, SearchResultsIter)>,
     },
-    SingleSegment(crossbeam::channel::IntoIter<(SearchIndexScore, DocAddress, Option<String>)>),
+    SingleSegment(crossbeam::channel::IntoIter<(SearchIndexScore, DocAddress, FieldTermsMap)>),
 }
 
 impl Iterator for MixedAggResults {
-    type Item = (SearchIndexScore, DocAddress, Option<String>);
+    type Item = (SearchIndexScore, DocAddress, FieldTermsMap);
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
@@ -405,7 +445,7 @@ impl Iterator for MixedAggResults {
     }
 }
 
-// Equivalent of StringAggSearcher for mixed fields
+// Equivalent of StringAggSearcher for mixed fields, but supporting multiple string fields
 struct MixedAggSearcher<'a>(&'a SearchIndexReader);
 
 impl MixedAggSearcher<'_> {
@@ -413,12 +453,12 @@ impl MixedAggSearcher<'_> {
         &self,
         need_scores: bool,
         query: &SearchQueryInput,
-        field: &str,
+        fields: &[String],
     ) -> MixedAggResults {
-        // This is similar to string_agg in StringAggSearcher
-        let collector = mixed_term_ord_collector::TermOrdCollector {
+        // Enhanced version that supports multiple string fields
+        let collector = multi_string_term_collector::MultiStringTermCollector {
             need_scores,
-            field: field.into(),
+            fields: fields.to_vec(),
         };
 
         let query = self.0.query(query);
@@ -443,60 +483,86 @@ impl MixedAggSearcher<'_> {
             )
             .expect("failed to search");
 
-        let field = field.to_string();
-        let searcher = self.0.searcher().clone();
-
-        let merged: Mutex<MergedResultsMap> = Mutex::new(BTreeMap::new());
+        // Process results using a more structured approach that avoids HashMap key issues
+        // Create a two-level map: DocAddress -> (FieldTermsMap, Score)
+        // This avoids using HashMap as a key
+        let merged: Mutex<HashMap<DocAddress, (FieldTermsMap, SearchIndexScore)>> =
+            Mutex::new(HashMap::new());
 
         results
             .into_par_iter()
-            .for_each(|(str_ff, segment_results)| {
-                let keys = segment_results.keys().cloned().collect::<Vec<_>>();
-                let segment_values: Vec<_> = segment_results.into_iter().collect();
-                let mut values_iter = segment_values.into_iter();
-                let mut resolved = FxHashMap::default();
-                str_ff
-                    .dictionary()
-                    .sorted_ords_to_term_cb(keys.into_iter(), |bytes| {
-                        let term = std::str::from_utf8(bytes)
-                            .expect("term should be valid utf8")
-                            .to_string();
-
-                        resolved.insert(
-                            term,
-                            values_iter.next().unwrap_or_else(|| panic!("internal error: don't have the same number of TermOrd keys and values")).1,
-                        );
-
-                        Ok(())
-                    })
-                    .expect("term ord resolution should succeed");
-
-                let mut null_results = Vec::new();
-                if str_ff.num_terms() == 0 {
-                    if let Some(next_value) = values_iter.next() {
-                        null_results.push(next_value);
-                        // Collect any additional remaining values
-                        null_results.extend(values_iter);
+            .for_each(|(field_columns, segment_results)| {
+                // For each field, track which documents have which terms
+                for (field_idx, (field_name, str_ff)) in field_columns.iter().enumerate() {
+                    if field_idx >= segment_results.len() {
+                        continue; // Skip if there are no results for this field
                     }
-                }
-                let mut guard = merged.lock();
-                for (term, mut results) in resolved {
-                    guard.entry(Some(term)).or_default().append(&mut results);
-                }
 
-                for (_, mut results) in null_results {
-                    guard.entry(None).or_default().append(&mut results);
+                    let field_results = &segment_results[field_idx];
+
+                    // Process each term ordinate in the results
+                    for (term_ord, docs) in field_results.iter() {
+                        // Resolve term for this field (if applicable)
+                        let term_value = if *term_ord != 0 && str_ff.num_terms() > 0 {
+                            let mut term_str = String::new();
+                            if str_ff.ord_to_str(*term_ord, &mut term_str).is_ok() {
+                                Some(term_str)
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+
+                        // Add this term to all documents
+                        for (score, doc_addr) in docs {
+                            let mut guard = merged.lock();
+                            let entry = guard
+                                .entry(*doc_addr)
+                                .or_insert_with(|| (HashMap::new(), *score));
+                            entry.0.insert(field_name.clone(), term_value.clone());
+                        }
+                    }
                 }
             });
 
-        let set = merged
-            .into_inner()
+        // Convert to format for MixedAggResults
+        let processed_docs = merged.into_inner();
+
+        // Group results by term patterns
+        let mut term_groups: HashMap<String, (FieldTermsMap, Vec<(SearchIndexScore, DocAddress)>)> =
+            HashMap::new();
+
+        // Use a string representation for grouping since HashMap isn't hashable
+        for (doc_addr, (terms, score)) in processed_docs {
+            // Create a stable string representation of the terms
+            let mut term_keys: Vec<(&String, &Option<String>)> = terms.iter().collect();
+            term_keys.sort_by(|a, b| a.0.cmp(b.0));
+
+            let terms_key = term_keys
+                .iter()
+                .map(|(k, v)| format!("{}:{:?}", k, v))
+                .collect::<Vec<_>>()
+                .join(",");
+
+            let entry = term_groups
+                .entry(terms_key)
+                .or_insert_with(|| (terms.clone(), Vec::new()));
+            entry.1.push((score, doc_addr));
+        }
+
+        // Convert the grouped results to the format needed for the iterator
+        let result_vec: Vec<(FieldTermsMap, Vec<(SearchIndexScore, DocAddress)>)> =
+            term_groups.into_values().collect();
+
+        let set = result_vec
             .into_iter()
-            .map(|(term, docs)| (term, docs.into_iter()))
+            .map(|(terms, docs)| (terms, docs.into_iter()))
             .collect::<Vec<_>>()
             .into_iter();
+
         MixedAggResults::Batched {
-            current: (None, vec![].into_iter()),
+            current: (HashMap::new(), vec![].into_iter()),
             set,
         }
     }
@@ -505,10 +571,10 @@ impl MixedAggSearcher<'_> {
         &self,
         need_scores: bool,
         query: &SearchQueryInput,
-        field: &str,
+        fields: &[String],
         segment_id: SegmentId,
     ) -> MixedAggResults {
-        // This is similar to string_agg_by_segment in StringAggSearcher
+        // Initialize for parallel segment processing
         let (segment_ord, segment_reader) = self
             .0
             .segment_readers()
@@ -516,9 +582,10 @@ impl MixedAggSearcher<'_> {
             .enumerate()
             .find(|(_, reader)| reader.segment_id() == segment_id)
             .unwrap_or_else(|| panic!("segment {segment_id} should exist"));
-        let collector = mixed_term_ord_collector::TermOrdCollector {
+
+        let collector = multi_string_term_collector::MultiStringTermCollector {
             need_scores,
-            field: field.into(),
+            fields: fields.to_vec(),
         };
 
         let weight = self
@@ -537,7 +604,7 @@ impl MixedAggSearcher<'_> {
             })
             .expect("weight should be constructable");
 
-        let (str_ff, results) = collector
+        let (field_columns, field_results) = collector
             .collect_segment(
                 weight.as_ref(),
                 segment_ord as SegmentOrdinal,
@@ -545,50 +612,65 @@ impl MixedAggSearcher<'_> {
             )
             .expect("single segment collection should succeed");
 
-        let field = field.to_string();
-        let searcher = self.0.searcher().clone();
-        let dictionary = str_ff.dictionary();
-        let term_ords = results.keys().cloned().collect::<Vec<_>>();
-        let mut results = results.into_iter();
+        // Process each field's results for this segment
         let (sender, receiver) = crossbeam::channel::unbounded();
-        dictionary
-            .sorted_ords_to_term_cb(term_ords.into_iter(), |bytes| {
-                let term = std::str::from_utf8(bytes)
-                    .expect("term should be valid utf8")
-                    .to_string();
 
-                let (_, values) = results.next().unwrap_or_else(|| {
-                    panic!("internal error: don't have the same number of TermOrd keys and values")
-                });
-                for (scored, doc_address) in values {
-                    sender
-                        .send((scored, doc_address, Some(term.clone())))
-                        .map_err(|_| {
-                            std::io::Error::new(std::io::ErrorKind::Other, "failed to send term")
-                        })?;
-                }
+        // Build a map of doc_address -> terms for all fields
+        let mut doc_terms: HashMap<
+            DocAddress,
+            (HashMap<String, Option<String>>, SearchIndexScore),
+        > = HashMap::new();
 
-                Ok(())
-            })
-            .expect("term ord lookup should succeed");
-
-        if dictionary.num_terms() == 0 && results.len() > 0 {
-            let (_, values) = results.next().unwrap_or_else(|| {
-                panic!("internal error: don't have the same number of TermOrd keys and values")
-            });
-            for (scored, doc_address) in values {
-                let _ = sender.send((scored, doc_address, None)).map_err(|_| {
-                    std::io::Error::new(std::io::ErrorKind::Other, "failed to send term")
-                });
+        for (field_idx, (field_name, str_ff)) in field_columns.iter().enumerate() {
+            if field_idx >= field_results.len() {
+                continue; // Skip if there are no results for this field
             }
+
+            let field_result = &field_results[field_idx];
+
+            // Process each term ordinate
+            for (term_ord, doc_scores) in field_result.iter() {
+                // Get term if it exists
+                let term_value = if *term_ord != 0 && str_ff.num_terms() > 0 {
+                    let mut term = String::new();
+                    if str_ff.ord_to_str(*term_ord, &mut term).is_ok() {
+                        Some(term)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                // Add term for each document
+                for (score, doc_addr) in doc_scores {
+                    let entry = doc_terms
+                        .entry(*doc_addr)
+                        .or_insert_with(|| (HashMap::new(), *score));
+                    entry.0.insert(field_name.clone(), term_value.clone());
+                }
+            }
+        }
+
+        // Send all results
+        for (doc_addr, (mut terms, score)) in doc_terms {
+            // Ensure all requested fields have entries
+            for field in fields {
+                if !terms.contains_key(field) {
+                    terms.insert(field.clone(), None);
+                }
+            }
+
+            // Send the result
+            sender.send((score, doc_addr, terms)).ok();
         }
 
         MixedAggResults::SingleSegment(receiver.into_iter())
     }
 }
 
-// This module adapts the term_ord_collector from string.rs for mixed fields
-mod mixed_term_ord_collector {
+// This module handles multiple string fields simultaneously
+mod multi_string_term_collector {
     use crate::index::reader::index::SearchIndexScore;
     use std::collections::BTreeMap;
     use tantivy::collector::{Collector, SegmentCollector};
@@ -598,17 +680,17 @@ mod mixed_term_ord_collector {
     use tantivy::termdict::TermOrdinal;
     use tantivy::{DocAddress, DocId, Score, SegmentOrdinal, SegmentReader};
 
-    pub struct TermOrdCollector {
+    pub struct MultiStringTermCollector {
         pub need_scores: bool,
-        pub field: String,
+        pub fields: Vec<String>,
     }
 
-    impl Collector for TermOrdCollector {
+    impl Collector for MultiStringTermCollector {
         type Fruit = Vec<(
-            StrColumn,
-            BTreeMap<TermOrdinal, Vec<(SearchIndexScore, DocAddress)>>,
+            Vec<(String, StrColumn)>,
+            Vec<BTreeMap<TermOrdinal, Vec<(SearchIndexScore, DocAddress)>>>,
         )>;
-        type Child = TermOrdSegmentCollector;
+        type Child = MultiStringTermSegmentCollector;
 
         fn for_segment(
             &self,
@@ -616,10 +698,23 @@ mod mixed_term_ord_collector {
             segment_reader: &SegmentReader,
         ) -> tantivy::Result<Self::Child> {
             let ff = segment_reader.fast_fields();
-            Ok(TermOrdSegmentCollector {
+
+            // Get string columns for all requested fields
+            let mut field_columns = Vec::new();
+            for field_name in &self.fields {
+                if let Ok(Some(str_column)) = ff.str(field_name) {
+                    field_columns.push((field_name.clone(), str_column));
+                }
+                // Skip fields that aren't string fast fields
+            }
+
+            // Create collectors for each field we found
+            let field_results = field_columns.iter().map(|_| BTreeMap::default()).collect();
+
+            Ok(MultiStringTermSegmentCollector {
                 segment_ord: segment_local_id,
-                results: Default::default(),
-                ff: ff.str(&self.field)?.expect("ff should be a str field"),
+                field_columns,
+                field_results,
                 ctid_ff: FFType::new_ctid(ff),
             })
         }
@@ -636,38 +731,36 @@ mod mixed_term_ord_collector {
         }
     }
 
-    pub struct TermOrdSegmentCollector {
-        pub ff: StrColumn,
-        pub results: BTreeMap<TermOrdinal, Vec<(SearchIndexScore, DocAddress)>>,
+    pub struct MultiStringTermSegmentCollector {
         pub segment_ord: SegmentOrdinal,
+        pub field_columns: Vec<(String, StrColumn)>,
+        pub field_results: Vec<BTreeMap<TermOrdinal, Vec<(SearchIndexScore, DocAddress)>>>,
         ctid_ff: FFType,
     }
 
-    impl SegmentCollector for TermOrdSegmentCollector {
+    impl SegmentCollector for MultiStringTermSegmentCollector {
         type Fruit = (
-            StrColumn,
-            BTreeMap<TermOrdinal, Vec<(SearchIndexScore, DocAddress)>>,
+            Vec<(String, StrColumn)>,
+            Vec<BTreeMap<TermOrdinal, Vec<(SearchIndexScore, DocAddress)>>>,
         );
 
         fn collect(&mut self, doc: DocId, score: Score) {
             let doc_address = DocAddress::new(self.segment_ord, doc);
             let ctid = self.ctid_ff.as_u64(doc).expect("ctid should be present");
             let scored = SearchIndexScore::new(ctid, score);
-            if let Some(term_ord) = self.ff.term_ords(doc).next() {
-                self.results
+
+            // For each field, collect its term ordinate for this document
+            for (field_idx, (_, str_column)) in self.field_columns.iter().enumerate() {
+                let term_ord = str_column.term_ords(doc).next().unwrap_or(0);
+                self.field_results[field_idx]
                     .entry(term_ord)
-                    .or_default()
-                    .push((scored, doc_address));
-            } else {
-                self.results
-                    .entry(0)
                     .or_default()
                     .push((scored, doc_address));
             }
         }
 
         fn harvest(self) -> Self::Fruit {
-            (self.ff, self.results)
+            (self.field_columns, self.field_results)
         }
     }
 }

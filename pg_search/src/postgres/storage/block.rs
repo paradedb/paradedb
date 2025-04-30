@@ -259,7 +259,6 @@ impl SegmentMetaEntry {
                     .map(|fe| (fe, SegmentComponent::FieldNorms)),
             )
             .chain(self.terms.iter().map(|fe| (fe, SegmentComponent::Terms)))
-            .chain(self.store.iter().map(|fe| (fe, SegmentComponent::Store)))
             .chain(
                 self.temp_store
                     .iter()

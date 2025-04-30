@@ -703,3 +703,317 @@ fn parallel_custom_scan_with_jsonb_issue2432(mut conn: PgConnection) {
         .expect("should have gotten the `Parallel Aware` node");
     assert_eq!(parallel_aware, true);
 }
+
+#[rstest]
+fn nested_loop_rescan_issue_2472(mut conn: PgConnection) {
+    // Setup tables and test data
+    r#"
+    -- Create extension
+    DROP EXTENSION IF EXISTS pg_search CASCADE;
+    CREATE EXTENSION IF NOT EXISTS pg_search;
+
+    -- Create tables
+    CREATE TABLE IF NOT EXISTS company (
+        id BIGINT PRIMARY KEY,
+        name TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS "user" (
+        id BIGINT PRIMARY KEY,
+        company_id BIGINT,
+        status TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS user_products (
+        user_id BIGINT,
+        product_id BIGINT,
+        deleted_at TIMESTAMP
+    );
+
+    -- Create ParadeDB BM25 index
+    DROP INDEX IF EXISTS company_name_search_idx;
+    CREATE INDEX company_name_search_idx ON company
+    USING bm25 (id, name)
+    WITH (key_field = 'id');
+
+    -- Insert test data
+    DELETE FROM company;
+    INSERT INTO company VALUES
+    (4, 'Testing Company'),
+    (5, 'Testing Org'),
+    (13, 'Something else'),
+    (15, 'Important Testing');
+
+    DELETE FROM "user";
+    INSERT INTO "user" VALUES 
+    (1, 4, 'NORMAL'),
+    (2, 5, 'NORMAL'),
+    (3, 13, 'NORMAL'),
+    (4, 15, 'NORMAL'),
+    (5, 7, 'NORMAL');
+
+    DELETE FROM user_products;
+    INSERT INTO user_products VALUES
+    (1, 100, NULL),
+    (2, 100, NULL),
+    (3, 200, NULL),
+    (4, 100, NULL);
+    "#
+    .execute(&mut conn);
+
+    // Test in non-parallel mode first
+    r#"
+    SET max_parallel_workers = 0;
+    SET max_parallel_workers_per_gather = 0;
+    "#
+    .execute(&mut conn);
+
+    println!("Testing in non-parallel mode");
+
+    // Check if we're running in non-parallel mode
+    let (plan,) = r#"
+    EXPLAIN (FORMAT json) 
+    WITH target_users AS (
+        SELECT u.id, u.company_id
+        FROM "user" u
+        WHERE u.status = 'NORMAL'
+            AND u.company_id in (5, 4, 13, 15)
+    ),
+    matched_companies AS (
+        SELECT c.id, paradedb.score(c.id) AS company_score
+        FROM company c
+        WHERE c.id @@@ 'name:Testing'
+    )
+    SELECT
+        u.id,
+        u.company_id,
+        mc.id as mc_company_id
+    FROM target_users u
+    LEFT JOIN matched_companies mc ON u.company_id = mc.id;"#
+        .fetch_one::<(serde_json::Value,)>(&mut conn);
+
+    let node = plan.pointer("/0/Plan").unwrap();
+    let is_parallel = node.as_object().unwrap().contains_key("Workers Planned");
+    assert!(!is_parallel, "Query should not use parallel execution");
+
+    // First test in non-parallel mode
+    let complex_results = r#"
+    -- This reproduces the issue with company_id 15
+    WITH target_users AS (
+        SELECT u.id, u.company_id
+        FROM "user" u
+        WHERE u.status = 'NORMAL'
+            AND u.company_id in (5, 4, 13, 15)
+    ),
+    matched_companies AS (
+        SELECT c.id, paradedb.score(c.id) AS company_score
+        FROM company c
+        WHERE c.id @@@ 'name:Testing'
+    ),
+    scored_users AS (
+        SELECT
+            u.id,
+            u.company_id,
+            mc.id as mc_company_id,
+            COALESCE(MAX(mc.company_score), 0) AS score
+        FROM target_users u
+        LEFT JOIN matched_companies mc ON u.company_id = mc.id
+        LEFT JOIN user_products up ON up.user_id = u.id
+        GROUP BY u.id, u.company_id, mc.id
+    )
+    SELECT su.id, su.company_id, su.mc_company_id, su.score
+    FROM scored_users su
+    ORDER BY score DESC;
+    "#
+    .fetch_result::<(i64, i64, Option<i64>, f32)>(&mut conn)
+    .expect("complex query failed");
+
+    // Test that we get results for all users, including the problematic company_id 15
+    assert_eq!(complex_results.len(), 4);
+    let has_company_15 = complex_results
+        .iter()
+        .any(|(_, company_id, _, _)| *company_id == 15);
+    assert!(
+        has_company_15,
+        "Results should include user with company_id 15"
+    );
+
+    // The minimal query focusing on the problematic companies in non-parallel mode
+    let minimal_results = r#"
+    WITH target_users AS (
+        SELECT u.id, u.company_id
+        FROM "user" u
+        WHERE 
+          u.status = 'NORMAL' AND
+            u.company_id in (13, 15)
+    ),
+    matched_companies AS (
+        SELECT c.id, paradedb.score(c.id) AS company_score
+        FROM company c
+        WHERE c.id @@@ 'name:Testing'
+    )
+    SELECT
+        u.id,
+        u.company_id,
+        mc.id as mc_company_id,
+        COALESCE(mc.company_score, 0) AS score
+    FROM target_users u
+    LEFT JOIN matched_companies mc ON u.company_id = mc.id;
+    "#
+    .fetch_result::<(i64, i64, Option<i64>, f32)>(&mut conn)
+    .expect("minimal query failed");
+
+    // Verify both companies in non-parallel mode
+    assert_eq!(minimal_results.len(), 2);
+    let has_company_15 = minimal_results
+        .iter()
+        .any(|(_, company_id, _, _)| *company_id == 15);
+    assert!(
+        has_company_15,
+        "Results should include user with company_id 15"
+    );
+    println!("minimal_results: {:?}", minimal_results);
+    let company_15_result = minimal_results
+        .iter()
+        .find(|(_, company_id, _, _)| *company_id == 15)
+        .unwrap();
+    assert!(
+        company_15_result.3 > 0.0,
+        "Company 15 should have a non-zero score"
+    );
+
+    // Now test in parallel mode
+    r#"
+    SET max_parallel_workers = 32;
+    SET max_parallel_workers_per_gather = 8;
+    "#
+    .execute(&mut conn);
+
+    println!("Testing in parallel mode");
+
+    // Check if we're running in parallel mode
+    let (plan,) = r#"
+    EXPLAIN (FORMAT json) 
+    WITH target_users AS (
+        SELECT u.id, u.company_id
+        FROM "user" u
+        WHERE u.status = 'NORMAL'
+            AND u.company_id in (5, 4, 13, 15)
+    ),
+    matched_companies AS (
+        SELECT c.id, paradedb.score(c.id) AS company_score
+        FROM company c
+        WHERE c.id @@@ 'name:Testing'
+    )
+    SELECT
+        u.id,
+        u.company_id,
+        mc.id as mc_company_id
+    FROM target_users u
+    LEFT JOIN matched_companies mc ON u.company_id = mc.id;"#
+        .fetch_one::<(serde_json::Value,)>(&mut conn);
+
+    // Test in parallel mode might not actually use parallelism due to small table sizes
+    // But the setting is enabled, which is what we're testing
+    let node = plan.pointer("/0/Plan").unwrap();
+    let parallel_enabled = node
+        .pointer("/Parallel Aware")
+        .map(|v| v.as_bool().unwrap_or(false))
+        .unwrap_or(false)
+        || node.pointer("/Workers Planned").is_some()
+        || node.as_object().unwrap().contains_key("Parallel Aware");
+
+    println!(
+        "Plan in parallel mode: {}",
+        serde_json::to_string_pretty(&plan).unwrap()
+    );
+
+    // Due to small data sizes, PostgreSQL might choose not to use parallelism
+    // even when the settings allow it, so we don't assert but print info
+    println!("Parallelism indicators in plan: {}", parallel_enabled);
+
+    // First test in parallel mode
+    let parallel_complex_results = r#"
+    -- This reproduces the issue with company_id 15
+    WITH target_users AS (
+        SELECT u.id, u.company_id
+        FROM "user" u
+        WHERE u.status = 'NORMAL'
+            AND u.company_id in (5, 4, 13, 15)
+    ),
+    matched_companies AS (
+        SELECT c.id, paradedb.score(c.id) AS company_score
+        FROM company c
+        WHERE c.id @@@ 'name:Testing'
+    ),
+    scored_users AS (
+        SELECT
+            u.id,
+            u.company_id,
+            mc.id as mc_company_id,
+            COALESCE(MAX(mc.company_score), 0) AS score
+        FROM target_users u
+        LEFT JOIN matched_companies mc ON u.company_id = mc.id
+        LEFT JOIN user_products up ON up.user_id = u.id
+        GROUP BY u.id, u.company_id, mc.id
+    )
+    SELECT su.id, su.company_id, su.mc_company_id, su.score
+    FROM scored_users su
+    ORDER BY score DESC;
+    "#
+    .fetch_result::<(i64, i64, Option<i64>, f32)>(&mut conn)
+    .expect("parallel complex query failed");
+
+    // Test that we get results for all users in parallel mode
+    assert_eq!(parallel_complex_results.len(), 4);
+    let has_company_15 = parallel_complex_results
+        .iter()
+        .any(|(_, company_id, _, _)| *company_id == 15);
+    assert!(
+        has_company_15,
+        "Parallel results should include user with company_id 15"
+    );
+
+    // The minimal query focusing on the problematic companies in parallel mode
+    let parallel_minimal_results = r#"
+    WITH target_users AS (
+        SELECT u.id, u.company_id
+        FROM "user" u
+        WHERE 
+          u.status = 'NORMAL' AND
+            u.company_id in (13, 15)
+    ),
+    matched_companies AS (
+        SELECT c.id, paradedb.score(c.id) AS company_score
+        FROM company c
+        WHERE c.id @@@ 'name:Testing'
+    )
+    SELECT
+        u.id,
+        u.company_id,
+        mc.id as mc_company_id,
+        COALESCE(mc.company_score, 0) AS score
+    FROM target_users u
+    LEFT JOIN matched_companies mc ON u.company_id = mc.id;
+    "#
+    .fetch_result::<(i64, i64, Option<i64>, f32)>(&mut conn)
+    .expect("parallel minimal query failed");
+
+    // Verify both companies in parallel mode
+    assert_eq!(parallel_minimal_results.len(), 2);
+    let has_company_15 = parallel_minimal_results
+        .iter()
+        .any(|(_, company_id, _, _)| *company_id == 15);
+    assert!(
+        has_company_15,
+        "Parallel results should include user with company_id 15"
+    );
+    let company_15_result = parallel_minimal_results
+        .iter()
+        .find(|(_, company_id, _, _)| *company_id == 15)
+        .unwrap();
+    assert!(
+        company_15_result.3 > 0.0,
+        "Company 15 should have a non-zero score in parallel mode"
+    );
+}

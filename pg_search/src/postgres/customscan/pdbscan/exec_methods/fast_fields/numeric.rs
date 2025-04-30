@@ -81,7 +81,7 @@ impl ExecMethod for NumericFastFieldExecState {
                 state.need_scores(),
                 false,
                 &state.search_query_input,
-                None,
+                state.limit,
             );
             self.inner.did_query = true;
             true
@@ -163,5 +163,9 @@ impl ExecMethod for NumericFastFieldExecState {
                 }
             }
         }
+    }
+
+    fn reset(&mut self, _state: &mut PdbScanState) {
+        self.inner.reset(_state);
     }
 }

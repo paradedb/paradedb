@@ -22,16 +22,17 @@ on:
 
 # - New commits to a feature branch PR cancel previous runs.
 # - Pushes to `dev` get grouped under "dev".
+# - Pushes to `staging` get grouped under "staging".
 # - A PR from `dev` to `main` uses the same key as pushes to `dev`, avoiding duplicate runs when doing a promotion.
 concurrency:
-  group: test-pg_search-benchmark-${{ (github.event_name == 'push' || github.event.pull_request.head.ref == 'dev') && 'dev' || github.event.pull_request.number }}
+  group: test-pg_search-benchmark-${{ (github.event_name == 'push' && github.ref == 'refs/heads/dev' || github.event.pull_request.head.ref == 'dev') && 'dev' || (github.event_name == 'push' && github.ref == 'refs/heads/staging' || github.event.pull_request.head.ref == 'staging') && 'staging' || github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
   benchmark-pg_search:
     name: Benchmark pg_search
     runs-on: ubicloud-standard-8
-    if: !cancelled() && github.event.pull_request.draft == false
+    if: ${{ !cancelled() && github.event.pull_request.draft == false }}
     strategy:
       matrix:
         pg_version: [17]

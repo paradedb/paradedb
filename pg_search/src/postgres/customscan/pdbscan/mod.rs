@@ -32,7 +32,7 @@ use crate::api::Cardinality;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::builders::custom_path::{
-    CustomPathBuilder, ExecMethodType, Flags, OrderByStyle, RestrictInfoType, SortDirection,
+    CustomPathBuilder, Flags, OrderByStyle, RestrictInfoType, SortDirection,
 };
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -41,7 +41,7 @@ use crate::postgres::customscan::builders::custom_state::{
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::{
-    estimate_cardinality, is_string_agg_capable,
+    estimate_cardinality, is_string_agg_capable_ex,
 };
 use crate::postgres::customscan::pdbscan::parallel::{compute_nworkers, list_segment_ids};
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
@@ -56,13 +56,13 @@ use crate::postgres::customscan::pdbscan::projections::{
 };
 use crate::postgres::customscan::pdbscan::qual_inspect::extract_quals;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
-use crate::postgres::customscan::{self, CustomScan, CustomScanState};
+use crate::postgres::customscan::{CustomScan, CustomScanState, ExecMethod};
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::query::{AsHumanReadable, SearchQueryInput};
 use crate::schema::SearchIndexSchema;
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
-use exec_methods::normal::NormalScanExecState;
+use exec_methods::top_n::TopNScanExecState;
 use exec_methods::ExecState;
 use pgrx::pg_sys::CustomExecMethods;
 use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts, PgRelation};
@@ -75,7 +75,84 @@ use tantivy::Index;
 #[derive(Default)]
 pub struct PdbScan;
 
-impl customscan::ExecMethod for PdbScan {
+impl PdbScan {
+    // This is the core logic for (re-)initializing the search reader
+    fn init_search_reader(state: &mut CustomScanStateWrapper<Self>) {
+        if state.custom_state().nexprs > 0 {
+            let expr_context = state.runtime_context;
+            state
+                .custom_state_mut()
+                .search_query_input
+                .solve_postgres_expressions(expr_context);
+        }
+
+        let need_snippets = state.custom_state().need_snippets();
+
+        // Open the index
+        let indexrel = state
+            .custom_state()
+            .indexrel
+            .as_ref()
+            .map(|indexrel| unsafe { PgRelation::from_pg(*indexrel) })
+            .expect("custom_state.indexrel should already be open");
+
+        let search_reader = SearchIndexReader::open(&indexrel, unsafe {
+            if pg_sys::ParallelWorkerNumber == -1 {
+                // the leader only sees snapshot-visible segments
+                MvccSatisfies::Snapshot
+            } else {
+                // the workers have their own rules, which is literally every segment
+                // this is because the workers pick a specific segment to query that
+                // is known to be held open/pinned by the leader but might not pass a ::Snapshot
+                // visibility test due to concurrent merges/garbage collects
+                MvccSatisfies::ParallelWorker(list_segment_ids(
+                    state.custom_state().parallel_state.expect(
+                        "Parallel Custom Scan rescan_custom_scan should have a parallel state",
+                    ),
+                ))
+            }
+        })
+        .expect("should be able to open the search index reader");
+        state.custom_state_mut().search_reader = Some(search_reader);
+
+        let csstate = addr_of_mut!(state.csstate);
+        state.custom_state_mut().init_exec_method(csstate);
+
+        if need_snippets {
+            let mut snippet_generators: FxHashMap<
+                SnippetInfo,
+                Option<(tantivy::schema::Field, SnippetGenerator)>,
+            > = state
+                .custom_state_mut()
+                .snippet_generators
+                .drain()
+                .collect();
+            for (snippet_info, generator) in &mut snippet_generators {
+                let mut new_generator = state
+                    .custom_state()
+                    .search_reader
+                    .as_ref()
+                    .unwrap()
+                    .snippet_generator(
+                        &snippet_info.field,
+                        &state.custom_state().search_query_input,
+                    );
+                new_generator
+                    .1
+                    .set_max_num_chars(snippet_info.max_num_chars);
+                *generator = Some(new_generator);
+            }
+
+            state.custom_state_mut().snippet_generators = snippet_generators;
+        }
+
+        unsafe {
+            inject_score_and_snippet_placeholders(state);
+        }
+    }
+}
+
+impl ExecMethod for PdbScan {
     fn exec_methods() -> *const CustomExecMethods {
         <PdbScan as ParallelQueryCapable>::exec_methods()
     }
@@ -155,23 +232,18 @@ impl CustomScan for PdbScan {
 
             // quick look at the target list to see if we might need to do our const projections
             let target_list = (*(*builder.args().root).parse).targetList;
-            builder
-                .custom_private()
-                .set_targetlist_len(PgList::<pg_sys::TargetEntry>::from_pg(target_list).len());
             let maybe_needs_const_projections = maybe_needs_const_projections(target_list.cast());
             let ff_cnt =
                 exec_methods::fast_fields::count(&mut builder, rti, &table, &schema, target_list);
             let maybe_ff = builder.custom_private().maybe_ff();
             let is_topn = limit.is_some() && pathkey.is_some();
-            builder
-                .custom_private()
-                .set_which_fast_fields(exec_methods::fast_fields::collect(
-                    maybe_ff,
-                    target_list,
-                    rti,
-                    &schema,
-                    &table,
-                ));
+            let which_fast_fields = exec_methods::fast_fields::collect(
+                builder.custom_private().maybe_ff(),
+                target_list,
+                rti,
+                &schema,
+                &table,
+            );
 
             //
             // look for quals we can support
@@ -314,7 +386,8 @@ impl CustomScan for PdbScan {
 
             if pathkey.is_some()
                 && !is_topn
-                && is_string_agg_capable(builder.custom_private()).is_some()
+                && is_string_agg_capable_ex(builder.custom_private().limit(), &which_fast_fields)
+                    .is_some()
             {
                 let pathkey = pathkey.as_ref().unwrap();
 
@@ -354,18 +427,13 @@ impl CustomScan for PdbScan {
                 builder = builder.set_parallel(nworkers);
             }
 
-            let exec_method_type = choose_exec_method(builder.custom_private());
-            builder
-                .custom_private()
-                .set_exec_method_type(exec_method_type);
-
-            // Once we have chosen an execution method type, we have a final determination of the
-            // properties of the output, and can make claims about whether it is sorted.
-            if builder
-                .custom_private()
-                .exec_method_type()
-                .is_sorted(nworkers)
-            {
+            // If we are sorting our output (which we will only do if we have a limit!) and we
+            // are _not_ using parallel workers, then we can claim that the output is sorted.
+            //
+            // TODO: To allow sorted output with parallel workers, we would need to partition
+            // our segments across the workers so that each worker emitted all of its results
+            // in sorted order.
+            if nworkers == 0 && builder.custom_private().is_sorted() && limit.is_some() {
                 if let Some(pathkey) = pathkey.as_ref() {
                     builder = builder.add_path_key(pathkey);
                 }
@@ -445,11 +513,24 @@ impl CustomScan for PdbScan {
                 .range_table_index()
                 .expect("range table index should have been set");
 
-            builder.custom_state().exec_method_type =
-                builder.custom_private().exec_method_type().clone();
+            {
+                let indexrel = PgRelation::open(builder.custom_state().indexrelid);
+                let heaprel = indexrel
+                    .heap_relation()
+                    .expect("index should belong to a table");
+                let directory = MVCCDirectory::snapshot(indexrel.oid());
+                let index = Index::open(directory)
+                    .expect("create_custom_scan_state: should be able to open index");
+                let schema = SearchIndexSchema::open(index.schema(), &indexrel);
 
-            builder.custom_state().which_fast_fields =
-                builder.custom_private().which_fast_fields().clone();
+                builder.custom_state().which_fast_fields = exec_methods::fast_fields::collect(
+                    builder.custom_private().maybe_ff(),
+                    builder.target_list().as_ptr(),
+                    builder.custom_state().rti,
+                    &schema,
+                    &heaprel,
+                );
+            }
 
             builder.custom_state().targetlist_len = builder.target_list().len();
 
@@ -497,8 +578,32 @@ impl CustomScan for PdbScan {
                     .collect();
 
             let need_snippets = builder.custom_state().need_snippets();
-
-            assign_exec_method(builder.custom_state());
+            let need_scores = builder.custom_state().need_scores();
+            if let Some((limit, sort_direction)) = builder.custom_state().is_top_n_capable() {
+                // having a valid limit and sort direction means we can do a TopN query
+                // and TopN can do snippets
+                let heaprelid = builder.custom_state().heaprelid;
+                builder
+                    .custom_state()
+                    .assign_exec_method(TopNScanExecState::new(
+                        heaprelid,
+                        limit,
+                        sort_direction,
+                        need_scores,
+                    ));
+            } else if let Some(limit) = builder.custom_state().is_unsorted_top_n_capable() {
+                let heaprelid = builder.custom_state().heaprelid;
+                builder
+                    .custom_state()
+                    .assign_exec_method(TopNScanExecState::new(
+                        heaprelid,
+                        limit,
+                        SortDirection::None,
+                        need_scores,
+                    ));
+            } else {
+                exec_methods::fast_fields::assign_exec_method(&mut builder);
+            }
 
             builder.build()
         }
@@ -673,83 +778,14 @@ impl CustomScan for PdbScan {
     }
 
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        if state.custom_state().nexprs > 0 {
-            let expr_context = state.runtime_context;
-            state
-                .custom_state_mut()
-                .search_query_input
-                .solve_postgres_expressions(expr_context);
-        }
-
-        let need_snippets = state.custom_state().need_snippets();
-
-        // Open the index
-        let indexrel = state
-            .custom_state()
-            .indexrel
-            .as_ref()
-            .map(|indexrel| unsafe { PgRelation::from_pg(*indexrel) })
-            .expect("custom_state.indexrel should already be open");
-
-        let search_reader = SearchIndexReader::open(&indexrel, unsafe {
-            if pg_sys::ParallelWorkerNumber == -1 {
-                // the leader only sees snapshot-visible segments
-                MvccSatisfies::Snapshot
-            } else {
-                // the workers have their own rules, which is literally every segment
-                // this is because the workers pick a specific segment to query that
-                // is known to be held open/pinned by the leader but might not pass a ::Snapshot
-                // visibility test due to concurrent merges/garbage collects
-                MvccSatisfies::ParallelWorker(list_segment_ids(
-                    state.custom_state().parallel_state.expect(
-                        "Parallel Custom Scan rescan_custom_scan should have a parallel state",
-                    ),
-                ))
-            }
-        })
-        .expect("should be able to open the search index reader");
-        state.custom_state_mut().search_reader = Some(search_reader);
-
-        let csstate = addr_of_mut!(state.csstate);
-        state.custom_state_mut().init_exec_method(csstate);
-
-        if need_snippets {
-            let mut snippet_generators: FxHashMap<
-                SnippetInfo,
-                Option<(tantivy::schema::Field, SnippetGenerator)>,
-            > = state
-                .custom_state_mut()
-                .snippet_generators
-                .drain()
-                .collect();
-            for (snippet_info, generator) in &mut snippet_generators {
-                let mut new_generator = state
-                    .custom_state()
-                    .search_reader
-                    .as_ref()
-                    .unwrap()
-                    .snippet_generator(
-                        &snippet_info.field,
-                        &state.custom_state().search_query_input,
-                    );
-                new_generator
-                    .1
-                    .set_max_num_chars(snippet_info.max_num_chars);
-                *generator = Some(new_generator);
-            }
-
-            state.custom_state_mut().snippet_generators = snippet_generators;
-        }
-
-        unsafe {
-            inject_score_and_snippet_placeholders(state);
-        }
+        PdbScan::init_search_reader(state);
+        state.custom_state_mut().reset();
     }
 
     #[allow(clippy::blocks_in_conditions)]
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
         if state.custom_state().search_reader.is_none() {
-            PdbScan::rescan_custom_scan(state);
+            PdbScan::init_search_reader(state);
         }
 
         loop {
@@ -891,73 +927,6 @@ impl CustomScan for PdbScan {
                 pg_sys::relation_close(indexrel, state.custom_state().lockmode);
             }
         }
-    }
-}
-
-///
-/// Choose and return an ExecMethodType based on the properties of the builder.
-///
-/// If the query can return "fast fields", make that determination here, falling back to the
-/// [`NormalScanExecState`] if not.
-///
-/// We support [`StringFastFieldExecState`] when there's 1 fast field and it's a string, or
-/// [`NumericFastFieldExecState`] when there's one or more numeric fast fields
-///
-/// `paradedb.score()`, `ctid`, and `tableoid` are considered fast fields for the purposes of
-/// these specialized [`ExecMethod`]s.
-///
-fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
-    if let Some((limit, sort_direction)) = privdata.limit().zip(privdata.sort_direction()) {
-        // having a valid limit and sort direction means we can do a TopN query
-        // and TopN can do snippets
-        ExecMethodType::TopN {
-            heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
-            limit,
-            sort_direction,
-            need_scores: privdata.need_scores(),
-        }
-    } else if let Some(field) = exec_methods::fast_fields::is_string_agg_capable(privdata) {
-        ExecMethodType::FastFieldString {
-            field,
-            which_fast_fields: privdata.which_fast_fields().clone().unwrap(),
-        }
-    } else if exec_methods::fast_fields::is_numeric_fast_field_capable(privdata) {
-        ExecMethodType::FastFieldNumeric {
-            which_fast_fields: privdata.which_fast_fields().clone().unwrap_or_default(),
-        }
-    } else {
-        ExecMethodType::Normal
-    }
-}
-
-fn assign_exec_method(custom_state: &mut PdbScanState) {
-    match &custom_state.exec_method_type {
-        ExecMethodType::Normal => custom_state.assign_exec_method(NormalScanExecState::default()),
-        ExecMethodType::TopN {
-            heaprelid,
-            limit,
-            sort_direction,
-            need_scores,
-        } => custom_state.assign_exec_method(exec_methods::top_n::TopNScanExecState::new(
-            *heaprelid,
-            *limit,
-            *sort_direction,
-            *need_scores,
-        )),
-        ExecMethodType::FastFieldString {
-            field,
-            which_fast_fields,
-        } => custom_state.assign_exec_method(
-            exec_methods::fast_fields::string::StringFastFieldExecState::new(
-                field.to_owned(),
-                which_fast_fields.clone(),
-            ),
-        ),
-        ExecMethodType::FastFieldNumeric { which_fast_fields } => custom_state.assign_exec_method(
-            exec_methods::fast_fields::numeric::NumericFastFieldExecState::new(
-                which_fast_fields.clone(),
-            ),
-        ),
     }
 }
 

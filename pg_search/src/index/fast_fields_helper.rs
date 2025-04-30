@@ -20,7 +20,6 @@
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::types::TantivyValue;
 use crate::schema::SearchFieldType;
-use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
 use tantivy::columnar::StrColumn;
 use tantivy::fastfield::{Column, FastFieldReaders};
@@ -241,7 +240,7 @@ impl FFType {
     }
 }
 
-#[derive(Debug, Clone, Ord, Eq, PartialOrd, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Ord, Eq, PartialOrd, PartialEq)]
 pub enum WhichFastField {
     Junk(String),
     Ctid,
@@ -250,7 +249,7 @@ pub enum WhichFastField {
     Named(String, FastFieldType),
 }
 
-#[derive(Debug, Clone, Ord, Eq, PartialOrd, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Ord, Eq, PartialOrd, PartialEq)]
 pub enum FastFieldType {
     String,
     Numeric,

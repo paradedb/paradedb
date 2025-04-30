@@ -212,3 +212,45 @@ mod string_fast_field_exec {
         assert_eq!(count, vec![(0,)])
     }
 }
+
+#[rstest]
+fn with_partial_target_list(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE a (
+        id TEXT,
+        content TEXT
+    );
+
+    CREATE TABLE b (
+        id TEXT,
+        a_id TEXT,
+        content TEXT
+    );
+
+    CREATE INDEX idxa ON a
+        USING bm25 (id, content) WITH (key_field = 'id');
+    CREATE INDEX idxb ON b
+        USING bm25 (id, a_id, content)
+        WITH (key_field = 'id', text_fields = '{ "a_id": { "fast": true, "tokenizer": { "type": "keyword" } } }');
+
+    INSERT INTO a (id, content) VALUES ('this-is-a-id', 'beer');
+    INSERT INTO b (id, a_id, content) VALUES ('this-is-b-id', 'this-is-a-id', 'wine');
+    "#.execute(&mut conn);
+
+    // The visibility map must be up to date.
+    // TODO: For "reason".
+    r#"
+    VACUUM a, b;  -- super important
+    "#
+    .execute(&mut conn);
+
+    let result = r#"
+        SELECT a.id, b.id
+        FROM b
+        JOIN a ON a.id = b.a_id
+        WHERE a.content @@@ 'beer' AND b.content @@@ 'wine';
+    "#
+    .fetch::<(String, String)>(&mut conn);
+
+    todo!("Assert that we get a Normal exec?");
+}

@@ -522,6 +522,32 @@ impl CustomScan for PdbScan {
                 .range_table_index()
                 .expect("range table index should have been set");
 
+            {
+                let indexrel = PgRelation::open(builder.custom_state().indexrelid);
+                let heaprel = indexrel
+                    .heap_relation()
+                    .expect("index should belong to a table");
+                let directory = MVCCDirectory::snapshot(indexrel.oid());
+                let index = Index::open(directory)
+                    .expect("create_custom_scan_state: should be able to open index");
+                let schema = SearchIndexSchema::open(index.schema(), &indexrel);
+
+                pgrx::log!(">>> recomputing fast fields in execution");
+
+                let exec_which_fast_fields = exec_methods::fast_fields::collect(
+                    builder.custom_private().maybe_ff(),
+                    builder.target_list().as_ptr(),
+                    builder.custom_state().rti,
+                    &schema,
+                    &heaprel,
+                );
+
+                assert_eq!(
+                    &exec_which_fast_fields,
+                    builder.custom_private().which_fast_fields()
+                );
+            }
+
             builder.custom_state().exec_method_type =
                 builder.custom_private().exec_method_type().clone();
 

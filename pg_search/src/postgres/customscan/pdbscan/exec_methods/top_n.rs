@@ -26,7 +26,7 @@ use tantivy::index::SegmentId;
 
 // TODO:  should these be GUCs?  I think yes, probably
 const SUBSEQUENT_RETRY_SCALE_FACTOR: usize = 2;
-const MAX_CHUNK_SIZE: usize = 5000;
+const MAX_CHUNK_SIZE: usize = u32::MAX as usize;
 
 #[derive(Default)]
 pub struct TopNScanExecState {

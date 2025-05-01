@@ -168,7 +168,7 @@ pub unsafe fn count(
     target_list: *mut pg_sys::List,
 ) -> f64 {
     pgrx::warning!("Counting fast fields");
-    let ff = collect_fast_fields(target_list, schema, table, rti);
+    let ff = pullup_fast_fields(target_list, schema, table, rti);
 
     let ff_count = ff.len() as f64;
     pgrx::warning!("Found {} fast fields in count", ff_count);
@@ -189,7 +189,7 @@ pub unsafe fn collect(
 ) -> Option<Vec<WhichFastField>> {
     pgrx::warning!("Collecting fast fields, maybe_ff: {}", maybe_ff);
     if maybe_ff {
-        let fast_fields = collect_fast_fields(target_list, schema, heaprel, rti);
+        let fast_fields = pullup_fast_fields(target_list, schema, heaprel, rti);
 
         if fast_fields.is_empty() {
             pgrx::warning!("No fast fields found");
@@ -205,7 +205,7 @@ pub unsafe fn collect(
 }
 
 /// Find all fields that can be used as "fast fields" without failing if some fields are not fast fields
-pub unsafe fn collect_fast_fields(
+pub unsafe fn pullup_fast_fields(
     node: *mut pg_sys::List,
     schema: &SearchIndexSchema,
     heaprel: &PgRelation,
@@ -277,7 +277,7 @@ pub unsafe fn collect_fast_fields(
         // If it's not one of these types, simply continue without adding
     }
 
-    pgrx::warning!("Found {} fast fields in collect_fast_fields", matches.len());
+    pgrx::warning!("Found {} fast fields in pullup_fast_fields", matches.len());
     matches
 }
 

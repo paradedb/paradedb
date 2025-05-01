@@ -711,13 +711,6 @@ impl SearchIndexReader {
         // `top_by_field_in_subset`.
         let segments_subset = self.segments_subset.as_ref().unwrap();
 
-        unsafe {
-            pgrx::log!(
-                ">>> worker {} operating on: {segments_subset:?}",
-                pg_sys::ParallelWorkerNumber
-            );
-        }
-
         let mut fruits = Vec::with_capacity(segments_subset.len());
         for (segment_ord, segment_reader) in self.searcher.segment_readers().iter().enumerate() {
             if !segments_subset.contains(&segment_reader.segment_id()) {

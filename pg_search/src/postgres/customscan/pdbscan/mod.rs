@@ -183,15 +183,10 @@ impl PdbScan {
             .parallel_state
             .expect("When operating as a leader, there must be parallel state.");
         unsafe {
-            pgrx::log!(">>> leader waiting for workers to attach");
             pg_sys::WaitForParallelWorkersToAttach(pcxt);
             let nworkers_launched = (*pcxt).nworkers_launched;
-            pgrx::log!(">>> leader thinks that workers have attached, and that there are {nworkers_launched} of them.");
             (*parallel_state).leader_heuristic_await_workers_checkout_segments(
                 nworkers_launched.try_into().unwrap(),
-            );
-            pgrx::log!(
-                ">>> leader thinks that all workers have claimed their segments: reopening reader."
             );
         }
 
@@ -858,15 +853,7 @@ impl CustomScan for PdbScan {
             let exec_method = state.custom_state_mut().exec_method_mut();
 
             // get the next matching document from our search results and look for it in the heap
-            let res = exec_method.next(state.custom_state_mut());
-            unsafe {
-                if pg_sys::ParallelWorkerNumber == -1 {
-                    pgrx::log!(">>> leader: {res:?}");
-                } else {
-                    pgrx::log!(">>> worker {}: {res:?}", pg_sys::ParallelWorkerNumber);
-                }
-            }
-            match res {
+            match exec_method.next(state.custom_state_mut()) {
                 // reached the end of the SearchResults
                 ExecState::Eof => {
                     return std::ptr::null_mut();

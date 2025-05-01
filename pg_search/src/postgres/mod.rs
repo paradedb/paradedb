@@ -298,17 +298,10 @@ impl ParallelScanState {
         let prev_remaining_segments = self.remaining_segments;
         self.remaining_segments -= segment_count;
 
-        // All segments.
         let segments = (0..self.nsegments).map(|i| self.segment_id(i)).collect();
         let segments_subset = (self.remaining_segments..prev_remaining_segments)
             .map(|i| self.segment_id(i))
             .collect();
-        unsafe {
-            pgrx::log!(
-                ">>> worker {} using segments: {segments_subset:?}",
-                pg_sys::ParallelWorkerNumber
-            );
-        }
 
         (segments, segments_subset)
     }
@@ -319,12 +312,9 @@ impl ParallelScanState {
         let prev_remaining_segments = self.remaining_segments;
         self.remaining_segments = 0;
 
-        let subset = (0..prev_remaining_segments)
+        (0..prev_remaining_segments)
             .map(|segment_idx| self.segment_id(segment_idx))
-            .collect();
-
-        pgrx::log!(">>> leader checking out remaining segments: {subset:?}");
-        subset
+            .collect()
     }
 
     pub fn segments(&mut self) -> FxHashMap<SegmentId, u32> {

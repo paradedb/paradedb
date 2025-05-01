@@ -21,13 +21,15 @@ use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::{
     ff_to_datum, FastFieldExecState,
 };
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
+use crate::postgres::customscan::pdbscan::is_block_all_visible;
 use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::query::SearchQueryInput;
 use parking_lot::Mutex;
 use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::pg_sys;
-use std::collections::HashMap;
+use rayon::prelude::*;
+use std::collections::{BTreeMap, HashMap};
 use tantivy::collector::Collector;
 use tantivy::index::SegmentId;
 use tantivy::query::Query;
@@ -112,6 +114,7 @@ impl ExecMethod for MixedFastFieldExecState {
 
             // no more segments to query
             self.mixed_results = MixedAggResults::None;
+            self.inner.search_results = SearchResults::None;
             false
         } else if self.inner.did_query {
             // not parallel, so we're done
@@ -154,12 +157,11 @@ impl ExecMethod for MixedFastFieldExecState {
                     } else {
                         // new block so check its visibility
                         self.inner.blockvis.0 = blockno;
-                        self.inner.blockvis.1 =
-                            crate::postgres::customscan::pdbscan::is_block_all_visible(
-                                self.inner.heaprel,
-                                &mut self.inner.vmbuff,
-                                blockno,
-                            );
+                        self.inner.blockvis.1 = is_block_all_visible(
+                            self.inner.heaprel,
+                            &mut self.inner.vmbuff,
+                            blockno,
+                        );
                         self.inner.blockvis.1
                     };
 
@@ -367,6 +369,8 @@ impl FieldValues {
 
 // Types for string optimization
 type SearchResultsIter = std::vec::IntoIter<(SearchIndexScore, DocAddress)>;
+type BatchedResultsIter = std::vec::IntoIter<(FieldValues, SearchResultsIter)>;
+type MergedResultsMap = BTreeMap<DocAddress, (FieldValues, SearchIndexScore)>;
 
 // Define MixedAggResults enum
 #[derive(Default)]
@@ -375,7 +379,7 @@ enum MixedAggResults {
     None,
     Batched {
         current: (FieldValues, SearchResultsIter),
-        set: std::vec::IntoIter<(FieldValues, SearchResultsIter)>,
+        set: BatchedResultsIter,
     },
     SingleSegment(crossbeam::channel::IntoIter<(SearchIndexScore, DocAddress, FieldValues)>),
 }
@@ -440,69 +444,65 @@ impl MixedAggSearcher<'_> {
             )
             .expect("failed to search");
 
-        // Process results using a more structured approach that avoids HashMap key issues
-        let merged: Mutex<HashMap<DocAddress, (FieldValues, SearchIndexScore)>> =
-            Mutex::new(HashMap::new());
+        let merged: Mutex<MergedResultsMap> = Mutex::new(BTreeMap::new());
 
         // Process results, which contains a Vec of segment results
-        for segment_result in results {
-            let string_columns = &segment_result.0;
-            let string_results = &segment_result.1;
-            let numeric_columns = &segment_result.2;
-            let numeric_values = &segment_result.3;
+        // Process results, which contains a Vec of segment results
+        results.into_par_iter().for_each(
+            |(string_columns, string_results, numeric_columns, numeric_values)| {
+                // Process string fields
+                for field_idx in 0..string_columns.len() {
+                    if field_idx >= string_results.len() {
+                        continue; // Skip if no results for this field
+                    }
 
-            // Process string fields
-            for field_idx in 0..string_columns.len() {
-                if field_idx >= string_results.len() {
-                    continue; // Skip if no results for this field
-                }
+                    let (field_name, str_ff) = &string_columns[field_idx];
+                    let field_result = &string_results[field_idx];
 
-                let (field_name, str_ff) = &string_columns[field_idx];
-                let field_result = &string_results[field_idx];
-
-                // Process each term ordinate
-                for (term_ord, docs) in field_result.iter() {
-                    // Resolve the term for this field
-                    let term_value = if *term_ord != 0 && str_ff.num_terms() > 0 {
-                        let mut term_str = String::new();
-                        if str_ff.ord_to_str(*term_ord, &mut term_str).is_ok() {
-                            Some(term_str)
+                    // Process each term ordinate
+                    for (term_ord, docs) in field_result.iter() {
+                        // Resolve the term for this field
+                        let term_value = if *term_ord != 0 && str_ff.num_terms() > 0 {
+                            let mut term_str = String::new();
+                            if str_ff.ord_to_str(*term_ord, &mut term_str).is_ok() {
+                                Some(term_str)
+                            } else {
+                                None
+                            }
                         } else {
                             None
+                        };
+
+                        // Add this term to all documents
+                        for (score, doc_addr) in docs {
+                            let mut guard = merged.lock();
+                            let entry = guard
+                                .entry(*doc_addr)
+                                .or_insert_with(|| (FieldValues::new(), *score));
+                            entry.0.set_string(field_name.clone(), term_value.clone());
                         }
-                    } else {
-                        None
-                    };
+                    }
+                }
 
-                    // Add this term to all documents
-                    for (score, doc_addr) in docs {
+                // Process numeric fields
+                for field_idx in 0..numeric_columns.len() {
+                    if field_idx >= numeric_values.len() {
+                        continue; // Skip if no results for this field
+                    }
+
+                    let (field_name, _) = &numeric_columns[field_idx];
+                    let field_values = &numeric_values[field_idx];
+
+                    // Add values to all documents
+                    for (doc_id, value) in field_values.iter() {
                         let mut guard = merged.lock();
-                        let entry = guard
-                            .entry(*doc_addr)
-                            .or_insert_with(|| (FieldValues::new(), *score));
-                        entry.0.set_string(field_name.clone(), term_value.clone());
+                        if let Some((field_values, _)) = guard.get_mut(doc_id) {
+                            field_values.set_numeric(field_name.clone(), value.clone());
+                        }
                     }
                 }
-            }
-
-            // Process numeric fields
-            for field_idx in 0..numeric_columns.len() {
-                if field_idx >= numeric_values.len() {
-                    continue; // Skip if no results for this field
-                }
-
-                let (field_name, _) = &numeric_columns[field_idx];
-                let field_values = &numeric_values[field_idx];
-
-                // Add values to all documents
-                for (doc_id, value) in field_values.iter() {
-                    let mut guard = merged.lock();
-                    if let Some((field_values, _)) = guard.get_mut(doc_id) {
-                        field_values.set_numeric(field_name.clone(), value.clone());
-                    }
-                }
-            }
-        }
+            },
+        );
 
         // Convert to format for MixedAggResults
         let processed_docs = merged.into_inner();

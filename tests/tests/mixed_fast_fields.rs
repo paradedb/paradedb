@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 // Tests for MixedFastFieldExecState implementation
+// Includes both basic functionality tests and corner/edge cases
 
 mod fixtures;
 
@@ -82,6 +83,10 @@ fn get_all_exec_methods(plan: &Value) -> Vec<String> {
     methods
 }
 
+// Setup functions for test data
+// ============================
+
+// Setup for basic mixed fast fields tests
 struct TestMixedFastFields;
 
 impl TestMixedFastFields {
@@ -211,6 +216,79 @@ impl TestMixedFastFields {
             "#
     }
 }
+
+// Setup for corner cases and edge cases tests
+struct TestCornerCases;
+
+impl TestCornerCases {
+    fn setup() -> impl Query {
+        r#"
+            DROP TABLE IF EXISTS corner_case_test CASCADE;
+            
+            -- Create test tables with unusual/extreme cases
+            CREATE TABLE corner_case_test (
+                id TEXT PRIMARY KEY,
+                -- String fields with different characteristics
+                empty_string TEXT NOT NULL,
+                very_long_string TEXT NOT NULL,
+                special_chars TEXT NOT NULL,
+                non_utf8_bytes BYTEA NOT NULL,
+                -- Numeric fields with different characteristics
+                extreme_large BIGINT NOT NULL,
+                extreme_small BIGINT NOT NULL,
+                float_value FLOAT NOT NULL,
+                zero_value INTEGER NOT NULL,
+                negative_value INTEGER NOT NULL,
+                -- Boolean field
+                bool_field BOOLEAN NOT NULL,
+                -- Regular fields for testing
+                content TEXT
+            );
+            
+            -- Create BM25 index with fast fields for all columns
+            CREATE INDEX corner_case_search ON corner_case_test USING bm25 (
+                id,
+                empty_string,
+                very_long_string,
+                special_chars,
+                extreme_large,
+                extreme_small,
+                float_value,
+                zero_value,
+                negative_value,
+                bool_field,
+                content
+            ) WITH (
+                key_field = 'id',
+                text_fields = '{"empty_string": {"tokenizer": {"type": "default"}, "fast": true}, "very_long_string": {"tokenizer": {"type": "default"}, "fast": true}, "special_chars": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
+                numeric_fields = '{"extreme_large": {"fast": true}, "extreme_small": {"fast": true}, "float_value": {"fast": true}, "zero_value": {"fast": true}, "negative_value": {"fast": true}}',
+                boolean_fields = '{"bool_field": {"fast": true}}'
+            );
+            
+            -- Insert extreme test data
+            INSERT INTO corner_case_test (
+                id, 
+                empty_string, 
+                very_long_string, 
+                special_chars, 
+                non_utf8_bytes,
+                extreme_large, 
+                extreme_small, 
+                float_value, 
+                zero_value, 
+                negative_value, 
+                bool_field, 
+                content
+            ) VALUES
+            ('case1', '', repeat('a', 8000), '!@#$%^&*()_+{}[]|:;"''<>,.?/', E'\\x00', 9223372036854775807, -9223372036854775808, 1.7976931348623157e+308, 0, -2147483648, true, 'Contains test term'),
+            ('case2', '', repeat('b', 2), '-_.+', E'\\x00', 0, 0, 0.0, 0, 0, false, 'Contains test term'),
+            ('case3', 'not_empty', '', '漢字', E'\\x00', 42, -42, 3.14159, 0, -1, true, 'Contains test term');
+            "#
+    }
+}
+
+// SECTION 1: BASIC FUNCTIONALITY TESTS
+// ===================================
 
 #[rstest]
 fn test_basic_mixed_string_numeric_fields(mut conn: PgConnection) {
@@ -994,5 +1072,452 @@ fn test_string_edge_cases(mut conn: PgConnection) {
     assert!(
         mixed_results[2].0.starts_with("very_long_string_"),
         "Long string truncated"
+    );
+}
+
+// SECTION 2: CORNER CASES AND EDGE CASES TESTS
+// ==========================================
+
+#[rstest]
+fn test_empty_strings(mut conn: PgConnection) {
+    TestCornerCases::setup().execute(&mut conn);
+
+    // Test handling of empty strings in MixedFastFieldExecState
+    let (plan,) = r#"
+        EXPLAIN (ANALYZE, FORMAT JSON)
+        SELECT empty_string, special_chars, extreme_large 
+        FROM corner_case_test
+        WHERE content @@@ 'test'
+    "#
+    .fetch_one::<(Value,)>(&mut conn);
+
+    // Check execution method
+    assert!(
+        check_exec_method(&plan, "MixedFastFieldExecState"),
+        "Expected MixedFastFieldExecState, got: {:?}",
+        get_all_exec_methods(&plan)
+    );
+
+    // Check results with empty strings
+    let results = r#"
+        SELECT id, empty_string
+        FROM corner_case_test
+        WHERE content @@@ 'test'
+        ORDER BY id
+    "#
+    .fetch_result::<(String, String)>(&mut conn)
+    .unwrap();
+
+    assert_eq!(results.len(), 3, "Expected 3 results");
+
+    // First two records should have empty strings
+    assert_eq!(results[0].1, "", "Expected empty string for case1");
+    assert_eq!(results[1].1, "", "Expected empty string for case2");
+    assert_eq!(
+        results[2].1, "not_empty",
+        "Expected non-empty string for case3"
+    );
+}
+
+#[rstest]
+fn test_very_long_strings(mut conn: PgConnection) {
+    TestCornerCases::setup().execute(&mut conn);
+
+    // Test handling of very long strings (buffer boundaries)
+    let results = r#"
+        SELECT id, very_long_string
+        FROM corner_case_test
+        WHERE content @@@ 'test'
+        ORDER BY id
+    "#
+    .fetch_result::<(String, String)>(&mut conn)
+    .unwrap();
+
+    assert_eq!(results.len(), 3, "Expected 3 results");
+
+    // Check length of the very long string
+    assert_eq!(
+        results[0].1.len(),
+        8000,
+        "Expected very long string of 8000 chars"
+    );
+    assert_eq!(results[1].1.len(), 2, "Expected string of length 2");
+    assert_eq!(results[2].1, "", "Expected empty string");
+}
+
+#[rstest]
+fn test_special_characters(mut conn: PgConnection) {
+    TestCornerCases::setup().execute(&mut conn);
+
+    // Test handling of special characters
+    let results = r#"
+        SELECT id, special_chars
+        FROM corner_case_test
+        WHERE content @@@ 'test'
+        ORDER BY id
+    "#
+    .fetch_result::<(String, String)>(&mut conn)
+    .unwrap();
+
+    assert_eq!(results.len(), 3, "Expected 3 results");
+
+    // Check special characters
+    assert_eq!(
+        results[0].1, "!@#$%^&*()_+{}[]|:;\"'<>,.?/",
+        "Special characters not preserved"
+    );
+    assert_eq!(
+        results[1].1, "-_.+",
+        "Simple special characters not preserved"
+    );
+    assert_eq!(results[2].1, "漢字", "Unicode characters not preserved");
+}
+
+#[rstest]
+fn test_extreme_numeric_values(mut conn: PgConnection) {
+    TestCornerCases::setup().execute(&mut conn);
+
+    // Test handling of extreme numeric values
+    let results = r#"
+        SELECT id, extreme_large, extreme_small
+        FROM corner_case_test
+        WHERE content @@@ 'test'
+        ORDER BY id
+    "#
+    .fetch_result::<(String, i64, i64)>(&mut conn)
+    .unwrap();
+
+    assert_eq!(results.len(), 3, "Expected 3 results");
+
+    // Check extreme values
+    assert_eq!(
+        results[0].1, 9223372036854775807,
+        "Max BIGINT value not preserved"
+    );
+    assert_eq!(
+        results[0].2, -9223372036854775808,
+        "Min BIGINT value not preserved"
+    );
+
+    // Check zero values
+    assert_eq!(results[1].1, 0, "Zero value not preserved");
+    assert_eq!(results[1].2, 0, "Zero value not preserved");
+}
+
+#[rstest]
+fn test_boolean_values(mut conn: PgConnection) {
+    TestCornerCases::setup().execute(&mut conn);
+
+    // Test boolean field handling
+    let results = r#"
+        SELECT id, bool_field
+        FROM corner_case_test
+        WHERE content @@@ 'test'
+        ORDER BY id
+    "#
+    .fetch_result::<(String, bool)>(&mut conn)
+    .unwrap();
+
+    assert_eq!(results.len(), 3, "Expected 3 results");
+
+    // Check boolean values
+    assert_eq!(results[0].1, true, "Boolean true not preserved");
+    assert_eq!(results[1].1, false, "Boolean false not preserved");
+    assert_eq!(results[2].1, true, "Boolean true not preserved");
+}
+
+#[rstest]
+fn test_all_field_types_together(mut conn: PgConnection) {
+    TestCornerCases::setup().execute(&mut conn);
+
+    // Test retrieving all different field types together
+    let (plan,) = r#"
+        EXPLAIN (ANALYZE, FORMAT JSON)
+        SELECT empty_string, very_long_string, special_chars, 
+               extreme_large, extreme_small, float_value, 
+               zero_value, negative_value, bool_field
+        FROM corner_case_test
+        WHERE content @@@ 'test'
+    "#
+    .fetch_one::<(Value,)>(&mut conn);
+
+    // Check execution method
+    assert!(
+        check_exec_method(&plan, "MixedFastFieldExecState"),
+        "Expected MixedFastFieldExecState, got: {:?}",
+        get_all_exec_methods(&plan)
+    );
+
+    // Verify result counts
+    let results = r#"
+        SELECT COUNT(*)
+        FROM corner_case_test
+        WHERE content @@@ 'test'
+    "#
+    .fetch_one::<(i64,)>(&mut conn);
+
+    assert_eq!(results.0, 3, "Expected 3 results");
+}
+
+#[rstest]
+fn test_complex_string_patterns(mut conn: PgConnection) {
+    TestCornerCases::setup().execute(&mut conn);
+
+    // Add data with complex string patterns
+    r#"
+        INSERT INTO corner_case_test (
+            id, 
+            empty_string, 
+            very_long_string, 
+            special_chars, 
+            non_utf8_bytes,
+            extreme_large, 
+            extreme_small, 
+            float_value, 
+            zero_value, 
+            negative_value, 
+            bool_field, 
+            content
+        ) VALUES
+        ('complex1', 'pattern with spaces', 'line1\nline2\nline3', 'tab    tab', E'\\x00', 1, 1, 1.0, 1, 1, true, 'complex pattern test'),
+        ('complex2', 'quotation "marks"', 'backslash\\test', 'percent%test', E'\\x00', 2, 2, 2.0, 2, 2, false, 'complex pattern test');
+    "#
+    .execute(&mut conn);
+
+    // Test handling of complex patterns
+    let results = r#"
+        SELECT id, empty_string, special_chars 
+        FROM corner_case_test
+        WHERE content @@@ 'complex pattern'
+        ORDER BY id
+    "#
+    .fetch_result::<(String, String, String)>(&mut conn)
+    .unwrap();
+
+    assert_eq!(results.len(), 2, "Expected 2 results");
+
+    // Check string patterns
+    assert_eq!(
+        results[0].1, "pattern with spaces",
+        "Spaces not handled correctly"
+    );
+    assert_eq!(
+        results[0].2, "tab    tab",
+        "Tab character not handled correctly"
+    );
+
+    assert_eq!(
+        results[1].1, "quotation \"marks\"",
+        "Quote characters not handled correctly"
+    );
+    assert_eq!(
+        results[1].2, "percent%test",
+        "Percent character not handled correctly"
+    );
+}
+
+#[rstest]
+fn test_null_values_handling(mut conn: PgConnection) {
+    TestCornerCases::setup().execute(&mut conn);
+
+    // Add a row with NULL values where possible
+    r#"
+        CREATE TABLE nullable_test (
+            id TEXT PRIMARY KEY,
+            string_field TEXT,
+            numeric_field INTEGER,
+            content TEXT
+        );
+        
+        CREATE INDEX nullable_search ON nullable_test USING bm25 (
+            id, string_field, numeric_field, content
+        ) WITH (
+            key_field = 'id',
+            text_fields = '{"string_field": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
+            numeric_fields = '{"numeric_field": {"fast": true}}'
+        );
+        
+        INSERT INTO nullable_test (id, string_field, numeric_field, content) VALUES
+        ('null1', NULL, NULL, 'null test case'),
+        ('null2', 'not null', 42, 'null test case');
+    "#
+    .execute(&mut conn);
+
+    // Test handling NULL values
+    let (plan,) = r#"
+        EXPLAIN (ANALYZE, FORMAT JSON)
+        SELECT string_field, numeric_field
+        FROM nullable_test
+        WHERE content @@@ 'null'
+    "#
+    .fetch_one::<(Value,)>(&mut conn);
+
+    // Check execution method
+    assert!(
+        check_exec_method(&plan, "MixedFastFieldExecState"),
+        "Expected MixedFastFieldExecState, got: {:?}",
+        get_all_exec_methods(&plan)
+    );
+
+    // Verify NULL handling
+    let results = r#"
+        SELECT id, string_field, numeric_field
+        FROM nullable_test
+        WHERE content @@@ 'null'
+        ORDER BY id
+    "#
+    .fetch_result::<(String, Option<String>, Option<i32>)>(&mut conn)
+    .unwrap();
+
+    assert_eq!(results.len(), 2, "Expected 2 results");
+
+    // Check NULL values
+    assert_eq!(results[0].0, "null1", "Expected 'null1' record");
+    assert_eq!(results[0].1, None, "Expected NULL string_field");
+    assert_eq!(results[0].2, None, "Expected NULL numeric_field");
+
+    assert_eq!(results[1].0, "null2", "Expected 'null2' record");
+    assert_eq!(
+        results[1].1,
+        Some("not null".to_string()),
+        "Expected non-NULL string_field"
+    );
+    assert_eq!(results[1].2, Some(42), "Expected non-NULL numeric_field");
+}
+
+#[rstest]
+fn test_concurrent_queries(mut conn: PgConnection) {
+    TestCornerCases::setup().execute(&mut conn);
+
+    // Add many rows for concurrency testing
+    r#"
+        DO $$
+        DECLARE
+            i INTEGER;
+        BEGIN
+            FOR i IN 1..100 LOOP
+                INSERT INTO corner_case_test (
+                    id, 
+                    empty_string, 
+                    very_long_string, 
+                    special_chars, 
+                    non_utf8_bytes,
+                    extreme_large, 
+                    extreme_small, 
+                    float_value, 
+                    zero_value, 
+                    negative_value, 
+                    bool_field, 
+                    content
+                ) VALUES (
+                    'conc' || i, 
+                    'string' || (i % 5), 
+                    'long' || (i % 3), 
+                    'special' || (i % 2), 
+                    E'\\x00', 
+                    i, 
+                    -i, 
+                    i * 1.1, 
+                    0, 
+                    -i, 
+                    (i % 2 = 0), 
+                    CASE WHEN i % 10 = 0 THEN 'concurrent test term' ELSE 'other content' END
+                );
+            END LOOP;
+        END $$;
+    "#
+    .execute(&mut conn);
+
+    // Run multiple queries in sequence to simulate concurrent behavior
+    for _i in 1..5 {
+        let (count,) = format!(
+            r#"
+            SELECT COUNT(*)
+            FROM corner_case_test
+            WHERE content @@@ 'concurrent'
+            "#
+        )
+        .fetch_one::<(i64,)>(&mut conn);
+
+        assert_eq!(count, 10, "Expected correct number of results");
+    }
+}
+
+#[rstest]
+fn test_type_conversion_edge_cases(mut conn: PgConnection) {
+    TestCornerCases::setup().execute(&mut conn);
+
+    // Create a table with fields that will test type conversion edge cases
+    r#"
+        CREATE TABLE conversion_test (
+            id TEXT PRIMARY KEY,
+            smallint_field SMALLINT,
+            integer_field INTEGER,
+            bigint_field BIGINT,
+            numeric_field NUMERIC(10,2),
+            real_field REAL,
+            double_field DOUBLE PRECISION,
+            bool_from_int BOOLEAN,
+            content TEXT
+        );
+        
+        CREATE INDEX conversion_search ON conversion_test USING bm25 (
+            id, smallint_field, integer_field, bigint_field, 
+            numeric_field, real_field, double_field, bool_from_int, content
+        ) WITH (
+            key_field = 'id',
+            text_fields = '{"content": {"tokenizer": {"type": "default"}}}',
+            numeric_fields = '{
+                "smallint_field": {"fast": true}, 
+                "integer_field": {"fast": true}, 
+                "bigint_field": {"fast": true}, 
+                "numeric_field": {"fast": true}, 
+                "real_field": {"fast": true}, 
+                "double_field": {"fast": true}
+            }',
+            boolean_fields = '{"bool_from_int": {"fast": true}}'
+        );
+        
+        INSERT INTO conversion_test VALUES
+        ('conv1', 32767, 2147483647, 9223372036854775807, 9999999.99, 3.402e38, 1.7976931348623157e308, true, 'conversion test'),
+        ('conv2', -32768, -2147483648, -9223372036854775808, -9999999.99, -3.402e38, -1.7976931348623157e308, false, 'conversion test'),
+        ('conv3', 0, 0, 0, 0.0, 0.0, 0.0, false, 'conversion test');
+    "#
+    .execute(&mut conn);
+
+    // Test type conversions with MixedFastFieldExecState
+    let (plan,) = r#"
+        EXPLAIN (ANALYZE, FORMAT JSON)
+        SELECT smallint_field, integer_field, bigint_field, 
+               numeric_field, real_field, double_field, bool_from_int
+        FROM conversion_test
+        WHERE content @@@ 'conversion'
+    "#
+    .fetch_one::<(Value,)>(&mut conn);
+
+    // Check execution method
+    let methods = get_all_exec_methods(&plan);
+    assert!(
+        methods.contains(&"MixedFastFieldExecState".to_string())
+            || methods.contains(&"NumericFastFieldExecState".to_string()),
+        "Expected MixedFastFieldExecState or NumericFastFieldExecState, got: {:?}",
+        methods
+    );
+
+    // Verify we get correct results for all types
+    let results = r#"
+        SELECT id, smallint_field, integer_field, bigint_field, 
+               numeric_field::text, real_field, double_field, bool_from_int
+        FROM conversion_test
+        WHERE content @@@ 'conversion'
+        ORDER BY id
+    "#
+    .fetch_result::<(String, i16, i32, i64, String, f32, f64, bool)>(&mut conn)
+    .unwrap();
+
+    assert_eq!(
+        results.len(),
+        3,
+        "Expected 3 results for type conversion test"
     );
 }

@@ -90,6 +90,9 @@ impl MixedFastFieldExecState {
 impl ExecMethod for MixedFastFieldExecState {
     fn init(&mut self, state: &mut PdbScanState, cstate: *mut pg_sys::CustomScanState) {
         self.inner.init(state, cstate);
+        self.mixed_results = MixedAggResults::None;
+        self.num_rows_fetched = 0;
+        self.num_visible = 0;
     }
 
     fn query(&mut self, state: &mut PdbScanState) -> bool {
@@ -129,145 +132,139 @@ impl ExecMethod for MixedFastFieldExecState {
 
     fn internal_next(&mut self, _state: &mut PdbScanState) -> ExecState {
         // Always use our optimized path if we have results
-        if !matches!(self.mixed_results, MixedAggResults::None) {
-            unsafe {
-                // Handle results from our optimized path
-                match self.mixed_results.next() {
-                    None => ExecState::Eof,
-                    Some((scored, doc_address, field_values)) => {
-                        let slot = self.inner.slot;
-                        let natts = (*(*slot).tts_tupleDescriptor).natts as usize;
+        if matches!(self.mixed_results, MixedAggResults::None) {
+            // No results from optimized path
+            return ExecState::Eof;
+        }
+        unsafe {
+            // Handle results from our optimized path
+            match self.mixed_results.next() {
+                None => ExecState::Eof,
+                Some((scored, doc_address, field_values)) => {
+                    let slot = self.inner.slot;
+                    let natts = (*(*slot).tts_tupleDescriptor).natts as usize;
 
-                        crate::postgres::utils::u64_to_item_pointer(
-                            scored.ctid,
-                            &mut (*slot).tts_tid,
-                        );
-                        (*slot).tts_tableOid = (*self.inner.heaprel).rd_id;
+                    crate::postgres::utils::u64_to_item_pointer(scored.ctid, &mut (*slot).tts_tid);
+                    (*slot).tts_tableOid = (*self.inner.heaprel).rd_id;
 
-                        let blockno = item_pointer_get_block_number(&(*slot).tts_tid);
-                        let is_visible = if blockno == self.inner.blockvis.0 {
-                            // we know the visibility of this block because we just checked it last time
-                            self.inner.blockvis.1
-                        } else {
-                            // new block so check its visibility
-                            self.inner.blockvis.0 = blockno;
-                            self.inner.blockvis.1 =
-                                crate::postgres::customscan::pdbscan::is_block_all_visible(
-                                    self.inner.heaprel,
-                                    &mut self.inner.vmbuff,
-                                    blockno,
-                                );
-                            self.inner.blockvis.1
-                        };
+                    let blockno = item_pointer_get_block_number(&(*slot).tts_tid);
+                    let is_visible = if blockno == self.inner.blockvis.0 {
+                        // we know the visibility of this block because we just checked it last time
+                        self.inner.blockvis.1
+                    } else {
+                        // new block so check its visibility
+                        self.inner.blockvis.0 = blockno;
+                        self.inner.blockvis.1 =
+                            crate::postgres::customscan::pdbscan::is_block_all_visible(
+                                self.inner.heaprel,
+                                &mut self.inner.vmbuff,
+                                blockno,
+                            );
+                        self.inner.blockvis.1
+                    };
 
-                        if is_visible {
-                            self.inner.blockvis = (blockno, true);
+                    if is_visible {
+                        self.inner.blockvis = (blockno, true);
 
-                            (*slot).tts_flags &= !pg_sys::TTS_FLAG_EMPTY as u16;
-                            (*slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
-                            (*slot).tts_nvalid = natts as _;
+                        (*slot).tts_flags &= !pg_sys::TTS_FLAG_EMPTY as u16;
+                        (*slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
+                        (*slot).tts_nvalid = natts as _;
 
-                            let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
-                            let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
+                        let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
+                        let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
 
-                            // Initialize all to NULL
-                            for i in 0..natts {
-                                datums[i] = pg_sys::Datum::null();
-                                isnull[i] = true;
-                            }
+                        // Initialize all to NULL
+                        for i in 0..natts {
+                            datums[i] = pg_sys::Datum::null();
+                            isnull[i] = true;
+                        }
 
-                            let fast_fields = &mut self.inner.ffhelper;
-                            let which_fast_fields = &self.inner.which_fast_fields;
+                        let fast_fields = &mut self.inner.ffhelper;
+                        let which_fast_fields = &self.inner.which_fast_fields;
 
-                            // Take the string buffer from inner
-                            let mut string_buf = self.inner.strbuf.take().unwrap_or_default();
+                        // Take the string buffer from inner
+                        let mut string_buf = self.inner.strbuf.take().unwrap_or_default();
 
-                            for (i, att) in self.inner.tupdesc.as_ref().unwrap().iter().enumerate()
+                        for (i, att) in self.inner.tupdesc.as_ref().unwrap().iter().enumerate() {
+                            let which_fast_field = &which_fast_fields[i];
+
+                            // Process field based on field type - handle both string and numeric
+                            if let WhichFastField::Named(field_name, field_type) = which_fast_field
                             {
-                                let which_fast_field = &which_fast_fields[i];
-
-                                // Process field based on field type - handle both string and numeric
-                                if let WhichFastField::Named(field_name, field_type) =
-                                    which_fast_field
-                                {
-                                    match field_type {
-                                        // String field handling
-                                        FastFieldType::String => {
-                                            if let Some(Some(term_string)) =
-                                                field_values.get_string(field_name)
+                                match field_type {
+                                    // String field handling
+                                    FastFieldType::String => {
+                                        if let Some(Some(term_string)) =
+                                            field_values.get_string(field_name)
+                                        {
+                                            // Use the term directly for this string field if available
+                                            if let Some(datum) =
+                                                term_to_datum(term_string, att.atttypid, slot)
                                             {
-                                                // Use the term directly for this string field if available
-                                                if let Some(datum) =
-                                                    term_to_datum(term_string, att.atttypid, slot)
-                                                {
-                                                    datums[i] = datum;
-                                                    isnull[i] = false;
-                                                    continue;
-                                                }
+                                                datums[i] = datum;
+                                                isnull[i] = false;
+                                                continue;
                                             }
                                         }
-                                        // Numeric field handling
-                                        FastFieldType::Numeric => {
-                                            if let Some(num_value) =
-                                                field_values.get_numeric(field_name)
+                                    }
+                                    // Numeric field handling
+                                    FastFieldType::Numeric => {
+                                        if let Some(num_value) =
+                                            field_values.get_numeric(field_name)
+                                        {
+                                            // Convert the numeric value to the right Datum type
+                                            if let Some(datum) =
+                                                numeric_to_datum(num_value, att.atttypid)
                                             {
-                                                // Convert the numeric value to the right Datum type
-                                                if let Some(datum) =
-                                                    numeric_to_datum(num_value, att.atttypid)
-                                                {
-                                                    datums[i] = datum;
-                                                    isnull[i] = false;
-                                                    continue;
-                                                }
+                                                datums[i] = datum;
+                                                isnull[i] = false;
+                                                continue;
                                             }
                                         }
                                     }
                                 }
-
-                                // If we didn't handle it above, use standard ff_to_datum as fallback
-                                let mut str_opt = Some(string_buf);
-
-                                match ff_to_datum(
-                                    (which_fast_field, i),
-                                    att.atttypid,
-                                    scored.bm25,
-                                    doc_address,
-                                    fast_fields,
-                                    &mut str_opt,
-                                    slot,
-                                ) {
-                                    None => {
-                                        datums[i] = pg_sys::Datum::null();
-                                        isnull[i] = true;
-                                    }
-                                    Some(datum) => {
-                                        datums[i] = datum;
-                                        isnull[i] = false;
-                                    }
-                                }
-
-                                // Extract the string back
-                                string_buf = str_opt.unwrap_or_default();
                             }
 
-                            // Put the string buffer back
-                            self.inner.strbuf = Some(string_buf);
+                            // If we didn't handle it above, use standard ff_to_datum as fallback
+                            let mut str_opt = Some(string_buf);
 
-                            self.num_rows_fetched += 1;
-                            ExecState::Virtual { slot }
-                        } else {
-                            ExecState::RequiresVisibilityCheck {
-                                ctid: scored.ctid,
-                                score: scored.bm25,
+                            match ff_to_datum(
+                                (which_fast_field, i),
+                                att.atttypid,
+                                scored.bm25,
                                 doc_address,
+                                fast_fields,
+                                &mut str_opt,
+                                slot,
+                            ) {
+                                None => {
+                                    datums[i] = pg_sys::Datum::null();
+                                    isnull[i] = true;
+                                }
+                                Some(datum) => {
+                                    datums[i] = datum;
+                                    isnull[i] = false;
+                                }
                             }
+
+                            // Extract the string back
+                            string_buf = str_opt.unwrap_or_default();
+                        }
+
+                        // Put the string buffer back
+                        self.inner.strbuf = Some(string_buf);
+
+                        self.num_rows_fetched += 1;
+                        ExecState::Virtual { slot }
+                    } else {
+                        ExecState::RequiresVisibilityCheck {
+                            ctid: scored.ctid,
+                            score: scored.bm25,
+                            doc_address,
                         }
                     }
                 }
             }
-        } else {
-            // No results from optimized path
-            ExecState::Eof
         }
     }
 

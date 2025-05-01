@@ -664,12 +664,13 @@ fn top_n_completes_issue2511(mut conn: PgConnection) {
         update loop set message = message || ' beer';
         update loop set message = message || ' beer';
         update loop set message = message || ' beer';
+
+        set max_parallel_workers = 1;
     "#.execute(&mut conn);
 
     let results = r#"
-            set max_parallel_workers = 1;
-            select * from loop where id @@@ paradedb.all() order by id desc limit 25 offset 0;
-        "#
+        select * from loop where id @@@ paradedb.all() order by id desc limit 25 offset 0;
+    "#
     .fetch::<(i64, String)>(&mut conn);
     assert_eq!(results.len(), 25);
 }

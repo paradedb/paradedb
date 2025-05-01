@@ -371,6 +371,8 @@ impl FieldValues {
 type SearchResultsIter = std::vec::IntoIter<(SearchIndexScore, DocAddress)>;
 type BatchedResultsIter = std::vec::IntoIter<(FieldValues, SearchResultsIter)>;
 type MergedResultsMap = BTreeMap<DocAddress, (FieldValues, SearchIndexScore)>;
+type FieldGroupValue = (FieldValues, Vec<(SearchIndexScore, DocAddress)>);
+type FieldGroups = HashMap<String, FieldGroupValue>;
 
 // Define MixedAggResults enum
 #[derive(Default)]
@@ -508,8 +510,7 @@ impl MixedAggSearcher<'_> {
         let processed_docs = merged.into_inner();
 
         // Group results by field value patterns
-        let mut field_groups: HashMap<String, (FieldValues, Vec<(SearchIndexScore, DocAddress)>)> =
-            HashMap::new();
+        let mut field_groups: FieldGroups = HashMap::new();
 
         // Use a string representation for grouping
         for (doc_addr, (field_values, score)) in processed_docs {
@@ -543,8 +544,7 @@ impl MixedAggSearcher<'_> {
         }
 
         // Convert the grouped results to iterator format
-        let result_vec: Vec<(FieldValues, Vec<(SearchIndexScore, DocAddress)>)> =
-            field_groups.into_values().collect();
+        let result_vec: Vec<FieldGroupValue> = field_groups.into_values().collect();
 
         let set = result_vec
             .into_iter()

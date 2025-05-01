@@ -652,6 +652,30 @@ fn top_n_matches(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn top_n_completes_issue2511(mut conn: PgConnection) {
+    r#"
+        drop table if exists loop;
+        create table loop (id serial8 not null primary key, message text) with (autovacuum_enabled = false);
+        create index idxloop on loop using bm25 (id, message) WITH (key_field = 'id', layer_sizes = '1GB, 1GB');
+
+        insert into loop (message) select md5(x::text) from generate_series(1, 5000) x;
+
+        update loop set message = message || ' beer';
+        update loop set message = message || ' beer';
+        update loop set message = message || ' beer';
+        update loop set message = message || ' beer';
+
+        set max_parallel_workers = 1;
+    "#.execute(&mut conn);
+
+    let results = r#"
+        select * from loop where id @@@ paradedb.all() order by id desc limit 25 offset 0;
+    "#
+    .fetch::<(i64, String)>(&mut conn);
+    assert_eq!(results.len(), 25);
+}
+
+#[rstest]
 fn parallel_custom_scan_with_jsonb_issue2432(mut conn: PgConnection) {
     r#"
         DROP TABLE IF EXISTS test;

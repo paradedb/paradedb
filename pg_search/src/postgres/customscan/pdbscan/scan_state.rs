@@ -18,7 +18,7 @@
 use crate::api::Varno;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::reader::index::{SearchIndexReader, SearchResults};
-use crate::postgres::customscan::builders::custom_path::SortDirection;
+use crate::postgres::customscan::builders::custom_path::{ExecMethodType, SortDirection};
 use crate::postgres::customscan::pdbscan::exec_methods::ExecMethod;
 use crate::postgres::customscan::pdbscan::projections::snippet::SnippetInfo;
 use crate::postgres::customscan::pdbscan::qual_inspect::Qual;
@@ -46,12 +46,15 @@ pub struct PdbScanState {
     pub search_reader: Option<SearchIndexReader>,
 
     pub search_results: SearchResults,
-    pub which_fast_fields: Option<Vec<WhichFastField>>,
     pub targetlist_len: usize,
 
+    // TODO: Remove in favor of `exec_method_type`.
+    pub which_fast_fields: Option<Vec<WhichFastField>>,
     pub limit: Option<usize>,
     pub sort_field: Option<String>,
     pub sort_direction: Option<SortDirection>,
+
+    pub exec_method_type: ExecMethodType,
     pub retry_count: usize,
     pub heap_tuple_check_count: usize,
     pub virtual_tuple_count: usize,
@@ -91,20 +94,6 @@ impl CustomScanState for PdbScanState {
         unsafe {
             // SAFETY: inner_scan_state is always initialized and call to `init()` could never move `self`
             (*self.exec_method.get()).init(self, cstate)
-        }
-    }
-
-    fn is_top_n_capable(&self) -> Option<(usize, SortDirection)> {
-        match (self.limit, self.sort_direction) {
-            (Some(limit), Some(sort_direction)) => Some((limit, sort_direction)),
-            _ => None,
-        }
-    }
-
-    fn is_unsorted_top_n_capable(&self) -> Option<usize> {
-        match (self.limit, self.sort_direction) {
-            (Some(limit), Some(SortDirection::None)) => Some(limit),
-            _ => None,
         }
     }
 }

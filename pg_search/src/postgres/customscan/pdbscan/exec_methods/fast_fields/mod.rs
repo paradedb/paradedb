@@ -177,6 +177,33 @@ pub unsafe fn count(
     ff.iter().sorted().dedup().count() as f64
 }
 
+/// Find all the fields that can be as "fast fields", categorize them as [`WhichFastField`]s, and
+/// return the list.  If there are none, or one or more of the fields can't be used as a "fast field",
+/// we return [`None`].
+pub unsafe fn collect(
+    maybe_ff: bool,
+    target_list: *mut pg_sys::List,
+    rti: pg_sys::Index,
+    schema: &SearchIndexSchema,
+    heaprel: &PgRelation,
+) -> Option<Vec<WhichFastField>> {
+    pgrx::warning!("Collecting fast fields, maybe_ff: {}", maybe_ff);
+    if maybe_ff {
+        let fast_fields = collect_fast_fields(target_list, schema, heaprel, rti);
+
+        if fast_fields.is_empty() {
+            pgrx::warning!("No fast fields found");
+            None
+        } else {
+            pgrx::warning!("Found {} fast fields in collect", fast_fields.len());
+            Some(fast_fields)
+        }
+    } else {
+        pgrx::warning!("maybe_ff is false, returning None");
+        None
+    }
+}
+
 /// Find all fields that can be used as "fast fields" without failing if some fields are not fast fields
 pub unsafe fn collect_fast_fields(
     node: *mut pg_sys::List,
@@ -252,33 +279,6 @@ pub unsafe fn collect_fast_fields(
 
     pgrx::warning!("Found {} fast fields in collect_fast_fields", matches.len());
     matches
-}
-
-/// Find all the fields that can be as "fast fields", categorize them as [`WhichFastField`]s, and
-/// return the list.  If there are none, or one or more of the fields can't be used as a "fast field",
-/// we return [`None`].
-pub unsafe fn collect(
-    maybe_ff: bool,
-    target_list: *mut pg_sys::List,
-    rti: pg_sys::Index,
-    schema: &SearchIndexSchema,
-    heaprel: &PgRelation,
-) -> Option<Vec<WhichFastField>> {
-    pgrx::warning!("Collecting fast fields, maybe_ff: {}", maybe_ff);
-    if maybe_ff {
-        let fast_fields = collect_fast_fields(target_list, schema, heaprel, rti);
-
-        if fast_fields.is_empty() {
-            pgrx::warning!("No fast fields found");
-            None
-        } else {
-            pgrx::warning!("Found {} fast fields in collect", fast_fields.len());
-            Some(fast_fields)
-        }
-    } else {
-        pgrx::warning!("maybe_ff is false, returning None");
-        None
-    }
 }
 
 // Check if we can use the mixed fast field execution method

@@ -79,9 +79,8 @@ fn sort_by_lower(mut conn: PgConnection) {
 
 #[rstest]
 fn sort_by_lower_parallel(mut conn: PgConnection) {
-    // When parallel workers are used, we should not claim that the output that we produce is
-    // sorted. Each worker will consume a series of segments, each of which is individually
-    // sorted, but the overall output is not.
+    // When parallel workers are used, our output is emitted in sorted order, and so we should have
+    // a `Gather Merge` node above us.
     "SET max_parallel_workers = 8;".execute(&mut conn);
     if pg_major_version(&mut conn) >= 16 {
         "SET debug_parallel_query TO on".execute(&mut conn);
@@ -92,15 +91,24 @@ fn sort_by_lower_parallel(mut conn: PgConnection) {
 
     let plan = field_sort_fixture(&mut conn);
 
-    let plan = plan
-        .pointer("/0/Plan/Plans/0/Plans/0")
-        .unwrap()
-        .as_object()
-        .unwrap();
+    assert_eq!(
+        plan.pointer("/0/Plan/Plans/0")
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .get("Node Type")
+            .unwrap(),
+        &Value::String("Gather Merge".to_owned())
+    );
 
     assert_eq!(
-        plan.get("Node Type").unwrap(),
-        &Value::String("Sort".to_owned())
+        plan.pointer("/0/Plan/Plans/0/Plans/0")
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .get("Node Type")
+            .unwrap(),
+        &Value::String("Custom Scan".to_owned())
     );
 }
 

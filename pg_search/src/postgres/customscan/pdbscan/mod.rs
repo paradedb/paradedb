@@ -464,10 +464,10 @@ impl CustomScan for PdbScan {
                 };
 
                 if nworkers > 0 && parallel_scan_preferred() {
-                    // If we use parallel workers, there is no point in sorting, because the
-                    // plan will already need to sort and merge the outputs from the workers.
-                    // See the TODO below about being able to claim sorting for parallel
-                    // workers.
+                    // If we use parallel workers, we do not sort.
+                    //
+                    // TODO: See https://github.com/paradedb/paradedb/issues/2453 about clarifying
+                    // whether this restriction is necessary.
                     builder = builder.set_parallel(nworkers);
                 } else {
                     // otherwise we'll do a regular scan
@@ -477,13 +477,9 @@ impl CustomScan for PdbScan {
                 builder = builder.set_parallel(nworkers);
             }
 
-            // If we are sorting our output (which we will only do if we have a limit!) and we
-            // are _not_ using parallel workers, then we can claim that the output is sorted.
-            //
-            // TODO: To allow sorted output with parallel workers, we would need to partition
-            // our segments across the workers so that each worker emitted all of its results
-            // in sorted order.
-            if nworkers == 0 && builder.custom_private().is_sorted() && limit.is_some() {
+            // If we are sorting our output (which we will only do if we have a limit!), then we
+            // can claim that the output is sorted.
+            if builder.custom_private().is_sorted() && limit.is_some() {
                 if let Some(pathkey) = pathkey.as_ref() {
                     builder = builder.add_path_key(pathkey);
                 }

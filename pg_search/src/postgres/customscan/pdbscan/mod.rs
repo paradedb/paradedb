@@ -497,7 +497,7 @@ impl CustomScan for PdbScan {
                 }
             }
 
-            pgrx::log!(
+            pgrx::warning!(
                 ">>> `plan_custom_path` targetlist: {:#?}",
                 tlist
                     .iter_ptr()
@@ -540,7 +540,7 @@ impl CustomScan for PdbScan {
                     .expect("create_custom_scan_state: should be able to open index");
                 let schema = SearchIndexSchema::open(index.schema(), &indexrel);
 
-                pgrx::log!(">>> recomputing fast fields in execution");
+                pgrx::warning!(">>> recomputing fast fields in execution");
 
                 let exec_which_fast_fields = exec_methods::fast_fields::collect(
                     builder.custom_private().maybe_ff(),

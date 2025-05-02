@@ -166,7 +166,7 @@ pub unsafe fn collect(
 ) -> Option<Vec<WhichFastField>> {
     if maybe_ff {
         let res = pullup_fast_fields(target_list, schema, heaprel, rti);
-        pgrx::log!(">>> collect: {maybe_ff}, {target_list:?}, {rti:?}: got {res:?}");
+        pgrx::warning!(">>> collect: {maybe_ff}, {target_list:?}, {rti:?}: got {res:?}");
         return res;
     } else {
         None
@@ -184,7 +184,7 @@ pub unsafe fn pullup_fast_fields(
     let tupdesc = heaprel.tuple_desc();
 
     let targetlist = PgList::<pg_sys::TargetEntry>::from_pg(node);
-    pgrx::log!(
+    pgrx::warning!(
         ">>>   targetlist: {:?}",
         targetlist
             .iter_ptr()
@@ -193,12 +193,12 @@ pub unsafe fn pullup_fast_fields(
     );
     for te in targetlist.iter_ptr() {
         if (*te).resorigtbl != pg_sys::Oid::INVALID && (*te).resorigtbl != heaprel.oid() {
-            pgrx::log!(">>>   skipping entry from different/invalid table");
+            pgrx::warning!(">>>   skipping entry from different/invalid table");
             continue;
         }
         if let Some(var) = nodecast!(Var, T_Var, (*te).expr) {
             if (*var).varno as i32 != rti as i32 {
-                pgrx::log!(">>>   skipping var from rti: {}", (*var).varno as i32);
+                pgrx::warning!(">>>   skipping var from rti: {}", (*var).varno as i32);
                 // this TargetEntry's Var isn't from the same RangeTable as we were asked to inspect,
                 // so just skip it
                 continue;
@@ -209,7 +209,7 @@ pub unsafe fn pullup_fast_fields(
                 | pg_sys::MaxTransactionIdAttributeNumber
                 | pg_sys::MinCommandIdAttributeNumber
                 | pg_sys::MaxCommandIdAttributeNumber => {
-                    pgrx::log!(
+                    pgrx::warning!(
                         ">>>   can't use fast fields on synthetic varattno: {}",
                         (*var).varattno as i32
                     );
@@ -277,7 +277,7 @@ pub unsafe fn pullup_fast_fields(
         .count()
         > 1
     {
-        pgrx::log!(">>>   too many matches: {matches:?}");
+        pgrx::warning!(">>>   too many matches: {matches:?}");
 
         // we cannot support more than 1 different String fast field
         return None;

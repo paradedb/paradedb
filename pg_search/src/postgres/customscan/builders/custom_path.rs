@@ -136,6 +136,12 @@ impl ExecMethodType {
                 // in sorted order.
                 true
             }
+            // TODO: StringAgg returns tuples in the order of the fields themselves.
+            //   Confirm which execution methods, and what order
+            
+            // TODO: So do FastFields, if not doing scoring...?
+            
+            // Normal ... docid, so effectively none.
             _ => false,
         }
     }

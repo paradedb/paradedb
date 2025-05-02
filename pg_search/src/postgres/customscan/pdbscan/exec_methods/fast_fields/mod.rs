@@ -154,9 +154,9 @@ pub unsafe fn count(
     ff.iter().sorted().dedup().count() as f64
 }
 
-/// Find all the fields that can be as "fast fields", categorize them as [`WhichFastField`]s, and
-/// return the list.  If there are none, or one or more of the fields can't be used as a "fast field",
-/// we return [`None`].
+/// Find all the fields that can be used as "fast fields", categorize them as [`WhichFastField`]s,
+/// and return the list. If there are none, or one or more of the fields can't be used as a
+/// "fast field", we return [`None`].
 pub unsafe fn collect(
     maybe_ff: bool,
     target_list: *mut pg_sys::List,
@@ -165,7 +165,9 @@ pub unsafe fn collect(
     heaprel: &PgRelation,
 ) -> Option<Vec<WhichFastField>> {
     if maybe_ff {
-        pullup_fast_fields(target_list, schema, heaprel, rti)
+        let res = pullup_fast_fields(target_list, schema, heaprel, rti);
+        pgrx::log!(">>> collect: {maybe_ff}, {target_list:?}, {rti:?}: got {res:?}");
+        return res;
     } else {
         None
     }
@@ -180,13 +182,23 @@ pub unsafe fn pullup_fast_fields(
     let mut matches = Vec::new();
 
     let tupdesc = heaprel.tuple_desc();
+
     let targetlist = PgList::<pg_sys::TargetEntry>::from_pg(node);
+    pgrx::log!(
+        ">>>   targetlist: {:?}",
+        targetlist
+            .iter_ptr()
+            .map(|te| unsafe { pgrx::node_to_string(te.cast()) }.unwrap_or("<null>"))
+            .collect::<Vec<_>>()
+    );
     for te in targetlist.iter_ptr() {
         if (*te).resorigtbl != pg_sys::Oid::INVALID && (*te).resorigtbl != heaprel.oid() {
+            pgrx::log!(">>>   skipping entry from different/invalid table");
             continue;
         }
         if let Some(var) = nodecast!(Var, T_Var, (*te).expr) {
             if (*var).varno as i32 != rti as i32 {
+                pgrx::log!(">>>   skipping var from rti: {}", (*var).varno as i32);
                 // this TargetEntry's Var isn't from the same RangeTable as we were asked to inspect,
                 // so just skip it
                 continue;
@@ -196,7 +208,13 @@ pub unsafe fn pullup_fast_fields(
                 pg_sys::MinTransactionIdAttributeNumber
                 | pg_sys::MaxTransactionIdAttributeNumber
                 | pg_sys::MinCommandIdAttributeNumber
-                | pg_sys::MaxCommandIdAttributeNumber => return None,
+                | pg_sys::MaxCommandIdAttributeNumber => {
+                    pgrx::log!(
+                        ">>>   can't use fast fields on synthetic varattno: {}",
+                        (*var).varattno as i32
+                    );
+                    return None;
+                }
 
                 // these aren't _exactly_ fast fields, but we do have the information
                 // readily available during the scan, so we'll pretend
@@ -259,6 +277,8 @@ pub unsafe fn pullup_fast_fields(
         .count()
         > 1
     {
+        pgrx::log!(">>>   too many matches: {matches:?}");
+
         // we cannot support more than 1 different String fast field
         return None;
     }

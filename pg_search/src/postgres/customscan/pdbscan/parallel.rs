@@ -89,8 +89,12 @@ impl ParallelQueryCapable for PdbScan {
 ///
 pub fn compute_nworkers(limit: Option<Cardinality>, segment_count: usize, sorted: bool) -> usize {
     // we will try to parallelize based on the number of index segments
-    let mut nworkers =
-        unsafe { segment_count.min(pg_sys::max_parallel_workers_per_gather as usize) };
+    // from Postgres docs: Parallel workers are limited by max_parallel_workers
+    let mut nworkers = unsafe {
+        segment_count
+            .min(pg_sys::max_parallel_workers_per_gather as usize)
+            .min(pg_sys::max_parallel_workers as usize)
+    };
 
     if let Some(limit) = limit {
         if !sorted && limit <= (segment_count * segment_count * segment_count) as Cardinality {

@@ -89,7 +89,7 @@ impl ParallelQueryCapable for PdbScan {
 ///
 pub fn compute_nworkers(limit: Option<Cardinality>, segment_count: usize, sorted: bool) -> usize {
     // we will try to parallelize based on the number of index segments
-    // from Postgres docs: Parallel workers are limited by max_parallel_workers
+    // parallel workers available to a gather node are limited by max_parallel_workers_per_gather and max_parallel_workers
     let mut nworkers = unsafe {
         segment_count
             .min(pg_sys::max_parallel_workers_per_gather as usize)

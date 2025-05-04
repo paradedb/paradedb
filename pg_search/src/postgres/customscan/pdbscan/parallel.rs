@@ -89,7 +89,8 @@ impl ParallelQueryCapable for PdbScan {
 ///
 pub fn compute_nworkers(limit: Option<Cardinality>, segment_count: usize, sorted: bool) -> usize {
     // we will try to parallelize based on the number of index segments
-    let mut nworkers = unsafe { segment_count.min(pg_sys::max_parallel_workers as usize) };
+    let mut nworkers =
+        unsafe { segment_count.min(pg_sys::max_parallel_workers_per_gather as usize) };
 
     if let Some(limit) = limit {
         if !sorted && limit <= (segment_count * segment_count * segment_count) as Cardinality {
@@ -99,7 +100,7 @@ pub fn compute_nworkers(limit: Option<Cardinality>, segment_count: usize, sorted
 
         // if the limit is less than some arbitrarily large value
         // use at most half the number of parallel workers as there are segments
-        // this generally seems to perform better than directly using `max_parallel_workers`
+        // this generally seems to perform better than directly using `max_parallel_workers_per_gather`
         if limit < 1_000_000.0 {
             nworkers = (segment_count / 2).min(nworkers);
         }

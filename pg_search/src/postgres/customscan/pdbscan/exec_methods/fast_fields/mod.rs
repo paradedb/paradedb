@@ -258,6 +258,8 @@ pub unsafe fn pullup_fast_fields(
             matches.push(WhichFastField::Junk("window".into()));
             continue;
         }
+        // we only support Vars or our score function in the target list
+        return None;
     }
 
     // Now also consider all referenced columns from other parts of the query

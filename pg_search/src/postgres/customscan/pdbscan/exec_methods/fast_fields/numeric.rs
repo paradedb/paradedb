@@ -124,31 +124,75 @@ impl ExecMethod for NumericFastFieldExecState {
                         let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
                         let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
 
-                        #[rustfmt::skip]
-                        debug_assert!(natts == self.inner.which_fast_fields.len());
-
+                        // Create mapping from attributes to fast fields
                         let fast_fields = &mut self.inner.ffhelper;
                         let which_fast_fields = &self.inner.which_fast_fields;
-                        for (i, att) in self.inner.tupdesc.as_ref().unwrap().iter().enumerate() {
-                            let which_fast_field = &which_fast_fields[i];
+                        let tupdesc = self.inner.tupdesc.as_ref().unwrap();
 
-                            match ff_to_datum(
-                                (which_fast_field, i),
-                                att.atttypid,
-                                scored.bm25,
-                                doc_address,
-                                fast_fields,
-                                &mut self.inner.strbuf,
-                                slot,
-                            ) {
-                                None => {
+                        // Build attribute to fast field mapping
+                        let mut attr_to_ff_map = std::collections::HashMap::new();
+                        let mut next_ff_idx = 0;
+                        for i in 0..natts {
+                            if !attr_to_ff_map.contains_key(&i)
+                                && next_ff_idx < which_fast_fields.len()
+                            {
+                                attr_to_ff_map.insert(i, next_ff_idx);
+                                next_ff_idx += 1;
+                            }
+                        }
+
+                        // Ensure every attribute has a mapping
+                        for i in 0..natts {
+                            debug_assert!(
+                                attr_to_ff_map.contains_key(&i),
+                                "Attribute at position {} has no fast field mapping",
+                                i
+                            );
+                            // Verify that the fast field index is valid
+                            if let Some(&ff_idx) = attr_to_ff_map.get(&i) {
+                                debug_assert!(
+                                    ff_idx < which_fast_fields.len(),
+                                    "Attribute at position {} maps to invalid fast field index {}",
+                                    i,
+                                    ff_idx
+                                );
+                            }
+                        }
+
+                        // Process attributes using our mapping
+                        for i in 0..natts {
+                            if let Some(&ff_idx) = attr_to_ff_map.get(&i) {
+                                if ff_idx < which_fast_fields.len() {
+                                    let which_fast_field = &which_fast_fields[ff_idx];
+                                    let att = tupdesc.get(i).unwrap();
+
+                                    match ff_to_datum(
+                                        (which_fast_field, ff_idx),
+                                        att.atttypid,
+                                        scored.bm25,
+                                        doc_address,
+                                        fast_fields,
+                                        &mut self.inner.strbuf,
+                                        slot,
+                                    ) {
+                                        None => {
+                                            datums[i] = pg_sys::Datum::null();
+                                            isnull[i] = true;
+                                        }
+                                        Some(datum) => {
+                                            datums[i] = datum;
+                                            isnull[i] = false;
+                                        }
+                                    }
+                                } else {
+                                    // Fast field index out of bounds
                                     datums[i] = pg_sys::Datum::null();
                                     isnull[i] = true;
                                 }
-                                Some(datum) => {
-                                    datums[i] = datum;
-                                    isnull[i] = false;
-                                }
+                            } else {
+                                // This attribute doesn't have a matching fast field
+                                datums[i] = pg_sys::Datum::null();
+                                isnull[i] = true;
                             }
                         }
 

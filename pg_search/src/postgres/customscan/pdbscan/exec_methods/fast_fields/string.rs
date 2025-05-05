@@ -17,9 +17,7 @@
 
 use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
 use crate::index::reader::index::{SearchIndexReader, SearchIndexScore, SearchResults};
-use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::{
-    ff_to_datum, FastFieldExecState,
-};
+use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::FastFieldExecState;
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::is_block_all_visible;
 use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
@@ -138,80 +136,18 @@ impl ExecMethod for StringFastFieldExecState {
                         (*slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
                         (*slot).tts_nvalid = natts as _;
 
-                        let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
-                        let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
-
-                        // Create mapping from attributes to fast fields
-                        let fast_fields = &mut self.inner.ffhelper;
-                        let which_fast_fields = &self.inner.which_fast_fields;
+                        // Use the shared process_fast_fields function
                         let tupdesc = self.inner.tupdesc.as_ref().unwrap();
-
-                        // Build attribute to fast field mapping
-                        let mut attr_to_ff_map = std::collections::HashMap::new();
-                        let mut next_ff_idx = 0;
-                        for i in 0..natts {
-                            if !attr_to_ff_map.contains_key(&i)
-                                && next_ff_idx < which_fast_fields.len()
-                            {
-                                attr_to_ff_map.insert(i, next_ff_idx);
-                                next_ff_idx += 1;
-                            }
-                        }
-
-                        // Ensure every attribute has a mapping
-                        for i in 0..natts {
-                            debug_assert!(
-                                attr_to_ff_map.contains_key(&i),
-                                "Attribute at position {} has no fast field mapping",
-                                i
-                            );
-                            // Verify that the fast field index is valid
-                            if let Some(&ff_idx) = attr_to_ff_map.get(&i) {
-                                debug_assert!(
-                                    ff_idx < which_fast_fields.len(),
-                                    "Attribute at position {} maps to invalid fast field index {}",
-                                    i,
-                                    ff_idx
-                                );
-                            }
-                        }
-
-                        // Process attributes using our mapping
-                        for i in 0..natts {
-                            if let Some(&ff_idx) = attr_to_ff_map.get(&i) {
-                                if ff_idx < which_fast_fields.len() {
-                                    let which_fast_field = &which_fast_fields[ff_idx];
-                                    let att = tupdesc.get(i).unwrap();
-
-                                    match ff_to_datum(
-                                        (which_fast_field, ff_idx),
-                                        att.atttypid,
-                                        scored.bm25,
-                                        doc_address,
-                                        fast_fields,
-                                        &mut term,
-                                        slot,
-                                    ) {
-                                        None => {
-                                            datums[i] = pg_sys::Datum::null();
-                                            isnull[i] = true;
-                                        }
-                                        Some(datum) => {
-                                            datums[i] = datum;
-                                            isnull[i] = false;
-                                        }
-                                    }
-                                } else {
-                                    // Fast field index out of bounds
-                                    datums[i] = pg_sys::Datum::null();
-                                    isnull[i] = true;
-                                }
-                            } else {
-                                // This attribute doesn't have a matching fast field
-                                datums[i] = pg_sys::Datum::null();
-                                isnull[i] = true;
-                            }
-                        }
+                        crate::postgres::customscan::pdbscan::exec_methods::fast_fields::process_fast_fields(
+                            natts,
+                            tupdesc,
+                            &self.inner.which_fast_fields,
+                            &mut self.inner.ffhelper,
+                            slot,
+                            scored,
+                            doc_address,
+                            &mut term,
+                        );
 
                         ExecState::Virtual { slot }
                     } else {

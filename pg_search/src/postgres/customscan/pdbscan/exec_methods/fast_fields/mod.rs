@@ -20,7 +20,7 @@ pub mod string;
 
 use crate::index::fast_fields_helper::{FFHelper, FastFieldType, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::{SearchIndexReader, SearchResults};
+use crate::index::reader::index::{SearchIndexReader, SearchIndexScore, SearchResults};
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
@@ -423,4 +423,121 @@ pub fn estimate_cardinality(indexrel: &PgRelation, field: &str) -> Option<usize>
             .flatten()?
             .num_terms(),
     )
+}
+
+/// Process attributes using fast fields, creating a mapping and populating the datum array.
+/// This function is shared between the string and numeric fast field implementations.
+#[allow(clippy::too_many_arguments)]
+pub unsafe fn process_fast_fields(
+    natts: usize,
+    tupdesc: &PgTupleDesc<'_>,
+    which_fast_fields: &[WhichFastField],
+    fast_fields: &mut FFHelper,
+    slot: *mut pg_sys::TupleTableSlot,
+    scored: SearchIndexScore,
+    doc_address: DocAddress,
+    string_buffer: &mut Option<String>,
+) {
+    // Build attribute to fast field mapping
+    let mut attr_to_ff_map = std::collections::HashMap::new();
+
+    // Step 1: First try to match named attributes by name
+    for i in 0..natts {
+        if let Some(att) = tupdesc.get(i) {
+            let att_name = att.name().to_lowercase();
+            // Skip empty named attributes - handle them later
+            if !att_name.is_empty() {
+                // Try to find fast field with matching name
+                if let Some(idx) = which_fast_fields.iter().position(|ff| {
+                    if let WhichFastField::Named(name, _) = ff {
+                        name.to_lowercase() == att_name
+                    } else {
+                        false
+                    }
+                }) {
+                    attr_to_ff_map.insert(i, idx);
+                    continue;
+                }
+            }
+        }
+    }
+
+    // Step 2: Position-based matching for any remaining attributes
+    let mut next_ff_idx = 0;
+
+    // Simple position-based mapping, assuming attributes and fast fields are in the same order
+    for i in 0..natts {
+        if !attr_to_ff_map.contains_key(&i) {
+            // Find next unused fast field index
+            while next_ff_idx < which_fast_fields.len()
+                && attr_to_ff_map.values().any(|&v| v == next_ff_idx)
+            {
+                next_ff_idx += 1;
+            }
+
+            if next_ff_idx < which_fast_fields.len() {
+                attr_to_ff_map.insert(i, next_ff_idx);
+                next_ff_idx += 1;
+            }
+        }
+    }
+
+    // Ensure every attribute has a mapping
+    for i in 0..natts {
+        debug_assert!(
+            attr_to_ff_map.contains_key(&i),
+            "Attribute at position {} has no fast field mapping",
+            i
+        );
+        // Verify that the fast field index is valid
+        if let Some(&ff_idx) = attr_to_ff_map.get(&i) {
+            debug_assert!(
+                ff_idx < which_fast_fields.len(),
+                "Attribute at position {} maps to invalid fast field index {}",
+                i,
+                ff_idx
+            );
+        }
+    }
+
+    // Get pointers to datum and isnull arrays
+    let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
+    let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
+
+    // Process attributes using our mapping
+    for i in 0..natts {
+        if let Some(&ff_idx) = attr_to_ff_map.get(&i) {
+            if ff_idx < which_fast_fields.len() {
+                let which_fast_field = &which_fast_fields[ff_idx];
+                let att = tupdesc.get(i).unwrap();
+
+                match ff_to_datum(
+                    (which_fast_field, ff_idx),
+                    att.atttypid,
+                    scored.bm25,
+                    doc_address,
+                    fast_fields,
+                    string_buffer,
+                    slot,
+                ) {
+                    None => {
+                        datums[i] = pg_sys::Datum::null();
+                        isnull[i] = true;
+                    }
+                    Some(datum) => {
+                        datums[i] = datum;
+                        isnull[i] = false;
+                    }
+                }
+            } else {
+                // Fast field index out of bounds
+                datums[i] = pg_sys::Datum::null();
+                isnull[i] = true;
+            }
+        } else {
+            // This attribute doesn't have a matching fast field
+            datums[i] = pg_sys::Datum::null();
+            isnull[i] = true;
+        }
+    }
 }

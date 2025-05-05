@@ -186,6 +186,7 @@ pub unsafe fn pullup_fast_fields(
     rti: pg_sys::Index,
 ) -> Option<Vec<WhichFastField>> {
     let mut matches = Vec::new();
+    let mut processed_attnos = HashSet::new();
 
     let tupdesc = heaprel.tuple_desc();
 
@@ -224,6 +225,9 @@ pub unsafe fn pullup_fast_fields(
                 }
 
                 attno => {
+                    // Keep track that we've processed this attribute number
+                    processed_attnos.insert(attno as pg_sys::AttrNumber);
+
                     let att = tupdesc.get((attno - 1) as usize).unwrap_or_else(|| {
                         panic!(
                             "attno {attno} should exist in tupdesc from relation {} (`{}`)",
@@ -277,17 +281,12 @@ pub unsafe fn pullup_fast_fields(
             }
 
             _ => {
-                // Check if this column is already in our matches (from target list)
-                let already_included = matches.iter().any(|f| {
-                    if let WhichFastField::Named(name, _) = f {
-                        if let Some(att) = tupdesc.get((attno - 1) as usize) {
-                            return att.name() == name;
-                        }
-                    }
-                    false
-                });
+                // Check if we've already processed this attribute number
+                if processed_attnos.contains(&attno) {
+                    continue;
+                }
 
-                if !already_included && attno > 0 {
+                if attno > 0 {
                     if let Some(att) = tupdesc.get((attno - 1) as usize) {
                         if schema.is_fast_field(att.name()) {
                             // Determine the type of the fast field

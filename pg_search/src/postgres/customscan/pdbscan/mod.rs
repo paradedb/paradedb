@@ -67,6 +67,7 @@ use exec_methods::ExecState;
 use pgrx::pg_sys::CustomExecMethods;
 use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts, PgRelation};
 use rustc_hash::FxHashMap;
+use std::collections::HashSet;
 use std::ffi::CStr;
 use std::ptr::addr_of_mut;
 use tantivy::snippet::SnippetGenerator;
@@ -232,23 +233,39 @@ impl CustomScan for PdbScan {
 
             // quick look at the target list to see if we might need to do our const projections
             let target_list = (*(*builder.args().root).parse).targetList;
+            let maybe_needs_const_projections = maybe_needs_const_projections(target_list.cast());
+
+            // Get all columns referenced by this RTE throughout the entire query
+            let referenced_columns = collect_referenced_columns(root, rti);
+
+            // Save the count of referenced columns for decision-making
             builder
                 .custom_private()
-                .set_targetlist_len(PgList::<pg_sys::TargetEntry>::from_pg(target_list).len());
-            let maybe_needs_const_projections = maybe_needs_const_projections(target_list.cast());
-            let ff_cnt =
-                exec_methods::fast_fields::count(&mut builder, rti, &table, &schema, target_list);
+                .set_referenced_columns_count(referenced_columns.len());
+
+            let ff_cnt = exec_methods::fast_fields::count_fast_fields(
+                &mut builder,
+                rti,
+                &table,
+                &schema,
+                target_list,
+                &referenced_columns,
+            );
             let maybe_ff = builder.custom_private().maybe_ff();
             let is_topn = limit.is_some() && pathkey.is_some();
-            builder
-                .custom_private()
-                .set_which_fast_fields(exec_methods::fast_fields::collect(
+
+            // When collecting which_fast_fields, analyze the entire set of referenced columns
+            // not just those in the target list, to avoid execution-time surprises
+            builder.custom_private().set_which_fast_fields(
+                exec_methods::fast_fields::collect_fast_fields(
                     maybe_ff,
                     target_list,
-                    rti,
+                    &referenced_columns,
                     &schema,
                     &table,
-                ));
+                    rti,
+                ),
+            );
 
             //
             // look for quals we can support
@@ -925,11 +942,35 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
             need_scores: privdata.need_scores(),
         }
     } else if let Some(field) = exec_methods::fast_fields::is_string_agg_capable(privdata) {
+        // For StringFastFieldExecState, check that we won't have more columns
+        // in the target list than fast fields
+        if let Some(which_fast_fields) = privdata.which_fast_fields() {
+            // Important: Use the larger of targetlist_len and referenced_columns_count
+            // to account for all potential columns that might be accessed
+            let columns_used = privdata.referenced_columns_count();
+
+            // If the number of columns used is greater than our fast fields,
+            // the execution method won't be compatible - fall back to Normal
+            if columns_used > which_fast_fields.len() {
+                return ExecMethodType::Normal;
+            }
+        }
+
         ExecMethodType::FastFieldString {
             field,
             which_fast_fields: privdata.which_fast_fields().clone().unwrap(),
         }
     } else if exec_methods::fast_fields::is_numeric_fast_field_capable(privdata) {
+        // Similar check for numeric fast fields
+        if let Some(which_fast_fields) = privdata.which_fast_fields() {
+            // Important: Use the larger of targetlist_len and referenced_columns_count
+            let columns_used = privdata.referenced_columns_count();
+
+            if columns_used > which_fast_fields.len() {
+                return ExecMethodType::Normal;
+            }
+        }
+
         ExecMethodType::FastFieldNumeric {
             which_fast_fields: privdata.which_fast_fields().clone().unwrap_or_default(),
         }
@@ -1184,4 +1225,152 @@ unsafe fn is_partitioned_table_setup(
     }
 
     false
+}
+
+/// Simplified helper to collect Var nodes from a quals expression
+///
+/// This function recursively navigates through expression trees in search of column
+/// references (Var nodes) that match the given RTE index. It's used to identify all
+/// columns referenced throughout a query (WHERE clauses, JOIN conditions, etc.)
+unsafe fn collect_vars_from_quals(
+    node: *mut pg_sys::Node,
+    rte_index: pg_sys::Index,
+    columns: &mut HashSet<pg_sys::AttrNumber>,
+) {
+    if node.is_null() {
+        return;
+    }
+
+    // Expr types we know are relevant
+    match (*node).type_ {
+        // Handle Lists - which can contain qualifier expressions
+        pg_sys::NodeTag::T_List => {
+            let list = PgList::<pg_sys::Node>::from_pg(node.cast());
+
+            for item in list.iter_ptr() {
+                collect_vars_from_quals(item as *mut pg_sys::Node, rte_index, columns);
+            }
+        }
+
+        // Handle OpExpr, BoolExpr, etc.
+        pg_sys::NodeTag::T_OpExpr => {
+            let opexpr = node.cast::<pg_sys::OpExpr>();
+            let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
+            for arg in args.iter_ptr() {
+                collect_vars_from_quals(arg as *mut pg_sys::Node, rte_index, columns);
+            }
+        }
+
+        pg_sys::NodeTag::T_BoolExpr => {
+            let boolexpr = node.cast::<pg_sys::BoolExpr>();
+            let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
+            for arg in args.iter_ptr() {
+                collect_vars_from_quals(arg as *mut pg_sys::Node, rte_index, columns);
+            }
+        }
+
+        // Handle function calls
+        pg_sys::NodeTag::T_FuncExpr => {
+            let funcexpr = node.cast::<pg_sys::FuncExpr>();
+            let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+            for arg in args.iter_ptr() {
+                collect_vars_from_quals(arg as *mut pg_sys::Node, rte_index, columns);
+            }
+        }
+
+        // Direct Var references
+        pg_sys::NodeTag::T_Var => {
+            let var = node.cast::<pg_sys::Var>();
+            if (*var).varno as u32 == rte_index {
+                columns.insert((*var).varattno);
+            }
+        }
+
+        // Default - we don't handle other node types for simplicity
+        _ => {}
+    }
+}
+
+/// Gather all columns referenced by the specified RTE (Range Table Entry) throughout the query.
+/// This gives us a more complete picture than just looking at the target list.
+///
+/// This function is critical for issue #2505 where we need to detect all columns used in JOIN
+/// conditions to ensure we select the right execution method. Previously, only looking at the
+/// target list would miss columns referenced in JOIN conditions, leading to execution-time errors.
+unsafe fn collect_referenced_columns(
+    root: *mut pg_sys::PlannerInfo,
+    rte_index: pg_sys::Index,
+) -> HashSet<pg_sys::AttrNumber> {
+    let mut referenced_columns = HashSet::new();
+
+    // First check the target list (columns in SELECT)
+    let target_list = (*(*root).parse).targetList;
+    let tlist = PgList::<pg_sys::TargetEntry>::from_pg(target_list);
+
+    // Process all Var nodes in the target list
+    for te in tlist.iter_ptr() {
+        if let Some(var) = nodecast!(Var, T_Var, (*te).expr) {
+            if (*var).varno as u32 == rte_index {
+                referenced_columns.insert((*var).varattno);
+            }
+        }
+    }
+
+    // Check WHERE clause from jointree
+    if !(*(*root).parse).jointree.is_null() {
+        let jointree = &*(*(*root).parse).jointree;
+        if !jointree.quals.is_null() {
+            collect_vars_from_quals(jointree.quals, rte_index, &mut referenced_columns);
+        }
+
+        // Also check join info - this is important for JOIN conditions!
+        if !jointree.fromlist.is_null() {
+            let fromlist = PgList::<pg_sys::Node>::from_pg(jointree.fromlist);
+
+            for from_item in fromlist.iter_ptr() {
+                // Check if it's a JOIN node
+                if (*from_item).type_ == pg_sys::NodeTag::T_JoinExpr {
+                    let join_expr = from_item.cast::<pg_sys::JoinExpr>();
+
+                    // Examine join quals
+                    if !(*join_expr).quals.is_null() {
+                        collect_vars_from_quals(
+                            (*join_expr).quals,
+                            rte_index,
+                            &mut referenced_columns,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    // Skip joininfo and baserestrictinfo lists for now as they can cause safety issues
+    // with Postgres' internal pointers, and we already have the info we need from the join expression
+    let rel = (*root)
+        .simple_rel_array
+        .add(rte_index as usize)
+        .cast::<pg_sys::RelOptInfo>();
+
+    // Get the corresponding RTE to log column names
+    let rte = pg_sys::planner_rt_fetch(rte_index, root);
+    if !rte.is_null() && (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
+        let rel = PgRelation::with_lock((*rte).relid, pg_sys::AccessShareLock as _);
+        let tupdesc = rel.tuple_desc();
+
+        let column_names: Vec<String> = referenced_columns
+            .iter()
+            .filter_map(|&attno| {
+                if attno > 0 {
+                    tupdesc
+                        .get((attno - 1) as usize)
+                        .map(|att| att.name().to_string())
+                } else {
+                    None
+                }
+            })
+            .collect();
+    }
+
+    referenced_columns
 }

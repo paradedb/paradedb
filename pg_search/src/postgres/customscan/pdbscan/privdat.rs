@@ -39,7 +39,7 @@ pub struct PrivateData {
     maybe_ff: bool,
     segment_count: usize,
     which_fast_fields: Option<Vec<WhichFastField>>,
-    targetlist_len: usize,
+    referenced_columns_count: usize,
     need_scores: bool,
     exec_method_type: ExecMethodType,
 }
@@ -200,8 +200,8 @@ impl PrivateData {
         self.exec_method_type = exec_method_type;
     }
 
-    pub fn set_targetlist_len(&mut self, targetlist_len: usize) {
-        self.targetlist_len = targetlist_len;
+    pub fn set_referenced_columns_count(&mut self, count: usize) {
+        self.referenced_columns_count = count;
     }
 
     pub fn set_need_scores(&mut self, maybe: bool) {
@@ -269,8 +269,8 @@ impl PrivateData {
         &self.exec_method_type
     }
 
-    pub fn targetlist_len(&self) -> usize {
-        self.targetlist_len
+    pub fn referenced_columns_count(&self) -> usize {
+        self.referenced_columns_count
     }
 
     pub fn need_scores(&self) -> bool {

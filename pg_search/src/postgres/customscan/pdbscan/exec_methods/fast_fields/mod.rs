@@ -31,6 +31,7 @@ use crate::postgres::customscan::pdbscan::{scan_state::PdbScanState, ExecMethodT
 use crate::schema::SearchIndexSchema;
 use itertools::Itertools;
 use pgrx::{pg_sys, IntoDatum, PgList, PgOid, PgRelation, PgTupleDesc};
+use std::collections::HashSet;
 use tantivy::DocAddress;
 
 pub struct FastFieldExecState {
@@ -141,31 +142,37 @@ unsafe fn ff_to_datum(
 }
 
 /// Count how many "fast fields" are requested to be used by the query, as described by the `builder` argument.
-pub unsafe fn count(
+pub unsafe fn count_fast_fields(
     builder: &mut CustomPathBuilder<PrivateData>,
     rti: pg_sys::Index,
     table: &PgRelation,
     schema: &SearchIndexSchema,
     target_list: *mut pg_sys::List,
+    referenced_columns: &HashSet<pg_sys::AttrNumber>,
 ) -> f64 {
-    let ff = pullup_fast_fields(target_list, schema, table, rti).unwrap_or_default();
+    // Use our new collect function to get the fast fields
+    let ff =
+        pullup_fast_fields(target_list, referenced_columns, schema, table, rti).unwrap_or_default();
 
     builder.custom_private().set_maybe_ff(!ff.is_empty());
     ff.iter().sorted().dedup().count() as f64
 }
 
-/// Find all the fields that can be as "fast fields", categorize them as [`WhichFastField`]s, and
-/// return the list.  If there are none, or one or more of the fields can't be used as a "fast field",
-/// we return [`None`].
-pub unsafe fn collect(
+/// Find all the fields that can be used as "fast fields", categorize them as [`WhichFastField`]s,
+/// and return the list. If there are none, or one or more of the fields can't be used as a
+/// "fast field", we return [`None`].
+///
+/// This version considers all referenced columns across the query, not just those in the target list.
+pub unsafe fn collect_fast_fields(
     maybe_ff: bool,
     target_list: *mut pg_sys::List,
-    rti: pg_sys::Index,
+    referenced_columns: &HashSet<pg_sys::AttrNumber>,
     schema: &SearchIndexSchema,
     heaprel: &PgRelation,
+    rti: pg_sys::Index,
 ) -> Option<Vec<WhichFastField>> {
     if maybe_ff {
-        pullup_fast_fields(target_list, schema, heaprel, rti)
+        pullup_fast_fields(target_list, referenced_columns, schema, heaprel, rti)
     } else {
         None
     }
@@ -173,6 +180,7 @@ pub unsafe fn collect(
 
 pub unsafe fn pullup_fast_fields(
     node: *mut pg_sys::List,
+    referenced_columns: &HashSet<pg_sys::AttrNumber>,
     schema: &SearchIndexSchema,
     heaprel: &PgRelation,
     rti: pg_sys::Index,
@@ -180,7 +188,11 @@ pub unsafe fn pullup_fast_fields(
     let mut matches = Vec::new();
 
     let tupdesc = heaprel.tuple_desc();
+
+    // First collect all matches from the target list (standard behavior)
     let targetlist = PgList::<pg_sys::TargetEntry>::from_pg(node);
+
+    // Process target list entries
     for te in targetlist.iter_ptr() {
         if (*te).resorigtbl != pg_sys::Oid::INVALID && (*te).resorigtbl != heaprel.oid() {
             continue;
@@ -220,8 +232,8 @@ pub unsafe fn pullup_fast_fields(
                         )
                     });
                     if schema.is_fast_field(att.name()) {
-                        let ff_type = if (*var).vartype == pg_sys::TEXTOID
-                            || (*var).vartype == pg_sys::VARCHAROID
+                        let ff_type = if att.type_oid().value() == pg_sys::TEXTOID
+                            || att.type_oid().value() == pg_sys::VARCHAROID
                         {
                             FastFieldType::String
                         } else {
@@ -246,9 +258,51 @@ pub unsafe fn pullup_fast_fields(
             matches.push(WhichFastField::Junk("window".into()));
             continue;
         }
+    }
 
-        // we only support Vars or our score function in the target list
-        return None;
+    // Now also consider all referenced columns from other parts of the query
+    for &attno in referenced_columns {
+        // Skip system columns
+        match attno as i32 {
+            pg_sys::MinTransactionIdAttributeNumber
+            | pg_sys::MaxTransactionIdAttributeNumber
+            | pg_sys::MinCommandIdAttributeNumber
+            | pg_sys::MaxCommandIdAttributeNumber => return None,
+
+            pg_sys::SelfItemPointerAttributeNumber | pg_sys::TableOidAttributeNumber => {
+                // These are already handled above
+                continue;
+            }
+
+            _ => {
+                // Check if this column is already in our matches (from target list)
+                let already_included = matches.iter().any(|f| {
+                    if let WhichFastField::Named(name, _) = f {
+                        if let Some(att) = tupdesc.get((attno - 1) as usize) {
+                            return att.name() == name;
+                        }
+                    }
+                    false
+                });
+
+                if !already_included && attno > 0 {
+                    if let Some(att) = tupdesc.get((attno - 1) as usize) {
+                        if schema.is_fast_field(att.name()) {
+                            // Determine the type of the fast field
+                            let ff_type = if att.type_oid().value() == pg_sys::TEXTOID
+                                || att.type_oid().value() == pg_sys::VARCHAROID
+                            {
+                                FastFieldType::String
+                            } else {
+                                FastFieldType::Numeric
+                            };
+
+                            matches.push(WhichFastField::Named(att.name().to_string(), ff_type));
+                        }
+                    }
+                }
+            }
+        }
     }
 
     if matches
@@ -262,7 +316,6 @@ pub unsafe fn pullup_fast_fields(
         // we cannot support more than 1 different String fast field
         return None;
     }
-
     Some(matches)
 }
 
@@ -296,7 +349,7 @@ pub fn is_string_agg_capable(privdata: &PrivateData) -> Option<String> {
 }
 
 pub fn is_numeric_fast_field_capable(privdata: &PrivateData) -> bool {
-    if privdata.targetlist_len() == 0 {
+    if privdata.referenced_columns_count() == 0 {
         return true;
     }
 

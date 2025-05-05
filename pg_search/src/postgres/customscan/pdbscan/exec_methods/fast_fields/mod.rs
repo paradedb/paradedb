@@ -178,6 +178,62 @@ pub unsafe fn collect_fast_fields(
     }
 }
 
+// Helper function to process an attribute number and add a fast field if appropriate
+fn process_attno(
+    attno: i32,
+    processed_attnos: &mut HashSet<pg_sys::AttrNumber>,
+    matches: &mut Vec<WhichFastField>,
+    tupdesc: &PgTupleDesc<'_>,
+    heaprel: &PgRelation,
+    schema: &SearchIndexSchema,
+) -> bool {
+    match attno {
+        // any of these mean we can't use fast fields
+        pg_sys::MinTransactionIdAttributeNumber
+        | pg_sys::MaxTransactionIdAttributeNumber
+        | pg_sys::MinCommandIdAttributeNumber
+        | pg_sys::MaxCommandIdAttributeNumber => return false,
+
+        // these aren't _exactly_ fast fields, but we do have the information
+        // readily available during the scan, so we'll pretend
+        pg_sys::SelfItemPointerAttributeNumber => {
+            // okay, "ctid" is a fast field but it's secret
+            processed_attnos.insert(attno as pg_sys::AttrNumber);
+            matches.push(WhichFastField::Ctid);
+        }
+
+        pg_sys::TableOidAttributeNumber => {
+            processed_attnos.insert(attno as pg_sys::AttrNumber);
+            matches.push(WhichFastField::TableOid);
+        }
+
+        attno => {
+            // Keep track that we've processed this attribute number
+            processed_attnos.insert(attno as pg_sys::AttrNumber);
+
+            let att = tupdesc.get((attno - 1) as usize).unwrap_or_else(|| {
+                panic!(
+                    "attno {attno} should exist in tupdesc from relation {} (`{}`)",
+                    heaprel.oid().to_u32(),
+                    heaprel.name()
+                )
+            });
+            if schema.is_fast_field(att.name()) {
+                let ff_type = if att.type_oid().value() == pg_sys::TEXTOID
+                    || att.type_oid().value() == pg_sys::VARCHAROID
+                {
+                    FastFieldType::String
+                } else {
+                    FastFieldType::Numeric
+                };
+
+                matches.push(WhichFastField::Named(att.name().to_string(), ff_type));
+            }
+        }
+    }
+    true
+}
+
 pub unsafe fn pullup_fast_fields(
     node: *mut pg_sys::List,
     referenced_columns: &HashSet<pg_sys::AttrNumber>,
@@ -189,58 +245,6 @@ pub unsafe fn pullup_fast_fields(
     let mut processed_attnos = HashSet::new();
 
     let tupdesc = heaprel.tuple_desc();
-
-    // Helper function to process an attribute number and add a fast field if appropriate
-    let process_attno = |attno: i32,
-                         processed_attnos: &mut HashSet<pg_sys::AttrNumber>,
-                         matches: &mut Vec<WhichFastField>|
-     -> bool {
-        match attno {
-            // any of these mean we can't use fast fields
-            pg_sys::MinTransactionIdAttributeNumber
-            | pg_sys::MaxTransactionIdAttributeNumber
-            | pg_sys::MinCommandIdAttributeNumber
-            | pg_sys::MaxCommandIdAttributeNumber => return false,
-
-            // these aren't _exactly_ fast fields, but we do have the information
-            // readily available during the scan, so we'll pretend
-            pg_sys::SelfItemPointerAttributeNumber => {
-                // okay, "ctid" is a fast field but it's secret
-                processed_attnos.insert(attno as pg_sys::AttrNumber);
-                matches.push(WhichFastField::Ctid);
-            }
-
-            pg_sys::TableOidAttributeNumber => {
-                processed_attnos.insert(attno as pg_sys::AttrNumber);
-                matches.push(WhichFastField::TableOid);
-            }
-
-            attno => {
-                // Keep track that we've processed this attribute number
-                processed_attnos.insert(attno as pg_sys::AttrNumber);
-
-                let att = tupdesc.get((attno - 1) as usize).unwrap_or_else(|| {
-                    panic!(
-                        "attno {attno} should exist in tupdesc from relation {} (`{}`)",
-                        heaprel.oid().to_u32(),
-                        heaprel.name()
-                    )
-                });
-                if schema.is_fast_field(att.name()) {
-                    let ff_type = if att.type_oid().value() == pg_sys::TEXTOID
-                        || att.type_oid().value() == pg_sys::VARCHAROID
-                    {
-                        FastFieldType::String
-                    } else {
-                        FastFieldType::Numeric
-                    };
-
-                    matches.push(WhichFastField::Named(att.name().to_string(), ff_type));
-                }
-            }
-        }
-        true
-    };
 
     // First collect all matches from the target list (standard behavior)
     let targetlist = PgList::<pg_sys::TargetEntry>::from_pg(node);
@@ -257,7 +261,14 @@ pub unsafe fn pullup_fast_fields(
                 continue;
             }
             let attno = (*var).varattno as i32;
-            if !process_attno(attno, &mut processed_attnos, &mut matches) {
+            if !process_attno(
+                attno,
+                &mut processed_attnos,
+                &mut matches,
+                &tupdesc,
+                heaprel,
+                schema,
+            ) {
                 return None;
             }
             continue;
@@ -280,7 +291,14 @@ pub unsafe fn pullup_fast_fields(
 
     // Now also consider all referenced columns from other parts of the query
     for &attno in referenced_columns {
-        if !process_attno(attno as i32, &mut processed_attnos, &mut matches) {
+        if !process_attno(
+            attno as i32,
+            &mut processed_attnos,
+            &mut matches,
+            &tupdesc,
+            heaprel,
+            schema,
+        ) {
             return None;
         }
     }

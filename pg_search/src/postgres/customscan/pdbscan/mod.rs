@@ -950,10 +950,7 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
         // For StringFastFieldExecState, check that we won't have more columns
         // in the target list than fast fields
         if let Some(which_fast_fields) = privdata.which_fast_fields() {
-            // Important: Use the larger of targetlist_len and referenced_columns_count
-            // to account for all potential columns that might be accessed
-            let target_list_len = privdata.target_list_len().unwrap_or(0);
-            let columns_used = target_list_len + privdata.referenced_columns_count();
+            let columns_used = privdata.referenced_columns_count();
 
             // If the number of columns used is greater than our fast fields,
             // the execution method won't be compatible - fall back to Normal
@@ -969,9 +966,7 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
     } else if exec_methods::fast_fields::is_numeric_fast_field_capable(privdata) {
         // Similar check for numeric fast fields
         if let Some(which_fast_fields) = privdata.which_fast_fields() {
-            // Important: Use the larger of targetlist_len and referenced_columns_count
-            let target_list_len = privdata.target_list_len().unwrap_or(0);
-            let columns_used = target_list_len + privdata.referenced_columns_count();
+            let columns_used = privdata.referenced_columns_count();
 
             if columns_used > which_fast_fields.len() {
                 return ExecMethodType::Normal;

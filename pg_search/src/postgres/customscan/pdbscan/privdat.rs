@@ -274,11 +274,8 @@ impl PrivateData {
         &self.exec_method_type
     }
 
-    pub fn target_list_len(&self) -> Option<usize> {
-        self.target_list_len
-    }
-
     pub fn referenced_columns_count(&self) -> usize {
+        debug_assert!(self.referenced_columns_count >= self.target_list_len.unwrap_or(0));
         self.referenced_columns_count
     }
 

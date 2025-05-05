@@ -211,24 +211,28 @@ fn process_attno(
             // Keep track that we've processed this attribute number
             processed_attnos.insert(attno as pg_sys::AttrNumber);
 
-            let att = tupdesc.get((attno - 1) as usize).unwrap_or_else(|| {
-                panic!(
-                    "attno {attno} should exist in tupdesc from relation {} (`{}`)",
-                    heaprel.oid().to_u32(),
-                    heaprel.name()
-                )
-            });
-            if schema.is_fast_field(att.name()) {
-                let ff_type = if att.type_oid().value() == pg_sys::TEXTOID
-                    || att.type_oid().value() == pg_sys::VARCHAROID
-                {
-                    FastFieldType::String
-                } else {
-                    FastFieldType::Numeric
-                };
-
-                matches.push(WhichFastField::Named(att.name().to_string(), ff_type));
+            // Handle attno <= 0 - this can happen in materialized views and FULL JOINs
+            if attno <= 0 {
+                // Just mark it as processed and continue
+                return true;
             }
+
+            // Get attribute info - use if let to handle missing attributes gracefully
+            if let Some(att) = tupdesc.get((attno - 1) as usize) {
+                if schema.is_fast_field(att.name()) {
+                    let ff_type = if att.type_oid().value() == pg_sys::TEXTOID
+                        || att.type_oid().value() == pg_sys::VARCHAROID
+                    {
+                        FastFieldType::String
+                    } else {
+                        FastFieldType::Numeric
+                    };
+
+                    matches.push(WhichFastField::Named(att.name().to_string(), ff_type));
+                }
+            }
+            // If the attribute doesn't exist in this relation, just continue
+            // This can happen in JOIN queries or materialized views
         }
     }
     true

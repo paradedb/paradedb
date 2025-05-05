@@ -185,10 +185,10 @@ select id,
     paradedb.score(id),
     rating,
     paradedb.score(id) * rating    /* testing this, specifically */
-from paradedb.bm25_search 
-where metadata @@@ 'color:white' 
+from paradedb.bm25_search
+where metadata @@@ 'color:white'
 order by 5 desc, score desc
-limit 1;        
+limit 1;
         "#
     .fetch_one::<(i32, String, f32, i32, f64)>(&mut conn);
     assert_eq!(
@@ -209,7 +209,7 @@ fn limit_without_order_by(mut conn: PgConnection) {
 
     "SET enable_indexscan TO off;".execute(&mut conn);
     let (plan, ) = r#"
-explain (analyze, format json) select * from paradedb.bm25_search where metadata @@@ 'color:white' limit 1;        
+explain (analyze, format json) select * from paradedb.bm25_search where metadata @@@ 'color:white' limit 1;
         "#
         .fetch_one::<(Value,)>(&mut conn);
     let path = plan.pointer("/0/Plan/Plans/0").unwrap();
@@ -250,9 +250,9 @@ fn simple_join_with_scores_and_both_sides(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let result = r#"
-select a.id, 
-    a.score, 
-    b.id, 
+select a.id,
+    a.score,
+    b.id,
     b.score
 from (select paradedb.score(id), * from paradedb.bm25_search) a
 inner join (select paradedb.score(id), * from paradedb.bm25_search) b on a.id = b.id
@@ -266,9 +266,9 @@ fn simple_join_with_scores_on_both_sides(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let result = r#"
-select a.id, 
-    a.score, 
-    b.id, 
+select a.id,
+    a.score,
+    b.id,
     b.score
 from (select paradedb.score(id), * from paradedb.bm25_search) a
 inner join (select paradedb.score(id), * from paradedb.bm25_search) b on a.id = b.id
@@ -294,8 +294,8 @@ fn add_scores_across_joins_issue1753(mut conn: PgConnection) {
     ALTER TABLE orders
     ADD CONSTRAINT foreign_key_product_id
     FOREIGN KEY (product_id)
-    REFERENCES mock_items(id);   
-        
+    REFERENCES mock_items(id);
+
     CREATE INDEX orders_idx ON orders
     USING bm25 (order_id, customer_name)
     WITH (key_field='order_id');
@@ -352,22 +352,22 @@ fn join_issue_1776(mut conn: PgConnection) {
           schema_name => 'public',
           table_name => 'mock_items'
         );
-        
+
     CREATE INDEX search_idx ON mock_items
     USING bm25 (id, description, category, rating, in_stock, metadata, created_at)
     WITH (key_field='id');
-        
+
     CALL paradedb.create_bm25_test_table(
           schema_name => 'public',
           table_name => 'orders',
           table_type => 'Orders'
         );
-        
+
     ALTER TABLE orders
     ADD CONSTRAINT foreign_key_product_id
     FOREIGN KEY (product_id)
     REFERENCES mock_items(id);
-    
+
     CREATE INDEX orders_idx ON orders
     USING bm25 (order_id, customer_name)
     WITH (key_field='order_id');
@@ -406,12 +406,12 @@ fn join_issue_1826(mut conn: PgConnection) {
           table_name => 'orders',
           table_type => 'Orders'
         );
-        
+
     ALTER TABLE orders
     ADD CONSTRAINT foreign_key_product_id
     FOREIGN KEY (product_id)
     REFERENCES mock_items(id);
-    
+
     CREATE INDEX orders_idx ON orders
     USING bm25 (order_id, customer_name)
     WITH (key_field='order_id');
@@ -491,28 +491,28 @@ fn cte_issue_1951(mut conn: PgConnection) {
             id   SERIAL,
             data TEXT
         );
-        
+
         CREATE TABLE s
         (
             id   SERIAL,
             data TEXT
         );
-        
+
         insert into t (id, data) select x, md5(x::text) || ' query' from generate_series(1, 100) x;
         insert into s (id, data) select x, md5(x::text) from generate_series(1, 100) x;
-        
+
         create index idxt on t using bm25 (id, data) with (key_field = id);
-        create index idxs on s using bm25 (id, data) with (key_field = id);    
+        create index idxs on s using bm25 (id, data) with (key_field = id);
     "#.execute(&mut conn);
-    
+
     let results = r#"
         with cte as (
         select id, 1 as score from t
-        where data @@@ 'query' 
+        where data @@@ 'query'
         limit 1)
         select cte.id from s
         right join cte on cte.id = s.id
-        order by cte.score desc;    
+        order by cte.score desc;
     "#.fetch_result::<(i32, )>(&mut conn).expect("query failed");
     assert_eq!(results.len(), 1);
 }
@@ -525,7 +525,7 @@ fn is_numeric_fast_field_capable(mut conn: PgConnection) {
             message TEXT,
             severity INTEGER
         ) WITH (autovacuum_enabled = false);
-        
+
         INSERT INTO test (message, severity) VALUES ('beer wine cheese a', 1);
         INSERT INTO test (message, severity) VALUES ('beer wine a', 2);
         INSERT INTO test (message, severity) VALUES ('beer cheese a', 3);
@@ -540,9 +540,9 @@ fn is_numeric_fast_field_capable(mut conn: PgConnection) {
         INSERT INTO test (message, severity) VALUES ('wine cheese a', 5);
         INSERT INTO test (message, severity) VALUES ('wine a', 6);
         INSERT INTO test (message, severity) VALUES ('cheese a', 7);
-        
+
         -- INSERT INTO test (message) SELECT 'space fillter ' || x FROM generate_series(1, 10000000) x;
-        
+
         CREATE INDEX idxtest ON test USING bm25(id, message, severity) WITH (key_field = 'id');
         CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool STABLE STRICT LANGUAGE plpgsql AS $$
         DECLARE
@@ -550,15 +550,15 @@ fn is_numeric_fast_field_capable(mut conn: PgConnection) {
         BEGIN
             -- Get the current transaction ID
             current_txid := txid_current();
-        
+
             -- Check if the values are not equal
             IF a <> b THEN
                 RAISE EXCEPTION 'Assertion failed: % <> %. Transaction ID: %', a, b, current_txid;
             END IF;
-        
+
             RETURN true;
         END;
-        $$;    
+        $$;
     "#.execute(&mut conn);
 
     "VACUUM test;".execute(&mut conn);
@@ -582,7 +582,7 @@ fn top_n_matches(mut conn: PgConnection) {
             message TEXT,
             severity INTEGER
         ) WITH (autovacuum_enabled = false);
-        
+
         INSERT INTO test (message, severity) VALUES ('beer wine cheese a', 1);
         INSERT INTO test (message, severity) VALUES ('beer wine a', 2);
         INSERT INTO test (message, severity) VALUES ('beer cheese a', 3);
@@ -597,9 +597,9 @@ fn top_n_matches(mut conn: PgConnection) {
         INSERT INTO test (message, severity) VALUES ('wine cheese a', 5);
         INSERT INTO test (message, severity) VALUES ('wine a', 6);
         INSERT INTO test (message, severity) VALUES ('cheese a', 7);
-        
+
         -- INSERT INTO test (message) SELECT 'space fillter ' || x FROM generate_series(1, 10000000) x;
-        
+
         CREATE INDEX idxtest ON test USING bm25(id, message, severity) WITH (key_field = 'id');
         CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool STABLE STRICT LANGUAGE plpgsql AS $$
         DECLARE
@@ -607,15 +607,15 @@ fn top_n_matches(mut conn: PgConnection) {
         BEGIN
             -- Get the current transaction ID
             current_txid := txid_current();
-        
+
             -- Check if the values are not equal
             IF a <> b THEN
                 RAISE EXCEPTION 'Assertion failed: % <> %. Transaction ID: %', a, b, current_txid;
             END IF;
-        
+
             RETURN true;
         END;
-        $$;    
+        $$;
     "#.execute(&mut conn);
 
     "UPDATE test SET severity = (floor(random() * 10) + 1)::int WHERE id < 10;".execute(&mut conn);
@@ -686,7 +686,7 @@ fn parallel_custom_scan_with_jsonb_issue2432(mut conn: PgConnection) {
         ) WITH (autovacuum_enabled = false);
 
         CREATE INDEX idxtest ON test USING bm25(id, message, severity) WITH (key_field = 'id', layer_sizes = '1GB, 1GB');
-        
+
         INSERT INTO test (message, severity) VALUES ('beer wine cheese a', 1);
         INSERT INTO test (message, severity) VALUES ('beer wine a', 2);
         INSERT INTO test (message, severity) VALUES ('beer cheese a', 3);
@@ -712,8 +712,8 @@ fn parallel_custom_scan_with_jsonb_issue2432(mut conn: PgConnection) {
 
     let (plan, ) = r#"
         explain (FORMAT json) select id
-        from test 
-        where message @@@ '{"parse_with_field":{"field":"message","query_string":"beer","lenient":null,"conjunction_mode":null}}'::jsonb 
+        from test
+        where message @@@ '{"parse_with_field":{"field":"message","query_string":"beer","lenient":null,"conjunction_mode":null}}'::jsonb
         order by paradedb.score(id) desc
         limit 10;
     "#.fetch_one::<(serde_json::Value, )>(&mut conn);
@@ -769,7 +769,7 @@ fn nested_loop_rescan_issue_2472(mut conn: PgConnection) {
     (15, 'Important Testing');
 
     DELETE FROM "user";
-    INSERT INTO "user" VALUES 
+    INSERT INTO "user" VALUES
     (1, 4, 'NORMAL'),
     (2, 5, 'NORMAL'),
     (3, 13, 'NORMAL'),
@@ -796,7 +796,7 @@ fn nested_loop_rescan_issue_2472(mut conn: PgConnection) {
 
     // Check if we're running in non-parallel mode
     let (plan,) = r#"
-    EXPLAIN (FORMAT json) 
+    EXPLAIN (FORMAT json)
     WITH target_users AS (
         SELECT u.id, u.company_id
         FROM "user" u
@@ -867,7 +867,7 @@ fn nested_loop_rescan_issue_2472(mut conn: PgConnection) {
     WITH target_users AS (
         SELECT u.id, u.company_id
         FROM "user" u
-        WHERE 
+        WHERE
           u.status = 'NORMAL' AND
             u.company_id in (13, 15)
     ),
@@ -917,7 +917,7 @@ fn nested_loop_rescan_issue_2472(mut conn: PgConnection) {
 
     // Check if we're running in parallel mode
     let (plan,) = r#"
-    EXPLAIN (FORMAT json) 
+    EXPLAIN (FORMAT json)
     WITH target_users AS (
         SELECT u.id, u.company_id
         FROM "user" u
@@ -1003,7 +1003,7 @@ fn nested_loop_rescan_issue_2472(mut conn: PgConnection) {
     WITH target_users AS (
         SELECT u.id, u.company_id
         FROM "user" u
-        WHERE 
+        WHERE
           u.status = 'NORMAL' AND
             u.company_id in (13, 15)
     ),
@@ -1039,5 +1039,40 @@ fn nested_loop_rescan_issue_2472(mut conn: PgConnection) {
     assert!(
         company_15_result.3 > 0.0,
         "Company 15 should have a non-zero score in parallel mode"
+    );
+}
+
+#[rstest]
+fn uses_max_parallel_workers_per_gather_issue2515(mut conn: PgConnection) {
+    r#"
+    SET max_parallel_workers = 8;
+    SET max_parallel_workers_per_gather = 2;
+
+    CREATE TABLE t (id bigint);
+    INSERT INTO t (id) SELECT x FROM generate_series(1, 1000000) x;
+    CREATE INDEX t_idx ON t USING bm25(id) WITH (key_field='id');
+    "#
+    .execute(&mut conn);
+
+    let (plan,) =
+        "EXPLAIN (ANALYZE, FORMAT JSON) SELECT COUNT(*) FROM t WHERE id @@@ paradedb.all()"
+            .fetch_one::<(Value,)>(&mut conn);
+    let plan = plan.pointer("/0/Plan/Plans/0").unwrap();
+    eprintln!("{plan:#?}");
+    assert_eq!(
+        plan.get("Workers Planned"),
+        Some(&Value::Number(Number::from(2)))
+    );
+
+    "SET paradedb.enable_custom_scan = false".execute(&mut conn);
+
+    let (plan,) =
+        "EXPLAIN (ANALYZE, FORMAT JSON) SELECT COUNT(*) FROM t WHERE id @@@ paradedb.all()"
+            .fetch_one::<(Value,)>(&mut conn);
+    let plan = plan.pointer("/0/Plan/Plans/0").unwrap();
+    eprintln!("{plan:#?}");
+    assert_eq!(
+        plan.get("Workers Planned"),
+        Some(&Value::Number(Number::from(2)))
     );
 }

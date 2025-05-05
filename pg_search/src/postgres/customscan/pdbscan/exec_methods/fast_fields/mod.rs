@@ -167,9 +167,9 @@ pub unsafe fn collect_fast_fields(
     maybe_ff: bool,
     target_list: *mut pg_sys::List,
     referenced_columns: &HashSet<pg_sys::AttrNumber>,
+    rti: pg_sys::Index,
     schema: &SearchIndexSchema,
     heaprel: &PgRelation,
-    rti: pg_sys::Index,
 ) -> Option<Vec<WhichFastField>> {
     if maybe_ff {
         pullup_fast_fields(target_list, referenced_columns, schema, heaprel, rti)

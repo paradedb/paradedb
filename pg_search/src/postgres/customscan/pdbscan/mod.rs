@@ -261,9 +261,9 @@ impl CustomScan for PdbScan {
                     maybe_ff,
                     target_list,
                     &referenced_columns,
+                    rti,
                     &schema,
                     &table,
-                    rti,
                 ),
             );
 

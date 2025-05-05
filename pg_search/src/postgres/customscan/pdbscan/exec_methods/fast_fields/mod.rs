@@ -318,6 +318,7 @@ pub unsafe fn pullup_fast_fields(
         // we cannot support more than 1 different String fast field
         return None;
     }
+
     Some(matches)
 }
 

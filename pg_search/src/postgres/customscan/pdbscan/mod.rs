@@ -471,9 +471,14 @@ impl CustomScan for PdbScan {
 
     fn plan_custom_path(mut builder: CustomScanBuilder<Self::PrivateData>) -> pg_sys::CustomScan {
         unsafe {
-            let private_data = builder.custom_private();
-
             let mut tlist = PgList::<pg_sys::TargetEntry>::from_pg(builder.args().tlist.as_ptr());
+
+            // Store the length of the target list
+            builder
+                .custom_private_mut()
+                .set_target_list_len(Some(tlist.len()));
+
+            let private_data = builder.custom_private();
 
             let rti: i32 = private_data
                 .range_table_index()
@@ -947,7 +952,8 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
         if let Some(which_fast_fields) = privdata.which_fast_fields() {
             // Important: Use the larger of targetlist_len and referenced_columns_count
             // to account for all potential columns that might be accessed
-            let columns_used = privdata.referenced_columns_count();
+            let target_list_len = privdata.target_list_len().unwrap_or(0);
+            let columns_used = target_list_len + privdata.referenced_columns_count();
 
             // If the number of columns used is greater than our fast fields,
             // the execution method won't be compatible - fall back to Normal
@@ -964,7 +970,8 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
         // Similar check for numeric fast fields
         if let Some(which_fast_fields) = privdata.which_fast_fields() {
             // Important: Use the larger of targetlist_len and referenced_columns_count
-            let columns_used = privdata.referenced_columns_count();
+            let target_list_len = privdata.target_list_len().unwrap_or(0);
+            let columns_used = target_list_len + privdata.referenced_columns_count();
 
             if columns_used > which_fast_fields.len() {
                 return ExecMethodType::Normal;

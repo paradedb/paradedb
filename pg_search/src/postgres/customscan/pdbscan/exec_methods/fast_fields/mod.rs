@@ -281,7 +281,7 @@ pub unsafe fn pullup_fast_fields(
             }
 
             _ => {
-                // Check if we've already processed this attribute number
+                // Check if this column is already in our processed attribute numbers
                 if processed_attnos.contains(&attno) {
                     continue;
                 }

@@ -10,12 +10,16 @@
 #   PGVER=<version> ./pg_search_run.sh [psql arguments]
 #   Example: PGVER=17.4 ./pg_search_run.sh psql -c "SELECT 1"
 
+CURRENT_DIR=$(pwd)
+
 set -Eeuo pipefail
 
 # Source the common setup script
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=./scripts/pg_search_common.sh
 source "${SCRIPT_DIR}/pg_search_common.sh"
+
+cd "${CURRENT_DIR}"
 
 # Connect to the database with psql and pass any additional arguments
 psql "${DATABASE_URL}" "$@"

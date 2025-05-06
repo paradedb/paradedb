@@ -1076,3 +1076,52 @@ fn uses_max_parallel_workers_per_gather_issue2515(mut conn: PgConnection) {
         Some(&Value::Number(Number::from(2)))
     );
 }
+
+#[rstest]
+fn join_with_string_fast_fields_issue_2505(mut conn: PgConnection) {
+    r#"
+    DROP TABLE IF EXISTS a;
+    DROP TABLE IF EXISTS b;
+
+    CREATE TABLE a (
+        a_id_pk TEXT,
+        content TEXT
+    ) WITH (autovacuum_enabled = false);
+
+    CREATE TABLE b (
+        b_id_pk TEXT,
+        a_id_fk TEXT,
+        content TEXT
+    ) WITH (autovacuum_enabled = false);
+
+    CREATE INDEX idxa ON a USING bm25 (a_id_pk, content) WITH (key_field = 'a_id_pk');
+
+    CREATE INDEX idxb ON b USING bm25 (b_id_pk, a_id_fk, content) WITH (key_field = 'b_id_pk', 
+      text_fields = '{ "a_id_fk": { "fast": true, "tokenizer": { "type": "keyword" } } }');
+
+    INSERT INTO a (a_id_pk, content) VALUES ('this-is-a-id', 'beer');
+    INSERT INTO b (b_id_pk, a_id_fk, content) VALUES ('this-is-b-id', 'this-is-a-id', 'wine');
+    "#
+    .execute(&mut conn);
+
+    "VACUUM a, b;  -- needed to get Visibility Map up-to-date".execute(&mut conn);
+
+    // This query previously failed with:
+    // "ERROR: assertion failed: natts == self.inner.which_fast_fields.len()"
+    let result = r#"
+    SELECT a.a_id_pk as my_a_id_pk, b.b_id_pk as my_b_id_pk
+    FROM b
+    JOIN a ON a.a_id_pk = b.a_id_fk
+    WHERE a.content @@@ 'beer' AND b.content @@@ 'wine';
+    "#
+    .fetch_result::<(String, String)>(&mut conn)
+    .expect("JOIN query with string fast fields should execute successfully");
+
+    assert_eq!(result.len(), 1);
+    assert_eq!(
+        result[0],
+        ("this-is-a-id".to_string(), "this-is-b-id".to_string())
+    );
+
+    "DROP TABLE a; DROP TABLE b;".execute(&mut conn);
+}

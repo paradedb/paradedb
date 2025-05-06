@@ -16,8 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::{AsCStr, Cardinality, Varno};
-use crate::postgres::customscan::builders::custom_path::OrderByStyle;
-use crate::postgres::customscan::builders::custom_path::SortDirection;
+use crate::index::fast_fields_helper::WhichFastField;
+use crate::postgres::customscan::builders::custom_path::{OrderByStyle, SortDirection};
+use crate::postgres::customscan::pdbscan::ExecMethodType;
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::{pg_sys, PgList};
@@ -37,6 +38,11 @@ pub struct PrivateData {
     var_attname_lookup: Option<FxHashMap<(Varno, pg_sys::AttrNumber), String>>,
     maybe_ff: bool,
     segment_count: usize,
+    which_fast_fields: Option<Vec<WhichFastField>>,
+    target_list_len: Option<usize>,
+    referenced_columns_count: usize,
+    need_scores: bool,
+    exec_method_type: ExecMethodType,
 }
 
 mod var_attname_lookup_serializer {
@@ -186,6 +192,26 @@ impl PrivateData {
     pub fn set_segment_count(&mut self, segment_count: usize) {
         self.segment_count = segment_count;
     }
+
+    pub fn set_which_fast_fields(&mut self, which_fast_fields: Option<Vec<WhichFastField>>) {
+        self.which_fast_fields = which_fast_fields;
+    }
+
+    pub fn set_exec_method_type(&mut self, exec_method_type: ExecMethodType) {
+        self.exec_method_type = exec_method_type;
+    }
+
+    pub fn set_target_list_len(&mut self, len: Option<usize>) {
+        self.target_list_len = len;
+    }
+
+    pub fn set_referenced_columns_count(&mut self, count: usize) {
+        self.referenced_columns_count = count;
+    }
+
+    pub fn set_need_scores(&mut self, maybe: bool) {
+        self.need_scores = maybe;
+    }
 }
 
 //
@@ -238,5 +264,22 @@ impl PrivateData {
 
     pub fn segment_count(&self) -> usize {
         self.segment_count
+    }
+
+    pub fn which_fast_fields(&self) -> &Option<Vec<WhichFastField>> {
+        &self.which_fast_fields
+    }
+
+    pub fn exec_method_type(&self) -> &ExecMethodType {
+        &self.exec_method_type
+    }
+
+    pub fn referenced_columns_count(&self) -> usize {
+        debug_assert!(self.referenced_columns_count >= self.target_list_len.unwrap_or(0));
+        self.referenced_columns_count
+    }
+
+    pub fn need_scores(&self) -> bool {
+        self.need_scores
     }
 }

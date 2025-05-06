@@ -151,7 +151,7 @@ impl ExecMethod for StringFastFieldExecState {
 
                         ExecState::Virtual { slot }
                     } else {
-                        ExecState::RequiresVisibilityCheck {
+                        ExecState::Ctid {
                             ctid: scored.ctid,
                             score: scored.bm25,
                             doc_address,

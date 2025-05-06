@@ -124,7 +124,7 @@ impl ExecMethod for TopNScanExecState {
                     continue;
                 }
                 Some((scored, doc_address)) => {
-                    return ExecState::RequiresVisibilityCheck {
+                    return ExecState::Ctid {
                         ctid: scored.ctid,
                         score: scored.bm25,
                         doc_address,

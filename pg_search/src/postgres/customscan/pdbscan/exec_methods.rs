@@ -24,7 +24,7 @@ use pgrx::pg_sys;
 use tantivy::{DocAddress, Score};
 
 pub enum ExecState {
-    RequiresVisibilityCheck {
+    Ctid {
         ctid: u64,
         score: Score,
         doc_address: DocAddress,

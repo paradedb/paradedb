@@ -793,13 +793,13 @@ impl CustomScan for PdbScan {
                 }
 
                 // SearchResults found a match
-                ExecState::RequiresVisibilityCheck {
+                ExecState::Ctid {
                     ctid,
                     score,
                     doc_address,
                 } => {
                     unsafe {
-                        let slot = match check_visibility(state, ctid, state.scanslot().cast()) {
+                        let slot = match fetch_ctid(state, ctid, state.scanslot().cast()) {
                             // the ctid is visible
                             Some(slot) => {
                                 state.custom_state_mut().heap_tuple_check_count += 1;
@@ -809,7 +809,6 @@ impl CustomScan for PdbScan {
                             // the ctid is not visible
                             None => {
                                 state.custom_state_mut().invisible_tuple_count += 1;
-                                pgrx::warning!(">>> invisible?");
                                 continue;
                             }
                         };
@@ -1014,7 +1013,7 @@ fn assign_exec_method(custom_state: &mut PdbScanState) {
 /// Use the [`VisibilityChecker`] to lookup the [`SearchIndexScore`] document in the underlying heap
 /// and if it exists return a formed [`TupleTableSlot`].
 #[inline(always)]
-fn check_visibility(
+fn fetch_ctid(
     state: &mut CustomScanStateWrapper<PdbScan>,
     ctid: u64,
     bslot: *mut pg_sys::BufferHeapTupleTableSlot,

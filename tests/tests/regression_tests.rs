@@ -169,7 +169,7 @@ fn run_regression_test(sql_file: &Path, regenerate: bool) -> Result<(), String> 
     let actual_output = run_sql_file(sql_file);
 
     // Compare outputs
-    compare_outputs(&sql_file, &actual_output, &expected_output)
+    compare_outputs(sql_file, &actual_output, &expected_output)
 }
 
 // Macro to define a SQL regression test

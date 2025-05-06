@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::writer::index::IndexError;
+use crate::postgres::build::is_bm25_index;
 use crate::postgres::types::TantivyValue;
 use crate::schema::{SearchDocument, SearchField, SearchIndexSchema};
 use anyhow::{anyhow, Result};
@@ -40,11 +41,7 @@ pub fn locate_bm25_index(heaprelid: pg_sys::Oid) -> Option<PgRelation> {
         // Find all bm25 indexes and keep the one with highest OID
         indices
             .into_iter()
-            .filter(|index| pg_sys::get_index_isvalid(index.oid()))
-            .filter(|index| {
-                !index.rd_indam.is_null()
-                    && (*index.rd_indam).ambuild == Some(crate::postgres::build::ambuild)
-            })
+            .filter(|index| pg_sys::get_index_isvalid(index.oid()) && is_bm25_index(index))
             .max_by_key(|index| index.oid().to_u32())
     }
 }

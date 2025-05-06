@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 // Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics

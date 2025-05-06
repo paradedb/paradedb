@@ -63,11 +63,7 @@ fn main() {
         let test_name = format!("test_{}", file_stem.replace("-", "_"));
         let relative_path = sql_file.strip_prefix(&workspace_dir).unwrap_or(sql_file);
 
-        test_file_content.push_str(&generate_test_function(
-            &test_name,
-            &file_stem,
-            relative_path,
-        ));
+        test_file_content.push_str(&generate_test_function(&test_name, relative_path));
     }
 
     // Close the module
@@ -311,6 +307,33 @@ fn run_regression_test(sql_file: &Path, regenerate: bool) -> Result<(), String> 
     compare_outputs(&sql_file, &actual_output, &expected_output)
 }
 
+// Macro to define a SQL regression test
+macro_rules! sql_regression_test {
+    ($name:ident, $sql_file:expr) => {
+        #[test]
+        fn $name() {
+            let workspace_dir = env::current_dir().expect("Failed to get current directory");
+            let sql_file = workspace_dir.join($sql_file);
+
+            // Check if we should regenerate expected output
+            let regenerate = env::var("REGENERATE_EXPECTED").unwrap_or_default() == "1";
+
+            match run_regression_test(&sql_file, regenerate) {
+                Ok(()) => println!("✅ Test passed: {}", stringify!($name)),
+                Err(err) => {
+                    eprintln!("❌ Test failed: {}\n{}\n", stringify!($name), err);
+
+                    // Add helpful instructions for updating the expected output
+                    eprintln!("\nTo update the expected output, run:");
+                    eprintln!("    REGENERATE_EXPECTED=1 cargo test --test regression_tests {} -- --nocapture", stringify!($name));
+
+                    panic!("SQL regression test for {} failed: {}", stringify!($name), err);
+                }
+            }
+        }
+    };
+}
+
 // Individual test functions for each SQL file
 #[cfg(test)]
 mod tests {
@@ -320,32 +343,11 @@ mod tests {
 }
 
 /// Generates a test function for a SQL file
-fn generate_test_function(test_name: &str, file_stem: &str, relative_path: &Path) -> String {
+fn generate_test_function(test_name: &str, relative_path: &Path) -> String {
     format!(
-        r#"    #[test]
-    fn {test_name}() {{
-        let workspace_dir = env::current_dir().expect("Failed to get current directory");
-        let sql_file = workspace_dir.join("{path}");
-
-        // Check if we should regenerate expected output
-        let regenerate = env::var("REGENERATE_EXPECTED").unwrap_or_default() == "1";
-
-        match run_regression_test(&sql_file, regenerate) {{
-            Ok(()) => println!("✅ Test passed: {file_stem}"),
-            Err(err) => {{
-                eprintln!("❌ Test failed: {file_stem}\n{{}}\n", err);
-
-                // Add helpful instructions for updating the expected output
-                eprintln!("\nTo update the expected output, run:");
-                eprintln!("    REGENERATE_EXPECTED=1 cargo test --test regression_tests {test_name} -- --nocapture");
-
-                panic!("SQL regression test for {file_stem} failed: {{}}", err);
-            }}
-        }}
-    }}
+        r#"    sql_regression_test!({test_name}, "{path}");
 "#,
         test_name = test_name,
-        file_stem = file_stem,
         path = Path::new("..")
             .join(relative_path)
             .to_string_lossy()

@@ -172,30 +172,37 @@ fn run_regression_test(sql_file: &Path, regenerate: bool) -> Result<(), String> 
     compare_outputs(&sql_file, &actual_output, &expected_output)
 }
 
+// Macro to define a SQL regression test
+macro_rules! sql_regression_test {
+    ($name:ident, $sql_file:expr) => {
+        #[test]
+        fn $name() {
+            let workspace_dir = env::current_dir().expect("Failed to get current directory");
+            let sql_file = workspace_dir.join($sql_file);
+
+            // Check if we should regenerate expected output
+            let regenerate = env::var("REGENERATE_EXPECTED").unwrap_or_default() == "1";
+
+            match run_regression_test(&sql_file, regenerate) {
+                Ok(()) => println!("✅ Test passed: {}", stringify!($name)),
+                Err(err) => {
+                    eprintln!("❌ Test failed: {}\n{}\n", stringify!($name), err);
+
+                    // Add helpful instructions for updating the expected output
+                    eprintln!("\nTo update the expected output, run:");
+                    eprintln!("    REGENERATE_EXPECTED=1 cargo test --test regression_tests {} -- --nocapture", stringify!($name));
+
+                    panic!("SQL regression test for {} failed: {}", stringify!($name), err);
+                }
+            }
+        }
+    };
+}
+
 // Individual test functions for each SQL file
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_issue_2505() {
-        let workspace_dir = env::current_dir().expect("Failed to get current directory");
-        let sql_file = workspace_dir.join("../tests/sql/issue_2505.sql");
-
-        // Check if we should regenerate expected output
-        let regenerate = env::var("REGENERATE_EXPECTED").unwrap_or_default() == "1";
-
-        match run_regression_test(&sql_file, regenerate) {
-            Ok(()) => println!("✅ Test passed: issue_2505"),
-            Err(err) => {
-                eprintln!("❌ Test failed: issue_2505\n{}\n", err);
-
-                // Add helpful instructions for updating the expected output
-                eprintln!("\nTo update the expected output, run:");
-                eprintln!("    REGENERATE_EXPECTED=1 cargo test --test regression_tests test_issue_2505 -- --nocapture");
-
-                panic!("SQL regression test for issue_2505 failed: {}", err);
-            }
-        }
-    }
+    sql_regression_test!(test_issue_2505, "../tests/sql/issue_2505.sql");
 }

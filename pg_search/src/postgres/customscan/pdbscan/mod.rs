@@ -804,12 +804,14 @@ impl CustomScan for PdbScan {
                             Some(slot) => {
                                 exec_method.increment_visible();
                                 state.custom_state_mut().heap_tuple_check_count += 1;
+                                pgrx::log!(">>> visible!");
                                 slot
                             }
 
                             // the ctid is not visible
                             None => {
                                 state.custom_state_mut().invisible_tuple_count += 1;
+                                pgrx::log!(">>> invisible?");
                                 continue;
                             }
                         };

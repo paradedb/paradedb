@@ -88,6 +88,10 @@ impl TopNScanExecState {
                 search_reader.search_top_n_in_segment(
                     segment_id,
                     self.search_query_input.as_ref().unwrap(),
+                    state
+                        .visibility_checker
+                        .clone()
+                        .expect("Must have VisibilityChecker at query time."),
                     self.sort_field.clone(),
                     self.sort_direction.into(),
                     self.limit.max(self.chunk_size),
@@ -106,6 +110,10 @@ impl TopNScanExecState {
             self.did_query = true;
             search_reader.search_top_n(
                 self.search_query_input.as_ref().unwrap(),
+                state
+                    .visibility_checker
+                    .clone()
+                    .expect("Must have VisibilityChecker at query time."),
                 self.sort_field.clone(),
                 self.sort_direction.into(),
                 self.limit.max(self.chunk_size),

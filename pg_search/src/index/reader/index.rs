@@ -18,20 +18,25 @@
 use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::scorer_iter::DeferredScorer;
+use crate::index::reader::mvcc::MvccAcceptor;
 use crate::index::setup_tokenizers;
 use crate::postgres::storage::block::CLEANUP_LOCK;
 use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
+use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchField;
 use crate::schema::{SearchFieldName, SearchIndexSchema};
+
 use anyhow::Result;
 use pgrx::{pg_sys, PgRelation};
 use rustc_hash::FxHashMap;
+
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::path::PathBuf;
 use std::sync::Arc;
+
 use tantivy::collector::{Collector, TopDocs};
 use tantivy::index::{Index, SegmentId};
 use tantivy::query::{EnableScoring, QueryClone, QueryParser};
@@ -297,7 +302,7 @@ impl SearchIndexReader {
 
         Ok(Self {
             index_oid: index_relation.oid(),
-            searcher,
+            searcher: searcher.clone(),
             schema,
             underlying_reader: reader,
             underlying_index: index,
@@ -474,15 +479,16 @@ impl SearchIndexReader {
     pub fn search_top_n(
         &self,
         query: &SearchQueryInput,
+        visibility_checker: VisibilityChecker,
         sort_field: Option<String>,
         sortdir: SortDirection,
         n: usize,
         need_scores: bool,
     ) -> SearchResults {
         if let Some(sort_field) = sort_field {
-            self.top_by_field(query, sort_field, sortdir, n)
+            self.top_by_field(query, visibility_checker, sort_field, sortdir, n)
         } else {
-            self.top_by_score(query, sortdir, n, need_scores)
+            self.top_by_score(query, visibility_checker, sortdir, n, need_scores)
         }
     }
 
@@ -493,10 +499,12 @@ impl SearchIndexReader {
     ///
     /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
     /// handle that, if it's necessary.
+    #[allow(clippy::too_many_arguments)]
     pub fn search_top_n_in_segment(
         &self,
         segment_id: SegmentId,
         query: &SearchQueryInput,
+        visibility_checker: VisibilityChecker,
         sort_field: Option<String>,
         sortdir: SortDirection,
         n: usize,
@@ -507,15 +515,30 @@ impl SearchIndexReader {
                 !need_scores,
                 "cannot sort by field and get scores in the same query"
             );
-            self.top_by_field_in_segment(segment_id, query, sort_field, sortdir, n)
+            self.top_by_field_in_segment(
+                segment_id,
+                query,
+                visibility_checker,
+                sort_field,
+                sortdir,
+                n,
+            )
         } else {
-            self.top_by_score_in_segment(segment_id, query, sortdir, n, need_scores)
+            self.top_by_score_in_segment(
+                segment_id,
+                query,
+                visibility_checker,
+                sortdir,
+                n,
+                need_scores,
+            )
         }
     }
 
     fn top_by_field(
         &self,
         query: &SearchQueryInput,
+        visibility_checker: VisibilityChecker,
         sort_field: String,
         sortdir: SortDirection,
         n: usize,
@@ -525,8 +548,11 @@ impl SearchIndexReader {
             .get_search_field(&SearchFieldName(sort_field.clone()))
             .expect("sort field should exist in index schema");
 
-        let collector =
-            TopDocs::with_limit(n).order_by_u64_field(sort_field.name.0.clone(), sortdir.into());
+        let collector = TopDocs::with_acceptor_and_limit(
+            MvccAcceptor::new(self.searcher.clone(), visibility_checker),
+            n,
+        )
+        .order_by_u64_field(sort_field.name.0.clone(), sortdir.into());
         let top_docs = self.collect(query, collector, true);
         SearchResults::TopNByField(
             self.searcher.clone(),
@@ -538,6 +564,7 @@ impl SearchIndexReader {
     fn top_by_score(
         &self,
         query: &SearchQueryInput,
+        visibility_checker: VisibilityChecker,
         sortdir: SortDirection,
         n: usize,
         need_scores: bool,
@@ -545,14 +572,16 @@ impl SearchIndexReader {
         match sortdir {
             // requires tweaking the score, which is a bit slower
             SortDirection::Asc => {
-                let collector = TopDocs::with_limit(n).tweak_score(
-                    move |_segment_reader: &tantivy::SegmentReader| {
-                        move |_doc: DocId, original_score: Score| TweakedScore {
-                            dir: sortdir,
-                            score: original_score,
-                        }
-                    },
-                );
+                let collector = TopDocs::with_acceptor_and_limit(
+                    MvccAcceptor::new(self.searcher.clone(), visibility_checker),
+                    n,
+                )
+                .tweak_score(move |_segment_reader: &tantivy::SegmentReader| {
+                    move |_doc: DocId, original_score: Score| TweakedScore {
+                        dir: sortdir,
+                        score: original_score,
+                    }
+                });
                 let top_docs = self.collect(query, collector, true);
                 SearchResults::TopNByTweakedScore(
                     self.searcher.clone(),
@@ -563,7 +592,10 @@ impl SearchIndexReader {
 
             // can use tantivy's score directly
             SortDirection::Desc => {
-                let collector = TopDocs::with_limit(n);
+                let collector = TopDocs::with_acceptor_and_limit(
+                    MvccAcceptor::new(self.searcher.clone(), visibility_checker),
+                    n,
+                );
                 let top_docs = self.collect(query, collector, true);
                 SearchResults::TopNByScore(
                     self.searcher.clone(),
@@ -587,6 +619,7 @@ impl SearchIndexReader {
         &self,
         segment_id: SegmentId,
         query: &SearchQueryInput,
+        visibility_checker: VisibilityChecker,
         sort_field: String,
         sortdir: SortDirection,
         n: usize,
@@ -603,8 +636,11 @@ impl SearchIndexReader {
             .get_search_field(&SearchFieldName(sort_field.clone()))
             .expect("sort field should exist in index schema");
 
-        let collector =
-            TopDocs::with_limit(n).order_by_u64_field(sort_field.name.0.clone(), sortdir.into());
+        let collector = TopDocs::with_acceptor_and_limit(
+            MvccAcceptor::new(self.searcher.clone(), visibility_checker),
+            n,
+        )
+        .order_by_u64_field(sort_field.name.0.clone(), sortdir.into());
         let query = self.query(query);
         let weight = query
             .weight(tantivy::query::EnableScoring::Enabled {
@@ -640,6 +676,7 @@ impl SearchIndexReader {
         &self,
         segment_id: SegmentId,
         query: &SearchQueryInput,
+        visibility_checker: VisibilityChecker,
         sortdir: SortDirection,
         n: usize,
         _need_scores: bool,
@@ -663,14 +700,16 @@ impl SearchIndexReader {
         match sortdir {
             // requires tweaking the score, which is a bit slower
             SortDirection::Asc => {
-                let collector = TopDocs::with_limit(n).tweak_score(
-                    move |_segment_reader: &tantivy::SegmentReader| {
-                        move |_doc: DocId, original_score: Score| TweakedScore {
-                            dir: sortdir,
-                            score: original_score,
-                        }
-                    },
-                );
+                let collector = TopDocs::with_acceptor_and_limit(
+                    MvccAcceptor::new(self.searcher.clone(), visibility_checker),
+                    n,
+                )
+                .tweak_score(move |_segment_reader: &tantivy::SegmentReader| {
+                    move |_doc: DocId, original_score: Score| TweakedScore {
+                        dir: sortdir,
+                        score: original_score,
+                    }
+                });
                 let top_docs = collector
                     .collect_segment(
                         weight.as_ref(),
@@ -692,7 +731,10 @@ impl SearchIndexReader {
 
             // can use tantivy's score directly
             SortDirection::Desc => {
-                let collector = TopDocs::with_limit(n);
+                let collector = TopDocs::with_acceptor_and_limit(
+                    MvccAcceptor::new(self.searcher.clone(), visibility_checker),
+                    n,
+                );
                 let top_docs = collector
                     .collect_segment(
                         weight.as_ref(),

@@ -98,6 +98,7 @@ impl FFHelper {
 }
 
 /// Helper for working with different "fast field" types as if they're all one type
+#[derive(Clone)]
 pub enum FFType {
     Junk,
     Text(StrColumn),

@@ -15,18 +15,30 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::sync::Arc;
+
 use crate::postgres::utils;
 use pgrx::pg_sys;
 
+use parking_lot::Mutex;
+
 /// Helper to manage the information necessary to validate that a "ctid" is currently visible to
 /// a snapshot
-pub struct VisibilityChecker {
+#[derive(Clone)]
+pub struct VisibilityChecker(Arc<Mutex<VisibilityCheckerInner>>);
+
+struct VisibilityCheckerInner {
     scan: *mut pg_sys::IndexFetchTableData,
     snapshot: pg_sys::Snapshot,
     tid: pg_sys::ItemPointerData,
 }
 
-impl Drop for VisibilityChecker {
+// SAFETY: `VisibilityChecker` is not actually `Send`... because ~nothing in Postgres' API is
+// Send. But this bound is required due to Tantivy's API, which wants to be able to send
+// `(Segment)Collector`s to background threads.
+unsafe impl Send for VisibilityCheckerInner {}
+
+impl Drop for VisibilityCheckerInner {
     fn drop(&mut self) {
         unsafe {
             if !crate::postgres::utils::IsTransactionState() {
@@ -43,42 +55,58 @@ impl VisibilityChecker {
     /// Construct a new [`VisibilityChecker`] that can validate ctid visibility against the specified
     /// `relation` and `snapshot`
     pub fn with_rel_and_snap(heaprel: pg_sys::Relation, snapshot: pg_sys::Snapshot) -> Self {
-        unsafe {
-            Self {
+        Self(Arc::new(Mutex::new(unsafe {
+            VisibilityCheckerInner {
                 scan: pg_sys::table_index_fetch_begin(heaprel),
                 snapshot,
                 tid: pg_sys::ItemPointerData::default(),
             }
-        }
+        })))
     }
 
     /// If the specified `ctid` is visible in the heap, run the provided closure and return its
     /// result as `Some(T)`.  If it's not visible, return `None` without running the provided closure
     pub fn exec_if_visible<T, F: FnMut(pg_sys::Relation) -> T>(
-        &mut self,
+        &self,
         ctid: u64,
         slot: *mut pg_sys::TupleTableSlot,
         mut func: F,
     ) -> Option<T> {
+        let mut inner = self.0.lock();
         unsafe {
-            utils::u64_to_item_pointer(ctid, &mut self.tid);
+            utils::u64_to_item_pointer(ctid, &mut inner.tid);
 
             let mut call_again = false;
             let mut all_dead = false;
             let found = pg_sys::table_index_fetch_tuple(
-                self.scan,
-                &mut self.tid,
-                self.snapshot,
+                inner.scan,
+                &mut inner.tid,
+                inner.snapshot,
                 slot,
                 &mut call_again,
                 &mut all_dead,
             );
 
             if found {
-                Some(func((*self.scan).rel))
+                Some(func((*inner.scan).rel))
             } else {
                 None
             }
+        }
+    }
+
+    pub fn is_visible(&self, ctid: u64) -> bool {
+        let mut inner = self.0.lock();
+        unsafe {
+            utils::u64_to_item_pointer(ctid, &mut inner.tid);
+
+            let mut all_dead = false;
+            pg_sys::table_index_fetch_tuple_check(
+                (*inner.scan).rel,
+                &mut inner.tid,
+                inner.snapshot,
+                &mut all_dead,
+            )
         }
     }
 }

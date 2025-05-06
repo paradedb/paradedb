@@ -302,7 +302,7 @@ impl SearchIndexReader {
 
         Ok(Self {
             index_oid: index_relation.oid(),
-            searcher: searcher.clone(),
+            searcher,
             schema,
             underlying_reader: reader,
             underlying_index: index,

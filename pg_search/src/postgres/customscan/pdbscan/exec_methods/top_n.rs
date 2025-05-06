@@ -135,8 +135,10 @@ impl ExecMethod for TopNScanExecState {
     }
 
     fn reset(&mut self, _state: &mut PdbScanState) {
-        // Reset tracking state but don't clear search_results
-        // TODO: Why?
+        // The search results iterator is mutable, and is consumed during the scan. During a
+        // rescan, we must regenerate it. To do otherwise, we'd need to hold a buffer of all
+        // results, rather then (or in addition to) an iterator.
+        self.search_results = SearchResults::default();
         self.all_segments_queried = false;
     }
 }

@@ -35,7 +35,7 @@ struct VisibilityCheckerInner {
 
 // SAFETY: `VisibilityChecker` is not actually `Send`... because ~nothing in Postgres' API is
 // Send. But this bound is required due to Tantivy's API, which wants to be able to send
-// `(Segment)Collector`s to background threads.
+// `(Segment)Collector`s to background threads... which we cannot use.
 unsafe impl Send for VisibilityCheckerInner {}
 
 impl Drop for VisibilityCheckerInner {

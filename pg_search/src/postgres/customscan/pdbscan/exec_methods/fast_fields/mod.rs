@@ -317,12 +317,16 @@ pub unsafe fn pullup_fast_fields(
             continue;
         } else if uses_scores((*te).expr.cast(), score_funcoid(), rti) {
             matches.push(WhichFastField::Score);
+            continue;
         } else if pgrx::is_a((*te).expr.cast(), pg_sys::NodeTag::T_Aggref) {
             matches.push(WhichFastField::Junk("agg".into()));
+            continue;
         } else if nodecast!(Const, T_Const, (*te).expr).is_some() {
             matches.push(WhichFastField::Junk("const".into()));
+            continue;
         } else if nodecast!(WindowFunc, T_WindowFunc, (*te).expr).is_some() {
             matches.push(WhichFastField::Junk("window".into()));
+            continue;
         }
         // we only support Vars or our score function in the target list
         return None;

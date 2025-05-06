@@ -204,5 +204,10 @@ macro_rules! sql_regression_test {
 mod tests {
     use super::*;
 
+    // AUTO-GENERATED TEST FUNCTIONS - DO NOT MODIFY MANUALLY
+    // Run 'cargo run --bin generate_regression_tests' to update
+
     sql_regression_test!(test_issue_2505, "../tests/sql/issue_2505.sql");
+
+    // END AUTO-GENERATED TEST FUNCTIONS
 }

@@ -1,0 +1,46 @@
+-- Test for GitHub issue #2505
+-- This test confirms that JOIN queries with string fast fields work correctly.
+-- Previously, this would fail with an assertion error:
+-- "ERROR: assertion failed: natts == self.inner.which_fast_fields.len()"
+DROP TABLE IF EXISTS a;
+DROP TABLE
+DROP TABLE IF EXISTS b;
+DROP TABLE
+CREATE TABLE a (
+a_id_pk TEXT,
+content TEXT
+);
+CREATE TABLE
+CREATE TABLE b (
+b_id_pk TEXT,
+a_id_fk TEXT,
+content TEXT
+);
+CREATE TABLE
+CREATE INDEX idxa ON a USING bm25 (a_id_pk, content) WITH (key_field = 'a_id_pk');
+CREATE INDEX
+CREATE INDEX idxb ON b USING bm25 (b_id_pk, a_id_fk, content) WITH (key_field = 'b_id_pk',
+text_fields = '{ "a_id_fk": { "fast": true, "tokenizer": { "type": "keyword" } } }');
+CREATE INDEX
+INSERT INTO a (a_id_pk, content) VALUES ('this-is-a-id', 'beer');
+INSERT 0 1
+INSERT INTO b (b_id_pk, a_id_fk, content) VALUES ('this-is-b-id', 'this-is-a-id', 'wine');
+INSERT 0 1
+VACUUM a, b;  -- needed to get Visibility Map up-to-date
+VACUUM
+-- This query used to fail with:
+-- ERROR:  assertion failed: natts == self.inner.which_fast_fields.len()
+-- Now it should run successfully
+SELECT a.a_id_pk as my_a_id_pk, b.b_id_pk as my_b_id_pk
+FROM b
+JOIN a ON a.a_id_pk = b.a_id_fk
+WHERE a.content @@@ 'beer' AND b.content @@@ 'wine';
+my_a_id_pk  |  my_b_id_pk
+--------------+--------------
+this-is-a-id | this-is-b-id
+(1 row)
+
+DROP TABLE a;
+DROP TABLE
+DROP TABLE b;
+DROP TABLE

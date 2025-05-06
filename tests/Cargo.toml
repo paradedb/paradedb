@@ -8,6 +8,10 @@ license = { workspace = true }
 [lib]
 crate-type = ["rlib"]
 
+[[bin]]
+name = "generate_regression_tests"
+path = "scripts/generate_regression_tests.rs"
+
 [features]
 icu = ["tokenizers/icu"]
 

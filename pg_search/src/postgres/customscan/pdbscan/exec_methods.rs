@@ -65,10 +65,6 @@ pub trait ExecMethod {
         }
     }
 
-    fn increment_visible(&mut self) {
-        // default of noop
-    }
-
     fn internal_next(&mut self, state: &mut PdbScanState) -> ExecState;
 
     // This is called when the scan is rescanned.

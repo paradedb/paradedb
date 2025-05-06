@@ -802,16 +802,14 @@ impl CustomScan for PdbScan {
                         let slot = match check_visibility(state, ctid, state.scanslot().cast()) {
                             // the ctid is visible
                             Some(slot) => {
-                                exec_method.increment_visible();
                                 state.custom_state_mut().heap_tuple_check_count += 1;
-                                pgrx::log!(">>> visible!");
                                 slot
                             }
 
                             // the ctid is not visible
                             None => {
                                 state.custom_state_mut().invisible_tuple_count += 1;
-                                pgrx::log!(">>> invisible?");
+                                pgrx::warning!(">>> invisible?");
                                 continue;
                             }
                         };
@@ -992,7 +990,6 @@ fn assign_exec_method(custom_state: &mut PdbScanState) {
             sort_direction,
             need_scores,
         } => custom_state.assign_exec_method(exec_methods::top_n::TopNScanExecState::new(
-            *heaprelid,
             *limit,
             *sort_direction,
             *need_scores,

@@ -21,17 +21,11 @@ use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::query::SearchQueryInput;
-use pgrx::{check_for_interrupts, direct_function_call, pg_sys, IntoDatum};
-use tantivy::index::SegmentId;
-
-// TODO:  should these be GUCs?  I think yes, probably
-const SUBSEQUENT_RETRY_SCALE_FACTOR: usize = 2;
-const MAX_CHUNK_SIZE: usize = u32::MAX as usize;
+use pgrx::{check_for_interrupts, pg_sys};
 
 #[derive(Default)]
 pub struct TopNScanExecState {
     // required
-    heaprelid: pg_sys::Oid,
     limit: usize,
     sort_direction: SortDirection,
     need_scores: bool,
@@ -41,27 +35,12 @@ pub struct TopNScanExecState {
     search_reader: Option<SearchIndexReader>,
     sort_field: Option<String>,
     search_results: SearchResults,
-    nresults: usize,
-    have_less: bool,
-    did_query: bool,
-
-    // state tracking
-    last_ctid: u64,
-    found: usize,
-    chunk_size: usize,
-    retry_count: usize,
-    current_segment: SegmentId,
+    all_segments_queried: bool,
 }
 
 impl TopNScanExecState {
-    pub fn new(
-        heaprelid: pg_sys::Oid,
-        limit: usize,
-        sort_direction: SortDirection,
-        need_scores: bool,
-    ) -> Self {
+    pub fn new(limit: usize, sort_direction: SortDirection, need_scores: bool) -> Self {
         Self {
-            heaprelid,
             limit,
             sort_direction,
             need_scores,
@@ -69,21 +48,10 @@ impl TopNScanExecState {
         }
     }
 
-    fn query_more_results(
-        &mut self,
-        state: &mut PdbScanState,
-        current_segment: Option<SegmentId>,
-        expanding_results: bool,
-    ) -> SearchResults {
-        let search_results = if let Some(parallel_state) = state.parallel_state {
-            // we're parallel, so either query the provided segment or go get a segment from the parallel state
-            let segment_id = current_segment
-                .map(Some)
-                .unwrap_or_else(|| unsafe { checkout_segment(parallel_state) });
-
-            if let Some(segment_id) = segment_id {
-                self.current_segment = segment_id;
-
+    fn query_more_results(&mut self, state: &mut PdbScanState) -> SearchResults {
+        if let Some(parallel_state) = state.parallel_state {
+            // we're parallel, so go get a segment from the parallel state
+            if let Some(segment_id) = unsafe { checkout_segment(parallel_state) } {
                 let search_reader = state.search_reader.as_ref().unwrap();
                 search_reader.search_top_n_in_segment(
                     segment_id,
@@ -94,20 +62,20 @@ impl TopNScanExecState {
                         .expect("Must have VisibilityChecker at query time."),
                     self.sort_field.clone(),
                     self.sort_direction.into(),
-                    self.limit.max(self.chunk_size),
+                    self.limit,
                     self.need_scores,
                 )
             } else {
                 // no more segments to query
+                self.all_segments_queried = true;
                 SearchResults::None
             }
-        } else if self.did_query && !expanding_results {
-            // not parallel, so we're done
+        } else if self.all_segments_queried {
             SearchResults::None
         } else {
-            // not parallel, first time query or expanding
+            // not parallel, first time query
             let search_reader = &self.search_reader.as_ref().unwrap();
-            self.did_query = true;
+            self.all_segments_queried = true;
             search_reader.search_top_n(
                 self.search_query_input.as_ref().unwrap(),
                 state
@@ -116,13 +84,10 @@ impl TopNScanExecState {
                     .expect("Must have VisibilityChecker at query time."),
                 self.sort_field.clone(),
                 self.sort_direction.into(),
-                self.limit.max(self.chunk_size),
+                self.limit,
                 self.need_scores,
             )
-        };
-
-        self.have_less = search_results.len().unwrap_or(0) < self.limit.max(self.chunk_size);
-        search_results
+        }
     }
 }
 
@@ -136,9 +101,7 @@ impl ExecMethod for TopNScanExecState {
     }
 
     fn query(&mut self, state: &mut PdbScanState) -> bool {
-        let search_results = self.query_more_results(state, None, false);
-
-        self.did_query = true;
+        let search_results = self.query_more_results(state);
 
         if matches!(search_results, SearchResults::None) {
             false
@@ -148,106 +111,32 @@ impl ExecMethod for TopNScanExecState {
         }
     }
 
-    fn increment_visible(&mut self) {
-        self.found += 1;
-    }
-
     fn internal_next(&mut self, state: &mut PdbScanState) -> ExecState {
-        unsafe {
-            let mut next = self.search_results.next();
-            loop {
-                check_for_interrupts!();
+        loop {
+            check_for_interrupts!();
 
-                match next {
-                    None if !self.did_query => {
-                        // we haven't even done a query yet, so this is our very first time in
-                        return ExecState::Eof;
-                    }
-                    None => {
-                        if self.found >= self.limit || self.have_less {
-                            // we found all the matching rows
-                            return ExecState::Eof;
-                        }
-                    }
-                    Some(_) if self.found >= self.limit => {
-                        return ExecState::Eof;
-                    }
-                    Some((scored, doc_address)) => {
-                        self.nresults += 1;
-                        self.last_ctid = scored.ctid;
-                        return ExecState::RequiresVisibilityCheck {
-                            ctid: scored.ctid,
-                            score: scored.bm25,
-                            doc_address,
-                        };
-                    }
+            match self.search_results.next() {
+                None if self.all_segments_queried => {
+                    return ExecState::Eof;
                 }
-
-                // we underflowed our tuples, so go get some more, if there are any
-                self.retry_count += 1;
-
-                // calculate a scaling factor to use against the limit
-                let factor = if self.chunk_size == 0 {
-                    // if we haven't done any chunking yet, calculate the scaling factor
-                    // based on the proportion of dead tuples compared to live tuples
-                    let heaprelid = self.heaprelid;
-                    let n_dead = direct_function_call::<i64>(
-                        pg_sys::pg_stat_get_dead_tuples,
-                        &[heaprelid.into_datum()],
-                    )
-                    .unwrap();
-                    let n_live = direct_function_call::<i64>(
-                        pg_sys::pg_stat_get_live_tuples,
-                        &[heaprelid.into_datum()],
-                    )
-                    .unwrap();
-
-                    (1.0 + ((1.0 + n_dead as f64) / (1.0 + n_live as f64))).ceil() as usize
-                } else {
-                    // we've already done chunking, so just use a default scaling factor
-                    // to avoid exponentially growing the chunk size
-                    SUBSEQUENT_RETRY_SCALE_FACTOR
-                };
-
-                // set the chunk size to the scaling factor times the limit
-                self.chunk_size = (self.chunk_size * factor)
-                    .max(self.limit * factor)
-                    .min(MAX_CHUNK_SIZE);
-
-                let mut results = self.query_more_results(state, Some(self.current_segment), true);
-
-                // fast forward and stop on the ctid we last found
-                for (scored, doc_address) in &mut results {
-                    if scored.ctid == self.last_ctid {
-                        // we've now advanced to the last ctid we found
-                        break;
-                    }
+                None => {
+                    self.search_results = self.query_more_results(state);
+                    continue;
                 }
-
-                // this should be the next valid tuple after that, or None if `results` are now empty
-                next = results.next();
-
-                // we now have a new iterator of results to use going forward
-                self.search_results = results;
-
-                // but we'll loop back around and evaluate whatever `next` is now pointing to
-                continue;
+                Some((scored, doc_address)) => {
+                    return ExecState::RequiresVisibilityCheck {
+                        ctid: scored.ctid,
+                        score: scored.bm25,
+                        doc_address,
+                    };
+                }
             }
         }
     }
 
     fn reset(&mut self, _state: &mut PdbScanState) {
         // Reset tracking state but don't clear search_results
-
-        // Reset counters - excluding nresults which tracks processed results
-        self.have_less = false;
-        self.did_query = false;
-
-        // Reset the tracking state
-        self.last_ctid = 0;
-        self.found = 0;
-        self.chunk_size = 0;
-        self.retry_count = 0;
-        self.current_segment = SegmentId::default();
+        // TODO: Why?
+        self.all_segments_queried = false;
     }
 }

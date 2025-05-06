@@ -337,6 +337,9 @@ pub unsafe fn find_var_relation(
         // the Var comes from a subquery, so dig into its target list and find the original
         // table it comes from along with its original column AttributeNumber
         pg_sys::RTEKind::RTE_SUBQUERY => {
+            if (*rte).subquery.is_null() {
+                panic!("unable to determine Var relation as it belongs to a NULL subquery");
+            }
             let targetlist = PgList::<pg_sys::TargetEntry>::from_pg((*(*rte).subquery).targetList);
             let te = targetlist
                 .get_ptr((*var).varattno as usize - 1)

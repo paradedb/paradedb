@@ -445,21 +445,19 @@ pub fn is_string_agg_capable(privdata: &PrivateData) -> Option<String> {
     }
 
     let mut string_field = None;
-    if let Some(fast_fields) = privdata.which_fast_fields() {
-        for ff in fast_fields {
-            match ff {
-                WhichFastField::Named(_, FastFieldType::String) if string_field.is_none() => {
-                    string_field = Some(ff.name());
-                    pgrx::warning!("⭐️ Found string field for string agg: {}", ff.name());
-                }
-                WhichFastField::Named(_, FastFieldType::String) => {
-                    // too many string fields for us to be capable of doing a string_agg
-                    pgrx::warning!("⭐️ Too many string fields for string agg");
-                    return None;
-                }
-                _ => {
-                    // noop
-                }
+    for ff in privdata.which_fast_fields().iter().flatten() {
+        match ff {
+            WhichFastField::Named(_, FastFieldType::String) if string_field.is_none() => {
+                string_field = Some(ff.name());
+                pgrx::warning!("⭐️ Found string field for string agg: {}", ff.name());
+            }
+            WhichFastField::Named(_, FastFieldType::String) => {
+                // too many string fields for us to be capable of doing a string_agg
+                pgrx::warning!("⭐️ Too many string fields for string agg");
+                return None;
+            }
+            _ => {
+                // noop
             }
         }
     }

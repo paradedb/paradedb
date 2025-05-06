@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 #![recursion_limit = "512"]
-#![allow(unexpected_cfgs)]
 
 mod api;
 mod bootstrap;
@@ -48,29 +47,6 @@ extension_sql!(
     finalize
 );
 
-use once_cell::sync::Lazy;
-use rand::Rng;
-use std::sync::Mutex;
-
-/// For debugging
-#[allow(dead_code)]
-pub static LOG_MUTEX: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
-pub fn log_message(message: &str) {
-    let _lock = LOG_MUTEX.lock().unwrap();
-    eprintln!("{}", message);
-}
-
-/// Convenience method for [`pgrx::pg_sys::MyDatabaseId`]
-#[allow(non_snake_case)]
-#[inline(always)]
-pub fn MyDatabaseId() -> u32 {
-    unsafe {
-        // SAFETY:  this static is set by Postgres when the backend first connects and is
-        // never changed afterwards.  As such, it'll always be set whenever this code runs
-        pg_sys::MyDatabaseId.to_u32()
-    }
-}
-
 /// Initializes option parsing
 #[allow(clippy::missing_safety_doc)]
 #[allow(non_snake_case)]
@@ -100,6 +76,8 @@ pub unsafe extern "C-unwind" fn _PG_init() {
 
 #[pg_extern]
 fn random_words(num_words: i32) -> String {
+    use rand::Rng;
+
     let mut rng = rand::rng();
     let letters = "abcdefghijklmnopqrstuvwxyz";
     let mut result = String::new();

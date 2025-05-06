@@ -1086,13 +1086,13 @@ fn join_with_string_fast_fields_issue_2505(mut conn: PgConnection) {
     CREATE TABLE a (
         a_id_pk TEXT,
         content TEXT
-    );
+    ) WITH (autovacuum_enabled = false);
 
     CREATE TABLE b (
         b_id_pk TEXT,
         a_id_fk TEXT,
         content TEXT
-    );
+    ) WITH (autovacuum_enabled = false);
 
     CREATE INDEX idxa ON a USING bm25 (a_id_pk, content) WITH (key_field = 'a_id_pk');
 
@@ -1101,10 +1101,10 @@ fn join_with_string_fast_fields_issue_2505(mut conn: PgConnection) {
 
     INSERT INTO a (a_id_pk, content) VALUES ('this-is-a-id', 'beer');
     INSERT INTO b (b_id_pk, a_id_fk, content) VALUES ('this-is-b-id', 'this-is-a-id', 'wine');
-
-    VACUUM a, b;  -- needed to get Visibility Map up-to-date
     "#
     .execute(&mut conn);
+
+    "VACUUM a, b;  -- needed to get Visibility Map up-to-date".execute(&mut conn);
 
     // This query previously failed with:
     // "ERROR: assertion failed: natts == self.inner.which_fast_fields.len()"

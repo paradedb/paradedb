@@ -120,3 +120,14 @@ When you run a test:
 4. If they match, the test passes; if not, a detailed diff is shown
 
 The system handles normalization of PostgreSQL output, so you don't need to worry about session-specific messages or timing information causing test failures.
+
+### Why Not Use PostgreSQL's pg_regress?
+
+While PostgreSQL's `pg_regress` offers similar functionality, our custom framework:
+
+1. **Integrates with Cargo** - Runs within the Rust test infrastructure
+2. **Simplifies workflow** - Add tests without PostgreSQL build knowledge
+3. **Provides tailored normalization** - Handles ParadeDB-specific output patterns
+4. **Works with pgrx** - Seamlessly integrates with our development environment
+
+This approach offers a more straightforward experience for ParadeDB contributors while maintaining the core functionality of regression testing similat to `pg_regress`.

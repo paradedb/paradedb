@@ -17,9 +17,7 @@
 
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::reader::index::SearchResults;
-use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::{
-    ff_to_datum, FastFieldExecState,
-};
+use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::FastFieldExecState;
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::is_block_all_visible;
 use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
@@ -68,7 +66,7 @@ impl ExecMethod for NumericFastFieldExecState {
                 state.need_scores(),
                 false,
                 &state.search_query_input,
-                None,
+                state.limit,
             );
             self.inner.did_query = true;
             true
@@ -108,36 +106,18 @@ impl ExecMethod for NumericFastFieldExecState {
                         (*slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
                         (*slot).tts_nvalid = natts as _;
 
-                        let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
-                        let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
-
-                        #[rustfmt::skip]
-                        debug_assert!(natts == self.inner.which_fast_fields.len());
-
-                        let fast_fields = &mut self.inner.ffhelper;
-                        let which_fast_fields = &self.inner.which_fast_fields;
-                        for (i, att) in self.inner.tupdesc.as_ref().unwrap().iter().enumerate() {
-                            let which_fast_field = &which_fast_fields[i];
-
-                            match ff_to_datum(
-                                (which_fast_field, i),
-                                att.atttypid,
-                                scored.bm25,
-                                doc_address,
-                                fast_fields,
-                                &mut self.inner.strbuf,
-                                slot,
-                            ) {
-                                None => {
-                                    datums[i] = pg_sys::Datum::null();
-                                    isnull[i] = true;
-                                }
-                                Some(datum) => {
-                                    datums[i] = datum;
-                                    isnull[i] = false;
-                                }
-                            }
-                        }
+                        // Use the shared extract_data_from_fast_fields function
+                        let tupdesc = self.inner.tupdesc.as_ref().unwrap();
+                        crate::postgres::customscan::pdbscan::exec_methods::fast_fields::extract_data_from_fast_fields(
+                            natts,
+                            tupdesc,
+                            &self.inner.which_fast_fields,
+                            &mut self.inner.ffhelper,
+                            slot,
+                            scored,
+                            doc_address,
+                            &mut self.inner.strbuf,
+                        );
 
                         ExecState::Virtual { slot }
                     } else {

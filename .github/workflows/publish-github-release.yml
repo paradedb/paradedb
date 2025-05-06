@@ -91,11 +91,13 @@ jobs:
             echo "Error: Invalid branch" && false
           fi
 
-      # The tag_name will have `-rc.X` suffix for staging releases, and no suffix for prod releases
+      # The tag_name will have `-rc.X` suffix and be marked as a prerelease for staging releases,
+      # and no suffix and marked as a full release for prod releases
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.version }}
           generate_release_notes: true
+          prerelease: ${{ github.ref == 'refs/heads/staging' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}

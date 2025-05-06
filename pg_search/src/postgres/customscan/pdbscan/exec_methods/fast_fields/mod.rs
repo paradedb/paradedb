@@ -21,7 +21,7 @@ pub mod string;
 
 use crate::index::fast_fields_helper::{FFHelper, FastFieldType, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::{SearchIndexReader, SearchResults};
+use crate::index::reader::index::{SearchIndexReader, SearchIndexScore, SearchResults};
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
@@ -33,6 +33,7 @@ use crate::schema::SearchIndexSchema;
 use itertools::Itertools;
 use pgrx::pg_sys::CustomScanState;
 use pgrx::{pg_sys, IntoDatum, PgList, PgOid, PgRelation, PgTupleDesc};
+use std::collections::HashSet;
 use tantivy::DocAddress;
 
 pub struct FastFieldExecState {
@@ -160,15 +161,16 @@ unsafe fn ff_to_datum(
 }
 
 /// Count how many "fast fields" are requested to be used by the query, as described by the `builder` argument.
-pub unsafe fn count(
+pub unsafe fn count_fast_fields(
     builder: &mut CustomPathBuilder<PrivateData>,
     rti: pg_sys::Index,
     table: &PgRelation,
     schema: &SearchIndexSchema,
     target_list: *mut pg_sys::List,
+    referenced_columns: &HashSet<pg_sys::AttrNumber>,
 ) -> f64 {
-    pgrx::warning!("Counting fast fields");
-    let ff = pullup_fast_fields(target_list, schema, table, rti);
+    let ff =
+        pullup_fast_fields(target_list, referenced_columns, schema, table, rti).unwrap_or_default();
 
     let ff_count = ff.len() as f64;
     pgrx::warning!("Found {} fast fields in count", ff_count);
@@ -177,26 +179,32 @@ pub unsafe fn count(
     ff.iter().sorted().dedup().count() as f64
 }
 
-/// Find all the fields that can be as "fast fields", categorize them as [`WhichFastField`]s, and
-/// return the list.  If there are none, or one or more of the fields can't be used as a "fast field",
-/// we return [`None`].
-pub unsafe fn collect(
+/// Find all the fields that can be used as "fast fields", categorize them as [`WhichFastField`]s,
+/// and return the list. If there are none, or one or more of the fields can't be used as a
+/// "fast field", we return [`None`].
+pub unsafe fn collect_fast_fields(
     maybe_ff: bool,
     target_list: *mut pg_sys::List,
+    referenced_columns: &HashSet<pg_sys::AttrNumber>,
     rti: pg_sys::Index,
     schema: &SearchIndexSchema,
     heaprel: &PgRelation,
 ) -> Option<Vec<WhichFastField>> {
     pgrx::warning!("Collecting fast fields, maybe_ff: {}", maybe_ff);
     if maybe_ff {
-        let fast_fields = pullup_fast_fields(target_list, schema, heaprel, rti);
+        let fast_fields = pullup_fast_fields(target_list, referenced_columns, schema, heaprel, rti);
 
-        if fast_fields.is_empty() {
+        if let Some(fast_fields) = fast_fields {
+            if fast_fields.is_empty() {
+                pgrx::warning!("No fast fields found");
+                None
+            } else {
+                pgrx::warning!("Found {} fast fields in collect", fast_fields.len());
+                Some(fast_fields)
+            }
+        } else {
             pgrx::warning!("No fast fields found");
             None
-        } else {
-            pgrx::warning!("Found {} fast fields in collect", fast_fields.len());
-            Some(fast_fields)
         }
     } else {
         pgrx::warning!("maybe_ff is false, returning None");
@@ -204,16 +212,80 @@ pub unsafe fn collect(
     }
 }
 
+// Helper function to process an attribute number and add a fast field if appropriate
+fn collect_fast_field_try_for_attno(
+    attno: i32,
+    processed_attnos: &mut HashSet<pg_sys::AttrNumber>,
+    matches: &mut Vec<WhichFastField>,
+    tupdesc: &PgTupleDesc<'_>,
+    heaprel: &PgRelation,
+    schema: &SearchIndexSchema,
+) -> bool {
+    match attno {
+        // any of these mean we can't use fast fields
+        pg_sys::MinTransactionIdAttributeNumber
+        | pg_sys::MaxTransactionIdAttributeNumber
+        | pg_sys::MinCommandIdAttributeNumber
+        | pg_sys::MaxCommandIdAttributeNumber => return false,
+
+        // these aren't _exactly_ fast fields, but we do have the information
+        // readily available during the scan, so we'll pretend
+        pg_sys::SelfItemPointerAttributeNumber => {
+            // okay, "ctid" is a fast field but it's secret
+            processed_attnos.insert(attno as pg_sys::AttrNumber);
+            matches.push(WhichFastField::Ctid);
+        }
+
+        pg_sys::TableOidAttributeNumber => {
+            processed_attnos.insert(attno as pg_sys::AttrNumber);
+            matches.push(WhichFastField::TableOid);
+        }
+
+        attno => {
+            // Keep track that we've processed this attribute number
+            processed_attnos.insert(attno as pg_sys::AttrNumber);
+
+            // Handle attno <= 0 - this can happen in materialized views and FULL JOINs
+            if attno <= 0 {
+                // Just mark it as processed and continue
+                return true;
+            }
+
+            // Get attribute info - use if let to handle missing attributes gracefully
+            if let Some(att) = tupdesc.get((attno - 1) as usize) {
+                if schema.is_fast_field(att.name()) {
+                    let ff_type = if att.type_oid().value() == pg_sys::TEXTOID
+                        || att.type_oid().value() == pg_sys::VARCHAROID
+                    {
+                        FastFieldType::String
+                    } else {
+                        FastFieldType::Numeric
+                    };
+
+                    matches.push(WhichFastField::Named(att.name().to_string(), ff_type));
+                }
+            }
+            // If the attribute doesn't exist in this relation, just continue
+            // This can happen in JOIN queries or materialized views
+        }
+    }
+    true
+}
+
 /// Find all fields that can be used as "fast fields" without failing if some fields are not fast fields
 pub unsafe fn pullup_fast_fields(
     node: *mut pg_sys::List,
+    referenced_columns: &HashSet<pg_sys::AttrNumber>,
     schema: &SearchIndexSchema,
     heaprel: &PgRelation,
     rti: pg_sys::Index,
-) -> Vec<WhichFastField> {
+) -> Option<Vec<WhichFastField>> {
     let mut matches = Vec::new();
+    let mut processed_attnos = HashSet::new();
 
     let tupdesc = heaprel.tuple_desc();
+
+    // First collect all matches from the target list (standard behavior)
     let targetlist = PgList::<pg_sys::TargetEntry>::from_pg(node);
 
     pgrx::warning!(
@@ -221,6 +293,7 @@ pub unsafe fn pullup_fast_fields(
         targetlist.len()
     );
 
+    // Process target list entries
     for te in targetlist.iter_ptr() {
         if (*te).resorigtbl != pg_sys::Oid::INVALID && (*te).resorigtbl != heaprel.oid() {
             continue;
@@ -230,41 +303,18 @@ pub unsafe fn pullup_fast_fields(
             if (*var).varno as i32 != rti as i32 {
                 continue;
             }
-
-            match (*var).varattno as i32 {
-                // Special system attributes that are treated as fast fields
-                pg_sys::SelfItemPointerAttributeNumber => {
-                    matches.push(WhichFastField::Ctid);
-                }
-
-                pg_sys::TableOidAttributeNumber => {
-                    matches.push(WhichFastField::TableOid);
-                }
-
-                // Regular columns
-                attno => {
-                    let att = tupdesc.get((attno - 1) as usize).unwrap_or_else(|| {
-                        panic!(
-                            "attno {attno} should exist in tupdesc from relation {} (`{}`)",
-                            heaprel.oid().to_u32(),
-                            heaprel.name()
-                        )
-                    });
-
-                    if schema.is_fast_field(att.name()) {
-                        let ff_type = if (*var).vartype == pg_sys::TEXTOID
-                            || (*var).vartype == pg_sys::VARCHAROID
-                        {
-                            FastFieldType::String
-                        } else {
-                            FastFieldType::Numeric
-                        };
-
-                        matches.push(WhichFastField::Named(att.name().to_string(), ff_type));
-                    }
-                    // If not a fast field, simply continue without adding
-                }
+            let attno = (*var).varattno as i32;
+            if !collect_fast_field_try_for_attno(
+                attno,
+                &mut processed_attnos,
+                &mut matches,
+                &tupdesc,
+                heaprel,
+                schema,
+            ) {
+                return None;
             }
+            continue;
         } else if uses_scores((*te).expr.cast(), score_funcoid(), rti) {
             matches.push(WhichFastField::Score);
         } else if pgrx::is_a((*te).expr.cast(), pg_sys::NodeTag::T_Aggref) {
@@ -274,11 +324,37 @@ pub unsafe fn pullup_fast_fields(
         } else if nodecast!(WindowFunc, T_WindowFunc, (*te).expr).is_some() {
             matches.push(WhichFastField::Junk("window".into()));
         }
-        // If it's not one of these types, simply continue without adding
+        // we only support Vars or our score function in the target list
+        return None;
     }
 
-    pgrx::warning!("Found {} fast fields in pullup_fast_fields", matches.len());
-    matches
+    // Now also consider all referenced columns from other parts of the query
+    for &attno in referenced_columns {
+        if !collect_fast_field_try_for_attno(
+            attno as i32,
+            &mut processed_attnos,
+            &mut matches,
+            &tupdesc,
+            heaprel,
+            schema,
+        ) {
+            return None;
+        }
+    }
+
+    if matches
+        .iter()
+        .sorted()
+        .dedup()
+        .filter(|ff| matches!(ff, WhichFastField::Named(_, FastFieldType::String)))
+        .count()
+        > 1
+    {
+        // we cannot support more than 1 different String fast field
+        return None;
+    }
+
+    Some(matches)
 }
 
 // Check if we can use the mixed fast field execution method
@@ -394,7 +470,7 @@ pub fn is_string_agg_capable(privdata: &PrivateData) -> Option<String> {
 }
 
 pub fn is_numeric_fast_field_capable(privdata: &PrivateData) -> bool {
-    if privdata.targetlist_len() == 0 {
+    if privdata.referenced_columns_count() == 0 {
         return true;
     }
 
@@ -488,4 +564,101 @@ pub fn estimate_cardinality(indexrel: &PgRelation, field: &str) -> Option<usize>
             .flatten()?
             .num_terms(),
     )
+}
+
+/// Process attributes using fast fields, creating a mapping and populating the datum array.
+/// This function is shared between the string and numeric fast field implementations.
+#[allow(clippy::too_many_arguments)]
+pub unsafe fn extract_data_from_fast_fields(
+    natts: usize,
+    tupdesc: &PgTupleDesc<'_>,
+    which_fast_fields: &[WhichFastField],
+    fast_fields: &mut FFHelper,
+    slot: *mut pg_sys::TupleTableSlot,
+    scored: SearchIndexScore,
+    doc_address: DocAddress,
+    string_buffer: &mut Option<String>,
+) {
+    // Build attribute to fast field mapping
+    let mut attr_to_ff_map = std::collections::HashMap::new();
+
+    // Step 1: First try to match named attributes by name
+    for i in 0..natts {
+        if let Some(att) = tupdesc.get(i) {
+            let att_name = att.name().to_lowercase();
+            // Skip empty named attributes - handle them later
+            if !att_name.is_empty() {
+                // Try to find fast field with matching name
+                if let Some(idx) = which_fast_fields.iter().position(|ff| {
+                    if let WhichFastField::Named(name, _) = ff {
+                        name.to_lowercase() == att_name
+                    } else {
+                        false
+                    }
+                }) {
+                    attr_to_ff_map.insert(i, idx);
+                    continue;
+                }
+            }
+        }
+    }
+
+    // Step 2: Position-based matching for any remaining attributes
+    let mut next_ff_idx = 0;
+
+    // Simple position-based mapping, assuming attributes and fast fields are in the same order
+    for i in 0..natts {
+        if !attr_to_ff_map.contains_key(&i) {
+            // Find next unused fast field index
+            while next_ff_idx < which_fast_fields.len()
+                && attr_to_ff_map.values().any(|&v| v == next_ff_idx)
+            {
+                next_ff_idx += 1;
+            }
+
+            if next_ff_idx < which_fast_fields.len() {
+                attr_to_ff_map.insert(i, next_ff_idx);
+                next_ff_idx += 1;
+            }
+        }
+    }
+
+    // Get pointers to datum and isnull arrays
+    let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
+    let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
+
+    // Process attributes using our mapping
+    for i in 0..natts {
+        // Ensure every attribute has a mapping
+        let &ff_idx = attr_to_ff_map
+            .get(&i)
+            .unwrap_or_else(|| panic!("Attribute at position {} has no fast field mapping", i));
+        assert!(
+            ff_idx < which_fast_fields.len(),
+            "Attribute at position {} maps to invalid fast field index {}",
+            i,
+            ff_idx
+        );
+        let which_fast_field = &which_fast_fields[ff_idx];
+        let att = tupdesc.get(i).unwrap();
+
+        match ff_to_datum(
+            (which_fast_field, ff_idx),
+            att.atttypid,
+            scored.bm25,
+            doc_address,
+            fast_fields,
+            string_buffer,
+            slot,
+        ) {
+            None => {
+                datums[i] = pg_sys::Datum::null();
+                isnull[i] = true;
+            }
+            Some(datum) => {
+                datums[i] = datum;
+                isnull[i] = false;
+            }
+        }
+    }
 }

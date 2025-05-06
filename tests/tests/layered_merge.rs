@@ -32,15 +32,15 @@ fn merges_to_1_100k_segment(mut conn: PgConnection) {
     // one might think 100 individual inserts of 1022 bytes each would get us right at 100k of
     // segment data, and while it does, LayeredMergePolicy has a fudge factor of 33% built in
     // so we actually need more to get to the point of actually merging
-    for _ in 0..132 {
+    for _ in 0..165 {
         // creates a segment of 1022 bytes
         "insert into layer_sizes select x from generate_series(1, 33) x;".execute(&mut conn);
     }
 
-    // assert we actually have 132 segments and that a merge didn't happen yet
+    // assert we actually have 165 segments and that a merge didn't happen yet
     let (nsegments,) = "select count(*) from paradedb.index_info('idxlayer_sizes');"
         .fetch_one::<(i64,)>(&mut conn);
-    assert_eq!(nsegments, 132);
+    assert_eq!(nsegments, 165);
 
     // creates another segment of 1022 bytes, and will cause a merge based on our default layer sizes
     // leaving behind 1 segment.  that's a merge of all the segments we created above plus the segment

@@ -150,7 +150,6 @@ pub unsafe fn count_fast_fields(
     target_list: *mut pg_sys::List,
     referenced_columns: &HashSet<pg_sys::AttrNumber>,
 ) -> f64 {
-    // Use our new collect function to get the fast fields
     let ff =
         pullup_fast_fields(target_list, referenced_columns, schema, table, rti).unwrap_or_default();
 
@@ -161,8 +160,6 @@ pub unsafe fn count_fast_fields(
 /// Find all the fields that can be used as "fast fields", categorize them as [`WhichFastField`]s,
 /// and return the list. If there are none, or one or more of the fields can't be used as a
 /// "fast field", we return [`None`].
-///
-/// This version considers all referenced columns across the query, not just those in the target list.
 pub unsafe fn collect_fast_fields(
     maybe_ff: bool,
     target_list: *mut pg_sys::List,
@@ -179,7 +176,7 @@ pub unsafe fn collect_fast_fields(
 }
 
 // Helper function to process an attribute number and add a fast field if appropriate
-fn process_attno(
+fn collect_fast_field_try_for_attno(
     attno: i32,
     processed_attnos: &mut HashSet<pg_sys::AttrNumber>,
     matches: &mut Vec<WhichFastField>,
@@ -265,7 +262,7 @@ pub unsafe fn pullup_fast_fields(
                 continue;
             }
             let attno = (*var).varattno as i32;
-            if !process_attno(
+            if !collect_fast_field_try_for_attno(
                 attno,
                 &mut processed_attnos,
                 &mut matches,
@@ -295,7 +292,7 @@ pub unsafe fn pullup_fast_fields(
 
     // Now also consider all referenced columns from other parts of the query
     for &attno in referenced_columns {
-        if !process_attno(
+        if !collect_fast_field_try_for_attno(
             attno as i32,
             &mut processed_attnos,
             &mut matches,
@@ -429,7 +426,7 @@ pub fn estimate_cardinality(indexrel: &PgRelation, field: &str) -> Option<usize>
 /// Process attributes using fast fields, creating a mapping and populating the datum array.
 /// This function is shared between the string and numeric fast field implementations.
 #[allow(clippy::too_many_arguments)]
-pub unsafe fn process_fast_fields(
+pub unsafe fn extract_data_from_fast_fields(
     natts: usize,
     tupdesc: &PgTupleDesc<'_>,
     which_fast_fields: &[WhichFastField],
@@ -483,62 +480,42 @@ pub unsafe fn process_fast_fields(
         }
     }
 
-    // Ensure every attribute has a mapping
-    for i in 0..natts {
-        debug_assert!(
-            attr_to_ff_map.contains_key(&i),
-            "Attribute at position {} has no fast field mapping",
-            i
-        );
-        // Verify that the fast field index is valid
-        if let Some(&ff_idx) = attr_to_ff_map.get(&i) {
-            debug_assert!(
-                ff_idx < which_fast_fields.len(),
-                "Attribute at position {} maps to invalid fast field index {}",
-                i,
-                ff_idx
-            );
-        }
-    }
-
     // Get pointers to datum and isnull arrays
     let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
     let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
 
     // Process attributes using our mapping
     for i in 0..natts {
-        if let Some(&ff_idx) = attr_to_ff_map.get(&i) {
-            if ff_idx < which_fast_fields.len() {
-                let which_fast_field = &which_fast_fields[ff_idx];
-                let att = tupdesc.get(i).unwrap();
+        // Ensure every attribute has a mapping
+        let &ff_idx = attr_to_ff_map
+            .get(&i)
+            .unwrap_or_else(|| panic!("Attribute at position {} has no fast field mapping", i));
+        assert!(
+            ff_idx < which_fast_fields.len(),
+            "Attribute at position {} maps to invalid fast field index {}",
+            i,
+            ff_idx
+        );
+        let which_fast_field = &which_fast_fields[ff_idx];
+        let att = tupdesc.get(i).unwrap();
 
-                match ff_to_datum(
-                    (which_fast_field, ff_idx),
-                    att.atttypid,
-                    scored.bm25,
-                    doc_address,
-                    fast_fields,
-                    string_buffer,
-                    slot,
-                ) {
-                    None => {
-                        datums[i] = pg_sys::Datum::null();
-                        isnull[i] = true;
-                    }
-                    Some(datum) => {
-                        datums[i] = datum;
-                        isnull[i] = false;
-                    }
-                }
-            } else {
-                // Fast field index out of bounds
+        match ff_to_datum(
+            (which_fast_field, ff_idx),
+            att.atttypid,
+            scored.bm25,
+            doc_address,
+            fast_fields,
+            string_buffer,
+            slot,
+        ) {
+            None => {
                 datums[i] = pg_sys::Datum::null();
                 isnull[i] = true;
             }
-        } else {
-            // This attribute doesn't have a matching fast field
-            datums[i] = pg_sys::Datum::null();
-            isnull[i] = true;
+            Some(datum) => {
+                datums[i] = datum;
+                isnull[i] = false;
+            }
         }
     }
 }

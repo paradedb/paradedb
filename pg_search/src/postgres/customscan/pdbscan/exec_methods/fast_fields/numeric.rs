@@ -119,9 +119,9 @@ impl ExecMethod for NumericFastFieldExecState {
                         (*slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
                         (*slot).tts_nvalid = natts as _;
 
-                        // Use the shared process_fast_fields function
+                        // Use the shared extract_data_from_fast_fields function
                         let tupdesc = self.inner.tupdesc.as_ref().unwrap();
-                        crate::postgres::customscan::pdbscan::exec_methods::fast_fields::process_fast_fields(
+                        crate::postgres::customscan::pdbscan::exec_methods::fast_fields::extract_data_from_fast_fields(
                             natts,
                             tupdesc,
                             &self.inner.which_fast_fields,

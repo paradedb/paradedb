@@ -474,7 +474,7 @@ fn test_complex_join_with_mixed_fields(mut conn: PgConnection) {
     .fetch_result::<(String, String, String, String, String, i32)>(&mut conn).unwrap();
 
     assert!(
-        results.len() > 0,
+        !results.is_empty(),
         "Expected at least one result from join query"
     );
 }
@@ -1430,13 +1430,12 @@ fn test_concurrent_queries(mut conn: PgConnection) {
 
     // Run multiple queries in sequence to simulate concurrent behavior
     for _i in 1..5 {
-        let (count,) = format!(
-            r#"
+        let (count,) = r#"
             SELECT COUNT(*)
             FROM corner_case_test
             WHERE content @@@ 'concurrent'
             "#
-        )
+        .to_string()
         .fetch_one::<(i64,)>(&mut conn);
 
         assert_eq!(count, 10, "Expected correct number of results");

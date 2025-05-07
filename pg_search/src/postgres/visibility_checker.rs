@@ -17,10 +17,12 @@
 
 use std::sync::Arc;
 
+use crate::customscan::pdbscan::is_block_all_visible;
 use crate::postgres::utils;
-use pgrx::pg_sys;
 
 use parking_lot::Mutex;
+use pgrx::itemptr::item_pointer_get_block_number;
+use pgrx::pg_sys;
 
 /// Helper to manage the information necessary to validate that a "ctid" is currently visible to
 /// a snapshot
@@ -31,6 +33,7 @@ struct VisibilityCheckerInner {
     scan: *mut pg_sys::IndexFetchTableData,
     snapshot: pg_sys::Snapshot,
     tid: pg_sys::ItemPointerData,
+    vmbuff: pg_sys::Buffer,
     heap_tuple_fetch_count: usize,
     heap_tuple_check_count: usize,
     invisible_tuple_count: usize,
@@ -50,6 +53,10 @@ impl Drop for VisibilityCheckerInner {
             }
 
             pg_sys::table_index_fetch_end(self.scan);
+
+            if self.vmbuff != pg_sys::InvalidBuffer as pg_sys::Buffer {
+                pg_sys::ReleaseBuffer(self.vmbuff);
+            }
         }
     }
 }
@@ -63,6 +70,7 @@ impl VisibilityChecker {
                 scan: pg_sys::table_index_fetch_begin(heaprel),
                 snapshot,
                 tid: pg_sys::ItemPointerData::default(),
+                vmbuff: pg_sys::InvalidBuffer as pg_sys::Buffer,
                 heap_tuple_fetch_count: 0,
                 heap_tuple_check_count: 0,
                 invisible_tuple_count: 0,
@@ -105,8 +113,19 @@ impl VisibilityChecker {
 
     pub fn is_visible(&self, ctid: u64) -> bool {
         let mut inner = self.0.lock();
+        let inner = &mut *inner;
         unsafe {
             utils::u64_to_item_pointer(ctid, &mut inner.tid);
+
+            // You might think that caching multiple visibility map buffers would make this faster,
+            // but the `is_visible` check is dominated by looking up the `ctid` in the first place.
+            if is_block_all_visible(
+                (*inner.scan).rel,
+                &mut inner.vmbuff,
+                item_pointer_get_block_number(&inner.tid),
+            ) {
+                return true;
+            }
 
             let mut all_dead = false;
             let is_visible = pg_sys::table_index_fetch_tuple_check(

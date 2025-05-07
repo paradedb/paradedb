@@ -80,7 +80,7 @@ pub fn anyelement_query_input_procoid() -> pg_sys::Oid {
     }
 }
 
-fn anyelement_text_procoid() -> pg_sys::Oid {
+pub fn anyelement_text_procoid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(
             pg_sys::regprocedurein,
@@ -90,7 +90,7 @@ fn anyelement_text_procoid() -> pg_sys::Oid {
     }
 }
 
-fn anyelement_text_opoid() -> pg_sys::Oid {
+pub fn anyelement_text_opoid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(
             pg_sys::regoperatorin,

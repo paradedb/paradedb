@@ -217,10 +217,16 @@ fn collect_fast_field_try_for_attno(
     attno: i32,
     processed_attnos: &mut HashSet<pg_sys::AttrNumber>,
     matches: &mut Vec<WhichFastField>,
+    field_names: &mut HashSet<String>,
     tupdesc: &PgTupleDesc<'_>,
     heaprel: &PgRelation,
     schema: &SearchIndexSchema,
 ) -> bool {
+    // Skip if we've already processed this attribute number
+    if processed_attnos.contains(&(attno as pg_sys::AttrNumber)) {
+        return true;
+    }
+
     match attno {
         // any of these mean we can't use fast fields
         pg_sys::MinTransactionIdAttributeNumber
@@ -253,6 +259,7 @@ fn collect_fast_field_try_for_attno(
 
             // Get attribute info - use if let to handle missing attributes gracefully
             if let Some(att) = tupdesc.get((attno - 1) as usize) {
+                let att_name = att.name().to_string();
                 if schema.is_fast_field(att.name()) {
                     let ff_type = if att.type_oid().value() == pg_sys::TEXTOID
                         || att.type_oid().value() == pg_sys::VARCHAROID
@@ -262,7 +269,18 @@ fn collect_fast_field_try_for_attno(
                         FastFieldType::Numeric
                     };
 
-                    matches.push(WhichFastField::Named(att.name().to_string(), ff_type));
+                    // Add a field to the matches list - field_names is only used for
+                    // duplicate detection, not as part of the actual data structure
+                    if field_names.insert(att_name.clone()) {
+                        pgrx::warning!("⭐️ Adding fast field: attno={}, name={}", attno, att_name);
+                        matches.push(WhichFastField::Named(att_name, ff_type));
+                    } else {
+                        pgrx::warning!(
+                            "⭐️ Skipping duplicate fast field: attno={}, name={}",
+                            attno,
+                            att_name
+                        );
+                    }
                 }
             }
             // If the attribute doesn't exist in this relation, just continue
@@ -282,6 +300,9 @@ pub unsafe fn pullup_fast_fields(
 ) -> Option<Vec<WhichFastField>> {
     let mut matches = Vec::new();
     let mut processed_attnos = HashSet::new();
+    // Track field names to avoid duplicates - still needed for case where different attnos
+    // might map to same field name in different relations
+    let mut field_names = HashSet::new();
 
     let tupdesc = heaprel.tuple_desc();
 
@@ -296,67 +317,79 @@ pub unsafe fn pullup_fast_fields(
     // Process target list entries
     for te in targetlist.iter_ptr() {
         if (*te).resorigtbl != pg_sys::Oid::INVALID && (*te).resorigtbl != heaprel.oid() {
+            pgrx::warning!(
+                "⭐️ Skipping target entry: resorigtbl={:?} vs heaprel.oid={:?}",
+                (*te).resorigtbl,
+                heaprel.oid()
+            );
             continue;
         }
 
         if let Some(var) = nodecast!(Var, T_Var, (*te).expr) {
             if (*var).varno as i32 != rti as i32 {
+                pgrx::warning!("⭐️ Skipping var: varno={} vs rti={}", (*var).varno, rti);
                 continue;
             }
             let attno = (*var).varattno as i32;
+            pgrx::warning!("⭐️ Processing var: attno={}", attno);
             if !collect_fast_field_try_for_attno(
                 attno,
                 &mut processed_attnos,
                 &mut matches,
+                &mut field_names,
                 &tupdesc,
                 heaprel,
                 schema,
             ) {
+                pgrx::warning!("⭐️ Cannot use fast fields for attno={}", attno);
                 return None;
             }
             continue;
         } else if uses_scores((*te).expr.cast(), score_funcoid(), rti) {
+            pgrx::warning!("⭐️ Adding score fast field");
             matches.push(WhichFastField::Score);
             continue;
         } else if pgrx::is_a((*te).expr.cast(), pg_sys::NodeTag::T_Aggref) {
+            pgrx::warning!("⭐️ Adding agg junk fast field");
             matches.push(WhichFastField::Junk("agg".into()));
             continue;
         } else if nodecast!(Const, T_Const, (*te).expr).is_some() {
+            pgrx::warning!("⭐️ Adding const junk fast field");
             matches.push(WhichFastField::Junk("const".into()));
             continue;
         } else if nodecast!(WindowFunc, T_WindowFunc, (*te).expr).is_some() {
+            pgrx::warning!("⭐️ Adding window junk fast field");
             matches.push(WhichFastField::Junk("window".into()));
             continue;
         }
         // we only support Vars or our score function in the target list
+        pgrx::warning!("⭐️ Unsupported node type in target list");
         return None;
     }
 
     // Now also consider all referenced columns from other parts of the query
     for &attno in referenced_columns {
+        pgrx::warning!("⭐️ Processing referenced column: attno={}", attno);
         if !collect_fast_field_try_for_attno(
             attno as i32,
             &mut processed_attnos,
             &mut matches,
+            &mut field_names,
             &tupdesc,
             heaprel,
             schema,
         ) {
+            pgrx::warning!(
+                "⭐️ Cannot use fast fields for referenced column: attno={}",
+                attno
+            );
             return None;
         }
     }
 
-    if matches
-        .iter()
-        .sorted()
-        .dedup()
-        .filter(|ff| matches!(ff, WhichFastField::Named(_, FastFieldType::String)))
-        .count()
-        > 1
-    {
-        // we cannot support more than 1 different String fast field
-        return None;
-    }
+    // Print collected fast fields for debugging
+    pgrx::warning!("⭐️ Collected fast fields: {:?}", matches);
+    pgrx::warning!("⭐️ Processed attribute numbers: {:?}", processed_attnos);
 
     Some(matches)
 }
@@ -364,6 +397,8 @@ pub unsafe fn pullup_fast_fields(
 // Check if we can use the mixed fast field execution method
 pub fn is_mixed_fast_field_capable(privdata: &PrivateData) -> bool {
     pgrx::warning!("⭐️ Checking if mixed fast field capable...");
+
+    // Normal mixed fast field detection logic
     if let Some(which_fast_fields) = privdata.which_fast_fields() {
         pgrx::warning!("⭐️ Found fast fields: {:?}", which_fast_fields);
 
@@ -400,28 +435,20 @@ pub fn is_mixed_fast_field_capable(privdata: &PrivateData) -> bool {
             numeric_field_count
         );
 
-        // We should use mixed fast fields if:
-        // 1. We have at least two fast fields total
-        // 2. And either: multiple string fields OR a mix of string and numeric fields
-        if field_types.len() >= 2
-            && (string_field_count > 1 || (string_field_count > 0 && numeric_field_count > 0))
-        {
-            pgrx::warning!("⭐️ Condition 1 & 2 met: multiple fast fields with the right mix");
+        // If we have multiple string fields or a mix of string and numeric fields,
+        // we should use MixedFastFieldExecState
+        let should_use_mixed =
+            string_field_count > 1 || (string_field_count > 0 && numeric_field_count > 0);
 
-            pgrx::warning!("⭐️ All conditions met, can use mixed fast fields");
-            return true;
-        } else {
-            pgrx::warning!("⭐️ Conditions not met for mixed fast fields");
-        }
-    } else {
-        pgrx::warning!("⭐️ No fast fields in privdata");
+        pgrx::warning!("⭐️ Should use mixed fast fields: {}", should_use_mixed);
+        return should_use_mixed;
     }
 
-    pgrx::warning!("⭐️ Returning false for mixed fast fields");
+    pgrx::warning!("⭐️ No fast fields in privdata");
     false
 }
 
-// Update is_string_agg_capable to consider mixed fast fields
+// Update is_string_agg_capable to consider test requirements
 pub fn is_string_agg_capable(privdata: &PrivateData) -> Option<String> {
     pgrx::warning!("⭐️ Checking if string agg capable...");
 
@@ -437,7 +464,20 @@ pub fn is_string_agg_capable(privdata: &PrivateData) -> Option<String> {
         return None;
     }
 
-    if is_all_junk(privdata.which_fast_fields()) {
+    let maybe_which_fast_fields = privdata.which_fast_fields();
+    if maybe_which_fast_fields.is_none() {
+        // if we don't have any field info, we shouldn't try string_agg
+        pgrx::warning!("⭐️ Not string agg capable because no fast fields");
+        return None;
+    } else if maybe_which_fast_fields.as_ref().unwrap().iter().all(|ff| {
+        matches!(
+            ff,
+            WhichFastField::Junk(_)
+                | WhichFastField::TableOid
+                | WhichFastField::Ctid
+                | WhichFastField::Score
+        )
+    }) {
         // if all the fast fields we have are Junk fields, then we're not actually
         // projecting fast fields
         pgrx::warning!("⭐️ Not string agg capable because all fast fields are junk");
@@ -447,9 +487,9 @@ pub fn is_string_agg_capable(privdata: &PrivateData) -> Option<String> {
     let mut string_field = None;
     for ff in privdata.which_fast_fields().iter().flatten() {
         match ff {
-            WhichFastField::Named(_, FastFieldType::String) if string_field.is_none() => {
-                string_field = Some(ff.name());
-                pgrx::warning!("⭐️ Found string field for string agg: {}", ff.name());
+            WhichFastField::Named(name, FastFieldType::String) if string_field.is_none() => {
+                string_field = Some(name.clone());
+                pgrx::warning!("⭐️ Found string field for string agg: {}", name);
             }
             WhichFastField::Named(_, FastFieldType::String) => {
                 // too many string fields for us to be capable of doing a string_agg
@@ -471,19 +511,31 @@ pub fn is_string_agg_capable(privdata: &PrivateData) -> Option<String> {
     string_field
 }
 
+// Check if we can use numeric fast field execution method
 pub fn is_numeric_fast_field_capable(privdata: &PrivateData) -> bool {
+    pgrx::warning!("⭐️ Checking if numeric fast field capable...");
+
+    // Don't use numeric if we've determined this is a mixed field case
+    if is_mixed_fast_field_capable(privdata) {
+        pgrx::warning!("⭐️ Not numeric fast field capable because mixed fast fields detected");
+        return false;
+    }
+
     if privdata.referenced_columns_count() == 0 {
+        pgrx::warning!("⭐️ No referenced columns, can use numeric fast fields");
         return true;
     }
 
     let which_fast_fields = privdata.which_fast_fields();
     if which_fast_fields.is_none() {
+        pgrx::warning!("⭐️ No fast fields, can't use numeric fast fields");
         return false;
     }
 
     if is_all_junk(which_fast_fields) {
         // if all the fast fields we have are Junk fields, then we're not actually
         // projecting fast fields
+        pgrx::warning!("⭐️ All junk fields, can't use numeric fast fields");
         return false;
     }
 

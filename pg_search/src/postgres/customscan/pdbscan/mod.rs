@@ -29,6 +29,7 @@ use crate::api::operator::{
     anyelement_query_input_opoid, attname_from_var, estimate_selectivity, find_var_relation,
 };
 use crate::api::Cardinality;
+use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::builders::custom_path::{
@@ -40,8 +41,10 @@ use crate::postgres::customscan::builders::custom_state::{
 };
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::explainer::Explainer;
-use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::{
-    estimate_cardinality, is_string_agg_capable,
+use crate::postgres::customscan::pdbscan::exec_methods::{
+    fast_fields::{self, estimate_cardinality, is_string_agg_capable},
+    normal::NormalScanExecState,
+    ExecState,
 };
 use crate::postgres::customscan::pdbscan::parallel::{compute_nworkers, list_segment_ids};
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
@@ -62,8 +65,6 @@ use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::query::{AsHumanReadable, SearchQueryInput};
 use crate::schema::SearchIndexSchema;
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
-use exec_methods::normal::NormalScanExecState;
-use exec_methods::ExecState;
 use pgrx::pg_sys::CustomExecMethods;
 use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts, PgRelation};
 use rustc_hash::FxHashMap;
@@ -941,58 +942,60 @@ impl CustomScan for PdbScan {
 fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
     pgrx::warning!("⭐️ choose_exec_method called, examining options...");
 
+    // REGULAR EXECUTION METHOD SELECTION
+    if let Some(which_fast_fields) = privdata.which_fast_fields() {
+        // If selecting only junk fields
+        if which_fast_fields
+            .iter()
+            .all(|ff| matches!(ff, WhichFastField::Junk(_)))
+        {
+            pgrx::warning!("⭐️ Only junk fields selected, choosing Normal scan");
+            return ExecMethodType::Normal;
+        }
+    }
+
     if let Some((limit, sort_direction)) = privdata.limit().zip(privdata.sort_direction()) {
         // having a valid limit and sort direction means we can do a TopN query
         // and TopN can do snippets
-        pgrx::warning!("Chose TopN execution method");
+        pgrx::warning!(
+            "⭐️ TopN capable with limit {} and sort_direction {:?}",
+            limit,
+            sort_direction
+        );
         ExecMethodType::TopN {
             heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
             limit,
             sort_direction,
             need_scores: privdata.need_scores(),
         }
-    } else if exec_methods::fast_fields::is_mixed_fast_field_capable(privdata) {
-        // Check for mixed fields first, before string_agg_capable check
-        pgrx::warning!("⭐️ Mixed fast field capable, choosing MixedFastField");
+    } else if fast_fields::is_numeric_fast_field_capable(privdata) {
+        // Check for numeric-only fast fields first because they're more selective
+        pgrx::warning!("⭐️ Numeric fast field capable, choosing FastFieldNumeric");
         pgrx::warning!("⭐️ Fast fields: {:?}", privdata.which_fast_fields());
-        ExecMethodType::FastFieldMixed {
-            which_fast_fields: privdata.which_fast_fields().clone().unwrap(),
-        }
-    } else if let Some(field) = exec_methods::fast_fields::is_string_agg_capable(privdata) {
-        // For StringFastFieldExecState, check that we won't have more columns
-        // in the target list than fast fields
-        if let Some(which_fast_fields) = privdata.which_fast_fields() {
-            let columns_used = privdata.referenced_columns_count();
-
-            // If the number of columns used is greater than our fast fields,
-            // the execution method won't be compatible - fall back to Normal
-            if columns_used > which_fast_fields.len() {
-                return ExecMethodType::Normal;
-            }
-        }
-        pgrx::warning!(
-            "⭐️ String agg capable, choosing StringFastField with field: {}",
-            field
-        );
-        ExecMethodType::FastFieldString {
-            field,
-            which_fast_fields: privdata.which_fast_fields().clone().unwrap(),
-        }
-    } else if exec_methods::fast_fields::is_numeric_fast_field_capable(privdata) {
-        // Similar check for numeric fast fields
-        if let Some(which_fast_fields) = privdata.which_fast_fields() {
-            let columns_used = privdata.referenced_columns_count();
-
-            if columns_used > which_fast_fields.len() {
-                return ExecMethodType::Normal;
-            }
-        }
-        pgrx::warning!("Chose NumericFastField execution method");
         ExecMethodType::FastFieldNumeric {
             which_fast_fields: privdata.which_fast_fields().clone().unwrap_or_default(),
         }
+    } else if let Some(field) = fast_fields::is_string_agg_capable(privdata) {
+        // Check for string-only fast fields next
+        pgrx::warning!(
+            "⭐️ String fast field capable with field {}, choosing FastFieldString",
+            field
+        );
+        pgrx::warning!("⭐️ Fast fields: {:?}", privdata.which_fast_fields());
+        ExecMethodType::FastFieldString {
+            field,
+            which_fast_fields: privdata.which_fast_fields().clone().unwrap_or_default(),
+        }
+    } else if fast_fields::is_mixed_fast_field_capable(privdata) {
+        // Check for mixed fields last
+        pgrx::warning!("⭐️ Mixed fast field capable, choosing MixedFastField");
+        pgrx::warning!("⭐️ Fast fields: {:?}", privdata.which_fast_fields());
+        ExecMethodType::FastFieldMixed {
+            which_fast_fields: privdata.which_fast_fields().clone().unwrap_or_default(),
+        }
     } else {
-        pgrx::warning!("Chose Normal execution method");
+        // Fall back to normal execution
+        pgrx::warning!("⭐️ No special execution method available, choosing Normal");
         ExecMethodType::Normal
     }
 }

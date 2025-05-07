@@ -183,16 +183,44 @@ impl ExecMethod for MixedFastFieldExecState {
 
                         let fast_fields = &mut self.inner.ffhelper;
                         let which_fast_fields = &self.inner.which_fast_fields;
+                        let tupdesc = self.inner.tupdesc.as_ref().unwrap();
 
                         // Take the string buffer from inner
                         let mut string_buf = self.inner.strbuf.take().unwrap_or_default();
 
+                        // First pass: Direct positional mapping with field value optimization
+                        pgrx::warning!("⭐️ [Mixed] First pass: Direct positional mapping");
                         for (i, att) in self.inner.tupdesc.as_ref().unwrap().iter().enumerate() {
+                            // Skip if already processed
+                            if !isnull[i] {
+                                continue;
+                            }
+
                             let which_fast_field = &which_fast_fields[i];
 
-                            // Process field based on field type - handle both string and numeric
+                            // Get attribute info if available
+                            let att_info = if i < tupdesc.len() {
+                                tupdesc.get(i)
+                            } else {
+                                None
+                            };
+
+                            let att_typid =
+                                att_info.map(|att| att.atttypid).unwrap_or(pg_sys::TEXTOID);
+                            let att_name = att_info
+                                .map(|att| att.name().to_string())
+                                .unwrap_or_default();
+
+                            // Try the mixed fast field optimization first
                             if let WhichFastField::Named(field_name, field_type) = which_fast_field
                             {
+                                pgrx::warning!(
+                                    "⭐️ [Mixed] Processing position {}: att_name={}, field_name={}",
+                                    i,
+                                    att_name,
+                                    field_name
+                                );
+
                                 match field_type {
                                     // String field handling
                                     FastFieldType::String => {
@@ -201,10 +229,14 @@ impl ExecMethod for MixedFastFieldExecState {
                                         {
                                             // Use the term directly for this string field if available
                                             if let Some(datum) =
-                                                term_to_datum(term_string, att.atttypid, slot)
+                                                term_to_datum(term_string, att_typid, slot)
                                             {
                                                 datums[i] = datum;
                                                 isnull[i] = false;
+                                                pgrx::warning!(
+                                                    "⭐️ [Mixed] Assigned string field: pos={}, field={}, value={}",
+                                                    i, field_name, term_string
+                                                );
                                                 continue;
                                             }
                                         }
@@ -216,10 +248,14 @@ impl ExecMethod for MixedFastFieldExecState {
                                         {
                                             // Convert the numeric value to the right Datum type
                                             if let Some(datum) =
-                                                numeric_to_datum(num_value, att.atttypid)
+                                                numeric_to_datum(num_value, att_typid)
                                             {
                                                 datums[i] = datum;
                                                 isnull[i] = false;
+                                                pgrx::warning!(
+                                                    "⭐️ [Mixed] Assigned numeric field: pos={}, field={}",
+                                                    i, field_name
+                                                );
                                                 continue;
                                             }
                                         }
@@ -242,10 +278,20 @@ impl ExecMethod for MixedFastFieldExecState {
                                 None => {
                                     datums[i] = pg_sys::Datum::null();
                                     isnull[i] = true;
+                                    pgrx::warning!(
+                                        "⭐️ [Mixed] Assigned NULL via fallback: pos={}, field={}",
+                                        i,
+                                        which_fast_field.name()
+                                    );
                                 }
                                 Some(datum) => {
                                     datums[i] = datum;
                                     isnull[i] = false;
+                                    pgrx::warning!(
+                                        "⭐️ [Mixed] Assigned via fallback: pos={}, field={}",
+                                        i,
+                                        which_fast_field.name()
+                                    );
                                 }
                             }
 

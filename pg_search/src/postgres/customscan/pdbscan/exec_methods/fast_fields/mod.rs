@@ -489,6 +489,11 @@ pub fn is_string_agg_capable(privdata: &PrivateData) -> Option<String> {
                 pgrx::warning!("⭐️ Too many string fields for string agg");
                 return None;
             }
+            WhichFastField::Named(_, FastFieldType::Numeric) => {
+                // string fast field can only be used for string_agg if there are no numeric fast fields
+                pgrx::warning!("⭐️ Numeric fast field found, can't use string agg");
+                return None;
+            }
             _ => {
                 // noop
             }

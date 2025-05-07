@@ -130,11 +130,11 @@ fn do_heap_scan<'a>(
                 }
             ) {
                 ErrorReport::new(
-                        PgSqlErrorCode::ERRCODE_WARNING_DEPRECATED_FEATURE,
-                        "the `raw` tokenizer is deprecated",
-                        function_name!(),
-                    )
-                        .set_detail("the `raw` tokenizer is deprecated as it also lowercases and truncates the input and this is probably not what you want")
+                    PgSqlErrorCode::ERRCODE_WARNING_DEPRECATED_FEATURE,
+                    "the `raw` tokenizer is deprecated",
+                    function_name!(),
+                )
+                    .set_detail("the `raw` tokenizer is deprecated as it also lowercases and truncates the input and this is probably not what you want")
                     .set_hint("use `keyword` instead").report(PgLogLevel::WARNING);
             }
         }
@@ -233,10 +233,28 @@ unsafe extern "C-unwind" fn build_callback(
     }
 }
 
-fn is_bm25_index(indexrel: &PgRelation) -> bool {
+pub fn is_bm25_index(indexrel: &PgRelation) -> bool {
+    indexrel.rd_amhandler == bm25_amhandler_oid().unwrap_or_default()
+}
+
+fn bm25_amhandler_oid() -> Option<pg_sys::Oid> {
     unsafe {
-        // SAFETY:  we ensure that `indexrel.rd_indam` is non null and can be dereferenced
-        !indexrel.rd_indam.is_null() && (*indexrel.rd_indam).ambuild == Some(ambuild)
+        let name = pg_sys::Datum::from(c"bm25".as_ptr());
+        let pg_am_entry = pg_sys::SearchSysCache1(pg_sys::SysCacheIdentifier::AMNAME as _, name);
+        if pg_am_entry.is_null() {
+            return None;
+        }
+
+        let mut is_null = false;
+        let datum = pg_sys::SysCacheGetAttr(
+            pg_sys::SysCacheIdentifier::AMNAME as _,
+            pg_am_entry,
+            pg_sys::Anum_pg_am_amhandler as _,
+            &mut is_null,
+        );
+        let oid = pg_sys::Oid::from_datum(datum, is_null);
+        pg_sys::ReleaseSysCache(pg_am_entry);
+        oid
     }
 }
 

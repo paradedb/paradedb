@@ -14,8 +14,8 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
-#![allow(unpredictable_function_pointer_comparisons)]
 
+use crate::postgres::build::is_bm25_index;
 use crate::postgres::parallel::Spinlock;
 use crate::query::SearchQueryInput;
 use pgrx::*;
@@ -112,12 +112,9 @@ fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRouti
 pub fn rel_get_bm25_index(relid: pg_sys::Oid) -> Option<(PgRelation, PgRelation)> {
     unsafe {
         let rel = PgRelation::with_lock(relid, pg_sys::AccessShareLock as _);
-        for index in rel.indices(pg_sys::AccessShareLock as _) {
-            if (*index.rd_indam).ambuild == Some(build::ambuild) {
-                return Some((rel, index));
-            }
-        }
-        None
+        rel.indices(pg_sys::AccessShareLock as _)
+            .find(is_bm25_index)
+            .map(|index| (rel, index))
     }
 }
 

@@ -32,7 +32,7 @@ use crate::api::Cardinality;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::builders::custom_path::{
-    CustomPathBuilder, Flags, OrderByStyle, RestrictInfoType, SortDirection,
+    CustomPathBuilder, ExecMethodType, Flags, OrderByStyle, RestrictInfoType, SortDirection,
 };
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -41,7 +41,7 @@ use crate::postgres::customscan::builders::custom_state::{
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::{
-    estimate_cardinality, is_string_agg_capable_ex,
+    estimate_cardinality, is_string_agg_capable,
 };
 use crate::postgres::customscan::pdbscan::parallel::{compute_nworkers, list_segment_ids};
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
@@ -56,17 +56,18 @@ use crate::postgres::customscan::pdbscan::projections::{
 };
 use crate::postgres::customscan::pdbscan::qual_inspect::extract_quals;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
-use crate::postgres::customscan::{CustomScan, CustomScanState, ExecMethod};
+use crate::postgres::customscan::{self, CustomScan, CustomScanState};
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::query::{AsHumanReadable, SearchQueryInput};
 use crate::schema::SearchIndexSchema;
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
-use exec_methods::top_n::TopNScanExecState;
+use exec_methods::normal::NormalScanExecState;
 use exec_methods::ExecState;
 use pgrx::pg_sys::CustomExecMethods;
 use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts, PgRelation};
 use rustc_hash::FxHashMap;
+use std::collections::HashSet;
 use std::ffi::CStr;
 use std::ptr::addr_of_mut;
 use tantivy::snippet::SnippetGenerator;
@@ -152,7 +153,7 @@ impl PdbScan {
     }
 }
 
-impl ExecMethod for PdbScan {
+impl customscan::ExecMethod for PdbScan {
     fn exec_methods() -> *const CustomExecMethods {
         <PdbScan as ParallelQueryCapable>::exec_methods()
     }
@@ -233,16 +234,37 @@ impl CustomScan for PdbScan {
             // quick look at the target list to see if we might need to do our const projections
             let target_list = (*(*builder.args().root).parse).targetList;
             let maybe_needs_const_projections = maybe_needs_const_projections(target_list.cast());
-            let ff_cnt =
-                exec_methods::fast_fields::count(&mut builder, rti, &table, &schema, target_list);
+
+            // Get all columns referenced by this RTE throughout the entire query
+            let referenced_columns = collect_referenced_columns(root, rti);
+
+            // Save the count of referenced columns for decision-making
+            builder
+                .custom_private()
+                .set_referenced_columns_count(referenced_columns.len());
+
+            let ff_cnt = exec_methods::fast_fields::count_fast_fields(
+                &mut builder,
+                rti,
+                &table,
+                &schema,
+                target_list,
+                &referenced_columns,
+            );
             let maybe_ff = builder.custom_private().maybe_ff();
             let is_topn = limit.is_some() && pathkey.is_some();
-            let which_fast_fields = exec_methods::fast_fields::collect(
-                builder.custom_private().maybe_ff(),
-                target_list,
-                rti,
-                &schema,
-                &table,
+
+            // When collecting which_fast_fields, analyze the entire set of referenced columns
+            // not just those in the target list, to avoid execution-time surprises
+            builder.custom_private().set_which_fast_fields(
+                exec_methods::fast_fields::collect_fast_fields(
+                    maybe_ff,
+                    target_list,
+                    &referenced_columns,
+                    rti,
+                    &schema,
+                    &table,
+                ),
             );
 
             //
@@ -386,8 +408,7 @@ impl CustomScan for PdbScan {
 
             if pathkey.is_some()
                 && !is_topn
-                && is_string_agg_capable_ex(builder.custom_private().limit(), &which_fast_fields)
-                    .is_some()
+                && is_string_agg_capable(builder.custom_private()).is_some()
             {
                 let pathkey = pathkey.as_ref().unwrap();
 
@@ -427,13 +448,18 @@ impl CustomScan for PdbScan {
                 builder = builder.set_parallel(nworkers);
             }
 
-            // If we are sorting our output (which we will only do if we have a limit!) and we
-            // are _not_ using parallel workers, then we can claim that the output is sorted.
-            //
-            // TODO: To allow sorted output with parallel workers, we would need to partition
-            // our segments across the workers so that each worker emitted all of its results
-            // in sorted order.
-            if nworkers == 0 && builder.custom_private().is_sorted() && limit.is_some() {
+            let exec_method_type = choose_exec_method(builder.custom_private());
+            builder
+                .custom_private()
+                .set_exec_method_type(exec_method_type);
+
+            // Once we have chosen an execution method type, we have a final determination of the
+            // properties of the output, and can make claims about whether it is sorted.
+            if builder
+                .custom_private()
+                .exec_method_type()
+                .is_sorted(nworkers)
+            {
                 if let Some(pathkey) = pathkey.as_ref() {
                     builder = builder.add_path_key(pathkey);
                 }
@@ -445,9 +471,14 @@ impl CustomScan for PdbScan {
 
     fn plan_custom_path(mut builder: CustomScanBuilder<Self::PrivateData>) -> pg_sys::CustomScan {
         unsafe {
-            let private_data = builder.custom_private();
-
             let mut tlist = PgList::<pg_sys::TargetEntry>::from_pg(builder.args().tlist.as_ptr());
+
+            // Store the length of the target list
+            builder
+                .custom_private_mut()
+                .set_target_list_len(Some(tlist.len()));
+
+            let private_data = builder.custom_private();
 
             let rti: i32 = private_data
                 .range_table_index()
@@ -513,24 +544,11 @@ impl CustomScan for PdbScan {
                 .range_table_index()
                 .expect("range table index should have been set");
 
-            {
-                let indexrel = PgRelation::open(builder.custom_state().indexrelid);
-                let heaprel = indexrel
-                    .heap_relation()
-                    .expect("index should belong to a table");
-                let directory = MVCCDirectory::snapshot(indexrel.oid());
-                let index = Index::open(directory)
-                    .expect("create_custom_scan_state: should be able to open index");
-                let schema = SearchIndexSchema::open(index.schema(), &indexrel);
+            builder.custom_state().exec_method_type =
+                builder.custom_private().exec_method_type().clone();
 
-                builder.custom_state().which_fast_fields = exec_methods::fast_fields::collect(
-                    builder.custom_private().maybe_ff(),
-                    builder.target_list().as_ptr(),
-                    builder.custom_state().rti,
-                    &schema,
-                    &heaprel,
-                );
-            }
+            builder.custom_state().which_fast_fields =
+                builder.custom_private().which_fast_fields().clone();
 
             builder.custom_state().targetlist_len = builder.target_list().len();
 
@@ -578,32 +596,8 @@ impl CustomScan for PdbScan {
                     .collect();
 
             let need_snippets = builder.custom_state().need_snippets();
-            let need_scores = builder.custom_state().need_scores();
-            if let Some((limit, sort_direction)) = builder.custom_state().is_top_n_capable() {
-                // having a valid limit and sort direction means we can do a TopN query
-                // and TopN can do snippets
-                let heaprelid = builder.custom_state().heaprelid;
-                builder
-                    .custom_state()
-                    .assign_exec_method(TopNScanExecState::new(
-                        heaprelid,
-                        limit,
-                        sort_direction,
-                        need_scores,
-                    ));
-            } else if let Some(limit) = builder.custom_state().is_unsorted_top_n_capable() {
-                let heaprelid = builder.custom_state().heaprelid;
-                builder
-                    .custom_state()
-                    .assign_exec_method(TopNScanExecState::new(
-                        heaprelid,
-                        limit,
-                        SortDirection::None,
-                        need_scores,
-                    ));
-            } else {
-                exec_methods::fast_fields::assign_exec_method(&mut builder);
-            }
+
+            assign_exec_method(builder.custom_state());
 
             builder.build()
         }
@@ -930,6 +924,94 @@ impl CustomScan for PdbScan {
     }
 }
 
+///
+/// Choose and return an ExecMethodType based on the properties of the builder.
+///
+/// If the query can return "fast fields", make that determination here, falling back to the
+/// [`NormalScanExecState`] if not.
+///
+/// We support [`StringFastFieldExecState`] when there's 1 fast field and it's a string, or
+/// [`NumericFastFieldExecState`] when there's one or more numeric fast fields
+///
+/// `paradedb.score()`, `ctid`, and `tableoid` are considered fast fields for the purposes of
+/// these specialized [`ExecMethod`]s.
+///
+fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
+    if let Some((limit, sort_direction)) = privdata.limit().zip(privdata.sort_direction()) {
+        // having a valid limit and sort direction means we can do a TopN query
+        // and TopN can do snippets
+        ExecMethodType::TopN {
+            heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
+            limit,
+            sort_direction,
+            need_scores: privdata.need_scores(),
+        }
+    } else if let Some(field) = exec_methods::fast_fields::is_string_agg_capable(privdata) {
+        // For StringFastFieldExecState, check that we won't have more columns
+        // in the target list than fast fields
+        if let Some(which_fast_fields) = privdata.which_fast_fields() {
+            let columns_used = privdata.referenced_columns_count();
+
+            // If the number of columns used is greater than our fast fields,
+            // the execution method won't be compatible - fall back to Normal
+            if columns_used > which_fast_fields.len() {
+                return ExecMethodType::Normal;
+            }
+        }
+
+        ExecMethodType::FastFieldString {
+            field,
+            which_fast_fields: privdata.which_fast_fields().clone().unwrap(),
+        }
+    } else if exec_methods::fast_fields::is_numeric_fast_field_capable(privdata) {
+        // Similar check for numeric fast fields
+        if let Some(which_fast_fields) = privdata.which_fast_fields() {
+            let columns_used = privdata.referenced_columns_count();
+
+            if columns_used > which_fast_fields.len() {
+                return ExecMethodType::Normal;
+            }
+        }
+
+        ExecMethodType::FastFieldNumeric {
+            which_fast_fields: privdata.which_fast_fields().clone().unwrap_or_default(),
+        }
+    } else {
+        ExecMethodType::Normal
+    }
+}
+
+fn assign_exec_method(custom_state: &mut PdbScanState) {
+    match &custom_state.exec_method_type {
+        ExecMethodType::Normal => custom_state.assign_exec_method(NormalScanExecState::default()),
+        ExecMethodType::TopN {
+            heaprelid,
+            limit,
+            sort_direction,
+            need_scores,
+        } => custom_state.assign_exec_method(exec_methods::top_n::TopNScanExecState::new(
+            *heaprelid,
+            *limit,
+            *sort_direction,
+            *need_scores,
+        )),
+        ExecMethodType::FastFieldString {
+            field,
+            which_fast_fields,
+        } => custom_state.assign_exec_method(
+            exec_methods::fast_fields::string::StringFastFieldExecState::new(
+                field.to_owned(),
+                which_fast_fields.clone(),
+            ),
+        ),
+        ExecMethodType::FastFieldNumeric { which_fast_fields } => custom_state.assign_exec_method(
+            exec_methods::fast_fields::numeric::NumericFastFieldExecState::new(
+                which_fast_fields.clone(),
+            ),
+        ),
+    }
+}
+
 /// Use the [`VisibilityChecker`] to lookup the [`SearchIndexScore`] document in the underlying heap
 /// and if it exists return a formed [`TupleTableSlot`].
 #[inline(always)]
@@ -1145,4 +1227,152 @@ unsafe fn is_partitioned_table_setup(
     }
 
     false
+}
+
+/// Simplified helper to collect Var nodes from a quals expression
+///
+/// This function recursively navigates through expression trees in search of column
+/// references (Var nodes) that match the given RTE index. It's used to identify all
+/// columns referenced throughout a query (WHERE clauses, JOIN conditions, etc.)
+unsafe fn collect_vars_from_quals(
+    node: *mut pg_sys::Node,
+    rte_index: pg_sys::Index,
+    columns: &mut HashSet<pg_sys::AttrNumber>,
+) {
+    if node.is_null() {
+        return;
+    }
+
+    // Expr types we know are relevant
+    match (*node).type_ {
+        // Handle Lists - which can contain qualifier expressions
+        pg_sys::NodeTag::T_List => {
+            let list = PgList::<pg_sys::Node>::from_pg(node.cast());
+
+            for item in list.iter_ptr() {
+                collect_vars_from_quals(item as *mut pg_sys::Node, rte_index, columns);
+            }
+        }
+
+        // Handle OpExpr, BoolExpr, etc.
+        pg_sys::NodeTag::T_OpExpr => {
+            let opexpr = node.cast::<pg_sys::OpExpr>();
+            let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
+            for arg in args.iter_ptr() {
+                collect_vars_from_quals(arg as *mut pg_sys::Node, rte_index, columns);
+            }
+        }
+
+        pg_sys::NodeTag::T_BoolExpr => {
+            let boolexpr = node.cast::<pg_sys::BoolExpr>();
+            let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
+            for arg in args.iter_ptr() {
+                collect_vars_from_quals(arg as *mut pg_sys::Node, rte_index, columns);
+            }
+        }
+
+        // Handle function calls
+        pg_sys::NodeTag::T_FuncExpr => {
+            let funcexpr = node.cast::<pg_sys::FuncExpr>();
+            let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+            for arg in args.iter_ptr() {
+                collect_vars_from_quals(arg as *mut pg_sys::Node, rte_index, columns);
+            }
+        }
+
+        // Direct Var references
+        pg_sys::NodeTag::T_Var => {
+            let var = node.cast::<pg_sys::Var>();
+            if (*var).varno as u32 == rte_index {
+                columns.insert((*var).varattno);
+            }
+        }
+
+        // Default - we don't handle other node types for simplicity
+        _ => {}
+    }
+}
+
+/// Gather all columns referenced by the specified RTE (Range Table Entry) throughout the query.
+/// This gives us a more complete picture than just looking at the target list.
+///
+/// This function is critical for issue #2505 where we need to detect all columns used in JOIN
+/// conditions to ensure we select the right execution method. Previously, only looking at the
+/// target list would miss columns referenced in JOIN conditions, leading to execution-time errors.
+unsafe fn collect_referenced_columns(
+    root: *mut pg_sys::PlannerInfo,
+    rte_index: pg_sys::Index,
+) -> HashSet<pg_sys::AttrNumber> {
+    let mut referenced_columns = HashSet::new();
+
+    // First check the target list (columns in SELECT)
+    let target_list = (*(*root).parse).targetList;
+    let tlist = PgList::<pg_sys::TargetEntry>::from_pg(target_list);
+
+    // Process all Var nodes in the target list
+    for te in tlist.iter_ptr() {
+        if let Some(var) = nodecast!(Var, T_Var, (*te).expr) {
+            if (*var).varno as u32 == rte_index {
+                referenced_columns.insert((*var).varattno);
+            }
+        }
+    }
+
+    // Check WHERE clause from jointree
+    if !(*(*root).parse).jointree.is_null() {
+        let jointree = &*(*(*root).parse).jointree;
+        if !jointree.quals.is_null() {
+            collect_vars_from_quals(jointree.quals, rte_index, &mut referenced_columns);
+        }
+
+        // Also check join info - this is important for JOIN conditions!
+        if !jointree.fromlist.is_null() {
+            let fromlist = PgList::<pg_sys::Node>::from_pg(jointree.fromlist);
+
+            for from_item in fromlist.iter_ptr() {
+                // Check if it's a JOIN node
+                if (*from_item).type_ == pg_sys::NodeTag::T_JoinExpr {
+                    let join_expr = from_item.cast::<pg_sys::JoinExpr>();
+
+                    // Examine join quals
+                    if !(*join_expr).quals.is_null() {
+                        collect_vars_from_quals(
+                            (*join_expr).quals,
+                            rte_index,
+                            &mut referenced_columns,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    // Skip joininfo and baserestrictinfo lists for now as they can cause safety issues
+    // with Postgres' internal pointers, and we already have the info we need from the join expression
+    let rel = (*root)
+        .simple_rel_array
+        .add(rte_index as usize)
+        .cast::<pg_sys::RelOptInfo>();
+
+    // Get the corresponding RTE to log column names
+    let rte = pg_sys::planner_rt_fetch(rte_index, root);
+    if !rte.is_null() && (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
+        let rel = PgRelation::with_lock((*rte).relid, pg_sys::AccessShareLock as _);
+        let tupdesc = rel.tuple_desc();
+
+        let column_names: Vec<String> = referenced_columns
+            .iter()
+            .filter_map(|&attno| {
+                if attno > 0 {
+                    tupdesc
+                        .get((attno - 1) as usize)
+                        .map(|att| att.name().to_string())
+                } else {
+                    None
+                }
+            })
+            .collect();
+    }
+
+    referenced_columns
 }

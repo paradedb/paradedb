@@ -874,23 +874,7 @@ mod tests {
                     should,
                     must_not,
                 },
-            ) => {
-                // Either it's a negated boolean field
-                let is_negated_bool = matches!(
-                    **inner,
-                    Qual::PushdownVarEqTrue { .. }
-                        | Qual::PushdownVarEqFalse { .. }
-                        | Qual::PushdownVarIsTrue { .. }
-                        | Qual::PushdownVarIsFalse { .. }
-                );
-
-                // Or it's a standard negation with must_not
-                let is_standard_not = must.len() == 1
-                    && matches!(must[0], SearchQueryInput::All)
-                    && must_not.len() == 1;
-
-                is_negated_bool || is_standard_not
-            }
+            ) => must.len() == 1 && matches!(must[0], SearchQueryInput::All) && must_not.len() == 1,
 
             // Match negation of PushdownVarEqTrue mapping to PushdownVarEqFalse
             (

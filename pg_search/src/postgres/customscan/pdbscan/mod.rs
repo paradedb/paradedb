@@ -239,7 +239,7 @@ impl CustomScan for PdbScan {
             let maybe_needs_const_projections = maybe_needs_const_projections(target_list.cast());
 
             // Get all columns referenced by this RTE throughout the entire query
-            let referenced_columns = collect_referenced_columns(root, rti);
+            let referenced_columns = collect_maybe_fast_field_referenced_columns(root, rti);
 
             // Save the count of referenced columns for decision-making
             builder
@@ -1243,7 +1243,10 @@ unsafe fn is_partitioned_table_setup(
 /// This function recursively navigates through expression trees in search of column
 /// references (Var nodes) that match the given RTE index. It's used to identify all
 /// columns referenced throughout a query (WHERE clauses, JOIN conditions, etc.)
-unsafe fn collect_vars_from_quals(
+///
+/// However, it skips full-text search operators because they're not relevant to our
+/// execution method selection.
+unsafe fn collect_maybe_fast_field_vars_from_quals(
     node: *mut pg_sys::Node,
     rte_index: pg_sys::Index,
     columns: &mut HashSet<pg_sys::AttrNumber>,
@@ -1259,7 +1262,11 @@ unsafe fn collect_vars_from_quals(
             let list = PgList::<pg_sys::Node>::from_pg(node.cast());
 
             for item in list.iter_ptr() {
-                collect_vars_from_quals(item as *mut pg_sys::Node, rte_index, columns);
+                collect_maybe_fast_field_vars_from_quals(
+                    item as *mut pg_sys::Node,
+                    rte_index,
+                    columns,
+                );
             }
         }
 
@@ -1284,7 +1291,11 @@ unsafe fn collect_vars_from_quals(
 
             let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
             for arg in args.iter_ptr() {
-                collect_vars_from_quals(arg as *mut pg_sys::Node, rte_index, columns);
+                collect_maybe_fast_field_vars_from_quals(
+                    arg as *mut pg_sys::Node,
+                    rte_index,
+                    columns,
+                );
             }
         }
 
@@ -1292,7 +1303,11 @@ unsafe fn collect_vars_from_quals(
             let boolexpr = node.cast::<pg_sys::BoolExpr>();
             let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
             for arg in args.iter_ptr() {
-                collect_vars_from_quals(arg as *mut pg_sys::Node, rte_index, columns);
+                collect_maybe_fast_field_vars_from_quals(
+                    arg as *mut pg_sys::Node,
+                    rte_index,
+                    columns,
+                );
             }
         }
 
@@ -1301,7 +1316,11 @@ unsafe fn collect_vars_from_quals(
             let funcexpr = node.cast::<pg_sys::FuncExpr>();
             let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
             for arg in args.iter_ptr() {
-                collect_vars_from_quals(arg as *mut pg_sys::Node, rte_index, columns);
+                collect_maybe_fast_field_vars_from_quals(
+                    arg as *mut pg_sys::Node,
+                    rte_index,
+                    columns,
+                );
             }
         }
 
@@ -1324,7 +1343,10 @@ unsafe fn collect_vars_from_quals(
 /// This function is critical for issue #2505 where we need to detect all columns used in JOIN
 /// conditions to ensure we select the right execution method. Previously, only looking at the
 /// target list would miss columns referenced in JOIN conditions, leading to execution-time errors.
-unsafe fn collect_referenced_columns(
+///
+/// However, it skips full-text search operators because they're not relevant to our
+/// execution method selection.
+unsafe fn collect_maybe_fast_field_referenced_columns(
     root: *mut pg_sys::PlannerInfo,
     rte_index: pg_sys::Index,
 ) -> HashSet<pg_sys::AttrNumber> {
@@ -1347,7 +1369,11 @@ unsafe fn collect_referenced_columns(
     if !(*(*root).parse).jointree.is_null() {
         let jointree = &*(*(*root).parse).jointree;
         if !jointree.quals.is_null() {
-            collect_vars_from_quals(jointree.quals, rte_index, &mut referenced_columns);
+            collect_maybe_fast_field_vars_from_quals(
+                jointree.quals,
+                rte_index,
+                &mut referenced_columns,
+            );
         }
 
         // Also check join info - this is important for JOIN conditions!
@@ -1361,7 +1387,7 @@ unsafe fn collect_referenced_columns(
 
                     // Examine join quals
                     if !(*join_expr).quals.is_null() {
-                        collect_vars_from_quals(
+                        collect_maybe_fast_field_vars_from_quals(
                             (*join_expr).quals,
                             rte_index,
                             &mut referenced_columns,

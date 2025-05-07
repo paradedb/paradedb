@@ -265,17 +265,7 @@ impl From<&Qual> for SearchQueryInput {
                 }
             },
             Qual::And(quals) => {
-                let mut must = Vec::new();
-                let mut should = Vec::new();
-
-                for qual in quals {
-                    match qual {
-                        Qual::And(ands) => must.extend(ands.iter().map(SearchQueryInput::from)),
-                        Qual::Or(ors) => should.extend(ors.iter().map(SearchQueryInput::from)),
-                        other => must.push(SearchQueryInput::from(other)),
-                    }
-                }
-
+                let mut must = quals.iter().map(SearchQueryInput::from).collect::<Vec<_>>();
                 let popscore = |vec: &mut Vec<SearchQueryInput>| -> Option<SearchQueryInput> {
                     for i in 0..vec.len() {
                         if matches!(vec[i], SearchQueryInput::ScoreFilter { .. }) {
@@ -291,17 +281,10 @@ impl From<&Qual> for SearchQueryInput {
                     must_scores.push(score_filter);
                 }
 
-                // rollup ScoreFilters from the `should` clauses into one
-                let mut should_scores_bounds = vec![];
-                while let Some(SearchQueryInput::ScoreFilter { bounds, .. }) = popscore(&mut should)
-                {
-                    should_scores_bounds.extend(bounds);
-                }
-
                 // make the Boolean clause we intend to return (or wrap)
                 let mut boolean = SearchQueryInput::Boolean {
                     must,
-                    should,
+                    should: vec![],
                     must_not: vec![],
                 };
 
@@ -314,14 +297,7 @@ impl From<&Qual> for SearchQueryInput {
                     }
                 }
 
-                if !should_scores_bounds.is_empty() {
-                    SearchQueryInput::ScoreFilter {
-                        bounds: should_scores_bounds,
-                        query: Some(Box::new(boolean.clone())),
-                    }
-                } else {
-                    boolean
-                }
+                boolean
             }
 
             Qual::Or(quals) => {
@@ -729,5 +705,46 @@ unsafe fn booltest(
     } else {
         // Not a simple field reference - let the PostgreSQL executor handle it
         None
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use pgrx::prelude::*;
+
+    unsafe fn mk_const_int32(val: i32) -> *mut pg_sys::Const {
+        let mut c = Box::new(pg_sys::Const {
+            xpr: pg_sys::Node {
+                type_: pg_sys::NodeTag::T_Const,
+            },
+            consttype: pg_sys::INT4OID,
+            constlen: 4,
+            constvalue: val.into_datum(),
+            constisnull: false,
+            constbyval: true,
+            constalign: b'i' as i16,
+            location: -1,
+        });
+        Box::into_raw(c)
+    }
+
+    unsafe fn mk_score_expr(opname: &str, rhs: f32) -> Qual {
+        let const_node = mk_const_int32(rhs.to_bits() as i32);
+        Qual::ScoreExpr {
+            opoid: crate::postgres::customscan::operator_oid(&format!("=(float4,float4)")),
+            value: const_node as *mut pg_sys::Node,
+        }
+    }
+
+    #[pg_test]
+    fn test_all_variant() {
+        let got = SearchQueryInput::from(&Qual::All);
+        let want = SearchQueryInput::ConstScore {
+            query: Box::new(SearchQueryInput::All),
+            score: 0.0,
+        };
+        assert_eq!(got, want);
     }
 }

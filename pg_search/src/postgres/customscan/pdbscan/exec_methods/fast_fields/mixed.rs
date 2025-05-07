@@ -189,6 +189,7 @@ impl ExecMethod for MixedFastFieldExecState {
                         let mut string_buf = self.inner.strbuf.take().unwrap_or_default();
 
                         // First pass: Direct positional mapping with field value optimization
+                        pgrx::warning!("⭐️ [Mixed] First pass: Direct positional mapping");
                         for (i, att) in self.inner.tupdesc.as_ref().unwrap().iter().enumerate() {
                             // Skip if already processed
                             if !isnull[i] {
@@ -213,6 +214,13 @@ impl ExecMethod for MixedFastFieldExecState {
                             // Try the mixed fast field optimization first
                             if let WhichFastField::Named(field_name, field_type) = which_fast_field
                             {
+                                pgrx::warning!(
+                                    "⭐️ [Mixed] Processing position {}: att_name={}, field_name={}",
+                                    i,
+                                    att_name,
+                                    field_name
+                                );
+
                                 match field_type {
                                     // String field handling
                                     FastFieldType::String => {
@@ -225,6 +233,10 @@ impl ExecMethod for MixedFastFieldExecState {
                                             {
                                                 datums[i] = datum;
                                                 isnull[i] = false;
+                                                pgrx::warning!(
+                                                    "⭐️ [Mixed] Assigned string field: pos={}, field={}, value={}",
+                                                    i, field_name, term_string
+                                                );
                                                 continue;
                                             }
                                         }
@@ -240,6 +252,10 @@ impl ExecMethod for MixedFastFieldExecState {
                                             {
                                                 datums[i] = datum;
                                                 isnull[i] = false;
+                                                pgrx::warning!(
+                                                    "⭐️ [Mixed] Assigned numeric field: pos={}, field={}",
+                                                    i, field_name
+                                                );
                                                 continue;
                                             }
                                         }
@@ -262,10 +278,20 @@ impl ExecMethod for MixedFastFieldExecState {
                                 None => {
                                     datums[i] = pg_sys::Datum::null();
                                     isnull[i] = true;
+                                    pgrx::warning!(
+                                        "⭐️ [Mixed] Assigned NULL via fallback: pos={}, field={}",
+                                        i,
+                                        which_fast_field.name()
+                                    );
                                 }
                                 Some(datum) => {
                                     datums[i] = datum;
                                     isnull[i] = false;
+                                    pgrx::warning!(
+                                        "⭐️ [Mixed] Assigned via fallback: pos={}, field={}",
+                                        i,
+                                        which_fast_field.name()
+                                    );
                                 }
                             }
 

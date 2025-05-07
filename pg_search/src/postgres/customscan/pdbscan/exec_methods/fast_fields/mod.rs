@@ -173,6 +173,7 @@ pub unsafe fn count_fast_fields(
         pullup_fast_fields(target_list, referenced_columns, schema, table, rti).unwrap_or_default();
 
     let ff_count = ff.len() as f64;
+    pgrx::warning!("Found {} fast fields in count", ff_count);
 
     builder.custom_private().set_maybe_ff(!ff.is_empty());
     ff.iter().sorted().dedup().count() as f64
@@ -189,10 +190,24 @@ pub unsafe fn collect_fast_fields(
     schema: &SearchIndexSchema,
     heaprel: &PgRelation,
 ) -> Option<Vec<WhichFastField>> {
+    pgrx::warning!("Collecting fast fields, maybe_ff: {}", maybe_ff);
     if maybe_ff {
         let fast_fields = pullup_fast_fields(target_list, referenced_columns, schema, heaprel, rti);
-        fast_fields.filter(|fast_fields| !fast_fields.is_empty())
+
+        if let Some(fast_fields) = fast_fields {
+            if fast_fields.is_empty() {
+                pgrx::warning!("No fast fields found");
+                None
+            } else {
+                pgrx::warning!("Found {} fast fields in collect", fast_fields.len());
+                Some(fast_fields)
+            }
+        } else {
+            pgrx::warning!("No fast fields found");
+            None
+        }
     } else {
+        pgrx::warning!("maybe_ff is false, returning None");
         None
     }
 }
@@ -257,7 +272,14 @@ fn collect_fast_field_try_for_attno(
                     // Add a field to the matches list - field_names is only used for
                     // duplicate detection, not as part of the actual data structure
                     if field_names.insert(att_name.clone()) {
+                        pgrx::warning!("⭐️ Adding fast field: attno={}, name={}", attno, att_name);
                         matches.push(WhichFastField::Named(att_name, ff_type));
+                    } else {
+                        pgrx::warning!(
+                            "⭐️ Skipping duplicate fast field: attno={}, name={}",
+                            attno,
+                            att_name
+                        );
                     }
                 }
             }
@@ -287,17 +309,29 @@ pub unsafe fn pullup_fast_fields(
     // First collect all matches from the target list (standard behavior)
     let targetlist = PgList::<pg_sys::TargetEntry>::from_pg(node);
 
+    pgrx::warning!(
+        "Collecting fast fields from target list with {} entries",
+        targetlist.len()
+    );
+
     // Process target list entries
     for te in targetlist.iter_ptr() {
         if (*te).resorigtbl != pg_sys::Oid::INVALID && (*te).resorigtbl != heaprel.oid() {
+            pgrx::warning!(
+                "⭐️ Skipping target entry: resorigtbl={:?} vs heaprel.oid={:?}",
+                (*te).resorigtbl,
+                heaprel.oid()
+            );
             continue;
         }
 
         if let Some(var) = nodecast!(Var, T_Var, (*te).expr) {
             if (*var).varno as i32 != rti as i32 {
+                pgrx::warning!("⭐️ Skipping var: varno={} vs rti={}", (*var).varno, rti);
                 continue;
             }
             let attno = (*var).varattno as i32;
+            pgrx::warning!("⭐️ Processing var: attno={}", attno);
             if !collect_fast_field_try_for_attno(
                 attno,
                 &mut processed_attnos,
@@ -307,28 +341,35 @@ pub unsafe fn pullup_fast_fields(
                 heaprel,
                 schema,
             ) {
+                pgrx::warning!("⭐️ Cannot use fast fields for attno={}", attno);
                 return None;
             }
             continue;
         } else if uses_scores((*te).expr.cast(), score_funcoid(), rti) {
+            pgrx::warning!("⭐️ Adding score fast field");
             matches.push(WhichFastField::Score);
             continue;
         } else if pgrx::is_a((*te).expr.cast(), pg_sys::NodeTag::T_Aggref) {
+            pgrx::warning!("⭐️ Adding agg junk fast field");
             matches.push(WhichFastField::Junk("agg".into()));
             continue;
         } else if nodecast!(Const, T_Const, (*te).expr).is_some() {
+            pgrx::warning!("⭐️ Adding const junk fast field");
             matches.push(WhichFastField::Junk("const".into()));
             continue;
         } else if nodecast!(WindowFunc, T_WindowFunc, (*te).expr).is_some() {
+            pgrx::warning!("⭐️ Adding window junk fast field");
             matches.push(WhichFastField::Junk("window".into()));
             continue;
         }
         // we only support Vars or our score function in the target list
+        pgrx::warning!("⭐️ Unsupported node type in target list");
         return None;
     }
 
     // Now also consider all referenced columns from other parts of the query
     for &attno in referenced_columns {
+        pgrx::warning!("⭐️ Processing referenced column: attno={}", attno);
         if !collect_fast_field_try_for_attno(
             attno as i32,
             &mut processed_attnos,
@@ -338,17 +379,29 @@ pub unsafe fn pullup_fast_fields(
             heaprel,
             schema,
         ) {
+            pgrx::warning!(
+                "⭐️ Cannot use fast fields for referenced column: attno={}",
+                attno
+            );
             return None;
         }
     }
+
+    // Print collected fast fields for debugging
+    pgrx::warning!("⭐️ Collected fast fields: {:?}", matches);
+    pgrx::warning!("⭐️ Processed attribute numbers: {:?}", processed_attnos);
 
     Some(matches)
 }
 
 // Check if we can use the mixed fast field execution method
 pub fn is_mixed_fast_field_capable(privdata: &PrivateData) -> bool {
+    pgrx::warning!("⭐️ Checking if mixed fast field capable...");
+
     // Normal mixed fast field detection logic
     if let Some(which_fast_fields) = privdata.which_fast_fields() {
+        pgrx::warning!("⭐️ Found fast fields: {:?}", which_fast_fields);
+
         // Filter out junk and system fields for our analysis - we only care about real column fast fields
         let field_types = which_fast_fields
             .iter()
@@ -358,7 +411,10 @@ pub fn is_mixed_fast_field_capable(privdata: &PrivateData) -> bool {
             })
             .collect::<Vec<_>>();
 
+        pgrx::warning!("⭐️ Filtered field types: {:?}", field_types);
+
         if field_types.is_empty() {
+            pgrx::warning!("⭐️ No named fast fields, returning false");
             return false; // No named fast fields
         }
 
@@ -373,24 +429,38 @@ pub fn is_mixed_fast_field_capable(privdata: &PrivateData) -> bool {
             .filter(|(_, ff_type)| matches!(ff_type, FastFieldType::Numeric))
             .count();
 
+        pgrx::warning!(
+            "⭐️ String fields: {}, Numeric fields: {}",
+            string_field_count,
+            numeric_field_count
+        );
+
         // If we have multiple string fields or a mix of string and numeric fields,
         // we should use MixedFastFieldExecState
-        return string_field_count > 1 || (string_field_count > 0 && numeric_field_count > 0);
+        let should_use_mixed =
+            string_field_count > 1 || (string_field_count > 0 && numeric_field_count > 0);
+
+        pgrx::warning!("⭐️ Should use mixed fast fields: {}", should_use_mixed);
+        return should_use_mixed;
     }
 
+    pgrx::warning!("⭐️ No fast fields in privdata");
     false
 }
 
 // Update is_string_agg_capable to consider test requirements
 pub fn is_string_agg_capable(privdata: &PrivateData) -> Option<String> {
+    pgrx::warning!("⭐️ Checking if string agg capable...");
     if privdata.limit().is_some() {
         // doing a string_agg when there's a limit is always a loss, performance-wise
+        pgrx::warning!("⭐️ Not string agg capable because limit is set");
         return None;
     }
 
     let maybe_which_fast_fields = privdata.which_fast_fields();
     if maybe_which_fast_fields.is_none() {
         // if we don't have any field info, we shouldn't try string_agg
+        pgrx::warning!("⭐️ Not string agg capable because no fast fields");
         return None;
     } else if maybe_which_fast_fields.as_ref().unwrap().iter().all(|ff| {
         matches!(
@@ -403,6 +473,7 @@ pub fn is_string_agg_capable(privdata: &PrivateData) -> Option<String> {
     }) {
         // if all the fast fields we have are Junk fields, then we're not actually
         // projecting fast fields
+        pgrx::warning!("⭐️ Not string agg capable because all fast fields are junk");
         return None;
     }
 
@@ -411,9 +482,11 @@ pub fn is_string_agg_capable(privdata: &PrivateData) -> Option<String> {
         match ff {
             WhichFastField::Named(name, FastFieldType::String) if string_field.is_none() => {
                 string_field = Some(name.clone());
+                pgrx::warning!("⭐️ Found string field for string agg: {}", name);
             }
             WhichFastField::Named(_, FastFieldType::String) => {
                 // too many string fields for us to be capable of doing a string_agg
+                pgrx::warning!("⭐️ Too many string fields for string agg");
                 return None;
             }
             _ => {
@@ -422,23 +495,34 @@ pub fn is_string_agg_capable(privdata: &PrivateData) -> Option<String> {
         }
     }
 
+    if string_field.is_some() {
+        pgrx::warning!("⭐️ String agg capable with field: {:?}", string_field);
+    } else {
+        pgrx::warning!("⭐️ Not string agg capable - no string fields found");
+    }
+
     string_field
 }
 
 // Check if we can use numeric fast field execution method
 pub fn is_numeric_fast_field_capable(privdata: &PrivateData) -> bool {
+    pgrx::warning!("⭐️ Checking if numeric fast field capable...");
+
     if privdata.referenced_columns_count() == 0 {
+        pgrx::warning!("⭐️ No referenced columns, can use numeric fast fields");
         return true;
     }
 
     let which_fast_fields = privdata.which_fast_fields();
     if which_fast_fields.is_none() {
+        pgrx::warning!("⭐️ No fast fields, can't use numeric fast fields");
         return false;
     }
 
     if is_all_junk(which_fast_fields) {
         // if all the fast fields we have are Junk fields, then we're not actually
         // projecting fast fields
+        pgrx::warning!("⭐️ All junk fields, can't use numeric fast fields");
         return false;
     }
 

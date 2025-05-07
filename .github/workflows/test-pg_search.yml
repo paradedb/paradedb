@@ -151,6 +151,9 @@ jobs:
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
           RUST_BACKTRACE=1 cargo test --jobs $(nproc) --features pg${{ matrix.pg_version }} --no-default-features
 
+      - name: Run pg_search Regression Tests Against distro-managed Postgres
+        run: cargo pgrx regress --package pg_search pg${{ matrix.pg_version }} --features=icu
+
       - name: Print the Postgres Logs
         if: always()
         run: cat ~/.pgrx/${{ matrix.pg_version}}.log
@@ -233,6 +236,9 @@ jobs:
 
       - name: Run pg_search Integration Tests Against pgrx-managed Postgres
         run: RUST_BACKTRACE=1 DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/pg_search cargo test --jobs $(nproc) --no-default-features --features=icu --package tests --package tokenizers -- --skip replication --skip ephemeral
+
+      - name: Run pg_search Regression Tests Against pgrx-managed Postgres
+        run: cargo pgrx regress --package pg_search pg${{ matrix.pg_version }} --features=icu
 
       - name: Print the Postgres Logs
         run: cat ~/.pgrx/${{ matrix.pg_version}}.log

@@ -1258,7 +1258,7 @@ unsafe fn collect_vars_from_quals(
         pg_sys::NodeTag::T_List => {
             let list = PgList::<pg_sys::Node>::from_pg(node.cast());
 
-            for (i, item) in list.iter_ptr().enumerate() {
+            for item in list.iter_ptr() {
                 collect_vars_from_quals(item as *mut pg_sys::Node, rte_index, columns);
             }
         }
@@ -1283,16 +1283,15 @@ unsafe fn collect_vars_from_quals(
             }
 
             let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
-            for (i, arg) in args.iter_ptr().enumerate() {
+            for arg in args.iter_ptr() {
                 collect_vars_from_quals(arg as *mut pg_sys::Node, rte_index, columns);
             }
         }
 
         pg_sys::NodeTag::T_BoolExpr => {
             let boolexpr = node.cast::<pg_sys::BoolExpr>();
-
             let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
-            for (i, arg) in args.iter_ptr().enumerate() {
+            for arg in args.iter_ptr() {
                 collect_vars_from_quals(arg as *mut pg_sys::Node, rte_index, columns);
             }
         }
@@ -1300,9 +1299,8 @@ unsafe fn collect_vars_from_quals(
         // Handle function calls
         pg_sys::NodeTag::T_FuncExpr => {
             let funcexpr = node.cast::<pg_sys::FuncExpr>();
-
             let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-            for (i, arg) in args.iter_ptr().enumerate() {
+            for arg in args.iter_ptr() {
                 collect_vars_from_quals(arg as *mut pg_sys::Node, rte_index, columns);
             }
         }
@@ -1310,7 +1308,6 @@ unsafe fn collect_vars_from_quals(
         // Direct Var references
         pg_sys::NodeTag::T_Var => {
             let var = node.cast::<pg_sys::Var>();
-
             if (*var).varno as u32 == rte_index {
                 columns.insert((*var).varattno);
             }

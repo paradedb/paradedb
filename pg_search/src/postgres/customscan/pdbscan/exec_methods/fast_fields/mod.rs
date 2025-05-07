@@ -383,11 +383,6 @@ pub fn is_mixed_fast_field_capable(privdata: &PrivateData) -> bool {
 
 // Update is_string_agg_capable to consider test requirements
 pub fn is_string_agg_capable(privdata: &PrivateData) -> Option<String> {
-    // Don't use string_agg if we've determined this is a mixed field case
-    if is_mixed_fast_field_capable(privdata) {
-        return None;
-    }
-
     if privdata.limit().is_some() {
         // doing a string_agg when there's a limit is always a loss, performance-wise
         return None;
@@ -432,11 +427,6 @@ pub fn is_string_agg_capable(privdata: &PrivateData) -> Option<String> {
 
 // Check if we can use numeric fast field execution method
 pub fn is_numeric_fast_field_capable(privdata: &PrivateData) -> bool {
-    // Don't use numeric if we've determined this is a mixed field case
-    if is_mixed_fast_field_capable(privdata) {
-        return false;
-    }
-
     if privdata.referenced_columns_count() == 0 {
         return true;
     }

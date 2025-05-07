@@ -182,7 +182,7 @@ impl From<&Qual> for SearchQueryInput {
                 query: Box::new(SearchQueryInput::All),
                 score: 0.0,
             },
-            Qual::OpExpr { val, var, opno } => unsafe {
+            Qual::OpExpr { val, .. } => unsafe {
                 SearchQueryInput::from_datum((**val).constvalue, (**val).constisnull)
                     .expect("rhs of @@@ operator Qual must not be null")
             },

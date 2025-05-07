@@ -495,7 +495,6 @@ impl MixedAggSearcher<'_> {
         let merged: Mutex<MergedResultsMap> = Mutex::new(BTreeMap::new());
 
         // Process results, which contains a Vec of segment results
-        // Process results, which contains a Vec of segment results
         results.into_par_iter().for_each(
             |(string_columns, string_results, numeric_columns, numeric_values)| {
                 // Process string fields
@@ -509,16 +508,45 @@ impl MixedAggSearcher<'_> {
 
                     // Process each term ordinate
                     for (term_ord, docs) in field_result.iter() {
-                        // Resolve the term for this field
-                        let term_value = if *term_ord != 0 && str_ff.num_terms() > 0 {
+                        // Resolve the term for this field - CHANGED to match string.rs approach
+
+                        let term_value = {
+                            // Even if term_ord is 0, try to get a value if possible
                             let mut term_str = String::new();
-                            if str_ff.ord_to_str(*term_ord, &mut term_str).is_ok() {
+
+                            // Track if we got a successful resolution
+                            let got_term = if str_ff.num_terms() > 0 {
+                                // Try to resolve the term ordinal to a string
+                                str_ff.ord_to_str(*term_ord, &mut term_str).is_ok()
+                            } else {
+                                false
+                            };
+
+                            if got_term && !term_str.is_empty() {
                                 Some(term_str)
                             } else {
-                                None
+                                // Special handling for term_ord = 0 - look it up in the dictionary directly
+                                if *term_ord == 0 && !docs.is_empty() {
+                                    // Instead of get_bytes, use the dictionary directly
+                                    let doc = docs[0].1.doc_id;
+                                    let mut value = None;
+
+                                    // Use the ord_to_term method with a bytes buffer
+                                    let mut bytes_buffer = Vec::new();
+                                    if str_ff.dictionary().ord_to_term(0, &mut bytes_buffer).ok()
+                                        == Some(true)
+                                    {
+                                        if let Ok(s) = std::str::from_utf8(&bytes_buffer) {
+                                            value = Some(s.to_string());
+                                        }
+                                    }
+
+                                    // Return the value if found
+                                    value
+                                } else {
+                                    None
+                                }
                             }
-                        } else {
-                            None
                         };
 
                         // Add this term to all documents
@@ -672,15 +700,42 @@ impl MixedAggSearcher<'_> {
             // Process each term ordinate
             for (term_ord, docs) in field_result {
                 // Get the term
-                let term_value = if *term_ord != 0 && str_ff.num_terms() > 0 {
-                    let mut term = String::new();
-                    if str_ff.ord_to_str(*term_ord, &mut term).is_ok() {
-                        Some(term)
+                let term_value = {
+                    // Even if term_ord is 0, try to get a value
+                    let mut term_str = String::new();
+
+                    // Try to resolve the term ordinal to a string
+                    let got_term = if str_ff.num_terms() > 0 {
+                        str_ff.ord_to_str(*term_ord, &mut term_str).is_ok()
                     } else {
-                        None
+                        false
+                    };
+
+                    if got_term && !term_str.is_empty() {
+                        Some(term_str)
+                    } else {
+                        // Special handling for term_ord = 0 - look it up in the dictionary directly
+                        if *term_ord == 0 && !docs.is_empty() {
+                            // Instead of get_bytes, use the dictionary directly
+                            let doc = docs[0].1.doc_id;
+                            let mut value = None;
+
+                            // Use the ord_to_term method with a bytes buffer
+                            let mut bytes_buffer = Vec::new();
+                            if str_ff.dictionary().ord_to_term(0, &mut bytes_buffer).ok()
+                                == Some(true)
+                            {
+                                if let Ok(s) = std::str::from_utf8(&bytes_buffer) {
+                                    value = Some(s.to_string());
+                                }
+                            }
+
+                            // Return the value if found
+                            value
+                        } else {
+                            None
+                        }
                     }
-                } else {
-                    None
                 };
 
                 // Add term for each document

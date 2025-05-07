@@ -24,10 +24,12 @@ use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::is_block_all_visible;
 use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
+use crate::postgres::types::TantivyValue;
 use crate::query::SearchQueryInput;
 use parking_lot::Mutex;
 use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::pg_sys;
+use pgrx::PgOid;
 use rayon::prelude::*;
 use std::collections::{BTreeMap, HashMap};
 use tantivy::collector::Collector;
@@ -237,16 +239,16 @@ impl ExecMethod for MixedFastFieldExecState {
                                         if let Some(num_value) =
                                             field_values.get_numeric(field_name)
                                         {
-                                            // Convert the numeric value to the right Datum type
-                                            if let Some(datum) =
-                                                numeric_to_datum(num_value, att_typid)
+                                            // Convert the numeric value to the right Datum type using TantivyValue
+                                            if let Ok(Some(datum)) = TantivyValue(num_value.clone())
+                                                .try_into_datum(PgOid::from(att_typid))
                                             {
                                                 datums[i] = datum;
                                                 isnull[i] = false;
                                                 pgrx::warning!(
-                                                    "⭐️ [Mixed] Assigned numeric field: pos={}, field={}",
-                                                    i, field_name
-                                                );
+                                                        "⭐️ [Mixed] Assigned numeric field: pos={}, field={}",
+                                                        i, field_name
+                                                    );
                                                 continue;
                                             }
                                         }
@@ -333,42 +335,13 @@ fn term_to_datum(
     atttypid: pgrx::pg_sys::Oid,
     slot: *mut pg_sys::TupleTableSlot,
 ) -> Option<pg_sys::Datum> {
-    use pgrx::pg_sys;
-    unsafe {
-        let cstr = std::ffi::CString::new(term).ok()?;
-        let text_ptr = pg_sys::cstring_to_text_with_len(cstr.as_ptr(), term.len() as _);
-        // Convert text_ptr to Datum correctly by converting pointer to integer
-        Some(pg_sys::Datum::from(text_ptr as usize))
-    }
-}
-
-// Helper function to convert numeric value to PostgreSQL Datum
-#[inline]
-fn numeric_to_datum(value: &OwnedValue, atttypid: pgrx::pg_sys::Oid) -> Option<pg_sys::Datum> {
-    use pgrx::pg_sys;
-
-    // Based on the atttype, convert the OwnedValue to the right datum type
-    match value {
-        OwnedValue::I64(i) => {
-            let i_val = *i;
-            Some(pg_sys::Datum::from(i_val as i32)) // Cast to i32 first for proper Datum conversion
+    // Use TantivyValue to convert the string to a Datum
+    match TantivyValue::try_from(String::from(term)) {
+        Ok(tantivy_value) => {
+            // Convert to datum using the common try_into_datum method
+            unsafe { tantivy_value.try_into_datum(PgOid::from(atttypid)) }.unwrap_or_default()
         }
-        OwnedValue::U64(u) => {
-            let u_val = *u;
-            Some(pg_sys::Datum::from(u_val as u32)) // Cast to u32 first
-        }
-        OwnedValue::F64(f) => {
-            // For floating point, use the f64_to_datum conversion
-            unsafe {
-                let float_val = *f;
-                Some(pg_sys::Float8GetDatum(float_val))
-            }
-        }
-        OwnedValue::Bool(b) => {
-            let b_val = *b;
-            Some(pg_sys::Datum::from(b_val)) // Use From trait
-        }
-        _ => None, // Can't handle other types
+        Err(_) => None,
     }
 }
 

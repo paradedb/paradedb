@@ -33,17 +33,8 @@ use std::collections::{BTreeMap, HashMap};
 use tantivy::collector::Collector;
 use tantivy::index::SegmentId;
 use tantivy::query::Query;
+use tantivy::schema::document::OwnedValue;
 use tantivy::{DocAddress, Executor, SegmentOrdinal};
-
-// Define struct to hold field values of different types - make it public
-#[derive(Debug, Clone)]
-pub enum FieldValue {
-    I64(i64),
-    U64(u64),
-    F64(f64),
-    Bool(bool),
-    None,
-}
 
 /// MixedFastFieldExecState handles mixed (string and numeric) fast field retrieval
 /// Use when you have multiple string fast fields, or a mix of string and numeric fast fields
@@ -353,27 +344,27 @@ fn term_to_datum(
 
 // Helper function to convert numeric value to PostgreSQL Datum
 #[inline]
-fn numeric_to_datum(value: &FieldValue, atttypid: pgrx::pg_sys::Oid) -> Option<pg_sys::Datum> {
+fn numeric_to_datum(value: &OwnedValue, atttypid: pgrx::pg_sys::Oid) -> Option<pg_sys::Datum> {
     use pgrx::pg_sys;
 
-    // Based on the atttype, convert the numeric value to the right datum type
+    // Based on the atttype, convert the OwnedValue to the right datum type
     match value {
-        FieldValue::I64(i) => {
+        OwnedValue::I64(i) => {
             let i_val = *i;
             Some(pg_sys::Datum::from(i_val as i32)) // Cast to i32 first for proper Datum conversion
         }
-        FieldValue::U64(u) => {
+        OwnedValue::U64(u) => {
             let u_val = *u;
             Some(pg_sys::Datum::from(u_val as u32)) // Cast to u32 first
         }
-        FieldValue::F64(f) => {
+        OwnedValue::F64(f) => {
             // For floating point, use the f64_to_datum conversion
             unsafe {
                 let float_val = *f;
                 Some(pg_sys::Float8GetDatum(float_val))
             }
         }
-        FieldValue::Bool(b) => {
+        OwnedValue::Bool(b) => {
             let b_val = *b;
             Some(pg_sys::Datum::from(b_val)) // Use From trait
         }
@@ -385,7 +376,7 @@ fn numeric_to_datum(value: &FieldValue, atttypid: pgrx::pg_sys::Oid) -> Option<p
 #[derive(Debug, Clone, Default)]
 pub struct FieldValues {
     string_values: HashMap<String, Option<String>>,
-    numeric_values: HashMap<String, FieldValue>,
+    numeric_values: HashMap<String, OwnedValue>,
 }
 
 impl FieldValues {
@@ -400,7 +391,7 @@ impl FieldValues {
         self.string_values.insert(field, value);
     }
 
-    fn set_numeric(&mut self, field: String, value: FieldValue) {
+    fn set_numeric(&mut self, field: String, value: OwnedValue) {
         self.numeric_values.insert(field, value);
     }
 
@@ -408,7 +399,7 @@ impl FieldValues {
         self.string_values.get(field)
     }
 
-    fn get_numeric(&self, field: &str) -> Option<&FieldValue> {
+    fn get_numeric(&self, field: &str) -> Option<&OwnedValue> {
         self.numeric_values.get(field)
     }
 }
@@ -593,7 +584,7 @@ impl MixedAggSearcher<'_> {
                 field_values.string_values.iter().collect();
             term_keys.sort_by(|a, b| a.0.cmp(b.0));
 
-            let mut num_keys: Vec<(&String, &FieldValue)> =
+            let mut num_keys: Vec<(&String, &OwnedValue)> =
                 field_values.numeric_values.iter().collect();
             num_keys.sort_by(|a, b| a.0.cmp(b.0));
 
@@ -791,9 +782,9 @@ mod multi_field_collector {
     use std::collections::{BTreeMap, HashMap};
     use tantivy::collector::{Collector, SegmentCollector};
     use tantivy::columnar::StrColumn;
+    use tantivy::schema::document::OwnedValue;
 
     use crate::index::fast_fields_helper::FFType;
-    use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::mixed::FieldValue;
     use tantivy::termdict::TermOrdinal;
     use tantivy::{DocAddress, DocId, Score, SegmentOrdinal, SegmentReader};
 
@@ -808,7 +799,7 @@ mod multi_field_collector {
             Vec<(String, StrColumn)>,
             Vec<BTreeMap<TermOrdinal, Vec<(SearchIndexScore, DocAddress)>>>,
             Vec<(String, FFType)>,
-            Vec<HashMap<DocAddress, FieldValue>>,
+            Vec<HashMap<DocAddress, OwnedValue>>,
         )>;
         type Child = MultiFieldSegmentCollector;
 
@@ -882,7 +873,7 @@ mod multi_field_collector {
         pub string_columns: Vec<(String, StrColumn)>,
         pub string_results: Vec<BTreeMap<TermOrdinal, Vec<(SearchIndexScore, DocAddress)>>>,
         pub numeric_columns: Vec<(String, FFType)>,
-        pub numeric_values: Vec<HashMap<DocAddress, FieldValue>>,
+        pub numeric_values: Vec<HashMap<DocAddress, OwnedValue>>,
         ctid_ff: FFType,
     }
 
@@ -891,7 +882,7 @@ mod multi_field_collector {
             Vec<(String, StrColumn)>,
             Vec<BTreeMap<TermOrdinal, Vec<(SearchIndexScore, DocAddress)>>>,
             Vec<(String, FFType)>,
-            Vec<HashMap<DocAddress, FieldValue>>,
+            Vec<HashMap<DocAddress, OwnedValue>>,
         );
 
         fn collect(&mut self, doc: DocId, score: Score) {
@@ -913,33 +904,33 @@ mod multi_field_collector {
                 let field_value = match field_type {
                     FFType::I64(col) => {
                         if let Some(val) = col.first(doc) {
-                            FieldValue::I64(val)
+                            OwnedValue::I64(val)
                         } else {
-                            FieldValue::None
+                            OwnedValue::Null
                         }
                     }
                     FFType::U64(col) => {
                         if let Some(val) = col.first(doc) {
-                            FieldValue::U64(val)
+                            OwnedValue::U64(val)
                         } else {
-                            FieldValue::None
+                            OwnedValue::Null
                         }
                     }
                     FFType::F64(col) => {
                         if let Some(val) = col.first(doc) {
-                            FieldValue::F64(val)
+                            OwnedValue::F64(val)
                         } else {
-                            FieldValue::None
+                            OwnedValue::Null
                         }
                     }
                     FFType::Bool(col) => {
                         if let Some(val) = col.first(doc) {
-                            FieldValue::Bool(val)
+                            OwnedValue::Bool(val)
                         } else {
-                            FieldValue::None
+                            OwnedValue::Null
                         }
                     }
-                    _ => FieldValue::None,
+                    _ => OwnedValue::Null,
                 };
 
                 // Store the value for this document

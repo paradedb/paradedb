@@ -182,7 +182,7 @@ impl From<&Qual> for SearchQueryInput {
                 query: Box::new(SearchQueryInput::All),
                 score: 0.0,
             },
-            Qual::OpExpr { val, .. } => unsafe {
+            Qual::OpExpr { val, var, opno } => unsafe {
                 SearchQueryInput::from_datum((**val).constvalue, (**val).constisnull)
                     .expect("rhs of @@@ operator Qual must not be null")
             },
@@ -314,7 +314,6 @@ impl From<&Qual> for SearchQueryInput {
                         should: Default::default(),
                         must_not: Default::default(),
                     },
-                    1 => should.into_iter().next().unwrap(),
                     _ => SearchQueryInput::Boolean {
                         must: Default::default(),
                         should,
@@ -713,30 +712,7 @@ unsafe fn booltest(
 mod tests {
     use super::*;
     use pgrx::prelude::*;
-
-    unsafe fn mk_const_int32(val: i32) -> *mut pg_sys::Const {
-        let mut c = Box::new(pg_sys::Const {
-            xpr: pg_sys::Node {
-                type_: pg_sys::NodeTag::T_Const,
-            },
-            consttype: pg_sys::INT4OID,
-            constlen: 4,
-            constvalue: val.into_datum(),
-            constisnull: false,
-            constbyval: true,
-            constalign: b'i' as i16,
-            location: -1,
-        });
-        Box::into_raw(c)
-    }
-
-    unsafe fn mk_score_expr(opname: &str, rhs: f32) -> Qual {
-        let const_node = mk_const_int32(rhs.to_bits() as i32);
-        Qual::ScoreExpr {
-            opoid: crate::postgres::customscan::operator_oid(&format!("=(float4,float4)")),
-            value: const_node as *mut pg_sys::Node,
-        }
-    }
+    use proptest::prelude::*;
 
     #[pg_test]
     fn test_all_variant() {
@@ -746,5 +722,205 @@ mod tests {
             score: 0.0,
         };
         assert_eq!(got, want);
+    }
+
+    #[pg_test]
+    fn test_pushdown_var_eq_true() {
+        let qual = Qual::PushdownVarEqTrue {
+            attname: "foo".into(),
+        };
+        let got = SearchQueryInput::from(&qual);
+        let want = SearchQueryInput::Term {
+            field: Some("foo".into()),
+            value: OwnedValue::Bool(true),
+            is_datetime: false,
+        };
+        assert_eq!(got, want);
+    }
+
+    #[pg_test]
+    fn test_pushdown_var_eq_false() {
+        let qual = Qual::PushdownVarEqFalse {
+            attname: "bar".into(),
+        };
+        let got = SearchQueryInput::from(&qual);
+        let want = SearchQueryInput::Term {
+            field: Some("bar".into()),
+            value: OwnedValue::Bool(false),
+            is_datetime: false,
+        };
+        assert_eq!(got, want);
+    }
+
+    #[pg_test]
+    fn test_pushdown_var_is_true() {
+        let qual = Qual::PushdownVarIsTrue {
+            attname: "baz".into(),
+        };
+        let got = SearchQueryInput::from(&qual);
+        let want = SearchQueryInput::Term {
+            field: Some("baz".into()),
+            value: OwnedValue::Bool(true),
+            is_datetime: false,
+        };
+        assert_eq!(got, want);
+    }
+
+    #[pg_test]
+    fn test_pushdown_var_is_false() {
+        let qual = Qual::PushdownVarIsFalse {
+            attname: "qux".into(),
+        };
+        let got = SearchQueryInput::from(&qual);
+        let want = SearchQueryInput::Term {
+            field: Some("qux".into()),
+            value: OwnedValue::Bool(false),
+            is_datetime: false,
+        };
+        assert_eq!(got, want);
+    }
+
+    #[pg_test]
+    fn test_pushdown_is_not_null() {
+        let qual = Qual::PushdownIsNotNull {
+            attname: "fld".into(),
+        };
+        let got = SearchQueryInput::from(&qual);
+        let want = SearchQueryInput::Exists {
+            field: "fld".into(),
+        };
+        assert_eq!(got, want);
+    }
+
+    fn arb_leaf() -> impl Strategy<Value = Qual> {
+        prop_oneof![
+            Just(Qual::All),
+            "[a-z]{1,3}".prop_map(|s| Qual::PushdownVarEqTrue { attname: s.clone() }),
+            "[a-z]{1,3}".prop_map(|s| Qual::PushdownVarEqFalse { attname: s.clone() }),
+            "[a-z]{1,3}".prop_map(|s| Qual::PushdownVarIsTrue { attname: s.clone() }),
+            "[a-z]{1,3}".prop_map(|s| Qual::PushdownVarIsFalse { attname: s.clone() }),
+            "[a-z]{1,3}".prop_map(|s| Qual::PushdownIsNotNull { attname: s.clone() }),
+        ]
+    }
+
+    fn arb_qual(depth: u32) -> impl Strategy<Value = Qual> {
+        arb_leaf().prop_recursive(depth, 256, 3, |inner| {
+            prop_oneof![
+                inner.clone().prop_map(|q| Qual::Not(Box::new(q))),
+                prop::collection::vec(inner.clone(), 1..4).prop_map(Qual::And),
+                prop::collection::vec(inner, 1..4).prop_map(Qual::Or),
+            ]
+        })
+    }
+
+    fn is_logical_equivalent(a: &Qual, b: &SearchQueryInput) -> bool {
+        match (a, b) {
+            // Match Qual::All with ConstScore
+            (Qual::All, SearchQueryInput::ConstScore { query, score }) => {
+                matches!(**query, SearchQueryInput::All) && *score == 0.0
+            }
+
+            // Match boolean field TRUE cases
+            (
+                qual @ (Qual::PushdownVarEqTrue { attname } | Qual::PushdownVarIsTrue { attname }),
+                SearchQueryInput::Term {
+                    field: Some(f),
+                    value,
+                    ..
+                },
+            ) => attname == f && matches!(value, OwnedValue::Bool(true)),
+
+            // Match boolean field FALSE cases
+            (
+                qual
+                @ (Qual::PushdownVarEqFalse { attname } | Qual::PushdownVarIsFalse { attname }),
+                SearchQueryInput::Term {
+                    field: Some(f),
+                    value,
+                    ..
+                },
+            ) => attname == f && matches!(value, OwnedValue::Bool(false)),
+
+            // Match IS NOT NULL
+            (Qual::PushdownIsNotNull { attname }, SearchQueryInput::Exists { field }) => {
+                attname == field
+            }
+
+            // Match AND clauses
+            (
+                Qual::And(quals),
+                SearchQueryInput::Boolean {
+                    must,
+                    should,
+                    must_not,
+                },
+            ) => should.is_empty() && must_not.is_empty() && quals.len() == must.len(),
+
+            // Match OR clauses
+            (
+                Qual::Or(quals),
+                SearchQueryInput::Boolean {
+                    must,
+                    should,
+                    must_not,
+                },
+            ) => must.is_empty() && must_not.is_empty() && quals.len() == should.len(),
+
+            // Match NOT clauses
+            (
+                Qual::Not(inner),
+                SearchQueryInput::Boolean {
+                    must,
+                    should,
+                    must_not,
+                },
+            ) => {
+                // Either it's a negated boolean field
+                let is_negated_bool = matches!(
+                    **inner,
+                    Qual::PushdownVarEqTrue { .. }
+                        | Qual::PushdownVarEqFalse { .. }
+                        | Qual::PushdownVarIsTrue { .. }
+                        | Qual::PushdownVarIsFalse { .. }
+                );
+
+                // Or it's a standard negation with must_not
+                let is_standard_not = must.len() == 1
+                    && matches!(must[0], SearchQueryInput::All)
+                    && must_not.len() == 1;
+
+                is_negated_bool || is_standard_not
+            }
+
+            // Match negation of PushdownVarEqTrue mapping to PushdownVarEqFalse
+            (
+                Qual::Not(inner),
+                SearchQueryInput::Term {
+                    field: Some(f),
+                    value: OwnedValue::Bool(false),
+                    ..
+                },
+            ) if matches!(**inner, Qual::PushdownVarEqTrue { attname: ref a } if *a == *f) => true,
+
+            // Match negation of PushdownVarEqFalse mapping to PushdownVarEqTrue
+            (
+                Qual::Not(inner),
+                SearchQueryInput::Term {
+                    field: Some(f),
+                    value: OwnedValue::Bool(true),
+                    ..
+                },
+            ) if matches!(**inner, Qual::PushdownVarEqFalse { attname: ref a } if *a == *f) => true,
+
+            _ => false,
+        }
+    }
+
+    proptest! {
+        #[pg_test]
+        fn test_qual_conversion_logical_equivalence(q in arb_qual(3)) {
+            let query = SearchQueryInput::from(&q);
+            prop_assert!(is_logical_equivalent(&q, &query), "Failed: Qual: {:?} SearchQueryInput: {:?}", q, query);
+        }
     }
 }

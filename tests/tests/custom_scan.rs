@@ -1136,6 +1136,6 @@ fn custom_scan_respects_parentheses_issue2526(mut conn: PgConnection) {
     WITH (key_field='id');
     "#.execute(&mut conn);
 
-    let result = "SELECT COUNT(*) from mock_items WHERE description @@@ 'shoes' AND (description @@@ 'keyboard' OR description @@@ 'hat')";
+    let result = "SELECT COUNT(*) from mock_items WHERE description @@@ 'shoes' AND (description @@@ 'keyboard' OR description @@@ 'hat')".fetch_result::<i64>(&mut conn);
     assert_eq!(result.len(), 0);
 }

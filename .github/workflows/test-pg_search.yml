@@ -226,7 +226,7 @@ jobs:
 
       - name: Compile & install pg_search extension
         working-directory: pg_search/
-        run: cargo pgrx install --sudo --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config --features=pg${{ matrix.pg_version }},icu
+        run: cargo pgrx install --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config --features=pg${{ matrix.pg_version }},icu
 
       - name: Start Postgres and create database
         working-directory: tests/

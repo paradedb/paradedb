@@ -202,7 +202,6 @@ fn collect_fast_field_try_for_attno(
     attno: i32,
     processed_attnos: &mut HashSet<pg_sys::AttrNumber>,
     matches: &mut Vec<WhichFastField>,
-    field_names: &mut HashSet<String>,
     tupdesc: &PgTupleDesc<'_>,
     heaprel: &PgRelation,
     schema: &SearchIndexSchema,
@@ -253,12 +252,7 @@ fn collect_fast_field_try_for_attno(
                     } else {
                         FastFieldType::Numeric
                     };
-
-                    // Add a field to the matches list - field_names is only used for
-                    // duplicate detection, not as part of the actual data structure
-                    if field_names.insert(att_name.clone()) {
-                        matches.push(WhichFastField::Named(att_name, ff_type));
-                    }
+                    matches.push(WhichFastField::Named(att_name, ff_type));
                 }
             }
             // If the attribute doesn't exist in this relation, just continue
@@ -278,9 +272,6 @@ pub unsafe fn pullup_fast_fields(
 ) -> Option<Vec<WhichFastField>> {
     let mut matches = Vec::new();
     let mut processed_attnos = HashSet::new();
-    // Track field names to avoid duplicates - still needed for case where different attnos
-    // might map to same field name in different relations
-    let mut field_names = HashSet::new();
 
     let tupdesc = heaprel.tuple_desc();
 
@@ -302,7 +293,6 @@ pub unsafe fn pullup_fast_fields(
                 attno,
                 &mut processed_attnos,
                 &mut matches,
-                &mut field_names,
                 &tupdesc,
                 heaprel,
                 schema,
@@ -336,7 +326,6 @@ pub unsafe fn pullup_fast_fields(
             attno as i32,
             &mut processed_attnos,
             &mut matches,
-            &mut field_names,
             &tupdesc,
             heaprel,
             schema,

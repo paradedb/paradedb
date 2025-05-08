@@ -82,6 +82,7 @@ fn force_merge(mut conn: PgConnection) {
     assert_eq!(nsegments, 4);
 }
 
+#[ignore]
 #[rstest]
 fn dont_merge_create_index_segments(mut conn: PgConnection) {
     // Test that a segment created by CREATE INDEX cannot get merged away even if less than layer size

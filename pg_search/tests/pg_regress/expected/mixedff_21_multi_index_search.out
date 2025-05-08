@@ -1,5 +1,7 @@
 -- Test multi-index search with mixed fast fields
 -- This test verifies that queries using multiple indices with mixed fast fields work correctly
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
 -- Create main test tables
 DROP TABLE IF EXISTS products;
 DROP TABLE IF EXISTS categories;
@@ -30,16 +32,16 @@ CREATE TABLE reviews (
     helpful_votes INTEGER,
     created_at TIMESTAMP
 );
--- Insert test data
+-- Insert test data with deterministic values
 INSERT INTO products (name, description, price, stock_count, weight, is_available, created_at)
 SELECT
     'Product ' || i,
     'Description for product ' || i || '. This product has various features and specifications.',
-    (50.00 + (random() * 950))::numeric(10,2),
-    (random() * 200)::integer,
-    (0.1 + random() * 20)::float,
-    random() < 0.8,  -- 80% are available
-    now() - (random() * 365 * 2)::integer * interval '1 day'
+    (50.00 + (i * 10))::numeric(10,2),  -- Deterministic prices
+    (i * 2)::integer,                   -- Deterministic stock counts
+    (0.1 + (i * 0.2))::float,           -- Deterministic weights
+    i % 5 != 0,                         -- Deterministic availability pattern (80% available)
+    '1988-04-29'::timestamp + (i * '1 day'::interval)  -- Deterministic dates
 FROM generate_series(1, 100) i;
 INSERT INTO categories (name, description, product_count, is_active)
 VALUES
@@ -53,7 +55,7 @@ VALUES
     ('Automotive', 'Car parts and accessories', 8, true),
     ('Office', 'Office supplies and equipment', 12, true),
     ('Outdoors', 'Outdoor equipment and accessories', 18, true);
--- Insert reviews (10 reviews per product for first 20 products)
+-- Insert reviews with deterministic values
 INSERT INTO reviews (product_id, reviewer_name, content, rating, helpful_votes, created_at)
 SELECT
     (i % 20) + 1,  -- product_id 1-20
@@ -66,8 +68,8 @@ SELECT
         WHEN 4 THEN 'Terrible product, complete waste of money!'
     END,
     (i % 5) + 1,  -- rating 1-5
-    (random() * 50)::integer,  -- helpful votes
-    now() - (random() * 180)::integer * interval '1 day'  -- last 6 months
+    (i % 50) * 2,  -- deterministic helpful votes
+    '1988-04-29'::timestamp + (i * '1 day'::interval)  -- deterministic dates
 FROM generate_series(1, 200) i;
 -- Create join table between products and categories (many-to-many)
 DROP TABLE IF EXISTS product_categories;
@@ -76,17 +78,25 @@ CREATE TABLE product_categories (
     category_id INTEGER REFERENCES categories(id),
     PRIMARY KEY (product_id, category_id)
 );
--- Assign each product to 1-3 categories
+-- Assign products to categories deterministically
 INSERT INTO product_categories (product_id, category_id)
 SELECT
     p.id,
-    c.id
+    1 + (p.id % 10)  -- Assign to category 1-10 based on product id
+FROM products p;
+-- Add additional category assignments for some products (to have 1-3 categories per product)
+INSERT INTO product_categories (product_id, category_id)
+SELECT
+    p.id,
+    1 + ((p.id + 5) % 10)  -- Add a second category
 FROM products p
-CROSS JOIN LATERAL (
-    SELECT id FROM categories
-    ORDER BY random()
-    LIMIT floor(random() * 3) + 1
-) c;
+WHERE p.id % 3 = 0;  -- Only for every 3rd product
+INSERT INTO product_categories (product_id, category_id)
+SELECT
+    p.id,
+    1 + ((p.id + 7) % 10)  -- Add a third category
+FROM products p
+WHERE p.id % 9 = 0;  -- Only for every 9th product
 -- Create search indices with mixed fast fields
 DROP INDEX IF EXISTS products_idx;
 DROP INDEX IF EXISTS categories_idx;
@@ -103,10 +113,8 @@ CREATE INDEX reviews_idx ON reviews
 USING columnstore (reviewer_name, content, rating, helpful_votes)
 WITH (type='hnsw');
 ERROR:  access method "columnstore" does not exist
--- Enable execution method tracing
-SET pg_search.explain_analyze_verbose TO TRUE;
 -- Test 1: Join between products and categories with search
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.name, p.price, c.name as category
 FROM products p
 JOIN product_categories pc ON p.id = pc.product_id
@@ -114,57 +122,48 @@ JOIN categories c ON pc.category_id = c.id
 WHERE p.name ILIKE '%product%' AND c.is_active = true
 ORDER BY p.price DESC
 LIMIT 10;
-                                                                        QUERY PLAN                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=33.41..33.42 rows=2 width=80) (actual time=1.391..1.394 rows=10 loops=1)
-   ->  Sort  (cost=33.41..33.42 rows=2 width=80) (actual time=1.390..1.392 rows=10 loops=1)
+                                 QUERY PLAN                                 
+----------------------------------------------------------------------------
+ Limit
+   ->  Sort
          Sort Key: p.price DESC
-         Sort Method: top-N heapsort  Memory: 26kB
-         ->  Nested Loop  (cost=4.39..33.40 rows=2 width=80) (actual time=0.061..1.152 rows=200 loops=1)
-               ->  Nested Loop  (cost=4.24..32.65 rows=4 width=52) (actual time=0.038..0.728 rows=200 loops=1)
-                     ->  Seq Scan on products p  (cost=0.00..17.62 rows=1 width=52) (actual time=0.023..0.146 rows=100 loops=1)
+         ->  Nested Loop
+               ->  Nested Loop
+                     ->  Seq Scan on products p
                            Filter: (name ~~* '%product%'::text)
-                     ->  Bitmap Heap Scan on product_categories pc  (cost=4.24..14.91 rows=11 width=8) (actual time=0.003..0.004 rows=2 loops=100)
+                     ->  Bitmap Heap Scan on product_categories pc
                            Recheck Cond: (p.id = product_id)
-                           Heap Blocks: exact=100
-                           ->  Bitmap Index Scan on product_categories_pkey  (cost=0.00..4.24 rows=11 width=0) (actual time=0.002..0.002 rows=2 loops=100)
+                           ->  Bitmap Index Scan on product_categories_pkey
                                  Index Cond: (product_id = p.id)
-               ->  Index Scan using categories_pkey on categories c  (cost=0.15..0.19 rows=1 width=36) (actual time=0.001..0.001 rows=1 loops=200)
+               ->  Index Scan using categories_pkey on categories c
                      Index Cond: (id = pc.category_id)
                      Filter: is_active
- Planning Time: 0.779 ms
- Execution Time: 1.477 ms
-(18 rows)
+(14 rows)
 
 -- Test 2: Join between products and reviews with search
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.name, r.rating, r.content
 FROM products p
 JOIN reviews r ON p.id = r.product_id
 WHERE p.description ILIKE '%product%' AND r.rating >= 4
 ORDER BY r.helpful_votes DESC
 LIMIT 5;
-                                                           QUERY PLAN                                                           
---------------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=37.01..37.01 rows=1 width=72) (actual time=0.412..0.414 rows=5 loops=1)
-   ->  Sort  (cost=37.01..37.01 rows=1 width=72) (actual time=0.411..0.412 rows=5 loops=1)
+                              QUERY PLAN                               
+-----------------------------------------------------------------------
+ Limit
+   ->  Sort
          Sort Key: r.helpful_votes DESC
-         Sort Method: top-N heapsort  Memory: 26kB
-         ->  Hash Join  (cost=17.64..37.00 rows=1 width=72) (actual time=0.315..0.361 rows=80 loops=1)
+         ->  Hash Join
                Hash Cond: (r.product_id = p.id)
-               ->  Seq Scan on reviews r  (cost=0.00..18.75 rows=233 width=44) (actual time=0.013..0.040 rows=80 loops=1)
+               ->  Seq Scan on reviews r
                      Filter: (rating >= 4)
-                     Rows Removed by Filter: 120
-               ->  Hash  (cost=17.62..17.62 rows=1 width=36) (actual time=0.285..0.285 rows=100 loops=1)
-                     Buckets: 1024  Batches: 1  Memory Usage: 13kB
-                     ->  Seq Scan on products p  (cost=0.00..17.62 rows=1 width=36) (actual time=0.011..0.191 rows=100 loops=1)
+               ->  Hash
+                     ->  Seq Scan on products p
                            Filter: (description ~~* '%product%'::text)
- Planning Time: 0.270 ms
- Execution Time: 0.473 ms
-(15 rows)
+(10 rows)
 
 -- Test 3: Three-way join with mixed field conditions
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.name, c.name as category, AVG(r.rating) as avg_rating
 FROM products p
 JOIN product_categories pc ON p.id = pc.product_id
@@ -174,42 +173,32 @@ WHERE p.price < 500 AND c.product_count > 10
 GROUP BY p.name, c.name
 HAVING AVG(r.rating) > 3
 ORDER BY avg_rating DESC;
-                                                                 QUERY PLAN                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------
- Sort  (cost=119.18..119.42 rows=96 width=96) (actual time=0.552..0.554 rows=6 loops=1)
+                               QUERY PLAN                               
+------------------------------------------------------------------------
+ Sort
    Sort Key: (avg(r.rating)) DESC
-   Sort Method: quicksort  Memory: 25kB
-   ->  HashAggregate  (cost=111.69..116.01 rows=96 width=96) (actual time=0.496..0.508 rows=6 loops=1)
+   ->  HashAggregate
          Group Key: p.name, c.name
          Filter: (avg(r.rating) > '3'::numeric)
-         Batches: 1  Memory Usage: 37kB
-         Rows Removed by Filter: 14
-         ->  Hash Join  (cost=65.26..109.53 rows=288 width=68) (actual time=0.320..0.429 rows=200 loops=1)
+         ->  Hash Join
                Hash Cond: (pc.product_id = p.id)
-               ->  Hash Join  (cost=23.34..61.90 rows=754 width=36) (actual time=0.068..0.133 rows=200 loops=1)
+               ->  Hash Join
                      Hash Cond: (pc.category_id = c.id)
-                     ->  Seq Scan on product_categories pc  (cost=0.00..32.60 rows=2260 width=8) (actual time=0.012..0.030 rows=200 loops=1)
-                     ->  Hash  (cost=20.00..20.00 rows=267 width=36) (actual time=0.032..0.033 rows=7 loops=1)
-                           Buckets: 1024  Batches: 1  Memory Usage: 9kB
-                           ->  Seq Scan on categories c  (cost=0.00..20.00 rows=267 width=36) (actual time=0.005..0.007 rows=7 loops=1)
+                     ->  Seq Scan on product_categories pc
+                     ->  Hash
+                           ->  Seq Scan on categories c
                                  Filter: (product_count > 10)
-                                 Rows Removed by Filter: 3
-               ->  Hash  (cost=39.01..39.01 rows=233 width=44) (actual time=0.228..0.229 rows=100 loops=1)
-                     Buckets: 1024  Batches: 1  Memory Usage: 14kB
-                     ->  Hash Join  (cost=20.16..39.01 rows=233 width=44) (actual time=0.107..0.163 rows=100 loops=1)
+               ->  Hash
+                     ->  Hash Join
                            Hash Cond: (r.product_id = p.id)
-                           ->  Seq Scan on reviews r  (cost=0.00..17.00 rows=700 width=8) (actual time=0.007..0.027 rows=200 loops=1)
-                           ->  Hash  (cost=17.62..17.62 rows=203 width=36) (actual time=0.078..0.078 rows=49 loops=1)
-                                 Buckets: 1024  Batches: 1  Memory Usage: 11kB
-                                 ->  Seq Scan on products p  (cost=0.00..17.62 rows=203 width=36) (actual time=0.007..0.031 rows=49 loops=1)
+                           ->  Seq Scan on reviews r
+                           ->  Hash
+                                 ->  Seq Scan on products p
                                        Filter: (price < '500'::numeric)
-                                       Rows Removed by Filter: 51
- Planning Time: 0.676 ms
- Execution Time: 0.712 ms
-(30 rows)
+(20 rows)
 
 -- Test 4: Complex query with multiple indices and mixed fields
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 WITH top_products AS (
     SELECT p.id, p.name, p.price, p.stock_count
     FROM products p
@@ -232,45 +221,36 @@ JOIN product_categories pc ON tp.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
 WHERE c.is_active = true
 ORDER BY pr.avg_rating DESC, tp.price DESC;
-                                                                              QUERY PLAN                                                                               
------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort  (cost=50.13..50.16 rows=12 width=112) (actual time=0.417..0.420 rows=14 loops=1)
+                                                              QUERY PLAN                                                              
+--------------------------------------------------------------------------------------------------------------------------------------
+ Sort
    Sort Key: (avg(r.rating)) DESC, tp.price DESC
-   Sort Method: quicksort  Memory: 25kB
-   ->  Nested Loop  (cost=40.01..49.91 rows=12 width=112) (actual time=0.341..0.386 rows=14 loops=1)
-         ->  Nested Loop  (cost=39.86..45.57 rows=23 width=84) (actual time=0.306..0.334 rows=14 loops=1)
+   ->  Nested Loop
+         ->  Nested Loop
                Join Filter: (pc.product_id = tp.id)
-               ->  Hash Join  (cost=39.71..42.68 rows=2 width=88) (actual time=0.234..0.247 rows=7 loops=1)
+               ->  Hash Join
                      Hash Cond: (r.product_id = tp.id)
-                     ->  HashAggregate  (cost=20.50..22.76 rows=50 width=44) (actual time=0.055..0.063 rows=12 loops=1)
+                     ->  HashAggregate
                            Group Key: r.product_id
                            Filter: (count(*) >= 2)
-                           Batches: 1  Memory Usage: 40kB
-                           ->  Seq Scan on reviews r  (cost=0.00..18.75 rows=233 width=8) (actual time=0.006..0.029 rows=120 loops=1)
+                           ->  Seq Scan on reviews r
                                  Filter: (rating >= 3)
-                                 Rows Removed by Filter: 80
-                     ->  Hash  (cost=19.18..19.18 rows=2 width=52) (actual time=0.166..0.167 rows=50 loops=1)
-                           Buckets: 1024  Batches: 1  Memory Usage: 11kB
-                           ->  Subquery Scan on tp  (cost=19.16..19.18 rows=2 width=52) (actual time=0.120..0.136 rows=50 loops=1)
-                                 ->  Limit  (cost=19.16..19.16 rows=2 width=56) (actual time=0.105..0.113 rows=50 loops=1)
-                                       ->  Sort  (cost=19.16..19.16 rows=2 width=56) (actual time=0.104..0.107 rows=50 loops=1)
+                     ->  Hash
+                           ->  Subquery Scan on tp
+                                 ->  Limit
+                                       ->  Sort
                                              Sort Key: p.price DESC
-                                             Sort Method: quicksort  Memory: 28kB
-                                             ->  Seq Scan on products p  (cost=0.00..19.15 rows=2 width=56) (actual time=0.010..0.036 rows=50 loops=1)
+                                             ->  Seq Scan on products p
                                                    Filter: (is_available AND (price >= '100'::numeric) AND (price <= '800'::numeric))
-                                                   Rows Removed by Filter: 50
-               ->  Index Only Scan using product_categories_pkey on product_categories pc  (cost=0.15..1.31 rows=11 width=8) (actual time=0.011..0.011 rows=2 loops=7)
+               ->  Index Only Scan using product_categories_pkey on product_categories pc
                      Index Cond: (product_id = r.product_id)
-                     Heap Fetches: 14
-         ->  Index Scan using categories_pkey on categories c  (cost=0.15..0.19 rows=1 width=36) (actual time=0.003..0.003 rows=1 loops=14)
+         ->  Index Scan using categories_pkey on categories c
                Index Cond: (id = pc.category_id)
                Filter: is_active
- Planning Time: 0.551 ms
- Execution Time: 0.516 ms
-(33 rows)
+(24 rows)
 
 -- Test 5: Union of results from different tables
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT 'Product' as type, name as item_name, description as content
 FROM products
 WHERE name ILIKE '%10%' OR description ILIKE '%feature%'
@@ -283,26 +263,21 @@ SELECT 'Review' as type, reviewer_name as item_name, content
 FROM reviews
 WHERE content ILIKE '%great%'
 ORDER BY type, item_name;
-                                                     QUERY PLAN                                                     
---------------------------------------------------------------------------------------------------------------------
- Sort  (cost=107.97..110.28 rows=923 width=96) (actual time=0.688..0.697 rows=145 loops=1)
+                                       QUERY PLAN                                       
+----------------------------------------------------------------------------------------
+ Sort
    Sort Key: ('Product'::text), products.name
-   Sort Method: quicksort  Memory: 40kB
-   ->  Append  (cost=0.00..62.52 rows=923 width=96) (actual time=0.013..0.502 rows=145 loops=1)
-         ->  Seq Scan on products  (cost=0.00..19.15 rows=122 width=96) (actual time=0.013..0.238 rows=100 loops=1)
+   ->  Append
+         ->  Seq Scan on products
                Filter: ((name ~~* '%10%'::text) OR (description ~~* '%feature%'::text))
-         ->  Seq Scan on categories  (cost=0.00..20.00 rows=800 width=96) (actual time=0.005..0.013 rows=5 loops=1)
+         ->  Seq Scan on categories
                Filter: (name ~~* '%e%'::text)
-               Rows Removed by Filter: 5
-         ->  Seq Scan on reviews  (cost=0.00..18.75 rows=1 width=96) (actual time=0.011..0.235 rows=40 loops=1)
+         ->  Seq Scan on reviews
                Filter: (content ~~* '%great%'::text)
-               Rows Removed by Filter: 160
- Planning Time: 0.172 ms
- Execution Time: 0.733 ms
-(14 rows)
+(9 rows)
 
 -- Test 6: Subquery with both numeric and text field filtering
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.name, p.price, p.stock_count
 FROM products p
 WHERE p.id IN (
@@ -314,32 +289,27 @@ WHERE p.id IN (
 AND p.stock_count > 50
 AND p.price < 500
 ORDER BY p.price;
-                                                                        QUERY PLAN                                                                        
-----------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort  (cost=59.20..59.20 rows=1 width=52) (actual time=0.064..0.065 rows=0 loops=1)
+                                              QUERY PLAN                                               
+-------------------------------------------------------------------------------------------------------
+ Sort
    Sort Key: p.price
-   Sort Method: quicksort  Memory: 25kB
-   ->  Nested Loop  (cost=58.05..59.19 rows=1 width=52) (actual time=0.045..0.046 rows=0 loops=1)
-         ->  HashAggregate  (cost=57.90..57.93 rows=3 width=4) (actual time=0.045..0.046 rows=0 loops=1)
+   ->  Nested Loop
+         ->  HashAggregate
                Group Key: pc.product_id
-               Batches: 1  Memory Usage: 24kB
-               ->  Nested Loop  (cost=25.11..57.89 rows=3 width=4) (actual time=0.044..0.045 rows=0 loops=1)
-                     ->  Seq Scan on categories c  (cost=0.00..22.00 rows=1 width=4) (actual time=0.010..0.026 rows=2 loops=1)
+               ->  Nested Loop
+                     ->  Seq Scan on categories c
                            Filter: ((name ~~* '%electronics%'::text) OR (name ~~* '%clothing%'::text))
-                           Rows Removed by Filter: 8
-                     ->  Bitmap Heap Scan on product_categories pc  (cost=25.11..35.78 rows=11 width=8) (actual time=0.008..0.008 rows=0 loops=2)
+                     ->  Bitmap Heap Scan on product_categories pc
                            Recheck Cond: (category_id = c.id)
-                           ->  Bitmap Index Scan on product_categories_pkey  (cost=0.00..25.11 rows=11 width=0) (actual time=0.006..0.006 rows=0 loops=2)
+                           ->  Bitmap Index Scan on product_categories_pkey
                                  Index Cond: (category_id = c.id)
-         ->  Index Scan using products_pkey on products p  (cost=0.15..0.41 rows=1 width=56) (never executed)
+         ->  Index Scan using products_pkey on products p
                Index Cond: (id = pc.product_id)
                Filter: ((stock_count > 50) AND (price < '500'::numeric))
- Planning Time: 0.288 ms
- Execution Time: 0.131 ms
-(20 rows)
+(15 rows)
 
 -- Test 7: Join with conditional logic and mixed fields
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT 
     p.name,
     p.price,
@@ -363,28 +333,22 @@ ORDER BY
         ELSE r.rating
     END DESC,
     p.price;
-                                                       QUERY PLAN                                                        
--------------------------------------------------------------------------------------------------------------------------
- Sort  (cost=44.72..44.72 rows=2 width=112) (actual time=0.322..0.325 rows=32 loops=1)
+                                                       QUERY PLAN                                                       
+------------------------------------------------------------------------------------------------------------------------
+ Sort
    Sort Key: (CASE WHEN ((avg(reviews.rating)) IS NULL) THEN '0'::numeric ELSE (avg(reviews.rating)) END) DESC, p.price
-   Sort Method: quicksort  Memory: 26kB
-   ->  Hash Right Join  (cost=39.67..44.71 rows=2 width=112) (actual time=0.231..0.253 rows=32 loops=1)
+   ->  Hash Right Join
          Hash Cond: (reviews.product_id = p.id)
-         ->  HashAggregate  (cost=20.50..23.00 rows=200 width=36) (actual time=0.133..0.144 rows=20 loops=1)
+         ->  HashAggregate
                Group Key: reviews.product_id
-               Batches: 1  Memory Usage: 40kB
-               ->  Seq Scan on reviews  (cost=0.00..17.00 rows=700 width=8) (actual time=0.008..0.031 rows=200 loops=1)
-         ->  Hash  (cost=19.15..19.15 rows=2 width=52) (actual time=0.084..0.084 rows=32 loops=1)
-               Buckets: 1024  Batches: 1  Memory Usage: 10kB
-               ->  Seq Scan on products p  (cost=0.00..19.15 rows=2 width=52) (actual time=0.012..0.036 rows=32 loops=1)
+               ->  Seq Scan on reviews
+         ->  Hash
+               ->  Seq Scan on products p
                      Filter: (is_available AND (price >= '200'::numeric) AND (price <= '600'::numeric))
-                     Rows Removed by Filter: 68
- Planning Time: 0.183 ms
- Execution Time: 0.405 ms
-(16 rows)
+(10 rows)
 
 -- Test 8: Multi-index intersection
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.name, p.price, r.content, r.rating
 FROM products p
 JOIN reviews r ON p.id = r.product_id
@@ -395,34 +359,26 @@ WHERE p.name ILIKE '%product%'
   AND c.name = 'Electronics'
   AND p.is_available = true
 ORDER BY r.rating DESC, p.price DESC;
-                                                                               QUERY PLAN                                                                               
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort  (cost=38.48..38.49 rows=1 width=84) (actual time=0.524..0.525 rows=0 loops=1)
+                                        QUERY PLAN                                        
+------------------------------------------------------------------------------------------
+ Sort
    Sort Key: r.rating DESC, p.price DESC
-   Sort Method: quicksort  Memory: 25kB
-   ->  Nested Loop  (cost=17.94..38.47 rows=1 width=84) (actual time=0.491..0.492 rows=0 loops=1)
-         ->  Nested Loop  (cost=17.79..37.69 rows=4 width=88) (actual time=0.213..0.347 rows=100 loops=1)
+   ->  Nested Loop
+         ->  Nested Loop
                Join Filter: (p.id = pc.product_id)
-               ->  Hash Join  (cost=17.64..37.00 rows=1 width=92) (actual time=0.169..0.208 rows=50 loops=1)
+               ->  Hash Join
                      Hash Cond: (r.product_id = p.id)
-                     ->  Seq Scan on reviews r  (cost=0.00..18.75 rows=233 width=40) (actual time=0.011..0.035 rows=80 loops=1)
+                     ->  Seq Scan on reviews r
                            Filter: (rating > 3)
-                           Rows Removed by Filter: 120
-                     ->  Hash  (cost=17.62..17.62 rows=1 width=52) (actual time=0.142..0.142 rows=72 loops=1)
-                           Buckets: 1024  Batches: 1  Memory Usage: 12kB
-                           ->  Seq Scan on products p  (cost=0.00..17.62 rows=1 width=52) (actual time=0.009..0.072 rows=72 loops=1)
+                     ->  Hash
+                           ->  Seq Scan on products p
                                  Filter: (is_available AND (name ~~* '%product%'::text))
-                                 Rows Removed by Filter: 28
-               ->  Index Only Scan using product_categories_pkey on product_categories pc  (cost=0.15..0.55 rows=11 width=8) (actual time=0.002..0.002 rows=2 loops=50)
+               ->  Index Only Scan using product_categories_pkey on product_categories pc
                      Index Cond: (product_id = r.product_id)
-                     Heap Fetches: 100
-         ->  Index Scan using categories_pkey on categories c  (cost=0.15..0.19 rows=1 width=4) (actual time=0.001..0.001 rows=0 loops=100)
+         ->  Index Scan using categories_pkey on categories c
                Index Cond: (id = pc.category_id)
                Filter: (name = 'Electronics'::text)
-               Rows Removed by Filter: 1
- Planning Time: 0.490 ms
- Execution Time: 0.598 ms
-(25 rows)
+(17 rows)
 
 -- Verify actual results of multi-index search
 SELECT p.name, p.price, c.name as category
@@ -432,13 +388,13 @@ JOIN categories c ON pc.category_id = c.id
 WHERE p.name ILIKE '%product 1%' AND c.is_active = true
 ORDER BY p.price DESC
 LIMIT 5;
-    name    | price  | category 
-------------+--------+----------
- Product 1  | 982.16 | Toys
- Product 1  | 982.16 | Office
- Product 15 | 915.52 | Toys
- Product 15 | 915.52 | Office
- Product 14 | 894.38 | Office
+    name     |  price  |    category    
+-------------+---------+----------------
+ Product 100 | 1050.00 | Electronics
+ Product 19  |  240.00 | Outdoors
+ Product 18  |  230.00 | Office
+ Product 18  |  230.00 | Home & Kitchen
+ Product 18  |  230.00 | Sports
 (5 rows)
 
 -- Clean up
@@ -449,3 +405,5 @@ DROP TABLE IF EXISTS product_categories;
 DROP TABLE IF EXISTS reviews;
 DROP TABLE IF EXISTS products;
 DROP TABLE IF EXISTS categories; 
+-- Reset parallel workers setting to default
+RESET max_parallel_workers_per_gather; 

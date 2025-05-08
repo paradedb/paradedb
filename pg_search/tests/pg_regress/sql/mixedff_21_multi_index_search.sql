@@ -1,6 +1,9 @@
 -- Test multi-index search with mixed fast fields
 -- This test verifies that queries using multiple indices with mixed fast fields work correctly
 
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+
 -- Create main test tables
 DROP TABLE IF EXISTS products;
 DROP TABLE IF EXISTS categories;
@@ -35,16 +38,16 @@ CREATE TABLE reviews (
     created_at TIMESTAMP
 );
 
--- Insert test data
+-- Insert test data with deterministic values
 INSERT INTO products (name, description, price, stock_count, weight, is_available, created_at)
 SELECT
     'Product ' || i,
     'Description for product ' || i || '. This product has various features and specifications.',
-    (50.00 + (random() * 950))::numeric(10,2),
-    (random() * 200)::integer,
-    (0.1 + random() * 20)::float,
-    random() < 0.8,  -- 80% are available
-    now() - (random() * 365 * 2)::integer * interval '1 day'
+    (50.00 + (i * 10))::numeric(10,2),  -- Deterministic prices
+    (i * 2)::integer,                   -- Deterministic stock counts
+    (0.1 + (i * 0.2))::float,           -- Deterministic weights
+    i % 5 != 0,                         -- Deterministic availability pattern (80% available)
+    '1988-04-29'::timestamp + (i * '1 day'::interval)  -- Deterministic dates
 FROM generate_series(1, 100) i;
 
 INSERT INTO categories (name, description, product_count, is_active)
@@ -60,7 +63,7 @@ VALUES
     ('Office', 'Office supplies and equipment', 12, true),
     ('Outdoors', 'Outdoor equipment and accessories', 18, true);
 
--- Insert reviews (10 reviews per product for first 20 products)
+-- Insert reviews with deterministic values
 INSERT INTO reviews (product_id, reviewer_name, content, rating, helpful_votes, created_at)
 SELECT
     (i % 20) + 1,  -- product_id 1-20
@@ -73,8 +76,8 @@ SELECT
         WHEN 4 THEN 'Terrible product, complete waste of money!'
     END,
     (i % 5) + 1,  -- rating 1-5
-    (random() * 50)::integer,  -- helpful votes
-    now() - (random() * 180)::integer * interval '1 day'  -- last 6 months
+    (i % 50) * 2,  -- deterministic helpful votes
+    '1988-04-29'::timestamp + (i * '1 day'::interval)  -- deterministic dates
 FROM generate_series(1, 200) i;
 
 -- Create join table between products and categories (many-to-many)
@@ -85,17 +88,27 @@ CREATE TABLE product_categories (
     PRIMARY KEY (product_id, category_id)
 );
 
--- Assign each product to 1-3 categories
+-- Assign products to categories deterministically
 INSERT INTO product_categories (product_id, category_id)
 SELECT
     p.id,
-    c.id
+    1 + (p.id % 10)  -- Assign to category 1-10 based on product id
+FROM products p;
+
+-- Add additional category assignments for some products (to have 1-3 categories per product)
+INSERT INTO product_categories (product_id, category_id)
+SELECT
+    p.id,
+    1 + ((p.id + 5) % 10)  -- Add a second category
 FROM products p
-CROSS JOIN LATERAL (
-    SELECT id FROM categories
-    ORDER BY random()
-    LIMIT floor(random() * 3) + 1
-) c;
+WHERE p.id % 3 = 0;  -- Only for every 3rd product
+
+INSERT INTO product_categories (product_id, category_id)
+SELECT
+    p.id,
+    1 + ((p.id + 7) % 10)  -- Add a third category
+FROM products p
+WHERE p.id % 9 = 0;  -- Only for every 9th product
 
 -- Create search indices with mixed fast fields
 DROP INDEX IF EXISTS products_idx;
@@ -114,11 +127,8 @@ CREATE INDEX reviews_idx ON reviews
 USING columnstore (reviewer_name, content, rating, helpful_votes)
 WITH (type='hnsw');
 
--- Enable execution method tracing
-SET pg_search.explain_analyze_verbose TO TRUE;
-
 -- Test 1: Join between products and categories with search
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.name, p.price, c.name as category
 FROM products p
 JOIN product_categories pc ON p.id = pc.product_id
@@ -128,7 +138,7 @@ ORDER BY p.price DESC
 LIMIT 10;
 
 -- Test 2: Join between products and reviews with search
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.name, r.rating, r.content
 FROM products p
 JOIN reviews r ON p.id = r.product_id
@@ -137,7 +147,7 @@ ORDER BY r.helpful_votes DESC
 LIMIT 5;
 
 -- Test 3: Three-way join with mixed field conditions
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.name, c.name as category, AVG(r.rating) as avg_rating
 FROM products p
 JOIN product_categories pc ON p.id = pc.product_id
@@ -149,7 +159,7 @@ HAVING AVG(r.rating) > 3
 ORDER BY avg_rating DESC;
 
 -- Test 4: Complex query with multiple indices and mixed fields
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 WITH top_products AS (
     SELECT p.id, p.name, p.price, p.stock_count
     FROM products p
@@ -174,7 +184,7 @@ WHERE c.is_active = true
 ORDER BY pr.avg_rating DESC, tp.price DESC;
 
 -- Test 5: Union of results from different tables
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT 'Product' as type, name as item_name, description as content
 FROM products
 WHERE name ILIKE '%10%' OR description ILIKE '%feature%'
@@ -189,7 +199,7 @@ WHERE content ILIKE '%great%'
 ORDER BY type, item_name;
 
 -- Test 6: Subquery with both numeric and text field filtering
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.name, p.price, p.stock_count
 FROM products p
 WHERE p.id IN (
@@ -203,7 +213,7 @@ AND p.price < 500
 ORDER BY p.price;
 
 -- Test 7: Join with conditional logic and mixed fields
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT 
     p.name,
     p.price,
@@ -229,7 +239,7 @@ ORDER BY
     p.price;
 
 -- Test 8: Multi-index intersection
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.name, p.price, r.content, r.rating
 FROM products p
 JOIN reviews r ON p.id = r.product_id
@@ -258,3 +268,6 @@ DROP TABLE IF EXISTS product_categories;
 DROP TABLE IF EXISTS reviews;
 DROP TABLE IF EXISTS products;
 DROP TABLE IF EXISTS categories; 
+
+-- Reset parallel workers setting to default
+RESET max_parallel_workers_per_gather; 

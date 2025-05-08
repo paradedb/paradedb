@@ -24,24 +24,24 @@ CREATE TABLE union_test_b (
     price FLOAT,
     is_published BOOLEAN
 );
--- Insert test data
+-- Insert test data with deterministic values
 INSERT INTO union_test_a (title, author, rating, year, price, is_published)
 SELECT
     'Book A' || i,
     'Author ' || (1 + (i % 10)),
-    (3 + random() * 2)::numeric,
+    (3 + (i % 3))::numeric,  -- Ratings from 3 to 5
     2000 + (i % 22),
-    (10 + random() * 40)::float,
-    i % 3 != 0
+    (10 + (i * 5))::float,   -- Deterministic prices
+    i % 3 != 0               -- Deterministic boolean pattern
 FROM generate_series(1, 50) i;
 INSERT INTO union_test_b (title, author, rating, year, price, is_published)
 SELECT
     'Book B' || i,
     'Author ' || (1 + (i % 15)),
-    (1 + random() * 4)::numeric,
+    (1 + (i % 5))::numeric,  -- Ratings from 1 to 5
     1980 + (i % 40),
-    (15 + random() * 60)::float,
-    i % 4 != 0
+    (15 + (i * 3))::float,   -- Deterministic prices
+    i % 4 != 0               -- Deterministic boolean pattern
 FROM generate_series(1, 50) i;
 -- Create indices with mixed fast fields
 DROP INDEX IF EXISTS union_test_a_idx;
@@ -246,19 +246,16 @@ FROM union_test_b
 WHERE title LIKE 'Book B1%' AND rating > 3
 ORDER BY rating DESC, title
 LIMIT 10;
-  title   |  author   |      rating      |       price        
-----------+-----------+------------------+--------------------
- Book A15 | Author 6  | 4.99931712278151 | 12.457712908145409
- Book A1  | Author 2  | 4.82132902227771 |   37.1589653523803
- Book A12 | Author 3  | 4.70244505292104 |   22.9372733527089
- Book B14 | Author 15 | 4.63085792166747 |  38.45262492350821
- Book A18 | Author 9  | 4.45835174012998 | 14.086425231461659
- Book A17 | Author 8  |  4.3833932734994 | 31.313435083870075
- Book A16 | Author 7  |  4.0865620274685 |   32.7955344520214
- Book B16 | Author 2  | 3.87671027261926 |  41.85069059899179
- Book B18 | Author 4  | 3.86318006809909 | 23.521789982464632
- Book B11 | Author 12 | 3.56346676490133 |  20.31089263945651
-(10 rows)
+  title   |  author   | rating | price 
+----------+-----------+--------+-------
+ Book A11 | Author 2  |      5 |    65
+ Book A14 | Author 5  |      5 |    80
+ Book A17 | Author 8  |      5 |    95
+ Book B14 | Author 15 |      5 |    57
+ Book B19 | Author 5  |      5 |    72
+ Book B13 | Author 14 |      4 |    54
+ Book B18 | Author 4  |      4 |    69
+(7 rows)
 
 -- Verify window function results
 SELECT title, author, price, rating,
@@ -267,13 +264,13 @@ FROM union_test_a
 WHERE author = 'Author 1'
 ORDER BY author_rank
 LIMIT 5;
-  title   |  author  |       price        |      rating      | author_rank 
-----------+----------+--------------------+------------------+-------------
- Book A50 | Author 1 |  37.20765944255565 | 4.94939982143199 |           1
- Book A40 | Author 1 |  34.89258559761105 | 4.93910476584184 |           2
- Book A30 | Author 1 | 30.415109519798918 | 4.82586023700851 |           3
- Book A10 | Author 1 | 13.510621537855627 | 3.67052788186093 |           4
- Book A20 | Author 1 | 24.737083890871723 | 3.31826066166799 |           5
+  title   |  author  | price | rating | author_rank 
+----------+----------+-------+--------+-------------
+ Book A20 | Author 1 |   110 |      5 |           1
+ Book A50 | Author 1 |   260 |      5 |           2
+ Book A10 | Author 1 |    60 |      4 |           3
+ Book A40 | Author 1 |   210 |      4 |           4
+ Book A30 | Author 1 |   160 |      3 |           5
 (5 rows)
 
 -- Clean up

@@ -19,16 +19,16 @@ CREATE TABLE limit_topn_test (
     created_at TIMESTAMP
 );
 
--- Insert test data
+-- Insert test data with deterministic values
 INSERT INTO limit_topn_test (title, description, rating, price, category, is_available, created_at)
 SELECT
     'Product ' || i,
     'Description for product ' || i,
-    (random() * 5)::float,
-    (random() * 1000)::numeric,
+    (i % 5)::float + 1.0,  -- Deterministic ratings 1.0-5.0
+    (100 * i)::numeric,    -- Deterministic prices 100, 200, 300, etc.
     (ARRAY['Electronics', 'Books', 'Clothing', 'Food', 'Toys'])[1 + (i % 5)],
-    i % 2 = 0,
-    NOW() - (i || ' days')::interval
+    i % 2 = 0,             -- Deterministic boolean pattern
+    '1988-04-29'::timestamp + ((i || ' days')::interval)
 FROM generate_series(1, 100) i;
 
 -- Create search index with multiple fast fields

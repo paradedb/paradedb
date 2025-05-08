@@ -29,25 +29,25 @@ CREATE TABLE union_test_b (
     is_published BOOLEAN
 );
 
--- Insert test data
+-- Insert test data with deterministic values
 INSERT INTO union_test_a (title, author, rating, year, price, is_published)
 SELECT
     'Book A' || i,
     'Author ' || (1 + (i % 10)),
-    (3 + random() * 2)::numeric,
+    (3 + (i % 3))::numeric,  -- Ratings from 3 to 5
     2000 + (i % 22),
-    (10 + random() * 40)::float,
-    i % 3 != 0
+    (10 + (i * 5))::float,   -- Deterministic prices
+    i % 3 != 0               -- Deterministic boolean pattern
 FROM generate_series(1, 50) i;
 
 INSERT INTO union_test_b (title, author, rating, year, price, is_published)
 SELECT
     'Book B' || i,
     'Author ' || (1 + (i % 15)),
-    (1 + random() * 4)::numeric,
+    (1 + (i % 5))::numeric,  -- Ratings from 1 to 5
     1980 + (i % 40),
-    (15 + random() * 60)::float,
-    i % 4 != 0
+    (15 + (i * 3))::float,   -- Deterministic prices
+    i % 4 != 0               -- Deterministic boolean pattern
 FROM generate_series(1, 50) i;
 
 -- Create indices with mixed fast fields

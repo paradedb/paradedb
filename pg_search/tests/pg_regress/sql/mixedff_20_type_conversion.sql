@@ -1,6 +1,9 @@
 -- Test type conversion edge cases with mixed fast fields
 -- This test verifies that mixed fast fields handle various type conversions correctly
 
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+
 -- Create test table with various field types for conversion testing
 DROP TABLE IF EXISTS type_conversion_test;
 CREATE TABLE type_conversion_test (
@@ -81,48 +84,45 @@ USING columnstore (
 )
 WITH (type='hnsw');
 
--- Enable execution method tracing
-SET pg_search.explain_analyze_verbose TO TRUE;
-
 -- Test 1: Basic text to text conversions
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field, varchar_field, char_field
 FROM type_conversion_test
 WHERE text_field LIKE '%text%' OR varchar_field LIKE '%varchar%';
 
 -- Test 2: Converting numeric string to number
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field::numeric as converted_num, numeric_field
 FROM type_conversion_test
 WHERE text_field ~ '^[0-9.]+$';
 
 -- Test 3: Numeric range filtering with casts
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT int_field, bigint_field, float_field
 FROM type_conversion_test
 WHERE int_field::float > 100 AND float_field::int < 12346;
 
 -- Test 4: String concatenation with different types
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field || ' - ' || int_field::text as text_with_num
 FROM type_conversion_test
 WHERE bool_field = true;
 
 -- Test 5: Mixed type expressions in filtering
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field, int_field, float_field
 FROM type_conversion_test
 WHERE (int_field::text = '100' OR text_field = '123') 
   AND float_field BETWEEN 2 AND 10000;
 
 -- Test 6: Date conversions
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT date_field, timestamp_field
 FROM type_conversion_test
 WHERE date_field = timestamp_field::date;
 
 -- Test 7: CASE expression with type conversion
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT 
     id,
     CASE 
@@ -132,7 +132,7 @@ SELECT
 FROM type_conversion_test;
 
 -- Test 8: JSON extraction with type conversion
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT 
     id,
     json_field,
@@ -141,7 +141,7 @@ FROM type_conversion_test
 WHERE json_field ? 'number';
 
 -- Test 9: Complex mixed type filtering
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field, int_field, bool_field
 FROM type_conversion_test
 WHERE 
@@ -177,3 +177,6 @@ WHERE char_field <> '';
 -- Clean up
 DROP INDEX IF EXISTS type_conv_idx;
 DROP TABLE IF EXISTS type_conversion_test; 
+
+-- Reset parallel workers setting to default
+RESET max_parallel_workers_per_gather; 

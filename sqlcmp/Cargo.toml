@@ -1,9 +1,0 @@
-[package]
-name = "sqlcmp"
-description = "testing tool for comparing normal SQL to ParadeDB"
-version = { workspace = true }
-edition = { workspace = true }
-license = { workspace = true }
-
-[dependencies]
-sqlparser = {  version = "0.56.0", features = ["visitor"] }

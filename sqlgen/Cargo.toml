@@ -1,0 +1,9 @@
+[package]
+name = "sqlgen"
+description = "query generation testing tool"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+

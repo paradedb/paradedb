@@ -172,8 +172,6 @@ pub unsafe fn count_fast_fields(
     let ff =
         pullup_fast_fields(target_list, referenced_columns, schema, table, rti).unwrap_or_default();
 
-    let ff_count = ff.len() as f64;
-
     builder.custom_private().set_maybe_ff(!ff.is_empty());
     ff.iter().sorted().dedup().count() as f64
 }
@@ -286,6 +284,8 @@ pub unsafe fn pullup_fast_fields(
 
         if let Some(var) = nodecast!(Var, T_Var, (*te).expr) {
             if (*var).varno as i32 != rti as i32 {
+                // this TargetEntry's Var isn't from the same RangeTable as we were asked to inspect,
+                // so just skip it
                 continue;
             }
             let attno = (*var).varattno as i32;

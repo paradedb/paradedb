@@ -940,9 +940,15 @@ impl CustomScan for PdbScan {
 /// these specialized [`ExecMethod`]s.
 ///
 fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
+    pgrx::warning!("⭐️ choose_exec_method called, examining options...");
     if let Some((limit, sort_direction)) = privdata.limit().zip(privdata.sort_direction()) {
         // having a valid limit and sort direction means we can do a TopN query
         // and TopN can do snippets
+        pgrx::warning!(
+            "⭐️ TopN capable with limit {} and sort_direction {:?}",
+            limit,
+            sort_direction
+        );
         ExecMethodType::TopN {
             heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
             limit,
@@ -955,22 +961,32 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
         }
         if fast_fields::is_numeric_fast_field_capable(privdata) {
             // Check for numeric-only fast fields first because they're more selective
+            pgrx::warning!("⭐️ Numeric fast field capable, choosing FastFieldNumeric");
+            pgrx::warning!("⭐️ Fast fields: {:?}", privdata.which_fast_fields());
             ExecMethodType::FastFieldNumeric {
                 which_fast_fields: privdata.which_fast_fields().clone().unwrap_or_default(),
             }
         } else if let Some(field) = fast_fields::is_string_agg_capable(privdata) {
             // Check for string-only fast fields next
+            pgrx::warning!(
+                "⭐️ String fast field capable with field {}, choosing FastFieldString",
+                field
+            );
+            pgrx::warning!("⭐️ Fast fields: {:?}", privdata.which_fast_fields());
             ExecMethodType::FastFieldString {
                 field,
                 which_fast_fields: privdata.which_fast_fields().clone().unwrap_or_default(),
             }
         } else if fast_fields::is_mixed_fast_field_capable(privdata) {
             // Check for mixed fields last
+            pgrx::warning!("⭐️ Mixed fast field capable, choosing MixedFastField");
+            pgrx::warning!("⭐️ Fast fields: {:?}", privdata.which_fast_fields());
             ExecMethodType::FastFieldMixed {
                 which_fast_fields: privdata.which_fast_fields().clone().unwrap_or_default(),
             }
         } else {
             // Fall back to normal execution
+            pgrx::warning!("⭐️ No special execution method available, choosing Normal");
             ExecMethodType::Normal
         }
     }
@@ -1244,14 +1260,21 @@ unsafe fn collect_maybe_fast_field_vars_from_quals(
     columns: &mut HashSet<pg_sys::AttrNumber>,
 ) {
     if node.is_null() {
+        pgrx::warning!("collect_vars_from_quals: node is null");
         return;
     }
+
+    pgrx::warning!(
+        "collect_vars_from_quals: processing node type: {:?}",
+        (*node).type_
+    );
 
     // Expr types we know are relevant
     match (*node).type_ {
         // Handle Lists - which can contain qualifier expressions
         pg_sys::NodeTag::T_List => {
             let list = PgList::<pg_sys::Node>::from_pg(node.cast());
+            pgrx::warning!("collect_vars_from_quals: list with {} items", list.len());
 
             for item in list.iter_ptr() {
                 collect_maybe_fast_field_vars_from_quals(
@@ -1265,6 +1288,10 @@ unsafe fn collect_maybe_fast_field_vars_from_quals(
         // Handle OpExpr, BoolExpr, etc.
         pg_sys::NodeTag::T_OpExpr => {
             let opexpr = node.cast::<pg_sys::OpExpr>();
+            pgrx::warning!(
+                "collect_vars_from_quals: OpExpr with opno: {}",
+                (*opexpr).opno
+            );
 
             // Check if this is one of our full-text search operators
             let is_fulltext_op = (*opexpr).opno == anyelement_query_input_opoid()
@@ -1277,6 +1304,7 @@ unsafe fn collect_maybe_fast_field_vars_from_quals(
                 || (*opexpr).opno == parse_with_field_procoid();
 
             if is_fulltext_op {
+                pgrx::warning!("collect_vars_from_quals: Detected fulltext search operator, skipping column collection");
                 // Skip collection of variables for our fulltext operators
                 return;
             }
@@ -1319,13 +1347,29 @@ unsafe fn collect_maybe_fast_field_vars_from_quals(
         // Direct Var references
         pg_sys::NodeTag::T_Var => {
             let var = node.cast::<pg_sys::Var>();
+            pgrx::warning!(
+                "collect_vars_from_quals: Var with varno={}, varattno={}",
+                (*var).varno,
+                (*var).varattno
+            );
             if (*var).varno as u32 == rte_index {
+                pgrx::warning!(
+                    "collect_vars_from_quals: Adding column with attno={}",
+                    (*var).varattno
+                );
                 columns.insert((*var).varattno);
+            } else {
+                pgrx::warning!("collect_vars_from_quals: Skipping column - mismatched RTE index");
             }
         }
 
         // Default - we don't handle other node types for simplicity
-        _ => {}
+        _ => {
+            pgrx::warning!(
+                "collect_vars_from_quals: unhandled node type: {:?}",
+                (*node).type_
+            );
+        }
     }
 }
 
@@ -1342,22 +1386,58 @@ unsafe fn collect_maybe_fast_field_referenced_columns(
     root: *mut pg_sys::PlannerInfo,
     rte_index: pg_sys::Index,
 ) -> HashSet<pg_sys::AttrNumber> {
+    pgrx::warning!(
+        "collect_referenced_columns: starting for RTE index {}",
+        rte_index
+    );
     let mut referenced_columns = HashSet::new();
 
     // First check the target list (columns in SELECT)
+    pgrx::warning!("collect_referenced_columns: examining target list (SELECT clause)");
     let target_list = (*(*root).parse).targetList;
     let tlist = PgList::<pg_sys::TargetEntry>::from_pg(target_list);
+    pgrx::warning!(
+        "collect_referenced_columns: target list has {} entries",
+        tlist.len()
+    );
 
     // Process all Var nodes in the target list
-    for te in tlist.iter_ptr() {
+    for (i, te) in tlist.iter_ptr().enumerate() {
+        pgrx::warning!(
+            "collect_referenced_columns: examining target entry {} with resno={}",
+            i,
+            (*te).resno
+        );
         if let Some(var) = nodecast!(Var, T_Var, (*te).expr) {
+            pgrx::warning!(
+                "collect_referenced_columns: found Var with varno={}, varattno={}",
+                (*var).varno,
+                (*var).varattno
+            );
             if (*var).varno as u32 == rte_index {
+                pgrx::warning!(
+                    "collect_referenced_columns: adding column with attno={} from target list",
+                    (*var).varattno
+                );
                 referenced_columns.insert((*var).varattno);
+            } else {
+                pgrx::warning!("collect_referenced_columns: skipping Var - mismatched RTE index");
             }
+        } else {
+            pgrx::warning!(
+                "collect_referenced_columns: target entry expr is not a Var: {:?}",
+                (*(*te).expr).type_
+            );
         }
     }
 
+    pgrx::warning!(
+        "collect_referenced_columns: after target list, columns: {:?}",
+        referenced_columns
+    );
+
     // Check WHERE clause from jointree
+    pgrx::warning!("collect_referenced_columns: examining WHERE clause and join conditions");
     if !(*(*root).parse).jointree.is_null() {
         let jointree = &*(*(*root).parse).jointree;
         if !jointree.quals.is_null() {
@@ -1371,11 +1451,17 @@ unsafe fn collect_maybe_fast_field_referenced_columns(
         // Also check join info - this is important for JOIN conditions!
         if !jointree.fromlist.is_null() {
             let fromlist = PgList::<pg_sys::Node>::from_pg(jointree.fromlist);
+            pgrx::warning!(
+                "collect_referenced_columns: examining fromlist with {} entries",
+                fromlist.len()
+            );
 
-            for from_item in fromlist.iter_ptr() {
+            for (i, from_item) in fromlist.iter_ptr().enumerate() {
+                pgrx::warning!("collect_referenced_columns: examining fromlist item {}", i);
                 // Check if it's a JOIN node
                 if (*from_item).type_ == pg_sys::NodeTag::T_JoinExpr {
                     let join_expr = from_item.cast::<pg_sys::JoinExpr>();
+                    pgrx::warning!("collect_referenced_columns: found JoinExpr");
 
                     // Examine join quals
                     if !(*join_expr).quals.is_null() {
@@ -1384,18 +1470,84 @@ unsafe fn collect_maybe_fast_field_referenced_columns(
                             rte_index,
                             &mut referenced_columns,
                         );
+                        pgrx::warning!(
+                            "collect_referenced_columns: after join quals, columns: {:?}",
+                            referenced_columns
+                        );
+                    } else {
+                        pgrx::warning!("collect_referenced_columns: no join quals found");
                     }
+                } else {
+                    pgrx::warning!(
+                        "collect_referenced_columns: fromlist item is not a JoinExpr: {:?}",
+                        (*from_item).type_
+                    );
                 }
             }
+        } else {
+            pgrx::warning!("collect_referenced_columns: no fromlist found");
         }
+    } else {
+        pgrx::warning!("collect_referenced_columns: no jointree found");
     }
+
+    // Skip joininfo and baserestrictinfo lists for now as they can cause safety issues
+    // with Postgres' internal pointers, and we already have the info we need from the join expression
+    pgrx::warning!("collect_referenced_columns: checking RTE details");
+    let rel = (*root)
+        .simple_rel_array
+        .add(rte_index as usize)
+        .cast::<pg_sys::RelOptInfo>();
 
     // Get the corresponding RTE to log column names
     let rte = pg_sys::planner_rt_fetch(rte_index, root);
     if !rte.is_null() && (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
         let rel = PgRelation::with_lock((*rte).relid, pg_sys::AccessShareLock as _);
         let tupdesc = rel.tuple_desc();
+        pgrx::warning!(
+            "collect_referenced_columns: relation {} has {} columns",
+            rel.name(),
+            tupdesc.len()
+        );
+
+        let column_names: Vec<String> = referenced_columns
+            .iter()
+            .filter_map(|&attno| {
+                if attno > 0 {
+                    let name_opt = tupdesc
+                        .get((attno - 1) as usize)
+                        .map(|att| att.name().to_string());
+
+                    if let Some(name) = &name_opt {
+                        pgrx::warning!(
+                            "collect_referenced_columns: mapped attno={} to column name \"{}\"",
+                            attno,
+                            name
+                        );
+                    }
+                    name_opt
+                } else {
+                    pgrx::warning!(
+                        "collect_referenced_columns: skipping system column attno={}",
+                        attno
+                    );
+                    None
+                }
+            })
+            .collect();
+
+        pgrx::warning!(
+            "collect_referenced_columns: referenced column names: {:?}",
+            column_names
+        );
+    } else {
+        pgrx::warning!("collect_referenced_columns: could not find RTE or not a relation RTE");
     }
 
+    pgrx::warning!(
+        "collect_referenced_columns: returning {} referenced columns: {:?}",
+        referenced_columns.len(),
+        referenced_columns
+    );
     referenced_columns
 }

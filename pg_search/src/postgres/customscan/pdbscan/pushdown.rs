@@ -40,7 +40,10 @@ impl PushdownField {
         schema: &SearchIndexSchema,
     ) -> Option<Self> {
         let (_, attname) = attname_from_var(root, var);
-        attname.map(Self)
+        let attname = attname?;
+        schema
+            .get_search_field(&SearchFieldName(attname.clone()))
+            .map(|_| Self(attname))
     }
 
     /// Create a new [`PushdownField`] from an attribute name.

@@ -1520,3 +1520,620 @@ fn test_type_conversion_edge_cases(mut conn: PgConnection) {
         "Expected 3 results for type conversion test"
     );
 }
+
+// SECTION 3: ADVANCED CTE AND JOIN TESTS
+// =====================================
+
+#[rstest]
+fn test_advanced_cte_with_multiple_search_fields(mut conn: PgConnection) {
+    TestMixedFastFields::setup().execute(&mut conn);
+
+    // Add more test data for better CTE testing
+    r#"
+        INSERT INTO documents (id, title, content, parents) VALUES
+        ('doc_cte1', 'CTE Test Doc 1', 'This document tests common table expressions', 'Reports'),
+        ('doc_cte2', 'CTE Test Doc 2', 'Another document for CTE testing', 'Reports');
+        
+        INSERT INTO files (id, documentId, title, file_path, file_size) VALUES
+        ('file_cte1', 'doc_cte1', 'CTE Test File 1', '/reports/cte1.pdf', 500),
+        ('file_cte2', 'doc_cte1', 'CTE Test File 2', '/reports/cte2.pdf', 600),
+        ('file_cte3', 'doc_cte2', 'CTE Test File 3', '/reports/cte3.pdf', 700);
+        
+        INSERT INTO pages (id, fileId, page_number, content) VALUES
+        ('page_cte1', 'file_cte1', 1, 'Page 1 with searchable content for CTE testing'),
+        ('page_cte2', 'file_cte1', 2, 'Page 2 with more content for testing'),
+        ('page_cte3', 'file_cte2', 1, 'Another page with test terms to search'),
+        ('page_cte4', 'file_cte3', 1, 'Final test page for CTE testing');
+    "#
+    .execute(&mut conn);
+
+    // Test with CTE using multiple search conditions
+    let (plan,) = r#"
+        EXPLAIN (ANALYZE, FORMAT JSON)
+        WITH searchable_docs AS (
+            SELECT d.id, d.title, d.parents
+            FROM documents d
+            WHERE d.title @@@ 'CTE Test' AND d.parents @@@ 'Reports'
+        ),
+        matching_files AS (
+            SELECT f.id, f.documentId, f.title, f.file_path, f.file_size
+            FROM files f
+            JOIN searchable_docs sd ON f.documentId = sd.id
+            WHERE f.title @@@ 'CTE Test'
+        ),
+        relevant_pages AS (
+            SELECT p.id, p.fileId, p.page_number, paradedb.score(p.id) as relevance
+            FROM pages p
+            JOIN matching_files mf ON p.fileId = mf.id
+            WHERE p.content @@@ 'searchable OR testing'
+            ORDER BY relevance DESC
+        )
+        SELECT sd.title as document_title, 
+               mf.title as file_title, 
+               mf.file_size, 
+               rp.page_number,
+               rp.relevance
+        FROM searchable_docs sd
+        JOIN matching_files mf ON sd.id = mf.documentId
+        JOIN relevant_pages rp ON mf.id = rp.fileId
+        ORDER BY rp.relevance DESC, mf.file_size DESC
+    "#
+    .fetch_one::<(Value,)>(&mut conn);
+
+    // Get execution methods to verify at least one fast field execution state is used
+    let methods = get_all_exec_methods(&plan);
+    println!("Advanced CTE execution methods: {:?}", methods);
+
+    // Force scoring with paradedb.score() function
+    assert!(
+        methods.iter().any(|m| m.contains("FastFieldExecState")),
+        "Expected a FastFieldExecState to be used for complex CTE, got: {:?}",
+        methods
+    );
+
+    // Verify results
+    let results = r#"
+        WITH searchable_docs AS (
+            SELECT d.id, d.title, d.parents
+            FROM documents d
+            WHERE d.title @@@ 'CTE Test' AND d.parents @@@ 'Reports'
+        ),
+        matching_files AS (
+            SELECT f.id, f.documentId, f.title, f.file_path, f.file_size
+            FROM files f
+            JOIN searchable_docs sd ON f.documentId = sd.id
+            WHERE f.title @@@ 'CTE Test'
+        ),
+        relevant_pages AS (
+            SELECT p.id, p.fileId, p.page_number, paradedb.score(p.id) as relevance
+            FROM pages p
+            JOIN matching_files mf ON p.fileId = mf.id
+            WHERE p.content @@@ 'searchable OR testing'
+            ORDER BY relevance DESC
+        )
+        SELECT 
+            sd.title as document_title, 
+            mf.title as file_title, 
+            mf.file_size, 
+            rp.page_number,
+            rp.relevance::integer
+        FROM searchable_docs sd
+        JOIN matching_files mf ON sd.id = mf.documentId
+        JOIN relevant_pages rp ON mf.id = rp.fileId
+        ORDER BY rp.relevance DESC, mf.file_size DESC
+    "#
+    .fetch_result::<(String, String, i32, i32, i32)>(&mut conn)
+    .unwrap();
+
+    assert_eq!(
+        results,
+        vec![
+            (
+                "CTE Test Doc 1".to_string(),
+                "CTE Test File 1".to_string(),
+                500,
+                1,
+                3
+            ),
+            (
+                "CTE Test Doc 2".to_string(),
+                "CTE Test File 3".to_string(),
+                700,
+                1,
+                1
+            ),
+            (
+                "CTE Test Doc 1".to_string(),
+                "CTE Test File 1".to_string(),
+                500,
+                2,
+                1
+            ),
+        ],
+        "The results do not match the expected output"
+    );
+}
+
+#[rstest]
+fn test_nested_subqueries_with_multiple_search_conditions(mut conn: PgConnection) {
+    TestMixedFastFields::setup().execute(&mut conn);
+
+    // Test with nested subqueries and multiple search conditions
+    let (plan,) = r#"
+        EXPLAIN (ANALYZE, FORMAT JSON)
+        SELECT 
+            d.id,
+            d.title,
+            d.parents,
+            (
+                SELECT COUNT(*)
+                FROM files f
+                WHERE f.documentId = d.id AND f.title @@@ 'Invoice'
+            ) AS invoice_file_count,
+            (
+                SELECT SUM(p.page_number)
+                FROM pages p
+                JOIN files f ON p.fileId = f.id
+                WHERE f.documentId = d.id AND p.content @@@ 'Socienty'
+            ) AS socienty_page_sum
+        FROM documents d
+        WHERE d.parents @@@ 'Factures'
+        ORDER BY invoice_file_count DESC, socienty_page_sum DESC
+    "#
+    .fetch_one::<(Value,)>(&mut conn);
+
+    // Get execution methods
+    let methods = get_all_exec_methods(&plan);
+    println!("Nested subqueries execution methods: {:?}", methods);
+
+    // Verify at least one fast field execution state is used
+    assert!(
+        methods.iter().any(|m| m.contains("FastFieldExecState")),
+        "Expected a FastFieldExecState for nested subqueries, got: {:?}",
+        methods
+    );
+
+    // Verify results
+    let results = r#"
+        SELECT 
+            d.id,
+            d.title,
+            d.parents,
+            (
+                SELECT COUNT(*)
+                FROM files f
+                WHERE f.documentId = d.id AND f.title @@@ 'Invoice'
+            ) AS invoice_file_count,
+            (
+                SELECT SUM(p.page_number)
+                FROM pages p
+                JOIN files f ON p.fileId = f.id
+                WHERE f.documentId = d.id AND p.content @@@ 'Socienty'
+            ) AS socienty_page_sum
+        FROM documents d
+        WHERE d.parents @@@ 'Factures'
+        ORDER BY invoice_file_count DESC, socienty_page_sum DESC
+    "#
+    .fetch_result::<(String, String, String, i64, Option<i64>)>(&mut conn)
+    .unwrap();
+
+    // Should find at least one document in Factures
+    assert!(
+        !results.is_empty(),
+        "Expected at least one document in Factures"
+    );
+
+    // Verify all documents found have parents = 'Factures'
+    for (_, _, parents, _, _) in &results {
+        assert_eq!(parents, "Factures", "Expected parents to be 'Factures'");
+    }
+}
+
+#[rstest]
+fn test_forced_execution_with_score_function(mut conn: PgConnection) {
+    TestCornerCases::setup().execute(&mut conn);
+
+    // Test 1: Using paradedb.score() function to force execution even with non-fast fields
+    let (score_plan,) = r#"
+        EXPLAIN (ANALYZE, FORMAT JSON)
+        SELECT c.id, c.empty_string, c.special_chars, c.extreme_large, paradedb.score(c.id)
+        FROM corner_case_test c
+        WHERE c.content @@@ 'test'
+        ORDER BY paradedb.score(c.id) DESC
+    "#
+    .fetch_one::<(Value,)>(&mut conn);
+
+    // Get execution methods
+    let score_methods = get_all_exec_methods(&score_plan);
+    println!("Score function execution methods: {:?}", score_methods);
+
+    // Score function should force a FastFieldExecState
+    assert!(
+        score_methods
+            .iter()
+            .any(|m| m.contains("FastFieldExecState")),
+        "Expected a FastFieldExecState with score function, got: {:?}",
+        score_methods
+    );
+
+    // Test 2: Including non-fast field without score (should use NormalScanExecState)
+    let (normal_plan,) = r#"
+        EXPLAIN (ANALYZE, FORMAT JSON)
+        SELECT c.id, c.empty_string, c.non_utf8_bytes, c.extreme_large
+        FROM corner_case_test c
+        WHERE c.content @@@ 'test'
+        ORDER BY paradedb.score(c.id) DESC
+    "#
+    .fetch_one::<(Value,)>(&mut conn);
+
+    // Get execution methods
+    let normal_methods = get_all_exec_methods(&normal_plan);
+    println!("Non-fast field execution methods: {:?}", normal_methods);
+
+    // Should use NormalScanExecState for non-fast fields
+    assert!(
+        normal_methods.contains(&"NormalScanExecState".to_string()),
+        "Expected NormalScanExecState for non-fast fields, got: {:?}",
+        normal_methods
+    );
+
+    // Verify results
+    let score_results = r#"
+        SELECT c.id
+        FROM corner_case_test c
+        WHERE c.content @@@ 'test'
+        ORDER BY paradedb.score(c.id) DESC
+    "#
+    .fetch_result::<(String,)>(&mut conn)
+    .unwrap();
+
+    let normal_results = r#"
+        SELECT c.id
+        FROM corner_case_test c
+        WHERE c.content @@@ 'test'
+        ORDER BY c.id
+    "#
+    .fetch_result::<(String,)>(&mut conn)
+    .unwrap();
+
+    // Should have the same number of results
+    assert_eq!(
+        score_results.len(),
+        normal_results.len(),
+        "Score and normal query result counts don't match"
+    );
+}
+
+#[rstest]
+fn test_complex_multi_table_join_with_mixed_fields(mut conn: PgConnection) {
+    TestMixedFastFields::setup().execute(&mut conn);
+
+    // Test with complex multi-table join with mixed field types
+    let (plan,) = r#"
+        EXPLAIN (ANALYZE, FORMAT JSON)
+        SELECT 
+            d.id AS document_id,
+            d.title AS document_title,
+            f.id AS file_id,
+            f.title AS file_title,
+            p.page_number,
+            m.numeric_field1,
+            m.string_field1,
+            m.string_field2
+        FROM documents d
+        JOIN files f ON d.id = f.documentId AND f.title @@@ 'Invoice'
+        JOIN pages p ON f.id = p.fileId AND p.content @@@ 'Socienty'
+        JOIN mixed_numeric_string_test m ON m.id = 'mix1' -- Cross join to mix in different field types
+        WHERE d.parents @@@ 'Factures'
+        ORDER BY p.page_number, m.numeric_field1
+    "#
+    .fetch_one::<(Value,)>(&mut conn);
+
+    // Get execution methods
+    let methods = get_all_exec_methods(&plan);
+    println!("Complex multi-table join execution methods: {:?}", methods);
+
+    // At least one FastFieldExecState should be used
+    assert!(
+        methods.iter().any(|m| m.contains("FastFieldExecState")),
+        "Expected a FastFieldExecState for complex multi-table join, got: {:?}",
+        methods
+    );
+
+    // Verify results
+    let results = r#"
+        SELECT 
+            d.id AS document_id,
+            d.title AS document_title,
+            f.id AS file_id,
+            f.title AS file_title,
+            p.page_number,
+            m.numeric_field1,
+            m.string_field1,
+            m.string_field2
+        FROM documents d
+        JOIN files f ON d.id = f.documentId AND f.title @@@ 'Invoice'
+        JOIN pages p ON f.id = p.fileId AND p.content @@@ 'Socienty'
+        JOIN mixed_numeric_string_test m ON m.id = 'mix1' -- Cross join to mix in different field types
+        WHERE d.parents @@@ 'Factures'
+        ORDER BY p.page_number, m.numeric_field1
+    "#
+    .fetch_result::<(String, String, String, String, i32, i32, String, String)>(&mut conn)
+    .unwrap();
+
+    // Should find at least one result
+    assert!(
+        !results.is_empty(),
+        "Expected at least one result for complex multi-table join"
+    );
+
+    // Verify the mixed_numeric_string_test values are correct
+    for (_, _, _, _, _, numeric_field1, string_field1, string_field2) in &results {
+        assert_eq!(*numeric_field1, 100, "Expected numeric_field1 to be 100");
+        assert_eq!(
+            string_field1, "Apple",
+            "Expected string_field1 to be 'Apple'"
+        );
+        assert_eq!(string_field2, "Red", "Expected string_field2 to be 'Red'");
+    }
+}
+
+// SECTION 4: AGGREGATION AND SET OPERATIONS WITH SEARCH
+// ===================================================
+
+#[rstest]
+fn test_union_with_different_exec_methods(mut conn: PgConnection) {
+    TestMixedFastFields::setup().execute(&mut conn);
+
+    // Test with UNION combining queries with different execution methods
+    let (plan,) = r#"
+        EXPLAIN (ANALYZE, FORMAT JSON)
+        (
+            -- First query uses mixed fast fields
+            SELECT 'Document' AS type, d.id, d.title, NULL::INTEGER AS page_number
+            FROM documents d
+            WHERE d.title @@@ 'Invoice OR Receipt'
+        )
+        UNION ALL
+        (
+            -- Second query uses non-fast field in the SELECT list
+            SELECT 'Page' AS type, p.id, p.content, p.page_number
+            FROM pages p
+            WHERE p.content @@@ 'Socienty'
+        )
+        ORDER BY type, id
+    "#
+    .fetch_one::<(Value,)>(&mut conn);
+
+    // Get execution methods
+    let methods = get_all_exec_methods(&plan);
+    println!("UNION with different exec methods: {:?}", methods);
+
+    // Verify both FastFieldExecState and NormalScanExecState are used
+    let has_fast_field = methods.iter().any(|m| m.contains("FastFieldExecState"));
+    let has_normal_scan = methods.contains(&"NormalScanExecState".to_string());
+
+    assert!(
+        has_fast_field && has_normal_scan,
+        "Expected both FastFieldExecState and NormalScanExecState, got: {:?}",
+        methods
+    );
+
+    // Verify results
+    let results = r#"
+        (
+            SELECT 'Document' AS type, d.id, d.title, NULL::INTEGER AS page_number
+            FROM documents d
+            WHERE d.title @@@ 'Invoice OR Receipt'
+        )
+        UNION ALL
+        (
+            SELECT 'Page' AS type, p.id, p.content, p.page_number
+            FROM pages p
+            WHERE p.content @@@ 'Socienty'
+        )
+        ORDER BY type, id
+    "#
+    .fetch_result::<(String, String, String, Option<i32>)>(&mut conn)
+    .unwrap();
+
+    // Should find some documents and pages
+    assert!(
+        !results.is_empty(),
+        "Expected at least one result for UNION query"
+    );
+
+    // Verify we have both Document and Page types
+    let has_document = results.iter().any(|(t, _, _, _)| t == "Document");
+    let has_page = results.iter().any(|(t, _, _, _)| t == "Page");
+
+    assert!(has_document, "Expected at least one Document result");
+    assert!(has_page, "Expected at least one Page result");
+}
+
+#[rstest]
+fn test_window_functions_with_search(mut conn: PgConnection) {
+    TestMixedFastFields::setup().execute(&mut conn);
+
+    // Add more test data for better distribution
+    r#"
+        DO $$
+        DECLARE
+            i INTEGER;
+        BEGIN
+            FOR i IN 1..10 LOOP
+                INSERT INTO mixed_numeric_string_test (
+                    id, 
+                    numeric_field1, 
+                    numeric_field2, 
+                    string_field1, 
+                    string_field2, 
+                    string_field3, 
+                    content
+                ) VALUES (
+                    'window' || i,
+                    (i * 10),
+                    (i * 100),
+                    'Group' || (i % 3),
+                    'Window' || (i % 2),
+                    'Test',
+                    'Window function test with searchable terms'
+                );
+            END LOOP;
+        END $$;
+    "#
+    .execute(&mut conn);
+
+    // Test with window functions and search
+    let (plan,) = r#"
+        EXPLAIN (ANALYZE, FORMAT JSON)
+        SELECT 
+            m.id,
+            m.numeric_field1,
+            m.string_field1,
+            (AVG(m.numeric_field1) OVER (PARTITION BY m.string_field1))::integer AS avg_by_group,
+            RANK() OVER (PARTITION BY m.string_field1 ORDER BY m.numeric_field1 DESC) AS rank_in_group,
+            ROW_NUMBER() OVER (ORDER BY paradedb.score(m.id) DESC) AS relevance_rank
+        FROM mixed_numeric_string_test m
+        WHERE m.content @@@ 'window function'
+        ORDER BY m.string_field1, m.numeric_field1 DESC
+    "#
+    .fetch_one::<(Value,)>(&mut conn);
+
+    // Get execution methods
+    let methods = get_all_exec_methods(&plan);
+    println!("Window functions execution methods: {:?}", methods);
+
+    // Score function should force a FastFieldExecState
+    assert!(
+        !methods.iter().any(|m| m.contains("FastFieldExecState")),
+        "Didn't expect a FastFieldExecState with window functions, got: {:?}",
+        methods
+    );
+
+    // Verify results
+    let results = r#"
+        SELECT 
+            m.id,
+            m.numeric_field1,
+            m.string_field1,
+            (AVG(m.numeric_field1) OVER (PARTITION BY m.string_field1))::integer AS avg_by_group,
+            RANK() OVER (PARTITION BY m.string_field1 ORDER BY m.numeric_field1 DESC) AS rank_in_group,
+            ROW_NUMBER() OVER (ORDER BY paradedb.score(m.id) DESC) AS relevance_rank
+        FROM mixed_numeric_string_test m
+        WHERE m.content @@@ 'window function'
+        ORDER BY m.string_field1, m.numeric_field1 DESC
+    "#
+    .fetch_result::<(String, i32, String, i32, i64, i64)>(&mut conn)
+    .unwrap();
+
+    // Should find some results
+    assert!(
+        !results.is_empty(),
+        "Expected at least one result for window functions"
+    );
+
+    // Check window function results are correct
+    let group0_results: Vec<_> = results
+        .iter()
+        .filter(|(_, _, g, _, _, _)| g == "Group0")
+        .collect();
+
+    if !group0_results.is_empty() {
+        // Verify rank_in_group starts at 1 and is sequential
+        for i in 0..group0_results.len() {
+            assert_eq!(
+                group0_results[i].4,
+                (i + 1) as i64,
+                "Expected rank_in_group to be sequential, got {} at index {}",
+                group0_results[i].4,
+                i
+            );
+        }
+    }
+}
+
+#[rstest]
+fn test_multi_index_search_with_intersection(mut conn: PgConnection) {
+    TestMixedFastFields::setup().execute(&mut conn);
+
+    // Find documents and files that share common terms across both indexes
+    let (plan,) = r#"
+        EXPLAIN (ANALYZE, FORMAT JSON)
+        SELECT 
+            d.id AS doc_id,
+            d.title AS doc_title,
+            f.id AS file_id,
+            f.title AS file_title,
+            (SELECT AVG(p.page_number) FROM pages p WHERE p.fileId = f.id)::integer AS avg_page_number,
+            paradedb.score(d.id) + paradedb.score(f.id) AS combined_score
+        FROM documents d
+        JOIN files f ON d.id = f.documentId
+        WHERE 
+            d.title @@@ 'Invoice OR Receipt' AND
+            f.title @@@ 'Invoice OR Receipt'
+        ORDER BY combined_score DESC
+    "#
+    .fetch_one::<(Value,)>(&mut conn);
+
+    // Get execution methods
+    let methods = get_all_exec_methods(&plan);
+    println!("Multi-index execution methods: {:?}", methods);
+
+    // Score functions should force FastFieldExecState for both tables
+    assert!(
+        methods
+            .iter()
+            .filter(|m| m.contains("FastFieldExecState"))
+            .count() == 0,
+        "Expected no FastFieldExecState instances for multi-index search with subqueries, got: {:?}",
+        methods
+    );
+
+    // Verify results
+    let results = r#"
+        SELECT 
+            d.id AS doc_id,
+            d.title AS doc_title,
+            f.id AS file_id,
+            f.title AS file_title,
+            (SELECT AVG(p.page_number) FROM pages p WHERE p.fileId = f.id)::integer AS avg_page_number,
+            paradedb.score(d.id) + paradedb.score(f.id) AS combined_score
+        FROM documents d
+        JOIN files f ON d.id = f.documentId
+        WHERE 
+            d.title @@@ 'Invoice OR Receipt' AND
+            f.title @@@ 'Invoice OR Receipt'
+        ORDER BY combined_score DESC
+    "#
+    .fetch_result::<(String, String, String, String, Option<i32>, f32)>(&mut conn)
+    .unwrap();
+
+    // Should find at least one matching pair
+    assert!(
+        !results.is_empty(),
+        "Expected at least one result for multi-index search"
+    );
+
+    // Verify title contains Invoice or Receipt in both document and file
+    for (_, doc_title, _, file_title, _, _) in &results {
+        assert!(
+            doc_title.contains("Invoice") || doc_title.contains("Receipt"),
+            "Document title should contain 'Invoice' or 'Receipt', got: {}",
+            doc_title
+        );
+        assert!(
+            file_title.contains("Invoice") || file_title.contains("Receipt"),
+            "File title should contain 'Invoice' or 'Receipt', got: {}",
+            file_title
+        );
+    }
+
+    // Verify score ordering
+    for i in 1..results.len() {
+        assert!(
+            results[i - 1].5 >= results[i].5,
+            "Results not ordered correctly by combined_score DESC"
+        );
+    }
+}

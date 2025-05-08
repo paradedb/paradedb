@@ -21,10 +21,7 @@ use crate::nodecast;
 use crate::postgres::customscan::operator_oid;
 use crate::postgres::customscan::pdbscan::qual_inspect::Qual;
 use crate::schema::{SearchField, SearchFieldName, SearchIndexSchema};
-use pgrx::pg_sys::panic::ErrorReport;
-use pgrx::{
-    direct_function_call, function_name, pg_sys, IntoDatum, PgList, PgLogLevel, PgSqlErrorCode,
-};
+use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList};
 use rustc_hash::FxHashMap;
 use std::sync::OnceLock;
 
@@ -44,23 +41,9 @@ impl PushdownField {
     ) -> Option<Self> {
         let (_, attname) = attname_from_var(root, var);
         let attname = attname?;
-
-        match schema.get_search_field(&SearchFieldName(attname.clone())) {
-            Some(search_field) => Some(Self(search_field.clone())),
-            None => {
-                ErrorReport::new(
-                    PgSqlErrorCode::ERRCODE_WARNING,
-                    format!(
-                        "{} used as a filter but was not found in the BM25 index",
-                        attname
-                    ),
-                    function_name!(),
-                )
-                .set_hint("adding this field to the BM25 index may improve query performance")
-                .report(PgLogLevel::WARNING);
-                None
-            }
-        }
+        schema
+            .get_search_field(&SearchFieldName(attname.clone()))
+            .map(|field| Self(field.clone()))
     }
 
     pub fn attname(&self) -> &str {

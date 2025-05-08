@@ -21,13 +21,13 @@ mod fixtures;
 use fixtures::*;
 use futures::executor::block_on;
 use lockfree_object_pool::MutexObjectPool;
+use parking_lot::Mutex;
 use rayon::prelude::*;
-use std::collections::HashMap;
-
 use rstest::*;
 use sqlgen::joingen::JoinGenerator;
 use sqlgen::sqlgen::QueryGenerator;
 use sqlx::PgConnection;
+use std::collections::HashMap;
 
 #[rstest]
 #[tokio::test]
@@ -38,6 +38,8 @@ async fn generated_queries(database: Db) {
     );
 
     "CREATE EXTENSION pg_search;".execute(&mut pool.pull());
+
+    let mut setup_sql = String::new();
 
     for tname in ["users", "products", "orders"] {
         let sql = format!(
@@ -60,133 +62,113 @@ SELECT(ARRAY ['alice','bob','cloe', 'sally','brandy','brisket','anchovy']::text[
 FROM generate_series(1, 1000);
 
 CREATE INDEX idx{tname} ON {tname} USING bm25 (id, name, color, age)
-    WITH (
-    key_field = 'id',
-    text_fields = '
-                {{
-                    "name": {{ "tokenizer": {{ "type": "keyword" }} }},
-                    "color": {{ "tokenizer": {{ "type": "keyword" }} }},
-                    "age": {{ "tokenizer": {{ "type": "keyword" }} }}
-                }}'
-    );
-
+WITH (
+key_field = 'id',
+text_fields = '
+            {{
+                "name": {{ "tokenizer": {{ "type": "keyword" }} }},
+                "color": {{ "tokenizer": {{ "type": "keyword" }} }},
+                "age": {{ "tokenizer": {{ "type": "keyword" }} }}
+            }}'
+);
 CREATE INDEX idx{tname}_name ON {tname} (name);
 CREATE INDEX idx{tname}_color ON {tname} (color);
 CREATE INDEX idx{tname}_age ON {tname} (age);
-    "#,
+"#,
             tname = tname
         );
 
-        println!("{sql}");
-        sql.execute(&mut pool.pull());
+        (&sql).execute(&mut pool.pull());
+        setup_sql.push_str(&sql);
     }
 
     "ANALYZE;".execute(&mut pool.pull());
 
-    let want = vec![("name", "bob"), ("color", "blue"), ("age", "20")];
+    let want = |table_name: &str| {
+        vec![
+            (format!("{table_name}.name"), "bob"),
+            (format!("{table_name}.color"), "blue"),
+            (format!("{table_name}.age"), "20"),
+        ]
+    };
 
-    let mut pg_generators = {
-        let users_gen = QueryGenerator::new(
-            "=",
-            vec![
-                ("users.name", "bob"),
-                ("users.color", "blue"),
-                ("users.age", "20"),
-            ],
-        );
-
-        let orders_gen = QueryGenerator::new(
-            "=",
-            vec![
-                ("orders.name", "bob"),
-                ("orders.color", "blue"),
-                ("orders.age", "20"),
-            ],
-        );
-
-        let products_gen = QueryGenerator::new(
-            "=",
-            vec![
-                ("products.name", "bob"),
-                ("products.color", "blue"),
-                ("products.age", "20"),
-            ],
-        );
-
+    let pg_generators = {
         let mut generators = HashMap::<&str, QueryGenerator<&str>>::default();
-        generators.insert("users", users_gen);
-        generators.insert("orders", orders_gen);
-        generators.insert("products", products_gen);
+        generators.insert("users", QueryGenerator::new(" = ", want("users")));
+        generators.insert("orders", QueryGenerator::new(" = ", want("orders")));
+        generators.insert("products", QueryGenerator::new(" = ", want("products")));
+        generators
+    };
+    let bm25_generators = {
+        let mut generators = HashMap::<&str, QueryGenerator<&str>>::default();
+        generators.insert("users", QueryGenerator::new("@@@", want("users")));
+        generators.insert("orders", QueryGenerator::new("@@@", want("orders")));
+        generators.insert("products", QueryGenerator::new("@@@", want("products")));
         generators
     };
 
-    let mut bm25_generators = {
-        let users_gen = QueryGenerator::new(
-            "@@@",
-            vec![
-                ("users.name", "bob"),
-                ("users.color", "blue"),
-                ("users.age", "20"),
-            ],
-        );
+    let generators = Mutex::new((pg_generators, bm25_generators));
+    let errors = Mutex::new(String::new());
 
-        let orders_gen = QueryGenerator::new(
-            "@@@",
-            vec![
-                ("orders.name", "bob"),
-                ("orders.color", "blue"),
-                ("orders.age", "20"),
-            ],
-        );
+    for connector in ["AND", "OR", "AND NOT"] {
+        println!("connector={connector}");
 
-        let products_gen = QueryGenerator::new(
-            "@@@",
-            vec![
-                ("products.name", "bob"),
-                ("products.color", "blue"),
-                ("products.age", "20"),
-            ],
-        );
+        JoinGenerator::new(vec![
+            ("users", vec!["name", "color", "age"]),
+            ("orders", vec!["name", "color", "age"]),
+            ("products", vec!["name", "color", "age"]),
+        ])
+        .take(100)
+        .enumerate()
+        .par_bridge()
+        .for_each(|(idx, (join_clause, used_tables))| {
+            let from = format!("SELECT COUNT(*) {join_clause} ");
 
-        let mut generators = HashMap::<&str, QueryGenerator<&str>>::default();
-        generators.insert("users", users_gen);
-        generators.insert("orders", orders_gen);
-        generators.insert("products", products_gen);
-        generators
-    };
+            let mut pg_where_clauses = Vec::with_capacity(used_tables.len() * 1);
+            let mut bm25_where_clauses = Vec::with_capacity(used_tables.len() * 1);
 
-    for (join_clause, used_tables) in JoinGenerator::new(vec![
-        ("users", vec!["name", "color", "age"]),
-        ("orders", vec!["name", "color", "age"]),
-        ("products", vec!["name", "color", "age"]),
-    ])
-    .take(100)
-    {
-        let from = format!("SELECT COUNT(*) {join_clause} ");
+            // populate the where clauses with what should be matching where clauses from the two different generators
+            {
+                let mut generators = generators.lock();
 
-        let mut pg_where_clauses = Vec::with_capacity(used_tables.len() * 1);
-        for table_name in &used_tables {
-            pg_where_clauses.extend(pg_generators.get_mut(table_name.as_str()).unwrap().take(1));
-        }
+                for table_name in &used_tables {
+                    pg_where_clauses
+                        .extend(generators.0.get_mut(table_name.as_str()).unwrap().take(1));
+                }
 
-        let mut bm25_where_clauses = Vec::with_capacity(used_tables.len() * 1);
-        for table_name in used_tables {
-            bm25_where_clauses.extend(
-                bm25_generators
-                    .get_mut(table_name.as_str())
-                    .unwrap()
-                    .take(1),
+                for table_name in used_tables {
+                    bm25_where_clauses
+                        .extend(generators.1.get_mut(table_name.as_str()).unwrap().take(1));
+                }
+            }
+
+            let pg = format!(
+                "{from} WHERE {}",
+                pg_where_clauses.join(&format!(" {connector} "))
             );
-        }
+            let bm25 = format!(
+                "{from} WHERE {}",
+                bm25_where_clauses.join(&format!(" {connector} ")),
+            );
 
-        let pg = format!("{from} WHERE {}", pg_where_clauses.join(" AND "));
-        let bm25 = format!("{from} WHERE {}", bm25_where_clauses.join(" AND "),);
-        println!("{pg}");
-        println!("{bm25}");
+            let (pg_count,) = (&pg).fetch_one::<(i64,)>(&mut pool.pull());
+            let (bm25_count,) = (&bm25).fetch_one::<(i64,)>(&mut pool.pull());
 
-        let (pg_count,) = (&pg).fetch_one::<(i64,)>(&mut pool.pull());
-        let (bm25_count,) = (&bm25).fetch_one::<(i64,)>(&mut pool.pull());
-        assert_eq!(pg_count, bm25_count, "{pg} / {bm25}");
+            if pg_count != bm25_count {
+                let mut errors = errors.lock();
+                errors.push_str(&format!("---- connector={connector} ----\n"));
+                errors.push_str(&format!("-- pg={pg_count}, bm25={bm25_count}\n"));
+                errors.push_str(&format!("{pg}\n"));
+                errors.push_str(&format!("{bm25}\n"));
+                errors.push('\n');
+            }
+        });
+    }
+
+    let errors = errors.into_inner();
+    if !errors.is_empty() {
+        eprintln!("{setup_sql}");
+        eprintln!("{errors}");
     }
 
     // QueryGenerator::new("=", want)

@@ -4838,6 +4838,7 @@ dependencies = [
  "futures",
  "lockfree-object-pool",
  "num-traits",
+ "parking_lot",
  "pgvector",
  "portpicker",
  "pretty_assertions",

@@ -435,7 +435,7 @@ pub fn fast_field_capable_prereqs(privdata: &PrivateData) -> bool {
     // If we're missing any columns, we can't use fast field execution
     if referenced_columns_count > fast_field_column_count {
         pgrx::warning!(
-            "  ⭐️ Can't use numeric fast fields - referenced column count ({}) > fast field column count ({})",
+            "  ⭐️ Can't use fast fields - referenced column count ({}) > fast field column count ({})",
             referenced_columns_count,
             fast_field_column_count
         );

@@ -722,7 +722,7 @@ mod tests {
     #[pg_test]
     fn test_pushdown_var_eq_true() {
         let qual = Qual::PushdownVarEqTrue {
-            field: PushdownField::new("foo".into()),
+            field: PushdownField::new("foo"),
         };
         let got = SearchQueryInput::from(&qual);
         let want = SearchQueryInput::Term {
@@ -736,7 +736,7 @@ mod tests {
     #[pg_test]
     fn test_pushdown_var_eq_false() {
         let qual = Qual::PushdownVarEqFalse {
-            field: PushdownField::new("bar".into()),
+            field: PushdownField::new("bar"),
         };
         let got = SearchQueryInput::from(&qual);
         let want = SearchQueryInput::Term {
@@ -750,7 +750,7 @@ mod tests {
     #[pg_test]
     fn test_pushdown_var_is_true() {
         let qual = Qual::PushdownVarIsTrue {
-            field: PushdownField::new("baz".into()),
+            field: PushdownField::new("baz"),
         };
         let got = SearchQueryInput::from(&qual);
         let want = SearchQueryInput::Term {
@@ -764,7 +764,7 @@ mod tests {
     #[pg_test]
     fn test_pushdown_var_is_false() {
         let qual = Qual::PushdownVarIsFalse {
-            field: PushdownField::new("qux".into()),
+            field: PushdownField::new("qux"),
         };
         let got = SearchQueryInput::from(&qual);
         let want = SearchQueryInput::Term {
@@ -778,7 +778,7 @@ mod tests {
     #[pg_test]
     fn test_pushdown_is_not_null() {
         let qual = Qual::PushdownIsNotNull {
-            field: PushdownField::new("fld".into()),
+            field: PushdownField::new("fld"),
         };
         let got = SearchQueryInput::from(&qual);
         let want = SearchQueryInput::Exists {

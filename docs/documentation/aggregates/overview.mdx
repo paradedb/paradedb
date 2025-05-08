@@ -145,7 +145,7 @@ GROUP BY description LIMIT 5;
          ->  Sort  (cost=14.04..14.04 rows=2 width=32)
                Sort Key: description
                ->  Index Scan using search_idx on mock_items  (cost=10.00..14.03 rows=2 width=32)
-                     Index Cond: (id @@@ '{"with_index":{"oid":3567455,"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput COLLATE "default")
+                     Index Cond: (id @@@ '{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput COLLATE "default")
 (7 rows)
 ```
 </Accordion>

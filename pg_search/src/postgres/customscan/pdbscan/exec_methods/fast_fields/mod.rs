@@ -401,8 +401,8 @@ pub fn fast_field_capable_prereqs(privdata: &PrivateData) -> bool {
     pgrx::warning!("⭐️ Checking prereqs...");
 
     if privdata.referenced_columns_count() == 0 {
-        pgrx::warning!("  ⭐️ No referenced columns, can use fast fields");
-        return true;
+        pgrx::warning!("  ⭐️ No referenced columns, can't use fast fields");
+        return false;
     }
 
     let which_fast_fields = privdata.which_fast_fields();

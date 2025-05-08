@@ -26,7 +26,7 @@ use rustc_hash::FxHashMap;
 use std::sync::OnceLock;
 
 #[derive(Debug, Clone)]
-pub struct PushdownField(SearchField);
+pub struct PushdownField(String);
 
 impl PushdownField {
     /// Given a Postgres [`pg_sys::Var`] and a [`SearchIndexSchema`], try to create a [`PushdownField`].
@@ -40,22 +40,19 @@ impl PushdownField {
         schema: &SearchIndexSchema,
     ) -> Option<Self> {
         let (_, attname) = attname_from_var(root, var);
-        let attname = attname?;
-        schema
-            .get_search_field(&SearchFieldName(attname.clone()))
-            .map(|field| Self(field.clone()))
+        attname.map(|attname| Self(attname))
+    }
+
+    pub fn new(attname: &str, schema: &SearchIndexSchema) -> Self {
+        Self(SearchField::new(attname.into()))
     }
 
     pub fn attname(&self) -> &str {
-        &self.0.name.0
+        self.0
     }
 
-    pub fn is_text(&self) -> bool {
-        self.0.is_text()
-    }
-
-    pub fn is_keyword(&self) -> bool {
-        self.0.is_keyword()
+    pub fn search_field(&self, schema: &SearchIndexSchema) -> Option<&SearchField> {
+        schema.get_search_field(&SearchFieldName(self.0.clone()))
     }
 }
 
@@ -144,7 +141,8 @@ pub unsafe fn try_pushdown(
     };
     let rhs = args.get_ptr(1)?;
 
-    let field = PushdownField::try_new(root, var, schema)?;
+    let pushdown = PushdownField::try_new(root, var, schema)?;
+    let field = pushdown.search_field(schema)?;
     if field.is_text() && !field.is_keyword() {
         return None;
     }

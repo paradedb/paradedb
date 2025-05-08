@@ -1,0 +1,179 @@
+-- Test type conversion edge cases with mixed fast fields
+-- This test verifies that mixed fast fields handle various type conversions correctly
+
+-- Create test table with various field types for conversion testing
+DROP TABLE IF EXISTS type_conversion_test;
+CREATE TABLE type_conversion_test (
+    id SERIAL PRIMARY KEY,
+    -- Text fields
+    text_field TEXT,
+    varchar_field VARCHAR(100),
+    char_field CHAR(10),
+    -- Numeric fields
+    int_field INTEGER,
+    smallint_field SMALLINT,
+    bigint_field BIGINT,
+    float_field FLOAT,
+    numeric_field NUMERIC(10,2),
+    decimal_field DECIMAL(10,2),
+    real_field REAL,
+    -- Boolean fields
+    bool_field BOOLEAN,
+    -- Date/Time fields
+    date_field DATE,
+    time_field TIME,
+    timestamp_field TIMESTAMP,
+    -- Special fields
+    uuid_field UUID,
+    json_field JSONB
+);
+
+-- Insert test data with edge cases for conversion
+INSERT INTO type_conversion_test (
+    text_field, varchar_field, char_field,
+    int_field, smallint_field, bigint_field, float_field, numeric_field, decimal_field, real_field,
+    bool_field, date_field, time_field, timestamp_field,
+    uuid_field, json_field
+) VALUES
+    -- Case 1: Standard values
+    (
+        'Regular text', 'Regular varchar', 'Char     ',
+        100, 10, 1000000, 3.14159, 123.45, 678.90, 2.71828,
+        true, '2023-01-01', '12:30:00', '2023-01-01 12:30:00',
+        '123e4567-e89b-12d3-a456-426614174000', '{"key": "value"}'
+    ),
+    -- Case 2: Numeric edge cases
+    (
+        '123', '456', '789',
+        2147483647, 32767, 9223372036854775807, 1.7976931348623157e+308, 9999999.99, 9999999.99, 3.40282e+38,
+        false, '2023-01-02', '00:00:01', '2023-01-02 00:00:01',
+        '00000000-0000-0000-0000-000000000000', '{"number": 12345}'
+    ),
+    -- Case 3: Empty/NULL edge cases
+    (
+        '', '', '',
+        0, 0, 0, 0.0, 0.00, 0.00, 0.0,
+        NULL, '1970-01-01', '00:00:00', '1970-01-01 00:00:00',
+        '00000000-0000-0000-0000-000000000000', '{}'
+    ),
+    -- Case 4: Special characters
+    (
+        'Text with special chars: !@#$%^&*()', 'Varchar with "quotes" and \'apostrophes\'', '~`[]{}\\|',
+        -2147483648, -32768, -9223372036854775808, -1.7976931348623157e+308, -9999999.99, -9999999.99, -3.40282e+38,
+        true, '9999-12-31', '23:59:59', '9999-12-31 23:59:59',
+        'ffffffff-ffff-ffff-ffff-ffffffffffff', '{"array": [1, 2, 3]}'
+    ),
+    -- Case 5: Numeric strings
+    (
+        '12345.67890', '98765.43210', '1234567890',
+        12345, 1234, 12345678901234, 12345.67890, 12345.67, 98765.43, 12345.67,
+        false, '2023-05-15', '15:45:30', '2023-05-15 15:45:30',
+        'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', '{"numeric": 12345.67890}'
+    );
+
+-- Create search index with mixed fast fields
+DROP INDEX IF EXISTS type_conv_idx;
+CREATE INDEX type_conv_idx ON type_conversion_test
+USING columnstore (
+    text_field, varchar_field, char_field,
+    int_field, bigint_field, float_field, numeric_field,
+    bool_field, date_field
+)
+WITH (type='hnsw');
+
+-- Enable execution method tracing
+SET pg_search.explain_analyze_verbose TO TRUE;
+
+-- Test 1: Basic text to text conversions
+EXPLAIN ANALYZE
+SELECT text_field, varchar_field, char_field
+FROM type_conversion_test
+WHERE text_field LIKE '%text%' OR varchar_field LIKE '%varchar%';
+
+-- Test 2: Converting numeric string to number
+EXPLAIN ANALYZE
+SELECT text_field::numeric as converted_num, numeric_field
+FROM type_conversion_test
+WHERE text_field ~ '^[0-9.]+$';
+
+-- Test 3: Numeric range filtering with casts
+EXPLAIN ANALYZE
+SELECT int_field, bigint_field, float_field
+FROM type_conversion_test
+WHERE int_field::float > 100 AND float_field::int < 12346;
+
+-- Test 4: String concatenation with different types
+EXPLAIN ANALYZE
+SELECT text_field || ' - ' || int_field::text as text_with_num
+FROM type_conversion_test
+WHERE bool_field = true;
+
+-- Test 5: Mixed type expressions in filtering
+EXPLAIN ANALYZE
+SELECT text_field, int_field, float_field
+FROM type_conversion_test
+WHERE (int_field::text = '100' OR text_field = '123') 
+  AND float_field BETWEEN 2 AND 10000;
+
+-- Test 6: Date conversions
+EXPLAIN ANALYZE
+SELECT date_field, timestamp_field
+FROM type_conversion_test
+WHERE date_field = timestamp_field::date;
+
+-- Test 7: CASE expression with type conversion
+EXPLAIN ANALYZE
+SELECT 
+    id,
+    CASE 
+        WHEN text_field ~ '^[0-9]+$' THEN text_field::integer * 2
+        ELSE int_field
+    END as converted_value
+FROM type_conversion_test;
+
+-- Test 8: JSON extraction with type conversion
+EXPLAIN ANALYZE
+SELECT 
+    id,
+    json_field,
+    (json_field->>'number')::numeric AS extracted_number
+FROM type_conversion_test
+WHERE json_field ? 'number';
+
+-- Test 9: Complex mixed type filtering
+EXPLAIN ANALYZE
+SELECT text_field, int_field, bool_field
+FROM type_conversion_test
+WHERE 
+    CASE 
+        WHEN bool_field THEN int_field > 50
+        ELSE text_field LIKE '%text%'
+    END;
+
+-- Verify actual conversion results
+SELECT 
+    id,
+    text_field,
+    text_field::numeric as text_to_num,
+    int_field,
+    int_field::text as int_to_text,
+    bool_field,
+    CASE WHEN bool_field THEN 'Yes' ELSE 'No' END as bool_to_text
+FROM type_conversion_test
+WHERE text_field ~ '^[0-9.]+$' OR int_field > 1000;
+
+-- Test character set conversion issues
+SELECT 
+    id,
+    text_field,
+    varchar_field,
+    char_field,
+    TRIM(char_field) as trimmed_char,
+    LENGTH(char_field) as char_length,
+    LENGTH(TRIM(char_field)) as trimmed_length
+FROM type_conversion_test
+WHERE char_field <> '';
+
+-- Clean up
+DROP INDEX IF EXISTS type_conv_idx;
+DROP TABLE IF EXISTS type_conversion_test; 

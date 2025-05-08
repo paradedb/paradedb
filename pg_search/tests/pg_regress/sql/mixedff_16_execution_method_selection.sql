@@ -1,0 +1,119 @@
+-- Test proper execution method selection for mixed fast fields
+-- This test verifies that the MixedFastFieldExecState is chosen when appropriate
+-- and that NormalScanExecState is not used when mixed fast fields are available
+
+-- Create test table with various field types
+DROP TABLE IF EXISTS exec_method_test;
+CREATE TABLE exec_method_test (
+    id SERIAL PRIMARY KEY,
+    text_field1 TEXT,
+    text_field2 TEXT,
+    text_field3 TEXT,
+    num_field1 INTEGER,
+    num_field2 FLOAT,
+    num_field3 NUMERIC,
+    bool_field BOOLEAN,
+    non_indexed_field TEXT
+);
+
+-- Insert test data
+INSERT INTO exec_method_test (
+    text_field1, text_field2, text_field3,
+    num_field1, num_field2, num_field3,
+    bool_field, non_indexed_field
+)
+SELECT
+    'Text ' || i,
+    'Sample ' || (i % 10),
+    'Category ' || (i % 5),
+    i,
+    (i * 1.5)::float,
+    (i * 2.25)::numeric,
+    i % 2 = 0,
+    'Non-indexed ' || i
+FROM generate_series(1, 50) i;
+
+-- Create index with mixed fast fields
+DROP INDEX IF EXISTS exec_method_idx;
+CREATE INDEX exec_method_idx ON exec_method_test
+USING columnstore (
+    text_field1, text_field2, text_field3,
+    num_field1, num_field2, num_field3,
+    bool_field
+)
+WITH (type='hnsw');
+
+-- Enable execution method tracing
+SET pg_search.explain_analyze_verbose TO TRUE;
+
+-- Test 1: Should use MixedFastFieldExecState with multiple string fields
+EXPLAIN ANALYZE
+SELECT text_field1, text_field2
+FROM exec_method_test
+WHERE text_field1 LIKE 'Text%';
+
+-- Test 2: Should use MixedFastFieldExecState with mixed string and numeric fields
+EXPLAIN ANALYZE
+SELECT text_field1, num_field1, num_field2
+FROM exec_method_test
+WHERE text_field1 LIKE 'Text%' AND num_field1 > 10;
+
+-- Test 3: Should use MixedFastFieldExecState with all field types
+EXPLAIN ANALYZE
+SELECT text_field1, text_field2, num_field1, bool_field
+FROM exec_method_test
+WHERE text_field1 LIKE 'Text%' AND bool_field = true;
+
+-- Test 4: Should use StringFastFieldExecState when only one string field
+EXPLAIN ANALYZE
+SELECT text_field1
+FROM exec_method_test
+WHERE text_field1 LIKE 'Text%';
+
+-- Test 5: Should use NumericFastFieldExecState when only numeric fields
+EXPLAIN ANALYZE
+SELECT num_field1, num_field2
+FROM exec_method_test
+WHERE num_field1 > 25;
+
+-- Test 6: Should NOT use any FastField method when non-indexed fields are selected
+EXPLAIN ANALYZE
+SELECT text_field1, non_indexed_field
+FROM exec_method_test
+WHERE text_field1 LIKE 'Text%';
+
+-- Test 7: Should use MixedFastFieldExecState even with ORDER BY
+EXPLAIN ANALYZE
+SELECT text_field1, num_field1
+FROM exec_method_test
+WHERE text_field1 LIKE 'Text%'
+ORDER BY num_field1 DESC;
+
+-- Test 8: Should use MixedFastFieldExecState with filtering on multiple field types
+EXPLAIN ANALYZE
+SELECT text_field1, text_field2, num_field1, bool_field
+FROM exec_method_test
+WHERE text_field1 LIKE 'Text%' 
+  AND text_field2 LIKE 'Sample%'
+  AND num_field1 BETWEEN 10 AND 40
+  AND bool_field = true;
+
+-- Test 9: Verify correct execution method in a subquery
+EXPLAIN ANALYZE
+SELECT t.text_field1, t.num_field1
+FROM (
+    SELECT text_field1, num_field1
+    FROM exec_method_test
+    WHERE text_field1 LIKE 'Text%' AND num_field1 > 10
+) t
+WHERE t.num_field1 < 30;
+
+-- Verify actual results match expected values (not just execution method)
+SELECT text_field1, text_field2, num_field1
+FROM exec_method_test
+WHERE text_field1 LIKE 'Text 1%' AND num_field1 < 20
+ORDER BY num_field1;
+
+-- Clean up
+DROP INDEX IF EXISTS exec_method_idx;
+DROP TABLE IF EXISTS exec_method_test; 

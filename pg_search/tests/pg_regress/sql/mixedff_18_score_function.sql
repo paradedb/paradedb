@@ -1,0 +1,153 @@
+-- Test score function behavior with mixed fast fields
+-- This test verifies that the score function works correctly with mixed fast fields
+-- and that it can be combined with field selection and filtering
+
+-- Create test table with mixed field types
+DROP TABLE IF EXISTS score_test;
+CREATE TABLE score_test (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    content TEXT,
+    author TEXT,
+    rating INTEGER,
+    views NUMERIC,
+    published_date DATE,
+    is_featured BOOLEAN
+);
+
+-- Insert test data
+INSERT INTO score_test (title, content, author, rating, views, published_date, is_featured)
+SELECT
+    'Post ' || i,
+    'This is content for post ' || i || '. It contains some searchable text and keywords like technology, science, research, and development.',
+    'Author ' || (1 + (i % 5)),
+    (1 + (i % 5)),
+    (100 * i + (random() * 100))::numeric,
+    '2023-01-01'::date + (i % 365) * '1 day'::interval,
+    i % 7 = 0
+FROM generate_series(1, 100) i;
+
+-- Add some specific posts for testing
+INSERT INTO score_test (title, content, author, rating, views, published_date, is_featured)
+VALUES
+    ('Special Technology Post', 'This post is all about technology and innovative research.', 'Author Expert', 5, 9999, '2023-06-15', true),
+    ('Advanced Science Research', 'Detailed explanation of scientific breakthroughs and research methodology.', 'Author Expert', 5, 8888, '2023-07-20', true),
+    ('Technology Trends Analysis', 'Analysis of current and future technology trends and developments.', 'Author Expert', 4, 7777, '2023-08-10', true);
+
+-- Create search index with mixed fast fields
+DROP INDEX IF EXISTS score_test_idx;
+CREATE INDEX score_test_idx ON score_test
+USING columnstore (title, content, author, rating, views, is_featured)
+WITH (type='hnsw');
+
+-- Enable execution method tracing
+SET pg_search.explain_analyze_verbose TO TRUE;
+
+-- Test 1: Basic score function with text field
+EXPLAIN ANALYZE
+SELECT title, score(score_test_idx), rating
+FROM score_test
+WHERE content ILIKE '%technology%'
+ORDER BY score(score_test_idx) DESC
+LIMIT 10;
+
+-- Test 2: Score function with mixed field types in selection
+EXPLAIN ANALYZE
+SELECT title, author, rating, views, score(score_test_idx)
+FROM score_test
+WHERE content ILIKE '%research%'
+ORDER BY rating DESC, score(score_test_idx) DESC
+LIMIT 5;
+
+-- Test 3: Score function with multiple conditions on different field types
+EXPLAIN ANALYZE
+SELECT title, author, score(score_test_idx)
+FROM score_test
+WHERE content ILIKE '%technology%' AND rating >= 4 AND is_featured = true
+ORDER BY score(score_test_idx) DESC;
+
+-- Test 4: Using score in a CTE with mixed fields
+EXPLAIN ANALYZE
+WITH scored_posts AS (
+    SELECT title, author, rating, score(score_test_idx) as relevance
+    FROM score_test
+    WHERE content ILIKE '%science%' OR content ILIKE '%research%'
+)
+SELECT title, author, rating, relevance
+FROM scored_posts
+WHERE rating > 3
+ORDER BY relevance DESC
+LIMIT 10;
+
+-- Test 5: Score function in subquery with mixed fields
+EXPLAIN ANALYZE
+SELECT sp.title, sp.author, sp.relevance
+FROM (
+    SELECT title, author, score(score_test_idx) as relevance
+    FROM score_test
+    WHERE content ILIKE '%technology%' AND rating > 3
+) sp
+WHERE sp.relevance > 0.5
+ORDER BY sp.relevance DESC;
+
+-- Test 6: Score function with UNION
+EXPLAIN ANALYZE
+SELECT title, author, score(score_test_idx) as relevance
+FROM score_test
+WHERE content ILIKE '%technology%'
+UNION ALL
+SELECT title, author, score(score_test_idx) as relevance
+FROM score_test
+WHERE content ILIKE '%science%' AND title NOT ILIKE '%technology%'
+ORDER BY relevance DESC
+LIMIT 10;
+
+-- Test 7: Score function with JOIN using mixed fields
+EXPLAIN ANALYZE
+SELECT a.title, a.author, a.rating, a.score, b.title as related_title
+FROM (
+    SELECT title, author, rating, score(score_test_idx) as score
+    FROM score_test
+    WHERE content ILIKE '%technology%'
+    ORDER BY score DESC
+    LIMIT 5
+) a
+JOIN (
+    SELECT title, author
+    FROM score_test
+    WHERE author IN (SELECT author FROM score_test WHERE content ILIKE '%technology%')
+) b ON a.author = b.author AND a.title <> b.title;
+
+-- Test 8: Score function with CASE expression and mixed fields
+EXPLAIN ANALYZE
+SELECT 
+    title, 
+    author,
+    rating,
+    CASE 
+        WHEN score(score_test_idx) > 0.8 THEN 'High Relevance'
+        WHEN score(score_test_idx) > 0.5 THEN 'Medium Relevance'
+        ELSE 'Low Relevance'
+    END as relevance_category
+FROM score_test
+WHERE content ILIKE '%research%' OR content ILIKE '%development%'
+ORDER BY score(score_test_idx) DESC
+LIMIT 10;
+
+-- Verify actual results of score function (not just execution method)
+SELECT title, author, rating, score(score_test_idx) as relevance
+FROM score_test
+WHERE content ILIKE '%technology%' AND rating >= 4
+ORDER BY relevance DESC
+LIMIT 5;
+
+-- Test combination of score function and different fast field types
+SELECT title, author, rating, views, score(score_test_idx) as relevance
+FROM score_test
+WHERE content ILIKE '%research%' AND rating > 3 AND views > 1000
+ORDER BY relevance DESC
+LIMIT 3;
+
+-- Clean up
+DROP INDEX IF EXISTS score_test_idx;
+DROP TABLE IF EXISTS score_test; 

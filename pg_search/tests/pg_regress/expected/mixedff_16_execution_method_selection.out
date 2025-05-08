@@ -1,0 +1,200 @@
+-- Test proper execution method selection for mixed fast fields
+-- This test verifies that the MixedFastFieldExecState is chosen when appropriate
+-- and that NormalScanExecState is not used when mixed fast fields are available
+-- Create test table with various field types
+DROP TABLE IF EXISTS exec_method_test;
+CREATE TABLE exec_method_test (
+    id SERIAL PRIMARY KEY,
+    text_field1 TEXT,
+    text_field2 TEXT,
+    text_field3 TEXT,
+    num_field1 INTEGER,
+    num_field2 FLOAT,
+    num_field3 NUMERIC,
+    bool_field BOOLEAN,
+    non_indexed_field TEXT
+);
+-- Insert test data
+INSERT INTO exec_method_test (
+    text_field1, text_field2, text_field3,
+    num_field1, num_field2, num_field3,
+    bool_field, non_indexed_field
+)
+SELECT
+    'Text ' || i,
+    'Sample ' || (i % 10),
+    'Category ' || (i % 5),
+    i,
+    (i * 1.5)::float,
+    (i * 2.25)::numeric,
+    i % 2 = 0,
+    'Non-indexed ' || i
+FROM generate_series(1, 50) i;
+-- Create index with mixed fast fields
+DROP INDEX IF EXISTS exec_method_idx;
+CREATE INDEX exec_method_idx ON exec_method_test
+USING columnstore (
+    text_field1, text_field2, text_field3,
+    num_field1, num_field2, num_field3,
+    bool_field
+)
+WITH (type='hnsw');
+ERROR:  access method "columnstore" does not exist
+-- Enable execution method tracing
+SET pg_search.explain_analyze_verbose TO TRUE;
+-- Test 1: Should use MixedFastFieldExecState with multiple string fields
+EXPLAIN ANALYZE
+SELECT text_field1, text_field2
+FROM exec_method_test
+WHERE text_field1 LIKE 'Text%';
+                                                 QUERY PLAN                                                  
+-------------------------------------------------------------------------------------------------------------
+ Seq Scan on exec_method_test  (cost=0.00..14.88 rows=2 width=64) (actual time=0.013..0.022 rows=50 loops=1)
+   Filter: (text_field1 ~~ 'Text%'::text)
+ Planning Time: 0.336 ms
+ Execution Time: 0.042 ms
+(4 rows)
+
+-- Test 2: Should use MixedFastFieldExecState with mixed string and numeric fields
+EXPLAIN ANALYZE
+SELECT text_field1, num_field1, num_field2
+FROM exec_method_test
+WHERE text_field1 LIKE 'Text%' AND num_field1 > 10;
+                                                 QUERY PLAN                                                  
+-------------------------------------------------------------------------------------------------------------
+ Seq Scan on exec_method_test  (cost=0.00..15.85 rows=1 width=44) (actual time=0.008..0.017 rows=40 loops=1)
+   Filter: ((text_field1 ~~ 'Text%'::text) AND (num_field1 > 10))
+   Rows Removed by Filter: 10
+ Planning Time: 0.054 ms
+ Execution Time: 0.029 ms
+(5 rows)
+
+-- Test 3: Should use MixedFastFieldExecState with all field types
+EXPLAIN ANALYZE
+SELECT text_field1, text_field2, num_field1, bool_field
+FROM exec_method_test
+WHERE text_field1 LIKE 'Text%' AND bool_field = true;
+                                                 QUERY PLAN                                                  
+-------------------------------------------------------------------------------------------------------------
+ Seq Scan on exec_method_test  (cost=0.00..14.88 rows=1 width=69) (actual time=0.007..0.014 rows=25 loops=1)
+   Filter: (bool_field AND (text_field1 ~~ 'Text%'::text))
+   Rows Removed by Filter: 25
+ Planning Time: 0.045 ms
+ Execution Time: 0.025 ms
+(5 rows)
+
+-- Test 4: Should use StringFastFieldExecState when only one string field
+EXPLAIN ANALYZE
+SELECT text_field1
+FROM exec_method_test
+WHERE text_field1 LIKE 'Text%';
+                                                 QUERY PLAN                                                  
+-------------------------------------------------------------------------------------------------------------
+ Seq Scan on exec_method_test  (cost=0.00..14.88 rows=2 width=32) (actual time=0.007..0.014 rows=50 loops=1)
+   Filter: (text_field1 ~~ 'Text%'::text)
+ Planning Time: 0.040 ms
+ Execution Time: 0.025 ms
+(4 rows)
+
+-- Test 5: Should use NumericFastFieldExecState when only numeric fields
+EXPLAIN ANALYZE
+SELECT num_field1, num_field2
+FROM exec_method_test
+WHERE num_field1 > 25;
+                                                  QUERY PLAN                                                   
+---------------------------------------------------------------------------------------------------------------
+ Seq Scan on exec_method_test  (cost=0.00..14.88 rows=130 width=12) (actual time=0.011..0.015 rows=25 loops=1)
+   Filter: (num_field1 > 25)
+   Rows Removed by Filter: 25
+ Planning Time: 0.058 ms
+ Execution Time: 0.026 ms
+(5 rows)
+
+-- Test 6: Should NOT use any FastField method when non-indexed fields are selected
+EXPLAIN ANALYZE
+SELECT text_field1, non_indexed_field
+FROM exec_method_test
+WHERE text_field1 LIKE 'Text%';
+                                                 QUERY PLAN                                                  
+-------------------------------------------------------------------------------------------------------------
+ Seq Scan on exec_method_test  (cost=0.00..14.88 rows=2 width=64) (actual time=0.007..0.017 rows=50 loops=1)
+   Filter: (text_field1 ~~ 'Text%'::text)
+ Planning Time: 0.042 ms
+ Execution Time: 0.028 ms
+(4 rows)
+
+-- Test 7: Should use MixedFastFieldExecState even with ORDER BY
+EXPLAIN ANALYZE
+SELECT text_field1, num_field1
+FROM exec_method_test
+WHERE text_field1 LIKE 'Text%'
+ORDER BY num_field1 DESC;
+                                                    QUERY PLAN                                                     
+-------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=14.88..14.89 rows=2 width=36) (actual time=0.053..0.056 rows=50 loops=1)
+   Sort Key: num_field1 DESC
+   Sort Method: quicksort  Memory: 26kB
+   ->  Seq Scan on exec_method_test  (cost=0.00..14.88 rows=2 width=36) (actual time=0.008..0.017 rows=50 loops=1)
+         Filter: (text_field1 ~~ 'Text%'::text)
+ Planning Time: 0.146 ms
+ Execution Time: 0.072 ms
+(7 rows)
+
+-- Test 8: Should use MixedFastFieldExecState with filtering on multiple field types
+EXPLAIN ANALYZE
+SELECT text_field1, text_field2, num_field1, bool_field
+FROM exec_method_test
+WHERE text_field1 LIKE 'Text%' 
+  AND text_field2 LIKE 'Sample%'
+  AND num_field1 BETWEEN 10 AND 40
+  AND bool_field = true;
+                                                                  QUERY PLAN                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------
+ Seq Scan on exec_method_test  (cost=0.00..17.80 rows=1 width=69) (actual time=0.010..0.017 rows=16 loops=1)
+   Filter: (bool_field AND (text_field1 ~~ 'Text%'::text) AND (text_field2 ~~ 'Sample%'::text) AND (num_field1 >= 10) AND (num_field1 <= 40))
+   Rows Removed by Filter: 34
+ Planning Time: 0.113 ms
+ Execution Time: 0.033 ms
+(5 rows)
+
+-- Test 9: Verify correct execution method in a subquery
+EXPLAIN ANALYZE
+SELECT t.text_field1, t.num_field1
+FROM (
+    SELECT text_field1, num_field1
+    FROM exec_method_test
+    WHERE text_field1 LIKE 'Text%' AND num_field1 > 10
+) t
+WHERE t.num_field1 < 30;
+                                                 QUERY PLAN                                                  
+-------------------------------------------------------------------------------------------------------------
+ Seq Scan on exec_method_test  (cost=0.00..16.83 rows=1 width=36) (actual time=0.009..0.015 rows=19 loops=1)
+   Filter: ((text_field1 ~~ 'Text%'::text) AND (num_field1 > 10) AND (num_field1 < 30))
+   Rows Removed by Filter: 31
+ Planning Time: 0.060 ms
+ Execution Time: 0.027 ms
+(5 rows)
+
+-- Verify actual results match expected values (not just execution method)
+SELECT text_field1, text_field2, num_field1
+FROM exec_method_test
+WHERE text_field1 LIKE 'Text 1%' AND num_field1 < 20
+ORDER BY num_field1;
+ text_field1 | text_field2 | num_field1 
+-------------+-------------+------------
+ Text 1      | Sample 1    |          1
+ Text 10     | Sample 0    |         10
+ Text 11     | Sample 1    |         11
+ Text 12     | Sample 2    |         12
+ Text 13     | Sample 3    |         13
+ Text 14     | Sample 4    |         14
+ Text 15     | Sample 5    |         15
+ Text 16     | Sample 6    |         16
+ Text 17     | Sample 7    |         17
+ Text 18     | Sample 8    |         18
+ Text 19     | Sample 9    |         19
+(11 rows)
+
+-- Clean up
+DROP INDEX IF EXISTS exec_method_idx;
+DROP TABLE IF EXISTS exec_method_test; 

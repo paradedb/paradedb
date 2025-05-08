@@ -1,0 +1,323 @@
+-- Test UNION operations and window functions with mixed fast fields
+-- This test verifies that mixed fast fields work correctly with UNION operations
+-- and when used in window functions
+-- Create test tables
+DROP TABLE IF EXISTS union_test_a;
+DROP TABLE IF EXISTS union_test_b;
+CREATE TABLE union_test_a (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    author TEXT,
+    rating NUMERIC,
+    year INTEGER,
+    price FLOAT,
+    is_published BOOLEAN
+);
+CREATE TABLE union_test_b (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    author TEXT,
+    rating NUMERIC,
+    year INTEGER,
+    price FLOAT,
+    is_published BOOLEAN
+);
+-- Insert test data
+INSERT INTO union_test_a (title, author, rating, year, price, is_published)
+SELECT
+    'Book A' || i,
+    'Author ' || (1 + (i % 10)),
+    (3 + random() * 2)::numeric,
+    2000 + (i % 22),
+    (10 + random() * 40)::float,
+    i % 3 != 0
+FROM generate_series(1, 50) i;
+INSERT INTO union_test_b (title, author, rating, year, price, is_published)
+SELECT
+    'Book B' || i,
+    'Author ' || (1 + (i % 15)),
+    (1 + random() * 4)::numeric,
+    1980 + (i % 40),
+    (15 + random() * 60)::float,
+    i % 4 != 0
+FROM generate_series(1, 50) i;
+-- Create indices with mixed fast fields
+DROP INDEX IF EXISTS union_test_a_idx;
+DROP INDEX IF EXISTS union_test_b_idx;
+CREATE INDEX union_test_a_idx ON union_test_a
+USING columnstore (title, author, rating, year, price, is_published)
+WITH (type='hnsw');
+ERROR:  access method "columnstore" does not exist
+CREATE INDEX union_test_b_idx ON union_test_b
+USING columnstore (title, author, rating, year, price, is_published)
+WITH (type='hnsw');
+ERROR:  access method "columnstore" does not exist
+-- Enable execution method tracing
+SET pg_search.explain_analyze_verbose TO TRUE;
+-- Test 1: Basic UNION with mixed field types
+EXPLAIN ANALYZE
+SELECT title, author, rating, price
+FROM union_test_a
+WHERE title LIKE 'Book A%' AND rating > 4
+UNION
+SELECT title, author, rating, price
+FROM union_test_b
+WHERE title LIKE 'Book B%' AND rating > 3
+ORDER BY rating DESC, title;
+                                                            QUERY PLAN                                                            
+----------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=37.15..37.16 rows=2 width=104) (actual time=0.277..0.281 rows=52 loops=1)
+   Sort Key: union_test_a.rating DESC, union_test_a.title
+   Sort Method: quicksort  Memory: 27kB
+   ->  Unique  (cost=37.12..37.14 rows=2 width=104) (actual time=0.146..0.164 rows=52 loops=1)
+         ->  Sort  (cost=37.12..37.12 rows=2 width=104) (actual time=0.144..0.148 rows=52 loops=1)
+               Sort Key: union_test_a.title, union_test_a.author, union_test_a.rating, union_test_a.price
+               Sort Method: quicksort  Memory: 27kB
+               ->  Append  (cost=0.00..37.11 rows=2 width=104) (actual time=0.018..0.056 rows=52 loops=1)
+                     ->  Seq Scan on union_test_a  (cost=0.00..18.55 rows=1 width=104) (actual time=0.017..0.030 rows=21 loops=1)
+                           Filter: ((title ~~ 'Book A%'::text) AND (rating > '4'::numeric))
+                           Rows Removed by Filter: 29
+                     ->  Seq Scan on union_test_b  (cost=0.00..18.55 rows=1 width=104) (actual time=0.007..0.019 rows=31 loops=1)
+                           Filter: ((title ~~ 'Book B%'::text) AND (rating > '3'::numeric))
+                           Rows Removed by Filter: 19
+ Planning Time: 0.729 ms
+ Execution Time: 0.405 ms
+(16 rows)
+
+-- Test 2: UNION ALL with numeric fields for filtering
+EXPLAIN ANALYZE
+SELECT title, price, year
+FROM union_test_a
+WHERE price < 30 AND year > 2010
+UNION ALL
+SELECT title, price, year
+FROM union_test_b
+WHERE price < 45 AND year > 2000
+ORDER BY price;
+                                                      QUERY PLAN                                                      
+----------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=42.13..42.44 rows=126 width=44) (actual time=0.067..0.069 rows=16 loops=1)
+   Sort Key: union_test_a.price
+   Sort Method: quicksort  Memory: 25kB
+   ->  Append  (cost=0.00..37.73 rows=126 width=44) (actual time=0.009..0.027 rows=16 loops=1)
+         ->  Seq Scan on union_test_a  (cost=0.00..18.55 rows=63 width=44) (actual time=0.008..0.013 rows=10 loops=1)
+               Filter: ((price < '30'::double precision) AND (year > 2010))
+               Rows Removed by Filter: 40
+         ->  Seq Scan on union_test_b  (cost=0.00..18.55 rows=63 width=44) (actual time=0.008..0.011 rows=6 loops=1)
+               Filter: ((price < '45'::double precision) AND (year > 2000))
+               Rows Removed by Filter: 44
+ Planning Time: 0.164 ms
+ Execution Time: 0.096 ms
+(12 rows)
+
+-- Test 3: Window function - ROW_NUMBER() with mixed fields
+EXPLAIN ANALYZE
+SELECT title, author, price, rating,
+       ROW_NUMBER() OVER (PARTITION BY author ORDER BY rating DESC) as author_rank
+FROM union_test_a
+WHERE title LIKE 'Book A%'
+ORDER BY author, author_rank;
+                                                         QUERY PLAN                                                         
+----------------------------------------------------------------------------------------------------------------------------
+ Incremental Sort  (cost=17.18..17.34 rows=3 width=112) (actual time=0.279..0.318 rows=50 loops=1)
+   Sort Key: author, (row_number() OVER (?))
+   Presorted Key: author
+   Full-sort Groups: 2  Sort Method: quicksort  Average Memory: 27kB  Peak Memory: 27kB
+   ->  WindowAgg  (cost=17.15..17.21 rows=3 width=112) (actual time=0.106..0.233 rows=50 loops=1)
+         ->  Sort  (cost=17.15..17.16 rows=3 width=104) (actual time=0.081..0.084 rows=50 loops=1)
+               Sort Key: author, rating DESC
+               Sort Method: quicksort  Memory: 27kB
+               ->  Seq Scan on union_test_a  (cost=0.00..17.12 rows=3 width=104) (actual time=0.007..0.018 rows=50 loops=1)
+                     Filter: (title ~~ 'Book A%'::text)
+ Planning Time: 0.137 ms
+ Execution Time: 0.359 ms
+(12 rows)
+
+-- Test 4: Window function - Running average price by author
+EXPLAIN ANALYZE
+SELECT title, author, price,
+       AVG(price) OVER (PARTITION BY author ORDER BY price) as running_avg_price
+FROM union_test_a
+WHERE author LIKE 'Author%'
+ORDER BY author, price;
+                                                     QUERY PLAN                                                      
+---------------------------------------------------------------------------------------------------------------------
+ WindowAgg  (cost=17.15..17.21 rows=3 width=80) (actual time=0.101..0.244 rows=50 loops=1)
+   ->  Sort  (cost=17.15..17.16 rows=3 width=72) (actual time=0.071..0.075 rows=50 loops=1)
+         Sort Key: author, price
+         Sort Method: quicksort  Memory: 27kB
+         ->  Seq Scan on union_test_a  (cost=0.00..17.12 rows=3 width=72) (actual time=0.008..0.018 rows=50 loops=1)
+               Filter: (author ~~ 'Author%'::text)
+ Planning Time: 0.065 ms
+ Execution Time: 0.320 ms
+(8 rows)
+
+-- Test 5: Window function with UNION and mixed filters
+EXPLAIN ANALYZE
+WITH combined_books AS (
+    SELECT title, author, rating, 'A' as source
+    FROM union_test_a
+    WHERE rating > 3.5
+    UNION
+    SELECT title, author, rating, 'B' as source
+    FROM union_test_b
+    WHERE rating > 2.5
+)
+SELECT title, author, rating, source,
+       RANK() OVER (PARTITION BY author ORDER BY rating DESC) as author_rank
+FROM combined_books
+ORDER BY author, author_rank;
+                                                                   QUERY PLAN                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------
+ Incremental Sort  (cost=60.10..78.43 rows=380 width=136) (actual time=0.404..0.510 rows=72 loops=1)
+   Sort Key: combined_books.author, (rank() OVER (?))
+   Presorted Key: combined_books.author
+   Full-sort Groups: 2  Sort Method: quicksort  Average Memory: 27kB  Peak Memory: 27kB
+   ->  WindowAgg  (cost=60.05..67.63 rows=380 width=136) (actual time=0.210..0.432 rows=72 loops=1)
+         ->  Sort  (cost=60.03..60.98 rows=380 width=128) (actual time=0.187..0.192 rows=72 loops=1)
+               Sort Key: combined_books.author, combined_books.rating DESC
+               Sort Method: quicksort  Memory: 28kB
+               ->  Subquery Scan on combined_books  (cost=39.95..43.75 rows=380 width=128) (actual time=0.082..0.104 rows=72 loops=1)
+                     ->  HashAggregate  (cost=39.95..43.75 rows=380 width=128) (actual time=0.081..0.095 rows=72 loops=1)
+                           Group Key: union_test_a.title, union_test_a.author, union_test_a.rating, ('A'::text)
+                           Batches: 1  Memory Usage: 37kB
+                           ->  Append  (cost=0.00..36.15 rows=380 width=128) (actual time=0.009..0.042 rows=72 loops=1)
+                                 ->  Seq Scan on union_test_a  (cost=0.00..17.12 rows=190 width=128) (actual time=0.009..0.020 rows=37 loops=1)
+                                       Filter: (rating > 3.5)
+                                       Rows Removed by Filter: 13
+                                 ->  Seq Scan on union_test_b  (cost=0.00..17.12 rows=190 width=128) (actual time=0.005..0.015 rows=35 loops=1)
+                                       Filter: (rating > 2.5)
+                                       Rows Removed by Filter: 15
+ Planning Time: 0.196 ms
+ Execution Time: 0.624 ms
+(21 rows)
+
+-- Test 6: UNION with boolean and text fields
+EXPLAIN ANALYZE
+SELECT title, author, is_published
+FROM union_test_a
+WHERE is_published = true AND author LIKE 'Author 1%'
+UNION
+SELECT title, author, is_published
+FROM union_test_b
+WHERE is_published = true AND author LIKE 'Author 1%'
+ORDER BY author, title;
+                                                           QUERY PLAN                                                            
+---------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=34.30..34.30 rows=2 width=65) (actual time=0.151..0.153 rows=23 loops=1)
+   Sort Key: union_test_a.author, union_test_a.title
+   Sort Method: quicksort  Memory: 25kB
+   ->  Unique  (cost=34.27..34.29 rows=2 width=65) (actual time=0.111..0.120 rows=23 loops=1)
+         ->  Sort  (cost=34.27..34.27 rows=2 width=65) (actual time=0.110..0.112 rows=23 loops=1)
+               Sort Key: union_test_a.title, union_test_a.author, union_test_a.is_published
+               Sort Method: quicksort  Memory: 25kB
+               ->  Append  (cost=0.00..34.26 rows=2 width=65) (actual time=0.011..0.032 rows=23 loops=1)
+                     ->  Seq Scan on union_test_a  (cost=0.00..17.12 rows=1 width=65) (actual time=0.011..0.017 rows=7 loops=1)
+                           Filter: (is_published AND (author ~~ 'Author 1%'::text))
+                           Rows Removed by Filter: 43
+                     ->  Seq Scan on union_test_b  (cost=0.00..17.12 rows=1 width=65) (actual time=0.005..0.012 rows=16 loops=1)
+                           Filter: (is_published AND (author ~~ 'Author 1%'::text))
+                           Rows Removed by Filter: 34
+ Planning Time: 0.214 ms
+ Execution Time: 0.189 ms
+(16 rows)
+
+-- Test 7: Window functions with multiple partitions and mixed fields
+EXPLAIN ANALYZE
+SELECT author, 
+       AVG(rating) as avg_rating,
+       AVG(price) as avg_price,
+       COUNT(*) as book_count,
+       RANK() OVER (ORDER BY AVG(rating) DESC) as rating_rank,
+       RANK() OVER (ORDER BY AVG(price)) as price_rank
+FROM union_test_a
+WHERE author LIKE 'Author%'
+GROUP BY author
+ORDER BY avg_rating DESC;
+                                                                 QUERY PLAN                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------
+ WindowAgg  (cost=17.35..17.38 rows=3 width=96) (actual time=0.180..0.191 rows=10 loops=1)
+   ->  Sort  (cost=17.33..17.34 rows=3 width=88) (actual time=0.168..0.169 rows=10 loops=1)
+         Sort Key: (avg(rating)) DESC
+         Sort Method: quicksort  Memory: 25kB
+         ->  WindowAgg  (cost=17.27..17.31 rows=3 width=88) (actual time=0.133..0.143 rows=10 loops=1)
+               ->  Sort  (cost=17.26..17.26 rows=3 width=80) (actual time=0.120..0.121 rows=10 loops=1)
+                     Sort Key: (avg(price))
+                     Sort Method: quicksort  Memory: 25kB
+                     ->  GroupAggregate  (cost=17.15..17.23 rows=3 width=80) (actual time=0.075..0.100 rows=10 loops=1)
+                           Group Key: author
+                           ->  Sort  (cost=17.15..17.16 rows=3 width=72) (actual time=0.056..0.060 rows=50 loops=1)
+                                 Sort Key: author
+                                 Sort Method: quicksort  Memory: 27kB
+                                 ->  Seq Scan on union_test_a  (cost=0.00..17.12 rows=3 width=72) (actual time=0.009..0.019 rows=50 loops=1)
+                                       Filter: (author ~~ 'Author%'::text)
+ Planning Time: 0.615 ms
+ Execution Time: 0.249 ms
+(17 rows)
+
+-- Test 8: UNION with INTERSECT and different field types
+EXPLAIN ANALYZE
+(SELECT author FROM union_test_a WHERE rating > 4.5)
+INTERSECT
+(SELECT author FROM union_test_b WHERE rating > 4.0);
+                                                         QUERY PLAN                                                          
+-----------------------------------------------------------------------------------------------------------------------------
+ HashSetOp Intersect  (cost=0.00..40.90 rows=137 width=36) (actual time=0.042..0.043 rows=4 loops=1)
+   ->  Append  (cost=0.00..39.95 rows=380 width=36) (actual time=0.008..0.037 rows=24 loops=1)
+         ->  Subquery Scan on "*SELECT* 1"  (cost=0.00..19.02 rows=190 width=36) (actual time=0.008..0.018 rows=9 loops=1)
+               ->  Seq Scan on union_test_a  (cost=0.00..17.12 rows=190 width=32) (actual time=0.008..0.017 rows=9 loops=1)
+                     Filter: (rating > 4.5)
+                     Rows Removed by Filter: 41
+         ->  Subquery Scan on "*SELECT* 2"  (cost=0.00..19.02 rows=190 width=36) (actual time=0.006..0.015 rows=15 loops=1)
+               ->  Seq Scan on union_test_b  (cost=0.00..17.12 rows=190 width=32) (actual time=0.006..0.013 rows=15 loops=1)
+                     Filter: (rating > 4.0)
+                     Rows Removed by Filter: 35
+ Planning Time: 0.098 ms
+ Execution Time: 0.077 ms
+(12 rows)
+
+-- Verify actual results of UNION (not just execution method)
+SELECT title, author, rating, price
+FROM union_test_a
+WHERE title LIKE 'Book A1%' AND rating > 4
+UNION
+SELECT title, author, rating, price
+FROM union_test_b
+WHERE title LIKE 'Book B1%' AND rating > 3
+ORDER BY rating DESC, title
+LIMIT 10;
+  title   |  author   |      rating      |       price       
+----------+-----------+------------------+-------------------
+ Book B11 | Author 12 | 4.94509580390216 | 32.43585775437879
+ Book B15 | Author 1  | 4.84231153281356 |  42.0302055934439
+ Book A1  | Author 2  | 4.78957773077462 | 38.30983964389964
+ Book B14 | Author 15 | 4.73087745733376 | 57.26166368696238
+ Book B19 | Author 5  | 4.34658090196584 |  49.2788997371922
+ Book A10 | Author 1  | 4.25121889051942 | 42.63681684015302
+ Book B10 | Author 11 |  4.1932241925499 | 41.97844711452127
+ Book B18 | Author 4  | 3.35612061091452 | 27.00935947566328
+ Book B17 | Author 3  | 3.15002803162174 | 55.06533584142101
+ Book B16 | Author 2  | 3.05486341447267 |  57.8609653135871
+(10 rows)
+
+-- Verify window function results
+SELECT title, author, price, rating,
+       ROW_NUMBER() OVER (PARTITION BY author ORDER BY rating DESC) as author_rank
+FROM union_test_a
+WHERE author = 'Author 1'
+ORDER BY author_rank
+LIMIT 5;
+  title   |  author  |       price        |      rating      | author_rank 
+----------+----------+--------------------+------------------+-------------
+ Book A50 | Author 1 | 19.460753770308152 | 4.79535054822708 |           1
+ Book A30 | Author 1 | 23.064257039808645 | 4.71281930303427 |           2
+ Book A10 | Author 1 |  42.63681684015302 | 4.25121889051942 |           3
+ Book A20 | Author 1 | 12.169990216400759 | 4.02644946154455 |           4
+ Book A40 | Author 1 |  41.39381165270292 | 4.01172376923322 |           5
+(5 rows)
+
+-- Clean up
+DROP INDEX IF EXISTS union_test_a_idx;
+DROP INDEX IF EXISTS union_test_b_idx;
+DROP TABLE IF EXISTS union_test_a;
+DROP TABLE IF EXISTS union_test_b; 

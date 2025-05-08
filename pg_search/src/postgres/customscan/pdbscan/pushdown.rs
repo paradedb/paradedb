@@ -155,7 +155,7 @@ pub unsafe fn try_pushdown(
 
     static EQUALITY_OPERATOR_LOOKUP: OnceLock<FxHashMap<pg_sys::Oid, &str>> = OnceLock::new();
     match EQUALITY_OPERATOR_LOOKUP.get_or_init(|| initialize_equality_operator_lookup()).get(&(*opexpr).opno) {
-        Some(pgsearch_operator) => { pushdown!(&field.name.0, opexpr, pgsearch_operator, rhs); },
+        Some(pgsearch_operator) => { pushdown!(&pushdown.attname(), opexpr, pgsearch_operator, rhs); },
         None => {
             // TODO:  support other types of OpExprs
             None

@@ -941,10 +941,6 @@ impl CustomScan for PdbScan {
 ///
 fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
     pgrx::warning!("⭐️ choose_exec_method called, examining options...");
-    if !fast_fields::fast_field_capable_prereqs(privdata) {
-        return ExecMethodType::Normal;
-    }
-
     if let Some((limit, sort_direction)) = privdata.limit().zip(privdata.sort_direction()) {
         // having a valid limit and sort direction means we can do a TopN query
         // and TopN can do snippets
@@ -959,35 +955,40 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
             sort_direction,
             need_scores: privdata.need_scores(),
         }
-    } else if fast_fields::is_numeric_fast_field_capable(privdata) {
-        // Check for numeric-only fast fields first because they're more selective
-        pgrx::warning!("⭐️ Numeric fast field capable, choosing FastFieldNumeric");
-        pgrx::warning!("⭐️ Fast fields: {:?}", privdata.which_fast_fields());
-        ExecMethodType::FastFieldNumeric {
-            which_fast_fields: privdata.which_fast_fields().clone().unwrap_or_default(),
-        }
-    } else if let Some(field) = fast_fields::is_string_agg_capable(privdata) {
-        // Check for string-only fast fields next
-        pgrx::warning!(
-            "⭐️ String fast field capable with field {}, choosing FastFieldString",
-            field
-        );
-        pgrx::warning!("⭐️ Fast fields: {:?}", privdata.which_fast_fields());
-        ExecMethodType::FastFieldString {
-            field,
-            which_fast_fields: privdata.which_fast_fields().clone().unwrap_or_default(),
-        }
-    } else if fast_fields::is_mixed_fast_field_capable(privdata) {
-        // Check for mixed fields last
-        pgrx::warning!("⭐️ Mixed fast field capable, choosing MixedFastField");
-        pgrx::warning!("⭐️ Fast fields: {:?}", privdata.which_fast_fields());
-        ExecMethodType::FastFieldMixed {
-            which_fast_fields: privdata.which_fast_fields().clone().unwrap_or_default(),
-        }
     } else {
-        // Fall back to normal execution
-        pgrx::warning!("⭐️ No special execution method available, choosing Normal");
-        ExecMethodType::Normal
+        if !fast_fields::fast_field_capable_prereqs(privdata) {
+            return ExecMethodType::Normal;
+        }
+        if fast_fields::is_numeric_fast_field_capable(privdata) {
+            // Check for numeric-only fast fields first because they're more selective
+            pgrx::warning!("⭐️ Numeric fast field capable, choosing FastFieldNumeric");
+            pgrx::warning!("⭐️ Fast fields: {:?}", privdata.which_fast_fields());
+            ExecMethodType::FastFieldNumeric {
+                which_fast_fields: privdata.which_fast_fields().clone().unwrap_or_default(),
+            }
+        } else if let Some(field) = fast_fields::is_string_agg_capable(privdata) {
+            // Check for string-only fast fields next
+            pgrx::warning!(
+                "⭐️ String fast field capable with field {}, choosing FastFieldString",
+                field
+            );
+            pgrx::warning!("⭐️ Fast fields: {:?}", privdata.which_fast_fields());
+            ExecMethodType::FastFieldString {
+                field,
+                which_fast_fields: privdata.which_fast_fields().clone().unwrap_or_default(),
+            }
+        } else if fast_fields::is_mixed_fast_field_capable(privdata) {
+            // Check for mixed fields last
+            pgrx::warning!("⭐️ Mixed fast field capable, choosing MixedFastField");
+            pgrx::warning!("⭐️ Fast fields: {:?}", privdata.which_fast_fields());
+            ExecMethodType::FastFieldMixed {
+                which_fast_fields: privdata.which_fast_fields().clone().unwrap_or_default(),
+            }
+        } else {
+            // Fall back to normal execution
+            pgrx::warning!("⭐️ No special execution method available, choosing Normal");
+            ExecMethodType::Normal
+        }
     }
 }
 

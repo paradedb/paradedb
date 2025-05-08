@@ -312,9 +312,6 @@ pub unsafe fn pullup_fast_fields(
         } else if nodecast!(WindowFunc, T_WindowFunc, (*te).expr).is_some() {
             matches.push(WhichFastField::Junk("window".into()));
             continue;
-        } else if nodecast!(SubPlan, T_SubPlan, (*te).expr).is_some() {
-            matches.push(WhichFastField::Junk("subplan".into()));
-            continue;
         }
         // we only support Vars or our score function in the target list
         return None;

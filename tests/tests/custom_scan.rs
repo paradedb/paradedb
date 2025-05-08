@@ -1096,7 +1096,7 @@ fn join_with_string_fast_fields_issue_2505(mut conn: PgConnection) {
 
     CREATE INDEX idxa ON a USING bm25 (a_id_pk, content) WITH (key_field = 'a_id_pk');
 
-    CREATE INDEX idxb ON b USING bm25 (b_id_pk, a_id_fk, content) WITH (key_field = 'b_id_pk', 
+    CREATE INDEX idxb ON b USING bm25 (b_id_pk, a_id_fk, content) WITH (key_field = 'b_id_pk',
       text_fields = '{ "a_id_fk": { "fast": true, "tokenizer": { "type": "keyword" } } }');
 
     INSERT INTO a (a_id_pk, content) VALUES ('this-is-a-id', 'beer');
@@ -1124,4 +1124,18 @@ fn join_with_string_fast_fields_issue_2505(mut conn: PgConnection) {
     );
 
     "DROP TABLE a; DROP TABLE b;".execute(&mut conn);
+}
+
+#[rstest]
+fn custom_scan_respects_parentheses_issue2526(mut conn: PgConnection) {
+    r#"
+    CALL paradedb.create_bm25_test_table(table_name => 'mock_items', schema_name => 'public');
+
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
+    WITH (key_field='id');
+    "#.execute(&mut conn);
+
+    let result: Vec<(i64,)> = "SELECT COUNT(*) from mock_items WHERE description @@@ 'shoes' AND (description @@@ 'keyboard' OR description @@@ 'hat')".fetch(&mut conn);
+    assert_eq!(result, vec![(0,)]);
 }

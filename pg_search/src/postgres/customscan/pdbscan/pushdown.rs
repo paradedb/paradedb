@@ -40,18 +40,21 @@ impl PushdownField {
         schema: &SearchIndexSchema,
     ) -> Option<Self> {
         let (_, attname) = attname_from_var(root, var);
-        attname.map(|attname| Self(attname))
+        attname.map(Self)
     }
 
-    pub fn new(attname: &str, schema: &SearchIndexSchema) -> Self {
-        Self(SearchField::new(attname.into()))
+    /// Create a new [`PushdownField`] from an attribute name.
+    ///
+    /// This does not verify if field can be pushed down and is intended to be used for testing.
+    pub fn new(attname: &str) -> Self {
+        Self(attname.into())
     }
 
     pub fn attname(&self) -> &str {
-        self.0
+        &self.0
     }
 
-    pub fn search_field(&self, schema: &SearchIndexSchema) -> Option<&SearchField> {
+    pub fn search_field<'a>(&self, schema: &'a SearchIndexSchema) -> Option<&'a SearchField> {
         schema.get_search_field(&SearchFieldName(self.0.clone()))
     }
 }
@@ -149,7 +152,7 @@ pub unsafe fn try_pushdown(
 
     static EQUALITY_OPERATOR_LOOKUP: OnceLock<FxHashMap<pg_sys::Oid, &str>> = OnceLock::new();
     match EQUALITY_OPERATOR_LOOKUP.get_or_init(|| initialize_equality_operator_lookup()).get(&(*opexpr).opno) {
-        Some(pgsearch_operator) => { pushdown!(&field.attname(), opexpr, pgsearch_operator, rhs); },
+        Some(pgsearch_operator) => { pushdown!(&field.name.0, opexpr, pgsearch_operator, rhs); },
         None => {
             // TODO:  support other types of OpExprs
             None

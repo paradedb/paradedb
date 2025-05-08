@@ -706,7 +706,6 @@ unsafe fn booltest(
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
-    use crate::schema::SearchField;
     use pgrx::prelude::*;
     use proptest::prelude::*;
 
@@ -723,7 +722,7 @@ mod tests {
     #[pg_test]
     fn test_pushdown_var_eq_true() {
         let qual = Qual::PushdownVarEqTrue {
-            field: PushdownField(SearchField::new("foo".into())),
+            field: PushdownField::new("foo".into()),
         };
         let got = SearchQueryInput::from(&qual);
         let want = SearchQueryInput::Term {
@@ -737,7 +736,7 @@ mod tests {
     #[pg_test]
     fn test_pushdown_var_eq_false() {
         let qual = Qual::PushdownVarEqFalse {
-            field: PushdownField(SearchField::new("bar".into())),
+            field: PushdownField::new("bar".into()),
         };
         let got = SearchQueryInput::from(&qual);
         let want = SearchQueryInput::Term {
@@ -751,7 +750,7 @@ mod tests {
     #[pg_test]
     fn test_pushdown_var_is_true() {
         let qual = Qual::PushdownVarIsTrue {
-            field: PushdownField(SearchField::new("baz".into())),
+            field: PushdownField::new("baz".into()),
         };
         let got = SearchQueryInput::from(&qual);
         let want = SearchQueryInput::Term {
@@ -765,7 +764,7 @@ mod tests {
     #[pg_test]
     fn test_pushdown_var_is_false() {
         let qual = Qual::PushdownVarIsFalse {
-            field: PushdownField(SearchField::new("qux".into())),
+            field: PushdownField::new("qux".into()),
         };
         let got = SearchQueryInput::from(&qual);
         let want = SearchQueryInput::Term {
@@ -779,7 +778,7 @@ mod tests {
     #[pg_test]
     fn test_pushdown_is_not_null() {
         let qual = Qual::PushdownIsNotNull {
-            field: PushdownField(SearchField::new("fld".into())),
+            field: PushdownField::new("fld".into()),
         };
         let got = SearchQueryInput::from(&qual);
         let want = SearchQueryInput::Exists {
@@ -792,19 +791,19 @@ mod tests {
         prop_oneof![
             Just(Qual::All),
             "[a-z]{1,3}".prop_map(|s| Qual::PushdownVarEqTrue {
-                field: PushdownField(SearchField::new(s.clone()))
+                field: PushdownField::new(&s)
             }),
             "[a-z]{1,3}".prop_map(|s| Qual::PushdownVarEqFalse {
-                field: PushdownField(SearchField::new(s.clone()))
+                field: PushdownField::new(&s)
             }),
             "[a-z]{1,3}".prop_map(|s| Qual::PushdownVarIsTrue {
-                field: PushdownField(SearchField::new(s.clone()))
+                field: PushdownField::new(&s)
             }),
             "[a-z]{1,3}".prop_map(|s| Qual::PushdownVarIsFalse {
-                field: PushdownField(SearchField::new(s.clone()))
+                field: PushdownField::new(&s)
             }),
             "[a-z]{1,3}".prop_map(|s| Qual::PushdownIsNotNull {
-                field: PushdownField(SearchField::new(s.clone()))
+                field: PushdownField::new(&s)
             }),
         ]
     }

@@ -1616,13 +1616,13 @@ fn test_advanced_cte_with_multiple_search_fields(mut conn: PgConnection) {
             mf.title as file_title, 
             mf.file_size, 
             rp.page_number,
-            rp.relevance::integer
+            rp.relevance
         FROM searchable_docs sd
         JOIN matching_files mf ON sd.id = mf.documentId
         JOIN relevant_pages rp ON mf.id = rp.fileId
         ORDER BY rp.relevance DESC, mf.file_size DESC
     "#
-    .fetch_result::<(String, String, i32, i32, i32)>(&mut conn)
+    .fetch_result::<(String, String, i32, i32, f32)>(&mut conn)
     .unwrap();
 
     assert_eq!(
@@ -1633,21 +1633,21 @@ fn test_advanced_cte_with_multiple_search_fields(mut conn: PgConnection) {
                 "CTE Test File 1".to_string(),
                 500,
                 1,
-                3
+                3.0883389,
             ),
             (
                 "CTE Test Doc 2".to_string(),
                 "CTE Test File 3".to_string(),
                 700,
                 1,
-                1
+                1.258828,
             ),
             (
                 "CTE Test Doc 1".to_string(),
                 "CTE Test File 1".to_string(),
                 500,
                 2,
-                1
+                1.189365,
             ),
         ],
         "The results do not match the expected output"
@@ -1991,7 +1991,7 @@ fn test_window_functions_with_search(mut conn: PgConnection) {
             m.id,
             m.numeric_field1,
             m.string_field1,
-            (AVG(m.numeric_field1) OVER (PARTITION BY m.string_field1))::integer AS avg_by_group,
+            (AVG(m.numeric_field1) OVER (PARTITION BY m.string_field1)) AS avg_by_group,
             RANK() OVER (PARTITION BY m.string_field1 ORDER BY m.numeric_field1 DESC) AS rank_in_group,
             ROW_NUMBER() OVER (ORDER BY paradedb.score(m.id) DESC) AS relevance_rank
         FROM mixed_numeric_string_test m
@@ -2006,8 +2006,8 @@ fn test_window_functions_with_search(mut conn: PgConnection) {
 
     // Score function should force a FastFieldExecState
     assert!(
-        !methods.iter().any(|m| m.contains("FastFieldExecState")),
-        "Didn't expect a FastFieldExecState with window functions, got: {:?}",
+        methods.iter().any(|m| m.contains("FastFieldExecState")),
+        "Expected a FastFieldExecState with window functions, got: {:?}",
         methods
     );
 
@@ -2017,14 +2017,14 @@ fn test_window_functions_with_search(mut conn: PgConnection) {
             m.id,
             m.numeric_field1,
             m.string_field1,
-            (AVG(m.numeric_field1) OVER (PARTITION BY m.string_field1))::integer AS avg_by_group,
+            (AVG(m.numeric_field1) OVER (PARTITION BY m.string_field1)) AS avg_by_group,
             RANK() OVER (PARTITION BY m.string_field1 ORDER BY m.numeric_field1 DESC) AS rank_in_group,
             ROW_NUMBER() OVER (ORDER BY paradedb.score(m.id) DESC) AS relevance_rank
         FROM mixed_numeric_string_test m
         WHERE m.content @@@ 'window function'
         ORDER BY m.string_field1, m.numeric_field1 DESC
     "#
-    .fetch_result::<(String, i32, String, i32, i64, i64)>(&mut conn)
+    .fetch_result::<(String, i32, String, bigdecimal::BigDecimal, i64, i64)>(&mut conn)
     .unwrap();
 
     // Should find some results
@@ -2065,7 +2065,7 @@ fn test_multi_index_search_with_intersection(mut conn: PgConnection) {
             d.title AS doc_title,
             f.id AS file_id,
             f.title AS file_title,
-            (SELECT AVG(p.page_number) FROM pages p WHERE p.fileId = f.id)::integer AS avg_page_number,
+            (SELECT AVG(p.page_number) FROM pages p WHERE p.fileId = f.id) AS avg_page_number,
             paradedb.score(d.id) + paradedb.score(f.id) AS combined_score
         FROM documents d
         JOIN files f ON d.id = f.documentId
@@ -2097,7 +2097,7 @@ fn test_multi_index_search_with_intersection(mut conn: PgConnection) {
             d.title AS doc_title,
             f.id AS file_id,
             f.title AS file_title,
-            (SELECT AVG(p.page_number) FROM pages p WHERE p.fileId = f.id)::integer AS avg_page_number,
+            (SELECT AVG(p.page_number) FROM pages p WHERE p.fileId = f.id) AS avg_page_number,
             paradedb.score(d.id) + paradedb.score(f.id) AS combined_score
         FROM documents d
         JOIN files f ON d.id = f.documentId
@@ -2106,7 +2106,14 @@ fn test_multi_index_search_with_intersection(mut conn: PgConnection) {
             f.title @@@ 'Invoice OR Receipt'
         ORDER BY combined_score DESC
     "#
-    .fetch_result::<(String, String, String, String, Option<i32>, f32)>(&mut conn)
+    .fetch_result::<(
+        String,
+        String,
+        String,
+        String,
+        Option<bigdecimal::BigDecimal>,
+        f32,
+    )>(&mut conn)
     .unwrap();
 
     // Should find at least one matching pair

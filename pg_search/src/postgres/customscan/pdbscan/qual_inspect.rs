@@ -15,12 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::operator::attname_from_var;
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::operator_oid;
 use crate::postgres::customscan::pdbscan::projections::score::score_funcoid;
-use crate::postgres::customscan::pdbscan::pushdown::{is_complex, try_pushdown};
+use crate::postgres::customscan::pdbscan::pushdown::{is_complex, try_pushdown, PushdownField};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 use pgrx::{pg_sys, FromDatum, PgList};
@@ -47,31 +46,31 @@ pub enum Qual {
     /// - Used for direct field reference equality comparisons
     /// - Negation transforms to PushdownVarEqFalse without including NULLs
     PushdownVarEqTrue {
-        attname: String,
+        field: PushdownField,
     },
     /// Represents a SQL equality comparison: `bool_field = FALSE`
     /// - NULL values are excluded (NULL is not equal to FALSE)
     /// - Used for direct field reference equality comparisons
     /// - Negation transforms to PushdownVarEqTrue without including NULLs
     PushdownVarEqFalse {
-        attname: String,
+        field: PushdownField,
     },
     /// Represents a SQL IS operator: `bool_field IS TRUE`
     /// - NULL values are excluded (NULL is not TRUE)
     /// - Different from equality in negation semantics:
     ///   IS NOT TRUE includes both FALSE and NULL values
     PushdownVarIsTrue {
-        attname: String,
+        field: PushdownField,
     },
     /// Represents a SQL IS operator: `bool_field IS FALSE`
     /// - NULL values are excluded (NULL is not FALSE)
     /// - Different from equality in negation semantics:
     ///   IS NOT FALSE includes both TRUE and NULL values
     PushdownVarIsFalse {
-        attname: String,
+        field: PushdownField,
     },
     PushdownIsNotNull {
-        attname: String,
+        field: PushdownField,
     },
     ScoreExpr {
         opoid: pg_sys::Oid,
@@ -196,28 +195,28 @@ impl From<&Qual> for SearchQueryInput {
                 SearchQueryInput::from_datum(datum, is_null)
                     .expect("pushdown expression should not evaluate to NULL")
             },
-            Qual::PushdownVarEqTrue { attname } => SearchQueryInput::Term {
-                field: Some(attname.clone()),
+            Qual::PushdownVarEqTrue { field } => SearchQueryInput::Term {
+                field: Some(field.attname().to_string()),
                 value: OwnedValue::Bool(true),
                 is_datetime: false,
             },
-            Qual::PushdownVarEqFalse { attname } => SearchQueryInput::Term {
-                field: Some(attname.clone()),
+            Qual::PushdownVarEqFalse { field } => SearchQueryInput::Term {
+                field: Some(field.attname().to_string()),
                 value: OwnedValue::Bool(false),
                 is_datetime: false,
             },
-            Qual::PushdownVarIsTrue { attname } => SearchQueryInput::Term {
-                field: Some(attname.clone()),
+            Qual::PushdownVarIsTrue { field } => SearchQueryInput::Term {
+                field: Some(field.attname().to_string()),
                 value: OwnedValue::Bool(true),
                 is_datetime: false,
             },
-            Qual::PushdownVarIsFalse { attname } => SearchQueryInput::Term {
-                field: Some(attname.clone()),
+            Qual::PushdownVarIsFalse { field } => SearchQueryInput::Term {
+                field: Some(field.attname().to_string()),
                 value: OwnedValue::Bool(false),
                 is_datetime: false,
             },
-            Qual::PushdownIsNotNull { attname } => SearchQueryInput::Exists {
-                field: attname.clone(),
+            Qual::PushdownIsNotNull { field } => SearchQueryInput::Exists {
+                field: field.attname().to_string(),
             },
             Qual::ScoreExpr { opoid, value } => unsafe {
                 let score_value = {
@@ -328,14 +327,14 @@ impl From<&Qual> for SearchQueryInput {
                     // rather than using must_not, to avoid including NULLs
                     // This follows SQL standard where NOT (field = TRUE) is equivalent to (field = FALSE)
                     // and does NOT include NULL values
-                    Qual::PushdownVarEqTrue { attname } => Self::from(&Qual::PushdownVarEqFalse {
-                        attname: attname.clone(),
+                    Qual::PushdownVarEqTrue { field } => Self::from(&Qual::PushdownVarEqFalse {
+                        field: field.clone(),
                     }),
                     // Similarly, if we're negating a PushdownVarEqFalse, use PushdownVarEqTrue
                     // This follows SQL standard where NOT (field = FALSE) is equivalent to (field = TRUE)
                     // and does NOT include NULL values
-                    Qual::PushdownVarEqFalse { attname } => Self::from(&Qual::PushdownVarEqTrue {
-                        attname: attname.clone(),
+                    Qual::PushdownVarEqFalse { field } => Self::from(&Qual::PushdownVarEqTrue {
+                        field: field.clone(),
                     }),
                     // For other types of negation, use the standard Boolean query with must_not
                     // Note that when negating an IS operator (e.g., IS NOT TRUE), PostgreSQL handles
@@ -432,21 +431,20 @@ pub unsafe fn extract_quals(
         }
 
         pg_sys::NodeTag::T_Var if (*(node as *mut pg_sys::Var)).vartype == pg_sys::BOOLOID => {
-            Some(Qual::PushdownVarEqTrue {
-                attname: attname_from_var(root, node.cast())
-                    .1
-                    .expect("var should have an attname"),
-            })
+            PushdownField::try_new(root, node.cast(), schema)
+                .map(|field| Qual::PushdownVarEqTrue { field })
         }
 
         pg_sys::NodeTag::T_NullTest => {
             let nulltest = nodecast!(NullTest, T_NullTest, node)?;
-            let (_, attname) = attname_from_var(root, (*nulltest).arg.cast());
-            let attname = attname?; // if the attribute isn't
-            if (*nulltest).nulltesttype == pg_sys::NullTestType::IS_NOT_NULL {
-                Some(Qual::PushdownIsNotNull { attname })
+            if let Some(field) = PushdownField::try_new(root, (*nulltest).arg.cast(), schema) {
+                if (*nulltest).nulltesttype == pg_sys::NullTestType::IS_NOT_NULL {
+                    Some(Qual::PushdownIsNotNull { field })
+                } else {
+                    Some(Qual::Not(Box::new(Qual::PushdownIsNotNull { field })))
+                }
             } else {
-                Some(Qual::Not(Box::new(Qual::PushdownIsNotNull { attname })))
+                None
             }
         }
 
@@ -682,23 +680,20 @@ unsafe fn booltest(
     // We only support boolean test for simple field references (Var nodes)
     // For complex expressions, the optimizer will evaluate the condition later
     if let Some(arg_var) = nodecast!(Var, T_Var, arg) {
-        // Get the attribute name from the Var
-        let (_, attname) = attname_from_var(root, arg_var);
-        if let Some(attname) = attname {
+        if let Some(field) = PushdownField::try_new(root, arg_var, schema) {
             // It's a simple field reference, handle as specific cases
             match (*booltest).booltesttype {
-                pg_sys::BoolTestType::IS_TRUE => Some(Qual::PushdownVarIsTrue { attname }),
+                pg_sys::BoolTestType::IS_TRUE => Some(Qual::PushdownVarIsTrue { field }),
                 pg_sys::BoolTestType::IS_NOT_FALSE => {
-                    Some(Qual::Not(Box::new(Qual::PushdownVarIsFalse { attname })))
+                    Some(Qual::Not(Box::new(Qual::PushdownVarIsFalse { field })))
                 }
-                pg_sys::BoolTestType::IS_FALSE => Some(Qual::PushdownVarIsFalse { attname }),
+                pg_sys::BoolTestType::IS_FALSE => Some(Qual::PushdownVarIsFalse { field }),
                 pg_sys::BoolTestType::IS_NOT_TRUE => {
-                    Some(Qual::Not(Box::new(Qual::PushdownVarIsTrue { attname })))
+                    Some(Qual::Not(Box::new(Qual::PushdownVarIsTrue { field })))
                 }
                 _ => None,
             }
         } else {
-            // Var node but couldn't get attribute name
             None
         }
     } else {

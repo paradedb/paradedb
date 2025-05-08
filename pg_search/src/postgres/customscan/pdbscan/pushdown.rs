@@ -20,10 +20,61 @@ use crate::api::operator::{attname_from_var, searchqueryinput_typoid};
 use crate::nodecast;
 use crate::postgres::customscan::operator_oid;
 use crate::postgres::customscan::pdbscan::qual_inspect::Qual;
-use crate::schema::{SearchFieldName, SearchIndexSchema};
-use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList};
+use crate::schema::{SearchField, SearchFieldName, SearchIndexSchema};
+use pgrx::pg_sys::panic::ErrorReport;
+use pgrx::{
+    direct_function_call, function_name, pg_sys, IntoDatum, PgList, PgLogLevel, PgSqlErrorCode,
+};
 use rustc_hash::FxHashMap;
 use std::sync::OnceLock;
+
+#[derive(Debug, Clone)]
+pub struct PushdownField(SearchField);
+
+impl PushdownField {
+    /// Given a Postgres [`pg_sys::Var`] and a [`SearchIndexSchema`], try to create a [`PushdownField`].
+    /// The purpose of this is to guard against the case where we mistakenly push down a field that's not indexed.
+    ///
+    /// Returns `Some(PushdownField)` if the field is found in the schema, `None` otherwise.
+    /// If `None` is returned, a helpful warning is logged.
+    pub unsafe fn try_new(
+        root: *mut pg_sys::PlannerInfo,
+        var: *mut pg_sys::Var,
+        schema: &SearchIndexSchema,
+    ) -> Option<Self> {
+        let (_, attname) = attname_from_var(root, var);
+        let attname = attname?;
+
+        match schema.get_search_field(&SearchFieldName(attname.clone())) {
+            Some(search_field) => Some(Self(search_field.clone())),
+            None => {
+                ErrorReport::new(
+                    PgSqlErrorCode::ERRCODE_WARNING,
+                    format!(
+                        "{} used as a filter but was not found in the BM25 index",
+                        attname
+                    ),
+                    function_name!(),
+                )
+                .set_hint("adding this field to the BM25 index may improve query performance")
+                .report(PgLogLevel::WARNING);
+                None
+            }
+        }
+    }
+
+    pub fn attname(&self) -> &str {
+        &self.0.name.0
+    }
+
+    pub fn is_text(&self) -> bool {
+        self.0.is_text()
+    }
+
+    pub fn is_keyword(&self) -> bool {
+        self.0.is_keyword()
+    }
+}
 
 macro_rules! pushdown {
     ($attname:expr, $opexpr:expr, $operator:expr, $rhs:ident) => {
@@ -100,7 +151,7 @@ pub unsafe fn try_pushdown(
     let var = {
         // inspect the left-hand-side of the operator expression...
         let mut lhs = args.get_ptr(0)?;
-        
+
         while (*lhs).type_ == pg_sys::NodeTag::T_RelabelType {
             // and keep following it as long as it's still a RelabelType
             let relabel_type = lhs as *mut pg_sys::RelabelType;
@@ -110,19 +161,14 @@ pub unsafe fn try_pushdown(
     };
     let rhs = args.get_ptr(1)?;
 
-    let (typeoid, attname) = attname_from_var(root, var);
-    let attname = attname?;
-
-    let search_field = schema.get_search_field(&SearchFieldName(attname.clone()))?;
-    
-    if search_field.is_text() && !search_field.is_keyword() {
+    let field = PushdownField::try_new(root, var, schema)?;
+    if field.is_text() && !field.is_keyword() {
         return None;
     }
-    
 
     static EQUALITY_OPERATOR_LOOKUP: OnceLock<FxHashMap<pg_sys::Oid, &str>> = OnceLock::new();
     match EQUALITY_OPERATOR_LOOKUP.get_or_init(|| initialize_equality_operator_lookup()).get(&(*opexpr).opno) {
-        Some(pgsearch_operator) => { pushdown!(&attname, opexpr, pgsearch_operator, rhs); },
+        Some(pgsearch_operator) => { pushdown!(&field.attname(), opexpr, pgsearch_operator, rhs); },
         None => {
             // TODO:  support other types of OpExprs
             None

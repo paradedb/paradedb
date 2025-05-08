@@ -72,16 +72,17 @@ WITH (
     boolean_fields = '{"is_published": {"fast": true}}'
 );
 
--- Test 1: Basic UNION with mixed field types
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT title, author, rating, price
-FROM union_test_a
-WHERE title @@@ 'Book A' AND rating > 4
-UNION
-SELECT title, author, rating, price
-FROM union_test_b
-WHERE title @@@ 'Book B' AND rating > 3
-ORDER BY rating DESC, title;
+-- This test is disabled, because it has a variable oid in it.
+-- -- Test 1: Basic UNION with mixed field types
+-- EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+-- SELECT title, author, rating, price
+-- FROM union_test_a
+-- WHERE title @@@ 'Book A' AND rating > 4
+-- UNION
+-- SELECT title, author, rating, price
+-- FROM union_test_b
+-- WHERE title @@@ 'Book B' AND rating > 3
+-- ORDER BY rating DESC, title;
 
 -- Test 2: UNION ALL with numeric fields for filtering
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

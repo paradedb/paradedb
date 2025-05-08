@@ -62,31 +62,17 @@ WITH (
     numeric_fields = '{"rating": {"fast": true}, "year": {"fast": true}, "price": {"fast": true}}',
     boolean_fields = '{"is_published": {"fast": true}}'
 );
--- Test 1: Basic UNION with mixed field types
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT title, author, rating, price
-FROM union_test_a
-WHERE title @@@ 'Book A' AND rating > 4
-UNION
-SELECT title, author, rating, price
-FROM union_test_b
-WHERE title @@@ 'Book B' AND rating > 3
-ORDER BY rating DESC, title;
-                                                                                                     QUERY PLAN                                                                                                     
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort
-   Sort Key: union_test_a.rating DESC, union_test_a.title
-   ->  HashAggregate
-         Group Key: union_test_a.title, union_test_a.author, union_test_a.rating, union_test_a.price
-         ->  Append
-               ->  Index Scan using union_test_a_idx on union_test_a
-                     Index Cond: (id @@@ '{"with_index":{"oid":1848406,"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
-                     Filter: (rating > '4'::numeric)
-               ->  Index Scan using union_test_b_idx on union_test_b
-                     Index Cond: (id @@@ '{"with_index":{"oid":1848407,"query":{"parse_with_field":{"field":"title","query_string":"Book B","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
-                     Filter: (rating > '3'::numeric)
-(11 rows)
-
+-- This test is disabled, because it has a variable oid in it.
+-- -- Test 1: Basic UNION with mixed field types
+-- EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+-- SELECT title, author, rating, price
+-- FROM union_test_a
+-- WHERE title @@@ 'Book A' AND rating > 4
+-- UNION
+-- SELECT title, author, rating, price
+-- FROM union_test_b
+-- WHERE title @@@ 'Book B' AND rating > 3
+-- ORDER BY rating DESC, title;
 -- Test 2: UNION ALL with numeric fields for filtering
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, price, year

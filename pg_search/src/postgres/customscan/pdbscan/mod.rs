@@ -31,7 +31,6 @@ use crate::api::operator::{
     parse_with_field_procoid, searchqueryinput_typoid,
 };
 use crate::api::Cardinality;
-use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::builders::custom_path::{
@@ -44,9 +43,7 @@ use crate::postgres::customscan::builders::custom_state::{
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::pdbscan::exec_methods::{
-    fast_fields::{self, estimate_cardinality, is_string_agg_capable},
-    normal::NormalScanExecState,
-    ExecState,
+    fast_fields, normal::NormalScanExecState, ExecState,
 };
 use crate::postgres::customscan::pdbscan::parallel::{compute_nworkers, list_segment_ids};
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
@@ -411,7 +408,8 @@ impl CustomScan for PdbScan {
 
             if pathkey.is_some()
                 && !is_topn
-                && is_string_agg_capable(builder.custom_private()).is_some()
+                && fast_fields::is_string_agg_capable_with_prereqs(builder.custom_private())
+                    .is_some()
             {
                 let pathkey = pathkey.as_ref().unwrap();
 
@@ -421,7 +419,7 @@ impl CustomScan for PdbScan {
                     let cardinality = {
                         let estimate = if let OrderByStyle::Field(_, field) = &pathkey {
                             // NB:  '4' is a magic number
-                            estimate_cardinality(&bm25_index, field).unwrap_or(0) * 4
+                            fast_fields::estimate_cardinality(&bm25_index, field).unwrap_or(0) * 4
                         } else {
                             0
                         };
@@ -943,17 +941,8 @@ impl CustomScan for PdbScan {
 ///
 fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
     pgrx::warning!("⭐️ choose_exec_method called, examining options...");
-
-    // REGULAR EXECUTION METHOD SELECTION
-    if let Some(which_fast_fields) = privdata.which_fast_fields() {
-        // If selecting only junk fields
-        if which_fast_fields
-            .iter()
-            .all(|ff| matches!(ff, WhichFastField::Junk(_)))
-        {
-            pgrx::warning!("⭐️ Only junk fields selected, choosing Normal scan");
-            return ExecMethodType::Normal;
-        }
+    if !fast_fields::fast_field_capable_prereqs(privdata) {
+        return ExecMethodType::Normal;
     }
 
     if let Some((limit, sort_direction)) = privdata.limit().zip(privdata.sort_direction()) {

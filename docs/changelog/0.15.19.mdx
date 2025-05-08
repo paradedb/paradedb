@@ -8,6 +8,7 @@ title: 0.15.19
 - Fixed an issue where joins with the `@@@` operator could exclude results from the output
 - Fixed an issue where "Top N" queries could enter an endless loop if enough documents in a segment had been deleted
 - Fixed an issue where the custom scan would solve an incorrect boolean condition if there were parentheses involved in the query
+- Fixed an issue where `max_parallel_workers_per_gather` setting was not being respected by parallel scans
 
 ## Performance Improvements 🚀
 

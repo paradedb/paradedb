@@ -363,7 +363,10 @@ pub unsafe fn pullup_fast_fields(
             continue;
         }
         // we only support Vars or our score function in the target list
-        pgrx::warning!("⭐️ Unsupported node type in target list");
+        pgrx::warning!(
+            "⭐️ Unsupported node type in target list: {:?}",
+            pgrx::node_to_string((*te).expr.cast())
+        );
         return None;
     }
 
@@ -398,20 +401,20 @@ pub fn fast_field_capable_prereqs(privdata: &PrivateData) -> bool {
     pgrx::warning!("⭐️ Checking prereqs...");
 
     if privdata.referenced_columns_count() == 0 {
-        pgrx::warning!("  ⭐️ No referenced columns, can use numeric fast fields");
+        pgrx::warning!("  ⭐️ No referenced columns, can use fast fields");
         return true;
     }
 
     let which_fast_fields = privdata.which_fast_fields();
     if which_fast_fields.is_none() {
-        pgrx::warning!("  ⭐️ No fast fields, can't use numeric fast fields");
+        pgrx::warning!("  ⭐️ No fast fields, can't use fast fields");
         return false;
     }
 
-    if is_all_junk(which_fast_fields) {
+    if is_all_special_or_junk_fields(which_fast_fields) {
         // if all the fast fields we have are Junk fields, then we're not actually
         // projecting fast fields
-        pgrx::warning!("  ⭐️ All junk fields, can't use numeric fast fields");
+        pgrx::warning!("  ⭐️ All junk fields, can't use fast fields");
         return false;
     }
 
@@ -441,13 +444,14 @@ pub fn fast_field_capable_prereqs(privdata: &PrivateData) -> bool {
 // Check if we can use the mixed fast field execution method
 pub fn is_mixed_fast_field_capable(privdata: &PrivateData) -> bool {
     pgrx::warning!("⭐️ Checking if mixed fast field capable...");
+
+    if !fast_field_capable_prereqs(privdata) {
+        return false;
+    }
+
     // Normal mixed fast field detection logic
     let which_fast_fields = privdata.which_fast_fields().as_ref().unwrap();
     pgrx::warning!("⭐️ Found fast fields: {:?}", which_fast_fields);
-
-    // First, ensure all requested columns are fast fields
-    // Get total referenced column count (includes all columns in the query)
-    let referenced_columns_count = privdata.referenced_columns_count();
 
     // Filter out junk and system fields for our analysis - we only care about real column fast fields
     let field_types = which_fast_fields
@@ -553,7 +557,7 @@ pub fn is_numeric_fast_field_capable(privdata: &PrivateData) -> bool {
     true
 }
 
-pub fn is_all_junk(which_fast_fields: &Option<Vec<WhichFastField>>) -> bool {
+pub fn is_all_special_or_junk_fields(which_fast_fields: &Option<Vec<WhichFastField>>) -> bool {
     which_fast_fields.iter().flatten().all(|ff| {
         matches!(
             ff,

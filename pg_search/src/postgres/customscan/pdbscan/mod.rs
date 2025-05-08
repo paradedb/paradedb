@@ -151,6 +151,34 @@ impl PdbScan {
             inject_score_and_snippet_placeholders(state);
         }
     }
+
+    fn cleanup_varibilities_from_tantivy_query(json_value: &mut serde_json::Value) {
+        match json_value {
+            serde_json::Value::Object(obj) => {
+                // Check if this is a "with_index" object and remove its "oid" if present
+                if obj.contains_key("with_index") {
+                    if let Some(with_index) = obj.get_mut("with_index") {
+                        if let Some(with_index_obj) = with_index.as_object_mut() {
+                            with_index_obj.remove("oid");
+                        }
+                    }
+                }
+
+                // Recursively process all values in the object
+                for (_, value) in obj.iter_mut() {
+                    Self::cleanup_varibilities_from_tantivy_query(value);
+                }
+            }
+            serde_json::Value::Array(arr) => {
+                // Recursively process all elements in the array
+                for item in arr.iter_mut() {
+                    Self::cleanup_varibilities_from_tantivy_query(item);
+                }
+            }
+            // Base cases: primitive values don't need processing
+            _ => {}
+        }
+    }
 }
 
 impl customscan::ExecMethod for PdbScan {
@@ -680,9 +708,7 @@ impl CustomScan for PdbScan {
         if let Ok(mut json_value) = serde_json::from_str::<serde_json::Value>(&json_query) {
             // Remove the oid from the with_index object
             // This helps to reduce the variability of the explain output used in regression tests
-            if let Some(with_index) = json_value.get_mut("with_index") {
-                with_index.as_object_mut().map(|obj| obj.remove("oid"));
-            }
+            Self::cleanup_varibilities_from_tantivy_query(&mut json_value);
             let updated_json_query =
                 serde_json::to_string(&json_value).expect("updated query should serialize to json");
             explainer.add_text("Tantivy Query", &updated_json_query);
@@ -784,14 +810,14 @@ impl CustomScan for PdbScan {
     }
 
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        PdbScan::init_search_reader(state);
+        Self::init_search_reader(state);
         state.custom_state_mut().reset();
     }
 
     #[allow(clippy::blocks_in_conditions)]
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
         if state.custom_state().search_reader.is_none() {
-            PdbScan::init_search_reader(state);
+            Self::init_search_reader(state);
         }
 
         loop {

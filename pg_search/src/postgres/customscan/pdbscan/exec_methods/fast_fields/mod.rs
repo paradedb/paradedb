@@ -361,6 +361,10 @@ pub unsafe fn pullup_fast_fields(
             pgrx::warning!("⭐️ Adding window junk fast field");
             matches.push(WhichFastField::Junk("window".into()));
             continue;
+        } else if nodecast!(SubPlan, T_SubPlan, (*te).expr).is_some() {
+            pgrx::warning!("⭐️ Adding subplan junk fast field");
+            matches.push(WhichFastField::Junk("subplan".into()));
+            continue;
         }
         // we only support Vars or our score function in the target list
         pgrx::warning!(

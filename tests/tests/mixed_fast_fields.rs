@@ -20,6 +20,7 @@
 
 mod fixtures;
 
+use bigdecimal::BigDecimal;
 use fixtures::db::Query;
 use fixtures::*;
 use pretty_assertions::assert_eq;
@@ -2024,7 +2025,7 @@ fn test_window_functions_with_search(mut conn: PgConnection) {
         WHERE m.content @@@ 'window function'
         ORDER BY m.string_field1, m.numeric_field1 DESC
     "#
-    .fetch_result::<(String, i32, String, bigdecimal::BigDecimal, i64, i64)>(&mut conn)
+    .fetch_result::<(String, i32, String, BigDecimal, i64, i64)>(&mut conn)
     .unwrap();
 
     // Should find some results
@@ -2085,8 +2086,8 @@ fn test_multi_index_search_with_intersection(mut conn: PgConnection) {
         methods
             .iter()
             .filter(|m| m.contains("FastFieldExecState"))
-            .count() == 0,
-        "Expected no FastFieldExecState instances for multi-index search with subqueries, got: {:?}",
+            .count() >= 2,
+        "Expected at least 2FastFieldExecState instances for multi-index search with subqueries, got: {:?}",
         methods
     );
 
@@ -2106,14 +2107,7 @@ fn test_multi_index_search_with_intersection(mut conn: PgConnection) {
             f.title @@@ 'Invoice OR Receipt'
         ORDER BY combined_score DESC
     "#
-    .fetch_result::<(
-        String,
-        String,
-        String,
-        String,
-        Option<bigdecimal::BigDecimal>,
-        f32,
-    )>(&mut conn)
+    .fetch_result::<(String, String, String, String, Option<BigDecimal>, f32)>(&mut conn)
     .unwrap();
 
     // Should find at least one matching pair
@@ -2256,11 +2250,12 @@ impl TestComplexMixedFastFields {
                 id,
                 warehouse_name,
                 quantity,
-                notes
+                notes,
+                product_id
             ) WITH (
                 key_field = 'id',
                 text_fields = '{"warehouse_name": {"tokenizer": {"type": "default"}, "fast": true}, "notes": {"tokenizer": {"type": "default"}}}',
-                numeric_fields = '{"quantity": {"fast": true}}'
+                numeric_fields = '{"quantity": {"fast": true}, "product_id": {"fast": true}}'
             );
             
             CREATE INDEX orders_search ON orders USING bm25 (
@@ -2269,11 +2264,12 @@ impl TestComplexMixedFastFields {
                 status,
                 shipping_address,
                 total_amount,
-                quantity
+                quantity,
+                product_id
             ) WITH (
                 key_field = 'id',
                 text_fields = '{"customer_name": {"tokenizer": {"type": "default"}, "fast": true}, "status": {"tokenizer": {"type": "keyword"}, "fast": true}, "shipping_address": {"tokenizer": {"type": "default"}}}',
-                numeric_fields = '{"total_amount": {"fast": true}, "quantity": {"fast": true}}'
+                numeric_fields = '{"total_amount": {"fast": true}, "quantity": {"fast": true}, "product_id": {"fast": true}}'
             );
             
             -- Insert sample data: Categories
@@ -2397,7 +2393,7 @@ fn test_basic_cte_with_search(mut conn: PgConnection) {
         FROM electronic_products ep
         ORDER BY ep.price DESC
     "#
-    .fetch_result::<(String, String, bigdecimal::BigDecimal)>(&mut conn)
+    .fetch_result::<(String, String, BigDecimal)>(&mut conn)
     .unwrap();
 
     // Should find at least 2 laptops
@@ -2466,7 +2462,7 @@ fn test_multiple_ctes_with_search(mut conn: PgConnection) {
         JOIN tech_categories tc ON tp.category_id = tc.id
         ORDER BY tp.price DESC
     "#
-    .fetch_result::<(String, String, bigdecimal::BigDecimal, String)>(&mut conn)
+    .fetch_result::<(String, String, BigDecimal, String)>(&mut conn)
     .unwrap();
 
     // Should find at least 3 tech products
@@ -2476,10 +2472,7 @@ fn test_multiple_ctes_with_search(mut conn: PgConnection) {
     for (name, sku, price, category) in &results {
         assert!(!name.is_empty(), "Product name should not be empty");
         assert!(!sku.is_empty(), "SKU should not be empty");
-        assert!(
-            price > &bigdecimal::BigDecimal::from(0),
-            "Price should be positive"
-        );
+        assert!(price > &BigDecimal::from(0), "Price should be positive");
         assert!(
             category == "Electronics" || category == "Computers",
             "Category should be Electronics or Computers"
@@ -2586,7 +2579,7 @@ fn test_with_score_function(mut conn: PgConnection) {
         WHERE p.description @@@ 'laptop'
         ORDER BY paradedb.score(p.id) DESC
     "#
-    .fetch_result::<(String, String, bigdecimal::BigDecimal, f32)>(&mut conn)
+    .fetch_result::<(String, String, BigDecimal, f32)>(&mut conn)
     .unwrap();
 
     // Should find some laptops
@@ -2652,7 +2645,7 @@ fn test_mixed_fast_and_non_fast_fields(mut conn: PgConnection) {
         WHERE p.description @@@ 'laptop'
         ORDER BY p.name
     "#
-    .fetch_result::<(String, String, bigdecimal::BigDecimal)>(&mut conn)
+    .fetch_result::<(String, String, BigDecimal)>(&mut conn)
     .unwrap();
 
     let mixed_results = r#"
@@ -2661,7 +2654,7 @@ fn test_mixed_fast_and_non_fast_fields(mut conn: PgConnection) {
         WHERE p.description @@@ 'laptop'
         ORDER BY p.name
     "#
-    .fetch_result::<(String, String, bigdecimal::BigDecimal)>(&mut conn)
+    .fetch_result::<(String, String, BigDecimal)>(&mut conn)
     .unwrap();
 
     // Results should be the same
@@ -2776,8 +2769,8 @@ fn test_complex_subqueries_with_search(mut conn: PgConnection) {
 
     // At least one FastFieldExecState should be used
     assert!(
-        !methods.iter().any(|m| m.contains("FastFieldExecState")),
-        "Didn't expect a FastFieldExecState to be used for subqueries, got: {:?}",
+        methods.iter().any(|m| m.contains("FastFieldExecState")),
+        "Expected a FastFieldExecState to be used for subqueries, got: {:?}",
         methods
     );
 
@@ -2794,7 +2787,7 @@ fn test_complex_subqueries_with_search(mut conn: PgConnection) {
         )
         AND p.price > 500
     "#
-    .fetch_result::<(String, String, bigdecimal::BigDecimal, String, Option<String>)>(&mut conn)
+    .fetch_result::<(String, String, BigDecimal, String, Option<String>)>(&mut conn)
     .unwrap();
 
     // Should find some products
@@ -2806,7 +2799,7 @@ fn test_complex_subqueries_with_search(mut conn: PgConnection) {
     // Verify price > 500
     for (_, _, price, _, _) in &results {
         assert!(
-            price > &bigdecimal::BigDecimal::from(500),
+            price > &BigDecimal::from(500),
             "Price should be greater than 500"
         );
     }
@@ -2878,13 +2871,7 @@ fn test_join_with_aggregation_and_search(mut conn: PgConnection) {
         HAVING COUNT(p.id) > 0
         ORDER BY product_count DESC
     "#
-    .fetch_result::<(
-        String,
-        i64,
-        bigdecimal::BigDecimal,
-        bigdecimal::BigDecimal,
-        bigdecimal::BigDecimal,
-    )>(&mut conn)
+    .fetch_result::<(String, i64, BigDecimal, BigDecimal, BigDecimal)>(&mut conn)
     .unwrap();
 
     // Should find some categories

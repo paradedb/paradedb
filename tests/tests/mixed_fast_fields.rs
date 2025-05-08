@@ -2144,3 +2144,851 @@ fn test_multi_index_search_with_intersection(mut conn: PgConnection) {
         );
     }
 }
+
+// SECTION 4: COMPLEX CTES AND JOINS
+// =====================================
+struct TestComplexMixedFastFields;
+
+impl TestComplexMixedFastFields {
+    fn setup() -> impl Query {
+        r#"
+            DROP TABLE IF EXISTS products CASCADE;
+            DROP TABLE IF EXISTS categories CASCADE;
+            DROP TABLE IF EXISTS suppliers CASCADE;
+            DROP TABLE IF EXISTS inventory CASCADE;
+            DROP TABLE IF EXISTS orders CASCADE;
+            
+            -- Create category table
+            CREATE TABLE categories (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                parent_id INTEGER REFERENCES categories(id)
+            );
+            
+            -- Create supplier table
+            CREATE TABLE suppliers (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL,
+                country TEXT NOT NULL,
+                contact_name TEXT,
+                contact_email TEXT,
+                rating INTEGER
+            );
+            
+            -- Create product table
+            CREATE TABLE products (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL,
+                sku TEXT NOT NULL UNIQUE,
+                description TEXT,
+                price NUMERIC(10,2) NOT NULL,
+                weight NUMERIC(8,2),
+                category_id INTEGER REFERENCES categories(id),
+                supplier_id INTEGER REFERENCES suppliers(id),
+                is_active BOOLEAN DEFAULT true,
+                created_at TIMESTAMP DEFAULT NOW()
+            );
+            
+            -- Create inventory table
+            CREATE TABLE inventory (
+                id SERIAL PRIMARY KEY,
+                product_id INTEGER REFERENCES products(id),
+                warehouse_name TEXT NOT NULL,
+                quantity INTEGER NOT NULL,
+                last_restock_date DATE,
+                notes TEXT
+            );
+            
+            -- Create orders table
+            CREATE TABLE orders (
+                id SERIAL PRIMARY KEY,
+                order_number TEXT NOT NULL UNIQUE,
+                customer_name TEXT NOT NULL,
+                product_id INTEGER REFERENCES products(id),
+                quantity INTEGER NOT NULL,
+                order_date TIMESTAMP DEFAULT NOW(),
+                status TEXT NOT NULL,
+                shipping_address TEXT,
+                total_amount NUMERIC(12,2)
+            );
+            
+            -- Create BM25 indexes
+            CREATE INDEX product_search ON products USING bm25 (
+                id,
+                name,
+                sku,
+                description,
+                price,
+                weight,
+                is_active,
+                category_id,
+                supplier_id
+            ) WITH (
+                key_field = 'id',
+                text_fields = '{"name": {"tokenizer": {"type": "default"}, "fast": true}, "sku": {"tokenizer": {"type": "keyword"}, "fast": true}, "description": {"tokenizer": {"type": "default"}}}',
+                numeric_fields = '{"price": {"fast": true}, "weight": {"fast": true}, "category_id": {"fast": true}, "supplier_id": {"fast": true}}',
+                boolean_fields = '{"is_active": {"fast": true}}'
+            );
+            
+            CREATE INDEX category_search ON categories USING bm25 (
+                id,
+                name,
+                description
+            ) WITH (
+                key_field = 'id',
+                text_fields = '{"name": {"tokenizer": {"type": "default"}, "fast": true}, "description": {"tokenizer": {"type": "default"}, "fast": true}}'
+            );
+            
+            CREATE INDEX supplier_search ON suppliers USING bm25 (
+                id,
+                name,
+                country,
+                contact_name,
+                rating
+            ) WITH (
+                key_field = 'id',
+                text_fields = '{"name": {"tokenizer": {"type": "default"}, "fast": true}, "country": {"tokenizer": {"type": "keyword"}, "fast": true}, "contact_name": {"tokenizer": {"type": "default"}}}',
+                numeric_fields = '{"rating": {"fast": true}}'
+            );
+            
+            CREATE INDEX inventory_search ON inventory USING bm25 (
+                id,
+                warehouse_name,
+                quantity,
+                notes
+            ) WITH (
+                key_field = 'id',
+                text_fields = '{"warehouse_name": {"tokenizer": {"type": "default"}, "fast": true}, "notes": {"tokenizer": {"type": "default"}}}',
+                numeric_fields = '{"quantity": {"fast": true}}'
+            );
+            
+            CREATE INDEX orders_search ON orders USING bm25 (
+                id,
+                customer_name,
+                status,
+                shipping_address,
+                total_amount,
+                quantity
+            ) WITH (
+                key_field = 'id',
+                text_fields = '{"customer_name": {"tokenizer": {"type": "default"}, "fast": true}, "status": {"tokenizer": {"type": "keyword"}, "fast": true}, "shipping_address": {"tokenizer": {"type": "default"}}}',
+                numeric_fields = '{"total_amount": {"fast": true}, "quantity": {"fast": true}}'
+            );
+            
+            -- Insert sample data: Categories
+            INSERT INTO categories (name, description, parent_id) VALUES
+            ('Electronics', 'Electronic devices and accessories', NULL),
+            ('Computers', 'Desktop and laptop computers', 1),
+            ('Smartphones', 'Mobile phones and accessories', 1),
+            ('Clothing', 'Apparel and fashion items', NULL),
+            ('Men''s Clothing', 'Clothing for men', 4),
+            ('Women''s Clothing', 'Clothing for women', 4),
+            ('Food', 'Edible products', NULL),
+            ('Dairy', 'Milk and dairy products', 7),
+            ('Bakery', 'Bread and baked goods', 7);
+            
+            -- Insert sample data: Suppliers
+            INSERT INTO suppliers (name, country, contact_name, contact_email, rating) VALUES
+            ('TechCorp', 'USA', 'John Smith', 'john@techcorp.com', 5),
+            ('Fashion Unlimited', 'Italy', 'Maria Rossi', 'maria@fashionunlimited.it', 4),
+            ('Global Foods', 'France', 'Pierre Dupont', 'pierre@globalfoods.fr', 3),
+            ('ElectroSupply', 'Japan', 'Takashi Yamamoto', 'takashi@electrosupply.jp', 5),
+            ('Threads Co', 'UK', 'Emma Wilson', 'emma@threadsco.uk', 4),
+            ('OrganicSource', 'Spain', 'Carlos Martinez', 'carlos@organicsource.es', 4);
+            
+            -- Insert sample data: Products
+            INSERT INTO products (name, sku, description, price, weight, category_id, supplier_id, is_active) VALUES
+            ('Ultrabook Pro', 'UB-PRO-1', 'High-performance laptop with SSD', 1299.99, 1.2, 2, 1, true),
+            ('SmartPhone X', 'SPX-100', 'Latest smartphone with high-resolution camera', 899.99, 0.18, 3, 1, true),
+            ('Men''s Casual Shirt', 'MCS-001', 'Comfortable cotton shirt for everyday wear', 49.99, 0.3, 5, 2, true),
+            ('Women''s Evening Dress', 'WED-150', 'Elegant evening dress for special occasions', 199.99, 0.5, 6, 2, true),
+            ('Organic Milk', 'OM-1000', 'Fresh organic milk from grass-fed cows', 3.99, 1.0, 8, 3, true),
+            ('Artisan Bread', 'AB-500', 'Freshly baked artisan sourdough bread', 5.99, 0.5, 9, 3, true),
+            ('Gaming Laptop', 'GL-550', 'High-end gaming laptop with dedicated GPU', 1899.99, 2.5, 2, 1, true),
+            ('Designer Jeans', 'DJ-100', 'Premium designer jeans with modern cut', 129.99, 0.6, 5, 5, true),
+            ('Premium Yogurt', 'PY-250', 'Creamy Greek yogurt with live cultures', 4.99, 0.25, 8, 3, true),
+            ('LCD Monitor', 'LM-27', 'Widescreen monitor with 4K resolution', 349.99, 5.0, 1, 1, true),
+            ('Classic Coat', 'CC-750', 'Winter coat with wool blend', 199.99, 1.5, 6, 2, true),
+            ('Tablet Pro', 'TP-10', 'Professional tablet with stylus support', 799.99, 0.45, 1, 4, true),
+            ('Mechanical Keyboard', 'KB-101', 'Mechanical keyboard with RGB lighting', 149.99, 1.2, 1, 1, true),
+            ('Women''s Boots', 'WB-225', 'Leather boots for winter', 159.99, 1.0, 6, 5, true),
+            ('Vintage Wine', 'VW-750', 'Premium red wine aged in oak barrels', 89.99, 0.75, 7, 6, false);
+            
+            -- Insert sample data: Inventory
+            INSERT INTO inventory (product_id, warehouse_name, quantity, last_restock_date, notes) VALUES
+            (1, 'North Warehouse', 25, '2023-01-15', 'Regular stock'),
+            (2, 'North Warehouse', 40, '2023-01-20', 'High demand expected'),
+            (3, 'East Warehouse', 100, '2023-01-10', 'Oversupply'),
+            (4, 'East Warehouse', 20, '2023-01-25', 'Seasonal item'),
+            (5, 'South Warehouse', 150, '2023-02-01', 'Perishable - check dates'),
+            (6, 'South Warehouse', 50, '2023-02-01', 'Daily delivery required'),
+            (7, 'North Warehouse', 10, '2023-01-05', 'Limited stock - order more'),
+            (8, 'East Warehouse', 35, '2023-01-15', 'Popular sizes running low'),
+            (9, 'South Warehouse', 75, '2023-02-01', 'Refrigeration required'),
+            (10, 'West Warehouse', 30, '2023-01-10', 'New model arrival expected'),
+            (11, 'East Warehouse', 15, '2023-01-20', 'Seasonal stock'),
+            (12, 'North Warehouse', 20, '2023-01-25', 'Display models needed'),
+            (13, 'West Warehouse', 45, '2023-01-15', 'Popular item'),
+            (14, 'East Warehouse', 25, '2023-01-20', 'Winter collection'),
+            (15, 'South Warehouse', 50, '2023-01-30', 'Store in climate-controlled area');
+            
+            -- Insert sample data: Orders
+            INSERT INTO orders (order_number, customer_name, product_id, quantity, order_date, status, shipping_address, total_amount) VALUES
+            ('ORD-10001', 'Alice Johnson', 1, 1, '2023-01-05', 'delivered', '123 Main St, Anytown', 1299.99),
+            ('ORD-10002', 'Bob Smith', 2, 1, '2023-01-07', 'shipped', '456 Oak Ave, Somewhere', 899.99),
+            ('ORD-10003', 'Charlie Brown', 3, 2, '2023-01-10', 'processing', '789 Pine Rd, Anywhere', 99.98),
+            ('ORD-10004', 'Diana Ross', 4, 1, '2023-01-12', 'shipped', '321 Elm St, Nowhere', 199.99),
+            ('ORD-10005', 'Edward Norton', 5, 3, '2023-01-15', 'delivered', '654 Maple Dr, Everywhere', 11.97),
+            ('ORD-10006', 'Fiona Apple', 6, 2, '2023-01-17', 'processing', '987 Cedar Ln, Somewhere', 11.98),
+            ('ORD-10007', 'George Clooney', 7, 1, '2023-01-20', 'shipped', '741 Birch St, Anytown', 1899.99),
+            ('ORD-10008', 'Helen Mirren', 8, 2, '2023-01-22', 'delivered', '852 Willow Ave, Nowhere', 259.98),
+            ('ORD-10009', 'Ian McKellen', 9, 5, '2023-01-25', 'processing', '963 Spruce Rd, Everywhere', 24.95),
+            ('ORD-10010', 'Julia Roberts', 10, 2, '2023-01-27', 'shipped', '159 Aspen Dr, Somewhere', 699.98),
+            ('ORD-10011', 'Kevin Bacon', 11, 1, '2023-01-30', 'delivered', '357 Redwood Ln, Anytown', 199.99),
+            ('ORD-10012', 'Lucy Liu', 12, 1, '2023-02-01', 'processing', '951 Sequoia St, Nowhere', 799.99),
+            ('ORD-10013', 'Michael Jordan', 13, 3, '2023-02-03', 'shipped', '753 Oak Ave, Anywhere', 449.97),
+            ('ORD-10014', 'Nicole Kidman', 14, 1, '2023-02-05', 'delivered', '159 Pine Rd, Everywhere', 159.99),
+            ('ORD-10015', 'Orlando Bloom', 15, 2, '2023-02-07', 'shipped', '357 Maple Dr, Somewhere', 179.98);
+        "#
+    }
+}
+
+// SECTION 1: TESTS WITH COMPLEX CTES AND JOINS
+// ============================================
+
+#[rstest]
+fn test_basic_cte_with_search(mut conn: PgConnection) {
+    TestComplexMixedFastFields::setup().execute(&mut conn);
+
+    // Test with CTE using @@@ operator
+    let (plan,) = r#"
+        EXPLAIN (ANALYZE, FORMAT JSON)
+        WITH electronic_products AS (
+            SELECT id, name, sku, price 
+            FROM products 
+            WHERE description @@@ 'laptop' AND is_active = true
+        )
+        SELECT ep.name, ep.sku, ep.price
+        FROM electronic_products ep
+        ORDER BY ep.price DESC
+    "#
+    .fetch_one::<(Value,)>(&mut conn);
+
+    // Get execution methods
+    let methods = get_all_exec_methods(&plan);
+    println!("CTE execution methods: {:?}", methods);
+
+    // Either MixedFastFieldExecState or another fast field exec state should be used
+    assert!(
+        methods.iter().any(|m| m.contains("FastFieldExecState")),
+        "Expected a FastFieldExecState to be used for CTE, got: {:?}",
+        methods
+    );
+
+    // Verify results
+    let results = r#"
+        WITH electronic_products AS (
+            SELECT id, name, sku, price 
+            FROM products 
+            WHERE description @@@ 'laptop' AND is_active = true
+        )
+        SELECT ep.name, ep.sku, ep.price
+        FROM electronic_products ep
+        ORDER BY ep.price DESC
+    "#
+    .fetch_result::<(String, String, bigdecimal::BigDecimal)>(&mut conn)
+    .unwrap();
+
+    // Should find at least 2 laptops
+    assert!(results.len() >= 2, "Expected at least 2 laptops");
+
+    // Verify price ordering
+    for i in 1..results.len() {
+        assert!(
+            results[i - 1].2 >= results[i].2,
+            "Results not ordered correctly by price DESC"
+        );
+    }
+}
+
+#[rstest]
+fn test_multiple_ctes_with_search(mut conn: PgConnection) {
+    TestComplexMixedFastFields::setup().execute(&mut conn);
+
+    // Test with multiple CTEs using @@@ operators
+    let (plan,) = r#"
+        EXPLAIN (ANALYZE, FORMAT JSON)
+        WITH 
+        tech_products AS (
+            SELECT p.id, p.name, p.sku, p.price, p.category_id
+            FROM products p
+            WHERE p.description @@@ 'laptop OR monitor OR keyboard' AND p.is_active = true
+        ),
+        tech_categories AS (
+            SELECT c.id, c.name AS category_name
+            FROM categories c
+            WHERE c.name @@@ 'Electronics OR Computers'
+        )
+        SELECT tp.name, tp.sku, tp.price, tc.category_name
+        FROM tech_products tp
+        JOIN tech_categories tc ON tp.category_id = tc.id
+        ORDER BY tp.price DESC
+    "#
+    .fetch_one::<(Value,)>(&mut conn);
+
+    // Get execution methods
+    let methods = get_all_exec_methods(&plan);
+    println!("Multiple CTEs execution methods: {:?}", methods);
+
+    // At least one FastFieldExecState should be used
+    assert!(
+        methods.iter().any(|m| m.contains("FastFieldExecState")),
+        "Expected a FastFieldExecState to be used for multiple CTEs, got: {:?}",
+        methods
+    );
+
+    // Verify results
+    let results = r#"
+        WITH 
+        tech_products AS (
+            SELECT p.id, p.name, p.sku, p.price, p.category_id
+            FROM products p
+            WHERE p.description @@@ 'laptop OR monitor OR keyboard' AND p.is_active = true
+        ),
+        tech_categories AS (
+            SELECT c.id, c.name AS category_name
+            FROM categories c
+            WHERE c.name @@@ 'Electronics OR Computers'
+        )
+        SELECT tp.name, tp.sku, tp.price, tc.category_name
+        FROM tech_products tp
+        JOIN tech_categories tc ON tp.category_id = tc.id
+        ORDER BY tp.price DESC
+    "#
+    .fetch_result::<(String, String, bigdecimal::BigDecimal, String)>(&mut conn)
+    .unwrap();
+
+    // Should find at least 3 tech products
+    assert!(results.len() >= 3, "Expected at least 3 tech products");
+
+    // Verify fields have proper values
+    for (name, sku, price, category) in &results {
+        assert!(!name.is_empty(), "Product name should not be empty");
+        assert!(!sku.is_empty(), "SKU should not be empty");
+        assert!(
+            price > &bigdecimal::BigDecimal::from(0),
+            "Price should be positive"
+        );
+        assert!(
+            category == "Electronics" || category == "Computers",
+            "Category should be Electronics or Computers"
+        );
+    }
+}
+
+#[rstest]
+fn test_complex_joins_with_search(mut conn: PgConnection) {
+    TestComplexMixedFastFields::setup().execute(&mut conn);
+
+    // Test with complex multi-table joins and multiple @@@ operators
+    let (plan,) = r#"
+        EXPLAIN (ANALYZE, FORMAT JSON)
+        SELECT p.name AS product_name, 
+               p.sku, 
+               c.name AS category_name, 
+               s.name AS supplier_name, 
+               i.warehouse_name, 
+               i.quantity AS stock
+        FROM products p
+        JOIN categories c ON p.category_id = c.id
+        JOIN suppliers s ON p.supplier_id = s.id AND s.country @@@ 'USA OR Japan'
+        JOIN inventory i ON p.id = i.product_id AND i.warehouse_name @@@ 'North'
+        WHERE p.description @@@ 'laptop OR tablet' AND p.is_active = true
+        ORDER BY i.quantity DESC
+    "#
+    .fetch_one::<(Value,)>(&mut conn);
+
+    // Get execution methods
+    let methods = get_all_exec_methods(&plan);
+    println!("Complex JOIN execution methods: {:?}", methods);
+
+    // At least one FastFieldExecState should be used
+    assert!(
+        methods.iter().any(|m| m.contains("FastFieldExecState")),
+        "Expected a FastFieldExecState to be used for complex joins, got: {:?}",
+        methods
+    );
+
+    // Verify results
+    let results = r#"
+        SELECT p.name AS product_name, 
+               p.sku, 
+               c.name AS category_name, 
+               s.name AS supplier_name, 
+               i.warehouse_name, 
+               i.quantity AS stock
+        FROM products p
+        JOIN categories c ON p.category_id = c.id
+        JOIN suppliers s ON p.supplier_id = s.id AND s.country @@@ 'USA OR Japan'
+        JOIN inventory i ON p.id = i.product_id AND i.warehouse_name @@@ 'North'
+        WHERE p.description @@@ 'laptop OR tablet' AND p.is_active = true
+        ORDER BY i.quantity DESC
+    "#
+    .fetch_result::<(String, String, String, String, String, i32)>(&mut conn)
+    .unwrap();
+
+    // Make sure we found some products
+    assert!(
+        !results.is_empty(),
+        "Expected at least one result for complex join"
+    );
+
+    // Verify warehouse name contains North
+    for (_, _, _, _, warehouse, _) in &results {
+        assert!(
+            warehouse.contains("North"),
+            "Warehouse name should contain 'North', got: {}",
+            warehouse
+        );
+    }
+}
+
+#[rstest]
+fn test_with_score_function(mut conn: PgConnection) {
+    TestComplexMixedFastFields::setup().execute(&mut conn);
+
+    // Test using score() function to force an execution method
+    let (plan,) = r#"
+        EXPLAIN (ANALYZE, FORMAT JSON)
+        SELECT p.name, p.sku, p.price, paradedb.score(p.id)
+        FROM products p
+        WHERE p.description @@@ 'laptop'
+        ORDER BY paradedb.score(p.id) DESC
+    "#
+    .fetch_one::<(Value,)>(&mut conn);
+
+    // Get execution methods
+    let methods = get_all_exec_methods(&plan);
+    println!("Score function execution methods: {:?}", methods);
+
+    // Using score() function should force a FastFieldExecState
+    assert!(
+        methods.iter().any(|m| m.contains("FastFieldExecState")),
+        "Expected a FastFieldExecState to be used with score function, got: {:?}",
+        methods
+    );
+
+    // Verify results
+    let results = r#"
+        SELECT p.name, p.sku, p.price, paradedb.score(p.id)
+        FROM products p
+        WHERE p.description @@@ 'laptop'
+        ORDER BY paradedb.score(p.id) DESC
+    "#
+    .fetch_result::<(String, String, bigdecimal::BigDecimal, f32)>(&mut conn)
+    .unwrap();
+
+    // Should find some laptops
+    assert!(!results.is_empty(), "Expected at least one laptop");
+
+    // Verify score ordering
+    for i in 1..results.len() {
+        assert!(
+            results[i - 1].3 >= results[i].3,
+            "Results not ordered correctly by score DESC"
+        );
+    }
+}
+
+#[rstest]
+fn test_mixed_fast_and_non_fast_fields(mut conn: PgConnection) {
+    TestComplexMixedFastFields::setup().execute(&mut conn);
+
+    // Test 1: Only fast fields - should use MixedFastFieldExecState
+    let (fast_plan,) = r#"
+        EXPLAIN (ANALYZE, FORMAT JSON)
+        SELECT p.name, p.sku, p.price
+        FROM products p
+        WHERE p.description @@@ 'laptop'
+    "#
+    .fetch_one::<(Value,)>(&mut conn);
+
+    let fast_methods = get_all_exec_methods(&fast_plan);
+    println!("Fast fields only execution methods: {:?}", fast_methods);
+
+    // Should use a FastFieldExecState
+    assert!(
+        fast_methods
+            .iter()
+            .any(|m| m.contains("FastFieldExecState")),
+        "Expected a FastFieldExecState for fast fields only, got: {:?}",
+        fast_methods
+    );
+
+    // Test 2: Mix of fast and non-fast fields - should use NormalScanExecState
+    let (mixed_plan,) = r#"
+        EXPLAIN (ANALYZE, FORMAT JSON)
+        SELECT p.name, p.sku, p.description, p.price
+        FROM products p
+        WHERE p.description @@@ 'laptop'
+    "#
+    .fetch_one::<(Value,)>(&mut conn);
+
+    let mixed_methods = get_all_exec_methods(&mixed_plan);
+    println!("Mixed fast/non-fast execution methods: {:?}", mixed_methods);
+
+    // Should use NormalScanExecState when non-fast fields are included
+    assert!(
+        mixed_methods.contains(&"NormalScanExecState".to_string()),
+        "Expected NormalScanExecState for mixed fast/non-fast fields, got: {:?}",
+        mixed_methods
+    );
+
+    // Verify results match despite execution method differences
+    let fast_results = r#"
+        SELECT p.name, p.sku, p.price
+        FROM products p
+        WHERE p.description @@@ 'laptop'
+        ORDER BY p.name
+    "#
+    .fetch_result::<(String, String, bigdecimal::BigDecimal)>(&mut conn)
+    .unwrap();
+
+    let mixed_results = r#"
+        SELECT p.name, p.sku, p.price
+        FROM products p
+        WHERE p.description @@@ 'laptop'
+        ORDER BY p.name
+    "#
+    .fetch_result::<(String, String, bigdecimal::BigDecimal)>(&mut conn)
+    .unwrap();
+
+    // Results should be the same
+    assert_eq!(
+        fast_results.len(),
+        mixed_results.len(),
+        "Fast and mixed query result counts don't match"
+    );
+
+    for i in 0..fast_results.len() {
+        assert_eq!(
+            fast_results[i], mixed_results[i],
+            "Results at index {} don't match",
+            i
+        );
+    }
+}
+
+#[rstest]
+fn test_recursive_cte_with_search(mut conn: PgConnection) {
+    TestComplexMixedFastFields::setup().execute(&mut conn);
+
+    // Test with recursive CTE and search
+    let (plan,) = r#"
+        EXPLAIN (ANALYZE, FORMAT JSON)
+        WITH RECURSIVE category_tree AS (
+            -- Base case: find categories matching 'clothing'
+            SELECT c.id, c.name, c.parent_id, 1 AS level
+            FROM categories c
+            WHERE c.name @@@ 'clothing' OR c.description @@@ 'clothing'
+            
+            UNION ALL
+            
+            -- Recursive case: find children of the current category
+            SELECT c.id, c.name, c.parent_id, ct.level + 1
+            FROM categories c
+            JOIN category_tree ct ON c.parent_id = ct.id
+        )
+        SELECT ct.id, ct.name, ct.level
+        FROM category_tree ct
+        ORDER BY ct.level, ct.name
+    "#
+    .fetch_one::<(Value,)>(&mut conn);
+
+    // Get execution methods
+    let methods = get_all_exec_methods(&plan);
+    println!("Recursive CTE execution methods: {:?}", methods);
+
+    // Verify results
+    let results = r#"
+        WITH RECURSIVE category_tree AS (
+            -- Base case: find categories matching 'clothing'
+            SELECT c.id, c.name, c.parent_id, 1 AS level
+            FROM categories c
+            WHERE c.name @@@ 'clothing' OR c.description @@@ 'clothing'
+            
+            UNION ALL
+            
+            -- Recursive case: find children of the current category
+            SELECT c.id, c.name, c.parent_id, ct.level + 1
+            FROM categories c
+            JOIN category_tree ct ON c.parent_id = ct.id
+        )
+        SELECT ct.id, ct.name, ct.level
+        FROM category_tree ct
+        ORDER BY ct.level, ct.name
+    "#
+    .fetch_result::<(i32, String, i32)>(&mut conn)
+    .unwrap();
+
+    // Should find Clothing and its subcategories
+    assert!(!results.is_empty(), "Expected at least one category");
+
+    // First result should be Clothing
+    assert_eq!(
+        results[0].1, "Clothing",
+        "First result should be Clothing, got: {}",
+        results[0].1
+    );
+
+    // Should have level 1 and level 2 entries
+    let has_level_1 = results.iter().any(|r| r.2 == 1);
+    let has_level_2 = results.iter().any(|r| r.2 == 2);
+
+    assert!(has_level_1, "Should have level 1 entries");
+    assert!(has_level_2, "Should have level 2 entries");
+}
+
+#[rstest]
+fn test_complex_subqueries_with_search(mut conn: PgConnection) {
+    TestComplexMixedFastFields::setup().execute(&mut conn);
+
+    // Test with complex subqueries using @@@ operators
+    let (plan,) = r#"
+        EXPLAIN (ANALYZE, FORMAT JSON)
+        SELECT p.name, p.sku, p.price,
+               (SELECT s.name FROM suppliers s WHERE s.id = p.supplier_id) AS supplier_name,
+               (SELECT warehouse_name FROM inventory WHERE product_id = p.id AND quantity > 20 LIMIT 1) AS warehouse
+        FROM products p
+        WHERE p.id IN (
+            SELECT product_id 
+            FROM orders 
+            WHERE customer_name @@@ 'Alice OR Bob' AND status @@@ 'delivered'
+        )
+        AND p.price > 500
+    "#
+    .fetch_one::<(Value,)>(&mut conn);
+
+    // Get execution methods
+    let methods = get_all_exec_methods(&plan);
+    println!("Complex subqueries execution methods: {:?}", methods);
+
+    // At least one FastFieldExecState should be used
+    assert!(
+        !methods.iter().any(|m| m.contains("FastFieldExecState")),
+        "Didn't expect a FastFieldExecState to be used for subqueries, got: {:?}",
+        methods
+    );
+
+    // Verify results
+    let results = r#"
+        SELECT p.name, p.sku, p.price,
+               (SELECT s.name FROM suppliers s WHERE s.id = p.supplier_id) AS supplier_name,
+               (SELECT warehouse_name FROM inventory WHERE product_id = p.id AND quantity > 20 LIMIT 1) AS warehouse
+        FROM products p
+        WHERE p.id IN (
+            SELECT product_id 
+            FROM orders 
+            WHERE customer_name @@@ 'Alice OR Bob' AND status @@@ 'delivered'
+        )
+        AND p.price > 500
+    "#
+    .fetch_result::<(String, String, bigdecimal::BigDecimal, String, Option<String>)>(&mut conn)
+    .unwrap();
+
+    // Should find some products
+    assert!(
+        !results.is_empty(),
+        "Expected at least one result for subqueries"
+    );
+
+    // Verify price > 500
+    for (_, _, price, _, _) in &results {
+        assert!(
+            price > &bigdecimal::BigDecimal::from(500),
+            "Price should be greater than 500"
+        );
+    }
+}
+
+#[rstest]
+fn test_join_with_aggregation_and_search(mut conn: PgConnection) {
+    TestComplexMixedFastFields::setup().execute(&mut conn);
+
+    // Test with join, aggregation, and search
+    let (plan,) = r#"
+        EXPLAIN (ANALYZE, FORMAT JSON)
+        SELECT 
+            c.name AS category_name,
+            COUNT(p.id) AS product_count,
+            AVG(p.price) AS avg_price,
+            MAX(p.price) AS max_price,
+            MIN(p.price) AS min_price
+        FROM products p
+        JOIN categories c ON p.category_id = c.id
+        WHERE p.is_active = true and p.description @@@ 'laptop'
+        GROUP BY c.name
+        HAVING COUNT(p.id) > 1
+        ORDER BY product_count DESC
+    "#
+    .fetch_one::<(Value,)>(&mut conn);
+
+    // Get execution methods
+    let methods = get_all_exec_methods(&plan);
+    println!("Join with aggregation execution methods: {:?}", methods);
+
+    // Add product description search to force @@@ operator with aggregation
+    let (search_plan,) = r#"
+        EXPLAIN (ANALYZE, FORMAT JSON)
+        SELECT 
+            c.name AS category_name,
+            COUNT(p.id) AS product_count,
+            AVG(p.price) AS avg_price,
+            MAX(p.price) AS max_price,
+            MIN(p.price) AS min_price
+        FROM products p
+        JOIN categories c ON p.category_id = c.id
+        WHERE p.description @@@ 'laptop OR tablet OR smartphone'
+        GROUP BY c.name
+        HAVING COUNT(p.id) > 0
+        ORDER BY product_count DESC
+    "#
+    .fetch_one::<(Value,)>(&mut conn);
+
+    // Get execution methods for search with aggregation
+    let search_methods = get_all_exec_methods(&search_plan);
+    println!(
+        "Search with aggregation execution methods: {:?}",
+        search_methods
+    );
+
+    // Verify results
+    let results = r#"
+        SELECT 
+            c.name AS category_name,
+            COUNT(p.id) AS product_count,
+            AVG(p.price) AS avg_price,
+            MAX(p.price) AS max_price,
+            MIN(p.price) AS min_price
+        FROM products p
+        JOIN categories c ON p.category_id = c.id
+        WHERE p.description @@@ 'laptop OR tablet OR smartphone'
+        GROUP BY c.name
+        HAVING COUNT(p.id) > 0
+        ORDER BY product_count DESC
+    "#
+    .fetch_result::<(
+        String,
+        i64,
+        bigdecimal::BigDecimal,
+        bigdecimal::BigDecimal,
+        bigdecimal::BigDecimal,
+    )>(&mut conn)
+    .unwrap();
+
+    // Should find some categories
+    assert!(
+        !results.is_empty(),
+        "Expected at least one category with products"
+    );
+}
+
+#[rstest]
+fn test_with_forced_mixed_execution(mut conn: PgConnection) {
+    TestComplexMixedFastFields::setup().execute(&mut conn);
+
+    // Add a product with a distinct string to search for
+    r#"
+        INSERT INTO products (name, sku, description, price, weight, category_id, supplier_id, is_active)
+        VALUES ('Unique Product Z', 'UPZ-001', 'This is a uniqueproductZ for testing mixed fields', 49.99, 1.0, 1, 1, true);
+    "#
+    .execute(&mut conn);
+
+    // First query: Should use MixedFastFieldExecState (name + sku are string fast fields)
+    let (string_fast_plan,) = r#"
+        EXPLAIN (ANALYZE, FORMAT JSON)
+        SELECT p.name, p.sku
+        FROM products p
+        WHERE p.description @@@ 'uniqueproductZ'
+    "#
+    .fetch_one::<(Value,)>(&mut conn);
+
+    let string_methods = get_all_exec_methods(&string_fast_plan);
+    println!("String fast fields execution methods: {:?}", string_methods);
+
+    // Force exact MixedFastFieldExecState (two string fast fields)
+    assert!(
+        string_methods.contains(&"MixedFastFieldExecState".to_string()),
+        "Expected specifically MixedFastFieldExecState for multiple string fast fields, got: {:?}",
+        string_methods
+    );
+
+    // Second query: Should use MixedFastFieldExecState (mix of string and numeric fast fields)
+    let (mixed_plan,) = r#"
+        EXPLAIN (ANALYZE, FORMAT JSON)
+        SELECT p.name, p.sku, p.price, p.weight
+        FROM products p
+        WHERE p.description @@@ 'uniqueproductZ'
+    "#
+    .fetch_one::<(Value,)>(&mut conn);
+
+    let mixed_methods = get_all_exec_methods(&mixed_plan);
+    println!(
+        "Mixed string/numeric fields execution methods: {:?}",
+        mixed_methods
+    );
+
+    // Should use MixedFastFieldExecState for mixed field types
+    assert!(
+        mixed_methods.contains(&"MixedFastFieldExecState".to_string()),
+        "Expected specifically MixedFastFieldExecState for mixed string/numeric fields, got: {:?}",
+        mixed_methods
+    );
+
+    // Third query: Boolean fast field added to the mix
+    let (bool_plan,) = r#"
+        EXPLAIN (ANALYZE, FORMAT JSON)
+        SELECT p.name, p.sku, p.price, p.is_active
+        FROM products p
+        WHERE p.description @@@ 'uniqueproductZ'
+    "#
+    .fetch_one::<(Value,)>(&mut conn);
+
+    let bool_methods = get_all_exec_methods(&bool_plan);
+    println!("With boolean field execution methods: {:?}", bool_methods);
+
+    // Should use MixedFastFieldExecState for mix including boolean
+    assert!(
+        bool_methods.contains(&"MixedFastFieldExecState".to_string()),
+        "Expected MixedFastFieldExecState for mix including boolean, got: {:?}",
+        bool_methods
+    );
+
+    // Verify results match for all approaches
+    let results1 = r#"
+        SELECT p.name
+        FROM products p
+        WHERE p.description @@@ 'uniqueproductZ'
+    "#
+    .fetch_one::<(String,)>(&mut conn);
+
+    let results2 = r#"
+        SELECT p.name
+        FROM products p
+        WHERE p.description @@@ 'uniqueproductZ'
+    "#
+    .fetch_one::<(String,)>(&mut conn);
+
+    let results3 = r#"
+        SELECT p.name
+        FROM products p
+        WHERE p.description @@@ 'uniqueproductZ'
+    "#
+    .fetch_one::<(String,)>(&mut conn);
+
+    // All should find the same unique product
+    assert_eq!(results1.0, "Unique Product Z");
+    assert_eq!(results2.0, "Unique Product Z");
+    assert_eq!(results3.0, "Unique Product Z");
+}

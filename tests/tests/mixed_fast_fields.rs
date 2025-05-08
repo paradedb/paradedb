@@ -2042,12 +2042,12 @@ fn test_window_functions_with_search(mut conn: PgConnection) {
 
     if !group0_results.is_empty() {
         // Verify rank_in_group starts at 1 and is sequential
-        for i in 0..group0_results.len() {
+        for (_, _, _, rank_in_group, _, _) in group0_results.iter() {
             assert_eq!(
-                group0_results[i].4,
+                *rank_in_group,
                 (i + 1) as i64,
                 "Expected rank_in_group to be sequential, got {} at index {}",
-                group0_results[i].4,
+                *rank_in_group,
                 i
             );
         }

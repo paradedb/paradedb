@@ -705,8 +705,8 @@ unsafe fn booltest(
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
-    use crate::schema::SearchField;
     use super::*;
+    use crate::schema::SearchField;
     use pgrx::prelude::*;
     use proptest::prelude::*;
 
@@ -791,11 +791,21 @@ mod tests {
     fn arb_leaf() -> impl Strategy<Value = Qual> {
         prop_oneof![
             Just(Qual::All),
-            "[a-z]{1,3}".prop_map(|s| Qual::PushdownVarEqTrue { field: PushdownField(SearchField::new(s.clone())) }),
-            "[a-z]{1,3}".prop_map(|s| Qual::PushdownVarEqFalse { field: PushdownField(SearchField::new(s.clone())) }),
-            "[a-z]{1,3}".prop_map(|s| Qual::PushdownVarIsTrue { field: PushdownField(SearchField::new(s.clone())) }),
-            "[a-z]{1,3}".prop_map(|s| Qual::PushdownVarIsFalse { field: PushdownField(SearchField::new(s.clone())) }),
-            "[a-z]{1,3}".prop_map(|s| Qual::PushdownIsNotNull { field: PushdownField(SearchField::new(s.clone())) }),
+            "[a-z]{1,3}".prop_map(|s| Qual::PushdownVarEqTrue {
+                field: PushdownField(SearchField::new(s.clone()))
+            }),
+            "[a-z]{1,3}".prop_map(|s| Qual::PushdownVarEqFalse {
+                field: PushdownField(SearchField::new(s.clone()))
+            }),
+            "[a-z]{1,3}".prop_map(|s| Qual::PushdownVarIsTrue {
+                field: PushdownField(SearchField::new(s.clone()))
+            }),
+            "[a-z]{1,3}".prop_map(|s| Qual::PushdownVarIsFalse {
+                field: PushdownField(SearchField::new(s.clone()))
+            }),
+            "[a-z]{1,3}".prop_map(|s| Qual::PushdownIsNotNull {
+                field: PushdownField(SearchField::new(s.clone()))
+            }),
         ]
     }
 
@@ -828,8 +838,7 @@ mod tests {
 
             // Match boolean field FALSE cases
             (
-                qual
-                @ (Qual::PushdownVarEqFalse { field } | Qual::PushdownVarIsFalse { field }),
+                qual @ (Qual::PushdownVarEqFalse { field } | Qual::PushdownVarIsFalse { field }),
                 SearchQueryInput::Term {
                     field: Some(f),
                     value,
@@ -880,7 +889,9 @@ mod tests {
                     value: OwnedValue::Bool(false),
                     ..
                 },
-            ) if matches!(**inner, Qual::PushdownVarEqTrue { field: ref a } if a.attname() == f) => true,
+            ) if matches!(**inner, Qual::PushdownVarEqTrue { field: ref a } if a.attname() == f) => {
+                true
+            }
 
             // Match negation of PushdownVarEqFalse mapping to PushdownVarEqTrue
             (
@@ -890,7 +901,9 @@ mod tests {
                     value: OwnedValue::Bool(true),
                     ..
                 },
-            ) if matches!(**inner, Qual::PushdownVarEqFalse { field: ref a } if a.attname() == f) => true,
+            ) if matches!(**inner, Qual::PushdownVarEqFalse { field: ref a } if a.attname() == f) => {
+                true
+            }
 
             _ => false,
         }

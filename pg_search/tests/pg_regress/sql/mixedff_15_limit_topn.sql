@@ -34,14 +34,19 @@ FROM generate_series(1, 100) i;
 -- Create search index with multiple fast fields
 DROP INDEX IF EXISTS limit_topn_idx;
 CREATE INDEX limit_topn_idx ON limit_topn_test
-USING columnstore (title, rating, price, category, is_available)
-WITH (type='hnsw');
+USING bm25 (id, title, description, rating, price, category, is_available)
+WITH (
+    key_field = 'id',
+    text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "description": {"tokenizer": {"type": "default"}, "fast": true}, "category": {"tokenizer": {"type": "keyword"}, "fast": true}}',
+    numeric_fields = '{"rating": {"fast": true}, "price": {"fast": true}}',
+    boolean_fields = '{"is_available": {"fast": true}}'
+);
 
 -- Test basic LIMIT with mixed fields (should use TopN)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, rating, price, category
 FROM limit_topn_test
-WHERE title ILIKE 'Product%'
+WHERE title @@@ 'Product'
 ORDER BY rating DESC
 LIMIT 10;
 
@@ -49,7 +54,7 @@ LIMIT 10;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, category, rating, price
 FROM limit_topn_test
-WHERE category = 'Electronics'
+WHERE category @@@ 'Electronics'
 ORDER BY price ASC
 LIMIT 5;
 
@@ -57,7 +62,7 @@ LIMIT 5;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, category
 FROM limit_topn_test
-WHERE category IN ('Books', 'Electronics')
+WHERE category @@@ 'Books OR Electronics'
 ORDER BY title
 LIMIT 15;
 
@@ -81,14 +86,14 @@ LIMIT 12;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, category, rating, price
 FROM limit_topn_test
-WHERE (rating BETWEEN 2.5 AND 4.5) AND (category = 'Electronics' OR category = 'Toys')
+WHERE (rating BETWEEN 2.5 AND 4.5) AND category @@@ 'Electronics OR Toys'
 ORDER BY price DESC
 LIMIT 8;
 
 -- Verify actual results of LIMIT queries (not just execution path)
 SELECT title, rating, price, category
 FROM limit_topn_test
-WHERE title ILIKE 'Product%'
+WHERE title @@@ 'Product'
 ORDER BY rating DESC
 LIMIT 5;
 

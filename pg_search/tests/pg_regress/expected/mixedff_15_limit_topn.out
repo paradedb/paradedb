@@ -30,56 +30,78 @@ FROM generate_series(1, 100) i;
 -- Create search index with multiple fast fields
 DROP INDEX IF EXISTS limit_topn_idx;
 CREATE INDEX limit_topn_idx ON limit_topn_test
-USING columnstore (title, rating, price, category, is_available)
-WITH (type='hnsw');
-ERROR:  access method "columnstore" does not exist
+USING bm25 (id, title, description, rating, price, category, is_available)
+WITH (
+    key_field = 'id',
+    text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "description": {"tokenizer": {"type": "default"}, "fast": true}, "category": {"tokenizer": {"type": "keyword"}, "fast": true}}',
+    numeric_fields = '{"rating": {"fast": true}, "price": {"fast": true}}',
+    boolean_fields = '{"is_available": {"fast": true}}'
+);
 -- Test basic LIMIT with mixed fields (should use TopN)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, rating, price, category
 FROM limit_topn_test
-WHERE title ILIKE 'Product%'
+WHERE title @@@ 'Product'
 ORDER BY rating DESC
 LIMIT 10;
-                     QUERY PLAN                     
-----------------------------------------------------
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: rating DESC
-         ->  Seq Scan on limit_topn_test
-               Filter: (title ~~* 'Product%'::text)
-(5 rows)
+   ->  Custom Scan (ParadeDB Scan) on limit_topn_test
+         Table: limit_topn_test
+         Index: limit_topn_idx
+         Segment Count: 1
+         Exec Method: TopNScanExecState
+         Scores: false
+            Sort Field: rating
+            Sort Direction: desc
+            Top N Limit: 10
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Product","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
 
 -- Test LIMIT with mixed text and numeric fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, category, rating, price
 FROM limit_topn_test
-WHERE category = 'Electronics'
+WHERE category @@@ 'Electronics'
 ORDER BY price ASC
 LIMIT 5;
-                       QUERY PLAN                       
---------------------------------------------------------
+                                                                          QUERY PLAN                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: price
-         ->  Seq Scan on limit_topn_test
-               Filter: (category = 'Electronics'::text)
-(5 rows)
+   ->  Custom Scan (ParadeDB Scan) on limit_topn_test
+         Table: limit_topn_test
+         Index: limit_topn_idx
+         Segment Count: 1
+         Exec Method: TopNScanExecState
+         Scores: false
+            Sort Field: price
+            Sort Direction: asc
+            Top N Limit: 5
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
 
 -- Test LIMIT with multiple string fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, category
 FROM limit_topn_test
-WHERE category IN ('Books', 'Electronics')
+WHERE category @@@ 'Books OR Electronics'
 ORDER BY title
 LIMIT 15;
-                               QUERY PLAN                               
-------------------------------------------------------------------------
+                                                                               QUERY PLAN                                                                               
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: title
-         ->  Seq Scan on limit_topn_test
-               Filter: (category = ANY ('{Books,Electronics}'::text[]))
-(5 rows)
+   ->  Custom Scan (ParadeDB Scan) on limit_topn_test
+         Table: limit_topn_test
+         Index: limit_topn_idx
+         Segment Count: 1
+         Exec Method: TopNScanExecState
+         Scores: false
+            Sort Field: title
+            Sort Direction: asc
+            Top N Limit: 15
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Books OR Electronics","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
 
 -- Test LIMIT with boolean field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -117,30 +139,36 @@ LIMIT 12;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, category, rating, price
 FROM limit_topn_test
-WHERE (rating BETWEEN 2.5 AND 4.5) AND (category = 'Electronics' OR category = 'Toys')
+WHERE (rating BETWEEN 2.5 AND 4.5) AND category @@@ 'Electronics OR Toys'
 ORDER BY price DESC
 LIMIT 8;
-                                                                               QUERY PLAN                                                                                
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: price DESC
-         ->  Seq Scan on limit_topn_test
-               Filter: ((rating >= '2.5'::double precision) AND (rating <= '4.5'::double precision) AND ((category = 'Electronics'::text) OR (category = 'Toys'::text)))
-(5 rows)
+   ->  Custom Scan (ParadeDB Scan) on limit_topn_test
+         Table: limit_topn_test
+         Index: limit_topn_idx
+         Segment Count: 1
+         Exec Method: TopNScanExecState
+         Scores: false
+            Sort Field: price
+            Sort Direction: desc
+            Top N Limit: 8
+         Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"included":2.5},"upper_bound":null,"is_datetime":false}},{"range":{"field":"rating","lower_bound":null,"upper_bound":{"included":4.5},"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics OR Toys","lenient":null,"conjunction_mode":null}}}}]}}
+(11 rows)
 
 -- Verify actual results of LIMIT queries (not just execution path)
 SELECT title, rating, price, category
 FROM limit_topn_test
-WHERE title ILIKE 'Product%'
+WHERE title @@@ 'Product'
 ORDER BY rating DESC
 LIMIT 5;
    title    | rating | price | category 
 ------------+--------+-------+----------
- Product 14 |      5 |  1400 | Toys
- Product 19 |      5 |  1900 | Toys
  Product 4  |      5 |   400 | Toys
  Product 9  |      5 |   900 | Toys
+ Product 14 |      5 |  1400 | Toys
+ Product 19 |      5 |  1900 | Toys
  Product 24 |      5 |  2400 | Toys
 (5 rows)
 

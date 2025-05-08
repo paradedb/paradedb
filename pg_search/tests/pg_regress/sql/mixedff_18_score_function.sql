@@ -40,14 +40,19 @@ VALUES
 -- Create search index with mixed fast fields
 DROP INDEX IF EXISTS score_test_idx;
 CREATE INDEX score_test_idx ON score_test
-USING columnstore (title, content, author, rating, views, is_featured)
-WITH (type='hnsw');
+USING bm25 (id, title, content, author, rating, views, is_featured)
+WITH (
+    key_field = 'id',
+    text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}, "author": {"tokenizer": {"type": "default"}, "fast": true}}',
+    numeric_fields = '{"rating": {"fast": true}, "views": {"fast": true}}',
+    boolean_fields = '{"is_featured": {"fast": true}}'
+);
 
 -- Test 1: Basic score function with text field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, score(score_test_idx), rating
 FROM score_test
-WHERE content ILIKE '%technology%'
+WHERE content @@@ 'technology'
 ORDER BY score(score_test_idx) DESC
 LIMIT 10;
 
@@ -55,7 +60,7 @@ LIMIT 10;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, author, rating, views, score(score_test_idx)
 FROM score_test
-WHERE content ILIKE '%research%'
+WHERE content @@@ 'research'
 ORDER BY rating DESC, score(score_test_idx) DESC
 LIMIT 5;
 
@@ -63,7 +68,7 @@ LIMIT 5;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, author, score(score_test_idx)
 FROM score_test
-WHERE content ILIKE '%technology%' AND rating >= 4 AND is_featured = true
+WHERE content @@@ 'technology' AND rating >= 4 AND is_featured = true
 ORDER BY score(score_test_idx) DESC;
 
 -- Test 4: Using score in a CTE with mixed fields
@@ -71,7 +76,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 WITH scored_posts AS (
     SELECT title, author, rating, score(score_test_idx) as relevance
     FROM score_test
-    WHERE content ILIKE '%science%' OR content ILIKE '%research%'
+    WHERE content @@@ 'science OR research'
 )
 SELECT title, author, rating, relevance
 FROM scored_posts
@@ -85,7 +90,7 @@ SELECT sp.title, sp.author, sp.relevance
 FROM (
     SELECT title, author, score(score_test_idx) as relevance
     FROM score_test
-    WHERE content ILIKE '%technology%' AND rating > 3
+    WHERE content @@@ 'technology' AND rating > 3
 ) sp
 WHERE sp.relevance > 0.5
 ORDER BY sp.relevance DESC;
@@ -94,11 +99,11 @@ ORDER BY sp.relevance DESC;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, author, score(score_test_idx) as relevance
 FROM score_test
-WHERE content ILIKE '%technology%'
+WHERE content @@@ 'technology'
 UNION ALL
 SELECT title, author, score(score_test_idx) as relevance
 FROM score_test
-WHERE content ILIKE '%science%' AND title NOT ILIKE '%technology%'
+WHERE content @@@ 'science' AND NOT (title @@@ 'technology')
 ORDER BY relevance DESC
 LIMIT 10;
 
@@ -108,14 +113,14 @@ SELECT a.title, a.author, a.rating, a.score, b.title as related_title
 FROM (
     SELECT title, author, rating, score(score_test_idx) as score
     FROM score_test
-    WHERE content ILIKE '%technology%'
+    WHERE content @@@ 'technology'
     ORDER BY score DESC
     LIMIT 5
 ) a
 JOIN (
     SELECT title, author
     FROM score_test
-    WHERE author IN (SELECT author FROM score_test WHERE content ILIKE '%technology%')
+    WHERE author IN (SELECT author FROM score_test WHERE content @@@ 'technology')
 ) b ON a.author = b.author AND a.title <> b.title;
 
 -- Test 8: Score function with CASE expression and mixed fields
@@ -130,21 +135,21 @@ SELECT
         ELSE 'Low Relevance'
     END as relevance_category
 FROM score_test
-WHERE content ILIKE '%research%' OR content ILIKE '%development%'
+WHERE content @@@ 'research OR development'
 ORDER BY score(score_test_idx) DESC
 LIMIT 10;
 
 -- Verify actual results of score function (not just execution method)
 SELECT title, author, rating, score(score_test_idx) as relevance
 FROM score_test
-WHERE content ILIKE '%technology%' AND rating >= 4
+WHERE content @@@ 'technology' AND rating >= 4
 ORDER BY relevance DESC
 LIMIT 5;
 
 -- Test combination of score function and different fast field types
 SELECT title, author, rating, views, score(score_test_idx) as relevance
 FROM score_test
-WHERE content ILIKE '%research%' AND rating > 3 AND views > 1000
+WHERE content @@@ 'research' AND rating > 3 AND views > 1000
 ORDER BY relevance DESC
 LIMIT 3;
 

@@ -57,8 +57,13 @@ VALUES
 -- Create search index with mixed fast fields
 DROP INDEX IF EXISTS category_idx;
 CREATE INDEX category_idx ON category
-USING columnstore (name, description, level, item_count, is_active)
-WITH (type='hnsw');
+USING bm25 (id, name, description, level, item_count, is_active)
+WITH (
+    key_field = 'id',
+    text_fields = '{"name": {"tokenizer": {"type": "default"}, "fast": true}, "description": {"tokenizer": {"type": "default"}, "fast": true}}',
+    numeric_fields = '{"level": {"fast": true}, "item_count": {"fast": true}}',
+    boolean_fields = '{"is_active": {"fast": true}}'
+);
 
 -- Test 1: Basic recursive CTE to find all descendants of Electronics
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -105,7 +110,7 @@ WITH RECURSIVE category_tree AS (
     -- Base case with search
     SELECT id, name, parent_id, level, description, item_count
     FROM category
-    WHERE description ILIKE '%books%'
+    WHERE description @@@ 'books'
     
     UNION ALL
     
@@ -132,7 +137,7 @@ WITH RECURSIVE category_tree AS (
     SELECT c.id, c.name, c.parent_id, c.level, c.description, c.item_count
     FROM category c
     JOIN category_tree ct ON c.parent_id = ct.id
-    WHERE c.description ILIKE '%computer%' OR c.item_count > 30
+    WHERE c.description @@@ 'computer' OR c.item_count > 30
 )
 SELECT name, level, description, item_count
 FROM category_tree

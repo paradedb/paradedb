@@ -51,9 +51,13 @@ VALUES
 -- Create search index with mixed fast fields
 DROP INDEX IF EXISTS category_idx;
 CREATE INDEX category_idx ON category
-USING columnstore (name, description, level, item_count, is_active)
-WITH (type='hnsw');
-ERROR:  access method "columnstore" does not exist
+USING bm25 (id, name, description, level, item_count, is_active)
+WITH (
+    key_field = 'id',
+    text_fields = '{"name": {"tokenizer": {"type": "default"}, "fast": true}, "description": {"tokenizer": {"type": "default"}, "fast": true}}',
+    numeric_fields = '{"level": {"fast": true}, "item_count": {"fast": true}}',
+    boolean_fields = '{"is_active": {"fast": true}}'
+);
 -- Test 1: Basic recursive CTE to find all descendants of Electronics
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 WITH RECURSIVE category_tree AS (
@@ -130,7 +134,7 @@ WITH RECURSIVE category_tree AS (
     -- Base case with search
     SELECT id, name, parent_id, level, description, item_count
     FROM category
-    WHERE description ILIKE '%books%'
+    WHERE description @@@ 'books'
     
     UNION ALL
     
@@ -142,21 +146,26 @@ WITH RECURSIVE category_tree AS (
 SELECT name, level, description, item_count
 FROM category_tree
 ORDER BY level, name;
-                          QUERY PLAN                          
---------------------------------------------------------------
+                                                                             QUERY PLAN                                                                             
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: category_tree.level, category_tree.name
    CTE category_tree
      ->  Recursive Union
-           ->  Seq Scan on category
-                 Filter: (description ~~* '%books%'::text)
+           ->  Custom Scan (ParadeDB Scan) on category
+                 Table: category
+                 Index: category_idx
+                 Segment Count: 1
+                 Exec Method: NormalScanExecState
+                 Scores: false
+                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"books","lenient":null,"conjunction_mode":null}}}}
            ->  Hash Join
-                 Hash Cond: (c.parent_id = ct.id)
-                 ->  Seq Scan on category c
+                 Hash Cond: (ct.id = c.parent_id)
+                 ->  WorkTable Scan on category_tree ct
                  ->  Hash
-                       ->  WorkTable Scan on category_tree ct
+                       ->  Seq Scan on category c
    ->  CTE Scan on category_tree
-(12 rows)
+(17 rows)
 
 -- Test 4: Recursive CTE with search condition in recursive case
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -172,13 +181,13 @@ WITH RECURSIVE category_tree AS (
     SELECT c.id, c.name, c.parent_id, c.level, c.description, c.item_count
     FROM category c
     JOIN category_tree ct ON c.parent_id = ct.id
-    WHERE c.description ILIKE '%computer%' OR c.item_count > 30
+    WHERE c.description @@@ 'computer' OR c.item_count > 30
 )
 SELECT name, level, description, item_count
 FROM category_tree
 ORDER BY level, name;
-                                        QUERY PLAN                                         
--------------------------------------------------------------------------------------------
+                                                                                                                                                    QUERY PLAN                                                                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: category_tree.level, category_tree.name
    CTE category_tree
@@ -186,13 +195,18 @@ ORDER BY level, name;
            ->  Seq Scan on category
                  Filter: (name = 'Electronics'::text)
            ->  Hash Join
-                 Hash Cond: (c.parent_id = ct.id)
-                 ->  Seq Scan on category c
-                       Filter: ((description ~~* '%computer%'::text) OR (item_count > 30))
+                 Hash Cond: (ct.id = c.parent_id)
+                 ->  WorkTable Scan on category_tree ct
                  ->  Hash
-                       ->  WorkTable Scan on category_tree ct
+                       ->  Custom Scan (ParadeDB Scan) on category c
+                             Table: category
+                             Index: category_idx
+                             Segment Count: 1
+                             Exec Method: NormalScanExecState
+                             Scores: false
+                             Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"computer","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"item_count","lower_bound":{"excluded":30},"upper_bound":null,"is_datetime":false}}]}}
    ->  CTE Scan on category_tree
-(13 rows)
+(18 rows)
 
 -- Test 5: Complex recursive CTE with aggregation and mixed fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -229,10 +243,10 @@ SELECT
 FROM category_stats
 GROUP BY category_type
 ORDER BY category_type;
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort
-   Sort Key: (CASE WHEN (ct.level = 1) THEN 'Main Category'::text WHEN (ct.level = 2) THEN 'Subcategory'::text ELSE 'Sub-subcategory'::text END)
+                                                                      QUERY PLAN                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Group Key: (CASE WHEN (ct.level = 1) THEN 'Main Category'::text WHEN (ct.level = 2) THEN 'Subcategory'::text ELSE 'Sub-subcategory'::text END)
    CTE category_tree
      ->  Recursive Union
            ->  Seq Scan on category
@@ -242,8 +256,8 @@ ORDER BY category_type;
                  ->  Seq Scan on category c
                  ->  Hash
                        ->  WorkTable Scan on category_tree ct_1
-   ->  HashAggregate
-         Group Key: CASE WHEN (ct.level = 1) THEN 'Main Category'::text WHEN (ct.level = 2) THEN 'Subcategory'::text ELSE 'Sub-subcategory'::text END
+   ->  Sort
+         Sort Key: (CASE WHEN (ct.level = 1) THEN 'Main Category'::text WHEN (ct.level = 2) THEN 'Subcategory'::text ELSE 'Sub-subcategory'::text END)
          ->  CTE Scan on category_tree ct
 (14 rows)
 

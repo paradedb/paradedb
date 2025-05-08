@@ -77,18 +77,23 @@ INSERT INTO type_conversion_test (
 -- Create search index with mixed fast fields
 DROP INDEX IF EXISTS type_conv_idx;
 CREATE INDEX type_conv_idx ON type_conversion_test
-USING columnstore (
-    text_field, varchar_field, char_field,
+USING bm25 (
+    id, text_field, varchar_field, char_field,
     int_field, bigint_field, float_field, numeric_field,
     bool_field, date_field
 )
-WITH (type='hnsw');
+WITH (
+    key_field = 'id',
+    text_fields = '{"text_field": {"tokenizer": {"type": "default"}, "fast": true}, "varchar_field": {"tokenizer": {"type": "default"}, "fast": true}, "char_field": {"tokenizer": {"type": "default"}, "fast": true}}',
+    numeric_fields = '{"int_field": {"fast": true}, "bigint_field": {"fast": true}, "float_field": {"fast": true}, "numeric_field": {"fast": true}}',
+    boolean_fields = '{"bool_field": {"fast": true}}'
+);
 
 -- Test 1: Basic text to text conversions
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field, varchar_field, char_field
 FROM type_conversion_test
-WHERE text_field LIKE '%text%' OR varchar_field LIKE '%varchar%';
+WHERE text_field @@@ 'text' OR varchar_field @@@ 'varchar';
 
 -- Test 2: Converting numeric string to number
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -147,7 +152,7 @@ FROM type_conversion_test
 WHERE 
     CASE 
         WHEN bool_field THEN int_field > 50
-        ELSE text_field LIKE '%text%'
+        ELSE text_field @@@ 'text'
     END;
 
 -- Verify actual conversion results
@@ -180,3 +185,4 @@ DROP TABLE IF EXISTS type_conversion_test;
 
 -- Reset parallel workers setting to default
 RESET max_parallel_workers_per_gather; 
+ 

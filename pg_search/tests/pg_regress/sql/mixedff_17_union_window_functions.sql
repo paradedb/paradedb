@@ -55,22 +55,32 @@ DROP INDEX IF EXISTS union_test_a_idx;
 DROP INDEX IF EXISTS union_test_b_idx;
 
 CREATE INDEX union_test_a_idx ON union_test_a
-USING columnstore (title, author, rating, year, price, is_published)
-WITH (type='hnsw');
+USING bm25 (id, title, author, rating, year, price, is_published)
+WITH (
+    key_field = 'id',
+    text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "author": {"tokenizer": {"type": "default"}, "fast": true}}',
+    numeric_fields = '{"rating": {"fast": true}, "year": {"fast": true}, "price": {"fast": true}}',
+    boolean_fields = '{"is_published": {"fast": true}}'
+);
 
 CREATE INDEX union_test_b_idx ON union_test_b
-USING columnstore (title, author, rating, year, price, is_published)
-WITH (type='hnsw');
+USING bm25 (id, title, author, rating, year, price, is_published)
+WITH (
+    key_field = 'id',
+    text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "author": {"tokenizer": {"type": "default"}, "fast": true}}',
+    numeric_fields = '{"rating": {"fast": true}, "year": {"fast": true}, "price": {"fast": true}}',
+    boolean_fields = '{"is_published": {"fast": true}}'
+);
 
 -- Test 1: Basic UNION with mixed field types
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, author, rating, price
 FROM union_test_a
-WHERE title LIKE 'Book A%' AND rating > 4
+WHERE title @@@ 'Book A' AND rating > 4
 UNION
 SELECT title, author, rating, price
 FROM union_test_b
-WHERE title LIKE 'Book B%' AND rating > 3
+WHERE title @@@ 'Book B' AND rating > 3
 ORDER BY rating DESC, title;
 
 -- Test 2: UNION ALL with numeric fields for filtering
@@ -89,7 +99,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, author, price, rating,
        ROW_NUMBER() OVER (PARTITION BY author ORDER BY rating DESC) as author_rank
 FROM union_test_a
-WHERE title LIKE 'Book A%'
+WHERE title @@@ 'Book A'
 ORDER BY author, author_rank;
 
 -- Test 4: Window function - Running average price by author
@@ -97,7 +107,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, author, price,
        AVG(price) OVER (PARTITION BY author ORDER BY price) as running_avg_price
 FROM union_test_a
-WHERE author LIKE 'Author%'
+WHERE author @@@ 'Author'
 ORDER BY author, price;
 
 -- Test 5: Window function with UNION and mixed filters
@@ -120,11 +130,11 @@ ORDER BY author, author_rank;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, author, is_published
 FROM union_test_a
-WHERE is_published = true AND author LIKE 'Author 1%'
+WHERE is_published = true AND author @@@ 'Author 1'
 UNION
 SELECT title, author, is_published
 FROM union_test_b
-WHERE is_published = true AND author LIKE 'Author 1%'
+WHERE is_published = true AND author @@@ 'Author 1'
 ORDER BY author, title;
 
 -- Test 7: Window functions with multiple partitions and mixed fields
@@ -136,7 +146,7 @@ SELECT author,
        RANK() OVER (ORDER BY AVG(rating) DESC) as rating_rank,
        RANK() OVER (ORDER BY AVG(price)) as price_rank
 FROM union_test_a
-WHERE author LIKE 'Author%'
+WHERE author @@@ 'Author'
 GROUP BY author
 ORDER BY avg_rating DESC;
 
@@ -149,11 +159,11 @@ INTERSECT
 -- Verify actual results of UNION (not just execution method)
 SELECT title, author, rating, price
 FROM union_test_a
-WHERE title LIKE 'Book A1%' AND rating > 4
+WHERE title @@@ 'Book A1' AND rating > 4
 UNION
 SELECT title, author, rating, price
 FROM union_test_b
-WHERE title LIKE 'Book B1%' AND rating > 3
+WHERE title @@@ 'Book B1' AND rating > 3
 ORDER BY rating DESC, title
 LIMIT 10;
 

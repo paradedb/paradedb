@@ -47,36 +47,45 @@ FROM generate_series(1, 50) i;
 DROP INDEX IF EXISTS union_test_a_idx;
 DROP INDEX IF EXISTS union_test_b_idx;
 CREATE INDEX union_test_a_idx ON union_test_a
-USING columnstore (title, author, rating, year, price, is_published)
-WITH (type='hnsw');
-ERROR:  access method "columnstore" does not exist
+USING bm25 (id, title, author, rating, year, price, is_published)
+WITH (
+    key_field = 'id',
+    text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "author": {"tokenizer": {"type": "default"}, "fast": true}}',
+    numeric_fields = '{"rating": {"fast": true}, "year": {"fast": true}, "price": {"fast": true}}',
+    boolean_fields = '{"is_published": {"fast": true}}'
+);
 CREATE INDEX union_test_b_idx ON union_test_b
-USING columnstore (title, author, rating, year, price, is_published)
-WITH (type='hnsw');
-ERROR:  access method "columnstore" does not exist
+USING bm25 (id, title, author, rating, year, price, is_published)
+WITH (
+    key_field = 'id',
+    text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "author": {"tokenizer": {"type": "default"}, "fast": true}}',
+    numeric_fields = '{"rating": {"fast": true}, "year": {"fast": true}, "price": {"fast": true}}',
+    boolean_fields = '{"is_published": {"fast": true}}'
+);
 -- Test 1: Basic UNION with mixed field types
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, author, rating, price
 FROM union_test_a
-WHERE title LIKE 'Book A%' AND rating > 4
+WHERE title @@@ 'Book A' AND rating > 4
 UNION
 SELECT title, author, rating, price
 FROM union_test_b
-WHERE title LIKE 'Book B%' AND rating > 3
+WHERE title @@@ 'Book B' AND rating > 3
 ORDER BY rating DESC, title;
-                                                QUERY PLAN                                                
-----------------------------------------------------------------------------------------------------------
+                                                                                                     QUERY PLAN                                                                                                     
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: union_test_a.rating DESC, union_test_a.title
-   ->  Unique
-         ->  Sort
-               Sort Key: union_test_a.title, union_test_a.author, union_test_a.rating, union_test_a.price
-               ->  Append
-                     ->  Seq Scan on union_test_a
-                           Filter: ((title ~~ 'Book A%'::text) AND (rating > '4'::numeric))
-                     ->  Seq Scan on union_test_b
-                           Filter: ((title ~~ 'Book B%'::text) AND (rating > '3'::numeric))
-(10 rows)
+   ->  HashAggregate
+         Group Key: union_test_a.title, union_test_a.author, union_test_a.rating, union_test_a.price
+         ->  Append
+               ->  Index Scan using union_test_a_idx on union_test_a
+                     Index Cond: (id @@@ '{"with_index":{"oid":1848406,"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+                     Filter: (rating > '4'::numeric)
+               ->  Index Scan using union_test_b_idx on union_test_b
+                     Index Cond: (id @@@ '{"with_index":{"oid":1848407,"query":{"parse_with_field":{"field":"title","query_string":"Book B","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+                     Filter: (rating > '3'::numeric)
+(11 rows)
 
 -- Test 2: UNION ALL with numeric fields for filtering
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -104,35 +113,51 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, author, price, rating,
        ROW_NUMBER() OVER (PARTITION BY author ORDER BY rating DESC) as author_rank
 FROM union_test_a
-WHERE title LIKE 'Book A%'
+WHERE title @@@ 'Book A'
 ORDER BY author, author_rank;
-                       QUERY PLAN                       
---------------------------------------------------------
+                                                                            QUERY PLAN                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Incremental Sort
    Sort Key: author, (row_number() OVER (?))
    Presorted Key: author
    ->  WindowAgg
          ->  Sort
                Sort Key: author, rating DESC
-               ->  Seq Scan on union_test_a
-                     Filter: (title ~~ 'Book A%'::text)
-(8 rows)
+               ->  Custom Scan (ParadeDB Scan) on union_test_a
+                     Table: union_test_a
+                     Index: union_test_a_idx
+                     Segment Count: 1
+                     Exec Method: MixedFastFieldExecState
+                     Fast Fields: title, author, price, rating
+                     String Fast Fields: title, author
+                     Numeric Fast Fields: price, rating
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 -- Test 4: Window function - Running average price by author
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, author, price,
        AVG(price) OVER (PARTITION BY author ORDER BY price) as running_avg_price
 FROM union_test_a
-WHERE author LIKE 'Author%'
+WHERE author @@@ 'Author'
 ORDER BY author, price;
-                    QUERY PLAN                     
----------------------------------------------------
+                                                                          QUERY PLAN                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
  WindowAgg
    ->  Sort
          Sort Key: author, price
-         ->  Seq Scan on union_test_a
-               Filter: (author ~~ 'Author%'::text)
-(5 rows)
+         ->  Custom Scan (ParadeDB Scan) on union_test_a
+               Table: union_test_a
+               Index: union_test_a_idx
+               Segment Count: 1
+               Exec Method: MixedFastFieldExecState
+               Fast Fields: title, author, price
+               String Fast Fields: title, author
+               Numeric Fast Fields: price
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"author","query_string":"Author","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
 
 -- Test 5: Window function with UNION and mixed filters
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -171,25 +196,44 @@ ORDER BY author, author_rank;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, author, is_published
 FROM union_test_a
-WHERE is_published = true AND author LIKE 'Author 1%'
+WHERE is_published = true AND author @@@ 'Author 1'
 UNION
 SELECT title, author, is_published
 FROM union_test_b
-WHERE is_published = true AND author LIKE 'Author 1%'
+WHERE is_published = true AND author @@@ 'Author 1'
 ORDER BY author, title;
-                                         QUERY PLAN                                         
---------------------------------------------------------------------------------------------
+                                                                                                                              QUERY PLAN                                                                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: union_test_a.author, union_test_a.title
    ->  Unique
-         ->  Sort
+         ->  Merge Append
                Sort Key: union_test_a.title, union_test_a.author, union_test_a.is_published
-               ->  Append
-                     ->  Seq Scan on union_test_a
-                           Filter: (is_published AND (author ~~ 'Author 1%'::text))
-                     ->  Seq Scan on union_test_b
-                           Filter: (is_published AND (author ~~ 'Author 1%'::text))
-(10 rows)
+               ->  Sort
+                     Sort Key: union_test_a.title, union_test_a.author, union_test_a.is_published
+                     ->  Custom Scan (ParadeDB Scan) on union_test_a
+                           Table: union_test_a
+                           Index: union_test_a_idx
+                           Segment Count: 1
+                           Exec Method: MixedFastFieldExecState
+                           Fast Fields: title, author, is_published
+                           String Fast Fields: title, author
+                           Numeric Fast Fields: is_published
+                           Scores: false
+                           Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_published","value":true,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"author","query_string":"Author 1","lenient":null,"conjunction_mode":null}}}}]}}
+               ->  Sort
+                     Sort Key: union_test_b.title, union_test_b.author, union_test_b.is_published
+                     ->  Custom Scan (ParadeDB Scan) on union_test_b
+                           Table: union_test_b
+                           Index: union_test_b_idx
+                           Segment Count: 1
+                           Exec Method: MixedFastFieldExecState
+                           Fast Fields: title, author, is_published
+                           String Fast Fields: title, author
+                           Numeric Fast Fields: is_published
+                           Scores: false
+                           Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_published","value":true,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"author","query_string":"Author 1","lenient":null,"conjunction_mode":null}}}}]}}
+(29 rows)
 
 -- Test 7: Window functions with multiple partitions and mixed fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -200,24 +244,31 @@ SELECT author,
        RANK() OVER (ORDER BY AVG(rating) DESC) as rating_rank,
        RANK() OVER (ORDER BY AVG(price)) as price_rank
 FROM union_test_a
-WHERE author LIKE 'Author%'
+WHERE author @@@ 'Author'
 GROUP BY author
 ORDER BY avg_rating DESC;
-                                QUERY PLAN                                 
----------------------------------------------------------------------------
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  WindowAgg
    ->  Sort
          Sort Key: (avg(rating)) DESC
          ->  WindowAgg
                ->  Sort
                      Sort Key: (avg(price))
-                     ->  GroupAggregate
+                     ->  HashAggregate
                            Group Key: author
-                           ->  Sort
-                                 Sort Key: author
-                                 ->  Seq Scan on union_test_a
-                                       Filter: (author ~~ 'Author%'::text)
-(12 rows)
+                           ->  Custom Scan (ParadeDB Scan) on union_test_a
+                                 Table: union_test_a
+                                 Index: union_test_a_idx
+                                 Segment Count: 1
+                                 Exec Method: StringFastFieldExecState
+                                 Fast Fields: author
+                                 String Agg Field: author
+                                 Scores: false
+                                    Sort Field: author
+                                    Sort Direction: asc
+                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"author","query_string":"Author","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
 
 -- Test 8: UNION with INTERSECT and different field types
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -239,11 +290,11 @@ INTERSECT
 -- Verify actual results of UNION (not just execution method)
 SELECT title, author, rating, price
 FROM union_test_a
-WHERE title LIKE 'Book A1%' AND rating > 4
+WHERE title @@@ 'Book A1' AND rating > 4
 UNION
 SELECT title, author, rating, price
 FROM union_test_b
-WHERE title LIKE 'Book B1%' AND rating > 3
+WHERE title @@@ 'Book B1' AND rating > 3
 ORDER BY rating DESC, title
 LIMIT 10;
   title   |  author   | rating | price 
@@ -251,11 +302,14 @@ LIMIT 10;
  Book A11 | Author 2  |      5 |    65
  Book A14 | Author 5  |      5 |    80
  Book A17 | Author 8  |      5 |    95
- Book B14 | Author 15 |      5 |    57
- Book B19 | Author 5  |      5 |    72
- Book B13 | Author 14 |      4 |    54
- Book B18 | Author 4  |      4 |    69
-(7 rows)
+ Book A2  | Author 3  |      5 |    20
+ Book A20 | Author 1  |      5 |   110
+ Book A23 | Author 4  |      5 |   125
+ Book A26 | Author 7  |      5 |   140
+ Book A29 | Author 10 |      5 |   155
+ Book A32 | Author 3  |      5 |   170
+ Book A35 | Author 6  |      5 |   185
+(10 rows)
 
 -- Verify window function results
 SELECT title, author, price, rating,

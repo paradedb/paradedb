@@ -116,16 +116,30 @@ DROP INDEX IF EXISTS categories_idx;
 DROP INDEX IF EXISTS reviews_idx;
 
 CREATE INDEX products_idx ON products
-USING columnstore (name, description, price, stock_count, is_available)
-WITH (type='hnsw');
+USING bm25 (id, name, description, price, stock_count, is_available)
+WITH (
+    key_field = 'id',
+    text_fields = '{"name": {"tokenizer": {"type": "default"}, "fast": true}, "description": {"tokenizer": {"type": "default"}}}',
+    numeric_fields = '{"price": {"fast": true}, "stock_count": {"fast": true}}',
+    boolean_fields = '{"is_available": {"fast": true}}'
+);
 
 CREATE INDEX categories_idx ON categories
-USING columnstore (name, description, product_count, is_active)
-WITH (type='hnsw');
+USING bm25 (id, name, description, product_count, is_active)
+WITH (
+    key_field = 'id',
+    text_fields = '{"name": {"tokenizer": {"type": "default"}, "fast": true}, "description": {"tokenizer": {"type": "default"}, "fast": true}}',
+    numeric_fields = '{"product_count": {"fast": true}}',
+    boolean_fields = '{"is_active": {"fast": true}}'
+);
 
 CREATE INDEX reviews_idx ON reviews
-USING columnstore (reviewer_name, content, rating, helpful_votes)
-WITH (type='hnsw');
+USING bm25 (id, reviewer_name, content, rating, helpful_votes)
+WITH (
+    key_field = 'id',
+    text_fields = '{"reviewer_name": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
+    numeric_fields = '{"rating": {"fast": true}, "helpful_votes": {"fast": true}}'
+);
 
 -- Test 1: Join between products and categories with search
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -133,7 +147,7 @@ SELECT p.name, p.price, c.name as category
 FROM products p
 JOIN product_categories pc ON p.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
-WHERE p.name ILIKE '%product%' AND c.is_active = true
+WHERE p.name @@@ 'Product' AND c.is_active = true
 ORDER BY p.price DESC
 LIMIT 10;
 
@@ -142,7 +156,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.name, r.rating, r.content
 FROM products p
 JOIN reviews r ON p.id = r.product_id
-WHERE p.description ILIKE '%product%' AND r.rating >= 4
+WHERE p.description @@@ 'product' AND r.rating >= 4
 ORDER BY r.helpful_votes DESC
 LIMIT 5;
 
@@ -187,15 +201,15 @@ ORDER BY pr.avg_rating DESC, tp.price DESC;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT 'Product' as type, name as item_name, description as content
 FROM products
-WHERE name ILIKE '%10%' OR description ILIKE '%feature%'
+WHERE name @@@ '10' OR description @@@ 'feature'
 UNION ALL
 SELECT 'Category' as type, name as item_name, description as content
 FROM categories
-WHERE name ILIKE '%e%'
+WHERE name @@@ 'e'
 UNION ALL
 SELECT 'Review' as type, reviewer_name as item_name, content
 FROM reviews
-WHERE content ILIKE '%great%'
+WHERE content @@@ 'great'
 ORDER BY type, item_name;
 
 -- Test 6: Subquery with both numeric and text field filtering
@@ -206,7 +220,7 @@ WHERE p.id IN (
     SELECT pc.product_id
     FROM product_categories pc
     JOIN categories c ON pc.category_id = c.id
-    WHERE c.name ILIKE '%electronics%' OR c.name ILIKE '%clothing%'
+    WHERE c.name @@@ 'electronics OR clothing'
 )
 AND p.stock_count > 50
 AND p.price < 500
@@ -245,7 +259,7 @@ FROM products p
 JOIN reviews r ON p.id = r.product_id
 JOIN product_categories pc ON p.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
-WHERE p.name ILIKE '%product%'
+WHERE p.name @@@ 'Product'
   AND r.rating > 3
   AND c.name = 'Electronics'
   AND p.is_available = true
@@ -256,7 +270,8 @@ SELECT p.name, p.price, c.name as category
 FROM products p
 JOIN product_categories pc ON p.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
-WHERE p.name ILIKE '%product 1%' AND c.is_active = true
+WHERE p.name @@@ 'Product 1'
+  AND c.is_active = true
 ORDER BY p.price DESC
 LIMIT 5;
 

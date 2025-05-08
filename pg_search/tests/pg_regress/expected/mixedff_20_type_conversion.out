@@ -75,24 +75,24 @@ ERROR:  syntax error at or near "apostrophes" at character 1221
 -- Create search index with mixed fast fields
 DROP INDEX IF EXISTS type_conv_idx;
 CREATE INDEX type_conv_idx ON type_conversion_test
-USING columnstore (
-    text_field, varchar_field, char_field,
+USING bm25 (
+    id, text_field, varchar_field, char_field,
     int_field, bigint_field, float_field, numeric_field,
     bool_field, date_field
 )
-WITH (type='hnsw');
-ERROR:  access method "columnstore" does not exist
+WITH (
+    key_field = 'id',
+    text_fields = '{"text_field": {"tokenizer": {"type": "default"}, "fast": true}, "varchar_field": {"tokenizer": {"type": "default"}, "fast": true}, "char_field": {"tokenizer": {"type": "default"}, "fast": true}}',
+    numeric_fields = '{"int_field": {"fast": true}, "bigint_field": {"fast": true}, "float_field": {"fast": true}, "numeric_field": {"fast": true}}',
+    boolean_fields = '{"bool_field": {"fast": true}}'
+);
+ERROR:  cannot index column 'char_field' with type BuiltIn(BPCHAROID): invalid postgres oid passed to search index schema: BuiltIn(BPCHAROID)
 -- Test 1: Basic text to text conversions
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field, varchar_field, char_field
 FROM type_conversion_test
-WHERE text_field LIKE '%text%' OR varchar_field LIKE '%varchar%';
-                                         QUERY PLAN                                         
---------------------------------------------------------------------------------------------
- Seq Scan on type_conversion_test
-   Filter: ((text_field ~~ '%text%'::text) OR ((varchar_field)::text ~~ '%varchar%'::text))
-(2 rows)
-
+WHERE text_field @@@ 'text' OR varchar_field @@@ 'varchar';
+ERROR:  relation `public.type_conversion_test` must have a `USING bm25` index
 -- Test 2: Converting numeric string to number
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field::numeric as converted_num, numeric_field
@@ -184,14 +184,9 @@ FROM type_conversion_test
 WHERE 
     CASE 
         WHEN bool_field THEN int_field > 50
-        ELSE text_field LIKE '%text%'
+        ELSE text_field @@@ 'text'
     END;
-                                          QUERY PLAN                                          
-----------------------------------------------------------------------------------------------
- Seq Scan on type_conversion_test
-   Filter: CASE WHEN bool_field THEN (int_field > 50) ELSE (text_field ~~ '%text%'::text) END
-(2 rows)
-
+ERROR:  relation `public.type_conversion_test` must have a `USING bm25` index
 -- Verify actual conversion results
 SELECT 
     id,
@@ -227,3 +222,4 @@ DROP INDEX IF EXISTS type_conv_idx;
 DROP TABLE IF EXISTS type_conversion_test; 
 -- Reset parallel workers setting to default
 RESET max_parallel_workers_per_gather; 
+ 

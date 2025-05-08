@@ -102,54 +102,73 @@ DROP INDEX IF EXISTS products_idx;
 DROP INDEX IF EXISTS categories_idx;
 DROP INDEX IF EXISTS reviews_idx;
 CREATE INDEX products_idx ON products
-USING columnstore (name, description, price, stock_count, is_available)
-WITH (type='hnsw');
-ERROR:  access method "columnstore" does not exist
+USING bm25 (id, name, description, price, stock_count, is_available)
+WITH (
+    key_field = 'id',
+    text_fields = '{"name": {"tokenizer": {"type": "default"}, "fast": true}, "description": {"tokenizer": {"type": "default"}}}',
+    numeric_fields = '{"price": {"fast": true}, "stock_count": {"fast": true}}',
+    boolean_fields = '{"is_available": {"fast": true}}'
+);
 CREATE INDEX categories_idx ON categories
-USING columnstore (name, description, product_count, is_active)
-WITH (type='hnsw');
-ERROR:  access method "columnstore" does not exist
+USING bm25 (id, name, description, product_count, is_active)
+WITH (
+    key_field = 'id',
+    text_fields = '{"name": {"tokenizer": {"type": "default"}, "fast": true}, "description": {"tokenizer": {"type": "default"}, "fast": true}}',
+    numeric_fields = '{"product_count": {"fast": true}}',
+    boolean_fields = '{"is_active": {"fast": true}}'
+);
 CREATE INDEX reviews_idx ON reviews
-USING columnstore (reviewer_name, content, rating, helpful_votes)
-WITH (type='hnsw');
-ERROR:  access method "columnstore" does not exist
+USING bm25 (id, reviewer_name, content, rating, helpful_votes)
+WITH (
+    key_field = 'id',
+    text_fields = '{"reviewer_name": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
+    numeric_fields = '{"rating": {"fast": true}, "helpful_votes": {"fast": true}}'
+);
 -- Test 1: Join between products and categories with search
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.name, p.price, c.name as category
 FROM products p
 JOIN product_categories pc ON p.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
-WHERE p.name ILIKE '%product%' AND c.is_active = true
+WHERE p.name @@@ 'Product' AND c.is_active = true
 ORDER BY p.price DESC
 LIMIT 10;
-                                 QUERY PLAN                                 
-----------------------------------------------------------------------------
+                                                                               QUERY PLAN                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: p.price DESC
-         ->  Nested Loop
-               ->  Nested Loop
-                     ->  Seq Scan on products p
-                           Filter: (name ~~* '%product%'::text)
-                     ->  Bitmap Heap Scan on product_categories pc
-                           Recheck Cond: (p.id = product_id)
-                           ->  Bitmap Index Scan on product_categories_pkey
-                                 Index Cond: (product_id = p.id)
-               ->  Index Scan using categories_pkey on categories c
-                     Index Cond: (id = pc.category_id)
-                     Filter: is_active
-(14 rows)
+         ->  Hash Join
+               Hash Cond: (pc.product_id = p.id)
+               ->  Hash Join
+                     Hash Cond: (pc.category_id = c.id)
+                     ->  Seq Scan on product_categories pc
+                     ->  Hash
+                           ->  Seq Scan on categories c
+                                 Filter: is_active
+               ->  Hash
+                     ->  Custom Scan (ParadeDB Scan) on products p
+                           Table: products
+                           Index: products_idx
+                           Segment Count: 1
+                           Exec Method: MixedFastFieldExecState
+                           Fast Fields: name, price
+                           String Fast Fields: name
+                           Numeric Fast Fields: price
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}}
+(22 rows)
 
 -- Test 2: Join between products and reviews with search
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.name, r.rating, r.content
 FROM products p
 JOIN reviews r ON p.id = r.product_id
-WHERE p.description ILIKE '%product%' AND r.rating >= 4
+WHERE p.description @@@ 'product' AND r.rating >= 4
 ORDER BY r.helpful_votes DESC
 LIMIT 5;
-                              QUERY PLAN                               
------------------------------------------------------------------------
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: r.helpful_votes DESC
@@ -158,9 +177,17 @@ LIMIT 5;
                ->  Seq Scan on reviews r
                      Filter: (rating >= 4)
                ->  Hash
-                     ->  Seq Scan on products p
-                           Filter: (description ~~* '%product%'::text)
-(10 rows)
+                     ->  Custom Scan (ParadeDB Scan) on products p
+                           Table: products
+                           Index: products_idx
+                           Segment Count: 1
+                           Exec Method: MixedFastFieldExecState
+                           Fast Fields: name, id
+                           String Fast Fields: name
+                           Numeric Fast Fields: id
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"product","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
 
 -- Test 3: Three-way join with mixed field conditions
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -225,7 +252,8 @@ ORDER BY pr.avg_rating DESC, tp.price DESC;
 --------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (avg(r.rating)) DESC, tp.price DESC
-   ->  Nested Loop
+   ->  Hash Join
+         Hash Cond: (pc.category_id = c.id)
          ->  Nested Loop
                Join Filter: (pc.product_id = tp.id)
                ->  Hash Join
@@ -244,37 +272,54 @@ ORDER BY pr.avg_rating DESC, tp.price DESC;
                                                    Filter: (is_available AND (price >= '100'::numeric) AND (price <= '800'::numeric))
                ->  Index Only Scan using product_categories_pkey on product_categories pc
                      Index Cond: (product_id = r.product_id)
-         ->  Index Scan using categories_pkey on categories c
-               Index Cond: (id = pc.category_id)
-               Filter: is_active
-(24 rows)
+         ->  Hash
+               ->  Seq Scan on categories c
+                     Filter: is_active
+(25 rows)
 
 -- Test 5: Union of results from different tables
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT 'Product' as type, name as item_name, description as content
 FROM products
-WHERE name ILIKE '%10%' OR description ILIKE '%feature%'
+WHERE name @@@ '10' OR description @@@ 'feature'
 UNION ALL
 SELECT 'Category' as type, name as item_name, description as content
 FROM categories
-WHERE name ILIKE '%e%'
+WHERE name @@@ 'e'
 UNION ALL
 SELECT 'Review' as type, reviewer_name as item_name, content
 FROM reviews
-WHERE content ILIKE '%great%'
+WHERE content @@@ 'great'
 ORDER BY type, item_name;
-                                       QUERY PLAN                                       
-----------------------------------------------------------------------------------------
+                                                                                                                                                      QUERY PLAN                                                                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: ('Product'::text), products.name
    ->  Append
-         ->  Seq Scan on products
-               Filter: ((name ~~* '%10%'::text) OR (description ~~* '%feature%'::text))
-         ->  Seq Scan on categories
-               Filter: (name ~~* '%e%'::text)
-         ->  Seq Scan on reviews
-               Filter: (content ~~* '%great%'::text)
-(9 rows)
+         ->  Custom Scan (ParadeDB Scan) on products
+               Table: products
+               Index: products_idx
+               Segment Count: 1
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"10","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"feature","lenient":null,"conjunction_mode":null}}}}]}}
+         ->  Custom Scan (ParadeDB Scan) on categories
+               Table: categories
+               Index: categories_idx
+               Segment Count: 1
+               Exec Method: MixedFastFieldExecState
+               Fast Fields: name, description
+               String Fast Fields: name, description
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"e","lenient":null,"conjunction_mode":null}}}}
+         ->  Custom Scan (ParadeDB Scan) on reviews
+               Table: reviews
+               Index: reviews_idx
+               Segment Count: 1
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"great","lenient":null,"conjunction_mode":null}}}}
+(26 rows)
 
 -- Test 6: Subquery with both numeric and text field filtering
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -284,29 +329,31 @@ WHERE p.id IN (
     SELECT pc.product_id
     FROM product_categories pc
     JOIN categories c ON pc.category_id = c.id
-    WHERE c.name ILIKE '%electronics%' OR c.name ILIKE '%clothing%'
+    WHERE c.name @@@ 'electronics OR clothing'
 )
 AND p.stock_count > 50
 AND p.price < 500
 ORDER BY p.price;
-                                              QUERY PLAN                                               
--------------------------------------------------------------------------------------------------------
+                                                                                       QUERY PLAN                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: p.price
-   ->  Nested Loop
-         ->  HashAggregate
-               Group Key: pc.product_id
-               ->  Nested Loop
-                     ->  Seq Scan on categories c
-                           Filter: ((name ~~* '%electronics%'::text) OR (name ~~* '%clothing%'::text))
-                     ->  Bitmap Heap Scan on product_categories pc
-                           Recheck Cond: (category_id = c.id)
-                           ->  Bitmap Index Scan on product_categories_pkey
-                                 Index Cond: (category_id = c.id)
-         ->  Index Scan using products_pkey on products p
-               Index Cond: (id = pc.product_id)
+   ->  Nested Loop Semi Join
+         ->  Seq Scan on products p
                Filter: ((stock_count > 50) AND (price < '500'::numeric))
-(15 rows)
+         ->  Hash Join
+               Hash Cond: (pc.category_id = c.id)
+               ->  Index Only Scan using product_categories_pkey on product_categories pc
+                     Index Cond: (product_id = p.id)
+               ->  Hash
+                     ->  Custom Scan (ParadeDB Scan) on categories c
+                           Table: categories
+                           Index: categories_idx
+                           Segment Count: 1
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"electronics OR clothing","lenient":null,"conjunction_mode":null}}}}
+(17 rows)
 
 -- Test 7: Join with conditional logic and mixed fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -354,47 +401,56 @@ FROM products p
 JOIN reviews r ON p.id = r.product_id
 JOIN product_categories pc ON p.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
-WHERE p.name ILIKE '%product%'
+WHERE p.name @@@ 'Product'
   AND r.rating > 3
   AND c.name = 'Electronics'
   AND p.is_available = true
 ORDER BY r.rating DESC, p.price DESC;
-                                        QUERY PLAN                                        
-------------------------------------------------------------------------------------------
+                                                                                                                               QUERY PLAN                                                                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: r.rating DESC, p.price DESC
-   ->  Nested Loop
-         ->  Nested Loop
-               Join Filter: (p.id = pc.product_id)
+   ->  Hash Join
+         Hash Cond: (r.product_id = p.id)
+         ->  Seq Scan on reviews r
+               Filter: (rating > 3)
+         ->  Hash
                ->  Hash Join
-                     Hash Cond: (r.product_id = p.id)
-                     ->  Seq Scan on reviews r
-                           Filter: (rating > 3)
+                     Hash Cond: (pc.category_id = c.id)
+                     ->  Nested Loop
+                           ->  Custom Scan (ParadeDB Scan) on products p
+                                 Table: products
+                                 Index: products_idx
+                                 Segment Count: 1
+                                 Exec Method: MixedFastFieldExecState
+                                 Fast Fields: name, price, is_available
+                                 String Fast Fields: name
+                                 Numeric Fast Fields: price, is_available
+                                 Scores: false
+                                 Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}},{"term":{"field":"is_available","value":true,"is_datetime":false}}]}}
+                           ->  Index Only Scan using product_categories_pkey on product_categories pc
+                                 Index Cond: (product_id = p.id)
                      ->  Hash
-                           ->  Seq Scan on products p
-                                 Filter: (is_available AND (name ~~* '%product%'::text))
-               ->  Index Only Scan using product_categories_pkey on product_categories pc
-                     Index Cond: (product_id = r.product_id)
-         ->  Index Scan using categories_pkey on categories c
-               Index Cond: (id = pc.category_id)
-               Filter: (name = 'Electronics'::text)
-(17 rows)
+                           ->  Seq Scan on categories c
+                                 Filter: (name = 'Electronics'::text)
+(25 rows)
 
 -- Verify actual results of multi-index search
 SELECT p.name, p.price, c.name as category
 FROM products p
 JOIN product_categories pc ON p.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
-WHERE p.name ILIKE '%product 1%' AND c.is_active = true
+WHERE p.name @@@ 'Product 1'
+  AND c.is_active = true
 ORDER BY p.price DESC
 LIMIT 5;
-    name     |  price  |    category    
--------------+---------+----------------
+    name     |  price  |  category   
+-------------+---------+-------------
  Product 100 | 1050.00 | Electronics
- Product 19  |  240.00 | Outdoors
- Product 18  |  230.00 | Office
- Product 18  |  230.00 | Home & Kitchen
- Product 18  |  230.00 | Sports
+ Product 99  | 1040.00 | Toys
+ Product 99  | 1040.00 | Outdoors
+ Product 98  | 1030.00 | Office
+ Product 97  | 1020.00 | Automotive
 (5 rows)
 
 -- Clean up

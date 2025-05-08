@@ -121,6 +121,9 @@ pub enum ExecMethodType {
     FastFieldNumeric {
         which_fast_fields: Vec<WhichFastField>,
     },
+    FastFieldMixed {
+        which_fast_fields: Vec<WhichFastField>,
+    },
 }
 
 impl ExecMethodType {

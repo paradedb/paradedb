@@ -1,6 +1,8 @@
 -- Test score function behavior with mixed fast fields
 -- This test verifies that the score function works correctly with mixed fast fields
 -- and that it can be combined with field selection and filtering
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
 -- Create test table with mixed field types
 DROP TABLE IF EXISTS score_test;
 CREATE TABLE score_test (
@@ -36,33 +38,31 @@ CREATE INDEX score_test_idx ON score_test
 USING columnstore (title, content, author, rating, views, is_featured)
 WITH (type='hnsw');
 ERROR:  access method "columnstore" does not exist
--- Enable execution method tracing
-SET pg_search.explain_analyze_verbose TO TRUE;
 -- Test 1: Basic score function with text field
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, score(score_test_idx), rating
 FROM score_test
 WHERE content ILIKE '%technology%'
 ORDER BY score(score_test_idx) DESC
 LIMIT 10;
-ERROR:  column "score_test_idx" does not exist at character 37
+ERROR:  column "score_test_idx" does not exist at character 66
 -- Test 2: Score function with mixed field types in selection
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, author, rating, views, score(score_test_idx)
 FROM score_test
 WHERE content ILIKE '%research%'
 ORDER BY rating DESC, score(score_test_idx) DESC
 LIMIT 5;
-ERROR:  column "score_test_idx" does not exist at character 60
+ERROR:  column "score_test_idx" does not exist at character 89
 -- Test 3: Score function with multiple conditions on different field types
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, author, score(score_test_idx)
 FROM score_test
 WHERE content ILIKE '%technology%' AND rating >= 4 AND is_featured = true
 ORDER BY score(score_test_idx) DESC;
-ERROR:  column "score_test_idx" does not exist at character 45
+ERROR:  column "score_test_idx" does not exist at character 74
 -- Test 4: Using score in a CTE with mixed fields
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 WITH scored_posts AS (
     SELECT title, author, rating, score(score_test_idx) as relevance
     FROM score_test
@@ -73,9 +73,9 @@ FROM scored_posts
 WHERE rating > 3
 ORDER BY relevance DESC
 LIMIT 10;
-ERROR:  column "score_test_idx" does not exist at character 80
+ERROR:  column "score_test_idx" does not exist at character 109
 -- Test 5: Score function in subquery with mixed fields
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT sp.title, sp.author, sp.relevance
 FROM (
     SELECT title, author, score(score_test_idx) as relevance
@@ -84,9 +84,9 @@ FROM (
 ) sp
 WHERE sp.relevance > 0.5
 ORDER BY sp.relevance DESC;
-ERROR:  column "score_test_idx" does not exist at character 97
+ERROR:  column "score_test_idx" does not exist at character 126
 -- Test 6: Score function with UNION
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, author, score(score_test_idx) as relevance
 FROM score_test
 WHERE content ILIKE '%technology%'
@@ -96,9 +96,9 @@ FROM score_test
 WHERE content ILIKE '%science%' AND title NOT ILIKE '%technology%'
 ORDER BY relevance DESC
 LIMIT 10;
-ERROR:  column "score_test_idx" does not exist at character 45
+ERROR:  column "score_test_idx" does not exist at character 74
 -- Test 7: Score function with JOIN using mixed fields
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT a.title, a.author, a.rating, a.score, b.title as related_title
 FROM (
     SELECT title, author, rating, score(score_test_idx) as score
@@ -112,9 +112,9 @@ JOIN (
     FROM score_test
     WHERE author IN (SELECT author FROM score_test WHERE content ILIKE '%technology%')
 ) b ON a.author = b.author AND a.title <> b.title;
-ERROR:  column "score_test_idx" does not exist at character 134
+ERROR:  column "score_test_idx" does not exist at character 163
 -- Test 8: Score function with CASE expression and mixed fields
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT 
     title, 
     author,
@@ -128,7 +128,7 @@ FROM score_test
 WHERE content ILIKE '%research%' OR content ILIKE '%development%'
 ORDER BY score(score_test_idx) DESC
 LIMIT 10;
-ERROR:  column "score_test_idx" does not exist at character 90
+ERROR:  column "score_test_idx" does not exist at character 119
 -- Verify actual results of score function (not just execution method)
 SELECT title, author, rating, score(score_test_idx) as relevance
 FROM score_test
@@ -146,3 +146,5 @@ ERROR:  column "score_test_idx" does not exist at character 44
 -- Clean up
 DROP INDEX IF EXISTS score_test_idx;
 DROP TABLE IF EXISTS score_test; 
+-- Reset parallel workers setting to default
+RESET max_parallel_workers_per_gather;

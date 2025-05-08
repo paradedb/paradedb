@@ -2,6 +2,9 @@
 -- This test ensures that when a LIMIT clause is used with mixed fast fields,
 -- the execution uses the optimized TopN execution path
 
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+
 -- Create test table with mixed field types
 DROP TABLE IF EXISTS limit_topn_test;
 CREATE TABLE limit_topn_test (
@@ -34,11 +37,8 @@ CREATE INDEX limit_topn_idx ON limit_topn_test
 USING columnstore (title, rating, price, category, is_available)
 WITH (type='hnsw');
 
--- Enable execution method tracing to verify TopN usage
-SET pg_search.explain_analyze_verbose TO TRUE;
-
 -- Test basic LIMIT with mixed fields (should use TopN)
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, rating, price, category
 FROM limit_topn_test
 WHERE title ILIKE 'Product%'
@@ -46,7 +46,7 @@ ORDER BY rating DESC
 LIMIT 10;
 
 -- Test LIMIT with mixed text and numeric fields
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, category, rating, price
 FROM limit_topn_test
 WHERE category = 'Electronics'
@@ -54,7 +54,7 @@ ORDER BY price ASC
 LIMIT 5;
 
 -- Test LIMIT with multiple string fields
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, category
 FROM limit_topn_test
 WHERE category IN ('Books', 'Electronics')
@@ -62,7 +62,7 @@ ORDER BY title
 LIMIT 15;
 
 -- Test LIMIT with boolean field
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, is_available, rating
 FROM limit_topn_test
 WHERE is_available = true
@@ -70,7 +70,7 @@ ORDER BY rating DESC
 LIMIT 7;
 
 -- Test LIMIT with multiple numeric fields
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT rating, price
 FROM limit_topn_test
 WHERE rating > 3.0 AND price < 500
@@ -78,7 +78,7 @@ ORDER BY price DESC
 LIMIT 12;
 
 -- Test LIMIT with complex where clause on mixed fields
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, category, rating, price
 FROM limit_topn_test
 WHERE (rating BETWEEN 2.5 AND 4.5) AND (category = 'Electronics' OR category = 'Toys')
@@ -95,3 +95,6 @@ LIMIT 5;
 -- Clean up
 DROP INDEX IF EXISTS limit_topn_idx;
 DROP TABLE IF EXISTS limit_topn_test; 
+
+-- Reset parallel workers setting to default
+RESET max_parallel_workers_per_gather;

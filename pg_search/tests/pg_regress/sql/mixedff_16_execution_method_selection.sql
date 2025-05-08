@@ -2,6 +2,9 @@
 -- This test verifies that the MixedFastFieldExecState is chosen when appropriate
 -- and that NormalScanExecState is not used when mixed fast fields are available
 
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+
 -- Create test table with various field types
 DROP TABLE IF EXISTS exec_method_test;
 CREATE TABLE exec_method_test (
@@ -43,54 +46,51 @@ USING columnstore (
 )
 WITH (type='hnsw');
 
--- Enable execution method tracing
-SET pg_search.explain_analyze_verbose TO TRUE;
-
 -- Test 1: Should use MixedFastFieldExecState with multiple string fields
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1, text_field2
 FROM exec_method_test
 WHERE text_field1 LIKE 'Text%';
 
 -- Test 2: Should use MixedFastFieldExecState with mixed string and numeric fields
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1, num_field1, num_field2
 FROM exec_method_test
 WHERE text_field1 LIKE 'Text%' AND num_field1 > 10;
 
 -- Test 3: Should use MixedFastFieldExecState with all field types
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1, text_field2, num_field1, bool_field
 FROM exec_method_test
 WHERE text_field1 LIKE 'Text%' AND bool_field = true;
 
 -- Test 4: Should use StringFastFieldExecState when only one string field
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1
 FROM exec_method_test
 WHERE text_field1 LIKE 'Text%';
 
 -- Test 5: Should use NumericFastFieldExecState when only numeric fields
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT num_field1, num_field2
 FROM exec_method_test
 WHERE num_field1 > 25;
 
 -- Test 6: Should NOT use any FastField method when non-indexed fields are selected
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1, non_indexed_field
 FROM exec_method_test
 WHERE text_field1 LIKE 'Text%';
 
 -- Test 7: Should use MixedFastFieldExecState even with ORDER BY
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1, num_field1
 FROM exec_method_test
 WHERE text_field1 LIKE 'Text%'
 ORDER BY num_field1 DESC;
 
 -- Test 8: Should use MixedFastFieldExecState with filtering on multiple field types
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1, text_field2, num_field1, bool_field
 FROM exec_method_test
 WHERE text_field1 LIKE 'Text%' 
@@ -99,7 +99,7 @@ WHERE text_field1 LIKE 'Text%'
   AND bool_field = true;
 
 -- Test 9: Verify correct execution method in a subquery
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT t.text_field1, t.num_field1
 FROM (
     SELECT text_field1, num_field1
@@ -117,3 +117,6 @@ ORDER BY num_field1;
 -- Clean up
 DROP INDEX IF EXISTS exec_method_idx;
 DROP TABLE IF EXISTS exec_method_test; 
+
+-- Reset parallel workers setting to default
+RESET max_parallel_workers_per_gather;

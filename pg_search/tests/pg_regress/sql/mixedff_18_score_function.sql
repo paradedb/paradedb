@@ -2,6 +2,9 @@
 -- This test verifies that the score function works correctly with mixed fast fields
 -- and that it can be combined with field selection and filtering
 
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+
 -- Create test table with mixed field types
 DROP TABLE IF EXISTS score_test;
 CREATE TABLE score_test (
@@ -40,11 +43,8 @@ CREATE INDEX score_test_idx ON score_test
 USING columnstore (title, content, author, rating, views, is_featured)
 WITH (type='hnsw');
 
--- Enable execution method tracing
-SET pg_search.explain_analyze_verbose TO TRUE;
-
 -- Test 1: Basic score function with text field
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, score(score_test_idx), rating
 FROM score_test
 WHERE content ILIKE '%technology%'
@@ -52,7 +52,7 @@ ORDER BY score(score_test_idx) DESC
 LIMIT 10;
 
 -- Test 2: Score function with mixed field types in selection
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, author, rating, views, score(score_test_idx)
 FROM score_test
 WHERE content ILIKE '%research%'
@@ -60,14 +60,14 @@ ORDER BY rating DESC, score(score_test_idx) DESC
 LIMIT 5;
 
 -- Test 3: Score function with multiple conditions on different field types
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, author, score(score_test_idx)
 FROM score_test
 WHERE content ILIKE '%technology%' AND rating >= 4 AND is_featured = true
 ORDER BY score(score_test_idx) DESC;
 
 -- Test 4: Using score in a CTE with mixed fields
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 WITH scored_posts AS (
     SELECT title, author, rating, score(score_test_idx) as relevance
     FROM score_test
@@ -80,7 +80,7 @@ ORDER BY relevance DESC
 LIMIT 10;
 
 -- Test 5: Score function in subquery with mixed fields
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT sp.title, sp.author, sp.relevance
 FROM (
     SELECT title, author, score(score_test_idx) as relevance
@@ -91,7 +91,7 @@ WHERE sp.relevance > 0.5
 ORDER BY sp.relevance DESC;
 
 -- Test 6: Score function with UNION
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, author, score(score_test_idx) as relevance
 FROM score_test
 WHERE content ILIKE '%technology%'
@@ -103,7 +103,7 @@ ORDER BY relevance DESC
 LIMIT 10;
 
 -- Test 7: Score function with JOIN using mixed fields
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT a.title, a.author, a.rating, a.score, b.title as related_title
 FROM (
     SELECT title, author, rating, score(score_test_idx) as score
@@ -119,7 +119,7 @@ JOIN (
 ) b ON a.author = b.author AND a.title <> b.title;
 
 -- Test 8: Score function with CASE expression and mixed fields
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT 
     title, 
     author,
@@ -151,3 +151,6 @@ LIMIT 3;
 -- Clean up
 DROP INDEX IF EXISTS score_test_idx;
 DROP TABLE IF EXISTS score_test; 
+
+-- Reset parallel workers setting to default
+RESET max_parallel_workers_per_gather;

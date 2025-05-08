@@ -2,6 +2,9 @@
 -- This test verifies that mixed fast fields work correctly with UNION operations
 -- and when used in window functions
 
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+
 -- Create test tables
 DROP TABLE IF EXISTS union_test_a;
 DROP TABLE IF EXISTS union_test_b;
@@ -59,11 +62,8 @@ CREATE INDEX union_test_b_idx ON union_test_b
 USING columnstore (title, author, rating, year, price, is_published)
 WITH (type='hnsw');
 
--- Enable execution method tracing
-SET pg_search.explain_analyze_verbose TO TRUE;
-
 -- Test 1: Basic UNION with mixed field types
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, author, rating, price
 FROM union_test_a
 WHERE title LIKE 'Book A%' AND rating > 4
@@ -74,7 +74,7 @@ WHERE title LIKE 'Book B%' AND rating > 3
 ORDER BY rating DESC, title;
 
 -- Test 2: UNION ALL with numeric fields for filtering
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, price, year
 FROM union_test_a
 WHERE price < 30 AND year > 2010
@@ -85,7 +85,7 @@ WHERE price < 45 AND year > 2000
 ORDER BY price;
 
 -- Test 3: Window function - ROW_NUMBER() with mixed fields
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, author, price, rating,
        ROW_NUMBER() OVER (PARTITION BY author ORDER BY rating DESC) as author_rank
 FROM union_test_a
@@ -93,7 +93,7 @@ WHERE title LIKE 'Book A%'
 ORDER BY author, author_rank;
 
 -- Test 4: Window function - Running average price by author
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, author, price,
        AVG(price) OVER (PARTITION BY author ORDER BY price) as running_avg_price
 FROM union_test_a
@@ -101,7 +101,7 @@ WHERE author LIKE 'Author%'
 ORDER BY author, price;
 
 -- Test 5: Window function with UNION and mixed filters
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 WITH combined_books AS (
     SELECT title, author, rating, 'A' as source
     FROM union_test_a
@@ -117,7 +117,7 @@ FROM combined_books
 ORDER BY author, author_rank;
 
 -- Test 6: UNION with boolean and text fields
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, author, is_published
 FROM union_test_a
 WHERE is_published = true AND author LIKE 'Author 1%'
@@ -128,7 +128,7 @@ WHERE is_published = true AND author LIKE 'Author 1%'
 ORDER BY author, title;
 
 -- Test 7: Window functions with multiple partitions and mixed fields
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT author, 
        AVG(rating) as avg_rating,
        AVG(price) as avg_price,
@@ -141,7 +141,7 @@ GROUP BY author
 ORDER BY avg_rating DESC;
 
 -- Test 8: UNION with INTERSECT and different field types
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 (SELECT author FROM union_test_a WHERE rating > 4.5)
 INTERSECT
 (SELECT author FROM union_test_b WHERE rating > 4.0);
@@ -170,3 +170,6 @@ DROP INDEX IF EXISTS union_test_a_idx;
 DROP INDEX IF EXISTS union_test_b_idx;
 DROP TABLE IF EXISTS union_test_a;
 DROP TABLE IF EXISTS union_test_b; 
+
+-- Reset parallel workers setting to default
+RESET max_parallel_workers_per_gather;

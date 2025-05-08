@@ -1,6 +1,9 @@
 -- Test recursive CTE with mixed fast fields
 -- This test verifies that recursive CTEs work correctly with mixed fast field execution
 
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+
 -- Create test tables for hierarchical data
 DROP TABLE IF EXISTS category;
 CREATE TABLE category (
@@ -31,9 +34,9 @@ VALUES
     ('Fiction', 2, 2, 'Fiction books and novels', 200, '2023-01-02 10:00:00', true),
     ('Non-Fiction', 2, 2, 'Non-fiction and reference books', 250, '2023-01-02 10:00:00', true),
     ('Academic', 2, 2, 'Textbooks and academic materials', 50, '2023-01-02 10:00:00', true),
-    ('Men', 3, 2, 'Men\'s clothing', 100, '2023-01-02 10:00:00', true),
-    ('Women', 3, 2, 'Women\'s clothing', 150, '2023-01-02 10:00:00', true),
-    ('Children', 3, 2, 'Children\'s clothing', 50, '2023-01-02 10:00:00', true),
+    ('Men', 3, 2, 'Mens clothing', 100, '2023-01-02 10:00:00', true),
+    ('Women', 3, 2, 'Womens clothing', 150, '2023-01-02 10:00:00', true),
+    ('Children', 3, 2, 'Childrens clothing', 50, '2023-01-02 10:00:00', true),
     ('Furniture', 4, 2, 'Home furniture', 80, '2023-01-02 10:00:00', true),
     ('Garden Tools', 4, 2, 'Garden equipment and supplies', 60, '2023-01-02 10:00:00', true),
     ('Kitchen', 4, 2, 'Kitchen appliances and utensils', 40, '2023-01-02 10:00:00', true);
@@ -57,11 +60,8 @@ CREATE INDEX category_idx ON category
 USING columnstore (name, description, level, item_count, is_active)
 WITH (type='hnsw');
 
--- Enable execution method tracing
-SET pg_search.explain_analyze_verbose TO TRUE;
-
 -- Test 1: Basic recursive CTE to find all descendants of Electronics
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 WITH RECURSIVE category_tree AS (
     -- Base case: start with parent category
     SELECT id, name, parent_id, level, item_count, is_active
@@ -80,7 +80,7 @@ FROM category_tree
 ORDER BY level, name;
 
 -- Test 2: Recursive CTE with mixed field filtering
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 WITH RECURSIVE category_tree AS (
     -- Base case
     SELECT id, name, parent_id, level, item_count, is_active
@@ -100,7 +100,7 @@ FROM category_tree
 ORDER BY level, item_count DESC;
 
 -- Test 3: Recursive CTE with search condition in base case
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 WITH RECURSIVE category_tree AS (
     -- Base case with search
     SELECT id, name, parent_id, level, description, item_count
@@ -119,7 +119,7 @@ FROM category_tree
 ORDER BY level, name;
 
 -- Test 4: Recursive CTE with search condition in recursive case
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 WITH RECURSIVE category_tree AS (
     -- Base case
     SELECT id, name, parent_id, level, description, item_count
@@ -139,7 +139,7 @@ FROM category_tree
 ORDER BY level, name;
 
 -- Test 5: Complex recursive CTE with aggregation and mixed fields
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 WITH RECURSIVE category_tree AS (
     -- Base case
     SELECT id, name, parent_id, level, item_count
@@ -196,3 +196,6 @@ ORDER BY level, name;
 -- Clean up
 DROP INDEX IF EXISTS category_idx;
 DROP TABLE IF EXISTS category; 
+
+-- Reset parallel workers setting to default
+RESET max_parallel_workers_per_gather;

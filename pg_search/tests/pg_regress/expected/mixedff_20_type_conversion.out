@@ -89,10 +89,10 @@ FROM type_conversion_test
 WHERE text_field LIKE '%text%' OR varchar_field LIKE '%varchar%';
                                                    QUERY PLAN                                                    
 -----------------------------------------------------------------------------------------------------------------
- Seq Scan on type_conversion_test  (cost=0.00..12.70 rows=1 width=294) (actual time=0.004..0.005 rows=0 loops=1)
+ Seq Scan on type_conversion_test  (cost=0.00..12.70 rows=1 width=294) (actual time=0.004..0.004 rows=0 loops=1)
    Filter: ((text_field ~~ '%text%'::text) OR ((varchar_field)::text ~~ '%varchar%'::text))
- Planning Time: 0.756 ms
- Execution Time: 0.047 ms
+ Planning Time: 0.752 ms
+ Execution Time: 0.046 ms
 (4 rows)
 
 -- Test 2: Converting numeric string to number
@@ -104,8 +104,8 @@ WHERE text_field ~ '^[0-9.]+$';
 -----------------------------------------------------------------------------------------------------------------
  Seq Scan on type_conversion_test  (cost=0.00..12.34 rows=18 width=48) (actual time=0.004..0.004 rows=0 loops=1)
    Filter: (text_field ~ '^[0-9.]+$'::text)
- Planning Time: 0.218 ms
- Execution Time: 0.015 ms
+ Planning Time: 0.175 ms
+ Execution Time: 0.014 ms
 (4 rows)
 
 -- Test 3: Numeric range filtering with casts
@@ -117,7 +117,7 @@ WHERE int_field::float > 100 AND float_field::int < 12346;
 -----------------------------------------------------------------------------------------------------------------
  Seq Scan on type_conversion_test  (cost=0.00..13.60 rows=20 width=20) (actual time=0.004..0.004 rows=0 loops=1)
    Filter: (((int_field)::double precision > '100'::double precision) AND ((float_field)::integer < 12346))
- Planning Time: 0.098 ms
+ Planning Time: 0.079 ms
  Execution Time: 0.015 ms
 (4 rows)
 
@@ -128,10 +128,10 @@ FROM type_conversion_test
 WHERE bool_field = true;
                                                    QUERY PLAN                                                    
 -----------------------------------------------------------------------------------------------------------------
- Seq Scan on type_conversion_test  (cost=0.00..12.70 rows=90 width=32) (actual time=0.003..0.004 rows=0 loops=1)
+ Seq Scan on type_conversion_test  (cost=0.00..12.70 rows=90 width=32) (actual time=0.004..0.004 rows=0 loops=1)
    Filter: bool_field
- Planning Time: 0.087 ms
- Execution Time: 0.013 ms
+ Planning Time: 0.092 ms
+ Execution Time: 0.020 ms
 (4 rows)
 
 -- Test 5: Mixed type expressions in filtering
@@ -142,10 +142,10 @@ WHERE (int_field::text = '100' OR text_field = '123')
   AND float_field BETWEEN 2 AND 10000;
                                                                                QUERY PLAN                                                                                
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Seq Scan on type_conversion_test  (cost=0.00..14.50 rows=1 width=44) (actual time=0.007..0.007 rows=0 loops=1)
+ Seq Scan on type_conversion_test  (cost=0.00..14.50 rows=1 width=44) (actual time=0.004..0.004 rows=0 loops=1)
    Filter: ((float_field >= '2'::double precision) AND (float_field <= '10000'::double precision) AND (((int_field)::text = '100'::text) OR (text_field = '123'::text)))
- Planning Time: 0.062 ms
- Execution Time: 0.018 ms
+ Planning Time: 0.065 ms
+ Execution Time: 0.016 ms
 (4 rows)
 
 -- Test 6: Date conversions
@@ -157,7 +157,7 @@ WHERE date_field = timestamp_field::date;
 ----------------------------------------------------------------------------------------------------------------
  Seq Scan on type_conversion_test  (cost=0.00..12.70 rows=1 width=12) (actual time=0.004..0.004 rows=0 loops=1)
    Filter: (date_field = (timestamp_field)::date)
- Planning Time: 0.165 ms
+ Planning Time: 0.164 ms
  Execution Time: 0.015 ms
 (4 rows)
 
@@ -189,8 +189,8 @@ WHERE json_field ? 'number';
 ----------------------------------------------------------------------------------------------------------------
  Seq Scan on type_conversion_test  (cost=0.00..12.27 rows=2 width=68) (actual time=0.004..0.004 rows=0 loops=1)
    Filter: (json_field ? 'number'::text)
- Planning Time: 0.052 ms
- Execution Time: 0.017 ms
+ Planning Time: 0.047 ms
+ Execution Time: 0.018 ms
 (4 rows)
 
 -- Test 9: Complex mixed type filtering
@@ -206,8 +206,8 @@ WHERE
 -----------------------------------------------------------------------------------------------------------------
  Seq Scan on type_conversion_test  (cost=0.00..12.70 rows=90 width=37) (actual time=0.004..0.004 rows=0 loops=1)
    Filter: CASE WHEN bool_field THEN (int_field > 50) ELSE (text_field ~~ '%text%'::text) END
- Planning Time: 0.044 ms
- Execution Time: 0.014 ms
+ Planning Time: 0.072 ms
+ Execution Time: 0.016 ms
 (4 rows)
 
 -- Verify actual conversion results

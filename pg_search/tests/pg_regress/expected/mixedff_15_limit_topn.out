@@ -1,6 +1,8 @@
 -- Test that LIMIT clause uses TopN execution with mixed fast fields
 -- This test ensures that when a LIMIT clause is used with mixed fast fields,
 -- the execution uses the optimized TopN execution path
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
 -- Create test table with mixed field types
 DROP TABLE IF EXISTS limit_topn_test;
 CREATE TABLE limit_topn_test (
@@ -31,109 +33,88 @@ CREATE INDEX limit_topn_idx ON limit_topn_test
 USING columnstore (title, rating, price, category, is_available)
 WITH (type='hnsw');
 ERROR:  access method "columnstore" does not exist
--- Enable execution method tracing to verify TopN usage
-SET pg_search.explain_analyze_verbose TO TRUE;
 -- Test basic LIMIT with mixed fields (should use TopN)
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, rating, price, category
 FROM limit_topn_test
 WHERE title ILIKE 'Product%'
 ORDER BY rating DESC
 LIMIT 10;
-                                                        QUERY PLAN                                                        
---------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=14.88..14.89 rows=1 width=104) (actual time=0.204..0.206 rows=10 loops=1)
-   ->  Sort  (cost=14.88..14.89 rows=1 width=104) (actual time=0.203..0.204 rows=10 loops=1)
+                     QUERY PLAN                     
+----------------------------------------------------
+ Limit
+   ->  Sort
          Sort Key: rating DESC
-         Sort Method: top-N heapsort  Memory: 26kB
-         ->  Seq Scan on limit_topn_test  (cost=0.00..14.88 rows=1 width=104) (actual time=0.022..0.104 rows=100 loops=1)
+         ->  Seq Scan on limit_topn_test
                Filter: (title ~~* 'Product%'::text)
- Planning Time: 0.474 ms
- Execution Time: 0.228 ms
-(8 rows)
+(5 rows)
 
 -- Test LIMIT with mixed text and numeric fields
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, category, rating, price
 FROM limit_topn_test
 WHERE category = 'Electronics'
 ORDER BY price ASC
 LIMIT 5;
-                                                       QUERY PLAN                                                        
--------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=14.88..14.89 rows=2 width=104) (actual time=0.098..0.099 rows=5 loops=1)
-   ->  Sort  (cost=14.88..14.89 rows=2 width=104) (actual time=0.097..0.098 rows=5 loops=1)
+                       QUERY PLAN                       
+--------------------------------------------------------
+ Limit
+   ->  Sort
          Sort Key: price
-         Sort Method: top-N heapsort  Memory: 25kB
-         ->  Seq Scan on limit_topn_test  (cost=0.00..14.88 rows=2 width=104) (actual time=0.014..0.025 rows=20 loops=1)
+         ->  Seq Scan on limit_topn_test
                Filter: (category = 'Electronics'::text)
-               Rows Removed by Filter: 80
- Planning Time: 0.423 ms
- Execution Time: 0.118 ms
-(9 rows)
+(5 rows)
 
 -- Test LIMIT with multiple string fields
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, category
 FROM limit_topn_test
 WHERE category IN ('Books', 'Electronics')
 ORDER BY title
 LIMIT 15;
-                                                       QUERY PLAN                                                       
-------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=14.91..14.92 rows=4 width=64) (actual time=0.105..0.108 rows=15 loops=1)
-   ->  Sort  (cost=14.91..14.92 rows=4 width=64) (actual time=0.104..0.106 rows=15 loops=1)
+                               QUERY PLAN                               
+------------------------------------------------------------------------
+ Limit
+   ->  Sort
          Sort Key: title
-         Sort Method: top-N heapsort  Memory: 26kB
-         ->  Seq Scan on limit_topn_test  (cost=0.00..14.88 rows=4 width=64) (actual time=0.011..0.028 rows=40 loops=1)
+         ->  Seq Scan on limit_topn_test
                Filter: (category = ANY ('{Books,Electronics}'::text[]))
-               Rows Removed by Filter: 60
- Planning Time: 0.111 ms
- Execution Time: 0.128 ms
-(9 rows)
+(5 rows)
 
 -- Test LIMIT with boolean field
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, is_available, rating
 FROM limit_topn_test
 WHERE is_available = true
 ORDER BY rating DESC
 LIMIT 7;
-                                                        QUERY PLAN                                                        
---------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=17.61..17.63 rows=7 width=41) (actual time=0.051..0.052 rows=7 loops=1)
-   ->  Sort  (cost=17.61..18.10 rows=195 width=41) (actual time=0.050..0.051 rows=7 loops=1)
+               QUERY PLAN                
+-----------------------------------------
+ Limit
+   ->  Sort
          Sort Key: rating DESC
-         Sort Method: top-N heapsort  Memory: 25kB
-         ->  Seq Scan on limit_topn_test  (cost=0.00..13.90 rows=195 width=41) (actual time=0.009..0.022 rows=50 loops=1)
+         ->  Seq Scan on limit_topn_test
                Filter: is_available
-               Rows Removed by Filter: 50
- Planning Time: 0.057 ms
- Execution Time: 0.068 ms
-(9 rows)
+(5 rows)
 
 -- Test LIMIT with multiple numeric fields
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT rating, price
 FROM limit_topn_test
 WHERE rating > 3.0 AND price < 500
 ORDER BY price DESC
 LIMIT 12;
-                                                       QUERY PLAN                                                        
--------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=16.84..16.87 rows=12 width=40) (actual time=0.058..0.060 rows=12 loops=1)
-   ->  Sort  (cost=16.84..16.94 rows=43 width=40) (actual time=0.057..0.058 rows=12 loops=1)
+                                      QUERY PLAN                                       
+---------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
          Sort Key: price DESC
-         Sort Method: quicksort  Memory: 26kB
-         ->  Seq Scan on limit_topn_test  (cost=0.00..15.85 rows=43 width=40) (actual time=0.011..0.024 rows=16 loops=1)
+         ->  Seq Scan on limit_topn_test
                Filter: ((rating > '3'::double precision) AND (price < '500'::numeric))
-               Rows Removed by Filter: 84
- Planning Time: 0.107 ms
- Execution Time: 0.078 ms
-(9 rows)
+(5 rows)
 
 -- Test LIMIT with complex where clause on mixed fields
-EXPLAIN ANALYZE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, category, rating, price
 FROM limit_topn_test
 WHERE (rating BETWEEN 2.5 AND 4.5) AND (category = 'Electronics' OR category = 'Toys')
@@ -141,16 +122,12 @@ ORDER BY price DESC
 LIMIT 8;
                                                                                QUERY PLAN                                                                                
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=17.81..17.82 rows=1 width=104) (actual time=0.050..0.052 rows=8 loops=1)
-   ->  Sort  (cost=17.81..17.82 rows=1 width=104) (actual time=0.050..0.051 rows=8 loops=1)
+ Limit
+   ->  Sort
          Sort Key: price DESC
-         Sort Method: quicksort  Memory: 26kB
-         ->  Seq Scan on limit_topn_test  (cost=0.00..17.80 rows=1 width=104) (actual time=0.012..0.023 rows=13 loops=1)
+         ->  Seq Scan on limit_topn_test
                Filter: ((rating >= '2.5'::double precision) AND (rating <= '4.5'::double precision) AND ((category = 'Electronics'::text) OR (category = 'Toys'::text)))
-               Rows Removed by Filter: 87
- Planning Time: 0.078 ms
- Execution Time: 0.071 ms
-(9 rows)
+(5 rows)
 
 -- Verify actual results of LIMIT queries (not just execution path)
 SELECT title, rating, price, category
@@ -158,15 +135,17 @@ FROM limit_topn_test
 WHERE title ILIKE 'Product%'
 ORDER BY rating DESC
 LIMIT 5;
-   title    |       rating       |      price       | category 
-------------+--------------------+------------------+----------
- Product 23 | 4.9556516099989185 | 254.305462056814 | Food
- Product 26 |  4.944420199671727 | 542.673537809587 | Books
- Product 12 |  4.925019814558094 |  567.16787114035 | Clothing
- Product 41 |  4.893773018121946 |  302.88039752867 | Books
- Product 17 |  4.785936934513444 |  617.39206977251 | Clothing
+   title    |       rating       |      price       |  category   
+------------+--------------------+------------------+-------------
+ Product 5  |  4.977789616859476 | 501.085893295197 | Electronics
+ Product 58 | 4.9200515847609925 | 387.078996568841 | Food
+ Product 59 |  4.853437459052499 | 828.895824277736 | Toys
+ Product 20 |  4.819396214667342 | 783.201356868465 | Electronics
+ Product 16 | 4.8175273322333645 | 60.5191979825876 | Books
 (5 rows)
 
 -- Clean up
 DROP INDEX IF EXISTS limit_topn_idx;
 DROP TABLE IF EXISTS limit_topn_test; 
+-- Reset parallel workers setting to default
+RESET max_parallel_workers_per_gather;

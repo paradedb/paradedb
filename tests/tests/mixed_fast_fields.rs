@@ -2042,10 +2042,10 @@ fn test_window_functions_with_search(mut conn: PgConnection) {
 
     if !group0_results.is_empty() {
         // Verify rank_in_group starts at 1 and is sequential
-        for (_, _, _, rank_in_group, _, _) in group0_results.iter() {
+        for (i, (_, _, _, rank_in_group, _, _)) in group0_results.iter().enumerate() {
             assert_eq!(
                 *rank_in_group,
-                (i + 1) as i64,
+                BigDecimal::from((i + 1) as i64),
                 "Expected rank_in_group to be sequential, got {} at index {}",
                 *rank_in_group,
                 i

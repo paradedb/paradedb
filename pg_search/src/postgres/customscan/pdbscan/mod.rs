@@ -677,7 +677,18 @@ impl CustomScan for PdbScan {
 
         let json_query = serde_json::to_string(&state.custom_state().search_query_input)
             .expect("query should serialize to json");
-        explainer.add_text("Tantivy Query", &json_query);
+        if let Ok(mut json_value) = serde_json::from_str::<serde_json::Value>(&json_query) {
+            // Remove the oid from the with_index object
+            // This helps to reduce the variability of the explain output used in regression tests
+            if let Some(with_index) = json_value.get_mut("with_index") {
+                with_index.as_object_mut().map(|obj| obj.remove("oid"));
+            }
+            let updated_json_query =
+                serde_json::to_string(&json_value).expect("updated query should serialize to json");
+            explainer.add_text("Tantivy Query", &updated_json_query);
+        } else {
+            explainer.add_text("Tantivy Query", &json_query);
+        }
 
         if explainer.is_verbose() {
             explainer.add_text(

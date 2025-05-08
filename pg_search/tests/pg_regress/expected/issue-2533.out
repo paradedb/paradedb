@@ -1,0 +1,104 @@
+DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS products;
+DROP TABLE IF EXISTS orders;
+CREATE TABLE users
+(
+    id    serial8 not null primary key,
+    name  text,
+    color varchar,
+    age   varchar
+);
+INSERT into users (name, color, age)
+VALUES ('bob', 'blue', 20);
+INSERT into users (name, color, age)
+SELECT(ARRAY ['alice','bob','cloe', 'sally','brandy','brisket','anchovy']::text[])[(floor(random() * 7) + 1)::int],
+      (ARRAY ['red','green','blue', 'orange','purple','pink','yellow']::text[])[(floor(random() * 7) + 1)::int],
+      (floor(random() * 100) + 1)::int::text
+FROM generate_series(1, 1000);
+CREATE INDEX idxusers ON users USING bm25 (id, name, color, age)
+    WITH (
+    key_field = 'id',
+    text_fields = '
+                {
+                    "name": { "tokenizer": { "type": "keyword" } },
+                    "color": { "tokenizer": { "type": "keyword" } },
+                    "age": { "tokenizer": { "type": "keyword" } }
+                }'
+    );
+CREATE INDEX idxusers_name ON users (name);
+CREATE INDEX idxusers_color ON users (color);
+CREATE INDEX idxusers_age ON users (age);
+CREATE TABLE products
+(
+    id    serial8 not null primary key,
+    name  text,
+    color varchar,
+    age   varchar
+);
+INSERT into products (name, color, age)
+VALUES ('bob', 'blue', 20);
+INSERT into products (name, color, age)
+SELECT(ARRAY ['alice','bob','cloe', 'sally','brandy','brisket','anchovy']::text[])[(floor(random() * 7) + 1)::int],
+      (ARRAY ['red','green','blue', 'orange','purple','pink','yellow']::text[])[(floor(random() * 7) + 1)::int],
+      (floor(random() * 100) + 1)::int::text
+FROM generate_series(1, 1000);
+CREATE INDEX idxproducts ON products USING bm25 (id, name, color, age)
+    WITH (
+    key_field = 'id',
+    text_fields = '
+                {
+                    "name": { "tokenizer": { "type": "keyword" } },
+                    "color": { "tokenizer": { "type": "keyword" } },
+                    "age": { "tokenizer": { "type": "keyword" } }
+                }'
+    );
+CREATE INDEX idxproducts_name ON products (name);
+CREATE INDEX idxproducts_color ON products (color);
+CREATE INDEX idxproducts_age ON products (age);
+CREATE TABLE orders
+(
+    id    serial8 not null primary key,
+    name  text,
+    color varchar,
+    age   varchar
+);
+INSERT into orders (name, color, age)
+VALUES ('bob', 'blue', 20);
+INSERT into orders (name, color, age)
+SELECT(ARRAY ['alice','bob','cloe', 'sally','brandy','brisket','anchovy']::text[])[(floor(random() * 7) + 1)::int],
+      (ARRAY ['red','green','blue', 'orange','purple','pink','yellow']::text[])[(floor(random() * 7) + 1)::int],
+      (floor(random() * 100) + 1)::int::text
+FROM generate_series(1, 1000);
+CREATE INDEX idxorders ON orders USING bm25 (id, name, color, age)
+    WITH (
+    key_field = 'id',
+    text_fields = '
+                {
+                    "name": { "tokenizer": { "type": "keyword" } },
+                    "color": { "tokenizer": { "type": "keyword" } },
+                    "age": { "tokenizer": { "type": "keyword" } }
+                }'
+    );
+CREATE INDEX idxorders_name ON orders (name);
+CREATE INDEX idxorders_color ON orders (color);
+CREATE INDEX idxorders_age ON orders (age);
+SELECT assert(
+               (SELECT COUNT(*)
+                FROM users
+                         LEFT JOIN orders ON users.age = orders.age
+                WHERE (NOT (users.name = 'bob'))
+                   OR (users.color = 'blue') AND (NOT (orders.name = 'bob'))
+                   OR (orders.color = 'blue') AND (NOT (users.name = 'bob'))
+                   OR (users.age = '20') AND (NOT (orders.name = 'bob'))
+                   OR (orders.age = '20')),
+               (SELECT COUNT(*)
+                FROM users
+                         LEFT JOIN orders ON users.age = orders.age
+                WHERE (NOT (users.name @@@ 'bob'))
+                   OR (users.color @@@ 'blue') AND (NOT (orders.name @@@ 'bob'))
+                   OR (orders.color @@@ 'blue') AND (NOT (users.name @@@ 'bob'))
+                   OR (users.age @@@ '20') AND (NOT (orders.name @@@ 'bob'))
+                   OR (orders.age @@@ '20')),
+       'postgres equality and bm25 @@@ join queries did not match'
+       );
+ERROR:  postgres equality and bm25 @@@ join queries did not match

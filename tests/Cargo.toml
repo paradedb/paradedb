@@ -11,15 +11,13 @@ crate-type = ["rlib"]
 [features]
 icu = ["tokenizers/icu"]
 
-[dependencies]
-
 [dev-dependencies]
 approx = "0.5.1"
 anyhow = "1.0.98"
 async-std = { version = "1.13.1", features = ["attributes"] }
 bigdecimal = { version = "0.4.8", features = ["serde"] }
 bytes = "1.10.1"
-chrono = { version = "0.4.41", features = ["clock", "alloc"] }
+chrono = { version = "0.4.41", features = ["alloc", "clock"] }
 cmd_lib = "1.9.5"
 dotenvy = "0.15.7"
 futures = "0.3.31"
@@ -28,6 +26,8 @@ parking_lot = "0.12.3"
 pgvector = { version = "0.4.0", features = ["sqlx"] }
 portpicker = "0.1.1"
 pretty_assertions = "1.4.1"
+proptest = "1.6.0"
+proptest-derive = "0.5.1"
 rand = "0.9.1"
 rayon = "1.10.0"
 rstest = "0.25.0"

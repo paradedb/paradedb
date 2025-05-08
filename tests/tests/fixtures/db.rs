@@ -26,10 +26,20 @@ use sqlx::{
     testing::{TestArgs, TestContext, TestSupport},
     ConnectOptions, Decode, Executor, FromRow, PgConnection, Postgres, Type,
 };
+
+use std::fmt::{Debug, Formatter};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub struct Db {
     context: TestContext<Postgres>,
+}
+
+impl Debug for Db {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Db")
+            .field("name", &self.context.db_name)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Db {

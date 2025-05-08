@@ -243,6 +243,10 @@ impl ParallelScanState {
         self.mutex.acquire()
     }
 
+    pub fn nsegments(&self) -> usize {
+        self.nsegments
+    }
+
     pub fn remaining_segments(&self) -> usize {
         self.remaining_segments
     }

@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc dbbbdfe991153a782d0936a4b6fa029cee43ef56b903b8a21d950cd6badb5b86 # shrinks to mut conn = DbConnection { db: Db { name: "_sqlx_test_u2TPcDUoL_gQC1437OlANQxPTVkbRKD6_3cqs6_UyziuQDAyWb8Q", .. }, .. }, limit = 1, ops = [Insert(SimpleProductsTable { id: 100, description: "", category: "Apparel", rating: 1, in_stock: false, metadata: Null, created_at: 1969-01-01T01:01:01, last_updated_date: 1969-01-01 }), Insert(SimpleProductsTable { id: 101, description: "", category: "Electronics", rating: 1, in_stock: false, metadata: Null, created_at: 1969-01-01T01:01:01, last_updated_date: 1969-01-01 }), Insert(SimpleProductsTable { id: 102, description: "", category: "Apparel", rating: 1, in_stock: false, metadata: Null, created_at: 1969-01-01T01:01:01, last_updated_date: 1969-01-01 })]

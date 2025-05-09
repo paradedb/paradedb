@@ -50,6 +50,7 @@ bincode = { version = "2.0.1", features = [
 ], default-features = false }
 rand = "0.9.1"
 proptest = "1.6.0"
+smallvec = "1.15.0"
 
 [dev-dependencies]
 pgrx-tests.workspace = true

@@ -38,6 +38,7 @@ use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::pg_sys;
 use pgrx::PgOid;
 use rayon::prelude::*;
+use smallvec::SmallVec;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use tantivy::collector::Collector;
@@ -583,23 +584,25 @@ fn term_to_datum(
 /// Container for storing mixed field values from fast fields.
 ///
 /// This struct optimizes storage and retrieval of both string and numeric field values
-/// retrieved from the index. Each field value is stored in a type-specific hashmap
-/// to avoid unnecessary conversions and enable efficient lookups by field name.
+/// retrieved from the index. It uses SmallVec for efficient storage of small collections,
+/// avoiding heap allocations for the common case of queries with few fields.
 #[derive(Debug, Clone, Default)]
 pub struct FieldValues {
     /// String field values, with None representing a field with no value
-    string_values: HashMap<String, Option<String>>,
+    /// Using SmallVec for stack allocation when there are few fields (common case)
+    string_values: SmallVec<[(String, Option<String>); 8]>,
 
     /// Numeric field values using Tantivy's OwnedValue type for type flexibility
-    numeric_values: HashMap<String, OwnedValue>,
+    /// Using SmallVec for stack allocation when there are few fields (common case)
+    numeric_values: SmallVec<[(String, OwnedValue); 8]>,
 }
 
 impl FieldValues {
-    /// Creates a new empty FieldValues container.
-    fn new() -> Self {
+    /// Creates a new FieldValues container with pre-allocated capacity.
+    fn with_capacity(string_capacity: usize, numeric_capacity: usize) -> Self {
         Self {
-            string_values: HashMap::new(),
-            numeric_values: HashMap::new(),
+            string_values: SmallVec::with_capacity(string_capacity),
+            numeric_values: SmallVec::with_capacity(numeric_capacity),
         }
     }
 
@@ -610,7 +613,16 @@ impl FieldValues {
     /// * `field` - The field name
     /// * `value` - The string value or None if no value
     fn set_string(&mut self, field: String, value: Option<String>) {
-        self.string_values.insert(field, value);
+        // Check if field already exists
+        for (i, (existing_field, _)) in self.string_values.iter().enumerate() {
+            if existing_field == &field {
+                // Update existing entry
+                self.string_values[i].1 = value;
+                return;
+            }
+        }
+        // Add new entry
+        self.string_values.push((field, value));
     }
 
     /// Sets a numeric field value.
@@ -620,7 +632,16 @@ impl FieldValues {
     /// * `field` - The field name
     /// * `value` - The numeric value as an OwnedValue
     fn set_numeric(&mut self, field: String, value: OwnedValue) {
-        self.numeric_values.insert(field, value);
+        // Check if field already exists
+        for (i, (existing_field, _)) in self.numeric_values.iter().enumerate() {
+            if existing_field == &field {
+                // Update existing entry
+                self.numeric_values[i].1 = value;
+                return;
+            }
+        }
+        // Add new entry
+        self.numeric_values.push((field, value));
     }
 
     /// Gets a string field value.
@@ -633,7 +654,10 @@ impl FieldValues {
     ///
     /// A reference to the Option<String> value, or None if field doesn't exist
     fn get_string(&self, field: &str) -> Option<&Option<String>> {
-        self.string_values.get(field)
+        self.string_values
+            .iter()
+            .find(|(f, _)| f == field)
+            .map(|(_, v)| v)
     }
 
     /// Gets a numeric field value.
@@ -646,7 +670,15 @@ impl FieldValues {
     ///
     /// A reference to the OwnedValue, or None if field doesn't exist
     fn get_numeric(&self, field: &str) -> Option<&OwnedValue> {
-        self.numeric_values.get(field)
+        self.numeric_values
+            .iter()
+            .find(|(f, _)| f == field)
+            .map(|(_, v)| v)
+    }
+
+    /// Checks if a string field exists
+    fn contains_string_field(&self, field: &str) -> bool {
+        self.string_values.iter().any(|(f, _)| f == field)
     }
 }
 
@@ -667,6 +699,7 @@ type FieldGroups = HashMap<String, FieldGroupValue>;
 /// This enum provides a unified interface for iterating through results
 /// from different processing paths (batched, single segment, etc.)
 #[derive(Default)]
+#[allow(clippy::large_enum_variant)]
 enum MixedAggResults {
     /// No results available
     #[default]
@@ -768,6 +801,10 @@ impl MixedAggSearcher<'_> {
             )
             .expect("failed to search");
 
+        // Pre-size based on expected field counts
+        let string_field_count = string_fields.len();
+        let numeric_field_count = numeric_fields.len();
+
         // Use thread-safe map to combine results from all segments
         let merged: Mutex<MergedResultsMap> = Mutex::new(BTreeMap::new());
 
@@ -794,9 +831,15 @@ impl MixedAggSearcher<'_> {
                         // Add this term to all matching documents
                         for (score, doc_addr) in docs {
                             let mut guard = merged.lock();
-                            let entry = guard
-                                .entry(*doc_addr)
-                                .or_insert_with(|| (FieldValues::new(), *score));
+                            let entry = guard.entry(*doc_addr).or_insert_with(|| {
+                                (
+                                    FieldValues::with_capacity(
+                                        string_field_count,
+                                        numeric_field_count,
+                                    ),
+                                    *score,
+                                )
+                            });
                             entry.0.set_string(field_name.clone(), term_value.clone());
                         }
                     }
@@ -826,23 +869,18 @@ impl MixedAggSearcher<'_> {
         let processed_docs = merged.into_inner();
 
         // Group results by field value patterns for more efficient processing
-        let mut field_groups: FieldGroups = HashMap::new();
+        let mut field_groups: FieldGroups = HashMap::with_capacity(processed_docs.len() / 4);
 
         // Group documents with the same field values
         for (doc_addr, (field_values, score)) in processed_docs {
             // Create a stable string representation of the field values for grouping
-            let mut term_keys: Vec<(&String, &Option<String>)> =
-                field_values.string_values.iter().collect();
-            term_keys.sort_by(|a, b| a.0.cmp(b.0));
-
-            let mut num_keys: Vec<(&String, &OwnedValue)> =
-                field_values.numeric_values.iter().collect();
-            num_keys.sort_by(|a, b| a.0.cmp(b.0));
-
-            // Create a key that represents all field values - reuse string buffer
             let fields_key = with_scratch_buffer(|buf| {
                 buf.push_str("S:");
-                for (i, (k, v)) in term_keys.iter().enumerate() {
+                // Sort string fields by name for stable key
+                let mut sorted_string_values = field_values.string_values.clone();
+                sorted_string_values.sort_by(|a, b| a.0.cmp(&b.0));
+
+                for (i, (k, v)) in sorted_string_values.iter().enumerate() {
                     if i > 0 {
                         buf.push(',');
                     }
@@ -859,7 +897,11 @@ impl MixedAggSearcher<'_> {
                 }
 
                 buf.push_str("|N:");
-                for (i, (k, v)) in num_keys.iter().enumerate() {
+                // Sort numeric fields by name for stable key
+                let mut sorted_numeric_values = field_values.numeric_values.clone();
+                sorted_numeric_values.sort_by(|a, b| a.0.cmp(&b.0));
+
+                for (i, (k, v)) in sorted_numeric_values.iter().enumerate() {
                     if i > 0 {
                         buf.push(',');
                     }
@@ -881,7 +923,7 @@ impl MixedAggSearcher<'_> {
             // Group by field values to avoid duplicate value copies
             let entry = field_groups
                 .entry(fields_key)
-                .or_insert_with(|| (field_values.clone(), Vec::new()));
+                .or_insert_with(|| (field_values.clone(), Vec::with_capacity(4)));
             entry.1.push((score, doc_addr));
         }
 
@@ -896,7 +938,10 @@ impl MixedAggSearcher<'_> {
 
         // Return as batched results for processing
         MixedAggResults::Batched {
-            current: (FieldValues::new(), vec![].into_iter()),
+            current: (
+                FieldValues::with_capacity(string_field_count, numeric_field_count),
+                vec![].into_iter(),
+            ),
             set,
         }
     }
@@ -971,8 +1016,13 @@ impl MixedAggSearcher<'_> {
         // Create a channel to stream results
         let (sender, receiver) = crossbeam::channel::unbounded();
 
+        // Pre-size based on expected field counts
+        let string_field_count = string_fields.len();
+        let numeric_field_count = numeric_fields.len();
+        let expected_doc_count = segment_reader.num_docs() as usize / 10; // Estimate 10% match rate
+
         // Track documents and their field values
-        let mut doc_fields = HashMap::new();
+        let mut doc_fields = HashMap::with_capacity(expected_doc_count);
 
         // Process string fields from this segment
         let string_columns = &segment_result.0;
@@ -996,9 +1046,12 @@ impl MixedAggSearcher<'_> {
 
                 // Add term to each document
                 for (score, doc_addr) in docs {
-                    let entry = doc_fields
-                        .entry(*doc_addr)
-                        .or_insert_with(|| (FieldValues::new(), *score));
+                    let entry = doc_fields.entry(*doc_addr).or_insert_with(|| {
+                        (
+                            FieldValues::with_capacity(string_field_count, numeric_field_count),
+                            *score,
+                        )
+                    });
                     entry.0.set_string(field_name.clone(), term_value.clone());
                 }
             }
@@ -1028,7 +1081,7 @@ impl MixedAggSearcher<'_> {
         for (doc_addr, (mut field_values, score)) in doc_fields {
             // Ensure all requested fields have entries (even if null)
             for field in string_fields {
-                if !field_values.string_values.contains_key(field) {
+                if !field_values.contains_string_field(field) {
                     field_values.set_string(field.clone(), None);
                 }
             }

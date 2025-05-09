@@ -312,9 +312,9 @@ WHERE content @@@ 'conversion test';
    Index: conversion_search
    Segment Count: 1
    Exec Method: MixedFastFieldExecState
-   Fast Fields: id, smallint_field, integer_field, bigint_field
+   Fast Fields: id, bigint_field, integer_field, smallint_field
    String Fast Fields: id
-   Numeric Fast Fields: smallint_field, integer_field, bigint_field
+   Numeric Fast Fields: bigint_field, integer_field, smallint_field
    Scores: false
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"conversion test","lenient":null,"conjunction_mode":null}}}}
 (10 rows)

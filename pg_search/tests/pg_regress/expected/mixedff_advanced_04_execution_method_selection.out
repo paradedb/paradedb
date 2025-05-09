@@ -507,9 +507,9 @@ ORDER BY text_field1, text_field2, num_field1, bool_field;
          Index: exec_method_idx
          Segment Count: 1
          Exec Method: MixedFastFieldExecState
-         Fast Fields: text_field1, text_field2, num_field1, bool_field
+         Fast Fields: text_field1, text_field2, bool_field, num_field1
          String Fast Fields: text_field1, text_field2
-         Numeric Fast Fields: num_field1, bool_field
+         Numeric Fast Fields: bool_field, num_field1
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}},{"term":{"field":"bool_field","value":true,"is_datetime":false}}]}}
 (12 rows)
@@ -856,9 +856,9 @@ ORDER BY text_field1, text_field2, num_field1, bool_field;
          Index: exec_method_idx
          Segment Count: 1
          Exec Method: MixedFastFieldExecState
-         Fast Fields: text_field1, text_field2, num_field1, bool_field
+         Fast Fields: text_field1, text_field2, bool_field, num_field1
          String Fast Fields: text_field1, text_field2
-         Numeric Fast Fields: num_field1, bool_field
+         Numeric Fast Fields: bool_field, num_field1
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"text_field2","query_string":"Sample","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"num_field1","lower_bound":{"included":10},"upper_bound":null,"is_datetime":false}},{"range":{"field":"num_field1","lower_bound":null,"upper_bound":{"included":40},"is_datetime":false}},{"term":{"field":"bool_field","value":true,"is_datetime":false}}]}}
 (12 rows)

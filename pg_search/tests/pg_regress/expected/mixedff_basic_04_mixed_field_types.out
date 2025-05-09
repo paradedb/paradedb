@@ -55,8 +55,8 @@ ORDER BY id;
          Index: mixed_test_search
          Segment Count: 1
          Exec Method: MixedFastFieldExecState
-         Fast Fields: string_field1, string_field2, id, numeric_field1, numeric_field2
-         String Fast Fields: string_field1, string_field2, id
+         Fast Fields: id, string_field1, string_field2, numeric_field1, numeric_field2
+         String Fast Fields: id, string_field1, string_field2
          Numeric Fast Fields: numeric_field1, numeric_field2
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"red","lenient":null,"conjunction_mode":null}}}}

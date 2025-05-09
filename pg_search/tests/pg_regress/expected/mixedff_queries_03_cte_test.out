@@ -140,8 +140,8 @@ ORDER BY document_title, file_title, page_number;
            Index: documents_search
            Segment Count: 2
            Exec Method: MixedFastFieldExecState
-           Fast Fields: id, title, parents
-           String Fast Fields: id, title, parents
+           Fast Fields: id, parents, title
+           String Fast Fields: id, parents, title
            Scores: false
            Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"CTE Test","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Reports","lenient":null,"conjunction_mode":null}}}}]}}
    CTE matching_files

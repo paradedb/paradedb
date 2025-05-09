@@ -634,8 +634,8 @@ ORDER BY type, item_name;
                Index: categories_idx
                Segment Count: 1
                Exec Method: MixedFastFieldExecState
-               Fast Fields: name, description
-               String Fast Fields: name, description
+               Fast Fields: description, name
+               String Fast Fields: description, name
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"e","lenient":null,"conjunction_mode":null}}}}
          ->  Custom Scan (ParadeDB Scan) on reviews
@@ -885,9 +885,9 @@ ORDER BY r.rating DESC, p.price DESC;
                                  Index: products_idx
                                  Segment Count: 1
                                  Exec Method: MixedFastFieldExecState
-                                 Fast Fields: name, price, is_available
+                                 Fast Fields: name, is_available, price
                                  String Fast Fields: name
-                                 Numeric Fast Fields: price, is_available
+                                 Numeric Fast Fields: is_available, price
                                  Scores: false
                                  Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}},{"term":{"field":"is_available","value":true,"is_datetime":false}}]}}
 (27 rows)

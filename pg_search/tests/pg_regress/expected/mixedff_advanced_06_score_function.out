@@ -400,8 +400,8 @@ LIMIT 5;
                Index: score_test_idx
                Segment Count: 1
                Exec Method: MixedFastFieldExecState
-               Fast Fields: title, author, rating, views
-               String Fast Fields: title, author
+               Fast Fields: author, title, rating, views
+               String Fast Fields: author, title
                Numeric Fast Fields: rating, views
                Scores: true
                   Top N Limit: 5
@@ -437,9 +437,9 @@ ORDER BY title, author, paradedb.score(id) DESC;
          Index: score_test_idx
          Segment Count: 1
          Exec Method: MixedFastFieldExecState
-         Fast Fields: title, author, rating, is_featured
-         String Fast Fields: title, author
-         Numeric Fast Fields: rating, is_featured
+         Fast Fields: author, title, is_featured, rating
+         String Fast Fields: author, title
+         Numeric Fast Fields: is_featured, rating
          Scores: true
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":null,"is_datetime":false}},{"term":{"field":"is_featured","value":true,"is_datetime":false}}]}}
 (12 rows)
@@ -482,8 +482,8 @@ LIMIT 10;
                Index: score_test_idx
                Segment Count: 1
                Exec Method: MixedFastFieldExecState
-               Fast Fields: title, author, rating
-               String Fast Fields: title, author
+               Fast Fields: author, title, rating
+               String Fast Fields: author, title
                Numeric Fast Fields: rating
                Scores: true
                   Top N Limit: 10
@@ -533,8 +533,8 @@ ORDER BY sp.title, sp.author, sp.relevance DESC;
          Index: score_test_idx
          Segment Count: 1
          Exec Method: MixedFastFieldExecState
-         Fast Fields: title, author, id
-         String Fast Fields: title, author
+         Fast Fields: author, title, id
+         String Fast Fields: author, title
          Numeric Fast Fields: id
          Scores: true
          Tantivy Query: {"score_filter":{"bounds":[[{"Excluded":0.5},"Unbounded"]],"query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":3},"upper_bound":null,"is_datetime":false}}]}}}}
@@ -616,8 +616,8 @@ LIMIT 10;
                      Index: score_test_idx
                      Segment Count: 1
                      Exec Method: MixedFastFieldExecState
-                     Fast Fields: title, author
-                     String Fast Fields: title, author
+                     Fast Fields: author, title
+                     String Fast Fields: author, title
                      Scores: true
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
                ->  Custom Scan (ParadeDB Scan) on score_test score_test_1
@@ -625,8 +625,8 @@ LIMIT 10;
                      Index: score_test_idx
                      Segment Count: 1
                      Exec Method: MixedFastFieldExecState
-                     Fast Fields: title, author
-                     String Fast Fields: title, author
+                     Fast Fields: author, title
+                     String Fast Fields: author, title
                      Scores: true
                      Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"science","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"technology","lenient":null,"conjunction_mode":null}}}}]}}]}}
 (22 rows)
@@ -806,8 +806,8 @@ LIMIT 10;
                Index: score_test_idx
                Segment Count: 1
                Exec Method: MixedFastFieldExecState
-               Fast Fields: title, author, rating
-               String Fast Fields: title, author
+               Fast Fields: author, title, rating
+               String Fast Fields: author, title
                Numeric Fast Fields: rating
                Scores: true
                   Top N Limit: 10

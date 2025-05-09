@@ -438,8 +438,8 @@ ORDER BY title, author, author_rank;
                      Index: union_test_a_idx
                      Segment Count: 1
                      Exec Method: MixedFastFieldExecState
-                     Fast Fields: title, author, price, rating
-                     String Fast Fields: title, author
+                     Fast Fields: author, title, price, rating
+                     String Fast Fields: author, title
                      Numeric Fast Fields: price, rating
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}
@@ -523,8 +523,8 @@ ORDER BY title, author, price;
                      Index: union_test_a_idx
                      Segment Count: 1
                      Exec Method: MixedFastFieldExecState
-                     Fast Fields: title, author, price
-                     String Fast Fields: title, author
+                     Fast Fields: author, title, price
+                     String Fast Fields: author, title
                      Numeric Fast Fields: price
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"author","query_string":"Author","lenient":null,"conjunction_mode":null}}}}
@@ -710,8 +710,8 @@ ORDER BY author, title;
                            Index: union_test_a_idx
                            Segment Count: 1
                            Exec Method: MixedFastFieldExecState
-                           Fast Fields: title, author, is_published
-                           String Fast Fields: title, author
+                           Fast Fields: author, title, is_published
+                           String Fast Fields: author, title
                            Numeric Fast Fields: is_published
                            Scores: false
                            Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_published","value":true,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"author","query_string":"Author 1","lenient":null,"conjunction_mode":null}}}}]}}
@@ -722,8 +722,8 @@ ORDER BY author, title;
                            Index: union_test_b_idx
                            Segment Count: 1
                            Exec Method: MixedFastFieldExecState
-                           Fast Fields: title, author, is_published
-                           String Fast Fields: title, author
+                           Fast Fields: author, title, is_published
+                           String Fast Fields: author, title
                            Numeric Fast Fields: is_published
                            Scores: false
                            Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_published","value":true,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"author","query_string":"Author 1","lenient":null,"conjunction_mode":null}}}}]}}

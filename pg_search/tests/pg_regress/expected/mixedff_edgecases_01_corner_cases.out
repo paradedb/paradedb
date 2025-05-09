@@ -149,8 +149,8 @@ ORDER BY id;
          Index: corner_case_search
          Segment Count: 2
          Exec Method: MixedFastFieldExecState
-         Fast Fields: id, empty_string
-         String Fast Fields: id, empty_string
+         Fast Fields: empty_string, id
+         String Fast Fields: empty_string, id
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
 (11 rows)

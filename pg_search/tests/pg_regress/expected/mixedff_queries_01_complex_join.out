@@ -139,8 +139,8 @@ ORDER BY d.id, f.id, p.id;
                            Index: files_search
                            Segment Count: 2
                            Exec Method: MixedFastFieldExecState
-                           Fast Fields: title, file_path, id
-                           String Fast Fields: title, file_path, id
+                           Fast Fields: file_path, id, title
+                           String Fast Fields: file_path, id, title
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Receipt","lenient":null,"conjunction_mode":null}}}}
          ->  Custom Scan (ParadeDB Scan) on pages p

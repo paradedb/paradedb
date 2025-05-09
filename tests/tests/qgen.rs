@@ -128,8 +128,8 @@ async fn generated_join_queries(database: Db) {
         .for_each(|(idx, (join_clause, used_tables))| {
             let from = format!("SELECT COUNT(*) {join_clause} ");
 
-            let mut pg_where_clauses = Vec::with_capacity(used_tables.len() * 1);
-            let mut bm25_where_clauses = Vec::with_capacity(used_tables.len() * 1);
+            let mut pg_where_clauses = Vec::with_capacity(used_tables.len());
+            let mut bm25_where_clauses = Vec::with_capacity(used_tables.len());
 
             // populate the where clauses with what should be matching where clauses from the two different generators
             {

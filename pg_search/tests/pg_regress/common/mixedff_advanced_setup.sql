@@ -2,6 +2,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 
 -- Disable parallel workers to avoid differences in plans
 SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
 
 -- Drop any existing test tables from this group
 DROP TABLE IF EXISTS documents CASCADE;
@@ -256,3 +257,70 @@ INSERT INTO conversion_test VALUES
 -- Add a product with a distinct string for testing
 INSERT INTO mixed_numeric_string_test (id, numeric_field1, numeric_field2, string_field1, string_field2, string_field3, content) VALUES
 ('unique1', 42, 4242, 'Unique Product Z', 'Test', 'Item', 'This is a uniqueproductZ for testing mixed fields'); 
+
+-- Create test tables
+DROP TABLE IF EXISTS union_test_a;
+DROP TABLE IF EXISTS union_test_b;
+
+CREATE TABLE union_test_a (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    author TEXT,
+    rating NUMERIC,
+    year INTEGER,
+    price FLOAT,
+    is_published BOOLEAN
+);
+
+CREATE TABLE union_test_b (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    author TEXT,
+    rating NUMERIC,
+    year INTEGER,
+    price FLOAT,
+    is_published BOOLEAN
+);
+
+-- Insert test data with deterministic values
+INSERT INTO union_test_a (title, author, rating, year, price, is_published)
+SELECT
+    'Book A' || i,
+    'Author ' || (1 + (i % 10)),
+    (3 + (i % 3))::numeric,  -- Ratings from 3 to 5
+    2000 + (i % 22),
+    (10 + (i * 5))::float,   -- Deterministic prices
+    i % 3 != 0               -- Deterministic boolean pattern
+FROM generate_series(1, 50) i;
+
+INSERT INTO union_test_b (title, author, rating, year, price, is_published)
+SELECT
+    'Book B' || i,
+    'Author ' || (1 + (i % 15)),
+    (1 + (i % 5))::numeric,  -- Ratings from 1 to 5
+    1980 + (i % 40),
+    (15 + (i * 3))::float,   -- Deterministic prices
+    i % 4 != 0               -- Deterministic boolean pattern
+FROM generate_series(1, 50) i;
+
+-- Create indices with mixed fast fields
+DROP INDEX IF EXISTS union_test_a_idx;
+DROP INDEX IF EXISTS union_test_b_idx;
+
+CREATE INDEX union_test_a_idx ON union_test_a
+USING bm25 (id, title, author, rating, year, price, is_published)
+WITH (
+    key_field = 'id',
+    text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "author": {"tokenizer": {"type": "default"}, "fast": true}}',
+    numeric_fields = '{"rating": {"fast": true}, "year": {"fast": true}, "price": {"fast": true}}',
+    boolean_fields = '{"is_published": {"fast": true}}'
+);
+
+CREATE INDEX union_test_b_idx ON union_test_b
+USING bm25 (id, title, author, rating, year, price, is_published)
+WITH (
+    key_field = 'id',
+    text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "author": {"tokenizer": {"type": "default"}, "fast": true}}',
+    numeric_fields = '{"rating": {"fast": true}, "year": {"fast": true}, "price": {"fast": true}}',
+    boolean_fields = '{"is_published": {"fast": true}}'
+);

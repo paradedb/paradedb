@@ -7,5 +7,6 @@ DROP TABLE IF EXISTS documents CASCADE;
 
 -- Reset parallel workers setting to default
 RESET max_parallel_workers_per_gather;
+RESET enable_indexscan;
 
 SELECT 'Relational query tests cleanup complete' AS status; 

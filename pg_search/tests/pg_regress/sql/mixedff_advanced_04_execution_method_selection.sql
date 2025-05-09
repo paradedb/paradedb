@@ -54,10 +54,20 @@ WITH (
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1, text_field2
 FROM exec_method_test
-WHERE text_field1 @@@ 'Text';
+WHERE text_field1 @@@ 'Text'
+ORDER BY text_field1, text_field2;
+
+SELECT text_field1, text_field2
+FROM exec_method_test
+WHERE text_field1 @@@ 'Text'
+ORDER BY text_field1, text_field2;
 
 -- Test 2: Should use MixedFastFieldExecState with mixed string and numeric fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT text_field1, num_field1, num_field2
+FROM exec_method_test
+WHERE text_field1 @@@ 'Text' AND num_field1 > 10
+ORDER BY text_field1, num_field1, num_field2
 SELECT text_field1, num_field1, num_field2
 FROM exec_method_test
 WHERE text_field1 @@@ 'Text' AND num_field1 > 10;
@@ -66,32 +76,61 @@ WHERE text_field1 @@@ 'Text' AND num_field1 > 10;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1, text_field2, num_field1, bool_field
 FROM exec_method_test
-WHERE text_field1 @@@ 'Text' AND bool_field = true;
+WHERE text_field1 @@@ 'Text' AND bool_field = true
+ORDER BY text_field1, text_field2, num_field1, bool_field;
+
+SELECT text_field1, text_field2, num_field1, bool_field
+FROM exec_method_test
+WHERE text_field1 @@@ 'Text' AND bool_field = true
+ORDER BY text_field1, text_field2, num_field1, bool_field;
 
 -- Test 4: Should use StringFastFieldExecState when only one string field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1
 FROM exec_method_test
-WHERE text_field1 @@@ 'Text';
+WHERE text_field1 @@@ 'Text'
+ORDER BY text_field1;
+
+SELECT text_field1
+FROM exec_method_test
+WHERE text_field1 @@@ 'Text'
+ORDER BY text_field1;
 
 -- Test 5: Should use NumericFastFieldExecState when only numeric fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT num_field1, num_field2
 FROM exec_method_test
-WHERE num_field1 > 25;
+WHERE num_field1 > 25 and text_field1 @@@ 'Text'
+ORDER BY num_field1, num_field2;
+
+SELECT num_field1, num_field2
+FROM exec_method_test
+WHERE num_field1 > 25 and text_field1 @@@ 'Text'
+ORDER BY num_field1, num_field2;
 
 -- Test 6: Should NOT use any FastField method when non-indexed fields are selected
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1, non_indexed_field
 FROM exec_method_test
-WHERE text_field1 @@@ 'Text';
+WHERE text_field1 @@@ 'Text'
+ORDER BY text_field1, non_indexed_field;
+
+SELECT text_field1, non_indexed_field
+FROM exec_method_test
+WHERE text_field1 @@@ 'Text'
+ORDER BY text_field1, non_indexed_field;
 
 -- Test 7: Should use MixedFastFieldExecState even with ORDER BY
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1, num_field1
 FROM exec_method_test
 WHERE text_field1 @@@ 'Text'
-ORDER BY num_field1 DESC;
+ORDER BY text_field1, num_field1 DESC;
+
+SELECT text_field1, num_field1
+FROM exec_method_test
+WHERE text_field1 @@@ 'Text'
+ORDER BY text_field1, num_field1 DESC;
 
 -- Test 8: Should use MixedFastFieldExecState with filtering on multiple field types
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -100,7 +139,16 @@ FROM exec_method_test
 WHERE text_field1 @@@ 'Text' 
   AND text_field2 @@@ 'Sample'
   AND num_field1 BETWEEN 10 AND 40
-  AND bool_field = true;
+  AND bool_field = true
+ORDER BY text_field1, text_field2, num_field1, bool_field;
+
+SELECT text_field1, text_field2, num_field1, bool_field
+FROM exec_method_test
+WHERE text_field1 @@@ 'Text' 
+  AND text_field2 @@@ 'Sample'
+  AND num_field1 BETWEEN 10 AND 40
+  AND bool_field = true
+ORDER BY text_field1, text_field2, num_field1, bool_field;
 
 -- Test 9: Verify correct execution method in a subquery
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -110,20 +158,27 @@ FROM (
     FROM exec_method_test
     WHERE text_field1 @@@ 'Text' AND num_field1 > 10
 ) t
-WHERE t.num_field1 < 30;
+WHERE t.num_field1 < 30
+ORDER BY t.text_field1, t.num_field1;
+
+SELECT t.text_field1, t.num_field1
+FROM (
+    SELECT text_field1, num_field1
+    FROM exec_method_test
+    WHERE text_field1 @@@ 'Text' AND num_field1 > 10
+) t
+WHERE t.num_field1 < 30
+ORDER BY t.text_field1, t.num_field1;
 
 -- Verify actual results match expected values (not just execution method)
 SELECT text_field1, text_field2, num_field1
 FROM exec_method_test
 WHERE text_field1 @@@ 'Text 1'
   AND num_field1 < 20
-ORDER BY num_field1;
+ORDER BY text_field1, text_field2, num_field1;
 
 -- Clean up
 DROP INDEX IF EXISTS exec_method_idx;
 DROP TABLE IF EXISTS exec_method_test; 
-
--- Reset parallel workers setting to default
-RESET max_parallel_workers_per_gather;
 
 \i common/mixedff_advanced_cleanup.sql

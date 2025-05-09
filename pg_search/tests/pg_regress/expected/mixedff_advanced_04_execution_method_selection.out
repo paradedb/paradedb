@@ -5,6 +5,7 @@
 CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans
 SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
 -- Drop any existing test tables from this group
 DROP TABLE IF EXISTS documents CASCADE;
 DROP TABLE IF EXISTS files CASCADE; 
@@ -36,7 +37,7 @@ CREATE INDEX mixed_test_search ON mixed_numeric_string_test USING bm25 (
     text_fields = '{"string_field1": {"tokenizer": {"type": "default"}, "fast": true}, "string_field2": {"tokenizer": {"type": "default"}, "fast": true}, "string_field3": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
     numeric_fields = '{"numeric_field1": {"fast": true}, "numeric_field2": {"fast": true}}'
 );
-psql:common/mixedff_advanced_setup.sql:38: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_advanced_setup.sql:39: WARNING:  the `raw` tokenizer is deprecated
 -- Insert test data
 INSERT INTO mixed_numeric_string_test (id, numeric_field1, numeric_field2, string_field1, string_field2, string_field3, content) VALUES
 ('mix1', 100, 10000, 'Apple', 'Red', 'Fruit', 'This is a red apple'),
@@ -107,7 +108,7 @@ CREATE INDEX documents_search ON documents USING bm25 (
     key_field = 'id',
     text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "parents": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
-psql:common/mixedff_advanced_setup.sql:114: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_advanced_setup.sql:115: WARNING:  the `raw` tokenizer is deprecated
 CREATE INDEX files_search ON files USING bm25 (
     id,
     documentId,
@@ -117,7 +118,7 @@ CREATE INDEX files_search ON files USING bm25 (
     key_field = 'id',
     text_fields = '{"documentid": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "file_path": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
-psql:common/mixedff_advanced_setup.sql:124: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_advanced_setup.sql:125: WARNING:  the `raw` tokenizer is deprecated
 CREATE INDEX pages_search ON pages USING bm25 (
     id,
     fileId,
@@ -128,7 +129,7 @@ CREATE INDEX pages_search ON pages USING bm25 (
     text_fields = '{"fileid": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
     numeric_fields = '{"page_number": {"fast": true}}'
 );
-psql:common/mixedff_advanced_setup.sql:135: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_advanced_setup.sql:136: WARNING:  the `raw` tokenizer is deprecated
 -- Insert sample data
 INSERT INTO documents (id, title, content, parents) VALUES
 ('doc1', 'Invoice 2023', 'This is an invoice for services rendered in 2023', 'Factures'),
@@ -232,7 +233,7 @@ CREATE INDEX conversion_search ON conversion_test USING bm25 (
     }',
     boolean_fields = '{"bool_from_int": {"fast": true}}'
 );
-psql:common/mixedff_advanced_setup.sql:249: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_advanced_setup.sql:250: WARNING:  the `raw` tokenizer is deprecated
 INSERT INTO conversion_test VALUES
 ('conv1', 32767, 2147483647, 9223372036854775807, 9999999.99, 3.402e38, 1.7976931348623157e308, true, '1988-04-29', 'conversion test'),
 ('conv2', -32768, -2147483648, -9223372036854775808, -9999999.99, -3.402e38, -1.7976931348623157e308, false, '1999-12-31', 'conversion test'),
@@ -240,6 +241,65 @@ INSERT INTO conversion_test VALUES
 -- Add a product with a distinct string for testing
 INSERT INTO mixed_numeric_string_test (id, numeric_field1, numeric_field2, string_field1, string_field2, string_field3, content) VALUES
 ('unique1', 42, 4242, 'Unique Product Z', 'Test', 'Item', 'This is a uniqueproductZ for testing mixed fields'); 
+-- Create test tables
+DROP TABLE IF EXISTS union_test_a;
+DROP TABLE IF EXISTS union_test_b;
+CREATE TABLE union_test_a (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    author TEXT,
+    rating NUMERIC,
+    year INTEGER,
+    price FLOAT,
+    is_published BOOLEAN
+);
+CREATE TABLE union_test_b (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    author TEXT,
+    rating NUMERIC,
+    year INTEGER,
+    price FLOAT,
+    is_published BOOLEAN
+);
+-- Insert test data with deterministic values
+INSERT INTO union_test_a (title, author, rating, year, price, is_published)
+SELECT
+    'Book A' || i,
+    'Author ' || (1 + (i % 10)),
+    (3 + (i % 3))::numeric,  -- Ratings from 3 to 5
+    2000 + (i % 22),
+    (10 + (i * 5))::float,   -- Deterministic prices
+    i % 3 != 0               -- Deterministic boolean pattern
+FROM generate_series(1, 50) i;
+INSERT INTO union_test_b (title, author, rating, year, price, is_published)
+SELECT
+    'Book B' || i,
+    'Author ' || (1 + (i % 15)),
+    (1 + (i % 5))::numeric,  -- Ratings from 1 to 5
+    1980 + (i % 40),
+    (15 + (i * 3))::float,   -- Deterministic prices
+    i % 4 != 0               -- Deterministic boolean pattern
+FROM generate_series(1, 50) i;
+-- Create indices with mixed fast fields
+DROP INDEX IF EXISTS union_test_a_idx;
+DROP INDEX IF EXISTS union_test_b_idx;
+CREATE INDEX union_test_a_idx ON union_test_a
+USING bm25 (id, title, author, rating, year, price, is_published)
+WITH (
+    key_field = 'id',
+    text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "author": {"tokenizer": {"type": "default"}, "fast": true}}',
+    numeric_fields = '{"rating": {"fast": true}, "year": {"fast": true}, "price": {"fast": true}}',
+    boolean_fields = '{"is_published": {"fast": true}}'
+);
+CREATE INDEX union_test_b_idx ON union_test_b
+USING bm25 (id, title, author, rating, year, price, is_published)
+WITH (
+    key_field = 'id',
+    text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "author": {"tokenizer": {"type": "default"}, "fast": true}}',
+    numeric_fields = '{"rating": {"fast": true}, "year": {"fast": true}, "price": {"fast": true}}',
+    boolean_fields = '{"is_published": {"fast": true}}'
+);
 -- Create test table with various field types
 DROP TABLE IF EXISTS exec_method_test;
 CREATE TABLE exec_method_test (
@@ -287,113 +347,367 @@ WITH (
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1, text_field2
 FROM exec_method_test
-WHERE text_field1 @@@ 'Text';
-                                                                     QUERY PLAN                                                                      
------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on exec_method_test
-   Table: exec_method_test
-   Index: exec_method_idx
-   Segment Count: 1
-   Exec Method: MixedFastFieldExecState
-   Fast Fields: text_field1, text_field2
-   String Fast Fields: text_field1, text_field2
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}}
-(9 rows)
+WHERE text_field1 @@@ 'Text'
+ORDER BY text_field1, text_field2;
+                                                                        QUERY PLAN                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: text_field1, text_field2
+   ->  Custom Scan (ParadeDB Scan) on exec_method_test
+         Table: exec_method_test
+         Index: exec_method_idx
+         Segment Count: 1
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: text_field1, text_field2
+         String Fast Fields: text_field1, text_field2
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
+SELECT text_field1, text_field2
+FROM exec_method_test
+WHERE text_field1 @@@ 'Text'
+ORDER BY text_field1, text_field2;
+ text_field1 | text_field2 
+-------------+-------------
+ Text 1      | Sample 1
+ Text 10     | Sample 0
+ Text 11     | Sample 1
+ Text 12     | Sample 2
+ Text 13     | Sample 3
+ Text 14     | Sample 4
+ Text 15     | Sample 5
+ Text 16     | Sample 6
+ Text 17     | Sample 7
+ Text 18     | Sample 8
+ Text 19     | Sample 9
+ Text 2      | Sample 2
+ Text 20     | Sample 0
+ Text 21     | Sample 1
+ Text 22     | Sample 2
+ Text 23     | Sample 3
+ Text 24     | Sample 4
+ Text 25     | Sample 5
+ Text 26     | Sample 6
+ Text 27     | Sample 7
+ Text 28     | Sample 8
+ Text 29     | Sample 9
+ Text 3      | Sample 3
+ Text 30     | Sample 0
+ Text 31     | Sample 1
+ Text 32     | Sample 2
+ Text 33     | Sample 3
+ Text 34     | Sample 4
+ Text 35     | Sample 5
+ Text 36     | Sample 6
+ Text 37     | Sample 7
+ Text 38     | Sample 8
+ Text 39     | Sample 9
+ Text 4      | Sample 4
+ Text 40     | Sample 0
+ Text 41     | Sample 1
+ Text 42     | Sample 2
+ Text 43     | Sample 3
+ Text 44     | Sample 4
+ Text 45     | Sample 5
+ Text 46     | Sample 6
+ Text 47     | Sample 7
+ Text 48     | Sample 8
+ Text 49     | Sample 9
+ Text 5      | Sample 5
+ Text 50     | Sample 0
+ Text 6      | Sample 6
+ Text 7      | Sample 7
+ Text 8      | Sample 8
+ Text 9      | Sample 9
+(50 rows)
 
 -- Test 2: Should use MixedFastFieldExecState with mixed string and numeric fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1, num_field1, num_field2
 FROM exec_method_test
+WHERE text_field1 @@@ 'Text' AND num_field1 > 10
+ORDER BY text_field1, num_field1, num_field2
+SELECT text_field1, num_field1, num_field2
+FROM exec_method_test
 WHERE text_field1 @@@ 'Text' AND num_field1 > 10;
-                                                                                                                                    QUERY PLAN                                                                                                                                    
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on exec_method_test
-   Table: exec_method_test
-   Index: exec_method_idx
-   Segment Count: 1
-   Exec Method: MixedFastFieldExecState
-   Fast Fields: text_field1, num_field1, num_field2
-   String Fast Fields: text_field1
-   Numeric Fast Fields: num_field1, num_field2
-   Scores: false
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"num_field1","lower_bound":{"excluded":10},"upper_bound":null,"is_datetime":false}}]}}
-(10 rows)
-
+ERROR:  syntax error at or near "SELECT" at character 205
 -- Test 3: Should use MixedFastFieldExecState with all field types
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1, text_field2, num_field1, bool_field
 FROM exec_method_test
-WHERE text_field1 @@@ 'Text' AND bool_field = true;
-                                                                                                                 QUERY PLAN                                                                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on exec_method_test
-   Table: exec_method_test
-   Index: exec_method_idx
-   Segment Count: 1
-   Exec Method: MixedFastFieldExecState
-   Fast Fields: text_field1, text_field2, num_field1, bool_field
-   String Fast Fields: text_field1, text_field2
-   Numeric Fast Fields: num_field1, bool_field
-   Scores: false
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}},{"term":{"field":"bool_field","value":true,"is_datetime":false}}]}}
-(10 rows)
+WHERE text_field1 @@@ 'Text' AND bool_field = true
+ORDER BY text_field1, text_field2, num_field1, bool_field;
+                                                                                                                    QUERY PLAN                                                                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: text_field1, text_field2, num_field1, bool_field
+   ->  Custom Scan (ParadeDB Scan) on exec_method_test
+         Table: exec_method_test
+         Index: exec_method_idx
+         Segment Count: 1
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: text_field1, text_field2, num_field1, bool_field
+         String Fast Fields: text_field1, text_field2
+         Numeric Fast Fields: num_field1, bool_field
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}},{"term":{"field":"bool_field","value":true,"is_datetime":false}}]}}
+(12 rows)
+
+SELECT text_field1, text_field2, num_field1, bool_field
+FROM exec_method_test
+WHERE text_field1 @@@ 'Text' AND bool_field = true
+ORDER BY text_field1, text_field2, num_field1, bool_field;
+ text_field1 | text_field2 | num_field1 | bool_field 
+-------------+-------------+------------+------------
+ Text 10     | Sample 0    |         10 | t
+ Text 12     | Sample 2    |         12 | t
+ Text 14     | Sample 4    |         14 | t
+ Text 16     | Sample 6    |         16 | t
+ Text 18     | Sample 8    |         18 | t
+ Text 2      | Sample 2    |          2 | t
+ Text 20     | Sample 0    |         20 | t
+ Text 22     | Sample 2    |         22 | t
+ Text 24     | Sample 4    |         24 | t
+ Text 26     | Sample 6    |         26 | t
+ Text 28     | Sample 8    |         28 | t
+ Text 30     | Sample 0    |         30 | t
+ Text 32     | Sample 2    |         32 | t
+ Text 34     | Sample 4    |         34 | t
+ Text 36     | Sample 6    |         36 | t
+ Text 38     | Sample 8    |         38 | t
+ Text 4      | Sample 4    |          4 | t
+ Text 40     | Sample 0    |         40 | t
+ Text 42     | Sample 2    |         42 | t
+ Text 44     | Sample 4    |         44 | t
+ Text 46     | Sample 6    |         46 | t
+ Text 48     | Sample 8    |         48 | t
+ Text 50     | Sample 0    |         50 | t
+ Text 6      | Sample 6    |          6 | t
+ Text 8      | Sample 8    |          8 | t
+(25 rows)
 
 -- Test 4: Should use StringFastFieldExecState when only one string field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1
 FROM exec_method_test
-WHERE text_field1 @@@ 'Text';
-                                                                     QUERY PLAN                                                                      
------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on exec_method_test
-   Table: exec_method_test
-   Index: exec_method_idx
-   Segment Count: 1
-   Exec Method: StringFastFieldExecState
-   Fast Fields: text_field1
-   String Agg Field: text_field1
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}}
-(9 rows)
+WHERE text_field1 @@@ 'Text'
+ORDER BY text_field1;
+                                                                        QUERY PLAN                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: text_field1
+   ->  Custom Scan (ParadeDB Scan) on exec_method_test
+         Table: exec_method_test
+         Index: exec_method_idx
+         Segment Count: 1
+         Exec Method: StringFastFieldExecState
+         Fast Fields: text_field1
+         String Agg Field: text_field1
+         Scores: false
+            Sort Field: text_field1
+            Sort Direction: asc
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
+
+SELECT text_field1
+FROM exec_method_test
+WHERE text_field1 @@@ 'Text'
+ORDER BY text_field1;
+ text_field1 
+-------------
+ Text 1
+ Text 10
+ Text 11
+ Text 12
+ Text 13
+ Text 14
+ Text 15
+ Text 16
+ Text 17
+ Text 18
+ Text 19
+ Text 2
+ Text 20
+ Text 21
+ Text 22
+ Text 23
+ Text 24
+ Text 25
+ Text 26
+ Text 27
+ Text 28
+ Text 29
+ Text 3
+ Text 30
+ Text 31
+ Text 32
+ Text 33
+ Text 34
+ Text 35
+ Text 36
+ Text 37
+ Text 38
+ Text 39
+ Text 4
+ Text 40
+ Text 41
+ Text 42
+ Text 43
+ Text 44
+ Text 45
+ Text 46
+ Text 47
+ Text 48
+ Text 49
+ Text 5
+ Text 50
+ Text 6
+ Text 7
+ Text 8
+ Text 9
+(50 rows)
 
 -- Test 5: Should use NumericFastFieldExecState when only numeric fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT num_field1, num_field2
 FROM exec_method_test
-WHERE num_field1 > 25;
-          QUERY PLAN          
-------------------------------
- Seq Scan on exec_method_test
-   Filter: (num_field1 > 25)
-(2 rows)
+WHERE num_field1 > 25 and text_field1 @@@ 'Text'
+ORDER BY num_field1, num_field2;
+                                                                                                                                       QUERY PLAN                                                                                                                                       
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: num_field1, num_field2
+   ->  Custom Scan (ParadeDB Scan) on exec_method_test
+         Table: exec_method_test
+         Index: exec_method_idx
+         Segment Count: 1
+         Exec Method: NumericFastFieldExecState
+         Fast Fields: num_field1, num_field2
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"range":{"field":"num_field1","lower_bound":{"excluded":25},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}}]}}
+(10 rows)
+
+SELECT num_field1, num_field2
+FROM exec_method_test
+WHERE num_field1 > 25 and text_field1 @@@ 'Text'
+ORDER BY num_field1, num_field2;
+ num_field1 | num_field2 
+------------+------------
+         26 |         39
+         27 |       40.5
+         28 |         42
+         29 |       43.5
+         30 |         45
+         31 |       46.5
+         32 |         48
+         33 |       49.5
+         34 |         51
+         35 |       52.5
+         36 |         54
+         37 |       55.5
+         38 |         57
+         39 |       58.5
+         40 |         60
+         41 |       61.5
+         42 |         63
+         43 |       64.5
+         44 |         66
+         45 |       67.5
+         46 |         69
+         47 |       70.5
+         48 |         72
+         49 |       73.5
+         50 |         75
+(25 rows)
 
 -- Test 6: Should NOT use any FastField method when non-indexed fields are selected
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1, non_indexed_field
 FROM exec_method_test
-WHERE text_field1 @@@ 'Text';
-                                                                     QUERY PLAN                                                                      
------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on exec_method_test
-   Table: exec_method_test
-   Index: exec_method_idx
-   Segment Count: 1
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+WHERE text_field1 @@@ 'Text'
+ORDER BY text_field1, non_indexed_field;
+                                                                        QUERY PLAN                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: text_field1, non_indexed_field
+   ->  Custom Scan (ParadeDB Scan) on exec_method_test
+         Table: exec_method_test
+         Index: exec_method_idx
+         Segment Count: 1
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}}
+(9 rows)
+
+SELECT text_field1, non_indexed_field
+FROM exec_method_test
+WHERE text_field1 @@@ 'Text'
+ORDER BY text_field1, non_indexed_field;
+ text_field1 | non_indexed_field 
+-------------+-------------------
+ Text 1      | Non-indexed 1
+ Text 10     | Non-indexed 10
+ Text 11     | Non-indexed 11
+ Text 12     | Non-indexed 12
+ Text 13     | Non-indexed 13
+ Text 14     | Non-indexed 14
+ Text 15     | Non-indexed 15
+ Text 16     | Non-indexed 16
+ Text 17     | Non-indexed 17
+ Text 18     | Non-indexed 18
+ Text 19     | Non-indexed 19
+ Text 2      | Non-indexed 2
+ Text 20     | Non-indexed 20
+ Text 21     | Non-indexed 21
+ Text 22     | Non-indexed 22
+ Text 23     | Non-indexed 23
+ Text 24     | Non-indexed 24
+ Text 25     | Non-indexed 25
+ Text 26     | Non-indexed 26
+ Text 27     | Non-indexed 27
+ Text 28     | Non-indexed 28
+ Text 29     | Non-indexed 29
+ Text 3      | Non-indexed 3
+ Text 30     | Non-indexed 30
+ Text 31     | Non-indexed 31
+ Text 32     | Non-indexed 32
+ Text 33     | Non-indexed 33
+ Text 34     | Non-indexed 34
+ Text 35     | Non-indexed 35
+ Text 36     | Non-indexed 36
+ Text 37     | Non-indexed 37
+ Text 38     | Non-indexed 38
+ Text 39     | Non-indexed 39
+ Text 4      | Non-indexed 4
+ Text 40     | Non-indexed 40
+ Text 41     | Non-indexed 41
+ Text 42     | Non-indexed 42
+ Text 43     | Non-indexed 43
+ Text 44     | Non-indexed 44
+ Text 45     | Non-indexed 45
+ Text 46     | Non-indexed 46
+ Text 47     | Non-indexed 47
+ Text 48     | Non-indexed 48
+ Text 49     | Non-indexed 49
+ Text 5      | Non-indexed 5
+ Text 50     | Non-indexed 50
+ Text 6      | Non-indexed 6
+ Text 7      | Non-indexed 7
+ Text 8      | Non-indexed 8
+ Text 9      | Non-indexed 9
+(50 rows)
 
 -- Test 7: Should use MixedFastFieldExecState even with ORDER BY
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1, num_field1
 FROM exec_method_test
 WHERE text_field1 @@@ 'Text'
-ORDER BY num_field1 DESC;
+ORDER BY text_field1, num_field1 DESC;
                                                                         QUERY PLAN                                                                         
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
-   Sort Key: num_field1 DESC
+   Sort Key: text_field1, num_field1 DESC
    ->  Custom Scan (ParadeDB Scan) on exec_method_test
          Table: exec_method_test
          Index: exec_method_idx
@@ -406,6 +720,64 @@ ORDER BY num_field1 DESC;
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}}
 (12 rows)
 
+SELECT text_field1, num_field1
+FROM exec_method_test
+WHERE text_field1 @@@ 'Text'
+ORDER BY text_field1, num_field1 DESC;
+ text_field1 | num_field1 
+-------------+------------
+ Text 1      |          1
+ Text 10     |         10
+ Text 11     |         11
+ Text 12     |         12
+ Text 13     |         13
+ Text 14     |         14
+ Text 15     |         15
+ Text 16     |         16
+ Text 17     |         17
+ Text 18     |         18
+ Text 19     |         19
+ Text 2      |          2
+ Text 20     |         20
+ Text 21     |         21
+ Text 22     |         22
+ Text 23     |         23
+ Text 24     |         24
+ Text 25     |         25
+ Text 26     |         26
+ Text 27     |         27
+ Text 28     |         28
+ Text 29     |         29
+ Text 3      |          3
+ Text 30     |         30
+ Text 31     |         31
+ Text 32     |         32
+ Text 33     |         33
+ Text 34     |         34
+ Text 35     |         35
+ Text 36     |         36
+ Text 37     |         37
+ Text 38     |         38
+ Text 39     |         39
+ Text 4      |          4
+ Text 40     |         40
+ Text 41     |         41
+ Text 42     |         42
+ Text 43     |         43
+ Text 44     |         44
+ Text 45     |         45
+ Text 46     |         46
+ Text 47     |         47
+ Text 48     |         48
+ Text 49     |         49
+ Text 5      |          5
+ Text 50     |         50
+ Text 6      |          6
+ Text 7      |          7
+ Text 8      |          8
+ Text 9      |          9
+(50 rows)
+
 -- Test 8: Should use MixedFastFieldExecState with filtering on multiple field types
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1, text_field2, num_field1, bool_field
@@ -413,20 +785,50 @@ FROM exec_method_test
 WHERE text_field1 @@@ 'Text' 
   AND text_field2 @@@ 'Sample'
   AND num_field1 BETWEEN 10 AND 40
-  AND bool_field = true;
-                                                                                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                                                                                          
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on exec_method_test
-   Table: exec_method_test
-   Index: exec_method_idx
-   Segment Count: 1
-   Exec Method: MixedFastFieldExecState
-   Fast Fields: text_field1, text_field2, num_field1, bool_field
-   String Fast Fields: text_field1, text_field2
-   Numeric Fast Fields: num_field1, bool_field
-   Scores: false
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"text_field2","query_string":"Sample","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"num_field1","lower_bound":{"included":10},"upper_bound":null,"is_datetime":false}},{"range":{"field":"num_field1","lower_bound":null,"upper_bound":{"included":40},"is_datetime":false}},{"term":{"field":"bool_field","value":true,"is_datetime":false}}]}}
-(10 rows)
+  AND bool_field = true
+ORDER BY text_field1, text_field2, num_field1, bool_field;
+                                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: text_field1, text_field2, num_field1, bool_field
+   ->  Custom Scan (ParadeDB Scan) on exec_method_test
+         Table: exec_method_test
+         Index: exec_method_idx
+         Segment Count: 1
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: text_field1, text_field2, num_field1, bool_field
+         String Fast Fields: text_field1, text_field2
+         Numeric Fast Fields: num_field1, bool_field
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"text_field2","query_string":"Sample","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"num_field1","lower_bound":{"included":10},"upper_bound":null,"is_datetime":false}},{"range":{"field":"num_field1","lower_bound":null,"upper_bound":{"included":40},"is_datetime":false}},{"term":{"field":"bool_field","value":true,"is_datetime":false}}]}}
+(12 rows)
+
+SELECT text_field1, text_field2, num_field1, bool_field
+FROM exec_method_test
+WHERE text_field1 @@@ 'Text' 
+  AND text_field2 @@@ 'Sample'
+  AND num_field1 BETWEEN 10 AND 40
+  AND bool_field = true
+ORDER BY text_field1, text_field2, num_field1, bool_field;
+ text_field1 | text_field2 | num_field1 | bool_field 
+-------------+-------------+------------+------------
+ Text 10     | Sample 0    |         10 | t
+ Text 12     | Sample 2    |         12 | t
+ Text 14     | Sample 4    |         14 | t
+ Text 16     | Sample 6    |         16 | t
+ Text 18     | Sample 8    |         18 | t
+ Text 20     | Sample 0    |         20 | t
+ Text 22     | Sample 2    |         22 | t
+ Text 24     | Sample 4    |         24 | t
+ Text 26     | Sample 6    |         26 | t
+ Text 28     | Sample 8    |         28 | t
+ Text 30     | Sample 0    |         30 | t
+ Text 32     | Sample 2    |         32 | t
+ Text 34     | Sample 4    |         34 | t
+ Text 36     | Sample 6    |         36 | t
+ Text 38     | Sample 8    |         38 | t
+ Text 40     | Sample 0    |         40 | t
+(16 rows)
 
 -- Test 9: Verify correct execution method in a subquery
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -436,38 +838,64 @@ FROM (
     FROM exec_method_test
     WHERE text_field1 @@@ 'Text' AND num_field1 > 10
 ) t
-WHERE t.num_field1 < 30;
-                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                       
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on exec_method_test
-   Table: exec_method_test
-   Index: exec_method_idx
-   Segment Count: 1
-   Exec Method: MixedFastFieldExecState
-   Fast Fields: text_field1, num_field1
-   String Fast Fields: text_field1
-   Numeric Fast Fields: num_field1
-   Scores: false
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"num_field1","lower_bound":{"excluded":10},"upper_bound":null,"is_datetime":false}},{"range":{"field":"num_field1","lower_bound":null,"upper_bound":{"excluded":30},"is_datetime":false}}]}}
-(10 rows)
+WHERE t.num_field1 < 30
+ORDER BY t.text_field1, t.num_field1;
+                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: exec_method_test.text_field1, exec_method_test.num_field1
+   ->  Custom Scan (ParadeDB Scan) on exec_method_test
+         Table: exec_method_test
+         Index: exec_method_idx
+         Segment Count: 1
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: text_field1, num_field1
+         String Fast Fields: text_field1
+         Numeric Fast Fields: num_field1
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"num_field1","lower_bound":{"excluded":10},"upper_bound":null,"is_datetime":false}},{"range":{"field":"num_field1","lower_bound":null,"upper_bound":{"excluded":30},"is_datetime":false}}]}}
+(12 rows)
+
+SELECT t.text_field1, t.num_field1
+FROM (
+    SELECT text_field1, num_field1
+    FROM exec_method_test
+    WHERE text_field1 @@@ 'Text' AND num_field1 > 10
+) t
+WHERE t.num_field1 < 30
+ORDER BY t.text_field1, t.num_field1;
+ text_field1 | num_field1 
+-------------+------------
+ Text 11     |         11
+ Text 12     |         12
+ Text 13     |         13
+ Text 14     |         14
+ Text 15     |         15
+ Text 16     |         16
+ Text 17     |         17
+ Text 18     |         18
+ Text 19     |         19
+ Text 20     |         20
+ Text 21     |         21
+ Text 22     |         22
+ Text 23     |         23
+ Text 24     |         24
+ Text 25     |         25
+ Text 26     |         26
+ Text 27     |         27
+ Text 28     |         28
+ Text 29     |         29
+(19 rows)
 
 -- Verify actual results match expected values (not just execution method)
 SELECT text_field1, text_field2, num_field1
 FROM exec_method_test
 WHERE text_field1 @@@ 'Text 1'
   AND num_field1 < 20
-ORDER BY num_field1;
+ORDER BY text_field1, text_field2, num_field1;
  text_field1 | text_field2 | num_field1 
 -------------+-------------+------------
  Text 1      | Sample 1    |          1
- Text 2      | Sample 2    |          2
- Text 3      | Sample 3    |          3
- Text 4      | Sample 4    |          4
- Text 5      | Sample 5    |          5
- Text 6      | Sample 6    |          6
- Text 7      | Sample 7    |          7
- Text 8      | Sample 8    |          8
- Text 9      | Sample 9    |          9
  Text 10     | Sample 0    |         10
  Text 11     | Sample 1    |         11
  Text 12     | Sample 2    |         12
@@ -478,13 +906,19 @@ ORDER BY num_field1;
  Text 17     | Sample 7    |         17
  Text 18     | Sample 8    |         18
  Text 19     | Sample 9    |         19
+ Text 2      | Sample 2    |          2
+ Text 3      | Sample 3    |          3
+ Text 4      | Sample 4    |          4
+ Text 5      | Sample 5    |          5
+ Text 6      | Sample 6    |          6
+ Text 7      | Sample 7    |          7
+ Text 8      | Sample 8    |          8
+ Text 9      | Sample 9    |          9
 (19 rows)
 
 -- Clean up
 DROP INDEX IF EXISTS exec_method_idx;
 DROP TABLE IF EXISTS exec_method_test; 
--- Reset parallel workers setting to default
-RESET max_parallel_workers_per_gather;
 \i common/mixedff_advanced_cleanup.sql
 -- Cleanup for advanced features tests (13-21)
 -- Drop the tables used in these tests (in reverse order to handle dependencies)
@@ -495,8 +929,13 @@ DROP TABLE IF EXISTS pages CASCADE;
 DROP TABLE IF EXISTS files CASCADE;
 DROP TABLE IF EXISTS documents CASCADE;
 DROP TABLE IF EXISTS mixed_numeric_string_test CASCADE;
+DROP INDEX IF EXISTS union_test_a_idx CASCADE;
+DROP INDEX IF EXISTS union_test_b_idx CASCADE;
+DROP TABLE IF EXISTS union_test_a CASCADE;
+DROP TABLE IF EXISTS union_test_b CASCADE; 
 -- Reset parallel workers setting to default
 RESET max_parallel_workers_per_gather;
+RESET enable_indexscan;
 SELECT 'Advanced features tests cleanup complete' AS status; 
                   status                  
 ------------------------------------------

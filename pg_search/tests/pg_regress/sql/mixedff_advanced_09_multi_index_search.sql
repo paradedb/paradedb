@@ -150,8 +150,23 @@ WHERE p.name @@@ 'Product' AND c.is_active = true
 ORDER BY p.price DESC
 LIMIT 10;
 
+SELECT p.name, p.price, c.name as category
+FROM products p
+JOIN product_categories pc ON p.id = pc.product_id
+JOIN categories c ON pc.category_id = c.id
+WHERE p.name @@@ 'Product' AND c.is_active = true
+ORDER BY p.price DESC
+LIMIT 10;
+
 -- Test 2: Join between products and reviews with search
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT p.name, r.rating, r.content
+FROM products p
+JOIN reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'product' AND r.rating >= 4
+ORDER BY r.helpful_votes DESC
+LIMIT 5;
+
 SELECT p.name, r.rating, r.content
 FROM products p
 JOIN reviews r ON p.id = r.product_id
@@ -171,8 +186,41 @@ GROUP BY p.name, c.name
 HAVING AVG(r.rating) > 3
 ORDER BY avg_rating DESC;
 
+SELECT p.name, c.name as category, AVG(r.rating) as avg_rating
+FROM products p
+JOIN product_categories pc ON p.id = pc.product_id
+JOIN categories c ON pc.category_id = c.id
+JOIN reviews r ON p.id = r.product_id
+WHERE p.price < 500 AND c.product_count > 10
+GROUP BY p.name, c.name
+HAVING AVG(r.rating) > 3
+ORDER BY avg_rating DESC;
+
 -- Test 4: Complex query with multiple indices and mixed fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+WITH top_products AS (
+    SELECT p.id, p.name, p.price, p.stock_count
+    FROM products p
+    WHERE p.price BETWEEN 100 AND 800
+      AND p.is_available = true
+    ORDER BY p.price DESC
+    LIMIT 50
+),
+product_ratings AS (
+    SELECT r.product_id, AVG(r.rating) as avg_rating, COUNT(*) as review_count
+    FROM reviews r
+    WHERE r.rating >= 3
+    GROUP BY r.product_id
+    HAVING COUNT(*) >= 2
+)
+SELECT tp.name, tp.price, pr.avg_rating, c.name as category
+FROM top_products tp
+JOIN product_ratings pr ON tp.id = pr.product_id
+JOIN product_categories pc ON tp.id = pc.product_id
+JOIN categories c ON pc.category_id = c.id
+WHERE c.is_active = true
+ORDER BY pr.avg_rating DESC, tp.price DESC;
+
 WITH top_products AS (
     SELECT p.id, p.name, p.price, p.stock_count
     FROM products p
@@ -211,8 +259,33 @@ FROM reviews
 WHERE content @@@ 'great'
 ORDER BY type, item_name;
 
+SELECT 'Product' as type, name as item_name, description as content
+FROM products
+WHERE name @@@ '10' OR description @@@ 'feature'
+UNION ALL
+SELECT 'Category' as type, name as item_name, description as content
+FROM categories
+WHERE name @@@ 'e'
+UNION ALL
+SELECT 'Review' as type, reviewer_name as item_name, content
+FROM reviews
+WHERE content @@@ 'great'
+ORDER BY type, item_name;
+
 -- Test 6: Subquery with both numeric and text field filtering
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT p.name, p.price, p.stock_count
+FROM products p
+WHERE p.id IN (
+    SELECT pc.product_id
+    FROM product_categories pc
+    JOIN categories c ON pc.category_id = c.id
+    WHERE c.name @@@ 'electronics OR clothing'
+)
+AND p.stock_count > 50
+AND p.price < 500
+ORDER BY p.price;
+
 SELECT p.name, p.price, p.stock_count
 FROM products p
 WHERE p.id IN (
@@ -251,8 +324,43 @@ ORDER BY
     END DESC,
     p.price;
 
+SELECT 
+    p.name,
+    p.price,
+    CASE 
+        WHEN r.rating IS NULL THEN 'No reviews'
+        WHEN r.rating < 3 THEN 'Poor reviews'
+        WHEN r.rating < 4 THEN 'Average reviews'
+        ELSE 'Great reviews'
+    END as review_status
+FROM products p
+LEFT JOIN (
+    SELECT product_id, AVG(rating) as rating
+    FROM reviews
+    GROUP BY product_id
+) r ON p.id = r.product_id
+WHERE p.is_available = true
+  AND p.price BETWEEN 200 AND 600
+ORDER BY 
+    CASE 
+        WHEN r.rating IS NULL THEN 0
+        ELSE r.rating
+    END DESC,
+    p.price;
+
 -- Test 8: Multi-index intersection
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT p.name, p.price, r.content, r.rating
+FROM products p
+JOIN reviews r ON p.id = r.product_id
+JOIN product_categories pc ON p.id = pc.product_id
+JOIN categories c ON pc.category_id = c.id
+WHERE p.name @@@ 'Product'
+  AND r.rating > 3
+  AND c.name = 'Electronics'
+  AND p.is_available = true
+ORDER BY r.rating DESC, p.price DESC;
+
 SELECT p.name, p.price, r.content, r.rating
 FROM products p
 JOIN reviews r ON p.id = r.product_id

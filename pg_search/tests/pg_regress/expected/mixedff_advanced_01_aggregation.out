@@ -3,6 +3,7 @@
 CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans
 SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
 -- Drop any existing test tables from this group
 DROP TABLE IF EXISTS documents CASCADE;
 DROP TABLE IF EXISTS files CASCADE; 
@@ -34,7 +35,7 @@ CREATE INDEX mixed_test_search ON mixed_numeric_string_test USING bm25 (
     text_fields = '{"string_field1": {"tokenizer": {"type": "default"}, "fast": true}, "string_field2": {"tokenizer": {"type": "default"}, "fast": true}, "string_field3": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
     numeric_fields = '{"numeric_field1": {"fast": true}, "numeric_field2": {"fast": true}}'
 );
-psql:common/mixedff_advanced_setup.sql:38: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_advanced_setup.sql:39: WARNING:  the `raw` tokenizer is deprecated
 -- Insert test data
 INSERT INTO mixed_numeric_string_test (id, numeric_field1, numeric_field2, string_field1, string_field2, string_field3, content) VALUES
 ('mix1', 100, 10000, 'Apple', 'Red', 'Fruit', 'This is a red apple'),
@@ -105,7 +106,7 @@ CREATE INDEX documents_search ON documents USING bm25 (
     key_field = 'id',
     text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "parents": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
-psql:common/mixedff_advanced_setup.sql:114: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_advanced_setup.sql:115: WARNING:  the `raw` tokenizer is deprecated
 CREATE INDEX files_search ON files USING bm25 (
     id,
     documentId,
@@ -115,7 +116,7 @@ CREATE INDEX files_search ON files USING bm25 (
     key_field = 'id',
     text_fields = '{"documentid": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "file_path": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
-psql:common/mixedff_advanced_setup.sql:124: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_advanced_setup.sql:125: WARNING:  the `raw` tokenizer is deprecated
 CREATE INDEX pages_search ON pages USING bm25 (
     id,
     fileId,
@@ -126,7 +127,7 @@ CREATE INDEX pages_search ON pages USING bm25 (
     text_fields = '{"fileid": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
     numeric_fields = '{"page_number": {"fast": true}}'
 );
-psql:common/mixedff_advanced_setup.sql:135: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_advanced_setup.sql:136: WARNING:  the `raw` tokenizer is deprecated
 -- Insert sample data
 INSERT INTO documents (id, title, content, parents) VALUES
 ('doc1', 'Invoice 2023', 'This is an invoice for services rendered in 2023', 'Factures'),
@@ -230,7 +231,7 @@ CREATE INDEX conversion_search ON conversion_test USING bm25 (
     }',
     boolean_fields = '{"bool_from_int": {"fast": true}}'
 );
-psql:common/mixedff_advanced_setup.sql:249: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_advanced_setup.sql:250: WARNING:  the `raw` tokenizer is deprecated
 INSERT INTO conversion_test VALUES
 ('conv1', 32767, 2147483647, 9223372036854775807, 9999999.99, 3.402e38, 1.7976931348623157e308, true, '1988-04-29', 'conversion test'),
 ('conv2', -32768, -2147483648, -9223372036854775808, -9999999.99, -3.402e38, -1.7976931348623157e308, false, '1999-12-31', 'conversion test'),
@@ -238,6 +239,65 @@ INSERT INTO conversion_test VALUES
 -- Add a product with a distinct string for testing
 INSERT INTO mixed_numeric_string_test (id, numeric_field1, numeric_field2, string_field1, string_field2, string_field3, content) VALUES
 ('unique1', 42, 4242, 'Unique Product Z', 'Test', 'Item', 'This is a uniqueproductZ for testing mixed fields'); 
+-- Create test tables
+DROP TABLE IF EXISTS union_test_a;
+DROP TABLE IF EXISTS union_test_b;
+CREATE TABLE union_test_a (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    author TEXT,
+    rating NUMERIC,
+    year INTEGER,
+    price FLOAT,
+    is_published BOOLEAN
+);
+CREATE TABLE union_test_b (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    author TEXT,
+    rating NUMERIC,
+    year INTEGER,
+    price FLOAT,
+    is_published BOOLEAN
+);
+-- Insert test data with deterministic values
+INSERT INTO union_test_a (title, author, rating, year, price, is_published)
+SELECT
+    'Book A' || i,
+    'Author ' || (1 + (i % 10)),
+    (3 + (i % 3))::numeric,  -- Ratings from 3 to 5
+    2000 + (i % 22),
+    (10 + (i * 5))::float,   -- Deterministic prices
+    i % 3 != 0               -- Deterministic boolean pattern
+FROM generate_series(1, 50) i;
+INSERT INTO union_test_b (title, author, rating, year, price, is_published)
+SELECT
+    'Book B' || i,
+    'Author ' || (1 + (i % 15)),
+    (1 + (i % 5))::numeric,  -- Ratings from 1 to 5
+    1980 + (i % 40),
+    (15 + (i * 3))::float,   -- Deterministic prices
+    i % 4 != 0               -- Deterministic boolean pattern
+FROM generate_series(1, 50) i;
+-- Create indices with mixed fast fields
+DROP INDEX IF EXISTS union_test_a_idx;
+DROP INDEX IF EXISTS union_test_b_idx;
+CREATE INDEX union_test_a_idx ON union_test_a
+USING bm25 (id, title, author, rating, year, price, is_published)
+WITH (
+    key_field = 'id',
+    text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "author": {"tokenizer": {"type": "default"}, "fast": true}}',
+    numeric_fields = '{"rating": {"fast": true}, "year": {"fast": true}, "price": {"fast": true}}',
+    boolean_fields = '{"is_published": {"fast": true}}'
+);
+CREATE INDEX union_test_b_idx ON union_test_b
+USING bm25 (id, title, author, rating, year, price, is_published)
+WITH (
+    key_field = 'id',
+    text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "author": {"tokenizer": {"type": "default"}, "fast": true}}',
+    numeric_fields = '{"rating": {"fast": true}, "year": {"fast": true}, "price": {"fast": true}}',
+    boolean_fields = '{"is_published": {"fast": true}}'
+);
 \echo 'Test: Aggregation query'
 Test: Aggregation query
 -- Check execution plan for COUNT
@@ -310,8 +370,13 @@ DROP TABLE IF EXISTS pages CASCADE;
 DROP TABLE IF EXISTS files CASCADE;
 DROP TABLE IF EXISTS documents CASCADE;
 DROP TABLE IF EXISTS mixed_numeric_string_test CASCADE;
+DROP INDEX IF EXISTS union_test_a_idx CASCADE;
+DROP INDEX IF EXISTS union_test_b_idx CASCADE;
+DROP TABLE IF EXISTS union_test_a CASCADE;
+DROP TABLE IF EXISTS union_test_b CASCADE; 
 -- Reset parallel workers setting to default
 RESET max_parallel_workers_per_gather;
+RESET enable_indexscan;
 SELECT 'Advanced features tests cleanup complete' AS status; 
                   status                  
 ------------------------------------------

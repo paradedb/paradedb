@@ -2,6 +2,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 
 -- Disable parallel workers to avoid differences in plans
 SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
 
 -- Drop any existing test tables from this group
 DROP TABLE IF EXISTS mixed_numeric_string_test CASCADE;

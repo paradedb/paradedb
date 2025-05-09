@@ -3,6 +3,7 @@
 CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans
 SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
 -- Drop any existing test tables from this group
 DROP TABLE IF EXISTS documents CASCADE;
 DROP TABLE IF EXISTS files CASCADE; 
@@ -34,7 +35,7 @@ CREATE INDEX mixed_test_search ON mixed_numeric_string_test USING bm25 (
     text_fields = '{"string_field1": {"tokenizer": {"type": "default"}, "fast": true}, "string_field2": {"tokenizer": {"type": "default"}, "fast": true}, "string_field3": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
     numeric_fields = '{"numeric_field1": {"fast": true}, "numeric_field2": {"fast": true}}'
 );
-psql:common/mixedff_advanced_setup.sql:38: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_advanced_setup.sql:39: WARNING:  the `raw` tokenizer is deprecated
 -- Insert test data
 INSERT INTO mixed_numeric_string_test (id, numeric_field1, numeric_field2, string_field1, string_field2, string_field3, content) VALUES
 ('mix1', 100, 10000, 'Apple', 'Red', 'Fruit', 'This is a red apple'),
@@ -105,7 +106,7 @@ CREATE INDEX documents_search ON documents USING bm25 (
     key_field = 'id',
     text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "parents": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
-psql:common/mixedff_advanced_setup.sql:114: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_advanced_setup.sql:115: WARNING:  the `raw` tokenizer is deprecated
 CREATE INDEX files_search ON files USING bm25 (
     id,
     documentId,
@@ -115,7 +116,7 @@ CREATE INDEX files_search ON files USING bm25 (
     key_field = 'id',
     text_fields = '{"documentid": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "file_path": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
-psql:common/mixedff_advanced_setup.sql:124: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_advanced_setup.sql:125: WARNING:  the `raw` tokenizer is deprecated
 CREATE INDEX pages_search ON pages USING bm25 (
     id,
     fileId,
@@ -126,7 +127,7 @@ CREATE INDEX pages_search ON pages USING bm25 (
     text_fields = '{"fileid": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
     numeric_fields = '{"page_number": {"fast": true}}'
 );
-psql:common/mixedff_advanced_setup.sql:135: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_advanced_setup.sql:136: WARNING:  the `raw` tokenizer is deprecated
 -- Insert sample data
 INSERT INTO documents (id, title, content, parents) VALUES
 ('doc1', 'Invoice 2023', 'This is an invoice for services rendered in 2023', 'Factures'),
@@ -230,7 +231,7 @@ CREATE INDEX conversion_search ON conversion_test USING bm25 (
     }',
     boolean_fields = '{"bool_from_int": {"fast": true}}'
 );
-psql:common/mixedff_advanced_setup.sql:249: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_advanced_setup.sql:250: WARNING:  the `raw` tokenizer is deprecated
 INSERT INTO conversion_test VALUES
 ('conv1', 32767, 2147483647, 9223372036854775807, 9999999.99, 3.402e38, 1.7976931348623157e308, true, '1988-04-29', 'conversion test'),
 ('conv2', -32768, -2147483648, -9223372036854775808, -9999999.99, -3.402e38, -1.7976931348623157e308, false, '1999-12-31', 'conversion test'),
@@ -238,8 +239,123 @@ INSERT INTO conversion_test VALUES
 -- Add a product with a distinct string for testing
 INSERT INTO mixed_numeric_string_test (id, numeric_field1, numeric_field2, string_field1, string_field2, string_field3, content) VALUES
 ('unique1', 42, 4242, 'Unique Product Z', 'Test', 'Item', 'This is a uniqueproductZ for testing mixed fields'); 
+-- Create test tables
+DROP TABLE IF EXISTS union_test_a;
+DROP TABLE IF EXISTS union_test_b;
+CREATE TABLE union_test_a (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    author TEXT,
+    rating NUMERIC,
+    year INTEGER,
+    price FLOAT,
+    is_published BOOLEAN
+);
+CREATE TABLE union_test_b (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    author TEXT,
+    rating NUMERIC,
+    year INTEGER,
+    price FLOAT,
+    is_published BOOLEAN
+);
+-- Insert test data with deterministic values
+INSERT INTO union_test_a (title, author, rating, year, price, is_published)
+SELECT
+    'Book A' || i,
+    'Author ' || (1 + (i % 10)),
+    (3 + (i % 3))::numeric,  -- Ratings from 3 to 5
+    2000 + (i % 22),
+    (10 + (i * 5))::float,   -- Deterministic prices
+    i % 3 != 0               -- Deterministic boolean pattern
+FROM generate_series(1, 50) i;
+INSERT INTO union_test_b (title, author, rating, year, price, is_published)
+SELECT
+    'Book B' || i,
+    'Author ' || (1 + (i % 15)),
+    (1 + (i % 5))::numeric,  -- Ratings from 1 to 5
+    1980 + (i % 40),
+    (15 + (i * 3))::float,   -- Deterministic prices
+    i % 4 != 0               -- Deterministic boolean pattern
+FROM generate_series(1, 50) i;
+-- Create indices with mixed fast fields
+DROP INDEX IF EXISTS union_test_a_idx;
+DROP INDEX IF EXISTS union_test_b_idx;
+CREATE INDEX union_test_a_idx ON union_test_a
+USING bm25 (id, title, author, rating, year, price, is_published)
+WITH (
+    key_field = 'id',
+    text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "author": {"tokenizer": {"type": "default"}, "fast": true}}',
+    numeric_fields = '{"rating": {"fast": true}, "year": {"fast": true}, "price": {"fast": true}}',
+    boolean_fields = '{"is_published": {"fast": true}}'
+);
+CREATE INDEX union_test_b_idx ON union_test_b
+USING bm25 (id, title, author, rating, year, price, is_published)
+WITH (
+    key_field = 'id',
+    text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "author": {"tokenizer": {"type": "default"}, "fast": true}}',
+    numeric_fields = '{"rating": {"fast": true}, "year": {"fast": true}, "price": {"fast": true}}',
+    boolean_fields = '{"is_published": {"fast": true}}'
+);
 \echo 'Test: Recursive CTE'
 Test: Recursive CTE
+-- Create test tables for hierarchical data
+DROP TABLE IF EXISTS category;
+CREATE TABLE category (
+    id SERIAL PRIMARY KEY,
+    name TEXT,
+    parent_id INTEGER,
+    level INTEGER,
+    description TEXT,
+    item_count INTEGER,
+    created_at TIMESTAMP,
+    is_active BOOLEAN
+);
+-- Insert root categories (no parent)
+INSERT INTO category (name, parent_id, level, description, item_count, created_at, is_active)
+VALUES
+    ('Electronics', NULL, 1, 'Electronic devices and accessories', 250, '2023-01-01 10:00:00', true),
+    ('Books', NULL, 1, 'Books and literature', 500, '2023-01-01 10:00:00', true),
+    ('Clothing', NULL, 1, 'Apparel and fashion items', 300, '2023-01-01 10:00:00', true),
+    ('Home & Garden', NULL, 1, 'Home improvement and garden supplies', 180, '2023-01-01 10:00:00', true);
+-- Insert level 2 subcategories
+INSERT INTO category (name, parent_id, level, description, item_count, created_at, is_active)
+VALUES
+    ('Computers', 1, 2, 'Desktop and laptop computers', 80, '2023-01-02 10:00:00', true),
+    ('Smartphones', 1, 2, 'Mobile phones and accessories', 120, '2023-01-02 10:00:00', true),
+    ('Audio', 1, 2, 'Speakers, headphones, and audio equipment', 50, '2023-01-02 10:00:00', true),
+    ('Fiction', 2, 2, 'Fiction books and novels', 200, '2023-01-02 10:00:00', true),
+    ('Non-Fiction', 2, 2, 'Non-fiction and reference books', 250, '2023-01-02 10:00:00', true),
+    ('Academic', 2, 2, 'Textbooks and academic materials', 50, '2023-01-02 10:00:00', true),
+    ('Men', 3, 2, 'Mens clothing', 100, '2023-01-02 10:00:00', true),
+    ('Women', 3, 2, 'Womens clothing', 150, '2023-01-02 10:00:00', true),
+    ('Children', 3, 2, 'Childrens clothing', 50, '2023-01-02 10:00:00', true),
+    ('Furniture', 4, 2, 'Home furniture', 80, '2023-01-02 10:00:00', true),
+    ('Garden Tools', 4, 2, 'Garden equipment and supplies', 60, '2023-01-02 10:00:00', true),
+    ('Kitchen', 4, 2, 'Kitchen appliances and utensils', 40, '2023-01-02 10:00:00', true);
+-- Insert level 3 subcategories
+INSERT INTO category (name, parent_id, level, description, item_count, created_at, is_active)
+VALUES
+    ('Laptops', 5, 3, 'Portable computers', 40, '2023-01-03 10:00:00', true),
+    ('Desktops', 5, 3, 'Desktop computers', 30, '2023-01-03 10:00:00', true),
+    ('Tablets', 5, 3, 'Tablet computers', 10, '2023-01-03 10:00:00', true),
+    ('Android', 6, 3, 'Android smartphones', 60, '2023-01-03 10:00:00', true),
+    ('iOS', 6, 3, 'iPhones and iOS devices', 50, '2023-01-03 10:00:00', true),
+    ('Other', 6, 3, 'Other smartphone platforms', 10, '2023-01-03 10:00:00', true),
+    ('Headphones', 7, 3, 'Personal audio devices', 30, '2023-01-03 10:00:00', true),
+    ('Speakers', 7, 3, 'Speaker systems', 15, '2023-01-03 10:00:00', true),
+    ('Receivers', 7, 3, 'Audio receivers and amplifiers', 5, '2023-01-03 10:00:00', true);
+-- Create search index with mixed fast fields
+DROP INDEX IF EXISTS category_idx;
+CREATE INDEX category_idx ON category
+USING bm25 (id, name, description, level, item_count, is_active)
+WITH (
+    key_field = 'id',
+    text_fields = '{"name": {"tokenizer": {"type": "default"}, "fast": true}, "description": {"tokenizer": {"type": "default"}, "fast": true}}',
+    numeric_fields = '{"level": {"fast": true}, "item_count": {"fast": true}}',
+    boolean_fields = '{"is_active": {"fast": true}}'
+);
 -- Test 1: Basic recursive CTE to find all descendants of Electronics
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 WITH RECURSIVE category_tree AS (
@@ -258,7 +374,55 @@ WITH RECURSIVE category_tree AS (
 SELECT name, level, item_count
 FROM category_tree
 ORDER BY level, name;
-ERROR:  relation "category" does not exist at character 195
+                          QUERY PLAN                          
+--------------------------------------------------------------
+ Sort
+   Sort Key: category_tree.level, category_tree.name
+   CTE category_tree
+     ->  Recursive Union
+           ->  Seq Scan on category
+                 Filter: (name = 'Electronics'::text)
+           ->  Hash Join
+                 Hash Cond: (c.parent_id = ct.id)
+                 ->  Seq Scan on category c
+                 ->  Hash
+                       ->  WorkTable Scan on category_tree ct
+   ->  CTE Scan on category_tree
+(12 rows)
+
+WITH RECURSIVE category_tree AS (
+    -- Base case: start with parent category
+    SELECT id, name, parent_id, level, item_count, is_active
+    FROM category
+    WHERE name = 'Electronics'
+    
+    UNION ALL
+    
+    -- Recursive case: find children of current nodes
+    SELECT c.id, c.name, c.parent_id, c.level, c.item_count, c.is_active
+    FROM category c
+    JOIN category_tree ct ON c.parent_id = ct.id
+)
+SELECT name, level, item_count
+FROM category_tree
+ORDER BY level, name;
+    name     | level | item_count 
+-------------+-------+------------
+ Electronics |     1 |        250
+ Audio       |     2 |         50
+ Computers   |     2 |         80
+ Smartphones |     2 |        120
+ Android     |     3 |         60
+ Desktops    |     3 |         30
+ Headphones  |     3 |         30
+ Laptops     |     3 |         40
+ Other       |     3 |         10
+ Receivers   |     3 |          5
+ Speakers    |     3 |         15
+ Tablets     |     3 |         10
+ iOS         |     3 |         50
+(13 rows)
+
 -- Test 2: Recursive CTE with mixed field filtering
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 WITH RECURSIVE category_tree AS (
@@ -278,7 +442,65 @@ WITH RECURSIVE category_tree AS (
 SELECT name, level, item_count
 FROM category_tree
 ORDER BY level, item_count DESC;
-ERROR:  relation "category" does not exist at character 167
+                           QUERY PLAN                           
+----------------------------------------------------------------
+ Sort
+   Sort Key: category_tree.level, category_tree.item_count DESC
+   CTE category_tree
+     ->  Recursive Union
+           ->  Seq Scan on category
+                 Filter: ((item_count > 200) AND (level = 1))
+           ->  Hash Join
+                 Hash Cond: (c.parent_id = ct.id)
+                 ->  Seq Scan on category c
+                       Filter: is_active
+                 ->  Hash
+                       ->  WorkTable Scan on category_tree ct
+   ->  CTE Scan on category_tree
+(13 rows)
+
+WITH RECURSIVE category_tree AS (
+    -- Base case
+    SELECT id, name, parent_id, level, item_count, is_active
+    FROM category
+    WHERE level = 1 AND item_count > 200
+    
+    UNION ALL
+    
+    -- Recursive case
+    SELECT c.id, c.name, c.parent_id, c.level, c.item_count, c.is_active
+    FROM category c
+    JOIN category_tree ct ON c.parent_id = ct.id
+    WHERE c.is_active = true
+)
+SELECT name, level, item_count
+FROM category_tree
+ORDER BY level, item_count DESC;
+    name     | level | item_count 
+-------------+-------+------------
+ Books       |     1 |        500
+ Clothing    |     1 |        300
+ Electronics |     1 |        250
+ Non-Fiction |     2 |        250
+ Fiction     |     2 |        200
+ Women       |     2 |        150
+ Smartphones |     2 |        120
+ Men         |     2 |        100
+ Computers   |     2 |         80
+ Audio       |     2 |         50
+ Academic    |     2 |         50
+ Children    |     2 |         50
+ Android     |     3 |         60
+ iOS         |     3 |         50
+ Laptops     |     3 |         40
+ Desktops    |     3 |         30
+ Headphones  |     3 |         30
+ Speakers    |     3 |         15
+ Other       |     3 |         10
+ Tablets     |     3 |         10
+ Receivers   |     3 |          5
+(21 rows)
+
 -- Test 3: Recursive CTE with search condition in base case
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 WITH RECURSIVE category_tree AS (
@@ -297,7 +519,53 @@ WITH RECURSIVE category_tree AS (
 SELECT name, level, description, item_count
 FROM category_tree
 ORDER BY level, name;
-ERROR:  relation "category" does not exist at character 181
+                                                                             QUERY PLAN                                                                             
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: category_tree.level, category_tree.name
+   CTE category_tree
+     ->  Recursive Union
+           ->  Custom Scan (ParadeDB Scan) on category
+                 Table: category
+                 Index: category_idx
+                 Segment Count: 1
+                 Exec Method: NormalScanExecState
+                 Scores: false
+                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"books","lenient":null,"conjunction_mode":null}}}}
+           ->  Hash Join
+                 Hash Cond: (ct.id = c.parent_id)
+                 ->  WorkTable Scan on category_tree ct
+                 ->  Hash
+                       ->  Seq Scan on category c
+   ->  CTE Scan on category_tree
+(17 rows)
+
+WITH RECURSIVE category_tree AS (
+    -- Base case with search
+    SELECT id, name, parent_id, level, description, item_count
+    FROM category
+    WHERE description @@@ 'books'
+    
+    UNION ALL
+    
+    -- Recursive case
+    SELECT c.id, c.name, c.parent_id, c.level, c.description, c.item_count
+    FROM category c
+    JOIN category_tree ct ON c.parent_id = ct.id
+)
+SELECT name, level, description, item_count
+FROM category_tree
+ORDER BY level, name;
+    name     | level |           description            | item_count 
+-------------+-------+----------------------------------+------------
+ Books       |     1 | Books and literature             |        500
+ Academic    |     2 | Textbooks and academic materials |         50
+ Fiction     |     2 | Fiction books and novels         |        200
+ Fiction     |     2 | Fiction books and novels         |        200
+ Non-Fiction |     2 | Non-fiction and reference books  |        250
+ Non-Fiction |     2 | Non-fiction and reference books  |        250
+(6 rows)
+
 -- Test 4: Recursive CTE with search condition in recursive case
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 WITH RECURSIVE category_tree AS (
@@ -317,7 +585,56 @@ WITH RECURSIVE category_tree AS (
 SELECT name, level, description, item_count
 FROM category_tree
 ORDER BY level, name;
-ERROR:  relation "category" does not exist at character 169
+                                                                                                                                                    QUERY PLAN                                                                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: category_tree.level, category_tree.name
+   CTE category_tree
+     ->  Recursive Union
+           ->  Seq Scan on category
+                 Filter: (name = 'Electronics'::text)
+           ->  Hash Join
+                 Hash Cond: (ct.id = c.parent_id)
+                 ->  WorkTable Scan on category_tree ct
+                 ->  Hash
+                       ->  Custom Scan (ParadeDB Scan) on category c
+                             Table: category
+                             Index: category_idx
+                             Segment Count: 1
+                             Exec Method: NormalScanExecState
+                             Scores: false
+                             Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"computer","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"item_count","lower_bound":{"excluded":30},"upper_bound":null,"is_datetime":false}}]}}
+   ->  CTE Scan on category_tree
+(18 rows)
+
+WITH RECURSIVE category_tree AS (
+    -- Base case
+    SELECT id, name, parent_id, level, description, item_count
+    FROM category
+    WHERE name = 'Electronics'
+    
+    UNION ALL
+    
+    -- Recursive case with search
+    SELECT c.id, c.name, c.parent_id, c.level, c.description, c.item_count
+    FROM category c
+    JOIN category_tree ct ON c.parent_id = ct.id
+    WHERE c.description @@@ 'computer' OR c.item_count > 30
+)
+SELECT name, level, description, item_count
+FROM category_tree
+ORDER BY level, name;
+    name     | level |                description                | item_count 
+-------------+-------+-------------------------------------------+------------
+ Electronics |     1 | Electronic devices and accessories        |        250
+ Audio       |     2 | Speakers, headphones, and audio equipment |         50
+ Computers   |     2 | Desktop and laptop computers              |         80
+ Smartphones |     2 | Mobile phones and accessories             |        120
+ Android     |     3 | Android smartphones                       |         60
+ Laptops     |     3 | Portable computers                        |         40
+ iOS         |     3 | iPhones and iOS devices                   |         50
+(7 rows)
+
 -- Test 5: Complex recursive CTE with aggregation and mixed fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 WITH RECURSIVE category_tree AS (
@@ -353,7 +670,64 @@ SELECT
 FROM category_stats
 GROUP BY category_type
 ORDER BY category_type;
-ERROR:  relation "category" does not exist at character 156
+                                                                      QUERY PLAN                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Group Key: (CASE WHEN (ct.level = 1) THEN 'Main Category'::text WHEN (ct.level = 2) THEN 'Subcategory'::text ELSE 'Sub-subcategory'::text END)
+   CTE category_tree
+     ->  Recursive Union
+           ->  Seq Scan on category
+                 Filter: (level = 1)
+           ->  Hash Join
+                 Hash Cond: (c.parent_id = ct_1.id)
+                 ->  Seq Scan on category c
+                 ->  Hash
+                       ->  WorkTable Scan on category_tree ct_1
+   ->  Sort
+         Sort Key: (CASE WHEN (ct.level = 1) THEN 'Main Category'::text WHEN (ct.level = 2) THEN 'Subcategory'::text ELSE 'Sub-subcategory'::text END)
+         ->  CTE Scan on category_tree ct
+(14 rows)
+
+WITH RECURSIVE category_tree AS (
+    -- Base case
+    SELECT id, name, parent_id, level, item_count
+    FROM category
+    WHERE level = 1
+    
+    UNION ALL
+    
+    -- Recursive case
+    SELECT c.id, c.name, c.parent_id, c.level, c.item_count
+    FROM category c
+    JOIN category_tree ct ON c.parent_id = ct.id
+),
+category_stats AS (
+    SELECT 
+        ct.name,
+        ct.level,
+        ct.item_count,
+        CASE 
+            WHEN ct.level = 1 THEN 'Main Category'
+            WHEN ct.level = 2 THEN 'Subcategory'
+            ELSE 'Sub-subcategory'
+        END as category_type
+    FROM category_tree ct
+)
+SELECT 
+    category_type,
+    COUNT(*) as category_count,
+    SUM(item_count) as total_items,
+    AVG(item_count) as avg_items
+FROM category_stats
+GROUP BY category_type
+ORDER BY category_type;
+  category_type  | category_count | total_items |      avg_items       
+-----------------+----------------+-------------+----------------------
+ Main Category   |              4 |        1230 | 307.5000000000000000
+ Sub-subcategory |              9 |         250 |  27.7777777777777778
+ Subcategory     |             12 |        1230 | 102.5000000000000000
+(3 rows)
+
 -- Verify actual recursive CTE results with mixed fields
 WITH RECURSIVE category_tree AS (
     -- Base case
@@ -372,7 +746,26 @@ WITH RECURSIVE category_tree AS (
 SELECT name, level, description, item_count
 FROM category_tree
 ORDER BY level, name;
-ERROR:  relation "category" does not exist at character 135
+    name     | level |                description                | item_count 
+-------------+-------+-------------------------------------------+------------
+ Electronics |     1 | Electronic devices and accessories        |        250
+ Audio       |     2 | Speakers, headphones, and audio equipment |         50
+ Computers   |     2 | Desktop and laptop computers              |         80
+ Smartphones |     2 | Mobile phones and accessories             |        120
+ Android     |     3 | Android smartphones                       |         60
+ Desktops    |     3 | Desktop computers                         |         30
+ Headphones  |     3 | Personal audio devices                    |         30
+ Laptops     |     3 | Portable computers                        |         40
+ Other       |     3 | Other smartphone platforms                |         10
+ Receivers   |     3 | Audio receivers and amplifiers            |          5
+ Speakers    |     3 | Speaker systems                           |         15
+ Tablets     |     3 | Tablet computers                          |         10
+ iOS         |     3 | iPhones and iOS devices                   |         50
+(13 rows)
+
+-- Clean up
+DROP INDEX IF EXISTS category_idx;
+DROP TABLE IF EXISTS category; 
 \i common/mixedff_advanced_cleanup.sql
 -- Cleanup for advanced features tests (13-21)
 -- Drop the tables used in these tests (in reverse order to handle dependencies)
@@ -383,8 +776,13 @@ DROP TABLE IF EXISTS pages CASCADE;
 DROP TABLE IF EXISTS files CASCADE;
 DROP TABLE IF EXISTS documents CASCADE;
 DROP TABLE IF EXISTS mixed_numeric_string_test CASCADE;
+DROP INDEX IF EXISTS union_test_a_idx CASCADE;
+DROP INDEX IF EXISTS union_test_b_idx CASCADE;
+DROP TABLE IF EXISTS union_test_a CASCADE;
+DROP TABLE IF EXISTS union_test_b CASCADE; 
 -- Reset parallel workers setting to default
 RESET max_parallel_workers_per_gather;
+RESET enable_indexscan;
 SELECT 'Advanced features tests cleanup complete' AS status; 
                   status                  
 ------------------------------------------

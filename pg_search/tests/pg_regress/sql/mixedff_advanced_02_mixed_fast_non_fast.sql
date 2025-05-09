@@ -2,9 +2,6 @@
 
 \i common/mixedff_advanced_setup.sql
 
--- Disable parallel workers to avoid differences in plans
-SET max_parallel_workers_per_gather = 0;
-
 \echo 'Test: Mixed fast/non-fast fields'
 
 -- Check execution plan for fast fields (should use mixed fast exec)

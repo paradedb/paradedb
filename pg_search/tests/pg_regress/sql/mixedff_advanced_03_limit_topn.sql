@@ -59,8 +59,20 @@ WHERE category @@@ 'Electronics'
 ORDER BY price ASC
 LIMIT 5;
 
+SELECT title, category, rating, price
+FROM limit_topn_test
+WHERE category @@@ 'Electronics'
+ORDER BY price ASC
+LIMIT 5;
+
 -- Test LIMIT with multiple string fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT title, category
+FROM limit_topn_test
+WHERE category @@@ 'Books OR Electronics'
+ORDER BY title
+LIMIT 15;
+
 SELECT title, category
 FROM limit_topn_test
 WHERE category @@@ 'Books OR Electronics'
@@ -75,8 +87,20 @@ WHERE is_available = true
 ORDER BY rating DESC
 LIMIT 7;
 
+SELECT title, is_available, rating
+FROM limit_topn_test
+WHERE is_available = true
+ORDER BY rating DESC
+LIMIT 7;
+
 -- Test LIMIT with multiple numeric fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT rating, price
+FROM limit_topn_test
+WHERE rating > 3.0 AND price < 500
+ORDER BY price DESC
+LIMIT 12;
+
 SELECT rating, price
 FROM limit_topn_test
 WHERE rating > 3.0 AND price < 500
@@ -87,7 +111,13 @@ LIMIT 12;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, category, rating, price
 FROM limit_topn_test
-WHERE (rating BETWEEN 2.5 AND 4.5) AND category @@@ 'Electronics OR Toys'
+WHERE (rating BETWEEN 2.5 AND 4.5) AND category @@@ 'Toys OR Clothing'
+ORDER BY price DESC
+LIMIT 8;
+
+SELECT title, category, rating, price
+FROM limit_topn_test
+WHERE (rating BETWEEN 2.5 AND 4.5) AND category @@@ 'Toys OR Clothing'
 ORDER BY price DESC
 LIMIT 8;
 
@@ -101,8 +131,5 @@ LIMIT 5;
 -- Clean up
 DROP INDEX IF EXISTS limit_topn_idx;
 DROP TABLE IF EXISTS limit_topn_test;
-
--- Reset parallel workers setting to default
-RESET max_parallel_workers_per_gather;
 
 \i common/mixedff_advanced_cleanup.sql

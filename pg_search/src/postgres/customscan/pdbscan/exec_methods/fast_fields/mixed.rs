@@ -44,15 +44,19 @@ use tantivy::collector::Collector;
 use tantivy::index::SegmentId;
 use tantivy::query::Query;
 use tantivy::schema::document::OwnedValue;
+use tantivy::termdict::TermOrdinal;
 use tantivy::{DocAddress, Executor, SegmentOrdinal};
 
 // Thread-local string buffers for reuse to reduce memory allocations
 thread_local! {
     // Pool of reusable string buffers for term resolution
-    static STRING_BUFFER_POOL: RefCell<Vec<String>> = RefCell::new(Vec::with_capacity(16));
+    static STRING_BUFFER_POOL: RefCell<Vec<String>> = RefCell::new(Vec::with_capacity(128));
 
     // Reusable scratch buffer for temporary operations
-    static SCRATCH_BUFFER: RefCell<String> = RefCell::new(String::with_capacity(256));
+    static SCRATCH_BUFFER: RefCell<String> = RefCell::new(String::with_capacity(1024));
+
+    // Thread-local term cache to avoid repeated dictionary lookups
+    static TERM_CACHE: RefCell<TermCache> = RefCell::new(TermCache::new(1024));
 }
 
 /// Helper function to get a string buffer from the thread-local pool
@@ -84,6 +88,125 @@ where
         let mut buffer = buffer.borrow_mut();
         buffer.clear();
         f(&mut buffer)
+    })
+}
+
+/// A cache for term ordinal to string conversions to avoid repeated dictionary lookups
+struct TermCache {
+    capacity: usize,
+    entries: HashMap<(TermOrdinal, u64), String>,
+    hits: usize,
+    misses: usize,
+}
+
+impl TermCache {
+    /// Creates a new term cache with the specified capacity
+    fn new(capacity: usize) -> Self {
+        Self {
+            capacity,
+            entries: HashMap::with_capacity(capacity),
+            hits: 0,
+            misses: 0,
+        }
+    }
+
+    /// Looks up a term in the cache, returning None if not found
+    fn get(&mut self, term_ord: TermOrdinal, dictionary_id: u64) -> Option<&String> {
+        if let Some(value) = self.entries.get(&(term_ord, dictionary_id)) {
+            self.hits += 1;
+            return Some(value);
+        }
+        self.misses += 1;
+        None
+    }
+
+    /// Inserts a term into the cache, possibly evicting old entries
+    fn insert(&mut self, term_ord: TermOrdinal, dictionary_id: u64, value: String) {
+        // Simple eviction strategy - if cache is full, clear it
+        if self.entries.len() >= self.capacity {
+            self.entries.clear();
+        }
+
+        self.entries.insert((term_ord, dictionary_id), value);
+    }
+
+    /// Gets a term from the cache or resolves it from the dictionary
+    fn get_or_resolve(
+        &mut self,
+        term_ord: TermOrdinal,
+        dictionary: &tantivy::columnar::StrColumn,
+        dictionary_id: u64,
+    ) -> Option<String> {
+        // Try to get from cache first
+        if let Some(term) = self.get(term_ord, dictionary_id) {
+            return Some(term.clone());
+        }
+
+        // If not found, resolve from dictionary
+        let mut term_buf = get_string_buffer();
+
+        // Since we don't have ord_to_str directly, we need to use the columnar API
+        let result = if dictionary.num_terms() > 0 {
+            if dictionary.ord_to_str(term_ord, &mut term_buf).is_ok() && !term_buf.is_empty() {
+                let term = term_buf.clone();
+                // Cache the resolved term
+                self.insert(term_ord, dictionary_id, term.clone());
+                Some(term)
+            } else {
+                // Handle special case for term_ord = 0 (empty or null terms)
+                if term_ord == 0 {
+                    let mut bytes_buffer = Vec::new();
+                    if dictionary
+                        .dictionary()
+                        .ord_to_term(0, &mut bytes_buffer)
+                        .ok()
+                        == Some(true)
+                    {
+                        if let Ok(s) = std::str::from_utf8(&bytes_buffer) {
+                            let term = s.to_string();
+                            self.insert(term_ord, dictionary_id, term.clone());
+                            Some(term)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        recycle_string_buffer(term_buf);
+        result
+    }
+
+    /// Gets statistics about cache performance
+    #[allow(dead_code)]
+    pub fn stats(&self) -> (usize, usize, f32) {
+        let total = self.hits + self.misses;
+        let hit_rate = if total > 0 {
+            self.hits as f32 / total as f32
+        } else {
+            0.0
+        };
+        (self.hits, self.misses, hit_rate)
+    }
+}
+
+/// Helper function to get or resolve a term from the dictionary using the thread-local cache
+fn resolve_term_with_cache(
+    term_ord: TermOrdinal,
+    dictionary: &tantivy::columnar::StrColumn,
+    dictionary_id: u64,
+) -> Option<String> {
+    TERM_CACHE.with(|cache| {
+        cache
+            .borrow_mut()
+            .get_or_resolve(term_ord, dictionary, dictionary_id)
     })
 }
 
@@ -660,41 +783,13 @@ impl MixedAggSearcher<'_> {
                     let (field_name, str_ff) = &string_columns[field_idx];
                     let field_result = &string_results[field_idx];
 
+                    // Generate a unique dictionary ID for caching
+                    let dictionary_id = str_ff.dictionary() as *const _ as u64;
+
                     // Process each term ordinate and its documents
                     for (term_ord, docs) in field_result.iter() {
-                        // Resolve the term ordinal to an actual string value using our pooled buffer
-                        let term_value = with_scratch_buffer(|term_buf| {
-                            // Try to get a value from the term ordinal
-                            let got_term = if str_ff.num_terms() > 0 {
-                                // Try to resolve the term ordinal to a string
-                                str_ff.ord_to_str(*term_ord, term_buf).is_ok()
-                            } else {
-                                false
-                            };
-
-                            if got_term && !term_buf.is_empty() {
-                                Some(term_buf.clone())
-                            } else {
-                                // Special handling for term_ord = 0 (empty terms)
-                                if *term_ord == 0 && !docs.is_empty() {
-                                    // Use the dictionary directly to look up the term
-                                    let mut bytes_buffer = Vec::new();
-                                    if str_ff.dictionary().ord_to_term(0, &mut bytes_buffer).ok()
-                                        == Some(true)
-                                    {
-                                        if let Ok(s) = std::str::from_utf8(&bytes_buffer) {
-                                            Some(s.to_string())
-                                        } else {
-                                            None
-                                        }
-                                    } else {
-                                        None
-                                    }
-                                } else {
-                                    None
-                                }
-                            }
-                        });
+                        // Use the term cache for resolution
+                        let term_value = resolve_term_with_cache(*term_ord, str_ff, dictionary_id);
 
                         // Add this term to all matching documents
                         for (score, doc_addr) in docs {
@@ -891,40 +986,13 @@ impl MixedAggSearcher<'_> {
             let (field_name, str_ff) = &string_columns[field_idx];
             let field_result = &string_results[field_idx];
 
-            // Process each term ordinate using string buffer pool
-            for (term_ord, docs) in field_result {
-                // Resolve the term to a string value
-                let term_value = with_scratch_buffer(|term_buf| {
-                    // Try to resolve the term ordinal to a string
-                    let got_term = if str_ff.num_terms() > 0 {
-                        str_ff.ord_to_str(*term_ord, term_buf).is_ok()
-                    } else {
-                        false
-                    };
+            // Generate a unique dictionary ID for caching
+            let dictionary_id = str_ff.dictionary() as *const _ as u64;
 
-                    if got_term && !term_buf.is_empty() {
-                        Some(term_buf.clone())
-                    } else {
-                        // Special handling for term_ord = 0 (empty terms)
-                        if *term_ord == 0 && !docs.is_empty() {
-                            // Use the dictionary directly to look up the term
-                            let mut bytes_buffer = Vec::new();
-                            if str_ff.dictionary().ord_to_term(0, &mut bytes_buffer).ok()
-                                == Some(true)
-                            {
-                                if let Ok(s) = std::str::from_utf8(&bytes_buffer) {
-                                    Some(s.to_string())
-                                } else {
-                                    None
-                                }
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    }
-                });
+            // Process each term ordinate using cached resolution
+            for (term_ord, docs) in field_result {
+                // Use the term cache for resolution
+                let term_value = resolve_term_with_cache(*term_ord, str_ff, dictionary_id);
 
                 // Add term to each document
                 for (score, doc_addr) in docs {

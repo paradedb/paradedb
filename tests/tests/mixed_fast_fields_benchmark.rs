@@ -45,26 +45,21 @@ struct BenchmarkResult {
 /// Detects which execution method was used based on the JSON execution plan
 fn detect_exec_method(plan: &Value) -> String {
     // Check if this is using the CustomScan with ParadeDB
-    let uses_custom_scan = plan.to_string().contains("ParadeDB Scan");
+    let plan_str = plan.to_string();
+    let uses_custom_scan = plan_str.contains("ParadeDB Scan");
 
     // If the custom scan method is explicitly mentioned, extract it
-    if plan.to_string().contains("Exec Method") {
-        let plan_str = plan.to_string();
-
+    if plan_str.contains("Exec Method") {
         if plan_str.contains("MixedFastFieldExecState") {
             return "MixedFastFieldExec".to_string();
         } else if plan_str.contains("StringMixedFastFieldExecState") {
             return "StringMixedFastFieldExec".to_string();
         } else if plan_str.contains("NumericMixedFastFieldExecState") {
             return "NumericMixedFastFieldExec".to_string();
+        } else if plan_str.contains("NormalScanExecState") {
+            return "NormalScanExecState".to_string();
         } else if uses_custom_scan {
-            // Custom scan but not a fast field method
-            let method_start = plan_str.find("Exec Method").unwrap_or(0);
-            let method_end = plan_str[method_start..].find(",").unwrap_or(plan_str.len());
-            return format!(
-                "CustomScan: {}",
-                &plan_str[method_start..method_start + method_end]
-            );
+            panic!("Unknown execution method: {}", plan_str);
         }
     }
 
@@ -263,10 +258,7 @@ async fn run_benchmark(
     let exec_method = detect_exec_method(&plan);
 
     // Debug: print out the execution method being used
-    println!(
-        "Test '{}' is using execution method: {}",
-        test_name, exec_method
-    );
+    println!("Test '{}' → using {}", test_name, exec_method);
 
     // Run actual benchmark iterations
     for _ in 0..ITERATIONS {
@@ -295,14 +287,14 @@ async fn run_benchmark(
 fn display_results(results: &[BenchmarkResult]) {
     println!("\n======== BENCHMARK RESULTS ========");
     println!(
-        "{:<30} {:<20} {:<15} {:<15} {:<15}",
+        "{:<40} {:<20} {:<15} {:<15} {:<15}",
         "Test Name", "Exec Method", "Avg Time (ms)", "Min Time (ms)", "Max Time (ms)"
     );
-    println!("{}", "=".repeat(95));
+    println!("{}", "=".repeat(110));
 
     for result in results {
         println!(
-            "{:<30} {:<20} {:<15.2} {:<15.2} {:<15.2}",
+            "{:<40} {:<20} {:<15.2} {:<15.2} {:<15.2}",
             result.test_name,
             result.exec_method,
             result.avg_time_ms,
@@ -322,10 +314,10 @@ fn display_results(results: &[BenchmarkResult]) {
 
     println!("\n======== PERFORMANCE COMPARISON ========");
     println!(
-        "{:<30} {:<15} {:<15} {:<15} {:<15}",
+        "{:<40} {:<15} {:<15} {:<15} {:<15}",
         "Test Name", "Mixed (ms)", "Normal (ms)", "Ratio", "Performance"
     );
-    println!("{}", "=".repeat(90));
+    println!("{}", "=".repeat(100));
 
     for (test_name, test_results) in test_map {
         // For each test, find a fast field execution method result and a normal execution method result
@@ -346,7 +338,7 @@ fn display_results(results: &[BenchmarkResult]) {
             };
 
             println!(
-                "{:<30} {:<15.2} {:<15.2} {:<15.2} {:<15}",
+                "{:<40} {:<15.2} {:<15.2} {:<15.2} {:<15}",
                 test_name, fast.avg_time_ms, normal.avg_time_ms, ratio, performance
             );
         }
@@ -501,6 +493,9 @@ async fn validate_mixed_fast_fields_correctness(mut conn: PgConnection) -> Resul
          WHERE numeric_field1 < 500 AND string_field1 @@@ '\"alpha\"' AND string_field2 @@@ '\"red\"'
          ORDER BY id";
 
+    println!("Testing query correctness between execution methods...");
+    println!("────────────────────────────────────────────────────────");
+
     // Create index for MixedFastFieldExec
     create_index_for_execution_method(&mut conn, "mixed").await?;
 
@@ -529,7 +524,7 @@ async fn validate_mixed_fast_fields_correctness(mut conn: PgConnection) -> Resul
         .await?;
 
     let mixed_method = detect_exec_method(&mixed_plan);
-    println!("Execution method for mixed test: {}", mixed_method);
+    println!("✓ Mixed index using → {}", mixed_method);
 
     // ENFORCE: Validate we're actually using the MixedFastFieldExec method
     assert!(
@@ -550,7 +545,7 @@ async fn validate_mixed_fast_fields_correctness(mut conn: PgConnection) -> Resul
         .await?;
 
     let normal_method = detect_exec_method(&normal_plan);
-    println!("Execution method for normal test: {}", normal_method);
+    println!("✓ Normal index using → {}", normal_method);
 
     // ENFORCE: Validate we're actually using the NormalScanExecState method
     assert!(
@@ -560,6 +555,10 @@ async fn validate_mixed_fast_fields_correctness(mut conn: PgConnection) -> Resul
     );
 
     // Compare result counts
+    println!(
+        "Comparing {} rows from each execution method...",
+        mixed_results.len()
+    );
     assert_eq!(
         mixed_results.len(),
         normal_results.len(),
@@ -577,7 +576,8 @@ async fn validate_mixed_fast_fields_correctness(mut conn: PgConnection) -> Resul
         );
     }
 
-    println!("✅ Correctness validation passed: Both execution methods returned identical results");
+    println!("✅ Validation passed: Both execution methods returned identical results");
+    println!("────────────────────────────────────────────────────────");
 
     Ok(())
 }

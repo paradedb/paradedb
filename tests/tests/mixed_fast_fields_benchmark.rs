@@ -23,6 +23,7 @@ use pretty_assertions::assert_eq;
 use rstest::*;
 use serde_json::Value;
 use sqlx::PgConnection;
+use sqlx::Row;
 use std::time::Instant;
 
 // Number of benchmark iterations for each query
@@ -30,7 +31,7 @@ const ITERATIONS: usize = 5;
 // Number of warmup iterations before measuring performance
 const WARMUP_ITERATIONS: usize = 2;
 // Number of rows to use in the benchmark
-const NUM_ROWS_BENCHMARK: usize = 1000; // Reduced for faster test runs
+const NUM_ROWS_BENCHMARK: usize = 10000; // Reduced for faster test runs
 const NUM_ROWS_VALIDATION: usize = 1000; // Reduced for faster test runs
 /// Structure to store benchmark results
 #[derive(Debug, Clone)]
@@ -69,26 +70,111 @@ fn detect_exec_method(plan: &Value) -> String {
 
 /// Setup function to create test table and data
 async fn setup_benchmark_database(conn: &mut PgConnection, num_rows: usize) -> Result<()> {
-    // Execute each command separately to avoid the "multiple commands in prepared statement" error
+    // First check if the table exists
+    let table_exists_query =
+        "SELECT EXISTS (SELECT FROM pg_tables WHERE tablename = 'benchmark_data')";
+    let table_exists: bool = sqlx::query(table_exists_query)
+        .fetch_one(&mut *conn)
+        .await?
+        .get(0);
 
-    // Drop table if exists
-    sqlx::query("DROP TABLE IF EXISTS benchmark_data CASCADE")
+    println!("Table exists check: {}", table_exists);
+
+    let mut current_rows = if table_exists {
+        // Count existing rows more reliably with explicit casting to bigint
+        let count_result = sqlx::query("SELECT COUNT(*)::bigint FROM benchmark_data")
+            .fetch_one(&mut *conn)
+            .await;
+
+        match count_result {
+            Ok(row) => {
+                let count: i64 = row.get(0);
+                println!("Found existing table with {} rows", count);
+                count as usize
+            }
+            Err(e) => {
+                println!(
+                    "Error counting rows: {}, assuming table needs recreation",
+                    e
+                );
+                // If we can't count rows, the table might be corrupted
+                sqlx::query("DROP TABLE IF EXISTS benchmark_data CASCADE")
+                    .execute(&mut *conn)
+                    .await?;
+
+                // Create the table
+                sqlx::query(
+                    "CREATE TABLE benchmark_data (
+                        id SERIAL PRIMARY KEY,
+                        string_field1 TEXT NOT NULL,
+                        string_field2 TEXT NOT NULL,
+                        numeric_field1 INTEGER NOT NULL,
+                        numeric_field2 FLOAT NOT NULL,
+                        numeric_field3 NUMERIC(10,2) NOT NULL
+                    )",
+                )
+                .execute(&mut *conn)
+                .await?;
+
+                0
+            }
+        }
+    } else {
+        println!("Table doesn't exist, creating new one");
+        // Create the table if it doesn't exist
+        sqlx::query(
+            "CREATE TABLE benchmark_data (
+                id SERIAL PRIMARY KEY,
+                string_field1 TEXT NOT NULL,
+                string_field2 TEXT NOT NULL,
+                numeric_field1 INTEGER NOT NULL,
+                numeric_field2 FLOAT NOT NULL,
+                numeric_field3 NUMERIC(10,2) NOT NULL
+            )",
+        )
+        .execute(&mut *conn)
+        .await?;
+        0
+    };
+
+    println!(
+        "Table benchmark_data already exists with {} rows (requested: {})",
+        current_rows, num_rows
+    );
+
+    if current_rows == num_rows {
+        return Ok(());
+    }
+
+    if current_rows > num_rows {
+        // Drop table if exists
+        println!(
+            "Table has more rows than needed ({}), recreating...",
+            current_rows
+        );
+        sqlx::query("DROP TABLE IF EXISTS benchmark_data CASCADE")
+            .execute(&mut *conn)
+            .await?;
+
+        // Create the table
+        sqlx::query(
+            "CREATE TABLE benchmark_data (
+                id SERIAL PRIMARY KEY,
+                string_field1 TEXT NOT NULL,
+                string_field2 TEXT NOT NULL,
+                numeric_field1 INTEGER NOT NULL,
+                numeric_field2 FLOAT NOT NULL,
+                numeric_field3 NUMERIC(10,2) NOT NULL
+            )",
+        )
         .execute(&mut *conn)
         .await?;
 
-    // Create the table
-    sqlx::query(
-        "CREATE TABLE benchmark_data (
-            id SERIAL PRIMARY KEY,
-            string_field1 TEXT NOT NULL,
-            string_field2 TEXT NOT NULL,
-            numeric_field1 INTEGER NOT NULL,
-            numeric_field2 FLOAT NOT NULL,
-            numeric_field3 NUMERIC(10,2) NOT NULL
-        )",
-    )
-    .execute(&mut *conn)
-    .await?;
+        current_rows = 0;
+    }
+
+    let rows_to_add = num_rows - current_rows;
+    println!("Adding {} more rows to benchmark_data", rows_to_add);
 
     // Create arrays for test data
     let string_array1 = vec![
@@ -101,33 +187,71 @@ async fn setup_benchmark_database(conn: &mut PgConnection, num_rows: usize) -> R
         "red", "orange", "yellow", "green", "blue", "indigo", "violet", "black", "white", "gray",
     ];
 
-    // Insert test data in batches to avoid very long SQL statements
-    for i in 0..num_rows {
-        let string1 = string_array1[i % string_array1.len()];
-        let string2 = string_array2[i % string_array2.len()];
-        let num1 = (i % 1000) as i32;
-        let num2 = (i % 100) as f32;
-        let num3 = (i % 10000) as i32;
+    // For efficiency with large datasets, use batch inserts
+    const BATCH_SIZE: usize = 1000;
+    let mut inserted = 0;
 
-        sqlx::query(
-            "INSERT INTO benchmark_data (
-                string_field1, 
-                string_field2, 
-                numeric_field1, 
-                numeric_field2, 
-                numeric_field3
-            ) VALUES ($1, $2, $3, $4, $5)",
-        )
-        .bind(string1)
-        .bind(string2)
-        .bind(num1)
-        .bind(num2)
-        .bind(num3)
-        .execute(&mut *conn)
-        .await?;
+    while inserted < rows_to_add {
+        // Create a batch insert statement
+        let mut batch_query = String::from(
+            "INSERT INTO benchmark_data (string_field1, string_field2, numeric_field1, numeric_field2, numeric_field3) VALUES "
+        );
+
+        let batch_end = (inserted + BATCH_SIZE).min(rows_to_add);
+        for i in (current_rows + inserted)..(current_rows + batch_end) {
+            if i > current_rows + inserted {
+                batch_query.push_str(", ");
+            }
+
+            let string1 = string_array1[i % string_array1.len()];
+            let string2 = string_array2[i % string_array2.len()];
+            let num1 = (i % 1000) as i32;
+            let num2 = (i % 100) as f32;
+            let num3 = (i % 10000) as i32;
+
+            // Add placeholders to query
+            batch_query.push_str(&format!(
+                "('{}', '{}', {}, {}, {})",
+                string1, string2, num1, num2, num3
+            ));
+        }
+
+        // Execute batch insert
+        sqlx::query(&batch_query).execute(&mut *conn).await?;
+
+        inserted += batch_end - (current_rows + inserted);
+
+        if inserted % 10000 == 0 && inserted > 0 {
+            println!("Inserted {} of {} rows...", inserted, rows_to_add);
+        }
     }
 
-    println!("Database setup complete with {} rows", num_rows);
+    println!(
+        "Database setup complete with {} rows (was: {}, added: {})",
+        num_rows, current_rows, rows_to_add
+    );
+
+    // Run VACUUM ANALYZE after creating or updating the table
+    println!("Running VACUUM ANALYZE on new data...");
+    sqlx::query("VACUUM ANALYZE benchmark_data")
+        .execute(&mut *conn)
+        .await?;
+
+    // Verify the actual row count
+    let final_count: i64 = sqlx::query("SELECT COUNT(*)::bigint FROM benchmark_data")
+        .fetch_one(&mut *conn)
+        .await?
+        .get(0);
+
+    println!("Final table verification: contains {} rows", final_count);
+
+    // Ensure count matches what we expect
+    assert_eq!(
+        final_count as usize, num_rows,
+        "Table contains {} rows but should have {} rows",
+        final_count, num_rows
+    );
+
     Ok(())
 }
 
@@ -183,11 +307,17 @@ async fn create_index_for_execution_method(
     };
 
     // Create the index
-    println!("Creating index for {} execution method", exec_method);
+    println!("Creating index for {} execution method...", exec_method);
     sqlx::query(index_definition).execute(&mut *conn).await?;
 
     // Wait a moment for the index to be fully ready
     sqlx::query("SELECT pg_sleep(0.5)")
+        .execute(&mut *conn)
+        .await?;
+
+    // Run a full VACUUM ANALYZE to update statistics after index creation
+    println!("Running VACUUM ANALYZE after index creation...");
+    sqlx::query("VACUUM ANALYZE benchmark_data")
         .execute(&mut *conn)
         .await?;
 
@@ -214,11 +344,6 @@ async fn create_index_for_execution_method(
         println!("WARNING: Index 'benchmark_data_idx' not found!");
     }
 
-    // Always analyze to ensure the planner has accurate statistics
-    sqlx::query("ANALYZE benchmark_data")
-        .execute(&mut *conn)
-        .await?;
-
     Ok(())
 }
 
@@ -236,8 +361,15 @@ async fn run_benchmark(
     // Create appropriate index if execution method is specified
     // This should be either "mixed" or "normal"
     if let Some(exec_method) = force_execution_method {
-        create_index_for_execution_method(&mut *conn, exec_method).await?;
+        create_index_for_execution_method(conn, exec_method).await?;
     }
+
+    // Run a full VACUUM ANALYZE to ensure statistics are up-to-date
+    // This helps the query planner make better decisions
+    println!("Running VACUUM ANALYZE on benchmark_data...");
+    sqlx::query("VACUUM ANALYZE benchmark_data")
+        .execute(&mut *conn)
+        .await?;
 
     // Reset/clear cache to ensure clean runs
     sqlx::query("SELECT pg_stat_reset()")
@@ -367,6 +499,10 @@ fn display_results(results: &[BenchmarkResult]) {
 async fn benchmark_mixed_fast_fields(mut conn: PgConnection) -> Result<()> {
     // Set up the benchmark database
     setup_benchmark_database(&mut conn, NUM_ROWS_BENCHMARK).await?;
+
+    println!("========================================");
+    println!("Starting mixed fast fields benchmark");
+    println!("========================================");
 
     let mut results = Vec::new();
 
@@ -504,6 +640,15 @@ async fn benchmark_mixed_fast_fields(mut conn: PgConnection) -> Result<()> {
 async fn validate_mixed_fast_fields_correctness(mut conn: PgConnection) -> Result<()> {
     // Set up the benchmark database
     setup_benchmark_database(&mut conn, NUM_ROWS_VALIDATION).await?;
+
+    println!("Testing query correctness between execution methods...");
+    println!("────────────────────────────────────────────────────────");
+
+    // Run VACUUM ANALYZE to ensure statistics are up-to-date
+    println!("Running VACUUM ANALYZE on benchmark_data...");
+    sqlx::query("VACUUM ANALYZE benchmark_data")
+        .execute(&mut conn)
+        .await?;
 
     // Define a test query that will use both string and numeric fast fields
     let test_query =

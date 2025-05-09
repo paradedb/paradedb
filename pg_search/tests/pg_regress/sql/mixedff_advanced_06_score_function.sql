@@ -12,7 +12,7 @@ CREATE TABLE score_test (
     content TEXT,
     author TEXT,
     rating INTEGER,
-    views NUMERIC,
+    views FLOAT,
     published_date DATE,
     is_featured BOOLEAN
 );
@@ -24,7 +24,7 @@ SELECT
     'This is content for post ' || i || '. It contains some searchable text and keywords like technology, science, research, and development.',
     'Author ' || (1 + (i % 5)),
     (1 + (i % 5)),
-    (100 * i)::numeric,  -- Deterministic view counts
+    (100 * i)::float,  -- Deterministic view counts
     '1988-04-29'::date + (i % 365) * '1 day'::interval,  -- Deterministic dates
     i % 7 = 0  -- Deterministic featured pattern
 FROM generate_series(1, 100) i;

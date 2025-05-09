@@ -13,7 +13,7 @@ CREATE TABLE limit_topn_test (
     title TEXT,
     description TEXT,
     rating FLOAT,
-    price NUMERIC,
+    price FLOAT,
     category TEXT,
     is_available BOOLEAN,
     tags TEXT[],
@@ -26,7 +26,7 @@ SELECT
     'Product ' || i,
     'Description for product ' || i,
     (i % 5)::float + 1.0,  -- Deterministic ratings 1.0-5.0
-    (100 * i)::numeric,    -- Deterministic prices 100, 200, 300, etc.
+    (100 * i)::float,    -- Deterministic prices 100, 200, 300, etc.
     (ARRAY['Electronics', 'Books', 'Clothing', 'Food', 'Toys'])[1 + (i % 5)],
     i % 2 = 0,             -- Deterministic boolean pattern
     '1988-04-29'::timestamp + ((i || ' days')::interval)

@@ -544,8 +544,32 @@ GROUP BY p.name, c.name
 HAVING AVG(r.rating) > 3
 ORDER BY avg_rating, paradedb.score(p.id) DESC;
 ERROR:  column "p.id" must appear in the GROUP BY clause or be used in an aggregate function at character 367
--- Test 4: Complex query with multiple indices and mixed fields
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+-- This test is disabled, because it has a variable oid in it.
+-- -- Test 4: Complex query with multiple indices and mixed fields
+-- EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+-- WITH top_products AS (
+--     SELECT p.id, p.name, p.price, p.stock_count
+--     FROM products p
+--     WHERE p.price BETWEEN 100 AND 800
+--       AND p.is_available = true
+--       AND p.name @@@ 'Product'
+--     ORDER BY p.price DESC
+--     LIMIT 50
+-- ),
+-- product_ratings AS (
+--     SELECT r.product_id, AVG(r.rating) as avg_rating, COUNT(*) as review_count
+--     FROM reviews r
+--     WHERE r.rating >= 3
+--     GROUP BY r.product_id
+--     HAVING COUNT(*) >= 2
+-- )
+-- SELECT tp.name, tp.price, pr.avg_rating, c.name as category
+-- FROM top_products tp
+-- JOIN product_ratings pr ON tp.id = pr.product_id
+-- JOIN product_categories pc ON tp.id = pc.product_id
+-- JOIN categories c ON pc.category_id = c.id
+-- WHERE c.is_active = true
+-- ORDER BY pr.avg_rating DESC, paradedb.score(tp.id), tp.price DESC;
 WITH top_products AS (
     SELECT p.id, p.name, p.price, p.stock_count
     FROM products p
@@ -568,65 +592,7 @@ JOIN product_ratings pr ON tp.id = pr.product_id
 JOIN product_categories pc ON tp.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
 WHERE c.is_active = true
-ORDER BY pr.avg_rating DESC, tp.price DESC;
-                                                                                                                                                         QUERY PLAN                                                                                                                                                          
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort
-   Sort Key: pr.avg_rating DESC, tp.price DESC
-   ->  Nested Loop
-         Join Filter: (pc.category_id = c.id)
-         ->  Nested Loop
-               Join Filter: (pc.product_id = tp.id)
-               ->  Merge Join
-                     Merge Cond: (tp.id = pr.product_id)
-                     ->  Sort
-                           Sort Key: tp.id
-                           ->  Subquery Scan on tp
-                                 ->  Limit
-                                       ->  Sort
-                                             Sort Key: p.price DESC
-                                             ->  Seq Scan on products p
-                                                   Filter: (is_available AND (price >= '100'::numeric) AND (price <= '800'::numeric) AND (id @@@ '{"with_index":{"oid":1920563,"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
-                     ->  Sort
-                           Sort Key: pr.product_id
-                           ->  Subquery Scan on pr
-                                 ->  HashAggregate
-                                       Group Key: r.product_id
-                                       Filter: (count(*) >= 2)
-                                       ->  Seq Scan on reviews r
-                                             Filter: (rating >= 3)
-               ->  Bitmap Heap Scan on product_categories pc
-                     Recheck Cond: (product_id = pr.product_id)
-                     ->  Bitmap Index Scan on product_categories_pkey
-                           Index Cond: (product_id = pr.product_id)
-         ->  Materialize
-               ->  Seq Scan on categories c
-                     Filter: is_active
-(31 rows)
-
-WITH top_products AS (
-    SELECT p.id, p.name, p.price, p.stock_count
-    FROM products p
-    WHERE p.price BETWEEN 100 AND 800
-      AND p.is_available = true
-      AND p.name @@@ 'Product'
-    ORDER BY p.price DESC
-    LIMIT 50
-),
-product_ratings AS (
-    SELECT r.product_id, AVG(r.rating) as avg_rating, COUNT(*) as review_count
-    FROM reviews r
-    WHERE r.rating >= 3
-    GROUP BY r.product_id
-    HAVING COUNT(*) >= 2
-)
-SELECT tp.name, tp.price, pr.avg_rating, c.name as category
-FROM top_products tp
-JOIN product_ratings pr ON tp.id = pr.product_id
-JOIN product_categories pc ON tp.id = pc.product_id
-JOIN categories c ON pc.category_id = c.id
-WHERE c.is_active = true
-ORDER BY pr.avg_rating DESC, tp.price DESC;
+ORDER BY pr.avg_rating DESC, paradedb.score(tp.id), tp.price DESC;
     name    | price  |     avg_rating     |    category    
 ------------+--------+--------------------+----------------
  Product 19 | 240.00 | 4.0000000000000000 | Outdoors
@@ -794,8 +760,34 @@ ORDER BY p.price;
  Product 42 | 470.00 |          84
 (5 rows)
 
--- Test 7: Join with conditional logic and mixed fields
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+-- This test is disabled, because it has a variable oid in it.
+-- -- Test 7: Join with conditional logic and mixed fields
+-- EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+-- SELECT 
+--     p.name,
+--     p.price,
+--     CASE 
+--         WHEN r.rating IS NULL THEN 'No reviews'
+--         WHEN r.rating < 3 THEN 'Poor reviews'
+--         WHEN r.rating < 4 THEN 'Average reviews'
+--         ELSE 'Great reviews'
+--     END as review_status
+-- FROM products p
+-- LEFT JOIN (
+--     SELECT product_id, AVG(rating) as rating
+--     FROM reviews
+--     GROUP BY product_id
+-- ) r ON p.id = r.product_id
+-- WHERE p.is_available = true
+--   AND p.price BETWEEN 200 AND 600
+--   AND p.name @@@ 'Product'
+-- ORDER BY 
+--     CASE 
+--         WHEN r.rating IS NULL THEN 0
+--         ELSE r.rating
+--     END DESC,
+--     paradedb.score(p.id),
+--     p.price;
 SELECT 
     p.name,
     p.price,
@@ -819,43 +811,7 @@ ORDER BY
         WHEN r.rating IS NULL THEN 0
         ELSE r.rating
     END DESC,
-    p.price;
-                                                                                                                                       QUERY PLAN                                                                                                                                        
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort
-   Sort Key: (CASE WHEN ((avg(reviews.rating)) IS NULL) THEN '0'::numeric ELSE (avg(reviews.rating)) END) DESC, p.price
-   ->  Nested Loop Left Join
-         Join Filter: (p.id = reviews.product_id)
-         ->  Seq Scan on products p
-               Filter: (is_available AND (price >= '200'::numeric) AND (price <= '600'::numeric) AND (id @@@ '{"with_index":{"oid":1920563,"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
-         ->  HashAggregate
-               Group Key: reviews.product_id
-               ->  Seq Scan on reviews
-(9 rows)
-
-SELECT 
-    p.name,
-    p.price,
-    CASE 
-        WHEN r.rating IS NULL THEN 'No reviews'
-        WHEN r.rating < 3 THEN 'Poor reviews'
-        WHEN r.rating < 4 THEN 'Average reviews'
-        ELSE 'Great reviews'
-    END as review_status
-FROM products p
-LEFT JOIN (
-    SELECT product_id, AVG(rating) as rating
-    FROM reviews
-    GROUP BY product_id
-) r ON p.id = r.product_id
-WHERE p.is_available = true
-  AND p.price BETWEEN 200 AND 600
-  AND p.name @@@ 'Product'
-ORDER BY 
-    CASE 
-        WHEN r.rating IS NULL THEN 0
-        ELSE r.rating
-    END DESC,
+    paradedb.score(p.id),
     p.price;
     name    | price  |  review_status  
 ------------+--------+-----------------

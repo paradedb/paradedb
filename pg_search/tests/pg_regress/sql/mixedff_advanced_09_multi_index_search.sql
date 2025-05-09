@@ -196,31 +196,32 @@ GROUP BY p.name, c.name
 HAVING AVG(r.rating) > 3
 ORDER BY avg_rating, paradedb.score(p.id) DESC;
 
--- Test 4: Complex query with multiple indices and mixed fields
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-WITH top_products AS (
-    SELECT p.id, p.name, p.price, p.stock_count
-    FROM products p
-    WHERE p.price BETWEEN 100 AND 800
-      AND p.is_available = true
-      AND p.name @@@ 'Product'
-    ORDER BY p.price DESC
-    LIMIT 50
-),
-product_ratings AS (
-    SELECT r.product_id, AVG(r.rating) as avg_rating, COUNT(*) as review_count
-    FROM reviews r
-    WHERE r.rating >= 3
-    GROUP BY r.product_id
-    HAVING COUNT(*) >= 2
-)
-SELECT tp.name, tp.price, pr.avg_rating, c.name as category
-FROM top_products tp
-JOIN product_ratings pr ON tp.id = pr.product_id
-JOIN product_categories pc ON tp.id = pc.product_id
-JOIN categories c ON pc.category_id = c.id
-WHERE c.is_active = true
-ORDER BY pr.avg_rating DESC, tp.price DESC;
+-- This test is disabled, because it has a variable oid in it.
+-- -- Test 4: Complex query with multiple indices and mixed fields
+-- EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+-- WITH top_products AS (
+--     SELECT p.id, p.name, p.price, p.stock_count
+--     FROM products p
+--     WHERE p.price BETWEEN 100 AND 800
+--       AND p.is_available = true
+--       AND p.name @@@ 'Product'
+--     ORDER BY p.price DESC
+--     LIMIT 50
+-- ),
+-- product_ratings AS (
+--     SELECT r.product_id, AVG(r.rating) as avg_rating, COUNT(*) as review_count
+--     FROM reviews r
+--     WHERE r.rating >= 3
+--     GROUP BY r.product_id
+--     HAVING COUNT(*) >= 2
+-- )
+-- SELECT tp.name, tp.price, pr.avg_rating, c.name as category
+-- FROM top_products tp
+-- JOIN product_ratings pr ON tp.id = pr.product_id
+-- JOIN product_categories pc ON tp.id = pc.product_id
+-- JOIN categories c ON pc.category_id = c.id
+-- WHERE c.is_active = true
+-- ORDER BY pr.avg_rating DESC, paradedb.score(tp.id), tp.price DESC;
 
 WITH top_products AS (
     SELECT p.id, p.name, p.price, p.stock_count
@@ -244,7 +245,7 @@ JOIN product_ratings pr ON tp.id = pr.product_id
 JOIN product_categories pc ON tp.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
 WHERE c.is_active = true
-ORDER BY pr.avg_rating DESC, tp.price DESC;
+ORDER BY pr.avg_rating DESC, paradedb.score(tp.id), tp.price DESC;
 
 -- Test 5: Union of results from different tables
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -300,32 +301,34 @@ AND p.stock_count > 50
 AND p.price < 500
 ORDER BY p.price;
 
--- Test 7: Join with conditional logic and mixed fields
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT 
-    p.name,
-    p.price,
-    CASE 
-        WHEN r.rating IS NULL THEN 'No reviews'
-        WHEN r.rating < 3 THEN 'Poor reviews'
-        WHEN r.rating < 4 THEN 'Average reviews'
-        ELSE 'Great reviews'
-    END as review_status
-FROM products p
-LEFT JOIN (
-    SELECT product_id, AVG(rating) as rating
-    FROM reviews
-    GROUP BY product_id
-) r ON p.id = r.product_id
-WHERE p.is_available = true
-  AND p.price BETWEEN 200 AND 600
-  AND p.name @@@ 'Product'
-ORDER BY 
-    CASE 
-        WHEN r.rating IS NULL THEN 0
-        ELSE r.rating
-    END DESC,
-    p.price;
+-- This test is disabled, because it has a variable oid in it.
+-- -- Test 7: Join with conditional logic and mixed fields
+-- EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+-- SELECT 
+--     p.name,
+--     p.price,
+--     CASE 
+--         WHEN r.rating IS NULL THEN 'No reviews'
+--         WHEN r.rating < 3 THEN 'Poor reviews'
+--         WHEN r.rating < 4 THEN 'Average reviews'
+--         ELSE 'Great reviews'
+--     END as review_status
+-- FROM products p
+-- LEFT JOIN (
+--     SELECT product_id, AVG(rating) as rating
+--     FROM reviews
+--     GROUP BY product_id
+-- ) r ON p.id = r.product_id
+-- WHERE p.is_available = true
+--   AND p.price BETWEEN 200 AND 600
+--   AND p.name @@@ 'Product'
+-- ORDER BY 
+--     CASE 
+--         WHEN r.rating IS NULL THEN 0
+--         ELSE r.rating
+--     END DESC,
+--     paradedb.score(p.id),
+--     p.price;
 
 SELECT 
     p.name,
@@ -350,6 +353,7 @@ ORDER BY
         WHEN r.rating IS NULL THEN 0
         ELSE r.rating
     END DESC,
+    paradedb.score(p.id),
     p.price;
 
 -- Test 8: Multi-index intersection

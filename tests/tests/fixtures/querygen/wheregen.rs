@@ -85,15 +85,11 @@ impl<V: Clone + Eq + SqlValue> WhereGenerator<V> {
             row.push(value);
         }
 
-        let mut size_to_exprs = Vec::new();
-        size_to_exprs.push(Vec::new()); // placeholder for size 0
-        size_to_exprs.push(atoms); // size 1
-
         WhereGenerator {
             cols,
             row,
             op: operator.to_string(),
-            size_to_exprs,
+            size_to_exprs: vec![Vec::new(), atoms],
             current_size: 1,
             current_index: 0,
         }

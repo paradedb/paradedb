@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc dde7ed75aa5717091835b2e76f7ab5764a61cfb4342a994aeaa78cee5bff1cdc # shrinks to (join, where_expr) = (JoinDescriptor { join_clause: "FROM orders JOIN products ON orders.color = products.color" }, Or(Not(Atom("orders.name", "bob")), Atom("products.name", "bob")))

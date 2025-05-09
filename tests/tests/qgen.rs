@@ -17,16 +17,16 @@
 
 mod fixtures;
 
-use crate::fixtures::querygen::joingen::JoinGenerator;
-use crate::fixtures::querygen::wheregen::WhereGenerator;
+use crate::fixtures::querygen::arb_joins_and_wheres;
+use crate::fixtures::querygen::wheregen::arb_wheres;
+
 use fixtures::*;
+
 use futures::executor::block_on;
 use lockfree_object_pool::MutexObjectPool;
-use parking_lot::Mutex;
-use rayon::prelude::*;
+use proptest::prelude::*;
 use rstest::*;
 use sqlx::PgConnection;
-use std::collections::HashMap;
 
 fn generated_queries_setup(conn: &mut PgConnection, tables: &[&str]) -> String {
     "CREATE EXTENSION pg_search;".execute(conn);
@@ -86,107 +86,33 @@ async fn generated_join_queries(database: Db) {
         |_| {},
     );
 
-    let setup_sql = generated_queries_setup(&mut pool.pull(), &["users", "products", "orders"]);
+    generated_queries_setup(&mut pool.pull(), &["users", "products", "orders"]);
 
-    let want = |table_name: &str| {
-        vec![
-            (format!("{table_name}.name"), "bob"),
-            (format!("{table_name}.color"), "blue"),
-            (format!("{table_name}.age"), "20"),
-        ]
-    };
+    proptest!(|(
+        (join, where_expr) in arb_joins_and_wheres(
+            vec!["users", "orders", "products"],
+            vec![("name", "bob"), ("color", "blue"), ("age", "20")]
+        ),
+    )| {
+        let join_clause = join.join_clause;
 
-    let pg_generators = {
-        let mut generators = HashMap::<&str, WhereGenerator<&str>>::default();
-        generators.insert("users", WhereGenerator::new(" = ", want("users")));
-        generators.insert("orders", WhereGenerator::new(" = ", want("orders")));
-        generators.insert("products", WhereGenerator::new(" = ", want("products")));
-        generators
-    };
-    let bm25_generators = {
-        let mut generators = HashMap::<&str, WhereGenerator<&str>>::default();
-        generators.insert("users", WhereGenerator::new("@@@", want("users")));
-        generators.insert("orders", WhereGenerator::new("@@@", want("orders")));
-        generators.insert("products", WhereGenerator::new("@@@", want("products")));
-        generators
-    };
+        let from = format!("SELECT COUNT(*) {join_clause} ");
 
-    let generators = Mutex::new((pg_generators, bm25_generators));
-    let errors = Mutex::new(String::new());
+        let pg = format!("{from} WHERE {}", where_expr.to_sql("@@@"));
+        let bm25 = format!("{from} WHERE {}", where_expr.to_sql(" = "));
 
-    for connector in ["AND", "OR", "AND NOT"] {
-        println!("connector={connector}");
-
-        JoinGenerator::new(vec![
-            ("users", vec!["name", "color", "age"]),
-            ("orders", vec!["name", "color", "age"]),
-            ("products", vec!["name", "color", "age"]),
-        ])
-        .take(100)
-        .enumerate()
-        .par_bridge()
-        .for_each(|(idx, (join_clause, used_tables))| {
-            let from = format!("SELECT COUNT(*) {join_clause} ");
-
-            let mut pg_where_clauses = Vec::with_capacity(used_tables.len());
-            let mut bm25_where_clauses = Vec::with_capacity(used_tables.len());
-
-            // populate the where clauses with what should be matching where clauses from the two different generators
-            {
-                let mut generators = generators.lock();
-
-                let nclauses = 1;
-
-                for table_name in &used_tables {
-                    pg_where_clauses.extend(
-                        generators
-                            .0
-                            .get_mut(table_name.as_str())
-                            .unwrap()
-                            .take(nclauses),
-                    );
-                }
-
-                for table_name in used_tables {
-                    bm25_where_clauses.extend(
-                        generators
-                            .1
-                            .get_mut(table_name.as_str())
-                            .unwrap()
-                            .take(nclauses),
-                    );
-                }
-            }
-
-            let pg = format!(
-                "{from} WHERE {}",
-                pg_where_clauses.join(&format!(" {connector} "))
-            );
-            let bm25 = format!(
-                "{from} WHERE {}",
-                bm25_where_clauses.join(&format!(" {connector} ")),
-            );
-
-            let (pg_count,) = (&pg).fetch_one::<(i64,)>(&mut pool.pull());
-            let (bm25_count,) = (&bm25).fetch_one::<(i64,)>(&mut pool.pull());
-
-            if pg_count != bm25_count {
-                let mut errors = errors.lock();
-                errors.push_str(&format!("---- idx={idx} ----\n"));
-                errors.push_str(&format!("---- connector={connector} ----\n"));
-                errors.push_str(&format!("-- pg={pg_count}, bm25={bm25_count}\n"));
-                errors.push_str(&format!("{pg}\n"));
-                errors.push_str(&format!("{bm25}\n"));
-                errors.push('\n');
-            }
-        });
-    }
-
-    // TODO:  turn this into a panic! once the actual bugs here are fixed
-    let errors = errors.into_inner();
-    if !errors.is_empty() {
-        eprintln!("{setup_sql}\n{errors}");
-    }
+        let (pg_count,) = (&pg).fetch_one::<(i64,)>(&mut pool.pull());
+        let (bm25_count,) = (&bm25).fetch_one::<(i64,)>(&mut pool.pull());
+        prop_assert_eq!(
+            pg_count,
+            bm25_count,
+            "\npg:\n  {}\t{}\nbm25:\n  {}\t{}\n",
+            pg_count,
+            pg,
+            bm25_count,
+            bm25,
+        );
+    });
 }
 
 #[rstest]
@@ -198,50 +124,32 @@ async fn generated_single_relation_queries(database: Db) {
     );
 
     let table_name = "users";
-    let setup_sql = generated_queries_setup(&mut pool.pull(), &[table_name]);
+    generated_queries_setup(&mut pool.pull(), &[table_name]);
 
-    let want = |table_name: &str| {
-        vec![
-            (format!("{table_name}.name"), "bob"),
-            (format!("{table_name}.color"), "blue"),
-            (format!("{table_name}.age"), "20"),
-        ]
-    };
+    proptest!(|(
+        where_expr in arb_wheres(
+            vec![table_name],
+            vec![("name", "bob"), ("color", "blue"), ("age", "20")]
+        ),
+    )| {
+        let where_clause = where_expr.to_sql(" = ");
+        let pg = format!("SELECT count(*) FROM {table_name} WHERE {where_clause}");
+        let bm25 = format!(
+            "SELECT count(*) FROM {table_name} WHERE ({where_clause}) AND id @@@ paradedb.all()"
+        ); // force a pushdown
 
-    let errors = Mutex::new(String::new());
+        let mut conn = pool.pull();
+        let (pg_count,) = (&pg).fetch_one::<(i64,)>(&mut conn);
+        let (bm25_count,) = (&bm25).fetch_one::<(i64,)>(&mut conn);
 
-    // NB:  could adjust this envvar if 10k queries takes too long
-    let nqueries: usize = std::env::var("PG_SEARCH_N_SINGLE_RELATION_QUERIES")
-        .unwrap_or("10000".to_string())
-        .parse()
-        .expect("Failed to parse PG_SEARCH_N_SINGLE_RELATION_QUERIES");
-
-    WhereGenerator::new("=", want("users"))
-        .take(nqueries)
-        .enumerate()
-        .par_bridge()
-        .for_each(|(idx, where_clause)| {
-            let pg = format!("SELECT count(*) FROM {table_name} WHERE {where_clause}");
-            let bm25 = format!(
-                "SELECT count(*) FROM {table_name} WHERE ({where_clause}) AND id @@@ paradedb.all()"
-            ); // force a pushdown
-
-            let mut conn = pool.pull();
-            let (pg_cnt,) = (&pg).fetch_one::<(i64,)>(&mut conn);
-            let (bm25_cnt,) = (&bm25).fetch_one::<(i64,)>(&mut conn);
-
-            if pg_cnt != bm25_cnt {
-                let mut errors = errors.lock();
-                errors.push_str(&format!("---- idx={idx} ----\n"));
-                errors.push_str(&format!("-- pg={pg_cnt}, bm25={bm25_cnt}\n"));
-                errors.push_str(&format!("{pg}\n"));
-                errors.push_str(&format!("{bm25}\n"));
-                errors.push('\n');
-            }
-        });
-
-    let errors = errors.into_inner();
-    if !errors.is_empty() {
-        panic!("{setup_sql}\n{errors}");
-    }
+        prop_assert_eq!(
+            pg_count,
+            bm25_count,
+            "\npg:\n  {}\t{}\nbm25:\n  {}\t{}\n",
+            pg_count,
+            pg,
+            bm25_count,
+            bm25,
+        );
+    });
 }

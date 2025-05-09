@@ -175,7 +175,7 @@ CREATE TABLE products (
     id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
     category_id INTEGER REFERENCES categories(id),
-    price NUMERIC(10,2) NOT NULL
+    price FLOAT NOT NULL
 );
 CREATE INDEX product_search ON products USING bm25 (
     id,
@@ -200,7 +200,7 @@ CREATE TABLE conversion_test (
     smallint_field SMALLINT,
     integer_field INTEGER,
     bigint_field BIGINT,
-    numeric_field NUMERIC(10,2),
+    numeric_field FLOAT,
     real_field REAL,
     double_field DOUBLE PRECISION,
     bool_from_int BOOLEAN,
@@ -246,7 +246,7 @@ CREATE TABLE union_test_a (
     id SERIAL PRIMARY KEY,
     title TEXT,
     author TEXT,
-    rating NUMERIC,
+    rating FLOAT,
     year INTEGER,
     price FLOAT,
     is_published BOOLEAN
@@ -255,7 +255,7 @@ CREATE TABLE union_test_b (
     id SERIAL PRIMARY KEY,
     title TEXT,
     author TEXT,
-    rating NUMERIC,
+    rating FLOAT,
     year INTEGER,
     price FLOAT,
     is_published BOOLEAN
@@ -265,7 +265,7 @@ INSERT INTO union_test_a (title, author, rating, year, price, is_published)
 SELECT
     'Book A' || i,
     'Author ' || (1 + (i % 10)),
-    (3 + (i % 3))::numeric,  -- Ratings from 3 to 5
+    (3 + (i % 3))::float,  -- Ratings from 3 to 5
     2000 + (i % 22),
     (10 + (i * 5))::float,   -- Deterministic prices
     i % 3 != 0               -- Deterministic boolean pattern
@@ -274,7 +274,7 @@ INSERT INTO union_test_b (title, author, rating, year, price, is_published)
 SELECT
     'Book B' || i,
     'Author ' || (1 + (i % 15)),
-    (1 + (i % 5))::numeric,  -- Ratings from 1 to 5
+    (1 + (i % 5))::float,  -- Ratings from 1 to 5
     1980 + (i % 40),
     (15 + (i * 3))::float,   -- Deterministic prices
     i % 4 != 0               -- Deterministic boolean pattern
@@ -300,17 +300,45 @@ WITH (
 );
 \echo 'Test: UNION operations'
 Test: UNION operations
--- This test is disabled, because it has a variable oid in it.
--- -- Test 1: Basic UNION with mixed field types
--- EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
--- SELECT title, author, rating, price
--- FROM union_test_a
--- WHERE title @@@ 'Book A' AND rating > 4
--- UNION
--- SELECT title, author, rating, price
--- FROM union_test_b
--- WHERE title @@@ 'Book B' AND rating > 3
--- ORDER BY rating DESC, title;
+-- Test 1: Basic UNION with mixed field types
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT title, author, rating, price
+FROM union_test_a
+WHERE title @@@ 'Book A' AND rating > 4
+UNION
+SELECT title, author, rating, price
+FROM union_test_b
+WHERE title @@@ 'Book B' AND rating > 3
+ORDER BY rating DESC, title;
+                                                                                                                                         QUERY PLAN                                                                                                                                          
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: union_test_a.rating DESC, union_test_a.title
+   ->  HashAggregate
+         Group Key: union_test_a.title, union_test_a.author, union_test_a.rating, union_test_a.price
+         ->  Append
+               ->  Custom Scan (ParadeDB Scan) on union_test_a
+                     Table: union_test_a
+                     Index: union_test_a_idx
+                     Segment Count: 1
+                     Exec Method: MixedFastFieldExecState
+                     Fast Fields: author, title, price, rating
+                     String Fast Fields: author, title
+                     Numeric Fast Fields: price, rating
+                     Scores: false
+                     Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":4.0},"upper_bound":null,"is_datetime":false}}]}}
+               ->  Custom Scan (ParadeDB Scan) on union_test_b
+                     Table: union_test_b
+                     Index: union_test_b_idx
+                     Segment Count: 1
+                     Exec Method: MixedFastFieldExecState
+                     Fast Fields: author, title, price, rating
+                     String Fast Fields: author, title
+                     Numeric Fast Fields: price, rating
+                     Scores: false
+                     Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book B","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":3.0},"upper_bound":null,"is_datetime":false}}]}}
+(25 rows)
+
 SELECT title, author, rating, price
 FROM union_test_a
 WHERE title @@@ 'Book A' AND rating > 4
@@ -589,22 +617,54 @@ ORDER BY title, author, price;
  Book A9  | Author 10 |    55 |                55
 (50 rows)
 
--- This test is disabled, because it has a variable oid in it.
--- -- Test 5: Window function with UNION and mixed filters
--- EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
--- WITH combined_books AS (
---     SELECT title, author, rating, 'A' as source
---     FROM union_test_a
---     WHERE rating > 3.5 and title @@@ 'Book A'
---     UNION
---     SELECT title, author, rating, 'B' as source
---     FROM union_test_b
---     WHERE rating > 2.5 and title @@@ 'Book A'
--- )
--- SELECT title, author, rating, source,
---        RANK() OVER (PARTITION BY author ORDER BY rating DESC) as author_rank
--- FROM combined_books
--- ORDER BY title, author, author_rank;
+-- Test 5: Window function with UNION and mixed filters
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+WITH combined_books AS (
+    SELECT title, author, rating, 'A' as source
+    FROM union_test_a
+    WHERE rating > 3.5 and title @@@ 'Book A'
+    UNION
+    SELECT title, author, rating, 'B' as source
+    FROM union_test_b
+    WHERE rating > 2.5 and title @@@ 'Book A'
+)
+SELECT title, author, rating, source,
+       RANK() OVER (PARTITION BY author ORDER BY rating DESC) as author_rank
+FROM combined_books
+ORDER BY title, author, author_rank;
+                                                                                                                                                  QUERY PLAN                                                                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: combined_books.title, combined_books.author, (rank() OVER (?))
+   ->  WindowAgg
+         ->  Sort
+               Sort Key: combined_books.author, combined_books.rating DESC
+               ->  Subquery Scan on combined_books
+                     ->  HashAggregate
+                           Group Key: union_test_a.title, union_test_a.author, union_test_a.rating, ('A'::text)
+                           ->  Append
+                                 ->  Custom Scan (ParadeDB Scan) on union_test_a
+                                       Table: union_test_a
+                                       Index: union_test_a_idx
+                                       Segment Count: 1
+                                       Exec Method: MixedFastFieldExecState
+                                       Fast Fields: author, title, rating
+                                       String Fast Fields: author, title
+                                       Numeric Fast Fields: rating
+                                       Scores: false
+                                       Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"excluded":3.5},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}]}}
+                                 ->  Custom Scan (ParadeDB Scan) on union_test_b
+                                       Table: union_test_b
+                                       Index: union_test_b_idx
+                                       Segment Count: 1
+                                       Exec Method: MixedFastFieldExecState
+                                       Fast Fields: author, title, rating
+                                       String Fast Fields: author, title
+                                       Numeric Fast Fields: rating
+                                       Scores: false
+                                       Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"excluded":2.5},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}]}}
+(29 rows)
+
 WITH combined_books AS (
     SELECT title, author, rating, 'A' as source
     FROM union_test_a
@@ -858,26 +918,53 @@ FROM union_test_a
 WHERE author @@@ 'Author'
 GROUP BY author
 ORDER BY avg_rating DESC;
-  author   |     avg_rating     | avg_price | book_count | rating_rank | price_rank 
------------+--------------------+-----------+------------+-------------+------------
- Author 2  | 4.2000000000000000 |       115 |          5 |           1 |          1
- Author 5  | 4.2000000000000000 |       130 |          5 |           1 |          4
- Author 8  | 4.2000000000000000 |       145 |          5 |           1 |          7
- Author 1  | 4.2000000000000000 |       160 |          5 |           1 |         10
- Author 6  | 4.0000000000000000 |       135 |          5 |           5 |          5
- Author 3  | 4.0000000000000000 |       120 |          5 |           5 |          2
- Author 9  | 4.0000000000000000 |       150 |          5 |           5 |          8
- Author 7  | 3.8000000000000000 |       140 |          5 |           8 |          6
- Author 10 | 3.8000000000000000 |       155 |          5 |           8 |          9
- Author 4  | 3.8000000000000000 |       125 |          5 |           8 |          3
+  author   | avg_rating | avg_price | book_count | rating_rank | price_rank 
+-----------+------------+-----------+------------+-------------+------------
+ Author 2  |        4.2 |       115 |          5 |           1 |          1
+ Author 5  |        4.2 |       130 |          5 |           1 |          4
+ Author 8  |        4.2 |       145 |          5 |           1 |          7
+ Author 1  |        4.2 |       160 |          5 |           1 |         10
+ Author 6  |          4 |       135 |          5 |           5 |          5
+ Author 3  |          4 |       120 |          5 |           5 |          2
+ Author 9  |          4 |       150 |          5 |           5 |          8
+ Author 7  |        3.8 |       140 |          5 |           8 |          6
+ Author 10 |        3.8 |       155 |          5 |           8 |          9
+ Author 4  |        3.8 |       125 |          5 |           8 |          3
 (10 rows)
 
--- This test is disabled, because it has a variable oid in it.
--- -- Test 8: UNION with INTERSECT and different field types
--- EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
--- (SELECT author FROM union_test_a WHERE rating > 4.5 and title @@@ 'Book A')
--- INTERSECT
--- (SELECT author FROM union_test_b WHERE rating > 4.0 and title @@@ 'Book A');
+-- Test 8: UNION with INTERSECT and different field types
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+(SELECT author FROM union_test_a WHERE rating > 4.5 and title @@@ 'Book A')
+INTERSECT
+(SELECT author FROM union_test_b WHERE rating > 4.0 and title @@@ 'Book A');
+                                                                                                                                         QUERY PLAN                                                                                                                                          
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ HashSetOp Intersect
+   ->  Append
+         ->  Subquery Scan on "*SELECT* 2"
+               ->  Custom Scan (ParadeDB Scan) on union_test_b
+                     Table: union_test_b
+                     Index: union_test_b_idx
+                     Segment Count: 1
+                     Exec Method: MixedFastFieldExecState
+                     Fast Fields: author, rating
+                     String Fast Fields: author
+                     Numeric Fast Fields: rating
+                     Scores: false
+                     Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"excluded":4.0},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}]}}
+         ->  Subquery Scan on "*SELECT* 1"
+               ->  Custom Scan (ParadeDB Scan) on union_test_a
+                     Table: union_test_a
+                     Index: union_test_a_idx
+                     Segment Count: 1
+                     Exec Method: MixedFastFieldExecState
+                     Fast Fields: author, rating
+                     String Fast Fields: author
+                     Numeric Fast Fields: rating
+                     Scores: false
+                     Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"excluded":4.5},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}]}}
+(24 rows)
+
 (SELECT author FROM union_test_a WHERE rating > 4.5 and title @@@ 'Book A')
 INTERSECT
 (SELECT author FROM union_test_b WHERE rating > 4.0 and title @@@ 'Book A');

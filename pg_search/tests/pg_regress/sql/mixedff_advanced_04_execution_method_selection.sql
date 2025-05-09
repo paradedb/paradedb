@@ -13,7 +13,7 @@ CREATE TABLE exec_method_test (
     text_field3 TEXT,
     num_field1 INTEGER,
     num_field2 FLOAT,
-    num_field3 NUMERIC,
+    num_field3 FLOAT,
     bool_field BOOLEAN,
     non_indexed_field TEXT
 );
@@ -30,7 +30,7 @@ SELECT
     'Category ' || (i % 5),
     i,
     (i * 1.5)::float,
-    (i * 2.25)::numeric,
+    (i * 2.25)::float,
     i % 2 = 0,
     'Non-indexed ' || i
 FROM generate_series(1, 50) i;

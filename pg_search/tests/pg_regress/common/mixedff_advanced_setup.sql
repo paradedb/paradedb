@@ -188,7 +188,7 @@ CREATE TABLE products (
     id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
     category_id INTEGER REFERENCES categories(id),
-    price NUMERIC(10,2) NOT NULL
+    price FLOAT NOT NULL
 );
 
 CREATE INDEX product_search ON products USING bm25 (
@@ -216,7 +216,7 @@ CREATE TABLE conversion_test (
     smallint_field SMALLINT,
     integer_field INTEGER,
     bigint_field BIGINT,
-    numeric_field NUMERIC(10,2),
+    numeric_field FLOAT,
     real_field REAL,
     double_field DOUBLE PRECISION,
     bool_from_int BOOLEAN,
@@ -266,7 +266,7 @@ CREATE TABLE union_test_a (
     id SERIAL PRIMARY KEY,
     title TEXT,
     author TEXT,
-    rating NUMERIC,
+    rating FLOAT,
     year INTEGER,
     price FLOAT,
     is_published BOOLEAN
@@ -276,7 +276,7 @@ CREATE TABLE union_test_b (
     id SERIAL PRIMARY KEY,
     title TEXT,
     author TEXT,
-    rating NUMERIC,
+    rating FLOAT,
     year INTEGER,
     price FLOAT,
     is_published BOOLEAN
@@ -287,7 +287,7 @@ INSERT INTO union_test_a (title, author, rating, year, price, is_published)
 SELECT
     'Book A' || i,
     'Author ' || (1 + (i % 10)),
-    (3 + (i % 3))::numeric,  -- Ratings from 3 to 5
+    (3 + (i % 3))::float,  -- Ratings from 3 to 5
     2000 + (i % 22),
     (10 + (i * 5))::float,   -- Deterministic prices
     i % 3 != 0               -- Deterministic boolean pattern
@@ -297,7 +297,7 @@ INSERT INTO union_test_b (title, author, rating, year, price, is_published)
 SELECT
     'Book B' || i,
     'Author ' || (1 + (i % 15)),
-    (1 + (i % 5))::numeric,  -- Ratings from 1 to 5
+    (1 + (i % 5))::float,  -- Ratings from 1 to 5
     1980 + (i % 40),
     (15 + (i * 3))::float,   -- Deterministic prices
     i % 4 != 0               -- Deterministic boolean pattern

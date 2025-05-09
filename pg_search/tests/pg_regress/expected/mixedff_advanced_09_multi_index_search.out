@@ -176,7 +176,7 @@ CREATE TABLE products (
     id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
     category_id INTEGER REFERENCES categories(id),
-    price NUMERIC(10,2) NOT NULL
+    price FLOAT NOT NULL
 );
 CREATE INDEX product_search ON products USING bm25 (
     id,
@@ -201,7 +201,7 @@ CREATE TABLE conversion_test (
     smallint_field SMALLINT,
     integer_field INTEGER,
     bigint_field BIGINT,
-    numeric_field NUMERIC(10,2),
+    numeric_field FLOAT,
     real_field REAL,
     double_field DOUBLE PRECISION,
     bool_from_int BOOLEAN,
@@ -247,7 +247,7 @@ CREATE TABLE union_test_a (
     id SERIAL PRIMARY KEY,
     title TEXT,
     author TEXT,
-    rating NUMERIC,
+    rating FLOAT,
     year INTEGER,
     price FLOAT,
     is_published BOOLEAN
@@ -256,7 +256,7 @@ CREATE TABLE union_test_b (
     id SERIAL PRIMARY KEY,
     title TEXT,
     author TEXT,
-    rating NUMERIC,
+    rating FLOAT,
     year INTEGER,
     price FLOAT,
     is_published BOOLEAN
@@ -266,7 +266,7 @@ INSERT INTO union_test_a (title, author, rating, year, price, is_published)
 SELECT
     'Book A' || i,
     'Author ' || (1 + (i % 10)),
-    (3 + (i % 3))::numeric,  -- Ratings from 3 to 5
+    (3 + (i % 3))::float,  -- Ratings from 3 to 5
     2000 + (i % 22),
     (10 + (i * 5))::float,   -- Deterministic prices
     i % 3 != 0               -- Deterministic boolean pattern
@@ -275,7 +275,7 @@ INSERT INTO union_test_b (title, author, rating, year, price, is_published)
 SELECT
     'Book B' || i,
     'Author ' || (1 + (i % 15)),
-    (1 + (i % 5))::numeric,  -- Ratings from 1 to 5
+    (1 + (i % 5))::float,  -- Ratings from 1 to 5
     1980 + (i % 40),
     (15 + (i * 3))::float,   -- Deterministic prices
     i % 4 != 0               -- Deterministic boolean pattern
@@ -307,7 +307,7 @@ CREATE TABLE products (
     id SERIAL PRIMARY KEY,
     name TEXT,
     description TEXT,
-    price NUMERIC(10,2),
+    price FLOAT,
     stock_count INTEGER,
     weight FLOAT,
     is_available BOOLEAN,
@@ -334,7 +334,7 @@ INSERT INTO products (name, description, price, stock_count, weight, is_availabl
 SELECT
     'Product ' || i,
     'Description for product ' || i || '. This product has various features and specifications.',
-    (50.00 + (i * 10))::numeric(10,2),  -- Deterministic prices
+    (50.00 + (i * 10))::float,          -- Deterministic prices
     (i * 2)::integer,                   -- Deterministic stock counts
     (0.1 + (i * 0.2))::float,           -- Deterministic weights
     i % 5 != 0,                         -- Deterministic availability pattern (80% available)
@@ -463,18 +463,18 @@ JOIN categories c ON pc.category_id = c.id
 WHERE p.name @@@ 'Product' AND c.is_active = true
 ORDER BY p.price DESC
 LIMIT 10;
-    name     |  price  |    category    
--------------+---------+----------------
- Product 100 | 1050.00 | Electronics
- Product 99  | 1040.00 | Toys
- Product 99  | 1040.00 | Outdoors
- Product 98  | 1030.00 | Office
- Product 97  | 1020.00 | Automotive
- Product 96  | 1010.00 | Books
- Product 95  | 1000.00 | Sports
- Product 94  |  990.00 | Toys
- Product 93  |  980.00 | Home & Kitchen
- Product 93  |  980.00 | Office
+    name     | price |    category    
+-------------+-------+----------------
+ Product 100 |  1050 | Electronics
+ Product 99  |  1040 | Toys
+ Product 99  |  1040 | Outdoors
+ Product 98  |  1030 | Office
+ Product 97  |  1020 | Automotive
+ Product 96  |  1010 | Books
+ Product 95  |  1000 | Sports
+ Product 94  |   990 | Toys
+ Product 93  |   980 | Home & Kitchen
+ Product 93  |   980 | Office
 (10 rows)
 
 -- Test 2: Join between products and reviews with search
@@ -544,32 +544,8 @@ GROUP BY p.name, c.name
 HAVING AVG(r.rating) > 3
 ORDER BY avg_rating, paradedb.score(p.id) DESC;
 ERROR:  column "p.id" must appear in the GROUP BY clause or be used in an aggregate function at character 367
--- This test is disabled, because it has a variable oid in it.
--- -- Test 4: Complex query with multiple indices and mixed fields
--- EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
--- WITH top_products AS (
---     SELECT p.id, p.name, p.price, p.stock_count
---     FROM products p
---     WHERE p.price BETWEEN 100 AND 800
---       AND p.is_available = true
---       AND p.name @@@ 'Product'
---     ORDER BY p.price DESC
---     LIMIT 50
--- ),
--- product_ratings AS (
---     SELECT r.product_id, AVG(r.rating) as avg_rating, COUNT(*) as review_count
---     FROM reviews r
---     WHERE r.rating >= 3
---     GROUP BY r.product_id
---     HAVING COUNT(*) >= 2
--- )
--- SELECT tp.name, tp.price, pr.avg_rating, c.name as category
--- FROM top_products tp
--- JOIN product_ratings pr ON tp.id = pr.product_id
--- JOIN product_categories pc ON tp.id = pc.product_id
--- JOIN categories c ON pc.category_id = c.id
--- WHERE c.is_active = true
--- ORDER BY pr.avg_rating DESC, paradedb.score(tp.id), tp.price DESC;
+-- Test 4: Complex query with multiple indices and mixed fields
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 WITH top_products AS (
     SELECT p.id, p.name, p.price, p.stock_count
     FROM products p
@@ -593,14 +569,73 @@ JOIN product_categories pc ON tp.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
 WHERE c.is_active = true
 ORDER BY pr.avg_rating DESC, paradedb.score(tp.id), tp.price DESC;
-    name    | price  |     avg_rating     |    category    
-------------+--------+--------------------+----------------
- Product 19 | 240.00 | 4.0000000000000000 | Outdoors
- Product 14 | 190.00 | 4.0000000000000000 | Toys
- Product 18 | 230.00 | 3.0000000000000000 | Office
- Product 18 | 230.00 | 3.0000000000000000 | Home & Kitchen
- Product 18 | 230.00 | 3.0000000000000000 | Sports
- Product 13 | 180.00 | 3.0000000000000000 | Home & Kitchen
+                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                    
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: pr.avg_rating DESC, (paradedb.score(tp.id)), tp.price DESC
+   ->  Hash Join
+         Hash Cond: (pr.product_id = tp.id)
+         ->  Hash Join
+               Hash Cond: (pc.category_id = c.id)
+               ->  Hash Join
+                     Hash Cond: (pc.product_id = pr.product_id)
+                     ->  Seq Scan on product_categories pc
+                     ->  Hash
+                           ->  Subquery Scan on pr
+                                 ->  HashAggregate
+                                       Group Key: r.product_id
+                                       Filter: (count(*) >= 2)
+                                       ->  Seq Scan on reviews r
+                                             Filter: (rating >= 3)
+               ->  Hash
+                     ->  Seq Scan on categories c
+                           Filter: is_active
+         ->  Hash
+               ->  Subquery Scan on tp
+                     ->  Limit
+                           ->  Custom Scan (ParadeDB Scan) on products p
+                                 Table: products
+                                 Index: products_idx
+                                 Segment Count: 1
+                                 Exec Method: TopNScanExecState
+                                 Scores: false
+                                    Sort Field: price
+                                    Sort Direction: desc
+                                    Top N Limit: 50
+                                 Tantivy Query: {"boolean":{"must":[{"range":{"field":"price","lower_bound":{"included":100.0},"upper_bound":null,"is_datetime":false}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":800.0},"is_datetime":false}},{"term":{"field":"is_available","value":true,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}}]}}
+(32 rows)
+
+WITH top_products AS (
+    SELECT p.id, p.name, p.price, p.stock_count
+    FROM products p
+    WHERE p.price BETWEEN 100 AND 800
+      AND p.is_available = true
+      AND p.name @@@ 'Product'
+    ORDER BY p.price DESC
+    LIMIT 50
+),
+product_ratings AS (
+    SELECT r.product_id, AVG(r.rating) as avg_rating, COUNT(*) as review_count
+    FROM reviews r
+    WHERE r.rating >= 3
+    GROUP BY r.product_id
+    HAVING COUNT(*) >= 2
+)
+SELECT tp.name, tp.price, pr.avg_rating, c.name as category
+FROM top_products tp
+JOIN product_ratings pr ON tp.id = pr.product_id
+JOIN product_categories pc ON tp.id = pc.product_id
+JOIN categories c ON pc.category_id = c.id
+WHERE c.is_active = true
+ORDER BY pr.avg_rating DESC, paradedb.score(tp.id), tp.price DESC;
+    name    | price |     avg_rating     |    category    
+------------+-------+--------------------+----------------
+ Product 19 |   240 | 4.0000000000000000 | Outdoors
+ Product 14 |   190 | 4.0000000000000000 | Toys
+ Product 18 |   230 | 3.0000000000000000 | Office
+ Product 18 |   230 | 3.0000000000000000 | Home & Kitchen
+ Product 18 |   230 | 3.0000000000000000 | Sports
+ Product 13 |   180 | 3.0000000000000000 | Home & Kitchen
 (6 rows)
 
 -- Test 5: Union of results from different tables
@@ -723,7 +758,7 @@ ORDER BY p.price;
    Sort Key: p.price
    ->  Nested Loop Semi Join
          ->  Seq Scan on products p
-               Filter: ((stock_count > 50) AND (price < '500'::numeric))
+               Filter: ((stock_count > 50) AND (price < '500'::double precision))
          ->  Hash Join
                Hash Cond: (pc.category_id = c.id)
                ->  Bitmap Heap Scan on product_categories pc
@@ -751,43 +786,17 @@ WHERE p.id IN (
 AND p.stock_count > 50
 AND p.price < 500
 ORDER BY p.price;
-    name    | price  | stock_count 
-------------+--------+-------------
- Product 27 | 320.00 |          54
- Product 30 | 350.00 |          60
- Product 32 | 370.00 |          64
- Product 40 | 450.00 |          80
- Product 42 | 470.00 |          84
+    name    | price | stock_count 
+------------+-------+-------------
+ Product 27 |   320 |          54
+ Product 30 |   350 |          60
+ Product 32 |   370 |          64
+ Product 40 |   450 |          80
+ Product 42 |   470 |          84
 (5 rows)
 
--- This test is disabled, because it has a variable oid in it.
--- -- Test 7: Join with conditional logic and mixed fields
--- EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
--- SELECT 
---     p.name,
---     p.price,
---     CASE 
---         WHEN r.rating IS NULL THEN 'No reviews'
---         WHEN r.rating < 3 THEN 'Poor reviews'
---         WHEN r.rating < 4 THEN 'Average reviews'
---         ELSE 'Great reviews'
---     END as review_status
--- FROM products p
--- LEFT JOIN (
---     SELECT product_id, AVG(rating) as rating
---     FROM reviews
---     GROUP BY product_id
--- ) r ON p.id = r.product_id
--- WHERE p.is_available = true
---   AND p.price BETWEEN 200 AND 600
---   AND p.name @@@ 'Product'
--- ORDER BY 
---     CASE 
---         WHEN r.rating IS NULL THEN 0
---         ELSE r.rating
---     END DESC,
---     paradedb.score(p.id),
---     p.price;
+-- Test 7: Join with conditional logic and mixed fields
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT 
     p.name,
     p.price,
@@ -813,40 +822,84 @@ ORDER BY
     END DESC,
     paradedb.score(p.id),
     p.price;
-    name    | price  |  review_status  
-------------+--------+-----------------
- Product 19 | 240.00 | Great reviews
- Product 18 | 230.00 | Average reviews
- Product 17 | 220.00 | Poor reviews
- Product 16 | 210.00 | Poor reviews
- Product 21 | 260.00 | No reviews
- Product 22 | 270.00 | No reviews
- Product 23 | 280.00 | No reviews
- Product 24 | 290.00 | No reviews
- Product 26 | 310.00 | No reviews
- Product 27 | 320.00 | No reviews
- Product 28 | 330.00 | No reviews
- Product 29 | 340.00 | No reviews
- Product 31 | 360.00 | No reviews
- Product 32 | 370.00 | No reviews
- Product 33 | 380.00 | No reviews
- Product 34 | 390.00 | No reviews
- Product 36 | 410.00 | No reviews
- Product 37 | 420.00 | No reviews
- Product 38 | 430.00 | No reviews
- Product 39 | 440.00 | No reviews
- Product 41 | 460.00 | No reviews
- Product 42 | 470.00 | No reviews
- Product 43 | 480.00 | No reviews
- Product 44 | 490.00 | No reviews
- Product 46 | 510.00 | No reviews
- Product 47 | 520.00 | No reviews
- Product 48 | 530.00 | No reviews
- Product 49 | 540.00 | No reviews
- Product 51 | 560.00 | No reviews
- Product 52 | 570.00 | No reviews
- Product 53 | 580.00 | No reviews
- Product 54 | 590.00 | No reviews
+                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: (CASE WHEN ((avg(reviews.rating)) IS NULL) THEN '0'::numeric ELSE (avg(reviews.rating)) END) DESC, (paradedb.score(p.id)), p.price
+   ->  Hash Right Join
+         Hash Cond: (reviews.product_id = p.id)
+         ->  HashAggregate
+               Group Key: reviews.product_id
+               ->  Seq Scan on reviews
+         ->  Hash
+               ->  Custom Scan (ParadeDB Scan) on products p
+                     Table: products
+                     Index: products_idx
+                     Segment Count: 1
+                     Exec Method: NormalScanExecState
+                     Scores: true
+                     Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_available","value":true,"is_datetime":false}},{"range":{"field":"price","lower_bound":{"included":200.0},"upper_bound":null,"is_datetime":false}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":600.0},"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}}]}}
+(15 rows)
+
+SELECT 
+    p.name,
+    p.price,
+    CASE 
+        WHEN r.rating IS NULL THEN 'No reviews'
+        WHEN r.rating < 3 THEN 'Poor reviews'
+        WHEN r.rating < 4 THEN 'Average reviews'
+        ELSE 'Great reviews'
+    END as review_status
+FROM products p
+LEFT JOIN (
+    SELECT product_id, AVG(rating) as rating
+    FROM reviews
+    GROUP BY product_id
+) r ON p.id = r.product_id
+WHERE p.is_available = true
+  AND p.price BETWEEN 200 AND 600
+  AND p.name @@@ 'Product'
+ORDER BY 
+    CASE 
+        WHEN r.rating IS NULL THEN 0
+        ELSE r.rating
+    END DESC,
+    paradedb.score(p.id),
+    p.price;
+    name    | price |  review_status  
+------------+-------+-----------------
+ Product 19 |   240 | Great reviews
+ Product 18 |   230 | Average reviews
+ Product 17 |   220 | Poor reviews
+ Product 16 |   210 | Poor reviews
+ Product 21 |   260 | No reviews
+ Product 22 |   270 | No reviews
+ Product 23 |   280 | No reviews
+ Product 24 |   290 | No reviews
+ Product 26 |   310 | No reviews
+ Product 27 |   320 | No reviews
+ Product 28 |   330 | No reviews
+ Product 29 |   340 | No reviews
+ Product 31 |   360 | No reviews
+ Product 32 |   370 | No reviews
+ Product 33 |   380 | No reviews
+ Product 34 |   390 | No reviews
+ Product 36 |   410 | No reviews
+ Product 37 |   420 | No reviews
+ Product 38 |   430 | No reviews
+ Product 39 |   440 | No reviews
+ Product 41 |   460 | No reviews
+ Product 42 |   470 | No reviews
+ Product 43 |   480 | No reviews
+ Product 44 |   490 | No reviews
+ Product 46 |   510 | No reviews
+ Product 47 |   520 | No reviews
+ Product 48 |   530 | No reviews
+ Product 49 |   540 | No reviews
+ Product 51 |   560 | No reviews
+ Product 52 |   570 | No reviews
+ Product 53 |   580 | No reviews
+ Product 54 |   590 | No reviews
 (32 rows)
 
 -- Test 8: Multi-index intersection
@@ -915,13 +968,13 @@ WHERE p.name @@@ 'Product 1'
   AND c.is_active = true
 ORDER BY p.price DESC
 LIMIT 5;
-    name     |  price  |  category   
--------------+---------+-------------
- Product 100 | 1050.00 | Electronics
- Product 99  | 1040.00 | Toys
- Product 99  | 1040.00 | Outdoors
- Product 98  | 1030.00 | Office
- Product 97  | 1020.00 | Automotive
+    name     | price |  category   
+-------------+-------+-------------
+ Product 100 |  1050 | Electronics
+ Product 99  |  1040 | Toys
+ Product 99  |  1040 | Outdoors
+ Product 98  |  1030 | Office
+ Product 97  |  1020 | Automotive
 (5 rows)
 
 -- Clean up

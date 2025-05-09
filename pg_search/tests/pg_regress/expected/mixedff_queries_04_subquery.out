@@ -113,8 +113,8 @@ SELECT d.id, d.title, d.parents,
 FROM documents d
 WHERE d.parents @@@ 'Factures'
 ORDER BY invoice_file_count DESC, d.id;
-                                                                                                                                                                                                                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                     
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                           QUERY PLAN                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: ((SubPlan 1)) DESC, d.id
    ->  Custom Scan (ParadeDB Scan) on documents d
@@ -134,7 +134,7 @@ ORDER BY invoice_file_count DESC, d.id;
                        Fast Fields: documentid
                        String Agg Field: documentid
                        Scores: false
-                       Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Invoice","lenient":null,"conjunction_mode":null}}}},{"postgres_expression":{"expr":{"node":"{FUNCEXPR :funcid 1826727 :funcresulttype 1826615 :funcretset false :funcvariadic false :funcformat 0 :funccollid 0 :inputcollid 100 :args ({CONST :consttype 1826611 :consttypmod -1 :constcollid 0 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 15 [ 60 0 0 0 106 100 111 99 117 109 101 110 116 105 100 ]} {CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 5 [ 20 0 0 0 61 ]} {PARAM :paramkind 1 :paramid 0 :paramtype 25 :paramtypmod -1 :paramcollid 100 :location -1}) :location -1}"}}}]}}
+                       Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Invoice","lenient":null,"conjunction_mode":null}}}},{}]}}
 (20 rows)
 
 -- Test with subquery

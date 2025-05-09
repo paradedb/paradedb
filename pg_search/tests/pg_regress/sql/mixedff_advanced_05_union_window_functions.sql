@@ -4,17 +4,16 @@
 
 \echo 'Test: UNION operations'
 
--- This test is disabled, because it has a variable oid in it.
--- -- Test 1: Basic UNION with mixed field types
--- EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
--- SELECT title, author, rating, price
--- FROM union_test_a
--- WHERE title @@@ 'Book A' AND rating > 4
--- UNION
--- SELECT title, author, rating, price
--- FROM union_test_b
--- WHERE title @@@ 'Book B' AND rating > 3
--- ORDER BY rating DESC, title;
+-- Test 1: Basic UNION with mixed field types
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT title, author, rating, price
+FROM union_test_a
+WHERE title @@@ 'Book A' AND rating > 4
+UNION
+SELECT title, author, rating, price
+FROM union_test_b
+WHERE title @@@ 'Book B' AND rating > 3
+ORDER BY rating DESC, title;
 
 SELECT title, author, rating, price
 FROM union_test_a
@@ -73,22 +72,21 @@ FROM union_test_a
 WHERE author @@@ 'Author'
 ORDER BY title, author, price;
 
--- This test is disabled, because it has a variable oid in it.
--- -- Test 5: Window function with UNION and mixed filters
--- EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
--- WITH combined_books AS (
---     SELECT title, author, rating, 'A' as source
---     FROM union_test_a
---     WHERE rating > 3.5 and title @@@ 'Book A'
---     UNION
---     SELECT title, author, rating, 'B' as source
---     FROM union_test_b
---     WHERE rating > 2.5 and title @@@ 'Book A'
--- )
--- SELECT title, author, rating, source,
---        RANK() OVER (PARTITION BY author ORDER BY rating DESC) as author_rank
--- FROM combined_books
--- ORDER BY title, author, author_rank;
+-- Test 5: Window function with UNION and mixed filters
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+WITH combined_books AS (
+    SELECT title, author, rating, 'A' as source
+    FROM union_test_a
+    WHERE rating > 3.5 and title @@@ 'Book A'
+    UNION
+    SELECT title, author, rating, 'B' as source
+    FROM union_test_b
+    WHERE rating > 2.5 and title @@@ 'Book A'
+)
+SELECT title, author, rating, source,
+       RANK() OVER (PARTITION BY author ORDER BY rating DESC) as author_rank
+FROM combined_books
+ORDER BY title, author, author_rank;
 
 WITH combined_books AS (
     SELECT title, author, rating, 'A' as source
@@ -148,12 +146,11 @@ WHERE author @@@ 'Author'
 GROUP BY author
 ORDER BY avg_rating DESC;
 
--- This test is disabled, because it has a variable oid in it.
--- -- Test 8: UNION with INTERSECT and different field types
--- EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
--- (SELECT author FROM union_test_a WHERE rating > 4.5 and title @@@ 'Book A')
--- INTERSECT
--- (SELECT author FROM union_test_b WHERE rating > 4.0 and title @@@ 'Book A');
+-- Test 8: UNION with INTERSECT and different field types
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+(SELECT author FROM union_test_a WHERE rating > 4.5 and title @@@ 'Book A')
+INTERSECT
+(SELECT author FROM union_test_b WHERE rating > 4.0 and title @@@ 'Book A');
 
 (SELECT author FROM union_test_a WHERE rating > 4.5 and title @@@ 'Book A')
 INTERSECT

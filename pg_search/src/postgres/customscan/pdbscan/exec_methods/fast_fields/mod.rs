@@ -473,7 +473,11 @@ pub fn explain(state: &CustomScanStateWrapper<PdbScan>, explainer: &mut Explaine
             explainer.add_text("String Agg Field", field);
         }
         ExecMethodType::FastFieldNumeric { which_fast_fields } => {
-            let fields: Vec<_> = which_fast_fields.iter().map(|ff| ff.name()).collect();
+            let fields: Vec<_> = which_fast_fields
+                .iter()
+                .map(|ff| ff.name())
+                .sorted()
+                .collect();
             explainer.add_text("Fast Fields", fields.join(", "));
         }
         ExecMethodType::FastFieldMixed { which_fast_fields } => {
@@ -482,12 +486,14 @@ pub fn explain(state: &CustomScanStateWrapper<PdbScan>, explainer: &mut Explaine
                 .iter()
                 .filter(|ff| matches!(ff, WhichFastField::Named(_, FastFieldType::String)))
                 .map(|ff| ff.name())
+                .sorted()
                 .collect();
 
             let numeric_fields: Vec<_> = which_fast_fields
                 .iter()
                 .filter(|ff| matches!(ff, WhichFastField::Named(_, FastFieldType::Numeric)))
                 .map(|ff| ff.name())
+                .sorted()
                 .collect();
 
             let all_fields = [string_fields.clone(), numeric_fields.clone()].concat();

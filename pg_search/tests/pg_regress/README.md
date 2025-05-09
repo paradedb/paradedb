@@ -31,11 +31,13 @@ Each group uses its own setup and cleanup scripts from the `common/` directory.
    ```sql
    \i common/PREFIX_setup.sql
    ```
+
 3. Add a descriptive header and echo statement:
 
    ```sql
    -- Tests my new feature
    ```
+
 4. Use deterministic data and ORDER BY clauses to ensure consistent results
 5. End with the appropriate cleanup script, e.g.,:
 
@@ -87,4 +89,4 @@ When contributing new tests:
 1. Follow the naming convention of existing tests
 2. Use the appropriate common setup/cleanup scripts
 3. Check that your test produces deterministic results
-4. Include metadata comments at the top of the file explaining what's being tested 
+4. Include metadata comments at the top of the file explaining what's being tested

@@ -164,6 +164,9 @@ impl PdbScan {
                     }
                 }
 
+                // Remove any field named "postgres_expression"
+                obj.remove("postgres_expression");
+
                 // Recursively process all values in the object
                 for (_, value) in obj.iter_mut() {
                     Self::cleanup_varibilities_from_tantivy_query(value);

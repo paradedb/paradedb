@@ -71,7 +71,7 @@ impl JoinExpr {
         used.push(names[self.initial_table].clone());
 
         for step in &self.steps {
-            sql.push_str(' ');
+            sql.push(' ');
             sql.push_str(&step.join_type.to_string());
             sql.push(' ');
             sql.push_str(&names[step.table_idx]);

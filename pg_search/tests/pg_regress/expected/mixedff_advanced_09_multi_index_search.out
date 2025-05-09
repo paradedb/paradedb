@@ -529,55 +529,21 @@ FROM products p
 JOIN product_categories pc ON p.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
 JOIN reviews r ON p.id = r.product_id
-WHERE p.price < 500 AND c.product_count > 10
+WHERE p.price < 500 AND c.product_count > 10 AND p.name @@@ 'Product'
 GROUP BY p.name, c.name
 HAVING AVG(r.rating) > 3
-ORDER BY avg_rating DESC;
-                               QUERY PLAN                               
-------------------------------------------------------------------------
- Sort
-   Sort Key: (avg(r.rating)) DESC
-   ->  HashAggregate
-         Group Key: p.name, c.name
-         Filter: (avg(r.rating) > '3'::numeric)
-         ->  Hash Join
-               Hash Cond: (pc.product_id = p.id)
-               ->  Hash Join
-                     Hash Cond: (pc.category_id = c.id)
-                     ->  Seq Scan on product_categories pc
-                     ->  Hash
-                           ->  Seq Scan on categories c
-                                 Filter: (product_count > 10)
-               ->  Hash
-                     ->  Hash Join
-                           Hash Cond: (r.product_id = p.id)
-                           ->  Seq Scan on reviews r
-                           ->  Hash
-                                 ->  Seq Scan on products p
-                                       Filter: (price < '500'::numeric)
-(20 rows)
-
+ORDER BY avg_rating, paradedb.score(p.id) DESC;
+ERROR:  column "p.id" must appear in the GROUP BY clause or be used in an aggregate function at character 412
 SELECT p.name, c.name as category, AVG(r.rating) as avg_rating
 FROM products p
 JOIN product_categories pc ON p.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
 JOIN reviews r ON p.id = r.product_id
-WHERE p.price < 500 AND c.product_count > 10
+WHERE p.price < 500 AND c.product_count > 10 AND p.name @@@ 'Product'
 GROUP BY p.name, c.name
 HAVING AVG(r.rating) > 3
-ORDER BY avg_rating DESC;
-    name    |  category   |     avg_rating     
-------------+-------------+--------------------
- Product 15 | Electronics | 5.0000000000000000
- Product 10 | Electronics | 5.0000000000000000
- Product 20 | Electronics | 5.0000000000000000
- Product 4  | Toys        | 4.0000000000000000
- Product 19 | Outdoors    | 4.0000000000000000
- Product 14 | Toys        | 4.0000000000000000
- Product 9  | Outdoors    | 4.0000000000000000
- Product 9  | Toys        | 4.0000000000000000
-(8 rows)
-
+ORDER BY avg_rating, paradedb.score(p.id) DESC;
+ERROR:  column "p.id" must appear in the GROUP BY clause or be used in an aggregate function at character 367
 -- Test 4: Complex query with multiple indices and mixed fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 WITH top_products AS (
@@ -585,6 +551,7 @@ WITH top_products AS (
     FROM products p
     WHERE p.price BETWEEN 100 AND 800
       AND p.is_available = true
+      AND p.name @@@ 'Product'
     ORDER BY p.price DESC
     LIMIT 50
 ),
@@ -602,42 +569,47 @@ JOIN product_categories pc ON tp.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
 WHERE c.is_active = true
 ORDER BY pr.avg_rating DESC, tp.price DESC;
-                                                              QUERY PLAN                                                              
---------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                         QUERY PLAN                                                                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
-   Sort Key: (avg(r.rating)) DESC, tp.price DESC
-   ->  Hash Join
-         Hash Cond: (pc.category_id = c.id)
+   Sort Key: pr.avg_rating DESC, tp.price DESC
+   ->  Nested Loop
+         Join Filter: (pc.category_id = c.id)
          ->  Nested Loop
                Join Filter: (pc.product_id = tp.id)
-               ->  Hash Join
-                     Hash Cond: (r.product_id = tp.id)
-                     ->  HashAggregate
-                           Group Key: r.product_id
-                           Filter: (count(*) >= 2)
-                           ->  Seq Scan on reviews r
-                                 Filter: (rating >= 3)
-                     ->  Hash
+               ->  Merge Join
+                     Merge Cond: (tp.id = pr.product_id)
+                     ->  Sort
+                           Sort Key: tp.id
                            ->  Subquery Scan on tp
                                  ->  Limit
                                        ->  Sort
                                              Sort Key: p.price DESC
                                              ->  Seq Scan on products p
-                                                   Filter: (is_available AND (price >= '100'::numeric) AND (price <= '800'::numeric))
+                                                   Filter: (is_available AND (price >= '100'::numeric) AND (price <= '800'::numeric) AND (id @@@ '{"with_index":{"oid":1920563,"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
+                     ->  Sort
+                           Sort Key: pr.product_id
+                           ->  Subquery Scan on pr
+                                 ->  HashAggregate
+                                       Group Key: r.product_id
+                                       Filter: (count(*) >= 2)
+                                       ->  Seq Scan on reviews r
+                                             Filter: (rating >= 3)
                ->  Bitmap Heap Scan on product_categories pc
-                     Recheck Cond: (product_id = r.product_id)
+                     Recheck Cond: (product_id = pr.product_id)
                      ->  Bitmap Index Scan on product_categories_pkey
-                           Index Cond: (product_id = r.product_id)
-         ->  Hash
+                           Index Cond: (product_id = pr.product_id)
+         ->  Materialize
                ->  Seq Scan on categories c
                      Filter: is_active
-(27 rows)
+(31 rows)
 
 WITH top_products AS (
     SELECT p.id, p.name, p.price, p.stock_count
     FROM products p
     WHERE p.price BETWEEN 100 AND 800
       AND p.is_available = true
+      AND p.name @@@ 'Product'
     ORDER BY p.price DESC
     LIMIT 50
 ),
@@ -841,25 +813,25 @@ LEFT JOIN (
 ) r ON p.id = r.product_id
 WHERE p.is_available = true
   AND p.price BETWEEN 200 AND 600
+  AND p.name @@@ 'Product'
 ORDER BY 
     CASE 
         WHEN r.rating IS NULL THEN 0
         ELSE r.rating
     END DESC,
     p.price;
-                                                       QUERY PLAN                                                       
-------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                       QUERY PLAN                                                                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (CASE WHEN ((avg(reviews.rating)) IS NULL) THEN '0'::numeric ELSE (avg(reviews.rating)) END) DESC, p.price
-   ->  Hash Right Join
-         Hash Cond: (reviews.product_id = p.id)
+   ->  Nested Loop Left Join
+         Join Filter: (p.id = reviews.product_id)
+         ->  Seq Scan on products p
+               Filter: (is_available AND (price >= '200'::numeric) AND (price <= '600'::numeric) AND (id @@@ '{"with_index":{"oid":1920563,"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
          ->  HashAggregate
                Group Key: reviews.product_id
                ->  Seq Scan on reviews
-         ->  Hash
-               ->  Seq Scan on products p
-                     Filter: (is_available AND (price >= '200'::numeric) AND (price <= '600'::numeric))
-(10 rows)
+(9 rows)
 
 SELECT 
     p.name,
@@ -878,6 +850,7 @@ LEFT JOIN (
 ) r ON p.id = r.product_id
 WHERE p.is_available = true
   AND p.price BETWEEN 200 AND 600
+  AND p.name @@@ 'Product'
 ORDER BY 
     CASE 
         WHEN r.rating IS NULL THEN 0

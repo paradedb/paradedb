@@ -67,10 +67,12 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1, num_field1, num_field2
 FROM exec_method_test
 WHERE text_field1 @@@ 'Text' AND num_field1 > 10
-ORDER BY text_field1, num_field1, num_field2
+ORDER BY text_field1, num_field1, num_field2;
+
 SELECT text_field1, num_field1, num_field2
 FROM exec_method_test
-WHERE text_field1 @@@ 'Text' AND num_field1 > 10;
+WHERE text_field1 @@@ 'Text' AND num_field1 > 10
+ORDER BY text_field1, num_field1, num_field2;
 
 -- Test 3: Should use MixedFastFieldExecState with all field types
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

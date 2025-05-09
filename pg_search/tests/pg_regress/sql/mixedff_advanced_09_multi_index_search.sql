@@ -181,20 +181,20 @@ FROM products p
 JOIN product_categories pc ON p.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
 JOIN reviews r ON p.id = r.product_id
-WHERE p.price < 500 AND c.product_count > 10
+WHERE p.price < 500 AND c.product_count > 10 AND p.name @@@ 'Product'
 GROUP BY p.name, c.name
 HAVING AVG(r.rating) > 3
-ORDER BY avg_rating DESC;
+ORDER BY avg_rating, paradedb.score(p.id) DESC;
 
 SELECT p.name, c.name as category, AVG(r.rating) as avg_rating
 FROM products p
 JOIN product_categories pc ON p.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
 JOIN reviews r ON p.id = r.product_id
-WHERE p.price < 500 AND c.product_count > 10
+WHERE p.price < 500 AND c.product_count > 10 AND p.name @@@ 'Product'
 GROUP BY p.name, c.name
 HAVING AVG(r.rating) > 3
-ORDER BY avg_rating DESC;
+ORDER BY avg_rating, paradedb.score(p.id) DESC;
 
 -- Test 4: Complex query with multiple indices and mixed fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -203,6 +203,7 @@ WITH top_products AS (
     FROM products p
     WHERE p.price BETWEEN 100 AND 800
       AND p.is_available = true
+      AND p.name @@@ 'Product'
     ORDER BY p.price DESC
     LIMIT 50
 ),
@@ -226,6 +227,7 @@ WITH top_products AS (
     FROM products p
     WHERE p.price BETWEEN 100 AND 800
       AND p.is_available = true
+      AND p.name @@@ 'Product'
     ORDER BY p.price DESC
     LIMIT 50
 ),
@@ -317,6 +319,7 @@ LEFT JOIN (
 ) r ON p.id = r.product_id
 WHERE p.is_available = true
   AND p.price BETWEEN 200 AND 600
+  AND p.name @@@ 'Product'
 ORDER BY 
     CASE 
         WHEN r.rating IS NULL THEN 0
@@ -341,6 +344,7 @@ LEFT JOIN (
 ) r ON p.id = r.product_id
 WHERE p.is_available = true
   AND p.price BETWEEN 200 AND 600
+  AND p.name @@@ 'Product'
 ORDER BY 
     CASE 
         WHEN r.rating IS NULL THEN 0

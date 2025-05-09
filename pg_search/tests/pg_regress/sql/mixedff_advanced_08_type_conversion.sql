@@ -4,237 +4,89 @@
 
 \echo 'Test: Type conversion edge cases'
 
--- Create test table with various field types for conversion testing
-DROP TABLE IF EXISTS type_conversion_test;
-CREATE TABLE type_conversion_test (
-    id SERIAL PRIMARY KEY,
-    -- Text fields
-    text_field TEXT,
-    varchar_field VARCHAR(100),
-    char_field CHAR(10),
-    -- Numeric fields
-    int_field INTEGER,
-    smallint_field SMALLINT,
-    bigint_field BIGINT,
-    float_field FLOAT,
-    numeric_field NUMERIC(10,2),
-    decimal_field DECIMAL(10,2),
-    real_field REAL,
-    -- Boolean fields
-    bool_field BOOLEAN,
-    -- Date/Time fields
-    date_field DATE,
-    time_field TIME,
-    timestamp_field TIMESTAMP,
-    -- Special fields
-    uuid_field UUID,
-    json_field JSONB
-);
+-- Test implicit type conversions
+EXPLAIN (FORMAT TEXT, COSTS OFF)
+SELECT id, smallint_field, integer_field, bigint_field
+FROM conversion_test
+WHERE content @@@ 'conversion test';
 
--- Insert test data with edge cases for conversion
-INSERT INTO type_conversion_test (
-    text_field, varchar_field, char_field,
-    int_field, smallint_field, bigint_field, float_field, numeric_field, decimal_field, real_field,
-    bool_field, date_field, time_field, timestamp_field,
-    uuid_field, json_field
-) VALUES
-    -- Case 1: Standard values
-    (
-        'Regular text', 'Regular varchar', 'Char     ',
-        100, 10, 1000000, 3.14159, 123.45, 678.90, 2.71828,
-        true, '2023-01-01', '12:30:00', '2023-01-01 12:30:00',
-        '123e4567-e89b-12d3-a456-426614174000', '{"key": "value"}'
-    ),
-    -- Case 2: Numeric edge cases
-    (
-        '123', '456', '789',
-        2147483647, 32767, 9223372036854775807, 1.7976931348623157e+308, 9999999.99, 9999999.99, 3.40282e+38,
-        false, '2023-01-02', '00:00:01', '2023-01-02 00:00:01',
-        '00000000-0000-0000-0000-000000000000', '{"number": 12345}'
-    ),
-    -- Case 3: Empty/NULL edge cases
-    (
-        '', '', '',
-        0, 0, 0, 0.0, 0.00, 0.00, 0.0,
-        NULL, '1970-01-01', '00:00:00', '1970-01-01 00:00:00',
-        '00000000-0000-0000-0000-000000000000', '{}'
-    ),
-    -- Case 4: Special characters
-    (
-        'Text with special chars: !@#$%^&*()', 'Varchar with "quotes" and \'apostrophes\'', '~`[]{}\\|',
-        -2147483648, -32768, -9223372036854775808, -1.7976931348623157e+308, -9999999.99, -9999999.99, -3.40282e+38,
-        true, '9999-12-31', '23:59:59', '9999-12-31 23:59:59',
-        'ffffffff-ffff-ffff-ffff-ffffffffffff', '{"array": [1, 2, 3]}'
-    ),
-    -- Case 5: Numeric strings
-    (
-        '12345.67890', '98765.43210', '1234567890',
-        12345, 1234, 12345678901234, 12345.67890, 12345.67, 98765.43, 12345.67,
-        false, '2023-05-15', '15:45:30', '2023-05-15 15:45:30',
-        'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', '{"numeric": 12345.67890}'
-    );
+-- Check values for different integer types
+SELECT id, smallint_field, integer_field, bigint_field
+FROM conversion_test
+WHERE content @@@ 'conversion test'
+ORDER BY id;
 
--- Create search index with mixed fast fields
-DROP INDEX IF EXISTS type_conv_idx;
-CREATE INDEX type_conv_idx ON type_conversion_test
-USING bm25 (
-    id, text_field, varchar_field, char_field,
-    int_field, bigint_field, float_field, numeric_field,
-    bool_field, date_field
-)
-WITH (
-    key_field = 'id',
-    text_fields = '{"text_field": {"tokenizer": {"type": "default"}, "fast": true}, "varchar_field": {"tokenizer": {"type": "default"}, "fast": true}, "char_field": {"tokenizer": {"type": "default"}, "fast": true}}',
-    numeric_fields = '{"int_field": {"fast": true}, "bigint_field": {"fast": true}, "float_field": {"fast": true}, "numeric_field": {"fast": true}}',
-    boolean_fields = '{"bool_field": {"fast": true}}'
-);
+-- Check floating point type conversions
+SELECT id, real_field, double_field
+FROM conversion_test
+WHERE content @@@ 'conversion test'
+ORDER BY id;
 
--- Test 1: Basic text to text conversions
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT text_field, varchar_field, char_field
-FROM type_conversion_test
-WHERE text_field @@@ 'text' OR varchar_field @@@ 'varchar';
+-- Check boolean conversions
+SELECT id, bool_from_int
+FROM conversion_test
+WHERE content @@@ 'conversion test'
+ORDER BY id;
 
-SELECT text_field, varchar_field, char_field
-FROM type_conversion_test
-WHERE text_field @@@ 'text' OR varchar_field @@@ 'varchar';
+-- Check timestamp field conversions
+SELECT id, timestamp_field
+FROM conversion_test
+WHERE content @@@ 'conversion test'
+ORDER BY id;
 
--- Test 2: Converting numeric string to number
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT text_field::numeric as converted_num, numeric_field
-FROM type_conversion_test
-WHERE text_field ~ '^[0-9.]+$';
-
-
-SELECT text_field::numeric as converted_num, numeric_field
-FROM type_conversion_test
-WHERE text_field ~ '^[0-9.]+$';
-
--- Test 3: Numeric range filtering with casts
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT int_field, bigint_field, float_field
-FROM type_conversion_test
-WHERE int_field::float > 100 AND float_field::int < 12346;
-
-
-SELECT int_field, bigint_field, float_field
-FROM type_conversion_test
-WHERE int_field::float > 100 AND float_field::int < 12346;
-
--- Test 4: String concatenation with different types
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT text_field || ' - ' || int_field::text as text_with_num
-FROM type_conversion_test
-WHERE bool_field = true;
-
-
-SELECT text_field || ' - ' || int_field::text as text_with_num
-FROM type_conversion_test
-WHERE bool_field = true;
-
--- Test 5: Mixed type expressions in filtering
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT text_field, int_field, float_field
-FROM type_conversion_test
-WHERE (int_field::text = '100' OR text_field = '123') 
-  AND float_field BETWEEN 2 AND 10000;
-
-
-SELECT text_field, int_field, float_field
-FROM type_conversion_test
-WHERE (int_field::text = '100' OR text_field = '123') 
-  AND float_field BETWEEN 2 AND 10000;
-
--- Test 6: Date conversions
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT date_field, timestamp_field
-FROM type_conversion_test
-WHERE date_field = timestamp_field::date;
-
-
-SELECT date_field, timestamp_field
-FROM type_conversion_test
-WHERE date_field = timestamp_field::date;
-
--- Test 7: CASE expression with type conversion
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+-- Test type coercion in operations
 SELECT 
     id,
+    smallint_field + integer_field as addIntegers,
+    smallint_field::float / NULLIF(integer_field, 0) as divideIntegers
+FROM conversion_test
+WHERE content @@@ 'conversion test'
+ORDER BY id;
+
+-- Test numeric string conversion
+SELECT 
+    id,
+    string_field1,
     CASE 
-        WHEN text_field ~ '^[0-9]+$' THEN text_field::integer * 2
-        ELSE int_field
+        WHEN string_field1 ~ '^[0-9]+$' THEN string_field1::integer * 2
+        ELSE numeric_field1
     END as converted_value
-FROM type_conversion_test;
+FROM mixed_numeric_string_test
+WHERE string_field1 @@@ 'Unique'
+ORDER BY id;
 
-
+-- Test string concatenation with numbers
 SELECT 
     id,
-    CASE 
-        WHEN text_field ~ '^[0-9]+$' THEN text_field::integer * 2
-        ELSE int_field
-    END as converted_value
-FROM type_conversion_test;
+    string_field1 || ' - ' || numeric_field1::text as text_with_num
+FROM mixed_numeric_string_test
+WHERE numeric_field1 > 0 AND string_field1 @@@ 'Apple'
+ORDER BY id;
 
--- Test 8: JSON extraction with type conversion
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+-- Test date conversions with text output
 SELECT 
     id,
-    json_field,
-    (json_field->>'number')::numeric AS extracted_number
-FROM type_conversion_test
-WHERE json_field ? 'number';
+    timestamp_field,
+    timestamp_field::date as just_date,
+    timestamp_field::time as just_time,
+    to_char(timestamp_field, 'YYYY-MM-DD') as formatted_date
+FROM conversion_test
+WHERE content @@@ 'conversion test'
+ORDER BY timestamp_field
+LIMIT 2;
 
+-- Test complex type conversion in a CASE expression
 SELECT 
     id,
-    json_field,
-    (json_field->>'number')::numeric AS extracted_number
-FROM type_conversion_test
-WHERE json_field ? 'number';
-
--- Test 9: Complex mixed type filtering
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT text_field, int_field, bool_field
-FROM type_conversion_test
-WHERE 
-    CASE 
-        WHEN bool_field THEN int_field > 50
-        ELSE text_field @@@ 'text'
-    END;
-
-SELECT text_field, int_field, bool_field
-FROM type_conversion_test
-WHERE 
-    CASE 
-        WHEN bool_field THEN int_field > 50
-        ELSE text_field @@@ 'text'
-    END;
-
--- Verify actual conversion results
-SELECT 
-    id,
-    text_field,
-    text_field::numeric as text_to_num,
-    int_field,
-    int_field::text as int_to_text,
-    bool_field,
-    CASE WHEN bool_field THEN 'Yes' ELSE 'No' END as bool_to_text
-FROM type_conversion_test
-WHERE text_field ~ '^[0-9.]+$' OR int_field > 1000;
-
--- Test character set conversion issues
-SELECT 
-    id,
-    text_field,
-    varchar_field,
-    char_field,
-    TRIM(char_field) as trimmed_char,
-    LENGTH(char_field) as char_length,
-    LENGTH(TRIM(char_field)) as trimmed_length
-FROM type_conversion_test
-WHERE char_field <> '';
-
--- Clean up
-DROP INDEX IF EXISTS type_conv_idx;
-DROP TABLE IF EXISTS type_conversion_test; 
+    CASE
+        WHEN numeric_field1 > 300 THEN 'High Value'
+        WHEN numeric_field1 > 100 THEN 'Medium Value'
+        ELSE 'Low Value'
+    END as numeric_category,
+    string_field1
+FROM mixed_numeric_string_test
+WHERE content @@@ 'is'
+ORDER BY numeric_field1
+LIMIT 3;
 
 \i common/mixedff_advanced_cleanup.sql 

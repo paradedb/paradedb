@@ -427,11 +427,71 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1, num_field1, num_field2
 FROM exec_method_test
 WHERE text_field1 @@@ 'Text' AND num_field1 > 10
-ORDER BY text_field1, num_field1, num_field2
+ORDER BY text_field1, num_field1, num_field2;
+                                                                                                                                       QUERY PLAN                                                                                                                                       
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: text_field1, num_field1, num_field2
+   ->  Custom Scan (ParadeDB Scan) on exec_method_test
+         Table: exec_method_test
+         Index: exec_method_idx
+         Segment Count: 1
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: text_field1, num_field1, num_field2
+         String Fast Fields: text_field1
+         Numeric Fast Fields: num_field1, num_field2
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"num_field1","lower_bound":{"excluded":10},"upper_bound":null,"is_datetime":false}}]}}
+(12 rows)
+
 SELECT text_field1, num_field1, num_field2
 FROM exec_method_test
-WHERE text_field1 @@@ 'Text' AND num_field1 > 10;
-ERROR:  syntax error at or near "SELECT" at character 205
+WHERE text_field1 @@@ 'Text' AND num_field1 > 10
+ORDER BY text_field1, num_field1, num_field2;
+ text_field1 | num_field1 | num_field2 
+-------------+------------+------------
+ Text 11     |         11 |       16.5
+ Text 12     |         12 |         18
+ Text 13     |         13 |       19.5
+ Text 14     |         14 |         21
+ Text 15     |         15 |       22.5
+ Text 16     |         16 |         24
+ Text 17     |         17 |       25.5
+ Text 18     |         18 |         27
+ Text 19     |         19 |       28.5
+ Text 20     |         20 |         30
+ Text 21     |         21 |       31.5
+ Text 22     |         22 |         33
+ Text 23     |         23 |       34.5
+ Text 24     |         24 |         36
+ Text 25     |         25 |       37.5
+ Text 26     |         26 |         39
+ Text 27     |         27 |       40.5
+ Text 28     |         28 |         42
+ Text 29     |         29 |       43.5
+ Text 30     |         30 |         45
+ Text 31     |         31 |       46.5
+ Text 32     |         32 |         48
+ Text 33     |         33 |       49.5
+ Text 34     |         34 |         51
+ Text 35     |         35 |       52.5
+ Text 36     |         36 |         54
+ Text 37     |         37 |       55.5
+ Text 38     |         38 |         57
+ Text 39     |         39 |       58.5
+ Text 40     |         40 |         60
+ Text 41     |         41 |       61.5
+ Text 42     |         42 |         63
+ Text 43     |         43 |       64.5
+ Text 44     |         44 |         66
+ Text 45     |         45 |       67.5
+ Text 46     |         46 |         69
+ Text 47     |         47 |       70.5
+ Text 48     |         48 |         72
+ Text 49     |         49 |       73.5
+ Text 50     |         50 |         75
+(40 rows)
+
 -- Test 3: Should use MixedFastFieldExecState with all field types
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1, text_field2, num_field1, bool_field

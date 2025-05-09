@@ -2558,6 +2558,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "lockfree-object-pool"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9374ef4228402d4b7e403e5838cb880d9ee663314b0a900d5a6aabf0c213552e"
+
+[[package]]
 name = "log"
 version = "0.4.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4806,11 +4812,14 @@ dependencies = [
  "cmd_lib",
  "dotenvy",
  "futures",
+ "lockfree-object-pool",
  "num-traits",
+ "parking_lot",
  "pgvector",
  "portpicker",
  "pretty_assertions",
  "rand 0.9.1",
+ "rayon",
  "rstest",
  "serde",
  "serde_json",

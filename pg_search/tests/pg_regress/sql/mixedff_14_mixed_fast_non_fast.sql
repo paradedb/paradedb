@@ -1,6 +1,6 @@
--- Tests combination of fast and non-fast fields
+-- Tests mixed fast and non-fast fields
 
-\i common/mixedff_setup.sql
+\i common/mixedff_advanced_setup.sql
 
 -- Disable parallel workers to avoid differences in plans
 SET max_parallel_workers_per_gather = 0;
@@ -33,7 +33,4 @@ FROM pages
 WHERE content @@@ 'Socienty'
 ORDER BY id;
 
--- Reset parallel workers setting to default
-RESET max_parallel_workers_per_gather; 
-
-\i common/mixedff_cleanup.sql
+\i common/mixedff_advanced_cleanup.sql

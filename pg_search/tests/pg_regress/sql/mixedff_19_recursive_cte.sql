@@ -1,69 +1,8 @@
--- Test recursive CTE with mixed fast fields
--- This test verifies that recursive CTEs work correctly with mixed fast field execution
+-- Tests recursive CTE with mixed fast fields
 
--- Disable parallel workers to avoid differences in plans
-SET max_parallel_workers_per_gather = 0;
+\i common/mixedff_advanced_setup.sql
 
--- Create test tables for hierarchical data
-DROP TABLE IF EXISTS category;
-CREATE TABLE category (
-    id SERIAL PRIMARY KEY,
-    name TEXT,
-    parent_id INTEGER,
-    level INTEGER,
-    description TEXT,
-    item_count INTEGER,
-    created_at TIMESTAMP,
-    is_active BOOLEAN
-);
-
--- Insert root categories (no parent)
-INSERT INTO category (name, parent_id, level, description, item_count, created_at, is_active)
-VALUES
-    ('Electronics', NULL, 1, 'Electronic devices and accessories', 250, '2023-01-01 10:00:00', true),
-    ('Books', NULL, 1, 'Books and literature', 500, '2023-01-01 10:00:00', true),
-    ('Clothing', NULL, 1, 'Apparel and fashion items', 300, '2023-01-01 10:00:00', true),
-    ('Home & Garden', NULL, 1, 'Home improvement and garden supplies', 180, '2023-01-01 10:00:00', true);
-
--- Insert level 2 subcategories
-INSERT INTO category (name, parent_id, level, description, item_count, created_at, is_active)
-VALUES
-    ('Computers', 1, 2, 'Desktop and laptop computers', 80, '2023-01-02 10:00:00', true),
-    ('Smartphones', 1, 2, 'Mobile phones and accessories', 120, '2023-01-02 10:00:00', true),
-    ('Audio', 1, 2, 'Speakers, headphones, and audio equipment', 50, '2023-01-02 10:00:00', true),
-    ('Fiction', 2, 2, 'Fiction books and novels', 200, '2023-01-02 10:00:00', true),
-    ('Non-Fiction', 2, 2, 'Non-fiction and reference books', 250, '2023-01-02 10:00:00', true),
-    ('Academic', 2, 2, 'Textbooks and academic materials', 50, '2023-01-02 10:00:00', true),
-    ('Men', 3, 2, 'Mens clothing', 100, '2023-01-02 10:00:00', true),
-    ('Women', 3, 2, 'Womens clothing', 150, '2023-01-02 10:00:00', true),
-    ('Children', 3, 2, 'Childrens clothing', 50, '2023-01-02 10:00:00', true),
-    ('Furniture', 4, 2, 'Home furniture', 80, '2023-01-02 10:00:00', true),
-    ('Garden Tools', 4, 2, 'Garden equipment and supplies', 60, '2023-01-02 10:00:00', true),
-    ('Kitchen', 4, 2, 'Kitchen appliances and utensils', 40, '2023-01-02 10:00:00', true);
-
--- Insert level 3 subcategories
-INSERT INTO category (name, parent_id, level, description, item_count, created_at, is_active)
-VALUES
-    ('Laptops', 5, 3, 'Portable computers', 40, '2023-01-03 10:00:00', true),
-    ('Desktops', 5, 3, 'Desktop computers', 30, '2023-01-03 10:00:00', true),
-    ('Tablets', 5, 3, 'Tablet computers', 10, '2023-01-03 10:00:00', true),
-    ('Android', 6, 3, 'Android smartphones', 60, '2023-01-03 10:00:00', true),
-    ('iOS', 6, 3, 'iPhones and iOS devices', 50, '2023-01-03 10:00:00', true),
-    ('Other', 6, 3, 'Other smartphone platforms', 10, '2023-01-03 10:00:00', true),
-    ('Headphones', 7, 3, 'Personal audio devices', 30, '2023-01-03 10:00:00', true),
-    ('Speakers', 7, 3, 'Speaker systems', 15, '2023-01-03 10:00:00', true),
-    ('Receivers', 7, 3, 'Audio receivers and amplifiers', 5, '2023-01-03 10:00:00', true);
-
--- Create search index with mixed fast fields
-DROP INDEX IF EXISTS category_idx;
-CREATE INDEX category_idx ON category
-USING bm25 (id, name, description, level, item_count, is_active)
-WITH (
-    key_field = 'id',
-    text_fields = '{"name": {"tokenizer": {"type": "default"}, "fast": true}, "description": {"tokenizer": {"type": "default"}, "fast": true}}',
-    numeric_fields = '{"level": {"fast": true}, "item_count": {"fast": true}}',
-    boolean_fields = '{"is_active": {"fast": true}}'
-);
+\echo 'Test: Recursive CTE'
 
 -- Test 1: Basic recursive CTE to find all descendants of Electronics
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -198,9 +137,4 @@ SELECT name, level, description, item_count
 FROM category_tree
 ORDER BY level, name;
 
--- Clean up
-DROP INDEX IF EXISTS category_idx;
-DROP TABLE IF EXISTS category; 
-
--- Reset parallel workers setting to default
-RESET max_parallel_workers_per_gather;
+\i common/mixedff_advanced_cleanup.sql

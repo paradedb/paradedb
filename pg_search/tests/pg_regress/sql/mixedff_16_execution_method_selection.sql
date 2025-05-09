@@ -2,8 +2,7 @@
 -- This test verifies that the MixedFastFieldExecState is chosen when appropriate
 -- and that NormalScanExecState is not used when mixed fast fields are available
 
--- Disable parallel workers to avoid differences in plans
-SET max_parallel_workers_per_gather = 0;
+\i common/mixedff_advanced_setup.sql
 
 -- Create test table with various field types
 DROP TABLE IF EXISTS exec_method_test;
@@ -126,4 +125,5 @@ DROP TABLE IF EXISTS exec_method_test;
 
 -- Reset parallel workers setting to default
 RESET max_parallel_workers_per_gather;
- 
+
+\i common/mixedff_advanced_cleanup.sql

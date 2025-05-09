@@ -1,8 +1,7 @@
 -- Test multi-index search with mixed fast fields
 -- This test verifies that queries using multiple indices with mixed fast fields work correctly
 
--- Disable parallel workers to avoid differences in plans
-SET max_parallel_workers_per_gather = 0;
+\i common/mixedff_advanced_setup.sql
 
 -- Create main test tables
 DROP TABLE IF EXISTS products;
@@ -284,5 +283,4 @@ DROP TABLE IF EXISTS reviews;
 DROP TABLE IF EXISTS products;
 DROP TABLE IF EXISTS categories; 
 
--- Reset parallel workers setting to default
-RESET max_parallel_workers_per_gather; 
+\i common/mixedff_advanced_cleanup.sql 

@@ -1,0 +1,138 @@
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+
+-- Drop any existing test tables from this group
+DROP TABLE IF EXISTS corner_case_test CASCADE;
+DROP TABLE IF EXISTS nullable_test CASCADE;
+DROP TABLE IF EXISTS mixed_numeric_string_test CASCADE;
+
+-- Create corner case test table
+CREATE TABLE corner_case_test (
+    id TEXT PRIMARY KEY,
+    -- String fields with different characteristics
+    empty_string TEXT NOT NULL,
+    very_long_string TEXT NOT NULL,
+    special_chars TEXT NOT NULL,
+    non_utf8_bytes BYTEA NOT NULL,
+    -- Numeric fields with different characteristics
+    extreme_large BIGINT NOT NULL,
+    extreme_small BIGINT NOT NULL,
+    float_value FLOAT NOT NULL,
+    zero_value INTEGER NOT NULL,
+    negative_value INTEGER NOT NULL,
+    -- Boolean field
+    bool_field BOOLEAN NOT NULL,
+    -- Regular fields for testing
+    content TEXT
+);
+
+-- Create BM25 index with fast fields for all columns
+CREATE INDEX corner_case_search ON corner_case_test USING bm25 (
+    id,
+    empty_string,
+    very_long_string,
+    special_chars,
+    extreme_large,
+    extreme_small,
+    float_value,
+    zero_value,
+    negative_value,
+    bool_field,
+    content
+) WITH (
+    key_field = 'id',
+    text_fields = '{"empty_string": {"tokenizer": {"type": "default"}, "fast": true}, "very_long_string": {"tokenizer": {"type": "default"}, "fast": true}, "special_chars": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
+    numeric_fields = '{"extreme_large": {"fast": true}, "extreme_small": {"fast": true}, "float_value": {"fast": true}, "zero_value": {"fast": true}, "negative_value": {"fast": true}}',
+    boolean_fields = '{"bool_field": {"fast": true}}'
+);
+
+-- Insert extreme test data
+INSERT INTO corner_case_test (
+    id, 
+    empty_string, 
+    very_long_string, 
+    special_chars, 
+    non_utf8_bytes,
+    extreme_large, 
+    extreme_small, 
+    float_value, 
+    zero_value, 
+    negative_value, 
+    bool_field, 
+    content
+) VALUES
+('case1', '', repeat('a', 8000), '!@#$%^&*()_+{}[]|:;"''<>,.?/', E'\\x00', 9223372036854775807, -9223372036854775808, 1.7976931348623157e+308, 0, -2147483648, true, 'Contains test term'),
+('case2', '', repeat('b', 2), '-_.+', E'\\x00', 0, 0, 0.0, 0, 0, false, 'Contains test term'),
+('case3', 'not_empty', '', '漢字', E'\\x00', 42, -42, 3.14159, 0, -1, true, 'Contains test term');
+
+-- Add complex string patterns 
+INSERT INTO corner_case_test (
+    id, 
+    empty_string, 
+    very_long_string, 
+    special_chars, 
+    non_utf8_bytes,
+    extreme_large, 
+    extreme_small, 
+    float_value, 
+    zero_value, 
+    negative_value, 
+    bool_field, 
+    content
+) VALUES
+('complex1', 'pattern with spaces', 'line1
+line2
+line3', 'tab    tab', E'\\x00', 1, 1, 1.0, 1, 1, true, 'complex pattern test'),
+('complex2', 'quotation "marks"', 'backslash\\test', 'percent%test', E'\\x00', 2, 2, 2.0, 2, 2, false, 'complex pattern test');
+
+-- Set up the nullable test table
+CREATE TABLE nullable_test (
+    id TEXT PRIMARY KEY,
+    string_field TEXT,
+    numeric_field INTEGER,
+    content TEXT
+);
+
+CREATE INDEX nullable_search ON nullable_test USING bm25 (
+    id, string_field, numeric_field, content
+) WITH (
+    key_field = 'id',
+    text_fields = '{"string_field": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
+    numeric_fields = '{"numeric_field": {"fast": true}}'
+);
+
+INSERT INTO nullable_test (id, string_field, numeric_field, content) VALUES
+('null1', NULL, NULL, 'null test case'),
+('null2', 'not null', 42, 'null test case');
+
+-- Add string edge cases test table
+CREATE TABLE mixed_numeric_string_test (
+    id TEXT PRIMARY KEY,
+    numeric_field1 INTEGER NOT NULL,
+    numeric_field2 BIGINT NOT NULL,
+    string_field1 TEXT NOT NULL,
+    string_field2 TEXT NOT NULL,
+    string_field3 TEXT NOT NULL,
+    content TEXT
+);
+
+CREATE INDEX mixed_string_edge_search ON mixed_numeric_string_test USING bm25 (
+    id,
+    numeric_field1,
+    numeric_field2,
+    string_field1,
+    string_field2,
+    string_field3,
+    content
+) WITH (
+    key_field = 'id',
+    text_fields = '{"string_field1": {"tokenizer": {"type": "default"}, "fast": true}, "string_field2": {"tokenizer": {"type": "default"}, "fast": true}, "string_field3": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
+    numeric_fields = '{"numeric_field1": {"fast": true}, "numeric_field2": {"fast": true}}'
+);
+
+INSERT INTO mixed_numeric_string_test (id, numeric_field1, numeric_field2, string_field1, string_field2, string_field3, content) VALUES
+('edge1', 1, 1, '', 'empty_first', 'test', 'edge case test'),
+('edge2', 2, 2, 'special_chars_!@#$%^&*()', 'test', 'test', 'edge case test'),
+('edge3', 3, 3, repeat('very_long_string_', 10), 'test', 'test', 'edge case test'); 

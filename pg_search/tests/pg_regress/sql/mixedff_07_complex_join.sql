@@ -1,9 +1,8 @@
 -- Tests complex join queries with mixed fields
 
-\i common/mixedff_setup.sql
+\i common/mixedff_queries_setup.sql
 
--- Disable parallel workers to avoid differences in plans
-SET max_parallel_workers_per_gather = 0;
+\echo 'Test: Complex joins'
 
 \echo 'Test: Complex join with mixed fields'
 
@@ -24,7 +23,4 @@ JOIN pages p ON p.fileId = f.id
 WHERE d.parents @@@ 'Factures' AND f.title @@@ 'Receipt' AND p.content @@@ 'Socienty'
 ORDER BY d.id, f.id, p.id;
 
--- Reset parallel workers setting to default
-RESET max_parallel_workers_per_gather; 
-
-\i common/mixedff_cleanup.sql
+\i common/mixedff_queries_cleanup.sql

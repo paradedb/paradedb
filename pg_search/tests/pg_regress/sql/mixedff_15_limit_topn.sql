@@ -2,8 +2,9 @@
 -- This test ensures that when a LIMIT clause is used with mixed fast fields,
 -- the execution uses the optimized TopN execution path
 
--- Disable parallel workers to avoid differences in plans
-SET max_parallel_workers_per_gather = 0;
+\i common/mixedff_advanced_setup.sql
+
+\echo 'Test: LIMIT clause with TopN execution'
 
 -- Create test table with mixed field types
 DROP TABLE IF EXISTS limit_topn_test;
@@ -99,7 +100,9 @@ LIMIT 5;
 
 -- Clean up
 DROP INDEX IF EXISTS limit_topn_idx;
-DROP TABLE IF EXISTS limit_topn_test; 
+DROP TABLE IF EXISTS limit_topn_test;
 
 -- Reset parallel workers setting to default
 RESET max_parallel_workers_per_gather;
+
+\i common/mixedff_advanced_cleanup.sql

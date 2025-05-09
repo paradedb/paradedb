@@ -1,9 +1,6 @@
--- Tests string edge cases for mixed fast fields
+-- Tests string edge cases
 
-\i common/mixedff_setup.sql
-
--- Disable parallel workers to avoid differences in plans
-SET max_parallel_workers_per_gather = 0;
+\i common/mixedff_edgecases_setup.sql
 
 \echo 'Test: String edge cases'
 
@@ -20,7 +17,4 @@ FROM mixed_numeric_string_test
 WHERE content @@@ 'edge case'
 ORDER BY id;
 
--- Reset parallel workers setting to default 
-RESET max_parallel_workers_per_gather; 
-
-\i common/mixedff_cleanup.sql
+\i common/mixedff_edgecases_cleanup.sql

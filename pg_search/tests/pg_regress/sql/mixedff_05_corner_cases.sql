@@ -1,9 +1,8 @@
--- Tests various corner cases for mixed fast fields
+-- Tests corner cases for mixed fast fields
 
-\i common/mixedff_setup.sql
+\i common/mixedff_edgecases_setup.sql
 
--- Disable parallel workers to avoid differences in plans
-SET max_parallel_workers_per_gather = 0;
+\echo 'Test: Corner cases and edge values'
 
 \echo 'Test: Empty strings'
 -- Check execution plan
@@ -54,7 +53,4 @@ FROM corner_case_test
 WHERE content @@@ 'test'
 ORDER BY id;
 
--- Reset parallel workers setting to default
-RESET max_parallel_workers_per_gather; 
-
-\i common/mixedff_cleanup.sql
+\i common/mixedff_edgecases_cleanup.sql

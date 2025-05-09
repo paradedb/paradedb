@@ -1,9 +1,6 @@
--- Tests subqueries with mixed fast fields
+-- Test subqueries with mixed fast fields
 
-\i common/mixedff_setup.sql
-
--- Disable parallel workers to avoid differences in plans
-SET max_parallel_workers_per_gather = 0;
+\i common/mixedff_queries_setup.sql
 
 \echo 'Test: Subqueries with mixed fields'
 
@@ -30,7 +27,4 @@ FROM documents d
 WHERE d.parents @@@ 'Factures'
 ORDER BY invoice_file_count DESC, d.id;
 
--- Reset parallel workers setting to default
-RESET max_parallel_workers_per_gather; 
-
-\i common/mixedff_cleanup.sql
+\i common/mixedff_queries_cleanup.sql

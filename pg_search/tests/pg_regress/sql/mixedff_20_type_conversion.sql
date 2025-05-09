@@ -1,93 +1,8 @@
--- Test type conversion edge cases with mixed fast fields
--- This test verifies that mixed fast fields handle various type conversions correctly
+-- Tests type conversion edge cases with mixed fast fields
 
--- Disable parallel workers to avoid differences in plans
-SET max_parallel_workers_per_gather = 0;
+\i common/mixedff_advanced_setup.sql
 
--- Create test table with various field types for conversion testing
-DROP TABLE IF EXISTS type_conversion_test;
-CREATE TABLE type_conversion_test (
-    id SERIAL PRIMARY KEY,
-    -- Text fields
-    text_field TEXT,
-    varchar_field VARCHAR(100),
-    char_field CHAR(10),
-    -- Numeric fields
-    int_field INTEGER,
-    smallint_field SMALLINT,
-    bigint_field BIGINT,
-    float_field FLOAT,
-    numeric_field NUMERIC(10,2),
-    decimal_field DECIMAL(10,2),
-    real_field REAL,
-    -- Boolean fields
-    bool_field BOOLEAN,
-    -- Date/Time fields
-    date_field DATE,
-    time_field TIME,
-    timestamp_field TIMESTAMP,
-    -- Special fields
-    uuid_field UUID,
-    json_field JSONB
-);
-
--- Insert test data with edge cases for conversion
-INSERT INTO type_conversion_test (
-    text_field, varchar_field, char_field,
-    int_field, smallint_field, bigint_field, float_field, numeric_field, decimal_field, real_field,
-    bool_field, date_field, time_field, timestamp_field,
-    uuid_field, json_field
-) VALUES
-    -- Case 1: Standard values
-    (
-        'Regular text', 'Regular varchar', 'Char     ',
-        100, 10, 1000000, 3.14159, 123.45, 678.90, 2.71828,
-        true, '2023-01-01', '12:30:00', '2023-01-01 12:30:00',
-        '123e4567-e89b-12d3-a456-426614174000', '{"key": "value"}'
-    ),
-    -- Case 2: Numeric edge cases
-    (
-        '123', '456', '789',
-        2147483647, 32767, 9223372036854775807, 1.7976931348623157e+308, 9999999.99, 9999999.99, 3.40282e+38,
-        false, '2023-01-02', '00:00:01', '2023-01-02 00:00:01',
-        '00000000-0000-0000-0000-000000000000', '{"number": 12345}'
-    ),
-    -- Case 3: Empty/NULL edge cases
-    (
-        '', '', '',
-        0, 0, 0, 0.0, 0.00, 0.00, 0.0,
-        NULL, '1970-01-01', '00:00:00', '1970-01-01 00:00:00',
-        '00000000-0000-0000-0000-000000000000', '{}'
-    ),
-    -- Case 4: Special characters
-    (
-        'Text with special chars: !@#$%^&*()', 'Varchar with "quotes" and \'apostrophes\'', '~`[]{}\\|',
-        -2147483648, -32768, -9223372036854775808, -1.7976931348623157e+308, -9999999.99, -9999999.99, -3.40282e+38,
-        true, '9999-12-31', '23:59:59', '9999-12-31 23:59:59',
-        'ffffffff-ffff-ffff-ffff-ffffffffffff', '{"array": [1, 2, 3]}'
-    ),
-    -- Case 5: Numeric strings
-    (
-        '12345.67890', '98765.43210', '1234567890',
-        12345, 1234, 12345678901234, 12345.67890, 12345.67, 98765.43, 12345.67,
-        false, '2023-05-15', '15:45:30', '2023-05-15 15:45:30',
-        'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', '{"numeric": 12345.67890}'
-    );
-
--- Create search index with mixed fast fields
-DROP INDEX IF EXISTS type_conv_idx;
-CREATE INDEX type_conv_idx ON type_conversion_test
-USING bm25 (
-    id, text_field, varchar_field, char_field,
-    int_field, bigint_field, float_field, numeric_field,
-    bool_field, date_field
-)
-WITH (
-    key_field = 'id',
-    text_fields = '{"text_field": {"tokenizer": {"type": "default"}, "fast": true}, "varchar_field": {"tokenizer": {"type": "default"}, "fast": true}, "char_field": {"tokenizer": {"type": "default"}, "fast": true}}',
-    numeric_fields = '{"int_field": {"fast": true}, "bigint_field": {"fast": true}, "float_field": {"fast": true}, "numeric_field": {"fast": true}}',
-    boolean_fields = '{"bool_field": {"fast": true}}'
-);
+\echo 'Test: Type conversion edge cases'
 
 -- Test 1: Basic text to text conversions
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -179,10 +94,4 @@ SELECT
 FROM type_conversion_test
 WHERE char_field <> '';
 
--- Clean up
-DROP INDEX IF EXISTS type_conv_idx;
-DROP TABLE IF EXISTS type_conversion_test; 
-
--- Reset parallel workers setting to default
-RESET max_parallel_workers_per_gather; 
- 
+\i common/mixedff_advanced_cleanup.sql 

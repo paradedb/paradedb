@@ -1,52 +1,8 @@
--- Test score function behavior with mixed fast fields
--- This test verifies that the score function works correctly with mixed fast fields
--- and that it can be combined with field selection and filtering
+-- Tests score function behavior with mixed fast fields
 
--- Disable parallel workers to avoid differences in plans
-SET max_parallel_workers_per_gather = 0;
+\i common/mixedff_advanced_setup.sql
 
--- Create test table with mixed field types
-DROP TABLE IF EXISTS score_test;
-CREATE TABLE score_test (
-    id SERIAL PRIMARY KEY,
-    title TEXT,
-    content TEXT,
-    author TEXT,
-    rating INTEGER,
-    views NUMERIC,
-    published_date DATE,
-    is_featured BOOLEAN
-);
-
--- Insert test data with deterministic values
-INSERT INTO score_test (title, content, author, rating, views, published_date, is_featured)
-SELECT
-    'Post ' || i,
-    'This is content for post ' || i || '. It contains some searchable text and keywords like technology, science, research, and development.',
-    'Author ' || (1 + (i % 5)),
-    (1 + (i % 5)),
-    (100 * i)::numeric,  -- Deterministic view counts
-    '1988-04-29'::date + (i % 365) * '1 day'::interval,  -- Deterministic dates
-    i % 7 = 0  -- Deterministic featured pattern
-FROM generate_series(1, 100) i;
-
--- Add some specific posts for testing
-INSERT INTO score_test (title, content, author, rating, views, published_date, is_featured)
-VALUES
-    ('Special Technology Post', 'This post is all about technology and innovative research.', 'Author Expert', 5, 9999, '2023-06-15', true),
-    ('Advanced Science Research', 'Detailed explanation of scientific breakthroughs and research methodology.', 'Author Expert', 5, 8888, '2023-07-20', true),
-    ('Technology Trends Analysis', 'Analysis of current and future technology trends and developments.', 'Author Expert', 4, 7777, '2023-08-10', true);
-
--- Create search index with mixed fast fields
-DROP INDEX IF EXISTS score_test_idx;
-CREATE INDEX score_test_idx ON score_test
-USING bm25 (id, title, content, author, rating, views, is_featured)
-WITH (
-    key_field = 'id',
-    text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}, "author": {"tokenizer": {"type": "default"}, "fast": true}}',
-    numeric_fields = '{"rating": {"fast": true}, "views": {"fast": true}}',
-    boolean_fields = '{"is_featured": {"fast": true}}'
-);
+\echo 'Test: Score function behavior'
 
 -- Test 1: Basic score function with text field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -153,9 +109,4 @@ WHERE content @@@ 'research' AND rating > 3 AND views > 1000
 ORDER BY relevance DESC
 LIMIT 3;
 
--- Clean up
-DROP INDEX IF EXISTS score_test_idx;
-DROP TABLE IF EXISTS score_test; 
-
--- Reset parallel workers setting to default
-RESET max_parallel_workers_per_gather;
+\i common/mixedff_advanced_cleanup.sql

@@ -131,9 +131,11 @@ INSERT INTO mixed_numeric_string_test (id, numeric_field1, numeric_field2, strin
 ('edge3', 3, 3, repeat('very_long_string_', 10), 'test', 'test', 'edge case test'); 
 \echo 'Test: Corner cases and edge values'
 Test: Corner cases and edge values
--- Query with extreme values
+\echo 'Test: Empty strings'
+Test: Empty strings
+-- Check execution plan
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, extreme_large, extreme_small, bool_field 
+SELECT id, empty_string
 FROM corner_case_test
 WHERE content @@@ 'test'
 ORDER BY id;
@@ -146,49 +148,25 @@ ORDER BY id;
          Index: corner_case_search
          Segment Count: 2
          Exec Method: MixedFastFieldExecState
-         Fast Fields: id, extreme_large, extreme_small, bool_field
-         String Fast Fields: id
-         Numeric Fast Fields: extreme_large, extreme_small, bool_field
+         Fast Fields: id, empty_string
+         String Fast Fields: id, empty_string
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-(12 rows)
+(11 rows)
 
--- Execute query to check for extreme numeric values
-SELECT id, extreme_large, extreme_small, bool_field
+-- Test handling of empty strings
+SELECT id, empty_string
 FROM corner_case_test
 WHERE content @@@ 'test'
 ORDER BY id;
-    id    |    extreme_large    |    extreme_small     | bool_field 
-----------+---------------------+----------------------+------------
- case1    | 9223372036854775807 | -9223372036854775808 | t
- case2    |                   0 |                    0 | f
- case3    |                  42 |                  -42 | t
- complex1 |                   1 |                    1 | t
- complex2 |                   2 |                    2 | f
+    id    |    empty_string     
+----------+---------------------
+ case1    | 
+ case2    | 
+ case3    | not_empty
+ complex1 | pattern with spaces
+ complex2 | quotation "marks"
 (5 rows)
-
--- Empty strings test
-SELECT id, empty_string, special_chars
-FROM corner_case_test
-WHERE content @@@ 'test'
-ORDER BY id;
-    id    |    empty_string     |        special_chars        
-----------+---------------------+-----------------------------
- case1    |                     | !@#$%^&*()_+{}[]|:;"'<>,.?/
- case2    |                     | -_.+
- case3    | not_empty           | 漢字
- complex1 | pattern with spaces | tab    tab
- complex2 | quotation "marks"   | percent%test
-(5 rows)
-
--- Test query with no results
-SELECT id
-FROM corner_case_test
-WHERE content @@@ 'nonexistent_term'
-ORDER BY id;
- id 
-----
-(0 rows)
 
 \echo 'Test: Very long strings'
 Test: Very long strings
@@ -220,6 +198,44 @@ ORDER BY id;
  case3    | 漢字
  complex1 | tab    tab
  complex2 | percent%test
+(5 rows)
+
+\echo 'Test: Extreme numeric values'
+Test: Extreme numeric values
+-- Check execution plan
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, extreme_large, extreme_small
+FROM corner_case_test
+WHERE content @@@ 'test'
+ORDER BY id;
+                                                                      QUERY PLAN                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Scan) on corner_case_test
+         Table: corner_case_test
+         Index: corner_case_search
+         Segment Count: 2
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, extreme_large, extreme_small
+         String Fast Fields: id
+         Numeric Fast Fields: extreme_large, extreme_small
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
+(12 rows)
+
+-- Test handling of extreme numeric values
+SELECT id, extreme_large, extreme_small
+FROM corner_case_test
+WHERE content @@@ 'test'
+ORDER BY id;
+    id    |    extreme_large    |    extreme_small     
+----------+---------------------+----------------------
+ case1    | 9223372036854775807 | -9223372036854775808
+ case2    |                   0 |                    0
+ case3    |                  42 |                  -42
+ complex1 |                   1 |                    1
+ complex2 |                   2 |                    2
 (5 rows)
 
 \echo 'Test: Boolean values'

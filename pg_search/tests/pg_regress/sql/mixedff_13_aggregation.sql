@@ -1,9 +1,6 @@
--- Tests aggregation queries with mixed fast fields
+-- Tests aggregation with mixed fast fields
 
-\i common/mixedff_setup.sql
-
--- Disable parallel workers to avoid differences in plans
-SET max_parallel_workers_per_gather = 0;
+\i common/mixedff_advanced_setup.sql
 
 \echo 'Test: Aggregation query'
 
@@ -37,7 +34,4 @@ SELECT
 FROM pages
 WHERE content @@@ 'Socienty';
 
--- Reset parallel workers setting to default
-RESET max_parallel_workers_per_gather; 
-
-\i common/mixedff_cleanup.sql
+\i common/mixedff_advanced_cleanup.sql

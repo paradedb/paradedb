@@ -1,25 +1,22 @@
--- Tests handling of multiple numeric fast fields
+-- Tests multiple numeric fast fields functionality
 
-\i common/mixedff_setup.sql
--- Disable parallel workers to avoid differences in plans
-SET max_parallel_workers_per_gather = 0;
+\i common/mixedff_basic_setup.sql
+
 
 \echo 'Test: Multiple numeric fast fields'
 
--- Check execution plan
+-- Query with multiple numeric fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT numeric_field1, numeric_field2
 FROM mixed_numeric_string_test
 WHERE content @@@ 'red'
 ORDER BY id;
 
--- Test query with multiple numeric fields
+-- Execute query and check results
 SELECT numeric_field1, numeric_field2
 FROM mixed_numeric_string_test
 WHERE content @@@ 'red'
 ORDER BY id;
 
--- Reset parallel workers setting to default
-RESET max_parallel_workers_per_gather; 
 
-\i common/mixedff_cleanup.sql
+\i common/mixedff_basic_cleanup.sql

@@ -1,26 +1,20 @@
 -- Tests handling of mixed field types in a query
 
-\i common/mixedff_setup.sql
+\i common/mixedff_basic_setup.sql
 
--- Disable parallel workers to avoid differences in plans
-SET max_parallel_workers_per_gather = 0;
+\echo 'Test: Mixed field types in the same query'
 
-\echo 'Test: Mixed field types in query'
-
--- Check execution plan to verify we're using MixedFastFieldExecState
+-- Query with both string and numeric fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT numeric_field1, string_field1, numeric_field2, string_field2
 FROM mixed_numeric_string_test
 WHERE content @@@ 'red'
 ORDER BY id;
 
--- Test query with mix of string and numeric fields
+-- Execute query and check results
 SELECT numeric_field1, string_field1, numeric_field2, string_field2
 FROM mixed_numeric_string_test
 WHERE content @@@ 'red'
 ORDER BY id;
 
--- Reset parallel workers setting to default
-RESET max_parallel_workers_per_gather; 
-
-\i common/mixedff_cleanup.sql
+\i common/mixedff_basic_cleanup.sql

@@ -1,76 +1,8 @@
--- Test UNION operations and window functions with mixed fast fields
--- This test verifies that mixed fast fields work correctly with UNION operations
--- and when used in window functions
+-- Tests UNION and window functions with mixed fast fields
 
--- Disable parallel workers to avoid differences in plans
-SET max_parallel_workers_per_gather = 0;
+\i common/mixedff_advanced_setup.sql
 
--- Create test tables
-DROP TABLE IF EXISTS union_test_a;
-DROP TABLE IF EXISTS union_test_b;
-
-CREATE TABLE union_test_a (
-    id SERIAL PRIMARY KEY,
-    title TEXT,
-    author TEXT,
-    rating NUMERIC,
-    year INTEGER,
-    price FLOAT,
-    is_published BOOLEAN
-);
-
-CREATE TABLE union_test_b (
-    id SERIAL PRIMARY KEY,
-    title TEXT,
-    author TEXT,
-    rating NUMERIC,
-    year INTEGER,
-    price FLOAT,
-    is_published BOOLEAN
-);
-
--- Insert test data with deterministic values
-INSERT INTO union_test_a (title, author, rating, year, price, is_published)
-SELECT
-    'Book A' || i,
-    'Author ' || (1 + (i % 10)),
-    (3 + (i % 3))::numeric,  -- Ratings from 3 to 5
-    2000 + (i % 22),
-    (10 + (i * 5))::float,   -- Deterministic prices
-    i % 3 != 0               -- Deterministic boolean pattern
-FROM generate_series(1, 50) i;
-
-INSERT INTO union_test_b (title, author, rating, year, price, is_published)
-SELECT
-    'Book B' || i,
-    'Author ' || (1 + (i % 15)),
-    (1 + (i % 5))::numeric,  -- Ratings from 1 to 5
-    1980 + (i % 40),
-    (15 + (i * 3))::float,   -- Deterministic prices
-    i % 4 != 0               -- Deterministic boolean pattern
-FROM generate_series(1, 50) i;
-
--- Create indices with mixed fast fields
-DROP INDEX IF EXISTS union_test_a_idx;
-DROP INDEX IF EXISTS union_test_b_idx;
-
-CREATE INDEX union_test_a_idx ON union_test_a
-USING bm25 (id, title, author, rating, year, price, is_published)
-WITH (
-    key_field = 'id',
-    text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "author": {"tokenizer": {"type": "default"}, "fast": true}}',
-    numeric_fields = '{"rating": {"fast": true}, "year": {"fast": true}, "price": {"fast": true}}',
-    boolean_fields = '{"is_published": {"fast": true}}'
-);
-
-CREATE INDEX union_test_b_idx ON union_test_b
-USING bm25 (id, title, author, rating, year, price, is_published)
-WITH (
-    key_field = 'id',
-    text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "author": {"tokenizer": {"type": "default"}, "fast": true}}',
-    numeric_fields = '{"rating": {"fast": true}, "year": {"fast": true}, "price": {"fast": true}}',
-    boolean_fields = '{"is_published": {"fast": true}}'
-);
+\echo 'Test: UNION operations'
 
 -- This test is disabled, because it has a variable oid in it.
 -- -- Test 1: Basic UNION with mixed field types
@@ -176,11 +108,4 @@ WHERE author = 'Author 1'
 ORDER BY author_rank
 LIMIT 5;
 
--- Clean up
-DROP INDEX IF EXISTS union_test_a_idx;
-DROP INDEX IF EXISTS union_test_b_idx;
-DROP TABLE IF EXISTS union_test_a;
-DROP TABLE IF EXISTS union_test_b; 
-
--- Reset parallel workers setting to default
-RESET max_parallel_workers_per_gather;
+\i common/mixedff_advanced_cleanup.sql

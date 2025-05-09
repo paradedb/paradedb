@@ -1,9 +1,6 @@
--- Tests complex string patterns in mixed fast fields
+-- Tests complex string patterns
 
-\i common/mixedff_setup.sql
-
--- Disable parallel workers to avoid differences in plans
-SET max_parallel_workers_per_gather = 0;
+\i common/mixedff_edgecases_setup.sql
 
 \echo 'Test: Complex string patterns'
 
@@ -20,7 +17,4 @@ FROM corner_case_test
 WHERE content @@@ 'complex pattern'
 ORDER BY id;
 
--- Reset parallel workers setting to default
-RESET max_parallel_workers_per_gather; 
-
-\i common/mixedff_cleanup.sql
+\i common/mixedff_edgecases_cleanup.sql

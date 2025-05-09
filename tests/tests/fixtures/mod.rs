@@ -19,6 +19,7 @@
 #![allow(unused_imports)]
 
 pub mod db;
+pub mod querygen;
 pub mod tables;
 pub mod utils;
 

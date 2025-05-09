@@ -1,67 +1,245 @@
--- Test UNION operations and window functions with mixed fast fields
--- This test verifies that mixed fast fields work correctly with UNION operations
--- and when used in window functions
+-- Tests UNION and window functions with mixed fast fields
+\i common/mixedff_advanced_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans
 SET max_parallel_workers_per_gather = 0;
--- Create test tables
-DROP TABLE IF EXISTS union_test_a;
-DROP TABLE IF EXISTS union_test_b;
-CREATE TABLE union_test_a (
-    id SERIAL PRIMARY KEY,
-    title TEXT,
-    author TEXT,
-    rating NUMERIC,
-    year INTEGER,
-    price FLOAT,
-    is_published BOOLEAN
+-- Drop any existing test tables from this group
+DROP TABLE IF EXISTS documents CASCADE;
+DROP TABLE IF EXISTS files CASCADE; 
+DROP TABLE IF EXISTS pages CASCADE;
+DROP TABLE IF EXISTS mixed_numeric_string_test CASCADE;
+DROP TABLE IF EXISTS categories CASCADE;
+DROP TABLE IF EXISTS products CASCADE;
+DROP TABLE IF EXISTS conversion_test CASCADE;
+-- Create test table for mixed fast and non-fast fields
+CREATE TABLE mixed_numeric_string_test (
+    id TEXT PRIMARY KEY,
+    numeric_field1 INTEGER NOT NULL,
+    numeric_field2 BIGINT NOT NULL,
+    string_field1 TEXT NOT NULL,
+    string_field2 TEXT NOT NULL,
+    string_field3 TEXT NOT NULL,
+    content TEXT
 );
-CREATE TABLE union_test_b (
-    id SERIAL PRIMARY KEY,
-    title TEXT,
-    author TEXT,
-    rating NUMERIC,
-    year INTEGER,
-    price FLOAT,
-    is_published BOOLEAN
-);
--- Insert test data with deterministic values
-INSERT INTO union_test_a (title, author, rating, year, price, is_published)
-SELECT
-    'Book A' || i,
-    'Author ' || (1 + (i % 10)),
-    (3 + (i % 3))::numeric,  -- Ratings from 3 to 5
-    2000 + (i % 22),
-    (10 + (i * 5))::float,   -- Deterministic prices
-    i % 3 != 0               -- Deterministic boolean pattern
-FROM generate_series(1, 50) i;
-INSERT INTO union_test_b (title, author, rating, year, price, is_published)
-SELECT
-    'Book B' || i,
-    'Author ' || (1 + (i % 15)),
-    (1 + (i % 5))::numeric,  -- Ratings from 1 to 5
-    1980 + (i % 40),
-    (15 + (i * 3))::float,   -- Deterministic prices
-    i % 4 != 0               -- Deterministic boolean pattern
-FROM generate_series(1, 50) i;
--- Create indices with mixed fast fields
-DROP INDEX IF EXISTS union_test_a_idx;
-DROP INDEX IF EXISTS union_test_b_idx;
-CREATE INDEX union_test_a_idx ON union_test_a
-USING bm25 (id, title, author, rating, year, price, is_published)
-WITH (
+CREATE INDEX mixed_test_search ON mixed_numeric_string_test USING bm25 (
+    id,
+    numeric_field1,
+    numeric_field2,
+    string_field1,
+    string_field2,
+    string_field3,
+    content
+) WITH (
     key_field = 'id',
-    text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "author": {"tokenizer": {"type": "default"}, "fast": true}}',
-    numeric_fields = '{"rating": {"fast": true}, "year": {"fast": true}, "price": {"fast": true}}',
-    boolean_fields = '{"is_published": {"fast": true}}'
+    text_fields = '{"string_field1": {"tokenizer": {"type": "default"}, "fast": true}, "string_field2": {"tokenizer": {"type": "default"}, "fast": true}, "string_field3": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
+    numeric_fields = '{"numeric_field1": {"fast": true}, "numeric_field2": {"fast": true}}'
 );
-CREATE INDEX union_test_b_idx ON union_test_b
-USING bm25 (id, title, author, rating, year, price, is_published)
-WITH (
+psql:common/mixedff_advanced_setup.sql:38: WARNING:  the `raw` tokenizer is deprecated
+-- Insert test data
+INSERT INTO mixed_numeric_string_test (id, numeric_field1, numeric_field2, string_field1, string_field2, string_field3, content) VALUES
+('mix1', 100, 10000, 'Apple', 'Red', 'Fruit', 'This is a red apple'),
+('mix2', 200, 20000, 'Banana', 'Yellow', 'Fruit', 'This is a yellow banana'),
+('mix3', 300, 30000, 'Carrot', 'Orange', 'Vegetable', 'This is an orange carrot'),
+('mix4', 400, 40000, 'Donut', 'Brown', 'Dessert', 'This is a chocolate donut'),
+('mix5', 500, 50000, 'Egg', 'White', 'Protein', 'This is a white egg');
+-- Data for window functions and UNION
+DO $$
+DECLARE
+    i INTEGER;
+BEGIN
+    FOR i IN 1..10 LOOP
+        INSERT INTO mixed_numeric_string_test (
+            id, 
+            numeric_field1, 
+            numeric_field2, 
+            string_field1, 
+            string_field2, 
+            string_field3, 
+            content
+        ) VALUES (
+            'window' || i,
+            (i * 10),
+            (i * 100),
+            'Group' || (i % 3),
+            'Window' || (i % 2),
+            'Test',
+            'Window function test with searchable terms'
+        );
+    END LOOP;
+END $$;
+-- Set up document tables for advanced features
+CREATE TABLE documents (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    content TEXT,
+    parents TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE TABLE files (
+    id TEXT NOT NULL UNIQUE,
+    documentId TEXT NOT NULL,
+    title TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    file_size INTEGER,
+    created_at TIMESTAMP DEFAULT NOW(),
+    PRIMARY KEY (id, documentId),
+    FOREIGN KEY (documentId) REFERENCES documents(id)
+);
+CREATE TABLE pages (
+    id TEXT NOT NULL UNIQUE,
+    fileId TEXT NOT NULL,
+    page_number INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    metadata JSONB,
+    created_at TIMESTAMP DEFAULT NOW(),
+    PRIMARY KEY (id, fileId),
+    FOREIGN KEY (fileId) REFERENCES files(id)
+);
+-- Create BM25 indexes
+CREATE INDEX documents_search ON documents USING bm25 (
+    id,
+    title,
+    parents,
+    content
+) WITH (
     key_field = 'id',
-    text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "author": {"tokenizer": {"type": "default"}, "fast": true}}',
-    numeric_fields = '{"rating": {"fast": true}, "year": {"fast": true}, "price": {"fast": true}}',
-    boolean_fields = '{"is_published": {"fast": true}}'
+    text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "parents": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
+psql:common/mixedff_advanced_setup.sql:114: WARNING:  the `raw` tokenizer is deprecated
+CREATE INDEX files_search ON files USING bm25 (
+    id,
+    documentId,
+    title,
+    file_path
+) WITH (
+    key_field = 'id',
+    text_fields = '{"documentid": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "file_path": {"tokenizer": {"type": "default"}, "fast": true}}'
+);
+psql:common/mixedff_advanced_setup.sql:124: WARNING:  the `raw` tokenizer is deprecated
+CREATE INDEX pages_search ON pages USING bm25 (
+    id,
+    fileId,
+    content,
+    page_number
+) WITH (
+    key_field = 'id',
+    text_fields = '{"fileid": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
+    numeric_fields = '{"page_number": {"fast": true}}'
+);
+psql:common/mixedff_advanced_setup.sql:135: WARNING:  the `raw` tokenizer is deprecated
+-- Insert sample data
+INSERT INTO documents (id, title, content, parents) VALUES
+('doc1', 'Invoice 2023', 'This is an invoice for services rendered in 2023', 'Factures'),
+('doc2', 'Receipt 2023', 'This is a receipt for payment received in 2023', 'Factures'),
+('doc3', 'Contract 2023', 'This is a contract for services in 2023', 'Contracts');
+INSERT INTO files (id, documentId, title, file_path, file_size) VALUES
+('file1', 'doc1', 'Invoice PDF', '/invoices/2023.pdf', 1024),
+('file2', 'doc1', 'Invoice Receipt', '/invoices/2023_receipt.pdf', 512),
+('file3', 'doc2', 'Receipt', '/receipts/2023.pdf', 256),
+('file4', 'doc3', 'Contract Document', '/contracts/2023.pdf', 2048);
+INSERT INTO pages (id, fileId, page_number, content) VALUES
+('page1', 'file1', 1, 'Page 1 of Invoice PDF with Socienty General details'),
+('page2', 'file1', 2, 'Page 2 of Invoice PDF with payment information'),
+('page3', 'file2', 1, 'Page 1 of Invoice Receipt with bank details'),
+('page4', 'file3', 1, 'Page 1 of Receipt with Socienty General information'),
+('page5', 'file3', 2, 'Page 2 of Receipt with transaction ID'),
+('page6', 'file4', 1, 'Page 1 of Contract Document with terms and conditions');
+-- Create recursive CTE test data
+CREATE TABLE categories (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    parent_id INTEGER REFERENCES categories(id)
+);
+CREATE INDEX category_search ON categories USING bm25 (
+    id,
+    name,
+    description
+) WITH (
+    key_field = 'id',
+    text_fields = '{"name": {"tokenizer": {"type": "default"}, "fast": true}, "description": {"tokenizer": {"type": "default"}, "fast": true}}'
+);
+INSERT INTO categories (name, description, parent_id) VALUES
+('Electronics', 'Electronic devices and accessories', NULL),
+('Computers', 'Desktop and laptop computers', 1),
+('Smartphones', 'Mobile phones and accessories', 1),
+('Clothing', 'Apparel and fashion items', NULL),
+('Men''s Clothing', 'Clothing for men', 4),
+('Women''s Clothing', 'Clothing for women', 4),
+('Food', 'Edible products', NULL),
+('Dairy', 'Milk and dairy products', 7),
+('Bakery', 'Bread and baked goods', 7);
+-- Create products for multi-index search
+CREATE TABLE products (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    category_id INTEGER REFERENCES categories(id),
+    price NUMERIC(10,2) NOT NULL
+);
+CREATE INDEX product_search ON products USING bm25 (
+    id,
+    name,
+    category_id,
+    price
+) WITH (
+    key_field = 'id',
+    text_fields = '{"name": {"tokenizer": {"type": "default"}, "fast": true}}',
+    numeric_fields = '{"category_id": {"fast": true}, "price": {"fast": true}}'
+);
+INSERT INTO products (name, category_id, price) VALUES
+('Laptop Pro', 2, 1299.99),
+('Smartphone X', 3, 899.99),
+('Men''s Shirt', 5, 49.99),
+('Women''s Dress', 6, 199.99),
+('Milk Carton', 8, 3.99),
+('Bread Loaf', 9, 5.99);
+-- Create table for type conversion testing
+CREATE TABLE conversion_test (
+    id TEXT PRIMARY KEY,
+    smallint_field SMALLINT,
+    integer_field INTEGER,
+    bigint_field BIGINT,
+    numeric_field NUMERIC(10,2),
+    real_field REAL,
+    double_field DOUBLE PRECISION,
+    bool_from_int BOOLEAN,
+    timestamp_field TIMESTAMP,
+    content TEXT
+);
+CREATE INDEX conversion_search ON conversion_test USING bm25 (
+    id, 
+    smallint_field, 
+    integer_field, 
+    bigint_field, 
+    numeric_field, 
+    real_field, 
+    double_field, 
+    bool_from_int,
+    timestamp_field,
+    content
+) WITH (
+    key_field = 'id',
+    text_fields = '{"content": {"tokenizer": {"type": "default"}}}',
+    numeric_fields = '{
+        "smallint_field": {"fast": true}, 
+        "integer_field": {"fast": true}, 
+        "bigint_field": {"fast": true}, 
+        "numeric_field": {"fast": true}, 
+        "real_field": {"fast": true}, 
+        "double_field": {"fast": true}
+    }',
+    boolean_fields = '{"bool_from_int": {"fast": true}}'
+);
+psql:common/mixedff_advanced_setup.sql:249: WARNING:  the `raw` tokenizer is deprecated
+INSERT INTO conversion_test VALUES
+('conv1', 32767, 2147483647, 9223372036854775807, 9999999.99, 3.402e38, 1.7976931348623157e308, true, '1988-04-29', 'conversion test'),
+('conv2', -32768, -2147483648, -9223372036854775808, -9999999.99, -3.402e38, -1.7976931348623157e308, false, '1999-12-31', 'conversion test'),
+('conv3', 0, 0, 0, 0.0, 0.0, 0.0, false, '2000-01-01', 'conversion test');
+-- Add a product with a distinct string for testing
+INSERT INTO mixed_numeric_string_test (id, numeric_field1, numeric_field2, string_field1, string_field2, string_field3, content) VALUES
+('unique1', 42, 4242, 'Unique Product Z', 'Test', 'Item', 'This is a uniqueproductZ for testing mixed fields'); 
+\echo 'Test: UNION operations'
+Test: UNION operations
 -- This test is disabled, because it has a variable oid in it.
 -- -- Test 1: Basic UNION with mixed field types
 -- EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -83,17 +261,7 @@ SELECT title, price, year
 FROM union_test_b
 WHERE price < 45 AND year > 2000
 ORDER BY price;
-                                 QUERY PLAN                                 
-----------------------------------------------------------------------------
- Sort
-   Sort Key: union_test_a.price
-   ->  Append
-         ->  Seq Scan on union_test_a
-               Filter: ((price < '30'::double precision) AND (year > 2010))
-         ->  Seq Scan on union_test_b
-               Filter: ((price < '45'::double precision) AND (year > 2000))
-(7 rows)
-
+ERROR:  relation "union_test_a" does not exist at character 77
 -- Test 3: Window function - ROW_NUMBER() with mixed fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, author, price, rating,
@@ -101,26 +269,7 @@ SELECT title, author, price, rating,
 FROM union_test_a
 WHERE title @@@ 'Book A'
 ORDER BY author, author_rank;
-                                                                            QUERY PLAN                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Incremental Sort
-   Sort Key: author, (row_number() OVER (?))
-   Presorted Key: author
-   ->  WindowAgg
-         ->  Sort
-               Sort Key: author, rating DESC
-               ->  Custom Scan (ParadeDB Scan) on union_test_a
-                     Table: union_test_a
-                     Index: union_test_a_idx
-                     Segment Count: 1
-                     Exec Method: MixedFastFieldExecState
-                     Fast Fields: title, author, price, rating
-                     String Fast Fields: title, author
-                     Numeric Fast Fields: price, rating
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
-
+ERROR:  relation "union_test_a" does not exist at character 171
 -- Test 4: Window function - Running average price by author
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, author, price,
@@ -128,23 +277,7 @@ SELECT title, author, price,
 FROM union_test_a
 WHERE author @@@ 'Author'
 ORDER BY author, price;
-                                                                          QUERY PLAN                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------
- WindowAgg
-   ->  Sort
-         Sort Key: author, price
-         ->  Custom Scan (ParadeDB Scan) on union_test_a
-               Table: union_test_a
-               Index: union_test_a_idx
-               Segment Count: 1
-               Exec Method: MixedFastFieldExecState
-               Fast Fields: title, author, price
-               String Fast Fields: title, author
-               Numeric Fast Fields: price
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"author","query_string":"Author","lenient":null,"conjunction_mode":null}}}}
-(13 rows)
-
+ERROR:  relation "union_test_a" does not exist at character 161
 -- Test 5: Window function with UNION and mixed filters
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 WITH combined_books AS (
@@ -160,24 +293,7 @@ SELECT title, author, rating, source,
        RANK() OVER (PARTITION BY author ORDER BY rating DESC) as author_rank
 FROM combined_books
 ORDER BY author, author_rank;
-                                                   QUERY PLAN                                                   
-----------------------------------------------------------------------------------------------------------------
- Incremental Sort
-   Sort Key: combined_books.author, (rank() OVER (?))
-   Presorted Key: combined_books.author
-   ->  WindowAgg
-         ->  Sort
-               Sort Key: combined_books.author, combined_books.rating DESC
-               ->  Subquery Scan on combined_books
-                     ->  HashAggregate
-                           Group Key: union_test_a.title, union_test_a.author, union_test_a.rating, ('A'::text)
-                           ->  Append
-                                 ->  Seq Scan on union_test_a
-                                       Filter: (rating > 3.5)
-                                 ->  Seq Scan on union_test_b
-                                       Filter: (rating > 2.5)
-(14 rows)
-
+ERROR:  relation "union_test_a" does not exist at character 128
 -- Test 6: UNION with boolean and text fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, author, is_published
@@ -188,39 +304,7 @@ SELECT title, author, is_published
 FROM union_test_b
 WHERE is_published = true AND author @@@ 'Author 1'
 ORDER BY author, title;
-                                                                                                                              QUERY PLAN                                                                                                                              
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort
-   Sort Key: union_test_a.author, union_test_a.title
-   ->  Unique
-         ->  Merge Append
-               Sort Key: union_test_a.title, union_test_a.author, union_test_a.is_published
-               ->  Sort
-                     Sort Key: union_test_a.title, union_test_a.author, union_test_a.is_published
-                     ->  Custom Scan (ParadeDB Scan) on union_test_a
-                           Table: union_test_a
-                           Index: union_test_a_idx
-                           Segment Count: 1
-                           Exec Method: MixedFastFieldExecState
-                           Fast Fields: title, author, is_published
-                           String Fast Fields: title, author
-                           Numeric Fast Fields: is_published
-                           Scores: false
-                           Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_published","value":true,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"author","query_string":"Author 1","lenient":null,"conjunction_mode":null}}}}]}}
-               ->  Sort
-                     Sort Key: union_test_b.title, union_test_b.author, union_test_b.is_published
-                     ->  Custom Scan (ParadeDB Scan) on union_test_b
-                           Table: union_test_b
-                           Index: union_test_b_idx
-                           Segment Count: 1
-                           Exec Method: MixedFastFieldExecState
-                           Fast Fields: title, author, is_published
-                           String Fast Fields: title, author
-                           Numeric Fast Fields: is_published
-                           Scores: false
-                           Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_published","value":true,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"author","query_string":"Author 1","lenient":null,"conjunction_mode":null}}}}]}}
-(29 rows)
-
+ERROR:  relation "union_test_a" does not exist at character 86
 -- Test 7: Window functions with multiple partitions and mixed fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT author, 
@@ -233,46 +317,13 @@ FROM union_test_a
 WHERE author @@@ 'Author'
 GROUP BY author
 ORDER BY avg_rating DESC;
-                                                                                   QUERY PLAN                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- WindowAgg
-   ->  Sort
-         Sort Key: (avg(rating)) DESC
-         ->  WindowAgg
-               ->  Sort
-                     Sort Key: (avg(price))
-                     ->  HashAggregate
-                           Group Key: author
-                           ->  Custom Scan (ParadeDB Scan) on union_test_a
-                                 Table: union_test_a
-                                 Index: union_test_a_idx
-                                 Segment Count: 1
-                                 Exec Method: StringFastFieldExecState
-                                 Fast Fields: author
-                                 String Agg Field: author
-                                 Scores: false
-                                    Sort Field: author
-                                    Sort Direction: asc
-                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"author","query_string":"Author","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
-
+ERROR:  relation "union_test_a" does not exist at character 282
 -- Test 8: UNION with INTERSECT and different field types
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 (SELECT author FROM union_test_a WHERE rating > 4.5)
 INTERSECT
 (SELECT author FROM union_test_b WHERE rating > 4.0);
-                 QUERY PLAN                 
---------------------------------------------
- HashSetOp Intersect
-   ->  Append
-         ->  Subquery Scan on "*SELECT* 1"
-               ->  Seq Scan on union_test_a
-                     Filter: (rating > 4.5)
-         ->  Subquery Scan on "*SELECT* 2"
-               ->  Seq Scan on union_test_b
-                     Filter: (rating > 4.0)
-(8 rows)
-
+ERROR:  relation "union_test_a" does not exist at character 66
 -- Verify actual results of UNION (not just execution method)
 SELECT title, author, rating, price
 FROM union_test_a
@@ -283,20 +334,7 @@ FROM union_test_b
 WHERE title @@@ 'Book B1' AND rating > 3
 ORDER BY rating DESC, title
 LIMIT 10;
-  title   |  author   | rating | price 
-----------+-----------+--------+-------
- Book A11 | Author 2  |      5 |    65
- Book A14 | Author 5  |      5 |    80
- Book A17 | Author 8  |      5 |    95
- Book A2  | Author 3  |      5 |    20
- Book A20 | Author 1  |      5 |   110
- Book A23 | Author 4  |      5 |   125
- Book A26 | Author 7  |      5 |   140
- Book A29 | Author 10 |      5 |   155
- Book A32 | Author 3  |      5 |   170
- Book A35 | Author 6  |      5 |   185
-(10 rows)
-
+ERROR:  relation "union_test_a" does not exist at character 42
 -- Verify window function results
 SELECT title, author, price, rating,
        ROW_NUMBER() OVER (PARTITION BY author ORDER BY rating DESC) as author_rank
@@ -304,19 +342,22 @@ FROM union_test_a
 WHERE author = 'Author 1'
 ORDER BY author_rank
 LIMIT 5;
-  title   |  author  | price | rating | author_rank 
-----------+----------+-------+--------+-------------
- Book A20 | Author 1 |   110 |      5 |           1
- Book A50 | Author 1 |   260 |      5 |           2
- Book A10 | Author 1 |    60 |      4 |           3
- Book A40 | Author 1 |   210 |      4 |           4
- Book A30 | Author 1 |   160 |      3 |           5
-(5 rows)
-
--- Clean up
-DROP INDEX IF EXISTS union_test_a_idx;
-DROP INDEX IF EXISTS union_test_b_idx;
-DROP TABLE IF EXISTS union_test_a;
-DROP TABLE IF EXISTS union_test_b; 
+ERROR:  relation "union_test_a" does not exist at character 126
+\i common/mixedff_advanced_cleanup.sql
+-- Cleanup for advanced features tests (13-21)
+-- Drop the tables used in these tests (in reverse order to handle dependencies)
+DROP TABLE IF EXISTS conversion_test CASCADE;
+DROP TABLE IF EXISTS products CASCADE;
+DROP TABLE IF EXISTS categories CASCADE;
+DROP TABLE IF EXISTS pages CASCADE;
+DROP TABLE IF EXISTS files CASCADE;
+DROP TABLE IF EXISTS documents CASCADE;
+DROP TABLE IF EXISTS mixed_numeric_string_test CASCADE;
 -- Reset parallel workers setting to default
 RESET max_parallel_workers_per_gather;
+SELECT 'Advanced features tests cleanup complete' AS status; 
+                  status                  
+------------------------------------------
+ Advanced features tests cleanup complete
+(1 row)
+

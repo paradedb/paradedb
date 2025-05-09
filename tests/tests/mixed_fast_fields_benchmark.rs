@@ -53,8 +53,8 @@ fn detect_exec_method(plan: &Value) -> String {
     if plan_str.contains("Exec Method") {
         if plan_str.contains("MixedFastFieldExecState") {
             return "MixedFastFieldExec".to_string();
-        } else if plan_str.contains("StringMixedFastFieldExecState") {
-            return "StringMixedFastFieldExec".to_string();
+        } else if plan_str.contains("StringFastFieldExecState") {
+            return "StringFastFieldExec".to_string();
         } else if plan_str.contains("NumericMixedFastFieldExecState") {
             return "NumericMixedFastFieldExec".to_string();
         } else if plan_str.contains("NormalScanExecState") {

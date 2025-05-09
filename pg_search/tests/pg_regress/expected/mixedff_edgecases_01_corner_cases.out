@@ -172,6 +172,24 @@ ORDER BY id;
 \echo 'Test: Very long strings'
 Test: Very long strings
 -- Test handling of very long strings
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, length(very_long_string) as long_string_length
+FROM corner_case_test
+WHERE content @@@ 'test'
+ORDER BY id;
+                                                                      QUERY PLAN                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Scan) on corner_case_test
+         Table: corner_case_test
+         Index: corner_case_search
+         Segment Count: 2
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
+(9 rows)
+
 SELECT id, length(very_long_string) as long_string_length
 FROM corner_case_test
 WHERE content @@@ 'test'
@@ -188,6 +206,26 @@ ORDER BY id;
 \echo 'Test: Special characters'
 Test: Special characters
 -- Test handling of special characters
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, special_chars
+FROM corner_case_test
+WHERE content @@@ 'test'
+ORDER BY id;
+                                                                      QUERY PLAN                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Scan) on corner_case_test
+         Table: corner_case_test
+         Index: corner_case_search
+         Segment Count: 2
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, special_chars
+         String Fast Fields: id, special_chars
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
 SELECT id, special_chars
 FROM corner_case_test
 WHERE content @@@ 'test'
@@ -242,6 +280,27 @@ ORDER BY id;
 \echo 'Test: Boolean values'
 Test: Boolean values
 -- Test boolean field handling
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, bool_field
+FROM corner_case_test
+WHERE content @@@ 'test'
+ORDER BY id;
+                                                                      QUERY PLAN                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Scan) on corner_case_test
+         Table: corner_case_test
+         Index: corner_case_search
+         Segment Count: 2
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, bool_field
+         String Fast Fields: id
+         Numeric Fast Fields: bool_field
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
+(12 rows)
+
 SELECT id, bool_field
 FROM corner_case_test
 WHERE content @@@ 'test'

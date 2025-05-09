@@ -20,6 +20,12 @@ ORDER BY id;
 
 \echo 'Test: Very long strings'
 -- Test handling of very long strings
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, length(very_long_string) as long_string_length
+FROM corner_case_test
+WHERE content @@@ 'test'
+ORDER BY id;
+
 SELECT id, length(very_long_string) as long_string_length
 FROM corner_case_test
 WHERE content @@@ 'test'
@@ -27,6 +33,12 @@ ORDER BY id;
 
 \echo 'Test: Special characters'
 -- Test handling of special characters
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, special_chars
+FROM corner_case_test
+WHERE content @@@ 'test'
+ORDER BY id;
+
 SELECT id, special_chars
 FROM corner_case_test
 WHERE content @@@ 'test'
@@ -48,6 +60,12 @@ ORDER BY id;
 
 \echo 'Test: Boolean values'
 -- Test boolean field handling
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, bool_field
+FROM corner_case_test
+WHERE content @@@ 'test'
+ORDER BY id;
+
 SELECT id, bool_field
 FROM corner_case_test
 WHERE content @@@ 'test'

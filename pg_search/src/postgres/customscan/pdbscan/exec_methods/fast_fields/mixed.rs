@@ -38,12 +38,54 @@ use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::pg_sys;
 use pgrx::PgOid;
 use rayon::prelude::*;
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use tantivy::collector::Collector;
 use tantivy::index::SegmentId;
 use tantivy::query::Query;
 use tantivy::schema::document::OwnedValue;
 use tantivy::{DocAddress, Executor, SegmentOrdinal};
+
+// Thread-local string buffers for reuse to reduce memory allocations
+thread_local! {
+    // Pool of reusable string buffers for term resolution
+    static STRING_BUFFER_POOL: RefCell<Vec<String>> = RefCell::new(Vec::with_capacity(16));
+
+    // Reusable scratch buffer for temporary operations
+    static SCRATCH_BUFFER: RefCell<String> = RefCell::new(String::with_capacity(256));
+}
+
+/// Helper function to get a string buffer from the thread-local pool
+fn get_string_buffer() -> String {
+    STRING_BUFFER_POOL.with(|pool| {
+        pool.borrow_mut()
+            .pop()
+            .unwrap_or_else(|| String::with_capacity(256))
+    })
+}
+
+/// Helper function to return a string buffer to the thread-local pool
+fn recycle_string_buffer(mut buffer: String) {
+    buffer.clear();
+    STRING_BUFFER_POOL.with(|pool| {
+        // Limit pool size to prevent memory growth
+        if pool.borrow().len() < 32 {
+            pool.borrow_mut().push(buffer);
+        }
+    })
+}
+
+/// Helper function to use the scratch buffer for temporary operations
+fn with_scratch_buffer<F, R>(f: F) -> R
+where
+    F: FnOnce(&mut String) -> R,
+{
+    SCRATCH_BUFFER.with(|buffer| {
+        let mut buffer = buffer.borrow_mut();
+        buffer.clear();
+        f(&mut buffer)
+    })
+}
 
 /// Execution state for mixed fast field retrieval optimized for both string and numeric fields.
 ///
@@ -250,8 +292,9 @@ impl ExecMethod for MixedFastFieldExecState {
                         let which_fast_fields = &self.inner.which_fast_fields;
                         let tupdesc = self.inner.tupdesc.as_ref().unwrap();
 
-                        // Take the string buffer from inner
-                        let mut string_buf = self.inner.strbuf.take().unwrap_or_default();
+                        // Take the string buffer from inner or create a new one
+                        let mut string_buf =
+                            self.inner.strbuf.take().unwrap_or_else(get_string_buffer);
 
                         // Process each column, converting fast field values to PostgreSQL datums
                         for (i, att) in self.inner.tupdesc.as_ref().unwrap().iter().enumerate() {
@@ -335,11 +378,12 @@ impl ExecMethod for MixedFastFieldExecState {
                             }
 
                             // Extract the string buffer back
-                            string_buf = str_opt.unwrap_or_default();
+                            string_buf = str_opt.unwrap_or_else(get_string_buffer);
                         }
 
                         // Store the string buffer back for reuse
-                        self.inner.strbuf = Some(string_buf);
+                        recycle_string_buffer(string_buf);
+                        self.inner.strbuf = Some(get_string_buffer());
 
                         self.num_rows_fetched += 1;
                         ExecState::Virtual { slot }
@@ -618,21 +662,18 @@ impl MixedAggSearcher<'_> {
 
                     // Process each term ordinate and its documents
                     for (term_ord, docs) in field_result.iter() {
-                        // Resolve the term ordinal to an actual string value
-                        let term_value = {
+                        // Resolve the term ordinal to an actual string value using our pooled buffer
+                        let term_value = with_scratch_buffer(|term_buf| {
                             // Try to get a value from the term ordinal
-                            let mut term_str = String::new();
-
-                            // Track if we got a successful resolution
                             let got_term = if str_ff.num_terms() > 0 {
                                 // Try to resolve the term ordinal to a string
-                                str_ff.ord_to_str(*term_ord, &mut term_str).is_ok()
+                                str_ff.ord_to_str(*term_ord, term_buf).is_ok()
                             } else {
                                 false
                             };
 
-                            if got_term && !term_str.is_empty() {
-                                Some(term_str)
+                            if got_term && !term_buf.is_empty() {
+                                Some(term_buf.clone())
                             } else {
                                 // Special handling for term_ord = 0 (empty terms)
                                 if *term_ord == 0 && !docs.is_empty() {
@@ -653,7 +694,7 @@ impl MixedAggSearcher<'_> {
                                     None
                                 }
                             }
-                        };
+                        });
 
                         // Add this term to all matching documents
                         for (score, doc_addr) in docs {
@@ -703,20 +744,44 @@ impl MixedAggSearcher<'_> {
                 field_values.numeric_values.iter().collect();
             num_keys.sort_by(|a, b| a.0.cmp(b.0));
 
-            // Create a key that represents all field values
-            let fields_key = format!(
-                "S:{}|N:{}",
-                term_keys
-                    .iter()
-                    .map(|(k, v)| format!("{}:{:?}", k, v))
-                    .collect::<Vec<_>>()
-                    .join(","),
-                num_keys
-                    .iter()
-                    .map(|(k, v)| format!("{}:{:?}", k, v))
-                    .collect::<Vec<_>>()
-                    .join(",")
-            );
+            // Create a key that represents all field values - reuse string buffer
+            let fields_key = with_scratch_buffer(|buf| {
+                buf.push_str("S:");
+                for (i, (k, v)) in term_keys.iter().enumerate() {
+                    if i > 0 {
+                        buf.push(',');
+                    }
+                    buf.push_str(k);
+                    buf.push(':');
+                    match v {
+                        Some(s) => {
+                            buf.push('"');
+                            buf.push_str(s);
+                            buf.push('"');
+                        }
+                        None => buf.push_str("null"),
+                    }
+                }
+
+                buf.push_str("|N:");
+                for (i, (k, v)) in num_keys.iter().enumerate() {
+                    if i > 0 {
+                        buf.push(',');
+                    }
+                    buf.push_str(k);
+                    buf.push(':');
+                    // Simple representation - full serialization not needed for key
+                    match v {
+                        OwnedValue::I64(n) => buf.push_str(&n.to_string()),
+                        OwnedValue::U64(n) => buf.push_str(&n.to_string()),
+                        OwnedValue::F64(n) => buf.push_str(&n.to_string()),
+                        OwnedValue::Bool(b) => buf.push_str(if *b { "true" } else { "false" }),
+                        _ => buf.push_str("null"),
+                    }
+                }
+
+                buf.clone()
+            });
 
             // Group by field values to avoid duplicate value copies
             let entry = field_groups
@@ -826,22 +891,19 @@ impl MixedAggSearcher<'_> {
             let (field_name, str_ff) = &string_columns[field_idx];
             let field_result = &string_results[field_idx];
 
-            // Process each term ordinate
+            // Process each term ordinate using string buffer pool
             for (term_ord, docs) in field_result {
                 // Resolve the term to a string value
-                let term_value = {
-                    // Try to get a value from the term ordinal
-                    let mut term_str = String::new();
-
+                let term_value = with_scratch_buffer(|term_buf| {
                     // Try to resolve the term ordinal to a string
                     let got_term = if str_ff.num_terms() > 0 {
-                        str_ff.ord_to_str(*term_ord, &mut term_str).is_ok()
+                        str_ff.ord_to_str(*term_ord, term_buf).is_ok()
                     } else {
                         false
                     };
 
-                    if got_term && !term_str.is_empty() {
-                        Some(term_str)
+                    if got_term && !term_buf.is_empty() {
+                        Some(term_buf.clone())
                     } else {
                         // Special handling for term_ord = 0 (empty terms)
                         if *term_ord == 0 && !docs.is_empty() {
@@ -862,7 +924,7 @@ impl MixedAggSearcher<'_> {
                             None
                         }
                     }
-                };
+                });
 
                 // Add term to each document
                 for (score, doc_addr) in docs {

@@ -721,7 +721,7 @@ impl SearchQueryInput {
     ) -> Result<Box<dyn Query>, Box<dyn std::error::Error>> {
         match self {
             Self::Uninitialized => panic!("this `SearchQueryInput` instance is uninitialized"),
-            Self::All => Ok(Box::new(AllQuery)),
+            Self::All => Ok(Box::new(ConstScoreQuery::new(Box::new(AllQuery), 0.0))),
             Self::Boolean {
                 must,
                 should,

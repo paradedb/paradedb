@@ -3,10 +3,13 @@ use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::pdbscan::PdbScan;
 use crate::postgres::ParallelScanState;
+
 use pgrx::pg_sys::{self, shm_toc, ParallelContext, Size};
+use tantivy::index::SegmentId;
+
 use std::collections::HashSet;
 use std::os::raw::c_void;
-use tantivy::index::SegmentId;
+use std::time::{Duration, Instant};
 
 impl ParallelQueryCapable for PdbScan {
     fn estimate_dsm_custom_scan(
@@ -122,12 +125,34 @@ pub fn compute_nworkers(limit: Option<Cardinality>, segment_count: usize, sorted
 }
 
 pub unsafe fn checkout_segment(pscan_state: *mut ParallelScanState) -> Option<SegmentId> {
-    let mutex = (*pscan_state).acquire_mutex();
-    if (*pscan_state).remaining_segments() > 0 {
-        let remaining_segments = (*pscan_state).decrement_remaining_segments();
-        Some((*pscan_state).segment_id(remaining_segments))
-    } else {
-        None
+    #[cfg(not(any(feature = "pg14", feature = "pg15")))]
+    let deadline = Instant::now() + Duration::from_millis(50);
+
+    loop {
+        let mutex = (*pscan_state).acquire_mutex();
+        let remaining_segments = (*pscan_state).remaining_segments();
+        if remaining_segments == 0 {
+            break None;
+        }
+
+        // If debug_parallel_query is enabled and we're the leader, then do not take the first
+        // segment (unless a deadline has passed, since in some cases we may not have any workers:
+        // e.g. UNIONS under a Gather node, etc).
+        //
+        // This significantly improves the reproducibility of parallel worker issues with small
+        // datasets, since it means that unlike in the non-parallel case, the leader will be
+        // unlikely to emit all of the segments before the workers have had a chance to start up.
+        #[cfg(not(any(feature = "pg14", feature = "pg15")))]
+        if pg_sys::debug_parallel_query != 0
+            && pg_sys::ParallelWorkerNumber == -1
+            && remaining_segments == (*pscan_state).nsegments()
+            && Instant::now() < deadline
+        {
+            continue;
+        }
+
+        let claimed_segment = (*pscan_state).decrement_remaining_segments();
+        break Some((*pscan_state).segment_id(claimed_segment));
     }
 }
 

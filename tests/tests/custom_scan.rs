@@ -19,10 +19,87 @@
 mod fixtures;
 
 use fixtures::*;
+
 use pretty_assertions::assert_eq;
+use proptest::prelude::*;
 use rstest::*;
 use serde_json::{Number, Value};
 use sqlx::PgConnection;
+
+proptest! {
+    #[rstest]
+    // TODO: Known to fail: see https://github.com/paradedb/paradedb/issues/2416.
+    #[ignore]
+    fn parallel_equivalence_topn(
+      mut conn in arb_conn(),
+      limit in 0..10usize,
+      ops in props::arb_ops::<SimpleProductsTable>(5..50usize),
+    ) {
+        if pg_major_version(&mut conn) < 16 {
+            // Cannot reliably control determinism without `debug_parallel_query`.
+            return Ok(());
+        }
+
+        SimpleProductsTable::setup().execute(&mut conn);
+        for op in ops {
+            match op {
+                props::Op::Insert(row) => row.insert(&mut conn),
+            }
+        }
+
+        let mut query = |parallel: bool| -> Vec<(i32, String, f32)> {
+            format!(
+                "SET max_parallel_workers = {}; SET max_parallel_workers_per_gather = {}; SET debug_parallel_query TO {};",
+                if parallel { 8 } else { 0 },
+                if parallel { 8 } else { 0 },
+                if parallel { "on" } else { "off" },
+            ).execute(&mut conn);
+            format!(
+                "SELECT id, description, paradedb.score(id)
+                FROM paradedb.bm25_search WHERE bm25_search @@@ 'category:electronics'
+                ORDER BY paradedb.score(id), id OFFSET 0 LIMIT {limit}"
+            )
+            .fetch_collect(&mut conn)
+        };
+
+        prop_assert_eq!(query(true), query(false));
+    }
+
+    #[rstest]
+    fn parallel_equivalence_normal(
+      mut conn in arb_conn(),
+      ops in props::arb_ops::<SimpleProductsTable>(5..50usize),
+      category in arb_simple_products_category(),
+    ) {
+        if pg_major_version(&mut conn) < 16 {
+            // Cannot reliably control determinism without `debug_parallel_query`.
+            return Ok(());
+        }
+
+        SimpleProductsTable::setup().execute(&mut conn);
+        for op in ops {
+            match op {
+                props::Op::Insert(row) => row.insert(&mut conn),
+            }
+        }
+
+        let mut query = |parallel: bool| -> Vec<(String, f32)> {
+            format!(
+                "SET max_parallel_workers = {}; SET max_parallel_workers_per_gather = {}; SET debug_parallel_query TO {};",
+                if parallel { 8 } else { 0 },
+                if parallel { 8 } else { 0 },
+                if parallel { "on" } else { "off" },
+            ).execute(&mut conn);
+            format!(
+                "SELECT description, paradedb.score(id)
+                FROM paradedb.bm25_search WHERE category @@@ '{category}' ORDER BY id;"
+            )
+            .fetch_collect(&mut conn)
+        };
+
+        prop_assert_eq!(query(true), query(false));
+    }
+}
 
 #[rstest]
 fn corrupt_targetlist(mut conn: PgConnection) {

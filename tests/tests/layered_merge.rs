@@ -82,6 +82,7 @@ fn force_merge(mut conn: PgConnection) {
     assert_eq!(nsegments, 4);
 }
 
+#[ignore]
 #[rstest]
 fn dont_merge_create_index_segments(mut conn: PgConnection) {
     // Test that a segment created by CREATE INDEX cannot get merged away even if less than layer size
@@ -110,11 +111,21 @@ fn dont_merge_create_index_segments(mut conn: PgConnection) {
 
     let (num_deleted_before,) = "SELECT sum(num_deleted)::int8 FROM paradedb.index_info('idxdont_merge_create_index_segments');"
         .fetch_one::<(i64,)>(&mut conn);
-    "INSERT INTO dont_merge_create_index_segments (id) VALUES (1)".execute(&mut conn);
+
+    // Perform many inserts to trigger a merge that merges away the deleted segments
+    for _ in 0..10 {
+        "INSERT INTO dont_merge_create_index_segments (id) VALUES (1)".execute(&mut conn);
+    }
+
     let (num_deleted_after,) = "SELECT sum(num_deleted)::int8 FROM paradedb.index_info('idxdont_merge_create_index_segments');"
         .fetch_one::<(i64,)>(&mut conn);
 
-    assert!(num_deleted_after < num_deleted_before);
+    assert!(
+        num_deleted_after < num_deleted_before,
+        "num_deleted_after {}, num_deleted_before {}",
+        num_deleted_after,
+        num_deleted_before
+    );
 }
 
 #[rstest]

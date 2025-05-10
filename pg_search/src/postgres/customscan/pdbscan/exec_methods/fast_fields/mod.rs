@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+pub mod mixed;
 pub mod numeric;
 pub mod string;
 
@@ -27,9 +28,10 @@ use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
 use crate::postgres::customscan::pdbscan::projections::score::{score_funcoid, uses_scores};
-use crate::postgres::customscan::pdbscan::{scan_state::PdbScanState, ExecMethodType, PdbScan};
+use crate::postgres::customscan::pdbscan::{scan_state::PdbScanState, PdbScan};
 use crate::schema::SearchIndexSchema;
 use itertools::Itertools;
+use pgrx::pg_sys::CustomScanState;
 use pgrx::{pg_sys, IntoDatum, PgList, PgOid, PgRelation, PgTupleDesc};
 use std::collections::HashSet;
 use tantivy::DocAddress;
@@ -78,6 +80,23 @@ impl FastFieldExecState {
             search_results: Default::default(),
             blockvis: (pg_sys::InvalidBlockNumber, false),
             did_query: false,
+        }
+    }
+
+    fn init(&mut self, state: &mut PdbScanState, cstate: *mut CustomScanState) {
+        unsafe {
+            self.heaprel = state.heaprel();
+            self.tupdesc = Some(PgTupleDesc::from_pg_unchecked(
+                (*cstate).ss.ps.ps_ResultTupleDesc,
+            ));
+            self.slot = pg_sys::MakeTupleTableSlot(
+                (*cstate).ss.ps.ps_ResultTupleDesc,
+                &pg_sys::TTSOpsVirtual,
+            );
+            self.ffhelper = FFHelper::with_fields(
+                state.search_reader.as_ref().unwrap(),
+                &self.which_fast_fields,
+            );
         }
     }
 
@@ -169,7 +188,8 @@ pub unsafe fn collect_fast_fields(
     heaprel: &PgRelation,
 ) -> Option<Vec<WhichFastField>> {
     if maybe_ff {
-        pullup_fast_fields(target_list, referenced_columns, schema, heaprel, rti)
+        let fast_fields = pullup_fast_fields(target_list, referenced_columns, schema, heaprel, rti);
+        fast_fields.filter(|fast_fields| !fast_fields.is_empty())
     } else {
         None
     }
@@ -184,6 +204,11 @@ fn collect_fast_field_try_for_attno(
     heaprel: &PgRelation,
     schema: &SearchIndexSchema,
 ) -> bool {
+    // Skip if we've already processed this attribute number
+    if processed_attnos.contains(&(attno as pg_sys::AttrNumber)) {
+        return true;
+    }
+
     match attno {
         // any of these mean we can't use fast fields
         pg_sys::MinTransactionIdAttributeNumber
@@ -216,6 +241,7 @@ fn collect_fast_field_try_for_attno(
 
             // Get attribute info - use if let to handle missing attributes gracefully
             if let Some(att) = tupdesc.get((attno - 1) as usize) {
+                let att_name = att.name().to_string();
                 if schema.is_fast_field(att.name()) {
                     let ff_type = if att.type_oid().value() == pg_sys::TEXTOID
                         || att.type_oid().value() == pg_sys::VARCHAROID
@@ -224,8 +250,7 @@ fn collect_fast_field_try_for_attno(
                     } else {
                         FastFieldType::Numeric
                     };
-
-                    matches.push(WhichFastField::Named(att.name().to_string(), ff_type));
+                    matches.push(WhichFastField::Named(att_name, ff_type));
                 }
             }
             // If the attribute doesn't exist in this relation, just continue
@@ -235,6 +260,7 @@ fn collect_fast_field_try_for_attno(
     true
 }
 
+/// Find all fields that can be used as "fast fields" without failing if some fields are not fast fields
 pub unsafe fn pullup_fast_fields(
     node: *mut pg_sys::List,
     referenced_columns: &HashSet<pg_sys::AttrNumber>,
@@ -255,6 +281,7 @@ pub unsafe fn pullup_fast_fields(
         if (*te).resorigtbl != pg_sys::Oid::INVALID && (*te).resorigtbl != heaprel.oid() {
             continue;
         }
+
         if let Some(var) = nodecast!(Var, T_Var, (*te).expr) {
             if (*var).varno as i32 != rti as i32 {
                 // this TargetEntry's Var isn't from the same RangeTable as we were asked to inspect,
@@ -304,53 +331,12 @@ pub unsafe fn pullup_fast_fields(
         }
     }
 
-    if matches
-        .iter()
-        .sorted()
-        .dedup()
-        .filter(|ff| matches!(ff, WhichFastField::Named(_, FastFieldType::String)))
-        .count()
-        > 1
-    {
-        // we cannot support more than 1 different String fast field
-        return None;
-    }
-
     Some(matches)
 }
 
-pub fn is_string_agg_capable(privdata: &PrivateData) -> Option<String> {
-    if privdata.limit().is_some() {
-        // doing a string_agg when there's a limit is always a loss, performance-wise
-        return None;
-    }
-    if is_all_junk(privdata.which_fast_fields()) {
-        // if all the fast fields we have are Junk fields, then we're not actually
-        // projecting fast fields
-        return None;
-    }
-
-    let mut string_field = None;
-    for ff in privdata.which_fast_fields().iter().flatten() {
-        match ff {
-            WhichFastField::Named(_, FastFieldType::String) if string_field.is_none() => {
-                string_field = Some(ff.name())
-            }
-            WhichFastField::Named(_, FastFieldType::String) => {
-                // too many string fields for us to be capable of doing a string_agg
-                return None;
-            }
-            _ => {
-                // noop
-            }
-        }
-    }
-    string_field
-}
-
-pub fn is_numeric_fast_field_capable(privdata: &PrivateData) -> bool {
+pub fn fast_field_capable_prereqs(privdata: &PrivateData) -> bool {
     if privdata.referenced_columns_count() == 0 {
-        return true;
+        return false;
     }
 
     let which_fast_fields = privdata.which_fast_fields();
@@ -358,13 +344,103 @@ pub fn is_numeric_fast_field_capable(privdata: &PrivateData) -> bool {
         return false;
     }
 
-    if is_all_junk(which_fast_fields) {
+    if is_all_special_or_junk_fields(which_fast_fields) {
         // if all the fast fields we have are Junk fields, then we're not actually
         // projecting fast fields
         return false;
     }
 
-    for ff in which_fast_fields.iter().flatten() {
+    // Make sure all referenced columns are fast fields
+    let referenced_columns_count = privdata.referenced_columns_count();
+    let which_fast_fields = which_fast_fields.as_ref().unwrap();
+
+    // Count columns that we have fast fields for (excluding system/junk fields)
+    let fast_field_column_count = which_fast_fields
+        .iter()
+        .filter(|ff| matches!(ff, WhichFastField::Named(_, _)))
+        .count();
+
+    // If we're missing any columns, we can't use fast field execution
+    if referenced_columns_count > fast_field_column_count {
+        return false;
+    }
+
+    true
+}
+
+// Check if we can use the mixed fast field execution method
+pub fn is_mixed_fast_field_capable(privdata: &PrivateData) -> bool {
+    if !fast_field_capable_prereqs(privdata) {
+        return false;
+    }
+
+    // Normal mixed fast field detection logic
+    let which_fast_fields = privdata.which_fast_fields().as_ref().unwrap();
+
+    // Filter out junk and system fields for our analysis - we only care about real column fast fields
+    let field_types = which_fast_fields
+        .iter()
+        .filter_map(|ff| match ff {
+            WhichFastField::Named(name, ff_type) => Some((name.clone(), ff_type.clone())),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    if field_types.is_empty() {
+        return false; // No named fast fields
+    }
+
+    true
+}
+
+// Update is_string_agg_capable to consider test requirements
+pub fn is_string_agg_capable_with_prereqs(privdata: &PrivateData) -> Option<String> {
+    if !fast_field_capable_prereqs(privdata) {
+        return None;
+    }
+
+    is_string_agg_capable(privdata)
+}
+// Update is_string_agg_capable to consider test requirements
+pub fn is_string_agg_capable(privdata: &PrivateData) -> Option<String> {
+    if privdata.limit().is_some() {
+        // doing a string_agg when there's a limit is always a loss, performance-wise
+        return None;
+    }
+
+    let which_fast_fields = privdata.which_fast_fields().as_ref().unwrap();
+
+    let mut string_field = None;
+    // Count the number of string fields
+    let mut string_field_count = 0;
+    for ff in which_fast_fields.iter() {
+        if let WhichFastField::Named(name, field_type) = ff {
+            match field_type {
+                FastFieldType::String => {
+                    string_field_count += 1;
+                    string_field = Some(name.clone());
+                }
+                FastFieldType::Numeric => {
+                    return None;
+                }
+            }
+        }
+    }
+
+    if string_field_count != 1 {
+        // string_agg requires exactly one string field
+        return None;
+    }
+
+    // At this point, we've verified that we have exactly one string field
+    string_field
+}
+
+// Check if we can use numeric fast field execution method
+pub fn is_numeric_fast_field_capable(privdata: &PrivateData) -> bool {
+    let which_fast_fields = privdata.which_fast_fields().as_ref().unwrap();
+    // Make sure we don't have any string fast fields
+    for ff in which_fast_fields.iter() {
         if matches!(ff, WhichFastField::Named(_, FastFieldType::String)) {
             return false;
         }
@@ -372,34 +448,67 @@ pub fn is_numeric_fast_field_capable(privdata: &PrivateData) -> bool {
     true
 }
 
-fn is_all_junk(which_fast_fields: &Option<Vec<WhichFastField>>) -> bool {
-    which_fast_fields
-        .iter()
-        .flatten()
-        .all(|ff| matches!(ff, WhichFastField::Junk(_)))
+pub fn is_all_special_or_junk_fields(which_fast_fields: &Option<Vec<WhichFastField>>) -> bool {
+    which_fast_fields.iter().flatten().all(|ff| {
+        matches!(
+            ff,
+            WhichFastField::Junk(_)
+                | WhichFastField::TableOid
+                | WhichFastField::Ctid
+                | WhichFastField::Score
+        )
+    })
 }
 
 /// Add nodes to `EXPLAIN` output to describe the "fast fields" being used by the query, if any
 pub fn explain(state: &CustomScanStateWrapper<PdbScan>, explainer: &mut Explainer) {
-    if let ExecMethodType::FastFieldString {
-        which_fast_fields, ..
-    }
-    | ExecMethodType::FastFieldNumeric {
-        which_fast_fields, ..
-    } = &state.custom_state().exec_method_type
-    {
-        explainer.add_text(
-            "Fast Fields",
-            which_fast_fields
-                .iter()
-                .map(|field| field.name())
-                .collect::<Vec<_>>()
-                .join(", "),
-        );
-    }
+    use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 
-    if let ExecMethodType::FastFieldString { field, .. } = &state.custom_state().exec_method_type {
-        explainer.add_text("String Agg Field", field);
+    match &state.custom_state().exec_method_type {
+        ExecMethodType::FastFieldString {
+            field,
+            which_fast_fields,
+        } => {
+            explainer.add_text("Fast Fields", field);
+            explainer.add_text("String Agg Field", field);
+        }
+        ExecMethodType::FastFieldNumeric { which_fast_fields } => {
+            let fields: Vec<_> = which_fast_fields
+                .iter()
+                .map(|ff| ff.name())
+                .sorted()
+                .collect();
+            explainer.add_text("Fast Fields", fields.join(", "));
+        }
+        ExecMethodType::FastFieldMixed { which_fast_fields } => {
+            // Get all fast fields used
+            let string_fields: Vec<_> = which_fast_fields
+                .iter()
+                .filter(|ff| matches!(ff, WhichFastField::Named(_, FastFieldType::String)))
+                .map(|ff| ff.name())
+                .sorted()
+                .collect();
+
+            let numeric_fields: Vec<_> = which_fast_fields
+                .iter()
+                .filter(|ff| matches!(ff, WhichFastField::Named(_, FastFieldType::Numeric)))
+                .map(|ff| ff.name())
+                .sorted()
+                .collect();
+
+            let all_fields = [string_fields.clone(), numeric_fields.clone()].concat();
+
+            explainer.add_text("Fast Fields", all_fields.join(", "));
+
+            if !string_fields.is_empty() {
+                explainer.add_text("String Fast Fields", string_fields.join(", "));
+            }
+
+            if !numeric_fields.is_empty() {
+                explainer.add_text("Numeric Fast Fields", numeric_fields.join(", "));
+            }
+        }
+        _ => {}
     }
 }
 

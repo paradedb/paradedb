@@ -26,7 +26,9 @@ mod scan_state;
 mod solve_expr;
 
 use crate::api::operator::{
-    anyelement_query_input_opoid, attname_from_var, estimate_selectivity, find_var_relation,
+    anyelement_query_input_opoid, anyelement_query_input_procoid, anyelement_text_opoid,
+    anyelement_text_procoid, attname_from_var, estimate_selectivity, find_var_relation,
+    parse_with_field_procoid, searchqueryinput_typoid,
 };
 use crate::api::Cardinality;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
@@ -40,8 +42,8 @@ use crate::postgres::customscan::builders::custom_state::{
 };
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::explainer::Explainer;
-use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::{
-    estimate_cardinality, is_string_agg_capable,
+use crate::postgres::customscan::pdbscan::exec_methods::{
+    fast_fields, normal::NormalScanExecState, ExecState,
 };
 use crate::postgres::customscan::pdbscan::parallel::{compute_nworkers, list_segment_ids};
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
@@ -62,8 +64,6 @@ use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::query::{AsHumanReadable, SearchQueryInput};
 use crate::schema::SearchIndexSchema;
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
-use exec_methods::normal::NormalScanExecState;
-use exec_methods::ExecState;
 use pgrx::pg_sys::CustomExecMethods;
 use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts, PgRelation};
 use rustc_hash::FxHashMap;
@@ -151,6 +151,37 @@ impl PdbScan {
             inject_score_and_snippet_placeholders(state);
         }
     }
+
+    fn cleanup_varibilities_from_tantivy_query(json_value: &mut serde_json::Value) {
+        match json_value {
+            serde_json::Value::Object(obj) => {
+                // Check if this is a "with_index" object and remove its "oid" if present
+                if obj.contains_key("with_index") {
+                    if let Some(with_index) = obj.get_mut("with_index") {
+                        if let Some(with_index_obj) = with_index.as_object_mut() {
+                            with_index_obj.remove("oid");
+                        }
+                    }
+                }
+
+                // Remove any field named "postgres_expression"
+                obj.remove("postgres_expression");
+
+                // Recursively process all values in the object
+                for (_, value) in obj.iter_mut() {
+                    Self::cleanup_varibilities_from_tantivy_query(value);
+                }
+            }
+            serde_json::Value::Array(arr) => {
+                // Recursively process all elements in the array
+                for item in arr.iter_mut() {
+                    Self::cleanup_varibilities_from_tantivy_query(item);
+                }
+            }
+            // Base cases: primitive values don't need processing
+            _ => {}
+        }
+    }
 }
 
 impl customscan::ExecMethod for PdbScan {
@@ -236,7 +267,7 @@ impl CustomScan for PdbScan {
             let maybe_needs_const_projections = maybe_needs_const_projections(target_list.cast());
 
             // Get all columns referenced by this RTE throughout the entire query
-            let referenced_columns = collect_referenced_columns(root, rti);
+            let referenced_columns = collect_maybe_fast_field_referenced_columns(root, rti);
 
             // Save the count of referenced columns for decision-making
             builder
@@ -408,7 +439,8 @@ impl CustomScan for PdbScan {
 
             if pathkey.is_some()
                 && !is_topn
-                && is_string_agg_capable(builder.custom_private()).is_some()
+                && fast_fields::is_string_agg_capable_with_prereqs(builder.custom_private())
+                    .is_some()
             {
                 let pathkey = pathkey.as_ref().unwrap();
 
@@ -418,7 +450,7 @@ impl CustomScan for PdbScan {
                     let cardinality = {
                         let estimate = if let OrderByStyle::Field(_, field) = &pathkey {
                             // NB:  '4' is a magic number
-                            estimate_cardinality(&bm25_index, field).unwrap_or(0) * 4
+                            fast_fields::estimate_cardinality(&bm25_index, field).unwrap_or(0) * 4
                         } else {
                             0
                         };
@@ -676,7 +708,16 @@ impl CustomScan for PdbScan {
 
         let json_query = serde_json::to_string(&state.custom_state().search_query_input)
             .expect("query should serialize to json");
-        explainer.add_text("Tantivy Query", &json_query);
+        if let Ok(mut json_value) = serde_json::from_str::<serde_json::Value>(&json_query) {
+            // Remove the oid from the with_index object
+            // This helps to reduce the variability of the explain output used in regression tests
+            Self::cleanup_varibilities_from_tantivy_query(&mut json_value);
+            let updated_json_query =
+                serde_json::to_string(&json_value).expect("updated query should serialize to json");
+            explainer.add_text("Tantivy Query", &updated_json_query);
+        } else {
+            explainer.add_text("Tantivy Query", &json_query);
+        }
 
         if explainer.is_verbose() {
             explainer.add_text(
@@ -772,14 +813,14 @@ impl CustomScan for PdbScan {
     }
 
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        PdbScan::init_search_reader(state);
+        Self::init_search_reader(state);
         state.custom_state_mut().reset();
     }
 
     #[allow(clippy::blocks_in_conditions)]
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
         if state.custom_state().search_reader.is_none() {
-            PdbScan::init_search_reader(state);
+            Self::init_search_reader(state);
         }
 
         loop {
@@ -931,7 +972,9 @@ impl CustomScan for PdbScan {
 /// [`NormalScanExecState`] if not.
 ///
 /// We support [`StringFastFieldExecState`] when there's 1 fast field and it's a string, or
-/// [`NumericFastFieldExecState`] when there's one or more numeric fast fields
+/// [`NumericFastFieldExecState`] when there's one or more numeric fast fields, or
+/// [`MixedFastFieldExecState`] when there are multiple string fast fields or a mix of string
+/// and numeric fast fields.
 ///
 /// `paradedb.score()`, `ctid`, and `tableoid` are considered fast fields for the purposes of
 /// these specialized [`ExecMethod`]s.
@@ -946,38 +989,30 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
             sort_direction,
             need_scores: privdata.need_scores(),
         }
-    } else if let Some(field) = exec_methods::fast_fields::is_string_agg_capable(privdata) {
-        // For StringFastFieldExecState, check that we won't have more columns
-        // in the target list than fast fields
-        if let Some(which_fast_fields) = privdata.which_fast_fields() {
-            let columns_used = privdata.referenced_columns_count();
-
-            // If the number of columns used is greater than our fast fields,
-            // the execution method won't be compatible - fall back to Normal
-            if columns_used > which_fast_fields.len() {
-                return ExecMethodType::Normal;
-            }
-        }
-
-        ExecMethodType::FastFieldString {
-            field,
-            which_fast_fields: privdata.which_fast_fields().clone().unwrap(),
-        }
-    } else if exec_methods::fast_fields::is_numeric_fast_field_capable(privdata) {
-        // Similar check for numeric fast fields
-        if let Some(which_fast_fields) = privdata.which_fast_fields() {
-            let columns_used = privdata.referenced_columns_count();
-
-            if columns_used > which_fast_fields.len() {
-                return ExecMethodType::Normal;
-            }
-        }
-
-        ExecMethodType::FastFieldNumeric {
-            which_fast_fields: privdata.which_fast_fields().clone().unwrap_or_default(),
-        }
     } else {
-        ExecMethodType::Normal
+        if !fast_fields::fast_field_capable_prereqs(privdata) {
+            return ExecMethodType::Normal;
+        }
+        if fast_fields::is_numeric_fast_field_capable(privdata) {
+            // Check for numeric-only fast fields first because they're more selective
+            ExecMethodType::FastFieldNumeric {
+                which_fast_fields: privdata.which_fast_fields().clone().unwrap_or_default(),
+            }
+        } else if let Some(field) = fast_fields::is_string_agg_capable(privdata) {
+            // Check for string-only fast fields next
+            ExecMethodType::FastFieldString {
+                field,
+                which_fast_fields: privdata.which_fast_fields().clone().unwrap_or_default(),
+            }
+        } else if fast_fields::is_mixed_fast_field_capable(privdata) {
+            // Check for mixed fields last
+            ExecMethodType::FastFieldMixed {
+                which_fast_fields: privdata.which_fast_fields().clone().unwrap_or_default(),
+            }
+        } else {
+            // Fall back to normal execution
+            ExecMethodType::Normal
+        }
     }
 }
 
@@ -1006,6 +1041,12 @@ fn assign_exec_method(custom_state: &mut PdbScanState) {
         ),
         ExecMethodType::FastFieldNumeric { which_fast_fields } => custom_state.assign_exec_method(
             exec_methods::fast_fields::numeric::NumericFastFieldExecState::new(
+                which_fast_fields.clone(),
+            ),
+        ),
+        // Check for mixed fast fields
+        ExecMethodType::FastFieldMixed { which_fast_fields } => custom_state.assign_exec_method(
+            exec_methods::fast_fields::mixed::MixedFastFieldExecState::new(
                 which_fast_fields.clone(),
             ),
         ),
@@ -1234,7 +1275,10 @@ unsafe fn is_partitioned_table_setup(
 /// This function recursively navigates through expression trees in search of column
 /// references (Var nodes) that match the given RTE index. It's used to identify all
 /// columns referenced throughout a query (WHERE clauses, JOIN conditions, etc.)
-unsafe fn collect_vars_from_quals(
+///
+/// However, it skips full-text search operators because they're not relevant to our
+/// execution method selection.
+unsafe fn collect_maybe_fast_field_vars_from_quals(
     node: *mut pg_sys::Node,
     rte_index: pg_sys::Index,
     columns: &mut HashSet<pg_sys::AttrNumber>,
@@ -1250,16 +1294,40 @@ unsafe fn collect_vars_from_quals(
             let list = PgList::<pg_sys::Node>::from_pg(node.cast());
 
             for item in list.iter_ptr() {
-                collect_vars_from_quals(item as *mut pg_sys::Node, rte_index, columns);
+                collect_maybe_fast_field_vars_from_quals(
+                    item as *mut pg_sys::Node,
+                    rte_index,
+                    columns,
+                );
             }
         }
 
         // Handle OpExpr, BoolExpr, etc.
         pg_sys::NodeTag::T_OpExpr => {
             let opexpr = node.cast::<pg_sys::OpExpr>();
+
+            // Check if this is one of our full-text search operators
+            let is_fulltext_op = (*opexpr).opno == anyelement_query_input_opoid()
+                || (*opexpr).opno == anyelement_text_opoid()
+                || (*opexpr).opno == searchqueryinput_typoid()
+                || (*opexpr).opno == anyelement_query_input_opoid()
+                || (*opexpr).opno == anyelement_text_opoid()
+                || (*opexpr).opno == anyelement_text_procoid()
+                || (*opexpr).opno == anyelement_query_input_procoid()
+                || (*opexpr).opno == parse_with_field_procoid();
+
+            if is_fulltext_op {
+                // Skip collection of variables for our fulltext operators
+                return;
+            }
+
             let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
             for arg in args.iter_ptr() {
-                collect_vars_from_quals(arg as *mut pg_sys::Node, rte_index, columns);
+                collect_maybe_fast_field_vars_from_quals(
+                    arg as *mut pg_sys::Node,
+                    rte_index,
+                    columns,
+                );
             }
         }
 
@@ -1267,7 +1335,11 @@ unsafe fn collect_vars_from_quals(
             let boolexpr = node.cast::<pg_sys::BoolExpr>();
             let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
             for arg in args.iter_ptr() {
-                collect_vars_from_quals(arg as *mut pg_sys::Node, rte_index, columns);
+                collect_maybe_fast_field_vars_from_quals(
+                    arg as *mut pg_sys::Node,
+                    rte_index,
+                    columns,
+                );
             }
         }
 
@@ -1276,7 +1348,11 @@ unsafe fn collect_vars_from_quals(
             let funcexpr = node.cast::<pg_sys::FuncExpr>();
             let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
             for arg in args.iter_ptr() {
-                collect_vars_from_quals(arg as *mut pg_sys::Node, rte_index, columns);
+                collect_maybe_fast_field_vars_from_quals(
+                    arg as *mut pg_sys::Node,
+                    rte_index,
+                    columns,
+                );
             }
         }
 
@@ -1299,7 +1375,10 @@ unsafe fn collect_vars_from_quals(
 /// This function is critical for issue #2505 where we need to detect all columns used in JOIN
 /// conditions to ensure we select the right execution method. Previously, only looking at the
 /// target list would miss columns referenced in JOIN conditions, leading to execution-time errors.
-unsafe fn collect_referenced_columns(
+///
+/// However, it skips full-text search operators because they're not relevant to our
+/// execution method selection.
+unsafe fn collect_maybe_fast_field_referenced_columns(
     root: *mut pg_sys::PlannerInfo,
     rte_index: pg_sys::Index,
 ) -> HashSet<pg_sys::AttrNumber> {
@@ -1322,7 +1401,11 @@ unsafe fn collect_referenced_columns(
     if !(*(*root).parse).jointree.is_null() {
         let jointree = &*(*(*root).parse).jointree;
         if !jointree.quals.is_null() {
-            collect_vars_from_quals(jointree.quals, rte_index, &mut referenced_columns);
+            collect_maybe_fast_field_vars_from_quals(
+                jointree.quals,
+                rte_index,
+                &mut referenced_columns,
+            );
         }
 
         // Also check join info - this is important for JOIN conditions!
@@ -1336,7 +1419,7 @@ unsafe fn collect_referenced_columns(
 
                     // Examine join quals
                     if !(*join_expr).quals.is_null() {
-                        collect_vars_from_quals(
+                        collect_maybe_fast_field_vars_from_quals(
                             (*join_expr).quals,
                             rte_index,
                             &mut referenced_columns,
@@ -1347,31 +1430,11 @@ unsafe fn collect_referenced_columns(
         }
     }
 
-    // Skip joininfo and baserestrictinfo lists for now as they can cause safety issues
-    // with Postgres' internal pointers, and we already have the info we need from the join expression
-    let rel = (*root)
-        .simple_rel_array
-        .add(rte_index as usize)
-        .cast::<pg_sys::RelOptInfo>();
-
     // Get the corresponding RTE to log column names
     let rte = pg_sys::planner_rt_fetch(rte_index, root);
     if !rte.is_null() && (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
         let rel = PgRelation::with_lock((*rte).relid, pg_sys::AccessShareLock as _);
         let tupdesc = rel.tuple_desc();
-
-        let column_names: Vec<String> = referenced_columns
-            .iter()
-            .filter_map(|&attno| {
-                if attno > 0 {
-                    tupdesc
-                        .get((attno - 1) as usize)
-                        .map(|att| att.name().to_string())
-                } else {
-                    None
-                }
-            })
-            .collect();
     }
 
     referenced_columns

@@ -1,0 +1,6 @@
+CREATE EXTENSION pg_search;
+CALL paradedb.create_bm25_test_table(
+  schema_name => 'public',
+  table_name => 'mock_items_issue_2528'
+);
+CREATE INDEX search_idx_issue_2528 ON mock_items_issue_2528 USING bm25 (id, description, category) WITH (key_field='id');

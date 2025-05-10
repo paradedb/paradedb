@@ -55,10 +55,7 @@ pub struct PdbScanState {
     pub sort_direction: Option<SortDirection>,
 
     pub exec_method_type: ExecMethodType,
-    pub retry_count: usize,
-    pub heap_tuple_check_count: usize,
     pub virtual_tuple_count: usize,
-    pub invisible_tuple_count: usize,
 
     pub heaprelid: pg_sys::Oid,
     pub heaprel: Option<pg_sys::Relation>,
@@ -283,10 +280,10 @@ impl PdbScanState {
             }
         }
         self.search_results = SearchResults::None;
-        self.retry_count = 0;
-        self.heap_tuple_check_count = 0;
+        if let Some(visibility_checker) = self.visibility_checker.as_ref() {
+            visibility_checker.reset();
+        }
         self.virtual_tuple_count = 0;
-        self.invisible_tuple_count = 0;
         self.exec_method_mut().reset(self);
     }
 }

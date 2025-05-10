@@ -33,14 +33,13 @@ use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::types::TantivyValue;
 use crate::query::SearchQueryInput;
-use parking_lot::Mutex;
 use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::pg_sys;
 use pgrx::PgOid;
 use rayon::prelude::*;
 use smallvec::SmallVec;
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use tantivy::collector::Collector;
 use tantivy::index::SegmentId;
 use tantivy::query::Query;
@@ -77,18 +76,6 @@ fn recycle_string_buffer(mut buffer: String) {
         if pool.borrow().len() < 32 {
             pool.borrow_mut().push(buffer);
         }
-    })
-}
-
-/// Helper function to use the scratch buffer for temporary operations
-fn with_scratch_buffer<F, R>(f: F) -> R
-where
-    F: FnOnce(&mut String) -> R,
-{
-    SCRATCH_BUFFER.with(|buffer| {
-        let mut buffer = buffer.borrow_mut();
-        buffer.clear();
-        f(&mut buffer)
     })
 }
 
@@ -612,17 +599,17 @@ impl FieldValues {
     ///
     /// * `field` - The field name
     /// * `value` - The string value or None if no value
-    fn set_string(&mut self, field: String, value: Option<String>) {
+    fn set_string(&mut self, field: &String, value: Option<String>) {
         // Check if field already exists
         for (i, (existing_field, _)) in self.string_values.iter().enumerate() {
-            if existing_field == &field {
+            if existing_field == field {
                 // Update existing entry
                 self.string_values[i].1 = value;
                 return;
             }
         }
         // Add new entry
-        self.string_values.push((field, value));
+        self.string_values.push((field.clone(), value));
     }
 
     /// Sets a numeric field value.
@@ -631,17 +618,17 @@ impl FieldValues {
     ///
     /// * `field` - The field name
     /// * `value` - The numeric value as an OwnedValue
-    fn set_numeric(&mut self, field: String, value: OwnedValue) {
+    fn set_numeric(&mut self, field: &String, value: OwnedValue) {
         // Check if field already exists
         for (i, (existing_field, _)) in self.numeric_values.iter().enumerate() {
-            if existing_field == &field {
+            if existing_field == field {
                 // Update existing entry
                 self.numeric_values[i].1 = value;
                 return;
             }
         }
         // Add new entry
-        self.numeric_values.push((field, value));
+        self.numeric_values.push((field.clone(), value));
     }
 
     /// Gets a string field value.
@@ -682,22 +669,14 @@ impl FieldValues {
     }
 }
 
-// Type aliases for common composite types used in the implementation
-/// Iterator for search results from a single batch
-type SearchResultsIter = std::vec::IntoIter<(SearchIndexScore, DocAddress)>;
-/// Iterator for batched results with field values
-type BatchedResultsIter = std::vec::IntoIter<(FieldValues, SearchResultsIter)>;
-/// Map of document addresses to field values and scores
-type MergedResultsMap = BTreeMap<DocAddress, (FieldValues, SearchIndexScore)>;
-/// Group of field values and document addresses/scores
-type FieldGroupValue = (FieldValues, Vec<(SearchIndexScore, DocAddress)>);
-/// Map of field value representations to groups of documents
-type FieldGroups = HashMap<String, FieldGroupValue>;
+/// Direct document result structure for simplified result processing
+struct DocResult {
+    doc_address: DocAddress,
+    score: SearchIndexScore,
+    field_values: FieldValues,
+}
 
-/// Enum representing different states of mixed aggregation results.
-///
-/// This enum provides a unified interface for iterating through results
-/// from different processing paths (batched, single segment, etc.)
+/// Simplify the MixedAggResults enum to reduce abstraction layers
 #[derive(Default)]
 #[allow(clippy::large_enum_variant)]
 enum MixedAggResults {
@@ -705,36 +684,38 @@ enum MixedAggResults {
     #[default]
     None,
 
-    /// Batched results with field values grouped by common patterns
-    Batched {
-        /// Current batch being processed
-        current: (FieldValues, SearchResultsIter),
-        /// Iterator for remaining batches
-        set: BatchedResultsIter,
+    /// Direct document results with minimal transformation
+    Direct {
+        /// Current results being processed
+        results: Vec<DocResult>,
+        /// Current position in results
+        position: usize,
     },
 
-    /// Results from a single segment in parallel execution
+    /// Single segment results for parallel execution
     SingleSegment(crossbeam::channel::IntoIter<(SearchIndexScore, DocAddress, FieldValues)>),
 }
 
+// Update the implementation of Iterator for MixedAggResults to use the new Direct variant
 impl Iterator for MixedAggResults {
     type Item = (SearchIndexScore, DocAddress, FieldValues);
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
             MixedAggResults::None => None,
-            MixedAggResults::Batched { current, set } => loop {
-                // Try to get next item from current batch
-                if let Some(next) = current.1.next() {
-                    return Some((next.0, next.1, current.0.clone()));
-                } else if let Some(next_set) = set.next() {
-                    // Move to next batch if current is exhausted
-                    *current = next_set;
+            MixedAggResults::Direct { results, position } => {
+                if *position < results.len() {
+                    let result = &results[*position];
+                    *position += 1;
+                    Some((
+                        result.score,
+                        result.doc_address,
+                        result.field_values.clone(),
+                    ))
                 } else {
-                    // No more batches
-                    return None;
+                    None
                 }
-            },
+            }
             MixedAggResults::SingleSegment(iter) => iter.next(),
         }
     }
@@ -805,144 +786,102 @@ impl MixedAggSearcher<'_> {
         let string_field_count = string_fields.len();
         let numeric_field_count = numeric_fields.len();
 
-        // Use thread-safe map to combine results from all segments
-        let merged: Mutex<MergedResultsMap> = Mutex::new(BTreeMap::new());
-
-        // Process all segment results in parallel
-        results.into_par_iter().for_each(
-            |(string_columns, string_results, numeric_columns, numeric_values)| {
-                // Process string fields
-                for field_idx in 0..string_columns.len() {
-                    if field_idx >= string_results.len() {
-                        continue; // Skip if no results for this field
-                    }
-
-                    let (field_name, str_ff) = &string_columns[field_idx];
-                    let field_result = &string_results[field_idx];
-
-                    // Generate a unique dictionary ID for caching
-                    let dictionary_id = str_ff.dictionary() as *const _ as u64;
-
-                    // Process each term ordinate and its documents
-                    for (term_ord, docs) in field_result.iter() {
-                        // Use the term cache for resolution
-                        let term_value = resolve_term_with_cache(*term_ord, str_ff, dictionary_id);
-
-                        // Add this term to all matching documents
-                        for (score, doc_addr) in docs {
-                            let mut guard = merged.lock();
-                            let entry = guard.entry(*doc_addr).or_insert_with(|| {
-                                (
-                                    FieldValues::with_capacity(
-                                        string_field_count,
-                                        numeric_field_count,
-                                    ),
-                                    *score,
-                                )
-                            });
-                            entry.0.set_string(field_name.clone(), term_value.clone());
-                        }
-                    }
-                }
-
-                // Process numeric fields
-                for field_idx in 0..numeric_columns.len() {
-                    if field_idx >= numeric_values.len() {
-                        continue; // Skip if no results for this field
-                    }
-
-                    let (field_name, _) = &numeric_columns[field_idx];
-                    let field_values = &numeric_values[field_idx];
-
-                    // Add numeric values to all matching documents
-                    for (doc_id, value) in field_values.iter() {
-                        let mut guard = merged.lock();
-                        if let Some((field_values, _)) = guard.get_mut(doc_id) {
-                            field_values.set_numeric(field_name.clone(), value.clone());
-                        }
-                    }
-                }
-            },
-        );
-
-        // Get the final merged results map
-        let processed_docs = merged.into_inner();
-
-        // Group results by field value patterns for more efficient processing
-        let mut field_groups: FieldGroups = HashMap::with_capacity(processed_docs.len() / 4);
-
-        // Group documents with the same field values
-        for (doc_addr, (field_values, score)) in processed_docs {
-            // Create a stable string representation of the field values for grouping
-            let fields_key = with_scratch_buffer(|buf| {
-                buf.push_str("S:");
-                // Sort string fields by name for stable key
-                let mut sorted_string_values = field_values.string_values.clone();
-                sorted_string_values.sort_by(|a, b| a.0.cmp(&b.0));
-
-                for (i, (k, v)) in sorted_string_values.iter().enumerate() {
-                    if i > 0 {
-                        buf.push(',');
-                    }
-                    buf.push_str(k);
-                    buf.push(':');
-                    match v {
-                        Some(s) => {
-                            buf.push('"');
-                            buf.push_str(s);
-                            buf.push('"');
-                        }
-                        None => buf.push_str("null"),
-                    }
-                }
-
-                buf.push_str("|N:");
-                // Sort numeric fields by name for stable key
-                let mut sorted_numeric_values = field_values.numeric_values.clone();
-                sorted_numeric_values.sort_by(|a, b| a.0.cmp(&b.0));
-
-                for (i, (k, v)) in sorted_numeric_values.iter().enumerate() {
-                    if i > 0 {
-                        buf.push(',');
-                    }
-                    buf.push_str(k);
-                    buf.push(':');
-                    // Simple representation - full serialization not needed for key
-                    match v {
-                        OwnedValue::I64(n) => buf.push_str(&n.to_string()),
-                        OwnedValue::U64(n) => buf.push_str(&n.to_string()),
-                        OwnedValue::F64(n) => buf.push_str(&n.to_string()),
-                        OwnedValue::Bool(b) => buf.push_str(if *b { "true" } else { "false" }),
-                        _ => buf.push_str("null"),
-                    }
-                }
-
-                buf.clone()
-            });
-
-            // Group by field values to avoid duplicate value copies
-            let entry = field_groups
-                .entry(fields_key)
-                .or_insert_with(|| (field_values.clone(), Vec::with_capacity(4)));
-            entry.1.push((score, doc_addr));
+        // Thread-local dictionary for caching during collection
+        // Prevents re-resolving the same terms repeatedly in a single segment
+        thread_local! {
+            static COLLECTION_CACHE: RefCell<HashMap<(TermOrdinal, u64), Option<String>>> =
+                RefCell::new(HashMap::with_capacity(1024));
         }
 
-        // Convert the grouped results to iterator format
-        let result_vec: Vec<FieldGroupValue> = field_groups.into_values().collect();
+        // Process all segment results in parallel
+        let processed_results = results
+            .into_par_iter()
+            .flat_map(
+                |(string_columns, string_results, numeric_columns, numeric_values)| {
+                    // Local documents for this segment
+                    let mut segment_docs = HashMap::new();
 
-        let set = result_vec
-            .into_iter()
-            .map(|(terms, docs)| (terms, docs.into_iter()))
-            .collect::<Vec<_>>()
-            .into_iter();
+                    // Clear the thread-local collection cache at the beginning of each segment
+                    COLLECTION_CACHE.with(|cache| cache.borrow_mut().clear());
 
-        // Return as batched results for processing
-        MixedAggResults::Batched {
-            current: (
-                FieldValues::with_capacity(string_field_count, numeric_field_count),
-                vec![].into_iter(),
-            ),
-            set,
+                    // Process string fields
+                    for field_idx in 0..string_columns.len() {
+                        if field_idx >= string_results.len() {
+                            continue; // Skip if no results for this field
+                        }
+
+                        let (field_name, str_ff) = &string_columns[field_idx];
+                        let field_result = &string_results[field_idx];
+
+                        // Generate a unique dictionary ID for caching
+                        let dictionary_id = str_ff.dictionary() as *const _ as u64;
+
+                        // Process each term ordinate and its documents
+                        for (term_ord, docs) in field_result.iter() {
+                            // Use collection cache first then fall back to main cache
+                            let term_value = COLLECTION_CACHE.with(|cache| {
+                                let mut cache = cache.borrow_mut();
+                                if let Some(term) = cache.get(&(*term_ord, dictionary_id)) {
+                                    term.clone()
+                                } else {
+                                    // Resolve and cache for this collection run
+                                    let resolved =
+                                        resolve_term_with_cache(*term_ord, str_ff, dictionary_id);
+                                    cache.insert((*term_ord, dictionary_id), resolved.clone());
+                                    resolved
+                                }
+                            });
+
+                            // Add this term to all matching documents
+                            for (score, doc_addr) in docs {
+                                let entry = segment_docs.entry(*doc_addr).or_insert_with(|| {
+                                    (
+                                        FieldValues::with_capacity(
+                                            string_field_count,
+                                            numeric_field_count,
+                                        ),
+                                        *score,
+                                    )
+                                });
+                                entry.0.set_string(field_name, term_value.clone());
+                            }
+                        }
+                    }
+
+                    // Process numeric fields
+                    for field_idx in 0..numeric_columns.len() {
+                        if field_idx >= numeric_values.len() {
+                            continue; // Skip if no results for this field
+                        }
+
+                        let (field_name, _) = &numeric_columns[field_idx];
+                        let field_values = &numeric_values[field_idx];
+
+                        // Add numeric values to all matching documents
+                        for (doc_id, value) in field_values.iter() {
+                            if let Some((field_values, _)) = segment_docs.get_mut(doc_id) {
+                                field_values.set_numeric(field_name, value.clone());
+                            }
+                        }
+                    }
+
+                    // Convert to Vec of DocResults
+                    segment_docs
+                        .into_iter()
+                        .map(|(doc_address, (field_values, score))| DocResult {
+                            doc_address,
+                            score,
+                            field_values,
+                        })
+                        .collect::<Vec<_>>()
+                },
+            )
+            .collect::<Vec<_>>();
+
+        // Return as direct results for processing
+        MixedAggResults::Direct {
+            results: processed_results,
+            position: 0,
         }
     }
 
@@ -1021,6 +960,15 @@ impl MixedAggSearcher<'_> {
         let numeric_field_count = numeric_fields.len();
         let expected_doc_count = segment_reader.num_docs() as usize / 10; // Estimate 10% match rate
 
+        // Thread-local cache for this segment only
+        thread_local! {
+            static SEGMENT_CACHE: RefCell<HashMap<(TermOrdinal, u64), Option<String>>> =
+                RefCell::new(HashMap::with_capacity(1024));
+        }
+
+        // Clear the segment cache
+        SEGMENT_CACHE.with(|cache| cache.borrow_mut().clear());
+
         // Track documents and their field values
         let mut doc_fields = HashMap::with_capacity(expected_doc_count);
 
@@ -1041,8 +989,18 @@ impl MixedAggSearcher<'_> {
 
             // Process each term ordinate using cached resolution
             for (term_ord, docs) in field_result {
-                // Use the term cache for resolution
-                let term_value = resolve_term_with_cache(*term_ord, str_ff, dictionary_id);
+                // Use segment cache first then fall back to main cache
+                let term_value = SEGMENT_CACHE.with(|cache| {
+                    let mut cache = cache.borrow_mut();
+                    if let Some(term) = cache.get(&(*term_ord, dictionary_id)) {
+                        term.clone()
+                    } else {
+                        // Resolve and cache for this segment
+                        let resolved = resolve_term_with_cache(*term_ord, str_ff, dictionary_id);
+                        cache.insert((*term_ord, dictionary_id), resolved.clone());
+                        resolved
+                    }
+                });
 
                 // Add term to each document
                 for (score, doc_addr) in docs {
@@ -1052,7 +1010,7 @@ impl MixedAggSearcher<'_> {
                             *score,
                         )
                     });
-                    entry.0.set_string(field_name.clone(), term_value.clone());
+                    entry.0.set_string(field_name, term_value.clone());
                 }
             }
         }
@@ -1070,9 +1028,9 @@ impl MixedAggSearcher<'_> {
             let field_values = &numeric_values[field_idx];
 
             // Add numeric values to all matching documents
-            for (doc_id, value) in field_values {
+            for (doc_id, value) in field_values.iter() {
                 if let Some(entry) = doc_fields.get_mut(doc_id) {
-                    entry.0.set_numeric(field_name.clone(), value.clone());
+                    entry.0.set_numeric(field_name, value.clone());
                 }
             }
         }
@@ -1082,7 +1040,7 @@ impl MixedAggSearcher<'_> {
             // Ensure all requested fields have entries (even if null)
             for field in string_fields {
                 if !field_values.contains_string_field(field) {
-                    field_values.set_string(field.clone(), None);
+                    field_values.set_string(field, None);
                 }
             }
 

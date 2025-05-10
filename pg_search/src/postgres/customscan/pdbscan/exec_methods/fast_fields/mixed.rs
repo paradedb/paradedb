@@ -558,13 +558,25 @@ fn term_to_datum(
     atttypid: pgrx::pg_sys::Oid,
     slot: *mut pg_sys::TupleTableSlot,
 ) -> Option<pg_sys::Datum> {
-    // Use TantivyValue to convert the string to a Datum
-    match TantivyValue::try_from(String::from(term)) {
-        Ok(tantivy_value) => {
-            // Convert to datum using the common try_into_datum method
-            unsafe { tantivy_value.try_into_datum(PgOid::from(atttypid)) }.unwrap_or_default()
+    unsafe {
+        match atttypid {
+            // Fast path for common text types to avoid TantivyValue conversion
+            pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::NAMEOID => {
+                // Convert directly to PG text datum using PGRX's string conversion
+                let text_ptr = pgrx::pg_sys::cstring_to_text_with_len(
+                    term.as_ptr() as *const std::os::raw::c_char,
+                    term.len() as i32,
+                );
+                Some(pg_sys::Datum::from(text_ptr as usize))
+            }
+            // Other types need to go through TantivyValue
+            _ => match TantivyValue::try_from(term.to_string()) {
+                Ok(tantivy_value) => tantivy_value
+                    .try_into_datum(PgOid::from(atttypid))
+                    .unwrap_or_default(),
+                Err(_) => None,
+            },
         }
-        Err(_) => None,
     }
 }
 

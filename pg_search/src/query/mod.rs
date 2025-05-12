@@ -504,6 +504,11 @@ pub trait AsFieldType<T> {
         )
     }
 
+    fn coerce_value_to_field_type(&self, from: &T, value: OwnedValue) -> Option<OwnedValue> {
+        let (ft, _, _) = self.as_field_type(from)?;
+        coerce_value_to_field_type(value, &ft)
+    }
+
     fn as_str(&self, from: &T) -> Option<Field> {
         self.as_field_type(from)
             .and_then(|(ft, _, field)| match ft {
@@ -688,6 +693,26 @@ fn check_range_bounds(
         _ => upper_bound,
     };
     Ok((lower_bound, upper_bound))
+}
+
+fn coerce_value_to_field_type(value: OwnedValue, to_type: &FieldType) -> Option<OwnedValue> {
+    match (to_type, &value) {
+        (FieldType::Str(_), OwnedValue::Str(_))
+        | (FieldType::U64(_), OwnedValue::U64(_))
+        | (FieldType::I64(_), OwnedValue::I64(_))
+        | (FieldType::F64(_), OwnedValue::F64(_))
+        | (FieldType::Bool(_), OwnedValue::Bool(_))
+        | (FieldType::Date(_), OwnedValue::Date(_))
+        | (FieldType::Facet(_), OwnedValue::Facet(_))
+        | (FieldType::Bytes(_), OwnedValue::Bytes(_))
+        | (FieldType::JsonObject(_), OwnedValue::Object(_))
+        | (FieldType::IpAddr(_), OwnedValue::IpAddr(_)) => Some(value),
+
+        (FieldType::U64(_), OwnedValue::I64(v)) => (*v).try_into().ok().map(OwnedValue::U64),
+        (FieldType::I64(_), OwnedValue::U64(v)) => (*v).try_into().ok().map(OwnedValue::I64),
+
+        _ => None,
+    }
 }
 
 fn coerce_bound_to_field_type(
@@ -957,9 +982,10 @@ impl SearchQueryInput {
                     (None, Some(doc_fields)) => {
                         let mut fields_map = HashMap::new();
                         for (field_name, value) in doc_fields {
-                            if !field_lookup.is_field_type(&field_name, &value) {
-                                return Err(Box::new(QueryError::WrongFieldType(field_name)));
-                            }
+                            let value = field_lookup
+                                .coerce_value_to_field_type(&field_name, value)
+                                // None means we couldn't coerce the type
+                                .ok_or_else(|| QueryError::WrongFieldType(field_name.clone()))?;
 
                             let (_, _, field) = field_lookup
                                 .as_field_type(&field_name)

@@ -485,25 +485,6 @@ pub trait AsFieldType<T> {
 
     fn as_field_type(&self, from: &T) -> Option<(FieldType, PgOid, Field)>;
 
-    fn is_field_type(&self, from: &T, value: &OwnedValue) -> bool {
-        matches!(
-            (self.as_field_type(from), value),
-            (Some((FieldType::Str(_), _, _)), OwnedValue::Str(_))
-                | (Some((FieldType::U64(_), _, _)), OwnedValue::U64(_))
-                | (Some((FieldType::I64(_), _, _)), OwnedValue::I64(_))
-                | (Some((FieldType::F64(_), _, _)), OwnedValue::F64(_))
-                | (Some((FieldType::Bool(_), _, _)), OwnedValue::Bool(_))
-                | (Some((FieldType::Date(_), _, _)), OwnedValue::Date(_))
-                | (Some((FieldType::Facet(_), _, _)), OwnedValue::Facet(_))
-                | (Some((FieldType::Bytes(_), _, _)), OwnedValue::Bytes(_))
-                | (
-                    Some((FieldType::JsonObject(_), _, _)),
-                    OwnedValue::Object(_)
-                )
-                | (Some((FieldType::IpAddr(_), _, _)), OwnedValue::IpAddr(_))
-        )
-    }
-
     fn coerce_value_to_field_type(&self, from: &T, value: OwnedValue) -> Option<OwnedValue> {
         let (ft, _, _) = self.as_field_type(from)?;
         coerce_value_to_field_type(value, &ft)

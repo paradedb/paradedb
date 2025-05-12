@@ -51,7 +51,8 @@ use crate::postgres::customscan::pdbscan::projections::score::{
     is_score_func, score_funcoid, uses_scores,
 };
 use crate::postgres::customscan::pdbscan::projections::snippet::{
-    snippet_funcoid, uses_snippets, SnippetInfo,
+    snippet_funcoid, snippet_positions_funcoid, uses_snippet_positions, uses_snippets, SnippetInfo,
+    SnippetPositionInfo,
 };
 use crate::postgres::customscan::pdbscan::projections::{
     inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
@@ -88,6 +89,7 @@ impl PdbScan {
         }
 
         let need_snippets = state.custom_state().need_snippets();
+        let need_snippet_positions = state.custom_state().need_snippet_positions();
 
         // Open the index
         let indexrel = state
@@ -145,6 +147,32 @@ impl PdbScan {
             }
 
             state.custom_state_mut().snippet_generators = snippet_generators;
+        }
+
+        if need_snippet_positions {
+            let mut snippet_positions_generators: FxHashMap<
+                SnippetPositionInfo,
+                Option<(tantivy::schema::Field, SnippetGenerator)>,
+            > = state
+                .custom_state_mut()
+                .snippet_positions_generators
+                .drain()
+                .collect();
+            for (snippet_info, generator) in &mut snippet_positions_generators {
+                let mut new_generator = state
+                    .custom_state()
+                    .search_reader
+                    .as_ref()
+                    .unwrap()
+                    .snippet_generator(
+                        &snippet_info.field,
+                        &state.custom_state().search_query_input,
+                    );
+                new_generator.1.set_max_num_chars(u32::MAX as usize);
+                *generator = Some(new_generator);
+            }
+
+            state.custom_state_mut().snippet_positions_generators = snippet_positions_generators;
         }
 
         unsafe {
@@ -523,9 +551,13 @@ impl CustomScan for PdbScan {
             let mut attname_lookup = FxHashMap::default();
             let score_funcoid = score_funcoid();
             let snippet_funcoid = snippet_funcoid();
+            let snippet_positions_funcoid = snippet_positions_funcoid();
             for te in processed_tlist.iter_ptr() {
-                let func_vars_at_level =
-                    pullout_funcexprs(te.cast(), &[score_funcoid, snippet_funcoid], rti);
+                let func_vars_at_level = pullout_funcexprs(
+                    te.cast(),
+                    &[score_funcoid, snippet_funcoid, snippet_positions_funcoid],
+                    rti,
+                );
 
                 for (funcexpr, var) in func_vars_at_level {
                     // if we have a tlist, then we need to add the specific function that uses
@@ -608,10 +640,11 @@ impl CustomScan for PdbScan {
 
             let score_funcoid = score_funcoid();
             let snippet_funcoid = snippet_funcoid();
+            let snippet_positions_funcoid = snippet_positions_funcoid();
 
             builder.custom_state().score_funcoid = score_funcoid;
             builder.custom_state().snippet_funcoid = snippet_funcoid;
-
+            builder.custom_state().snippet_positions_funcoid = snippet_positions_funcoid;
             builder.custom_state().need_scores = uses_scores(
                 builder.target_list().as_ptr().cast(),
                 score_funcoid,
@@ -620,14 +653,25 @@ impl CustomScan for PdbScan {
 
             let node = builder.target_list().as_ptr().cast();
             let rti = builder.custom_state().rti;
-            let attname_lookup = &builder.custom_state().var_attname_lookup;
-            builder.custom_state().snippet_generators =
-                uses_snippets(rti, attname_lookup, node, snippet_funcoid)
-                    .into_iter()
-                    .map(|field| (field, None))
-                    .collect();
+            builder.custom_state().snippet_generators = uses_snippets(
+                rti,
+                &builder.custom_state().var_attname_lookup,
+                node,
+                snippet_funcoid,
+            )
+            .into_iter()
+            .map(|field| (field, None))
+            .collect();
 
-            let need_snippets = builder.custom_state().need_snippets();
+            builder.custom_state().snippet_positions_generators = uses_snippet_positions(
+                rti,
+                &builder.custom_state().var_attname_lookup,
+                node,
+                snippet_positions_funcoid,
+            )
+            .into_iter()
+            .map(|field| (field, None))
+            .collect();
 
             assign_exec_method(builder.custom_state());
 
@@ -857,6 +901,7 @@ impl CustomScan for PdbScan {
 
                         if !state.custom_state().need_scores()
                             && !state.custom_state().need_snippets()
+                            && !state.custom_state().need_snippet_positions()
                         {
                             //
                             // we don't need scores or snippets
@@ -900,6 +945,32 @@ impl CustomScan for PdbScan {
                                                 Some(text) => {
                                                     (**const_).constvalue =
                                                         text.into_datum().unwrap();
+                                                    (**const_).constisnull = false;
+                                                }
+                                                None => {
+                                                    (**const_).constvalue = pg_sys::Datum::null();
+                                                    (**const_).constisnull = true;
+                                                }
+                                            }
+                                        }
+                                    }
+                                });
+                            }
+
+                            if state.custom_state().need_snippet_positions() {
+                                per_tuple_context.switch_to(|_| {
+                                    for (snippet_position_info, const_snippet_positions_nodes) in
+                                        &state.custom_state().const_snippet_positions_nodes
+                                    {
+                                        let snippet_positions = state
+                                            .custom_state()
+                                            .get_snippet_positions(ctid, snippet_position_info);
+
+                                        for const_ in const_snippet_positions_nodes {
+                                            match &snippet_positions {
+                                                Some(positions) => {
+                                                    (**const_).constvalue =
+                                                        positions.clone().into_datum().unwrap();
                                                     (**const_).constisnull = false;
                                                 }
                                                 None => {
@@ -1068,7 +1139,10 @@ fn check_visibility(
 }
 
 unsafe fn inject_score_and_snippet_placeholders(state: &mut CustomScanStateWrapper<PdbScan>) {
-    if !state.custom_state().need_scores() && !state.custom_state().need_snippets() {
+    if !state.custom_state().need_scores()
+        && !state.custom_state().need_snippets()
+        && !state.custom_state().need_snippet_positions()
+    {
         // scores/snippets aren't necessary so we use whatever we originally setup as our ProjectionInfo
         return;
     }
@@ -1078,18 +1152,22 @@ unsafe fn inject_score_and_snippet_placeholders(state: &mut CustomScanStateWrapp
     // forced projection we must do later.
 
     let planstate = state.planstate();
-    let (targetlist, const_score_node, const_snippet_nodes) = inject_placeholders(
-        (*(*planstate).plan).targetlist,
-        state.custom_state().rti,
-        state.custom_state().score_funcoid,
-        state.custom_state().snippet_funcoid,
-        &state.custom_state().var_attname_lookup,
-        &state.custom_state().snippet_generators,
-    );
+    let (targetlist, const_score_node, const_snippet_nodes, const_snippet_positions_nodes) =
+        inject_placeholders(
+            (*(*planstate).plan).targetlist,
+            state.custom_state().rti,
+            state.custom_state().score_funcoid,
+            state.custom_state().snippet_funcoid,
+            state.custom_state().snippet_positions_funcoid,
+            &state.custom_state().var_attname_lookup,
+            &state.custom_state().snippet_generators,
+            &state.custom_state().snippet_positions_generators,
+        );
 
     state.custom_state_mut().placeholder_targetlist = Some(targetlist);
     state.custom_state_mut().const_score_node = Some(const_score_node);
     state.custom_state_mut().const_snippet_nodes = const_snippet_nodes;
+    state.custom_state_mut().const_snippet_positions_nodes = const_snippet_positions_nodes;
 }
 
 unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(

@@ -37,6 +37,11 @@ pub struct SnippetInfo {
     pub max_num_chars: usize,
 }
 
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
+pub struct SnippetPositionInfo {
+    pub field: String,
+}
+
 #[pg_extern(name = "snippet", stable, parallel_safe)]
 fn snippet_from_relation(
     field: AnyElement,
@@ -44,6 +49,11 @@ fn snippet_from_relation(
     end_tag: default!(String, "'</b>'"),
     max_num_chars: default!(i32, "150"),
 ) -> Option<String> {
+    None
+}
+
+#[pg_extern(name = "snippet_positions", stable, parallel_safe)]
+fn snippet_positions_from_relation(field: AnyElement) -> Option<Vec<Vec<i32>>> {
     None
 }
 
@@ -55,6 +65,14 @@ ALTER FUNCTION snippet SUPPORT placeholder_support;
     requires = [snippet_from_relation, placeholder_support]
 );
 
+extension_sql!(
+    r#"
+ALTER FUNCTION snippet_positions SUPPORT placeholder_support;
+"#,
+    name = "snippet_positions_placeholder",
+    requires = [snippet_positions_from_relation, placeholder_support]
+);
+
 pub fn snippet_funcoid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(
@@ -62,6 +80,16 @@ pub fn snippet_funcoid() -> pg_sys::Oid {
             &[c"paradedb.snippet(anyelement, text, text, int)".into_datum()],
         )
         .expect("the `paradedb.snippet(anyelement, text, text, int) type should exist")
+    }
+}
+
+pub fn snippet_positions_funcoid() -> pg_sys::Oid {
+    unsafe {
+        direct_function_call::<pg_sys::Oid>(
+            pg_sys::regprocedurein,
+            &[c"paradedb.snippet_positions(anyelement)".into_datum()],
+        )
+        .expect("the `paradedb.snippet_positions(anyelement) type should exist")
     }
 }
 
@@ -142,4 +170,67 @@ pub unsafe fn uses_snippets(
 
     walker(node, addr_of_mut!(context).cast());
     context.snippet_info
+}
+
+pub unsafe fn uses_snippet_positions(
+    rti: pg_sys::Index,
+    attname_lookup: &FxHashMap<(Varno, pg_sys::AttrNumber), String>,
+    node: *mut pg_sys::Node,
+    snippet_positions_funcoid: pg_sys::Oid,
+) -> Vec<SnippetPositionInfo> {
+    struct Context<'a> {
+        rti: pg_sys::Index,
+        attname_lookup: &'a FxHashMap<(Varno, pg_sys::AttrNumber), String>,
+        snippet_positions_funcoid: pg_sys::Oid,
+        snippet_position_info: Vec<SnippetPositionInfo>,
+    }
+
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        data: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+
+        if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
+            let context = data.cast::<Context>();
+
+            if (*funcexpr).funcid == (*context).snippet_positions_funcoid {
+                let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+
+                // this should be equal to the number of args in the `snippet_positions()` function above
+                assert!(args.len() == 1);
+
+                let field_arg = nodecast!(Var, T_Var, args.get_ptr(0).unwrap());
+
+                if let Some(field_arg) = field_arg {
+                    let attname = (*context)
+                        .attname_lookup
+                        .get(&((*context).rti as _, (*field_arg).varattno as _))
+                        .cloned()
+                        .expect("Var attname should be in lookup");
+
+                    (*context)
+                        .snippet_position_info
+                        .push(SnippetPositionInfo { field: attname });
+                } else {
+                    panic!("`paradedb.snippet_positions()`'s arguments must be literals")
+                }
+            }
+        }
+
+        expression_tree_walker(node, Some(walker), data)
+    }
+
+    let mut context = Context {
+        rti,
+        attname_lookup,
+        snippet_positions_funcoid,
+        snippet_position_info: vec![],
+    };
+
+    walker(node, addr_of_mut!(context).cast());
+    context.snippet_position_info
 }

@@ -74,6 +74,7 @@ struct Context<'a> {
     snippet_funcoid: pg_sys::Oid,
     snippet_positions_funcoid: pg_sys::Oid,
     snippet_type: Vec<SnippetType>,
+    oid: pg_sys::Oid,
 }
 
 #[pg_extern(name = "snippet", stable, parallel_safe)]
@@ -133,7 +134,7 @@ pub unsafe fn uses_snippets(
     node: *mut pg_sys::Node,
     snippet_funcoid: pg_sys::Oid,
     snippet_positions_funcoid: pg_sys::Oid,
-    oid: &pg_sys::Oid,
+    oid: pg_sys::Oid,
 ) -> Vec<SnippetType> {
     #[pg_guard]
     unsafe extern "C-unwind" fn walker(
@@ -149,7 +150,7 @@ pub unsafe fn uses_snippets(
 
             if (*funcexpr).funcid == (*context).snippet_funcoid {
                 let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-                if let Some(snippet_type) = extract_snippet_text(args, context, oid) {
+                if let Some(snippet_type) = extract_snippet_text(args, context) {
                     (*context).snippet_type.push(snippet_type);
                 } else {
                     panic!("`paradedb.snippet()`'s arguments must be literals")
@@ -175,6 +176,7 @@ pub unsafe fn uses_snippets(
         snippet_funcoid,
         snippet_positions_funcoid,
         snippet_type: vec![],
+        oid,
     };
 
     walker(node, addr_of_mut!(context).cast());
@@ -183,22 +185,35 @@ pub unsafe fn uses_snippets(
 
 unsafe fn extract_json_path(node: *mut pg_sys::Node, oid: pg_sys::Oid) -> Vec<String> {
     let mut path = Vec::new();
-    let args = if is_a(node, T_FuncExpr) {
-        (*(node as *mut FuncExpr)).args
-    } else if is_a(node, T_OpExpr) {
-        (*(node as *mut OpExpr)).args
-    } else {
+    if is_a(node, T_Var) {
+        let v = node as *mut Var;
+        let ptr = pg_sys::get_attname(oid, (*v).varattno, false);
+        let ext = CStr::from_ptr(ptr).to_string_lossy().into_owned();
+        pgrx::info!("var pushing {:?}", ext);
+        path.push(ext);
         return path;
-    };
-    for expr in PgList::from_pg(args).iter_ptr() {
-        if is_a(expr, T_Var) {
-            let v = expr as *mut Var;
-            let ptr = pg_sys::get_attname(oid, (*v).varattno, false);
-            path.push(CStr::from_ptr(ptr).to_string_lossy().into_owned());
-        } else if is_a(expr, T_Const) {
-            let c = expr as *mut Const;
-            let txt = pg_sys::DatumGetCString((*c).constvalue);
-            path.push(CStr::from_ptr(txt).to_string_lossy().into_owned());
+    } else if is_a(node, T_Const) {
+        let c = node as *mut Const;
+        let txt = pg_sys::DatumGetCString((*c).constvalue);
+        let ext = CStr::from_ptr(txt).to_string_lossy().into_owned();
+        pgrx::info!("const pushing {:?}", ext);
+        path.push(ext);
+        return path;
+    } else if is_a(node, T_OpExpr) {
+        let op = node as *mut OpExpr;
+        let list = PgList::from_pg((*op).args);
+        let mut iter = list.iter_ptr();
+        if let Some(left) = iter.next() {
+            path.extend(extract_json_path(left, oid));
+        }
+        if let Some(right) = iter.next() {
+            if is_a(right, T_Const) {
+                let c = right as *mut Const;
+                let txt = pg_sys::DatumGetCString((*c).constvalue);
+                let ext = CStr::from_ptr(txt).to_string_lossy().into_owned();
+                pgrx::info!("opexr pushing {:?}", ext);
+                path.push(ext);
+            }
         }
     }
     path
@@ -208,12 +223,11 @@ unsafe fn extract_json_path(node: *mut pg_sys::Node, oid: pg_sys::Oid) -> Vec<St
 #[inline(always)]
 unsafe fn extract_snippet_text(
     args: PgList<pg_sys::Node>,
-    context: *mut Context,
-    oid: pg_sys::Oid,
+    context: *mut Context
 ) -> Option<SnippetType> {
     assert!(args.len() == 4);
 
-    pgrx::info!("path is {:?}", extract_json_path(args.get_ptr(0).unwrap(), oid));
+    pgrx::info!("path is {:?}", extract_json_path(args.get_ptr(0).unwrap(), (*context).oid));
 
     let field_arg = nodecast!(Var, T_Var, args.get_ptr(0).unwrap());
     let start_arg = nodecast!(Const, T_Const, args.get_ptr(1).unwrap());

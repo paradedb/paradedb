@@ -364,7 +364,7 @@ LIMIT 10;
                            ->  Custom Scan (ParadeDB Scan) on files
                                  Table: files
                                  Index: files_search
-                                 Segment Count: 15
+                                 Segment Count: 16
                                  Exec Method: StringFastFieldExecState
                                  Fast Fields: id
                                  String Agg Field: id

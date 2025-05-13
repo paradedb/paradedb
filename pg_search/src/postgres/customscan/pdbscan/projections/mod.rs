@@ -18,6 +18,7 @@
 pub mod score;
 pub mod snippet;
 
+use crate::api::index::FieldName;
 use crate::api::operator::{find_vars, ReturnedNodePointer};
 use crate::api::HashMap;
 use crate::api::Varno;
@@ -184,7 +185,7 @@ pub unsafe fn inject_placeholders(
     score_funcoid: pg_sys::Oid,
     snippet_funcoid: pg_sys::Oid,
     snippet_positions_funcoid: pg_sys::Oid,
-    attname_lookup: &HashMap<(Varno, pg_sys::AttrNumber), String>,
+    attname_lookup: &HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
     snippet_generators: &HashMap<SnippetType, Option<(tantivy::schema::Field, SnippetGenerator)>>,
 ) -> (
     *mut pg_sys::List,
@@ -271,7 +272,7 @@ pub unsafe fn inject_placeholders(
 
         snippet_funcoid: pg_sys::Oid,
         snippet_positions_funcoid: pg_sys::Oid,
-        attname_lookup: &'a HashMap<(Varno, pg_sys::AttrNumber), String>,
+        attname_lookup: &'a HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
 
         snippet_generators:
             &'a HashMap<SnippetType, Option<(tantivy::schema::Field, SnippetGenerator)>>,

@@ -210,27 +210,27 @@ impl From<&Qual> for SearchQueryInput {
                     .expect("pushdown expression should not evaluate to NULL")
             },
             Qual::PushdownVarEqTrue { field } => SearchQueryInput::Term {
-                field: Some(field.attname().to_string()),
+                field: Some(field.attname()),
                 value: OwnedValue::Bool(true),
                 is_datetime: false,
             },
             Qual::PushdownVarEqFalse { field } => SearchQueryInput::Term {
-                field: Some(field.attname().to_string()),
+                field: Some(field.attname()),
                 value: OwnedValue::Bool(false),
                 is_datetime: false,
             },
             Qual::PushdownVarIsTrue { field } => SearchQueryInput::Term {
-                field: Some(field.attname().to_string()),
+                field: Some(field.attname()),
                 value: OwnedValue::Bool(true),
                 is_datetime: false,
             },
             Qual::PushdownVarIsFalse { field } => SearchQueryInput::Term {
-                field: Some(field.attname().to_string()),
+                field: Some(field.attname()),
                 value: OwnedValue::Bool(false),
                 is_datetime: false,
             },
             Qual::PushdownIsNotNull { field } => SearchQueryInput::Exists {
-                field: field.attname().to_string(),
+                field: field.attname(),
             },
             Qual::ScoreExpr { opoid, value } => unsafe {
                 let score_value = {

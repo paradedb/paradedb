@@ -15,16 +15,17 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::index::FieldName;
 use crate::api::HashMap;
 use crate::api::Varno;
 use crate::nodecast;
+use pgrx::pg_sys::NodeTag::{T_Const, T_FuncExpr, T_OpExpr, T_Var};
 use pgrx::pg_sys::NodeTag::{T_Const, T_FuncExpr, T_OpExpr, T_Var};
 use pgrx::pg_sys::{expression_tree_walker, Const, FuncExpr, OpExpr, Var};
 use pgrx::{
     default, direct_function_call, extension_sql, is_a, pg_extern, pg_guard, pg_sys, AnyElement,
     FromDatum, IntoDatum, PgList,
 };
-use pgrx::pg_sys::NodeTag::{T_FuncExpr, T_OpExpr, T_Var, T_Const};
 use std::ffi::CStr;
 use std::ptr::addr_of_mut;
 
@@ -41,12 +42,12 @@ pub struct SnippetConfig {
 
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub enum SnippetType {
-    Text(String, pg_sys::Oid, SnippetConfig),
-    Positions(String, pg_sys::Oid),
+    Text(FieldName, pg_sys::Oid, SnippetConfig),
+    Positions(FieldName, pg_sys::Oid),
 }
 
 impl SnippetType {
-    pub fn field(&self) -> &str {
+    pub fn field(&self) -> &FieldName {
         match self {
             SnippetType::Text(field, _, _) => field,
             SnippetType::Positions(field, _) => field,
@@ -70,7 +71,7 @@ impl SnippetType {
 
 struct Context<'a> {
     planning_rti: pg_sys::Index,
-    attname_lookup: &'a HashMap<(Varno, pg_sys::AttrNumber), String>,
+    attname_lookup: &'a HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
     snippet_funcoid: pg_sys::Oid,
     snippet_positions_funcoid: pg_sys::Oid,
     snippet_type: Vec<SnippetType>,
@@ -129,8 +130,8 @@ pub fn snippet_positions_funcoid() -> pg_sys::Oid {
 }
 
 pub unsafe fn uses_snippets(
-    planning_rti: pg_sys::Index,
-    attname_lookup: &HashMap<(Varno, pg_sys::AttrNumber), String>,
+    rti: pg_sys::Index,
+    attname_lookup: &HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
     node: *mut pg_sys::Node,
     snippet_funcoid: pg_sys::Oid,
     snippet_positions_funcoid: pg_sys::Oid,

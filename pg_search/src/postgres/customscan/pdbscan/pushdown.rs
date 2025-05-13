@@ -21,12 +21,12 @@ use crate::api::HashMap;
 use crate::nodecast;
 use crate::postgres::customscan::operator_oid;
 use crate::postgres::customscan::pdbscan::qual_inspect::Qual;
-use crate::schema::{SearchField, SearchFieldName, SearchIndexSchema};
+use crate::schema::{SearchField, SearchIndexSchema};
 use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList};
 use std::sync::OnceLock;
 
 #[derive(Debug, Clone)]
-pub struct PushdownField(String);
+pub struct PushdownField(FieldName);
 
 impl PushdownField {
     /// Given a Postgres [`pg_sys::Var`] and a [`SearchIndexSchema`], try to create a [`PushdownField`].
@@ -40,10 +40,8 @@ impl PushdownField {
         schema: &SearchIndexSchema,
     ) -> Option<Self> {
         let (heaprelid, varattno, _) = find_var_relation(var, root);
-        let attname = attname_from_var(heaprelid, var, varattno)?;
-        schema
-            .get_search_field(&SearchFieldName(attname.clone()))
-            .map(|_| Self(attname))
+        let field = attname_from_var(heaprelid, var, varattno)?;
+        schema.get_search_field(&field).map(|_| Self(field))
     }
 
     /// Create a new [`PushdownField`] from an attribute name.
@@ -53,12 +51,12 @@ impl PushdownField {
         Self(attname.into())
     }
 
-    pub fn attname(&self) -> &str {
-        &self.0
+    pub fn attname(&self) -> FieldName {
+        self.0.clone()
     }
 
     pub fn search_field<'a>(&self, schema: &'a SearchIndexSchema) -> Option<&'a SearchField> {
-        schema.get_search_field(&SearchFieldName(self.0.clone()))
+        schema.get_search_field(&self.0)
     }
 }
 
@@ -173,7 +171,7 @@ unsafe fn term_with_operator_procid() -> pg_sys::Oid {
 }
 
 unsafe fn make_opexpr(
-    attname: &str,
+    field: &FieldName,
     orig_opexor: *mut pg_sys::OpExpr,
     operator: &str,
     value: *mut pg_sys::Node,
@@ -195,7 +193,7 @@ unsafe fn make_opexpr(
             -1,
             pg_sys::InvalidOid,
             -1,
-            FieldName::from(attname).into_datum().unwrap(),
+            field.clone().into_datum().unwrap(),
             false,
             false,
         );

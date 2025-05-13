@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::index::FieldName;
 use crate::api::HashMap;
 use crate::api::Varno;
 use crate::index::reader::index::{SearchIndexReader, SearchResults};
@@ -87,7 +88,7 @@ pub struct PdbScanState {
     pub snippet_generators:
         HashMap<SnippetType, Option<(tantivy::schema::Field, SnippetGenerator)>>,
 
-    pub var_attname_lookup: HashMap<(Varno, pg_sys::AttrNumber), String>,
+    pub var_attname_lookup: HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
     pub placeholder_targetlist: Option<*mut pg_sys::List>,
 
     pub exec_method_type: ExecMethodType,
@@ -317,7 +318,7 @@ impl PdbScanState {
     /// Given a ctid and field name, get the corresponding value from the heap
     ///
     /// This function supports text and text[] fields
-    unsafe fn doc_from_heap(&self, ctid: u64, field: &str) -> Option<String> {
+    unsafe fn doc_from_heap(&self, ctid: u64, field: &FieldName) -> Option<String> {
         let heaprel = self
             .heaprel
             .expect("make_snippet: heaprel should be initialized");
@@ -354,7 +355,7 @@ impl PdbScanState {
 
         let tuple_desc = PgTupleDesc::from_pg_unchecked((*heaprel).rd_att);
         let heap_tuple = PgHeapTuple::from_heap_tuple(tuple_desc.clone(), &mut htup);
-        let (index, attribute) = heap_tuple.get_attribute_by_name(field).unwrap();
+        let (index, attribute) = heap_tuple.get_attribute_by_name(&field.field()).unwrap();
 
         if pg_sys::type_is_array(attribute.type_oid().value()) {
             // varchar[] and text[] are flattened into a single string
@@ -373,7 +374,7 @@ impl PdbScanState {
             )
         } else {
             heap_tuple
-                .get_by_name(field)
+                .get_by_name(&field.field())
                 .unwrap_or_else(|_| panic!("{} should exist in the heap tuple", field))
         }
     }

@@ -20,6 +20,7 @@ mod more_like_this;
 mod range;
 mod score;
 
+use crate::api::index::FieldName;
 use crate::api::HashMap;
 use crate::postgres::utils::convert_pg_date_string;
 use crate::query::more_like_this::MoreLikeThisQuery;
@@ -37,7 +38,6 @@ use std::ops::Bound;
 use tantivy::tokenizer::TokenStream;
 use tantivy::DateTime;
 use tantivy::{
-    json_utils::split_json_path,
     query::{
         AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, DisjunctionMaxQuery, EmptyQuery,
         ExistsQuery, FastFieldRangeQuery, FuzzyTermQuery, PhrasePrefixQuery, PhraseQuery, Query,
@@ -115,10 +115,10 @@ pub enum SearchQueryInput {
     },
     Empty,
     Exists {
-        field: String,
+        field: FieldName,
     },
     FastFieldRangeWeight {
-        field: String,
+        field: FieldName,
         #[serde(
             serialize_with = "serialize_bound",
             deserialize_with = "deserialize_bound"
@@ -131,14 +131,14 @@ pub enum SearchQueryInput {
         upper_bound: std::ops::Bound<u64>,
     },
     FuzzyTerm {
-        field: String,
+        field: FieldName,
         value: String,
         distance: Option<u8>,
         transposition_cost_one: Option<bool>,
         prefix: Option<bool>,
     },
     Match {
-        field: String,
+        field: FieldName,
         value: String,
         tokenizer: Option<serde_json::Value>,
         distance: Option<u8>,
@@ -164,23 +164,23 @@ pub enum SearchQueryInput {
         conjunction_mode: Option<bool>,
     },
     ParseWithField {
-        field: String,
+        field: FieldName,
         query_string: String,
         lenient: Option<bool>,
         conjunction_mode: Option<bool>,
     },
     Phrase {
-        field: String,
+        field: FieldName,
         phrases: Vec<String>,
         slop: Option<u32>,
     },
     PhrasePrefix {
-        field: String,
+        field: FieldName,
         phrases: Vec<String>,
         max_expansions: Option<u32>,
     },
     Range {
-        field: String,
+        field: FieldName,
         #[serde(
             serialize_with = "serialize_bound",
             deserialize_with = "deserialize_bound"
@@ -195,7 +195,7 @@ pub enum SearchQueryInput {
         is_datetime: bool,
     },
     RangeContains {
-        field: String,
+        field: FieldName,
         #[serde(
             serialize_with = "serialize_bound",
             deserialize_with = "deserialize_bound"
@@ -210,7 +210,7 @@ pub enum SearchQueryInput {
         is_datetime: bool,
     },
     RangeIntersects {
-        field: String,
+        field: FieldName,
         #[serde(
             serialize_with = "serialize_bound",
             deserialize_with = "deserialize_bound"
@@ -225,13 +225,13 @@ pub enum SearchQueryInput {
         is_datetime: bool,
     },
     RangeTerm {
-        field: String,
+        field: FieldName,
         value: tantivy::schema::OwnedValue,
         #[serde(default)]
         is_datetime: bool,
     },
     RangeWithin {
-        field: String,
+        field: FieldName,
         #[serde(
             serialize_with = "serialize_bound",
             deserialize_with = "deserialize_bound"
@@ -246,17 +246,17 @@ pub enum SearchQueryInput {
         is_datetime: bool,
     },
     Regex {
-        field: String,
+        field: FieldName,
         pattern: String,
     },
     RegexPhrase {
-        field: String,
+        field: FieldName,
         regexes: Vec<String>,
         slop: Option<u32>,
         max_expansions: Option<u32>,
     },
     Term {
-        field: Option<String>,
+        field: Option<FieldName>,
         value: tantivy::schema::OwnedValue,
         #[serde(default)]
         is_datetime: bool,
@@ -454,7 +454,7 @@ impl AsHumanReadable for SearchQueryInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TermInput {
-    pub field: String,
+    pub field: FieldName,
     pub value: tantivy::schema::OwnedValue,
     #[serde(default)]
     pub is_datetime: bool,
@@ -787,12 +787,13 @@ impl SearchQueryInput {
                 }
             }
             Self::Empty => Ok(Box::new(EmptyQuery)),
-            Self::Exists { field } => Ok(Box::new(ExistsQuery::new(field, false))),
+            Self::Exists { field } => Ok(Box::new(ExistsQuery::new(field.field(), false))),
             Self::FastFieldRangeWeight {
                 field,
                 lower_bound,
                 upper_bound,
             } => {
+                let field = field.field();
                 let field = field_lookup
                     .as_u64(&field)
                     .or_else(|| field_lookup.as_i64(&field))
@@ -822,7 +823,7 @@ impl SearchQueryInput {
                 transposition_cost_one,
                 prefix,
             } => {
-                let (field, path) = split_field_and_path(&field);
+                let (field, path) = (field.field(), field.path());
                 let (field_type, _, field) = field_lookup
                     .as_field_type(&field)
                     .ok_or(QueryError::NonIndexedField(field))?;
@@ -858,7 +859,7 @@ impl SearchQueryInput {
                 prefix,
                 conjunction_mode,
             } => {
-                let (field, path) = split_field_and_path(&field);
+                let (field, path) = (field.field(), field.path());
                 let distance = distance.unwrap_or(0);
                 let transposition_cost_one = transposition_cost_one.unwrap_or(true);
                 let conjunction_mode = conjunction_mode.unwrap_or(false);
@@ -994,7 +995,7 @@ impl SearchQueryInput {
                 phrases,
                 max_expansions,
             } => {
-                let (field, path) = split_field_and_path(&field);
+                let (field, path) = (field.field(), field.path());
                 let (field_type, _, field) = field_lookup
                     .as_field_type(&field)
                     .ok_or(QueryError::NonIndexedField(field))?;
@@ -1054,7 +1055,7 @@ impl SearchQueryInput {
                 phrases,
                 slop,
             } => {
-                let (field, path) = split_field_and_path(&field);
+                let (field, path) = (field.field(), field.path());
                 let (field_type, _, field) = field_lookup
                     .as_field_type(&field)
                     .ok_or(QueryError::NonIndexedField(field))?;
@@ -1105,7 +1106,7 @@ impl SearchQueryInput {
                 upper_bound,
                 is_datetime,
             } => {
-                let (field, path) = split_field_and_path(&field);
+                let (field, path) = (field.field(), field.path());
                 let field_name = field;
                 let (field_type, typeoid, field) = field_lookup
                     .as_field_type(&field_name)
@@ -1162,6 +1163,7 @@ impl SearchQueryInput {
                 upper_bound,
                 is_datetime,
             } => {
+                let field = field.field();
                 let (_, typeoid, _) = field_lookup
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::NonIndexedField(field.clone()))?;
@@ -1322,6 +1324,7 @@ impl SearchQueryInput {
                 is_datetime,
                 ..
             } => {
+                let field = field.field();
                 let (_, typeoid, _) = field_lookup
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::NonIndexedField(field.clone()))?;
@@ -1493,6 +1496,7 @@ impl SearchQueryInput {
                 value,
                 is_datetime,
             } => {
+                let field = field.field();
                 let range_field = RangeField::new(
                     field_lookup
                         .as_json_object(&field)
@@ -1600,6 +1604,7 @@ impl SearchQueryInput {
                 upper_bound,
                 is_datetime,
             } => {
+                let field = field.field();
                 let (_, typeoid, _) = field_lookup
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::NonIndexedField(field.clone()))?;
@@ -1764,22 +1769,25 @@ impl SearchQueryInput {
                     ])))
                 }
             }
-            Self::Regex { field, pattern } => Ok(Box::new(
-                RegexQuery::from_pattern(
-                    &pattern,
-                    field_lookup
-                        .as_str(&field)
-                        .ok_or_else(|| QueryError::WrongFieldType(field.clone()))?,
-                )
-                .map_err(|err| QueryError::RegexError(err, pattern.clone()))?,
-            )),
+            Self::Regex { field, pattern } => {
+                let field = field.field();
+                Ok(Box::new(
+                    RegexQuery::from_pattern(
+                        &pattern,
+                        field_lookup
+                            .as_str(&field)
+                            .ok_or_else(|| QueryError::WrongFieldType(field.clone()))?,
+                    )
+                    .map_err(|err| QueryError::RegexError(err, pattern.clone()))?,
+                ))
+            }
             Self::RegexPhrase {
                 field,
                 regexes,
                 slop,
                 max_expansions,
             } => {
-                let (field, _) = split_field_and_path(&field);
+                let field = field.field();
                 let (_, _, field) = field_lookup
                     .as_field_type(&field)
                     .ok_or(QueryError::NonIndexedField(field))?;
@@ -1802,7 +1810,7 @@ impl SearchQueryInput {
             } => {
                 let record_option = IndexRecordOption::WithFreqsAndPositions;
                 if let Some(field) = field {
-                    let (field, path) = split_field_and_path(&field);
+                    let (field, path) = (field.field(), field.path());
                     let (field_type, typeoid, field) = field_lookup
                         .as_field_type(&field)
                         .ok_or(QueryError::NonIndexedField(field))?;
@@ -1835,7 +1843,7 @@ impl SearchQueryInput {
                     is_datetime,
                 } in fields
                 {
-                    let (field, path) = split_field_and_path(&field);
+                    let (field, path) = (field.field(), field.path());
                     let (field_type, typeoid, field) = field_lookup
                         .as_field_type(&field)
                         .ok_or(QueryError::NonIndexedField(field))?;
@@ -1980,15 +1988,6 @@ impl TryFrom<&str> for TantivyDateTime {
         Ok(TantivyDateTime(tantivy::DateTime::from_timestamp_micros(
             datetime.and_utc().timestamp_micros(),
         )))
-    }
-}
-
-pub fn split_field_and_path(field: &str) -> (String, Option<String>) {
-    let json_path = split_json_path(field);
-    if json_path.len() == 1 {
-        (field.to_string(), None)
-    } else {
-        (json_path[0].clone(), Some(json_path[1..].join(".")))
     }
 }
 

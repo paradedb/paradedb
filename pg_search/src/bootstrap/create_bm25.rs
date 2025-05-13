@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::{HashMap, HashSet};
+use crate::api::index::FieldName;
 use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -30,7 +31,6 @@ use crate::postgres::storage::LinkedItemList;
 use crate::postgres::utils::item_pointer_to_u64;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchFieldConfig;
-use crate::schema::SearchFieldName;
 use anyhow::Result;
 use pgrx::prelude::*;
 use pgrx::JsonB;
@@ -41,7 +41,7 @@ use serde_json::Value;
 pub unsafe fn index_fields(index: PgRelation) -> anyhow::Result<JsonB> {
     let options = SearchIndexCreateOptions::from_relation(&index);
     let fields = options.get_all_fields(&index).collect::<Vec<_>>();
-    let name_and_config: HashMap<SearchFieldName, SearchFieldConfig> = fields
+    let name_and_config: HashMap<FieldName, SearchFieldConfig> = fields
         .into_iter()
         .map(|(field_name, field_config, _)| (field_name, field_config))
         .collect();

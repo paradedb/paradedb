@@ -18,12 +18,11 @@
 use crate::api::HashMap;
 use crate::api::Varno;
 use crate::nodecast;
-use pgrx::ffi::CString;
 use pgrx::pg_sys::NodeTag::{T_Const, T_FuncExpr, T_OpExpr, T_Var};
-use pgrx::pg_sys::{expression_tree_walker, Const, FuncExpr, ListCell, OpExpr, Var};
+use pgrx::pg_sys::{expression_tree_walker, Const, FuncExpr, OpExpr, Var};
 use pgrx::{
-    default, direct_function_call, extension_sql, is_a, node_to_string, pg_extern, pg_guard,
-    pg_sys, AnyElement, FromDatum, IntoDatum, PgList,
+    default, direct_function_call, extension_sql, is_a, pg_extern, pg_guard, pg_sys, AnyElement,
+    FromDatum, IntoDatum, PgList,
 };
 use pgrx::pg_sys::NodeTag::{T_FuncExpr, T_OpExpr, T_Var, T_Const};
 use std::ffi::CStr;

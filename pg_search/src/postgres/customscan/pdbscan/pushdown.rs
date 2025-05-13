@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::index::{fieldname_typoid, FieldName};
-use crate::api::operator::{attname_from_var, searchqueryinput_typoid};
+use crate::api::operator::{attname_from_var, find_var_relation, searchqueryinput_typoid};
 use crate::api::HashMap;
 use crate::nodecast;
 use crate::postgres::customscan::operator_oid;
@@ -39,8 +39,8 @@ impl PushdownField {
         var: *mut pg_sys::Var,
         schema: &SearchIndexSchema,
     ) -> Option<Self> {
-        let (_, attname) = attname_from_var(root, var);
-        let attname = attname?;
+        let (heaprelid, varattno, _) = find_var_relation(var, root);
+        let attname = attname_from_var(heaprelid, var, varattno)?;
         schema
             .get_search_field(&SearchFieldName(attname.clone()))
             .map(|_| Self(attname))

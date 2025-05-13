@@ -436,23 +436,22 @@ pub unsafe fn find_vars(node: *mut pg_sys::Node) -> Vec<*mut pg_sys::Var> {
 ///
 /// Returns the heap relation [`pg_sys::Oid`] that contains the `Var` along with its name.
 pub unsafe fn attname_from_var(
-    root: *mut pg_sys::PlannerInfo,
+    heaprelid: pg_sys::Oid,
     var: *mut pg_sys::Var,
-) -> (pg_sys::Oid, Option<String>) {
-    let (heaprelid, varattno, _) = find_var_relation(var, root);
+    varattno: pg_sys::AttrNumber,
+) -> Option<String> {
     if (*var).varattno == 0 {
-        return (heaprelid, None);
+        return None;
     }
     let heaprel = PgRelation::open(heaprelid);
     let tupdesc = heaprel.tuple_desc();
-    let attname = if varattno == pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber {
+    if varattno == pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber {
         Some("ctid".into())
     } else {
         tupdesc
             .get(varattno as usize - 1)
             .map(|attribute| attribute.name().to_string())
-    };
-    (heaprelid, attname)
+    }
 }
 
 extension_sql!(

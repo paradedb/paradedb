@@ -185,37 +185,35 @@ pub unsafe fn uses_snippets(
 
 unsafe fn extract_json_path(node: *mut pg_sys::Node, oid: pg_sys::Oid) -> Vec<String> {
     let mut path = Vec::new();
+    pgrx::info!("node {:?}", node_to_string(node));
+
     if is_a(node, T_Var) {
         let v = node as *mut Var;
         let ptr = pg_sys::get_attname(oid, (*v).varattno, false);
-        let ext = CStr::from_ptr(ptr).to_string_lossy().into_owned();
-        pgrx::info!("var pushing {:?}", ext);
-        path.push(ext);
+        let s = CStr::from_ptr(ptr).to_string_lossy().into_owned();
+        pgrx::info!("var pushing {:?}", s);
+        path.push(s);
         return path;
     } else if is_a(node, T_Const) {
         let c = node as *mut Const;
-        let txt = pg_sys::DatumGetCString((*c).constvalue);
-        let ext = CStr::from_ptr(txt).to_string_lossy().into_owned();
-        pgrx::info!("const pushing {:?}", ext);
-        path.push(ext);
+        let s = String::from_datum((*c).constvalue, (*c).constisnull);
+        pgrx::info!("const pushing {:?}", s);
+        path.push(s.unwrap());
         return path;
+    } else if is_a(node, T_FuncExpr) {
+        let fc = node as *mut FuncExpr;
+        for expr in PgList::from_pg((*fc).args).iter_ptr() {
+            path.extend(extract_json_path(expr, oid));
+        }
     } else if is_a(node, T_OpExpr) {
         let op = node as *mut OpExpr;
-        let list = PgList::from_pg((*op).args);
-        let mut iter = list.iter_ptr();
-        if let Some(left) = iter.next() {
-            path.extend(extract_json_path(left, oid));
+        for expr in PgList::from_pg((*op).args).iter_ptr() {
+            path.extend(extract_json_path(expr, oid));
         }
-        if let Some(right) = iter.next() {
-            if is_a(right, T_Const) {
-                let c = right as *mut Const;
-                let txt = pg_sys::DatumGetCString((*c).constvalue);
-                let ext = CStr::from_ptr(txt).to_string_lossy().into_owned();
-                pgrx::info!("opexr pushing {:?}", ext);
-                path.push(ext);
-            }
-        }
+    } else {
+        pgrx::info!("unknown node {:?}", node_to_string(node));
     }
+
     path
 }
 

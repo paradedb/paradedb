@@ -631,6 +631,10 @@ impl CustomScan for PdbScan {
                 node,
                 snippet_funcoid,
                 snippet_positions_funcoid,
+                &builder
+                .custom_private()
+                .heaprelid()
+                .expect("heaprelid should have a value")
             )
             .into_iter()
             .map(|field| (field, None))

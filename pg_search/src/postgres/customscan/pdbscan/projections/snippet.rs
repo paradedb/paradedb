@@ -18,11 +18,14 @@
 use crate::api::HashMap;
 use crate::api::Varno;
 use crate::nodecast;
-use pgrx::pg_sys::expression_tree_walker;
+use pgrx::ffi::CString;
+use pgrx::pg_sys::{Const, Var, OpExpr, FuncExpr, expression_tree_walker, ListCell};
 use pgrx::{
     default, direct_function_call, extension_sql, pg_extern, pg_guard, pg_sys, AnyElement,
-    FromDatum, IntoDatum, PgList,
+    FromDatum, IntoDatum, PgList, node_to_string, is_a
 };
+use pgrx::pg_sys::NodeTag::{T_FuncExpr, T_OpExpr, T_Var, T_Const};
+use std::ffi::CStr;
 use std::ptr::addr_of_mut;
 
 const DEFAULT_SNIPPET_PREFIX: &str = "<b>";
@@ -130,6 +133,7 @@ pub unsafe fn uses_snippets(
     node: *mut pg_sys::Node,
     snippet_funcoid: pg_sys::Oid,
     snippet_positions_funcoid: pg_sys::Oid,
+    oid: &pg_sys::Oid,
 ) -> Vec<SnippetType> {
     #[pg_guard]
     unsafe extern "C-unwind" fn walker(
@@ -145,7 +149,7 @@ pub unsafe fn uses_snippets(
 
             if (*funcexpr).funcid == (*context).snippet_funcoid {
                 let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-                if let Some(snippet_type) = extract_snippet_text(args, context) {
+                if let Some(snippet_type) = extract_snippet_text(args, context, oid) {
                     (*context).snippet_type.push(snippet_type);
                 } else {
                     panic!("`paradedb.snippet()`'s arguments must be literals")
@@ -177,12 +181,39 @@ pub unsafe fn uses_snippets(
     context.snippet_type
 }
 
+unsafe fn extract_json_path(node: *mut pg_sys::Node, oid: pg_sys::Oid) -> Vec<String> {
+    let mut path = Vec::new();
+    let args = if is_a(node, T_FuncExpr) {
+        (*(node as *mut FuncExpr)).args
+    } else if is_a(node, T_OpExpr) {
+        (*(node as *mut OpExpr)).args
+    } else {
+        return path;
+    };
+    for expr in PgList::from_pg(args).iter_ptr() {
+        if is_a(expr, T_Var) {
+            let v = expr as *mut Var;
+            let ptr = pg_sys::get_attname(oid, (*v).varattno, false);
+            path.push(CStr::from_ptr(ptr).to_string_lossy().into_owned());
+        } else if is_a(expr, T_Const) {
+            let c = expr as *mut Const;
+            let txt = pg_sys::DatumGetCString((*c).constvalue);
+            path.push(CStr::from_ptr(txt).to_string_lossy().into_owned());
+        }
+    }
+    path
+}
+
+
 #[inline(always)]
 unsafe fn extract_snippet_text(
     args: PgList<pg_sys::Node>,
     context: *mut Context,
+    oid: pg_sys::Oid,
 ) -> Option<SnippetType> {
     assert!(args.len() == 4);
+
+    pgrx::info!("path is {:?}", extract_json_path(args.get_ptr(0).unwrap(), oid));
 
     let field_arg = nodecast!(Var, T_Var, args.get_ptr(0).unwrap());
     let start_arg = nodecast!(Const, T_Const, args.get_ptr(1).unwrap());

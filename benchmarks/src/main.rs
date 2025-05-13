@@ -1,6 +1,7 @@
 use clap::Parser;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
+use std::path::Path;
 use std::process::Command;
 
 #[derive(Parser)]
@@ -175,17 +176,10 @@ fn run_benchmarks_csv(args: &Args) {
         }
 
         let query_type = path.file_stem().unwrap().to_string_lossy();
-        let query_content = std::fs::read_to_string(&path).expect("Failed to read query file");
-
-        for query in query_content.split(';') {
-            let query = query.trim();
-            if query.is_empty() {
-                continue;
-            }
-
+        for query in queries(&path) {
             println!("Query Type: {}\nQuery: {}", query_type, query);
 
-            let (results, num_results) = execute_query_multiple_times(&args.url, query, args.runs);
+            let (results, num_results) = execute_query_multiple_times(&args.url, &query, args.runs);
 
             let mut result_line = format!("{}", query_type);
             for &result in &results {
@@ -283,15 +277,7 @@ fn process_index_creation(file: &mut File, url: &str, dataset: &str, r#type: &st
     .unwrap();
 
     let index_sql = format!("datasets/{dataset}/create_index/{}.sql", r#type);
-    let index_file = File::open(&index_sql).expect("Failed to open index file");
-    let reader = BufReader::new(index_file);
-
-    for line in reader.lines() {
-        let statement = line.unwrap();
-        if statement.trim().is_empty() {
-            continue;
-        }
-
+    for statement in queries(Path::new(&index_sql)) {
         println!("{}", statement);
 
         let duration_min = execute_sql_with_timing(url, &statement);
@@ -332,17 +318,10 @@ fn run_benchmarks_md(file: &mut File, args: &Args) {
         }
 
         let query_type = path.file_stem().unwrap().to_string_lossy();
-        let query_content = std::fs::read_to_string(&path).expect("Failed to read query file");
-
-        for query in query_content.split(';') {
-            let query = query.trim();
-            if query.is_empty() {
-                continue;
-            }
-
+        for query in queries(&path) {
             println!("Query Type: {}\nQuery: {}", query_type, query);
 
-            let (results, num_results) = execute_query_multiple_times(&args.url, query, args.runs);
+            let (results, num_results) = execute_query_multiple_times(&args.url, &query, args.runs);
 
             let md_query = query.replace("|", "\\|");
             write_benchmark_results(file, &query_type, &results, num_results, &md_query);
@@ -383,6 +362,33 @@ fn write_benchmark_results(
 
     result_line.push_str(&format!("| {} | `{}` |", num_results, md_query));
     writeln!(file, "{}", result_line).unwrap();
+}
+
+///
+/// Return an iterator over the query strings contained in the given file path.
+///
+/// Strips comments and flattens each query onto a single line.
+///
+fn queries(file: &Path) -> Vec<String> {
+    let content = std::fs::read_to_string(file)
+        .unwrap_or_else(|e| panic!("Failed to read file `{file:?}`: {e}"));
+
+    content
+        .split(";\n")
+        .filter_map(|query| {
+            let query = query
+                .trim()
+                .split("\n")
+                .map(|line| line.split("--").next().unwrap().trim())
+                .collect::<Vec<_>>()
+                .join(" ");
+            if query.is_empty() {
+                None
+            } else {
+                Some(query)
+            }
+        })
+        .collect()
 }
 
 fn execute_psql_command(url: &str, command: &str) -> Result<String, std::io::Error> {

@@ -28,7 +28,7 @@ use crate::postgres::utils::{
     categorize_fields, item_pointer_to_u64, row_to_search_document, CategorizedFieldData,
 };
 use crate::schema::SearchField;
-use pgrx::{check_for_interrupts, pg_guard, pg_sys, PgMemoryContexts, PgRelation, PgTupleDesc};
+use pgrx::{check_for_interrupts, pg_guard, pg_sys, PgMemoryContexts, PgRelation};
 use std::ffi::CStr;
 use std::panic::{catch_unwind, resume_unwind};
 use tantivy::SegmentMeta;
@@ -48,8 +48,7 @@ impl InsertState {
         writer_resources: WriterResources,
     ) -> anyhow::Result<Self> {
         let writer = SearchIndexWriter::open(indexrel, MvccSatisfies::Mergeable, writer_resources)?;
-        let tupdesc = unsafe { PgTupleDesc::from_pg_unchecked(indexrel.rd_att) };
-        let categorized_fields = categorize_fields(&tupdesc, &writer.schema);
+        let categorized_fields = categorize_fields(indexrel, &writer.schema);
         let key_field_name = writer.schema.key_field().name.0;
 
         let per_row_context = pg_sys::AllocSetContextCreateExtended(

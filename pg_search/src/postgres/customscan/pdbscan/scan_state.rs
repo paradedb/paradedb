@@ -293,6 +293,7 @@ impl PdbScanState {
                 }
             }
         }
+    }
 
     /// Given a ctid and field name, get the corresponding value from the heap
     ///

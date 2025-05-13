@@ -29,6 +29,7 @@ use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
 use pgrx::heap_tuple::PgHeapTuple;
+use pgrx::pg_sys::TupleDescData;
 use pgrx::{name_data_to_str, pg_sys, PgRelation, PgTupleDesc};
 use rustc_hash::FxHashMap;
 use std::cell::UnsafeCell;
@@ -48,8 +49,12 @@ pub struct PdbScanState {
     pub search_results: SearchResults,
     pub targetlist_len: usize,
 
-    // TODO: Remove in favor of `exec_method_type`.
-    pub which_fast_fields: Option<Vec<WhichFastField>>,
+    // The fast fields extracted from the query at query planning time
+    pub planned_which_fast_fields: Option<Vec<WhichFastField>>,
+    // The fast fields aligned with the tuple descriptor at execution time
+    // This is used to index into the exec_tuple_which_fast_fields array using the tuple attribute position
+    pub exec_tuple_which_fast_fields: Vec<Option<WhichFastField>>,
+
     pub limit: Option<usize>,
     pub sort_field: Option<String>,
     pub sort_direction: Option<SortDirection>,
@@ -288,5 +293,32 @@ impl PdbScanState {
         self.virtual_tuple_count = 0;
         self.invisible_tuple_count = 0;
         self.exec_method_mut().reset(self);
+    }
+
+    /// Aligns the planned_which_fast_fields with the tuple descriptor.
+    /// This ensures that we can index into exec_tuple_which_fast_fields using the tuple attribute position.
+    pub fn align_fast_fields_with_tuple_descriptor(&mut self, tupdesc: &TupleDescData) {
+        let which_fast_fields = self.planned_which_fast_fields.as_ref().unwrap();
+
+        let natts = tupdesc.natts as usize;
+        // Create an array with None values for each attribute in the tuple descriptor
+        self.exec_tuple_which_fast_fields = vec![None; natts];
+        let attrs = unsafe { tupdesc.attrs.as_slice(natts) };
+
+        // Map field names from which_fast_fields to their positions in the tuple descriptor
+        for field in which_fast_fields {
+            if let WhichFastField::Named(field_name, field_type) = field {
+                // Find this field in the tuple descriptor
+
+                for (i, att) in attrs.iter().enumerate().take(natts) {
+                    if att.name() == field_name {
+                        // Found a match, store a clone of this field at the right position
+
+                        self.exec_tuple_which_fast_fields[i] = Some(field.clone());
+                        break;
+                    }
+                }
+            }
+        }
     }
 }

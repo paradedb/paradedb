@@ -1107,7 +1107,7 @@ fn join_with_string_fast_fields_issue_2505(mut conn: PgConnection) {
     "VACUUM a, b;  -- needed to get Visibility Map up-to-date".execute(&mut conn);
 
     // This query previously failed with:
-    // "ERROR: assertion failed: natts == self.inner.which_fast_fields.len()"
+    // "ERROR: assertion failed: natts == state.exec_tuple_which_fast_fields.len()"
     let result = r#"
     SELECT a.a_id_pk as my_a_id_pk, b.b_id_pk as my_b_id_pk
     FROM b

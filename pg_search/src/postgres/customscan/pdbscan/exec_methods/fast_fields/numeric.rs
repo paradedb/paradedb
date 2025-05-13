@@ -33,7 +33,7 @@ pub struct NumericFastFieldExecState {
 impl NumericFastFieldExecState {
     pub fn new(which_fast_fields: Vec<WhichFastField>) -> Self {
         Self {
-            inner: FastFieldExecState::new(which_fast_fields),
+            inner: FastFieldExecState::new(),
         }
     }
 }
@@ -73,7 +73,7 @@ impl ExecMethod for NumericFastFieldExecState {
         }
     }
 
-    fn internal_next(&mut self, _state: &mut PdbScanState) -> ExecState {
+    fn internal_next(&mut self, state: &mut PdbScanState) -> ExecState {
         unsafe {
             match self.inner.search_results.next() {
                 None => ExecState::Eof,
@@ -111,7 +111,7 @@ impl ExecMethod for NumericFastFieldExecState {
                         crate::postgres::customscan::pdbscan::exec_methods::fast_fields::extract_data_from_fast_fields(
                             natts,
                             tupdesc,
-                            &self.inner.which_fast_fields,
+                            &state.exec_tuple_which_fast_fields,
                             &mut self.inner.ffhelper,
                             slot,
                             scored,

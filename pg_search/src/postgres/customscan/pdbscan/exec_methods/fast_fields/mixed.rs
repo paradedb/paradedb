@@ -107,7 +107,7 @@ impl MixedFastFieldExecState {
         }
 
         Self {
-            inner: FastFieldExecState::new(which_fast_fields),
+            inner: FastFieldExecState::new(),
             mixed_results: MixedAggResults::None,
             string_fields,
             numeric_fields,
@@ -195,7 +195,7 @@ impl ExecMethod for MixedFastFieldExecState {
     /// # Returns
     ///
     /// The next execution state containing the result or EOF
-    fn internal_next(&mut self, _state: &mut PdbScanState) -> ExecState {
+    fn internal_next(&mut self, state: &mut PdbScanState) -> ExecState {
         // Check if we have any results left
         if matches!(self.mixed_results, MixedAggResults::None) {
             return ExecState::Eof;
@@ -247,7 +247,7 @@ impl ExecMethod for MixedFastFieldExecState {
                         }
 
                         let fast_fields = &mut self.inner.ffhelper;
-                        let which_fast_fields = &self.inner.which_fast_fields;
+                        let which_fast_fields = &state.exec_tuple_which_fast_fields;
                         let tupdesc = self.inner.tupdesc.as_ref().unwrap();
 
                         // Take the string buffer from inner
@@ -260,7 +260,7 @@ impl ExecMethod for MixedFastFieldExecState {
                                 continue;
                             }
 
-                            let which_fast_field = &which_fast_fields[i];
+                            let which_fast_field = which_fast_fields.get(i).unwrap_or(&None);
 
                             // Get attribute info if available
                             let att_info = if i < tupdesc.len() {
@@ -276,7 +276,8 @@ impl ExecMethod for MixedFastFieldExecState {
                                 .unwrap_or_default();
 
                             // Try the optimized fast field path first
-                            if let WhichFastField::Named(field_name, field_type) = which_fast_field
+                            if let Some(WhichFastField::Named(field_name, field_type)) =
+                                which_fast_field
                             {
                                 match field_type {
                                     // String field handling

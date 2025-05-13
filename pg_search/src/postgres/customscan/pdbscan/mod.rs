@@ -589,7 +589,7 @@ impl CustomScan for PdbScan {
             builder.custom_state().exec_method_type =
                 builder.custom_private().exec_method_type().clone();
 
-            builder.custom_state().which_fast_fields =
+            builder.custom_state().planned_which_fast_fields =
                 builder.custom_private().which_fast_fields().clone();
 
             builder.custom_state().targetlist_len = builder.target_list().len();
@@ -783,6 +783,9 @@ impl CustomScan for PdbScan {
 
             // and finally, get the custom scan itself properly initialized
             let tupdesc = state.custom_state().heaptupdesc();
+            state
+                .custom_state_mut()
+                .align_fast_fields_with_tuple_descriptor(&*tupdesc);
             pg_sys::ExecInitScanTupleSlot(
                 estate,
                 addr_of_mut!(state.csstate.ss),

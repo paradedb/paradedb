@@ -193,8 +193,8 @@ impl PrivateData {
         self.segment_count = segment_count;
     }
 
-    pub fn set_which_fast_fields(&mut self, which_fast_fields: Option<Vec<WhichFastField>>) {
-        self.which_fast_fields = which_fast_fields;
+    pub fn set_which_fast_fields(&mut self, which_fast_fields: Vec<WhichFastField>) {
+        self.which_fast_fields = Some(which_fast_fields);
     }
 
     pub fn set_exec_method_type(&mut self, exec_method_type: ExecMethodType) {

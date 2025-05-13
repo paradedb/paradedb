@@ -90,8 +90,10 @@ pub fn search_with_query_input(
         let key_field = search_reader.key_field();
         let key_field_name = key_field.name.0;
         let key_field_type = key_field.type_.into();
-        let ff_helper =
-            FFHelper::with_fields(&search_reader, &[(key_field_name, key_field_type).into()]);
+        let ff_helper = FFHelper::with_fields(
+            &search_reader,
+            &[Some((key_field_name, key_field_type).into())],
+        );
 
         (search_reader, ff_helper)
     });

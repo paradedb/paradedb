@@ -37,7 +37,7 @@ impl FFHelper {
         Self(vec![])
     }
 
-    pub fn with_fields(reader: &SearchIndexReader, fields: &[WhichFastField]) -> Self {
+    pub fn with_fields(reader: &SearchIndexReader, fields: &[Option<WhichFastField>]) -> Self {
         let fast_fields = reader
             .segment_readers()
             .iter()
@@ -46,19 +46,28 @@ impl FFHelper {
                 let mut lookup = Vec::new();
                 for field in fields {
                     match field {
-                        WhichFastField::Ctid
-                        | WhichFastField::TableOid
-                        | WhichFastField::Score
-                        | WhichFastField::Junk(_) => lookup.push((
-                            fast_fields_reader.clone(),
-                            String::from("junk"),
-                            OnceLock::from(FFType::Junk),
-                        )),
-                        WhichFastField::Named(name, _) => lookup.push((
+                        Some(WhichFastField::Named(name, _)) => lookup.push((
                             fast_fields_reader.clone(),
                             name.to_string(),
                             OnceLock::default(),
                         )),
+                        Some(
+                            WhichFastField::Ctid
+                            | WhichFastField::TableOid
+                            | WhichFastField::Score
+                            | WhichFastField::Junk(_),
+                        )
+                        | None => {
+                            // When a field is None or not a named fast field, we treat it as Junk
+                            // This happens for fields that aren't marked as fast fields during planning
+                            // or when a tuple descriptor column doesn't match any fast field
+                            // Using Junk means we'll return NULL for this field rather than crashing
+                            lookup.push((
+                                fast_fields_reader.clone(),
+                                String::from("junk"),
+                                OnceLock::from(FFType::Junk),
+                            ))
+                        }
                     }
                 }
                 lookup

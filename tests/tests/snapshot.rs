@@ -144,7 +144,7 @@ async fn score_bm25_after_vacuum(mut conn: PgConnection) {
     "VACUUM paradedb.bm25_search".execute(&mut conn);
 
     let rows: Vec<(i32,)> =
-        "SELECT id, paradedb.score(id) FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:shoes' ORDER BY score DESC"
+        "SELECT id, paradedb.score(id) FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:shoes' ORDER BY score, id DESC"
             .fetch_collect(&mut conn);
     let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
     assert_eq!(ids, [5, 3]);
@@ -152,7 +152,7 @@ async fn score_bm25_after_vacuum(mut conn: PgConnection) {
     "VACUUM FULL paradedb.bm25_search".execute(&mut conn);
 
     let rows: Vec<(i32,)> =
-        "SELECT id, paradedb.score(id) FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:shoes' ORDER BY score DESC"
+        "SELECT id, paradedb.score(id) FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:shoes' ORDER BY score, id DESC"
             .fetch_collect(&mut conn);
     let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
     assert_eq!(ids, [5, 3]);

@@ -33,6 +33,7 @@ use serde::de::Visitor;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt::{Debug, Formatter};
 use std::{collections::HashMap, ops::Bound};
+use tantivy::tokenizer::TokenStream;
 use tantivy::DateTime;
 use tantivy::{
     json_utils::split_json_path,
@@ -1048,21 +1049,40 @@ impl SearchQueryInput {
                 phrases,
                 slop,
             } => {
-                let (field, path) = split_field_and_path(&field);
-                let (field_type, _, field) = field_lookup
+                let (field, _) = split_field_and_path(&field);
+                let (_, _, field) = field_lookup
                     .as_field_type(&field)
                     .ok_or(QueryError::NonIndexedField(field))?;
-                let terms = phrases.clone().into_iter().map(|phrase| {
-                    value_to_term(
-                        field,
-                        &OwnedValue::Str(phrase),
-                        &field_type,
-                        path.as_deref(),
-                        false,
-                    )
-                    .unwrap()
-                });
-                let mut query = PhraseQuery::new(terms.collect());
+
+                let mut terms = Vec::new();
+                let mut analyzer = searcher.index().tokenizer_for_field(field)?;
+
+                let mut should_warn = false;
+
+                for phrase in phrases.into_iter() {
+                    let mut stream = analyzer.token_stream(&phrase);
+
+                    let len_before = terms.len();
+
+                    stream.process(&mut |token| {
+                        let term = Term::from_field_text(field, &token.text);
+                        terms.push(term);
+                    });
+
+                    if len_before + 1 < terms.len() {
+                        should_warn = true;
+                    }
+                }
+
+                // When tokeniser produce more than one token per phrase, their position may not
+                // correctly represent the original query.
+                // For example, NgramTokenizer can produce many tokens per word and all of them will
+                // have position=0 which won't be correctly interpreted when processing slop
+                if should_warn {
+                    pgrx::warning!("Phrase query with multiple tokens per phrase may not be correctly interpreted. Consider using a different tokenizer or switch to parse/match");
+                }
+
+                let mut query = PhraseQuery::new(terms);
                 if let Some(slop) = slop {
                     query.set_slop(slop)
                 }

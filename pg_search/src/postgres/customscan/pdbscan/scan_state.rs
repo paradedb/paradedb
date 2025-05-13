@@ -297,6 +297,14 @@ impl PdbScanState {
 
     /// Aligns the planned_which_fast_fields with the tuple descriptor.
     /// This ensures that we can index into exec_tuple_which_fast_fields using the tuple attribute position.
+    ///
+    /// For each attribute in the tuple descriptor, this method attempts to find a matching field
+    /// in planned_which_fast_fields. If found, it stores the field in exec_tuple_which_fast_fields
+    /// at the attribute's position. If not found, that position will contain None.
+    ///
+    /// Note: When a field from planned_which_fast_fields doesn't match any attribute in the tuple descriptor,
+    /// that field won't be included in exec_tuple_which_fast_fields. When an attribute position contains None,
+    /// it will be treated as a non-fast field (as FFType::Junk) during execution.
     pub fn align_fast_fields_with_tuple_descriptor(&mut self, tupdesc: &TupleDescData) {
         let which_fast_fields = self.planned_which_fast_fields.as_ref().unwrap();
 

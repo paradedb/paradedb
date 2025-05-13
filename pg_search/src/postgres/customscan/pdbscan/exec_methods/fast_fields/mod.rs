@@ -91,6 +91,13 @@ impl FastFieldExecState {
                 (*cstate).ss.ps.ps_ResultTupleDesc,
                 &pg_sys::TTSOpsVirtual,
             );
+            // Initialize the fast field helper with the tuple-aligned fast fields
+            //
+            // Note: When exec_tuple_which_fast_fields contains None values (which happens for
+            // fields that aren't marked as fast fields or when a field expected at planning time
+            // isn't found in the tuple descriptor), they're treated as FFType::Junk in the
+            // FFHelper. This ensures we don't crash when a field is missing but just return
+            // NULL for that column when it's accessed during execution.
             self.ffhelper = FFHelper::with_fields(
                 state.search_reader.as_ref().unwrap(),
                 &state.exec_tuple_which_fast_fields,

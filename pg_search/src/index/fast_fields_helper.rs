@@ -57,11 +57,17 @@ impl FFHelper {
                             | WhichFastField::Score
                             | WhichFastField::Junk(_),
                         )
-                        | None => lookup.push((
-                            fast_fields_reader.clone(),
-                            String::from("junk"),
-                            OnceLock::from(FFType::Junk),
-                        )),
+                        | None => {
+                            // When a field is None or not a named fast field, we treat it as Junk
+                            // This happens for fields that aren't marked as fast fields during planning
+                            // or when a tuple descriptor column doesn't match any fast field
+                            // Using Junk means we'll return NULL for this field rather than crashing
+                            lookup.push((
+                                fast_fields_reader.clone(),
+                                String::from("junk"),
+                                OnceLock::from(FFType::Junk),
+                            ))
+                        }
                     }
                 }
                 lookup

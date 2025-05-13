@@ -1056,10 +1056,6 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
                     which_fast_fields: privdata.which_fast_fields().clone().unwrap_or_default(),
                 }
             } else {
-                // Log warning about disabled feature
-                pgrx::log!(
-                    "Mixed fast field executor is disabled. Using normal executor instead. Enable with 'SET paradedb.enable_mixed_fast_field_exec = true;'"
-                );
                 // Fall back to normal execution
                 ExecMethodType::Normal
             }

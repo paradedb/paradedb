@@ -17,12 +17,12 @@
 
 use crate::api::index::{fieldname_typoid, FieldName};
 use crate::api::operator::{attname_from_var, searchqueryinput_typoid};
+use crate::api::HashMap;
 use crate::nodecast;
 use crate::postgres::customscan::operator_oid;
 use crate::postgres::customscan::pdbscan::qual_inspect::Qual;
 use crate::schema::{SearchField, SearchFieldName, SearchIndexSchema};
 use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList};
-use rustc_hash::FxHashMap;
 use std::sync::OnceLock;
 
 #[derive(Debug, Clone)]
@@ -80,7 +80,7 @@ macro_rules! pushdown {
 type PostgresOperatorOid = pg_sys::Oid;
 type TantivyOperator = &'static str;
 
-unsafe fn initialize_equality_operator_lookup() -> FxHashMap<PostgresOperatorOid, TantivyOperator> {
+unsafe fn initialize_equality_operator_lookup() -> HashMap<PostgresOperatorOid, TantivyOperator> {
     const OPERATORS: [&str; 6] = ["=", ">", "<", ">=", "<=", "<>"];
     const TYPE_PAIRS: &[[&str; 2]] = &[
         // integers
@@ -105,7 +105,7 @@ unsafe fn initialize_equality_operator_lookup() -> FxHashMap<PostgresOperatorOid
         ["uuid", "uuid"],
     ];
 
-    let mut lookup = FxHashMap::default();
+    let mut lookup = HashMap::default();
 
     // tantivy doesn't support range operators on bools, so we can only support the equality operator
     lookup.insert(operator_oid("=(bool,bool)"), "=");
@@ -153,7 +153,7 @@ pub unsafe fn try_pushdown(
         return None;
     }
 
-    static EQUALITY_OPERATOR_LOOKUP: OnceLock<FxHashMap<pg_sys::Oid, &str>> = OnceLock::new();
+    static EQUALITY_OPERATOR_LOOKUP: OnceLock<HashMap<pg_sys::Oid, &str>> = OnceLock::new();
     match EQUALITY_OPERATOR_LOOKUP.get_or_init(|| initialize_equality_operator_lookup()).get(&(*opexpr).opno) {
         Some(pgsearch_operator) => { pushdown!(&pushdown.attname(), opexpr, pgsearch_operator, rhs); },
         None => {

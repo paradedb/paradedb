@@ -1,3 +1,4 @@
+use crate::api::{HashMap, HashSet};
 use crate::index::mvcc::{MvccSatisfies, PinCushion};
 use crate::postgres::storage::block::{
     DeleteEntry, FileEntry, LinkedList, MVCCEntry, PgItem, SegmentFileDetails, SegmentMetaEntry,
@@ -7,7 +8,6 @@ use crate::postgres::storage::merge::MergeLock;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use anyhow::Result;
 use pgrx::pg_sys;
-use rustc_hash::{FxHashMap, FxHashSet};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -44,7 +44,7 @@ pub unsafe fn save_new_metas(
     relation_oid: pg_sys::Oid,
     new_meta: &IndexMeta,
     prev_meta: &IndexMeta,
-    directory_entries: &mut FxHashMap<PathBuf, FileEntry>,
+    directory_entries: &mut HashMap<PathBuf, FileEntry>,
 ) -> Result<()> {
     // in order to ensure that all of our mutations to the list of segments appear atomically on
     // physical replicas, we atomically operate on a deep copy of the list.
@@ -56,21 +56,21 @@ pub unsafe fn save_new_metas(
         .segments
         .iter()
         .map(|s| (s.id(), s))
-        .collect::<FxHashMap<_, _>>();
+        .collect::<HashMap<_, _>>();
     let new_ids = new_meta
         .segments
         .iter()
         .map(|s| s.id())
-        .collect::<FxHashSet<_>>();
+        .collect::<HashSet<_>>();
     let previous_ids = prev_meta
         .segments
         .iter()
         .map(|s| s.id())
-        .collect::<FxHashSet<_>>();
+        .collect::<HashSet<_>>();
 
     // first, reorganize the directory_entries by segment id
     let mut new_files =
-        FxHashMap::<SegmentId, FxHashMap<SegmentComponent, (FileEntry, PathBuf)>>::default();
+        HashMap::<SegmentId, HashMap<SegmentComponent, (FileEntry, PathBuf)>>::default();
 
     for (path, file_entry) in directory_entries.drain() {
         let segment_id = path.segment_id();
@@ -381,8 +381,8 @@ pub unsafe fn load_metas(
                 let missing = only_these
                     .difference(&alive_entries.iter().map(|s| s.segment_id).collect())
                     .cloned()
-                    .collect::<std::collections::HashSet<SegmentId>>();
-                let found = only_these.difference(&missing).collect::<FxHashSet<_>>();
+                    .collect::<HashSet<SegmentId>>();
+                let found = only_these.difference(&missing).collect::<HashSet<_>>();
 
                 panic!(
                     "load_metas: MvccSatisfies::ParallelWorker didn't load the correct segments. \
@@ -396,7 +396,7 @@ pub unsafe fn load_metas(
                 let actual = alive_entries
                     .iter()
                     .map(|s| s.segment_id)
-                    .collect::<std::collections::HashSet<_>>();
+                    .collect::<HashSet<_>>();
                 assert_eq!(
                     &actual, only_these,
                     "Got the wrong segments in parallel worker: \

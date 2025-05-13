@@ -15,14 +15,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::HashMap;
 use anyhow::Result;
 use memoffset::*;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
-use rustc_hash::FxHashMap;
 use serde_json::Map;
 use std::collections::hash_map::Entry;
-use std::collections::HashMap;
 use std::ffi::CStr;
 use tokenizers::{manager::SearchTokenizerFilters, SearchNormalizer, SearchTokenizer};
 
@@ -311,7 +310,7 @@ impl SearchIndexCreateOptions {
         &self,
         offset: i32,
         key_field_name: &str,
-        attributes: &FxHashMap<SearchFieldName, SearchFieldType>,
+        attributes: &HashMap<SearchFieldName, SearchFieldType>,
         parser: &dyn Fn(serde_json::Value) -> Result<SearchFieldConfig>,
     ) -> Vec<(SearchFieldName, SearchFieldConfig, Option<SearchFieldType>)> {
         let config = self.get_str(offset, "".to_string());
@@ -326,7 +325,7 @@ impl SearchIndexCreateOptions {
     fn get_text_fields(
         &self,
         key_field_name: &str,
-        attributes: &FxHashMap<SearchFieldName, SearchFieldType>,
+        attributes: &HashMap<SearchFieldName, SearchFieldType>,
     ) -> Vec<(SearchFieldName, SearchFieldConfig, Option<SearchFieldType>)> {
         self.get_fields_at_offset(
             self.text_fields_offset,
@@ -339,7 +338,7 @@ impl SearchIndexCreateOptions {
     fn get_numeric_fields(
         &self,
         key_field_name: &str,
-        attributes: &FxHashMap<SearchFieldName, SearchFieldType>,
+        attributes: &HashMap<SearchFieldName, SearchFieldType>,
     ) -> Vec<(SearchFieldName, SearchFieldConfig, Option<SearchFieldType>)> {
         self.get_fields_at_offset(
             self.numeric_fields_offset,
@@ -352,7 +351,7 @@ impl SearchIndexCreateOptions {
     fn get_boolean_fields(
         &self,
         key_field_name: &str,
-        attributes: &FxHashMap<SearchFieldName, SearchFieldType>,
+        attributes: &HashMap<SearchFieldName, SearchFieldType>,
     ) -> Vec<(SearchFieldName, SearchFieldConfig, Option<SearchFieldType>)> {
         self.get_fields_at_offset(
             self.boolean_fields_offset,
@@ -365,7 +364,7 @@ impl SearchIndexCreateOptions {
     fn get_json_fields(
         &self,
         key_field_name: &str,
-        attributes: &FxHashMap<SearchFieldName, SearchFieldType>,
+        attributes: &HashMap<SearchFieldName, SearchFieldType>,
     ) -> Vec<(SearchFieldName, SearchFieldConfig, Option<SearchFieldType>)> {
         self.get_fields_at_offset(
             self.json_fields_offset,
@@ -378,7 +377,7 @@ impl SearchIndexCreateOptions {
     fn get_range_fields(
         &self,
         key_field_name: &str,
-        attributes: &FxHashMap<SearchFieldName, SearchFieldType>,
+        attributes: &HashMap<SearchFieldName, SearchFieldType>,
     ) -> Vec<(SearchFieldName, SearchFieldConfig, Option<SearchFieldType>)> {
         self.get_fields_at_offset(
             self.range_fields_offset,
@@ -391,7 +390,7 @@ impl SearchIndexCreateOptions {
     fn get_datetime_fields(
         &self,
         key_field_name: &str,
-        attributes: &FxHashMap<SearchFieldName, SearchFieldType>,
+        attributes: &HashMap<SearchFieldName, SearchFieldType>,
     ) -> Vec<(SearchFieldName, SearchFieldConfig, Option<SearchFieldType>)> {
         self.get_fields_at_offset(
             self.datetime_fields_offset,
@@ -411,7 +410,7 @@ impl SearchIndexCreateOptions {
 
     fn get_key_field_config(
         &self,
-        attributes: &FxHashMap<SearchFieldName, SearchFieldType>,
+        attributes: &HashMap<SearchFieldName, SearchFieldType>,
     ) -> Option<(SearchFieldName, SearchFieldConfig, SearchFieldType)> {
         let key_field_name = self.get_key_field()?;
         let key_field_type = attributes.get(&key_field_name)?;
@@ -490,7 +489,7 @@ impl SearchIndexCreateOptions {
 
         let index_info = unsafe { pg_sys::BuildIndexInfo(indexrel.as_ptr()) };
 
-        let mut attributes: FxHashMap<SearchFieldName, SearchFieldType> = FxHashMap::default();
+        let mut attributes: HashMap<SearchFieldName, SearchFieldType> = HashMap::default();
 
         for i in 0..(*index_info).ii_NumIndexAttrs {
             let heap_attno = (*index_info).ii_IndexAttrNumbers[i as usize];
@@ -538,7 +537,7 @@ impl SearchIndexCreateOptions {
                     ),
                 )
             })
-            .collect::<FxHashMap<SearchFieldName, (SearchFieldConfig, SearchFieldType)>>();
+            .collect::<HashMap<SearchFieldName, (SearchFieldConfig, SearchFieldType)>>();
 
         // make sure the set of configured fields don't specify a different configuration for the key_field
         // we own this configuration
@@ -575,7 +574,7 @@ impl SearchIndexCreateOptions {
     fn validate_fields_and_set_types(
         &self,
         key_field_name: &str,
-        attributes: &FxHashMap<SearchFieldName, SearchFieldType>,
+        attributes: &HashMap<SearchFieldName, SearchFieldType>,
         fields: &mut Vec<(SearchFieldName, SearchFieldConfig, Option<SearchFieldType>)>,
     ) {
         for (field_name, field_config, outer_field_type) in fields {

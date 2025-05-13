@@ -1049,25 +1049,31 @@ impl SearchQueryInput {
                 phrases,
                 slop,
             } => {
-                let (field, _) = split_field_and_path(&field);
-                let (_, _, field) = field_lookup
+                let (field, path) = split_field_and_path(&field);
+                let (field_type, _, field) = field_lookup
                     .as_field_type(&field)
                     .ok_or(QueryError::NonIndexedField(field))?;
 
                 let mut terms = Vec::new();
                 let mut analyzer = searcher.index().tokenizer_for_field(field)?;
-
                 let mut should_warn = false;
 
                 for phrase in phrases.into_iter() {
                     let mut stream = analyzer.token_stream(&phrase);
-
                     let len_before = terms.len();
 
-                    stream.process(&mut |token| {
-                        let term = Term::from_field_text(field, &token.text);
+                    while stream.advance() {
+                        let token = stream.token().text.clone();
+                        let term = value_to_term(
+                            field,
+                            &OwnedValue::Str(token),
+                            &field_type,
+                            path.as_deref(),
+                            false,
+                        )?;
+
                         terms.push(term);
-                    });
+                    }
 
                     if len_before + 1 < terms.len() {
                         should_warn = true;

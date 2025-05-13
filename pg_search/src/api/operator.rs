@@ -154,7 +154,7 @@ unsafe fn make_search_query_input_opexpr_node(
     input_args: &mut PgList<pg_sys::Node>,
     var: *mut pg_sys::Var,
     query: Option<SearchQueryInput>,
-    parse_with_field: Option<(*mut pg_sys::Node, String)>,
+    parse_with_field: Option<(*mut pg_sys::Node, FieldName)>,
     opoid: pg_sys::Oid,
     procoid: pg_sys::Oid,
 ) -> ReturnedNodePointer {
@@ -239,7 +239,7 @@ unsafe fn make_search_query_input_opexpr_node(
 
         newopexpr.opno = anyelement_query_input_opoid();
         newopexpr.opfuncid = anyelement_query_input_procoid();
-    } else if let Some((param, attname)) = parse_with_field {
+    } else if let Some((param, field)) = parse_with_field {
         // rewrite the rhs to be a function call to our `paradedb.parse_with_field(...)` function
         let mut parse_with_field_args = PgList::<pg_sys::Node>::new();
 
@@ -249,7 +249,7 @@ unsafe fn make_search_query_input_opexpr_node(
                 -1,
                 pg_sys::Oid::INVALID,
                 -1,
-                FieldName::from(attname).into_datum().unwrap(),
+                field.into_datum().unwrap(),
                 false,
                 false,
             )
@@ -439,7 +439,7 @@ pub unsafe fn attname_from_var(
     heaprelid: pg_sys::Oid,
     var: *mut pg_sys::Var,
     varattno: pg_sys::AttrNumber,
-) -> Option<String> {
+) -> Option<FieldName> {
     if (*var).varattno == 0 {
         return None;
     }
@@ -450,7 +450,7 @@ pub unsafe fn attname_from_var(
     } else {
         tupdesc
             .get(varattno as usize - 1)
-            .map(|attribute| attribute.name().to_string())
+            .map(|attribute| attribute.name().into())
     }
 }
 

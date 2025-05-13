@@ -191,11 +191,11 @@ impl PdbScanState {
     }
 
     pub fn make_snippet(&self, ctid: u64, snippet_type: &SnippetType) -> Option<String> {
-        let text = unsafe { self.doc_from_heap(ctid, &snippet_type.field())? };
+        let text = unsafe { self.doc_from_heap(ctid, snippet_type.field())? };
         let (field, generator) = self.snippet_generators.get(snippet_type)?.as_ref()?;
         let mut snippet = generator.snippet(&text);
 
-        if let SnippetType::Text(_, config) = snippet_type {
+        if let SnippetType::Text(_, _, config) = snippet_type {
             snippet.set_snippet_prefix_postfix(&config.start_tag, &config.end_tag);
         }
 
@@ -212,7 +212,7 @@ impl PdbScanState {
         ctid: u64,
         snippet_type: &SnippetType,
     ) -> Option<Vec<Vec<i32>>> {
-        let text = unsafe { self.doc_from_heap(ctid, &snippet_type.field())? };
+        let text = unsafe { self.doc_from_heap(ctid, snippet_type.field())? };
         let (field, generator) = self.snippet_generators.get(snippet_type)?.as_ref()?;
         let snippet = generator.snippet(&text);
         let highlighted = snippet.highlighted();

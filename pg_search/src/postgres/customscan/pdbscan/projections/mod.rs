@@ -185,7 +185,7 @@ pub unsafe fn inject_placeholders(
     snippet_funcoid: pg_sys::Oid,
     snippet_positions_funcoid: pg_sys::Oid,
     attname_lookup: &FxHashMap<(Varno, pg_sys::AttrNumber), String>,
-    snippet_types: &FxHashMap<SnippetType, Option<(tantivy::schema::Field, SnippetGenerator)>>,
+    snippet_generators: &FxHashMap<SnippetType, Option<(tantivy::schema::Field, SnippetGenerator)>>,
 ) -> (
     *mut pg_sys::List,
     *mut pg_sys::Const,
@@ -214,17 +214,14 @@ pub unsafe fn inject_placeholders(
             {
                 let var = nodecast!(Var, T_Var, args.get_ptr(0)?)?;
                 let key = (data.rti as Varno, (*var).varattno);
-                let nodeoid = if (*funcexpr).funcid == data.snippet_funcoid {
-                    pg_sys::TEXTOID
-                } else {
-                    pg_sys::INT4ARRAYOID
-                };
 
                 if let Some(attname) = data.attname_lookup.get(&key) {
-                    for snippet_type in data.snippet_types.keys() {
-                        if &snippet_type.field() == attname {
+                    for snippet_type in data.snippet_generators.keys() {
+                        if snippet_type.field() == attname
+                            && snippet_type.funcoid() == (*funcexpr).funcid
+                        {
                             let const_ = pg_sys::makeConst(
-                                nodeoid,
+                                snippet_type.nodeoid(),
                                 -1,
                                 pg_sys::DEFAULT_COLLATION_OID,
                                 -1,
@@ -276,7 +273,7 @@ pub unsafe fn inject_placeholders(
         snippet_positions_funcoid: pg_sys::Oid,
         attname_lookup: &'a FxHashMap<(Varno, pg_sys::AttrNumber), String>,
 
-        snippet_types:
+        snippet_generators:
             &'a FxHashMap<SnippetType, Option<(tantivy::schema::Field, SnippetGenerator)>>,
         const_snippet_nodes: FxHashMap<SnippetType, Vec<*mut pg_sys::Const>>,
     }
@@ -298,7 +295,7 @@ pub unsafe fn inject_placeholders(
         snippet_funcoid,
         snippet_positions_funcoid,
         attname_lookup,
-        snippet_types,
+        snippet_generators,
         const_snippet_nodes: Default::default(),
     };
     let targetlist = walker(targetlist.cast(), addr_of_mut!(data).cast());

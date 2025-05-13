@@ -38,15 +38,29 @@ pub struct SnippetConfig {
 
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub enum SnippetType {
-    Text(String, SnippetConfig),
-    Positions(String),
+    Text(String, pg_sys::Oid, SnippetConfig),
+    Positions(String, pg_sys::Oid),
 }
 
 impl SnippetType {
     pub fn field(&self) -> &str {
         match self {
-            SnippetType::Text(field, _) => field,
-            SnippetType::Positions(field) => field,
+            SnippetType::Text(field, _, _) => field,
+            SnippetType::Positions(field, _) => field,
+        }
+    }
+
+    pub fn funcoid(&self) -> pg_sys::Oid {
+        match self {
+            SnippetType::Text(_, funcoid, _) => *funcoid,
+            SnippetType::Positions(_, funcoid) => *funcoid,
+        }
+    }
+
+    pub fn nodeoid(&self) -> pg_sys::Oid {
+        match self {
+            SnippetType::Text(_, _, _) => pg_sys::TEXTOID,
+            SnippetType::Positions(_, _) => pg_sys::INT4ARRAYOID,
         }
     }
 }
@@ -164,7 +178,10 @@ pub unsafe fn uses_snippets(
 }
 
 #[inline(always)]
-unsafe fn extract_snippet_text(args: PgList<pg_sys::Node>, context: *mut Context) -> Option<SnippetType> {
+unsafe fn extract_snippet_text(
+    args: PgList<pg_sys::Node>,
+    context: *mut Context,
+) -> Option<SnippetType> {
     assert!(args.len() == 4);
 
     let field_arg = nodecast!(Var, T_Var, args.get_ptr(0).unwrap());
@@ -189,6 +206,7 @@ unsafe fn extract_snippet_text(args: PgList<pg_sys::Node>, context: *mut Context
 
         Some(SnippetType::Text(
             attname,
+            (*context).snippet_funcoid,
             SnippetConfig {
                 start_tag: start_tag.unwrap_or_else(|| DEFAULT_SNIPPET_PREFIX.to_string()),
                 end_tag: end_tag.unwrap_or_else(|| DEFAULT_SNIPPET_POSTFIX.to_string()),
@@ -216,7 +234,10 @@ unsafe fn extract_snippet_positions(
             .cloned()
             .expect("Var attname should be in lookup");
 
-        Some(SnippetType::Positions(attname))
+        Some(SnippetType::Positions(
+            attname,
+            (*context).snippet_positions_funcoid,
+        ))
     } else {
         None
     }

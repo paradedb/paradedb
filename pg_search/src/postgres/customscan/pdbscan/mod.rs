@@ -135,13 +135,17 @@ impl PdbScan {
                     .as_ref()
                     .unwrap()
                     .snippet_generator(
-                        &snippet_type.field(),
+                        snippet_type.field(),
                         &state.custom_state().search_query_input,
                     );
 
-                if let SnippetType::Text(_, config) = snippet_type {
-                    new_generator.1.set_max_num_chars(config.max_num_chars);
-                }
+                // If SnippetType::Positions, set max_num_chars to u32::MAX because the entire doc must be considered
+                // This assumes text fields can be no more than u32::MAX bytes
+                let max_num_chars = match snippet_type {
+                    SnippetType::Text(_, _, config) => config.max_num_chars,
+                    SnippetType::Positions(_, _) => u32::MAX as usize,
+                };
+                new_generator.1.set_max_num_chars(max_num_chars);
 
                 *generator = Some(new_generator);
             }
@@ -901,7 +905,7 @@ impl CustomScan for PdbScan {
                                         &state.custom_state().const_snippet_nodes
                                     {
                                         match snippet_type {
-                                            SnippetType::Text(_, config) => {
+                                            SnippetType::Text(_, _, config) => {
                                                 let snippet = state
                                                     .custom_state()
                                                     .make_snippet(ctid, snippet_type);
@@ -921,7 +925,7 @@ impl CustomScan for PdbScan {
                                                     }
                                                 }
                                             }
-                                            SnippetType::Positions(_) => {
+                                            SnippetType::Positions(..) => {
                                                 let positions = state
                                                     .custom_state()
                                                     .get_snippet_positions(ctid, snippet_type);
@@ -1112,8 +1116,8 @@ unsafe fn inject_score_and_snippet_placeholders(state: &mut CustomScanStateWrapp
     // inject score and/or snippet placeholder [`pg_sys::Const`] nodes into what is a copy of the Plan's
     // targetlist.  We store this in our custom state's "placeholder_targetlist" for use during the
     // forced projection we must do later.
-
     let planstate = state.planstate();
+
     let (targetlist, const_score_node, const_snippet_nodes) = inject_placeholders(
         (*(*planstate).plan).targetlist,
         state.custom_state().rti,

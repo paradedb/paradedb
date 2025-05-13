@@ -91,6 +91,13 @@ impl FastFieldExecState {
                 (*cstate).ss.ps.ps_ResultTupleDesc,
                 &pg_sys::TTSOpsVirtual,
             );
+            // Initialize the fast field helper with the tuple-aligned fast fields
+            //
+            // Note: When exec_tuple_which_fast_fields contains None values (which happens for
+            // fields that aren't marked as fast fields or when a field expected at planning time
+            // isn't found in the tuple descriptor), they're treated as FFType::Junk in the
+            // FFHelper. This ensures we don't crash when a field is missing but just return
+            // NULL for that column when it's accessed during execution.
             self.ffhelper = FFHelper::with_fields(
                 state.search_reader.as_ref().unwrap(),
                 &state.exec_tuple_which_fast_fields,
@@ -303,14 +310,10 @@ pub unsafe fn pullup_fast_fields(
         } else if uses_scores((*te).expr.cast(), score_funcoid(), rti) {
             matches.push(WhichFastField::Score);
             continue;
-        } else if pgrx::is_a((*te).expr.cast(), pg_sys::NodeTag::T_Aggref) {
-            matches.push(WhichFastField::Junk("agg".into()));
-            continue;
-        } else if nodecast!(Const, T_Const, (*te).expr).is_some() {
-            matches.push(WhichFastField::Junk("const".into()));
-            continue;
-        } else if nodecast!(WindowFunc, T_WindowFunc, (*te).expr).is_some() {
-            matches.push(WhichFastField::Junk("window".into()));
+        } else if pgrx::is_a((*te).expr.cast(), pg_sys::NodeTag::T_Aggref)
+            || nodecast!(Const, T_Const, (*te).expr).is_some()
+            || nodecast!(WindowFunc, T_WindowFunc, (*te).expr).is_some()
+        {
             continue;
         }
         // we only support Vars or our score function in the target list

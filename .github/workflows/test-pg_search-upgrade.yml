@@ -94,23 +94,23 @@ jobs:
       - name: Install llvm-tools-preview
         run: rustup component add llvm-tools-preview
 
-      # This is the pgrx version compatible with ParadeDB v0.15.0
-      - name: Install cargo-pgrx for ParadeDB v0.15.0
+      # This is the pgrx version compatible with ParadeDB v0.15.6
+      - name: Install cargo-pgrx for ParadeDB v0.15.6
         run: cargo install -j $(nproc) --locked cargo-pgrx --version 0.12.7 --debug
 
-      - name: Initialize cargo-pgrx environment for ParadeDB v0.15.0
+      - name: Initialize cargo-pgrx environment for ParadeDB v0.15.6
         run: cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
-      # This is no longer necessary from pg_search 0.15.1 onwards, but we test upgrading from 0.15.0
+      # This is no longer necessary from pg_search 0.15.1 onwards, but we test upgrading from 0.15.6
       - name: Add pg_search to shared_preload_libraries
         working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
         run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
 
       # This is the first version at which we started supporting upgrading via ALTER EXTENSION
-      - name: Checkout ParadeDB v0.15.0
-        run: git checkout v0.15.0
+      - name: Checkout ParadeDB v0.15.6
+        run: git checkout v0.15.6
 
-      - name: Compile & install pg_search v0.15.0
+      - name: Compile & install pg_search v0.15.6
         working-directory: pg_search/
         run: cargo pgrx install --sudo --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 

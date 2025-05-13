@@ -59,6 +59,13 @@ use tantivy::{DocAddress, Executor, SegmentOrdinal};
 /// This execution method is selected when a query uses multiple fast fields with at least one
 /// string fast field. It processes both string and numeric fields directly from the index's
 /// fast field data structures, avoiding the need to fetch full documents.
+///
+/// # Feature Flag
+/// This execution method is controlled by the `paradedb.enable_mixed_fast_field_exec` GUC setting.
+/// It is disabled by default and can be enabled with:
+/// ```sql
+/// SET paradedb.enable_mixed_fast_field_exec = true;
+/// ```
 pub struct MixedFastFieldExecState {
     /// Core functionality shared with other fast field execution methods
     inner: FastFieldExecState,

@@ -22,6 +22,9 @@ use std::num::NonZeroUsize;
 /// Allows the user to toggle the use of our "ParadeDB Custom Scan".  The default is `true`.
 static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+/// Allows the user to enable or disable the MixedFastFieldExecState executor. Default is `false`.
+static ENABLE_MIXED_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(false);
+
 /// The `PER_TUPLE_COST` is an arbitrary value that needs to be really high.  In fact, we default
 /// to one hundred million.
 ///
@@ -63,6 +66,15 @@ pub fn init() {
         "Enable ParadeDB's custom scan",
         "Enable ParadeDB's custom scan",
         &ENABLE_CUSTOM_SCAN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        "paradedb.enable_mixed_fast_field_exec",
+        "Enable MixedFastFieldExecState executor",
+        "Enable the MixedFastFieldExecState executor for handling multiple string fast fields or mixed string/numeric fast fields",
+        &ENABLE_MIXED_FAST_FIELD_EXEC,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -138,6 +150,10 @@ pub fn init() {
 
 pub fn enable_custom_scan() -> bool {
     ENABLE_CUSTOM_SCAN.get()
+}
+
+pub fn is_mixed_fast_field_exec_enabled() -> bool {
+    ENABLE_MIXED_FAST_FIELD_EXEC.get()
 }
 
 pub fn per_tuple_cost() -> f64 {

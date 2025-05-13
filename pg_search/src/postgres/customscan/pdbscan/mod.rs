@@ -31,6 +31,7 @@ use crate::api::operator::{
     parse_with_field_procoid, searchqueryinput_typoid,
 };
 use crate::api::Cardinality;
+use crate::gucs;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::builders::custom_path::{
@@ -1008,9 +1009,19 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
                 which_fast_fields: privdata.which_fast_fields().clone().unwrap_or_default(),
             }
         } else if fast_fields::is_mixed_fast_field_capable(privdata) {
-            // Check for mixed fields last
-            ExecMethodType::FastFieldMixed {
-                which_fast_fields: privdata.which_fast_fields().clone().unwrap_or_default(),
+            // Check if mixed fast field executor is enabled
+            if gucs::is_mixed_fast_field_exec_enabled() {
+                // Use MixedFastFieldExec if enabled
+                ExecMethodType::FastFieldMixed {
+                    which_fast_fields: privdata.which_fast_fields().clone().unwrap_or_default(),
+                }
+            } else {
+                // Log warning about disabled feature
+                pgrx::log!(
+                    "Mixed fast field executor is disabled. Using normal executor instead. Enable with 'SET paradedb.enable_mixed_fast_field_exec = true;'"
+                );
+                // Fall back to normal execution
+                ExecMethodType::Normal
             }
         } else {
             // Fall back to normal execution

@@ -155,7 +155,7 @@ pub extern "C-unwind" fn amrescan(
                 need_scores,
                 fast_fields: FFHelper::with_fields(
                     &search_reader,
-                    &[Some((key_field, key_field_type).into())],
+                    &[(key_field, key_field_type).into()],
                 ),
                 reader: search_reader,
                 search_query_input,

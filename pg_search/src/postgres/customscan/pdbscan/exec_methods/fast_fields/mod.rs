@@ -45,6 +45,7 @@ pub struct FastFieldExecState {
     slot: *mut pg_sys::TupleTableSlot,
     strbuf: Option<String>,
     vmbuff: pg_sys::Buffer,
+    which_fast_fields: Vec<WhichFastField>,
     search_results: SearchResults,
 
     // tracks our previous block visibility so we can elide checking again
@@ -66,7 +67,7 @@ impl Drop for FastFieldExecState {
 }
 
 impl FastFieldExecState {
-    pub fn new() -> Self {
+    pub fn new(which_fast_fields: Vec<WhichFastField>) -> Self {
         Self {
             heaprel: std::ptr::null_mut(),
             tupdesc: None,
@@ -75,6 +76,7 @@ impl FastFieldExecState {
             slot: std::ptr::null_mut(),
             strbuf: Some(String::with_capacity(256)),
             vmbuff: pg_sys::InvalidBuffer as pg_sys::Buffer,
+            which_fast_fields,
             search_results: Default::default(),
             blockvis: (pg_sys::InvalidBlockNumber, false),
             did_query: false,
@@ -91,16 +93,9 @@ impl FastFieldExecState {
                 (*cstate).ss.ps.ps_ResultTupleDesc,
                 &pg_sys::TTSOpsVirtual,
             );
-            // Initialize the fast field helper with the tuple-aligned fast fields
-            //
-            // Note: When exec_tuple_which_fast_fields contains None values (which happens for
-            // fields that aren't marked as fast fields or when a field expected at planning time
-            // isn't found in the tuple descriptor), they're treated as FFType::Junk in the
-            // FFHelper. This ensures we don't crash when a field is missing but just return
-            // NULL for that column when it's accessed during execution.
             self.ffhelper = FFHelper::with_fields(
                 state.search_reader.as_ref().unwrap(),
-                &state.exec_tuple_which_fast_fields,
+                &self.which_fast_fields,
             );
         }
     }
@@ -114,7 +109,7 @@ impl FastFieldExecState {
 
 #[inline(always)]
 unsafe fn ff_to_datum(
-    which_fast_field: (&Option<WhichFastField>, usize),
+    which_fast_field: (&WhichFastField, usize),
     typid: pg_sys::Oid,
     score: f32,
     doc_address: DocAddress,
@@ -130,15 +125,15 @@ unsafe fn ff_to_datum(
             None => None,
             Some(v) => v.into_datum(),
         }
-    } else if matches!(which_fast_field, Some(WhichFastField::Ctid)) {
+    } else if matches!(which_fast_field, WhichFastField::Ctid) {
         (*slot).tts_tid.into_datum()
-    } else if matches!(which_fast_field, Some(WhichFastField::TableOid)) {
+    } else if matches!(which_fast_field, WhichFastField::TableOid) {
         (*slot).tts_tableOid.into_datum()
-    } else if matches!(which_fast_field, Some(WhichFastField::Score)) {
+    } else if matches!(which_fast_field, WhichFastField::Score) {
         score.into_datum()
     } else if matches!(
         which_fast_field,
-        Some(WhichFastField::Named(_, FastFieldType::String))
+        WhichFastField::Named(_, FastFieldType::String)
     ) {
         if let Some(s) = strbuf {
             s.as_str().into_datum()
@@ -191,14 +186,12 @@ pub unsafe fn collect_fast_fields(
     rti: pg_sys::Index,
     schema: &SearchIndexSchema,
     heaprel: &PgRelation,
-) -> Vec<WhichFastField> {
+) -> Option<Vec<WhichFastField>> {
     if maybe_ff {
         let fast_fields = pullup_fast_fields(target_list, referenced_columns, schema, heaprel, rti);
-        fast_fields
-            .filter(|fast_fields| !fast_fields.is_empty())
-            .unwrap_or_default()
+        fast_fields.filter(|fast_fields| !fast_fields.is_empty())
     } else {
-        Default::default()
+        None
     }
 }
 
@@ -310,10 +303,14 @@ pub unsafe fn pullup_fast_fields(
         } else if uses_scores((*te).expr.cast(), score_funcoid(), rti) {
             matches.push(WhichFastField::Score);
             continue;
-        } else if pgrx::is_a((*te).expr.cast(), pg_sys::NodeTag::T_Aggref)
-            || nodecast!(Const, T_Const, (*te).expr).is_some()
-            || nodecast!(WindowFunc, T_WindowFunc, (*te).expr).is_some()
-        {
+        } else if pgrx::is_a((*te).expr.cast(), pg_sys::NodeTag::T_Aggref) {
+            matches.push(WhichFastField::Junk("agg".into()));
+            continue;
+        } else if nodecast!(Const, T_Const, (*te).expr).is_some() {
+            matches.push(WhichFastField::Junk("const".into()));
+            continue;
+        } else if nodecast!(WindowFunc, T_WindowFunc, (*te).expr).is_some() {
+            matches.push(WhichFastField::Junk("window".into()));
             continue;
         }
         // we only support Vars or our score function in the target list
@@ -541,7 +538,7 @@ pub fn estimate_cardinality(indexrel: &PgRelation, field: &str) -> Option<usize>
 pub unsafe fn extract_data_from_fast_fields(
     natts: usize,
     tupdesc: &PgTupleDesc<'_>,
-    which_fast_fields: &[Option<WhichFastField>],
+    which_fast_fields: &[WhichFastField],
     fast_fields: &mut FFHelper,
     slot: *mut pg_sys::TupleTableSlot,
     scored: SearchIndexScore,
@@ -559,7 +556,7 @@ pub unsafe fn extract_data_from_fast_fields(
             if !att_name.is_empty() {
                 // Try to find fast field with matching name
                 if let Some(idx) = which_fast_fields.iter().position(|ff| {
-                    if let Some(WhichFastField::Named(name, _)) = ff {
+                    if let WhichFastField::Named(name, _) = ff {
                         name.to_lowercase() == att_name
                     } else {
                         false

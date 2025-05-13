@@ -549,8 +549,8 @@ impl CustomScan for PdbScan {
 
                     // track a triplet of (varno, varattno, attname) as 3 individual
                     // entries in the `attname_lookup` List
-                    let attname = attname_from_var(builder.args().root, var)
-                        .1
+                    let (heaprelid, varattno, _) = find_var_relation(var, builder.args().root);
+                    let attname = attname_from_var(heaprelid, var, varattno)
                         .expect("function call argument should be a column name");
                     attname_lookup.insert(((*var).varno, (*var).varattno), attname);
                 }

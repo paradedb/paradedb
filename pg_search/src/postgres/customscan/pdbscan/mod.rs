@@ -567,10 +567,11 @@ impl CustomScan for PdbScan {
         mut builder: CustomScanStateBuilder<Self, Self::PrivateData>,
     ) -> *mut CustomScanStateWrapper<Self> {
         unsafe {
-            builder.custom_state().heaprelid = builder
-                .custom_private()
-                .heaprelid()
-                .expect("heaprelid should have a value");
+            let heaprelid = builder
+            .custom_private()
+            .heaprelid()
+            .expect("heaprelid should have a value");
+            builder.custom_state().heaprelid = heaprelid;
             builder.custom_state().indexrelid = builder
                 .custom_private()
                 .indexrelid()
@@ -631,10 +632,7 @@ impl CustomScan for PdbScan {
                 node,
                 snippet_funcoid,
                 snippet_positions_funcoid,
-                &builder
-                .custom_private()
-                .heaprelid()
-                .expect("heaprelid should have a value")
+                heaprelid,
             )
             .into_iter()
             .map(|field| (field, None))

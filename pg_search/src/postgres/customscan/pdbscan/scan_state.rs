@@ -20,9 +20,7 @@ use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::reader::index::{SearchIndexReader, SearchResults};
 use crate::postgres::customscan::builders::custom_path::{ExecMethodType, SortDirection};
 use crate::postgres::customscan::pdbscan::exec_methods::ExecMethod;
-use crate::postgres::customscan::pdbscan::projections::snippet::{
-    SnippetInfo, SnippetPositionInfo,
-};
+use crate::postgres::customscan::pdbscan::projections::snippet::SnippetType;
 use crate::postgres::customscan::pdbscan::qual_inspect::Qual;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::options::SearchIndexCreateOptions;
@@ -79,16 +77,13 @@ pub struct PdbScanState {
     pub const_score_node: Option<*mut pg_sys::Const>,
     pub score_funcoid: pg_sys::Oid,
 
-    pub const_snippet_nodes: FxHashMap<SnippetInfo, Vec<*mut pg_sys::Const>>,
-    pub const_snippet_positions_nodes: FxHashMap<SnippetPositionInfo, Vec<*mut pg_sys::Const>>,
+    pub const_snippet_nodes: FxHashMap<SnippetType, Vec<*mut pg_sys::Const>>,
 
     pub snippet_funcoid: pg_sys::Oid,
     pub snippet_positions_funcoid: pg_sys::Oid,
 
     pub snippet_generators:
-        FxHashMap<SnippetInfo, Option<(tantivy::schema::Field, SnippetGenerator)>>,
-    pub snippet_positions_generators:
-        FxHashMap<SnippetPositionInfo, Option<(tantivy::schema::Field, SnippetGenerator)>>,
+        FxHashMap<SnippetType, Option<(tantivy::schema::Field, SnippetGenerator)>>,
 
     pub var_attname_lookup: FxHashMap<(Varno, pg_sys::AttrNumber), String>,
     pub placeholder_targetlist: Option<*mut pg_sys::List>,
@@ -159,11 +154,6 @@ impl PdbScanState {
         !self.snippet_generators.is_empty()
     }
 
-    #[inline(always)]
-    pub fn need_snippet_positions(&self) -> bool {
-        !self.snippet_positions_generators.is_empty()
-    }
-
     #[track_caller]
     #[inline(always)]
     pub fn heaprel(&self) -> pg_sys::Relation {
@@ -200,12 +190,15 @@ impl PdbScanState {
         self.visibility_checker.as_mut().unwrap()
     }
 
-    pub fn make_snippet(&self, ctid: u64, snippet_info: &SnippetInfo) -> Option<String> {
-        let text = unsafe { self.doc_from_heap(ctid, &snippet_info.field)? };
-        let (field, generator) = self.snippet_generators.get(snippet_info)?.as_ref()?;
+    pub fn make_snippet(&self, ctid: u64, snippet_type: &SnippetType) -> Option<String> {
+        let text = unsafe { self.doc_from_heap(ctid, &snippet_type.field())? };
+        let (field, generator) = self.snippet_generators.get(snippet_type)?.as_ref()?;
         let mut snippet = generator.snippet(&text);
 
-        snippet.set_snippet_prefix_postfix(&snippet_info.start_tag, &snippet_info.end_tag);
+        if let SnippetType::Text(_, config) = snippet_type {
+            snippet.set_snippet_prefix_postfix(&config.start_tag, &config.end_tag);
+        }
+
         let html = snippet.to_html();
         if html.trim().is_empty() {
             None
@@ -217,13 +210,10 @@ impl PdbScanState {
     pub fn get_snippet_positions(
         &self,
         ctid: u64,
-        snippet_info: &SnippetPositionInfo,
+        snippet_type: &SnippetType,
     ) -> Option<Vec<Vec<i32>>> {
-        let text = unsafe { self.doc_from_heap(ctid, &snippet_info.field)? };
-        let (field, generator) = self
-            .snippet_positions_generators
-            .get(snippet_info)?
-            .as_ref()?;
+        let text = unsafe { self.doc_from_heap(ctid, &snippet_type.field())? };
+        let (field, generator) = self.snippet_generators.get(snippet_type)?.as_ref()?;
         let snippet = generator.snippet(&text);
         let highlighted = snippet.highlighted();
 

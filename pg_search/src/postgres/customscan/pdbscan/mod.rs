@@ -568,9 +568,9 @@ impl CustomScan for PdbScan {
     ) -> *mut CustomScanStateWrapper<Self> {
         unsafe {
             let heaprelid = builder
-            .custom_private()
-            .heaprelid()
-            .expect("heaprelid should have a value");
+                .custom_private()
+                .heaprelid()
+                .expect("heaprelid should have a value");
             builder.custom_state().heaprelid = heaprelid;
             builder.custom_state().indexrelid = builder
                 .custom_private()

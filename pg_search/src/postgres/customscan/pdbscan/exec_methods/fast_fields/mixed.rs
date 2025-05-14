@@ -256,6 +256,7 @@ impl ExecMethod for MixedFastFieldExecState {
                         let fast_fields = &mut self.inner.ffhelper;
                         let which_fast_fields = &state.exec_tuple_which_fast_fields;
                         let tupdesc = self.inner.tupdesc.as_ref().unwrap();
+                        debug_assert!(natts == which_fast_fields.len());
 
                         // Take the string buffer from inner
                         let mut string_buf = self.inner.strbuf.take().unwrap_or_default();
@@ -267,7 +268,7 @@ impl ExecMethod for MixedFastFieldExecState {
                                 continue;
                             }
 
-                            let which_fast_field = which_fast_fields.get(i).unwrap_or(&None);
+                            let which_fast_field = &which_fast_fields[i];
 
                             // Get attribute info if available
                             let att_info = if i < tupdesc.len() {
@@ -283,8 +284,7 @@ impl ExecMethod for MixedFastFieldExecState {
                                 .unwrap_or_default();
 
                             // Try the optimized fast field path first
-                            if let Some(WhichFastField::Named(field_name, field_type)) =
-                                which_fast_field
+                            if let WhichFastField::Named(field_name, field_type) = which_fast_field
                             {
                                 match field_type {
                                     // String field handling

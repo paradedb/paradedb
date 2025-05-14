@@ -33,6 +33,7 @@ use crate::schema::SearchIndexSchema;
 use itertools::Itertools;
 use pgrx::pg_sys::CustomScanState;
 use pgrx::{pg_sys, IntoDatum, PgList, PgOid, PgRelation, PgTupleDesc};
+use rustc_hash::FxHashSet;
 use std::collections::HashSet;
 use tantivy::DocAddress;
 
@@ -114,7 +115,7 @@ impl FastFieldExecState {
 
 #[inline(always)]
 unsafe fn ff_to_datum(
-    which_fast_field: (&Option<WhichFastField>, usize),
+    which_fast_field: (&WhichFastField, usize),
     typid: pg_sys::Oid,
     score: f32,
     doc_address: DocAddress,
@@ -130,15 +131,15 @@ unsafe fn ff_to_datum(
             None => None,
             Some(v) => v.into_datum(),
         }
-    } else if matches!(which_fast_field, Some(WhichFastField::Ctid)) {
+    } else if matches!(which_fast_field, WhichFastField::Ctid) {
         (*slot).tts_tid.into_datum()
-    } else if matches!(which_fast_field, Some(WhichFastField::TableOid)) {
+    } else if matches!(which_fast_field, WhichFastField::TableOid) {
         (*slot).tts_tableOid.into_datum()
-    } else if matches!(which_fast_field, Some(WhichFastField::Score)) {
+    } else if matches!(which_fast_field, WhichFastField::Score) {
         score.into_datum()
     } else if matches!(
         which_fast_field,
-        Some(WhichFastField::Named(_, FastFieldType::String))
+        WhichFastField::Named(_, FastFieldType::String)
     ) {
         if let Some(s) = strbuf {
             s.as_str().into_datum()
@@ -342,10 +343,7 @@ pub fn fast_field_capable_prereqs(privdata: &PrivateData) -> bool {
         return false;
     }
 
-    let which_fast_fields = privdata.which_fast_fields();
-    if which_fast_fields.is_none() {
-        return false;
-    }
+    let which_fast_fields = privdata.which_fast_fields().as_ref().unwrap();
 
     if is_all_special_or_junk_fields(which_fast_fields) {
         // if all the fast fields we have are Junk fields, then we're not actually
@@ -355,7 +353,6 @@ pub fn fast_field_capable_prereqs(privdata: &PrivateData) -> bool {
 
     // Make sure all referenced columns are fast fields
     let referenced_columns_count = privdata.referenced_columns_count();
-    let which_fast_fields = which_fast_fields.as_ref().unwrap();
 
     // Count columns that we have fast fields for (excluding system/junk fields)
     let fast_field_column_count = which_fast_fields
@@ -451,8 +448,8 @@ pub fn is_numeric_fast_field_capable(privdata: &PrivateData) -> bool {
     true
 }
 
-pub fn is_all_special_or_junk_fields(which_fast_fields: &Option<Vec<WhichFastField>>) -> bool {
-    which_fast_fields.iter().flatten().all(|ff| {
+fn is_all_special_or_junk_fields(which_fast_fields: &FxHashSet<WhichFastField>) -> bool {
+    which_fast_fields.iter().all(|ff| {
         matches!(
             ff,
             WhichFastField::Junk(_)
@@ -541,78 +538,24 @@ pub fn estimate_cardinality(indexrel: &PgRelation, field: &str) -> Option<usize>
 pub unsafe fn extract_data_from_fast_fields(
     natts: usize,
     tupdesc: &PgTupleDesc<'_>,
-    which_fast_fields: &[Option<WhichFastField>],
+    which_fast_fields: &[WhichFastField],
     fast_fields: &mut FFHelper,
     slot: *mut pg_sys::TupleTableSlot,
     scored: SearchIndexScore,
     doc_address: DocAddress,
     string_buffer: &mut Option<String>,
 ) {
-    // Build attribute to fast field mapping
-    let mut attr_to_ff_map = std::collections::HashMap::new();
-
-    // Step 1: First try to match named attributes by name
-    for i in 0..natts {
-        if let Some(att) = tupdesc.get(i) {
-            let att_name = att.name().to_lowercase();
-            // Skip empty named attributes - handle them later
-            if !att_name.is_empty() {
-                // Try to find fast field with matching name
-                if let Some(idx) = which_fast_fields.iter().position(|ff| {
-                    if let Some(WhichFastField::Named(name, _)) = ff {
-                        name.to_lowercase() == att_name
-                    } else {
-                        false
-                    }
-                }) {
-                    attr_to_ff_map.insert(i, idx);
-                    continue;
-                }
-            }
-        }
-    }
-
-    // Step 2: Position-based matching for any remaining attributes
-    let mut next_ff_idx = 0;
-
-    // Simple position-based mapping, assuming attributes and fast fields are in the same order
-    for i in 0..natts {
-        if !attr_to_ff_map.contains_key(&i) {
-            // Find next unused fast field index
-            while next_ff_idx < which_fast_fields.len()
-                && attr_to_ff_map.values().any(|&v| v == next_ff_idx)
-            {
-                next_ff_idx += 1;
-            }
-
-            if next_ff_idx < which_fast_fields.len() {
-                attr_to_ff_map.insert(i, next_ff_idx);
-                next_ff_idx += 1;
-            }
-        }
-    }
-
-    // Get pointers to datum and isnull arrays
     let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
     let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
 
-    // Process attributes using our mapping
-    for i in 0..natts {
-        // Ensure every attribute has a mapping
-        let &ff_idx = attr_to_ff_map
-            .get(&i)
-            .unwrap_or_else(|| panic!("Attribute at position {} has no fast field mapping", i));
-        assert!(
-            ff_idx < which_fast_fields.len(),
-            "Attribute at position {} maps to invalid fast field index {}",
-            i,
-            ff_idx
-        );
-        let which_fast_field = &which_fast_fields[ff_idx];
-        let att = tupdesc.get(i).unwrap();
+    #[rustfmt::skip]
+    debug_assert!(natts == which_fast_fields.len());
+
+    for (i, att) in tupdesc.iter().enumerate() {
+        let which_fast_field = &which_fast_fields[i];
 
         match ff_to_datum(
-            (which_fast_field, ff_idx),
+            (which_fast_field, i),
             att.atttypid,
             scored.bm25,
             doc_address,

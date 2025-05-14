@@ -22,7 +22,7 @@ use crate::postgres::customscan::pdbscan::ExecMethodType;
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::{pg_sys, PgList};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Serialize, Deserialize)]
@@ -38,7 +38,11 @@ pub struct PrivateData {
     var_attname_lookup: Option<FxHashMap<(Varno, pg_sys::AttrNumber), String>>,
     maybe_ff: bool,
     segment_count: usize,
-    which_fast_fields: Option<Vec<WhichFastField>>,
+    // The fast fields which were identified during planning time as potentially being
+    // needed at execution time. In order for our planning-time-chosen ExecMethodType to be
+    // accurate, this must always be a superset of the fields extracted from the execution
+    // time target list.
+    which_fast_fields: Option<FxHashSet<WhichFastField>>,
     target_list_len: Option<usize>,
     referenced_columns_count: usize,
     need_scores: bool,
@@ -193,7 +197,7 @@ impl PrivateData {
         self.segment_count = segment_count;
     }
 
-    pub fn set_which_fast_fields(&mut self, which_fast_fields: Vec<WhichFastField>) {
+    pub fn set_which_fast_fields(&mut self, which_fast_fields: FxHashSet<WhichFastField>) {
         self.which_fast_fields = Some(which_fast_fields);
     }
 
@@ -266,7 +270,7 @@ impl PrivateData {
         self.segment_count
     }
 
-    pub fn which_fast_fields(&self) -> &Option<Vec<WhichFastField>> {
+    pub fn which_fast_fields(&self) -> &Option<FxHashSet<WhichFastField>> {
         &self.which_fast_fields
     }
 

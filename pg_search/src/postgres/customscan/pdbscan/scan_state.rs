@@ -380,13 +380,15 @@ impl PdbScanState {
                         pg_sys::JSONOID => {
                             let json_value = heap_tuple
                                 .get_by_name::<pgrx::datum::Json>(&root)
-                                .expect(&format!("should be able to read {}", root))?.0;
+                                .unwrap_or_else(|_| panic!("should be able to read {}", root))?
+                                .0;
                             json_value.pointer(&pointer).cloned()?
                         }
                         pg_sys::JSONBOID => {
                             let json_value = heap_tuple
                                 .get_by_name::<pgrx::datum::JsonB>(&root)
-                                .expect(&format!("should be able to read {}", root))?.0;
+                                .unwrap_or_else(|_| panic!("should be able to read {}", root))?
+                                .0;
                             json_value.pointer(&pointer).cloned()?
                         }
                         unsupported => panic!("expected json/jsonb field, got {:?}", unsupported),
@@ -401,7 +403,7 @@ impl PdbScanState {
                 }
                 (root, None) => heap_tuple
                     .get_by_name(&root)
-                    .expect(&format!("should be able to read {}", root)),
+                    .unwrap_or_else(|_| panic!("should be able to read {}", root)),
             }
         }
     }

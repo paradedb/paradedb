@@ -26,7 +26,9 @@ mod scan_state;
 mod solve_expr;
 
 use crate::api::operator::{
-    anyelement_query_input_opoid, attname_from_var, estimate_selectivity, find_var_relation,
+    anyelement_query_input_opoid, anyelement_query_input_procoid, anyelement_text_opoid,
+    anyelement_text_procoid, estimate_selectivity, find_var_relation, parse_with_field_procoid,
+    searchqueryinput_typoid,
 };
 use crate::api::Cardinality;
 use crate::api::{HashMap, HashSet};

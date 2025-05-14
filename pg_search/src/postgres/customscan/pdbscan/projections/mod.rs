@@ -19,7 +19,7 @@ pub mod score;
 pub mod snippet;
 
 use crate::api::index::FieldName;
-use crate::api::operator::{find_vars, ReturnedNodePointer};
+use crate::api::operator::{fieldname_from_node, find_vars, try_pullout_var, ReturnedNodePointer};
 use crate::api::HashMap;
 use crate::api::Varno;
 use crate::nodecast;
@@ -132,7 +132,8 @@ pub unsafe fn pullout_funcexprs(
     node: *mut pg_sys::Node,
     funcids: &[pg_sys::Oid],
     rti: i32,
-) -> Vec<(*mut pg_sys::FuncExpr, *mut pg_sys::Var)> {
+    root: *mut pg_sys::PlannerInfo,
+) -> Vec<(*mut pg_sys::FuncExpr, *mut pg_sys::Var, FieldName)> {
     #[pg_guard]
     unsafe extern "C-unwind" fn walker(
         node: *mut pg_sys::Node,
@@ -147,9 +148,14 @@ pub unsafe fn pullout_funcexprs(
             if data.funcids.contains(&(*funcexpr).funcid) {
                 let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
                 for arg in args.iter_ptr() {
-                    if let Some(var) = nodecast!(Var, T_Var, arg) {
+                    if let Some(var) = try_pullout_var(arg) {
                         if (*var).varno as i32 == data.rti as i32 {
-                            data.matches.push((funcexpr, var));
+                            data.matches.push((
+                                funcexpr,
+                                var,
+                                fieldname_from_node(data.root, arg)
+                                    .expect("function call argument should be a column name"),
+                            ));
                         }
                     }
                 }
@@ -164,12 +170,14 @@ pub unsafe fn pullout_funcexprs(
     struct Data<'a> {
         funcids: &'a [pg_sys::Oid],
         rti: i32,
-        matches: Vec<(*mut pg_sys::FuncExpr, *mut pg_sys::Var)>,
+        root: *mut pg_sys::PlannerInfo,
+        matches: Vec<(*mut pg_sys::FuncExpr, *mut pg_sys::Var, FieldName)>,
     }
 
     let mut data = Data {
         funcids,
         rti,
+        root,
         matches: vec![],
     };
 
@@ -213,7 +221,7 @@ pub unsafe fn inject_placeholders(
             if (*funcexpr).funcid == data.snippet_funcoid
                 || (*funcexpr).funcid == data.snippet_positions_funcoid
             {
-                let var = nodecast!(Var, T_Var, args.get_ptr(0)?)?;
+                let var = try_pullout_var(args.get_ptr(0)?)?;
                 let key = (data.rti as Varno, (*var).varattno);
 
                 if let Some(attname) = data.attname_lookup.get(&key) {

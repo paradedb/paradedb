@@ -460,11 +460,13 @@ pub unsafe fn attname_from_var(
 pub unsafe fn try_pullout_var(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {
     unsafe fn pullout_var_inner(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {
         if is_a(node, T_Var) {
-            return Some(node.cast::<Var>());
+            Some(node.cast::<Var>())
         } else if is_a(node, T_OpExpr) {
             let node = node as *mut OpExpr;
             for expr in PgList::from_pg((*node).args).iter_ptr() {
-                return pullout_var_inner(expr);
+                if let Some(var) = pullout_var_inner(expr) {
+                    return Some(var);
+                }
             }
             None
         } else {
@@ -509,27 +511,6 @@ pub unsafe fn fieldname_from_node(
         let var = node.cast::<Var>();
         let (heaprelid, varattno, _) = find_var_relation(var, root);
         attname_from_var(heaprelid, var, varattno)
-    } else {
-        None
-    }
-}
-
-pub unsafe fn heaprelid_from_node(
-    root: *mut pg_sys::PlannerInfo,
-    node: *mut pg_sys::Node,
-) -> Option<pg_sys::Oid> {
-    if is_a(node, T_Var) {
-        let var = node.cast::<Var>();
-        let (heaprelid, _, _) = find_var_relation(var, root);
-        Some(heaprelid)
-    } else if is_a(node, T_OpExpr) {
-        let node = node as *mut OpExpr;
-        for expr in PgList::from_pg((*node).args).iter_ptr() {
-            if let Some(relid) = heaprelid_from_node(root, expr) {
-                return Some(relid);
-            }
-        }
-        None
     } else {
         None
     }

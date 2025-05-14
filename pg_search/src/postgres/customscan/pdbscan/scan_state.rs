@@ -286,7 +286,6 @@ impl PdbScanState {
                 for (i, att) in attrs.iter().enumerate().take(natts) {
                     if att.name() == field_name {
                         // Found a match, store a clone of this field at the right position
-
                         self.exec_tuple_which_fast_fields[i] = Some(field.clone());
                         break;
                     }

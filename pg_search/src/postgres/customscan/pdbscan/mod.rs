@@ -530,9 +530,10 @@ impl CustomScan for PdbScan {
                     te.cast(),
                     &[score_funcoid, snippet_funcoid, snippet_positions_funcoid],
                     rti,
+                    builder.args().root,
                 );
 
-                for (funcexpr, var) in func_vars_at_level {
+                for (funcexpr, var, attname) in func_vars_at_level {
                     // if we have a tlist, then we need to add the specific function that uses
                     // a Var at our level to that tlist.
                     //
@@ -549,12 +550,11 @@ impl CustomScan for PdbScan {
 
                     // track a triplet of (varno, varattno, attname) as 3 individual
                     // entries in the `attname_lookup` List
-                    let (heaprelid, varattno, _) = find_var_relation(var, builder.args().root);
-                    let attname = attname_from_var(heaprelid, var, varattno)
-                        .expect("function call argument should be a column name");
                     attname_lookup.insert(((*var).varno, (*var).varattno), attname);
                 }
             }
+
+            pgrx::info!("attname_lookup: {:?}", attname_lookup);
 
             builder
                 .custom_private_mut()
@@ -567,11 +567,10 @@ impl CustomScan for PdbScan {
         mut builder: CustomScanStateBuilder<Self, Self::PrivateData>,
     ) -> *mut CustomScanStateWrapper<Self> {
         unsafe {
-            let heaprelid = builder
+            builder.custom_state().heaprelid = builder
                 .custom_private()
                 .heaprelid()
                 .expect("heaprelid should have a value");
-            builder.custom_state().heaprelid = heaprelid;
             builder.custom_state().indexrelid = builder
                 .custom_private()
                 .indexrelid()
@@ -632,7 +631,6 @@ impl CustomScan for PdbScan {
                 node,
                 snippet_funcoid,
                 snippet_positions_funcoid,
-                heaprelid,
             )
             .into_iter()
             .map(|field| (field, None))
@@ -891,6 +889,10 @@ impl CustomScan for PdbScan {
                             }
 
                             if state.custom_state().need_snippets() {
+                                pgrx::info!(
+                                    "need_snippets {:?}",
+                                    state.custom_state().const_snippet_nodes
+                                );
                                 per_tuple_context.switch_to(|_| {
                                     for (snippet_type, const_snippet_nodes) in
                                         &state.custom_state().const_snippet_nodes

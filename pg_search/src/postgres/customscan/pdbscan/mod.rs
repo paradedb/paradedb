@@ -559,8 +559,6 @@ impl CustomScan for PdbScan {
                 }
             }
 
-            pgrx::info!("attname_lookup: {:?}", attname_lookup);
-
             builder
                 .custom_private_mut()
                 .set_var_attname_lookup(attname_lookup);
@@ -900,10 +898,6 @@ impl CustomScan for PdbScan {
                             }
 
                             if state.custom_state().need_snippets() {
-                                pgrx::info!(
-                                    "need_snippets {:?}",
-                                    state.custom_state().const_snippet_nodes
-                                );
                                 per_tuple_context.switch_to(|_| {
                                     for (snippet_type, const_snippet_nodes) in
                                         &state.custom_state().const_snippet_nodes

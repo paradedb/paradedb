@@ -31,6 +31,7 @@ use crate::postgres::ParallelScanState;
 use crate::query::{AsHumanReadable, SearchQueryInput};
 use pgrx::heap_tuple::PgHeapTuple;
 use pgrx::{name_data_to_str, pg_sys, PgRelation, PgTupleDesc};
+use serde_json::Value;
 use std::cell::UnsafeCell;
 use tantivy::snippet::SnippetGenerator;
 use tantivy::SegmentReader;
@@ -251,13 +252,9 @@ impl PdbScanState {
     }
 
     pub fn make_snippet(&self, ctid: u64, snippet_type: &SnippetType) -> Option<String> {
-        pgrx::info!("make_snippet: {:?}", snippet_type);
         let text = unsafe { self.doc_from_heap(ctid, snippet_type.field())? };
-        pgrx::info!("text: {:?} for field: {:?}", text, snippet_type.field());
         let (field, generator) = self.snippet_generators.get(snippet_type)?.as_ref()?;
-        pgrx::info!("generator");
         let mut snippet = generator.snippet(&text);
-        pgrx::info!("snippet: {:?}", snippet);
         if let SnippetType::Text(_, _, config) = snippet_type {
             snippet.set_snippet_prefix_postfix(&config.start_tag, &config.end_tag);
         }
@@ -266,7 +263,6 @@ impl PdbScanState {
         if html.trim().is_empty() {
             None
         } else {
-            pgrx::info!("html: {:?}", html);
             Some(html)
         }
     }
@@ -379,11 +375,29 @@ impl PdbScanState {
         } else {
             match (field.root(), field.path()) {
                 (root, Some(path)) => {
-                    let value = heap_tuple
-                        .get_by_name::<pgrx::datum::JsonB>(&root)
-                        .expect(&format!("should be able to read {}", root))?;
                     let pointer = format!("/{}", path.replace('.', "/"));
-                    value.0.pointer(&pointer).map(|v| v.to_string())
+                    let field = match attribute.type_oid().value() {
+                        pg_sys::JSONOID => {
+                            let json_value = heap_tuple
+                                .get_by_name::<pgrx::datum::Json>(&root)
+                                .expect(&format!("should be able to read {}", root))?.0;
+                            json_value.pointer(&pointer).cloned()?
+                        }
+                        pg_sys::JSONBOID => {
+                            let json_value = heap_tuple
+                                .get_by_name::<pgrx::datum::JsonB>(&root)
+                                .expect(&format!("should be able to read {}", root))?.0;
+                            json_value.pointer(&pointer).cloned()?
+                        }
+                        unsupported => panic!("expected json/jsonb field, got {:?}", unsupported),
+                    };
+
+                    match field {
+                        Value::String(val) => Some(val.to_string()),
+                        val => unimplemented!(
+                            "only text fields for json/jsonb are supported for snippets"
+                        ),
+                    }
                 }
                 (root, None) => heap_tuple
                     .get_by_name(&root)

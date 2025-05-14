@@ -286,13 +286,14 @@ impl PdbScanState {
                 for (i, att) in attrs.iter().enumerate().take(natts) {
                     if att.name() == field_name {
                         // Found a match, store a clone of this field at the right position
-
                         self.exec_tuple_which_fast_fields[i] = Some(field.clone());
                         break;
                     }
                 }
             }
         }
+
+        pgrx::log!(">>> aligned fast fields from\n{which_fast_fields:#?}\nto\n{:#?}", self.exec_tuple_which_fast_fields);
     }
 
     /// Given a ctid and field name, get the corresponding value from the heap

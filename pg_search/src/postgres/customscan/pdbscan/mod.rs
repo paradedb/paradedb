@@ -236,6 +236,7 @@ impl CustomScan for PdbScan {
             };
 
             let root = builder.args().root;
+            let rel = builder.args().rel;
 
             let directory = MVCCDirectory::snapshot(bm25_index.oid());
             let index = Index::open(directory).expect("custom_scan: should be able to open index");
@@ -250,10 +251,10 @@ impl CustomScan for PdbScan {
             let limit = if (*builder.args().root).limit_tuples > -1.0 {
                 // Check if this is a single relation or a partitioned table setup
                 let rel_is_single_or_partitioned =
-                    pg_sys::bms_equal((*builder.args().rel).relids, baserels)
+                    pg_sys::bms_equal((*rel).relids, baserels)
                         || is_partitioned_table_setup(
                             builder.args().root,
-                            (*builder.args().rel).relids,
+                            (*rel).relids,
                             baserels,
                         );
 
@@ -274,14 +275,14 @@ impl CustomScan for PdbScan {
             let maybe_needs_const_projections = maybe_needs_const_projections(target_list.cast());
 
             // Get all columns referenced by this RTE throughout the entire query
-            let referenced_columns = collect_maybe_fast_field_referenced_columns(root, rti);
+            let referenced_columns = collect_maybe_fast_field_referenced_columns(root, rti, rel);
 
             // Save the count of referenced columns for decision-making
             builder
                 .custom_private()
                 .set_referenced_columns_count(referenced_columns.len());
 
-            let ff_cnt = exec_methods::fast_fields::count_fast_fields(
+            exec_methods::fast_fields::count_fast_fields(
                 &mut builder,
                 rti,
                 &table,
@@ -1329,6 +1330,8 @@ unsafe fn is_partitioned_table_setup(
 ///
 /// However, it skips full-text search operators because they're not relevant to our
 /// execution method selection.
+///
+/// TODO: Should this be an `expression_tree_walker`?
 unsafe fn collect_maybe_fast_field_vars_from_quals(
     node: *mut pg_sys::Node,
     rte_index: pg_sys::Index,
@@ -1415,6 +1418,15 @@ unsafe fn collect_maybe_fast_field_vars_from_quals(
             }
         }
 
+        pg_sys::NodeTag::T_RelabelType => {
+            let rl_type = node.cast::<pg_sys::RelabelType>();
+            collect_maybe_fast_field_vars_from_quals(
+                (*rl_type).arg as *mut pg_sys::Node,
+                rte_index,
+                columns,
+            );
+        }
+
         // Default - we don't handle other node types for simplicity
         _ => {}
     }
@@ -1432,6 +1444,7 @@ unsafe fn collect_maybe_fast_field_vars_from_quals(
 unsafe fn collect_maybe_fast_field_referenced_columns(
     root: *mut pg_sys::PlannerInfo,
     rte_index: pg_sys::Index,
+    rel: *mut pg_sys::RelOptInfo,
 ) -> HashSet<pg_sys::AttrNumber> {
     let mut referenced_columns = HashSet::new();
 
@@ -1481,11 +1494,38 @@ unsafe fn collect_maybe_fast_field_referenced_columns(
         }
     }
 
-    // Get the corresponding RTE to log column names
-    let rte = pg_sys::planner_rt_fetch(rte_index, root);
-    if !rte.is_null() && (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
-        let rel = PgRelation::with_lock((*rte).relid, pg_sys::AccessShareLock as _);
-        let tupdesc = rel.tuple_desc();
+    // Check equivalence classes.
+    if (*rel).has_eclass_joins {
+        let eq_classes = PgList::<pg_sys::EquivalenceClass>::from_pg((*root).eq_classes);
+        println!(">>> equivalence classes: {}", eq_classes.len());
+        for ec in eq_classes.iter_ptr() {
+            println!(">>>   {ec:?} contains {:?} (vs our {rte_index})", bms_iter((*ec).ec_relids).collect::<Vec<_>>());
+            if pg_sys::bms_num_members((*ec).ec_relids) < 2 as i32 {
+                // Not a join.
+                continue;
+            }
+            if !bms_iter((*ec).ec_relids).any(|ec_rte_index| ec_rte_index == rte_index as i32) {
+                // This relation is not involved.
+                continue;
+            }
+
+            // This equivalence class is a join relevant to our relation: scan all of the
+            // EquivalenceMembers.
+            println!(">>> found equivalence class: {ec:?}");
+            let eq_members = PgList::<pg_sys::EquivalenceMember>::from_pg((*ec).ec_members);
+            for em in eq_members.iter_ptr() {
+                if !bms_iter((*ec).ec_relids).any(|ec_rte_index| ec_rte_index == rte_index as i32) {
+                    // This relation is not involved.
+                    continue;
+                }
+                println!(">>> found equivalence class member: {em:?}");
+                collect_maybe_fast_field_vars_from_quals(
+                    (*em).em_expr.cast(),
+                    rte_index,
+                    &mut referenced_columns,
+                );
+            }
+        }
     }
 
     referenced_columns

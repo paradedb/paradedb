@@ -1013,7 +1013,7 @@ impl FieldName {
         self.0
     }
 
-    pub fn field(&self) -> String {
+    pub fn root(&self) -> String {
         let json_path = split_json_path(self.0.as_str());
         if json_path.len() == 1 {
             self.0.clone()

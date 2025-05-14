@@ -355,7 +355,7 @@ impl PdbScanState {
 
         let tuple_desc = PgTupleDesc::from_pg_unchecked((*heaprel).rd_att);
         let heap_tuple = PgHeapTuple::from_heap_tuple(tuple_desc.clone(), &mut htup);
-        let (index, attribute) = heap_tuple.get_attribute_by_name(&field.field()).unwrap();
+        let (index, attribute) = heap_tuple.get_attribute_by_name(&field.root()).unwrap();
 
         if pg_sys::type_is_array(attribute.type_oid().value()) {
             // varchar[] and text[] are flattened into a single string
@@ -374,7 +374,7 @@ impl PdbScanState {
             )
         } else {
             heap_tuple
-                .get_by_name(&field.field())
+                .get_by_name(&field.root())
                 .unwrap_or_else(|_| panic!("{} should exist in the heap tuple", field))
         }
     }

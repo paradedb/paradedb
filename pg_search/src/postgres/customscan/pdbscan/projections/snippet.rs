@@ -220,11 +220,6 @@ unsafe fn extract_snippet_text(
 ) -> Option<SnippetType> {
     assert!(args.len() == 4);
 
-    pgrx::info!(
-        "path is {:?}",
-        extract_json_path(args.get_ptr(0).unwrap(), (*context).oid)
-    );
-
     let field_arg = nodecast!(Var, T_Var, args.get_ptr(0).unwrap());
     let start_arg = nodecast!(Const, T_Const, args.get_ptr(1).unwrap());
     let end_arg = nodecast!(Const, T_Const, args.get_ptr(2).unwrap());

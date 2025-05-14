@@ -17,6 +17,7 @@
 
 use crate::api::index::FieldName;
 use crate::api::HashMap;
+use crate::api::operator::try_pullout_var;
 use crate::api::Varno;
 use crate::nodecast;
 use pgrx::pg_sys::NodeTag::{T_Const, T_FuncExpr, T_OpExpr, T_Var};
@@ -75,7 +76,6 @@ struct Context<'a> {
     snippet_funcoid: pg_sys::Oid,
     snippet_positions_funcoid: pg_sys::Oid,
     snippet_type: Vec<SnippetType>,
-    oid: pg_sys::Oid,
 }
 
 #[pg_extern(name = "snippet", stable, parallel_safe)]
@@ -135,7 +135,6 @@ pub unsafe fn uses_snippets(
     node: *mut pg_sys::Node,
     snippet_funcoid: pg_sys::Oid,
     snippet_positions_funcoid: pg_sys::Oid,
-    oid: pg_sys::Oid,
 ) -> Vec<SnippetType> {
     #[pg_guard]
     unsafe extern "C-unwind" fn walker(
@@ -177,40 +176,10 @@ pub unsafe fn uses_snippets(
         snippet_funcoid,
         snippet_positions_funcoid,
         snippet_type: vec![],
-        oid,
     };
 
     walker(node, addr_of_mut!(context).cast());
     context.snippet_type
-}
-
-unsafe fn extract_json_path(node: *mut pg_sys::Node, oid: pg_sys::Oid) -> Vec<String> {
-    let mut path = Vec::new();
-
-    if is_a(node, T_Var) {
-        let node = node as *mut Var;
-        let attname = pg_sys::get_attname(oid, (*node).varattno, false);
-        path.push(CStr::from_ptr(attname).to_string_lossy().into_owned());
-        return path;
-    } else if is_a(node, T_Const) {
-        let node = node as *mut Const;
-        if let Some(s) = String::from_datum((*node).constvalue, (*node).constisnull) {
-            path.push(s);
-        }
-        return path;
-    } else if is_a(node, T_FuncExpr) {
-        let node = node as *mut FuncExpr;
-        for expr in PgList::from_pg((*node).args).iter_ptr() {
-            path.extend(extract_json_path(expr, oid));
-        }
-    } else if is_a(node, T_OpExpr) {
-        let node = node as *mut OpExpr;
-        for expr in PgList::from_pg((*node).args).iter_ptr() {
-            path.extend(extract_json_path(expr, oid));
-        }
-    }
-
-    path
 }
 
 #[inline(always)]
@@ -220,7 +189,7 @@ unsafe fn extract_snippet_text(
 ) -> Option<SnippetType> {
     assert!(args.len() == 4);
 
-    let field_arg = nodecast!(Var, T_Var, args.get_ptr(0).unwrap());
+    let field_arg = try_pullout_var(args.get_ptr(0).unwrap());
     let start_arg = nodecast!(Const, T_Const, args.get_ptr(1).unwrap());
     let end_arg = nodecast!(Const, T_Const, args.get_ptr(2).unwrap());
     let max_num_chars_arg = nodecast!(Const, T_Const, args.get_ptr(3).unwrap());

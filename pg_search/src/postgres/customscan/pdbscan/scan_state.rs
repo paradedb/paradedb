@@ -251,10 +251,13 @@ impl PdbScanState {
     }
 
     pub fn make_snippet(&self, ctid: u64, snippet_type: &SnippetType) -> Option<String> {
+        pgrx::info!("make_snippet: {:?}", snippet_type);
         let text = unsafe { self.doc_from_heap(ctid, snippet_type.field())? };
+        pgrx::info!("text: {:?} for field: {:?}", text, snippet_type.field());
         let (field, generator) = self.snippet_generators.get(snippet_type)?.as_ref()?;
+        pgrx::info!("generator");
         let mut snippet = generator.snippet(&text);
-
+        pgrx::info!("snippet: {:?}", snippet);
         if let SnippetType::Text(_, _, config) = snippet_type {
             snippet.set_snippet_prefix_postfix(&config.start_tag, &config.end_tag);
         }
@@ -263,6 +266,7 @@ impl PdbScanState {
         if html.trim().is_empty() {
             None
         } else {
+            pgrx::info!("html: {:?}", html);
             Some(html)
         }
     }
@@ -373,9 +377,18 @@ impl PdbScanState {
                 .join(" "),
             )
         } else {
-            heap_tuple
-                .get_by_name(&field.root())
-                .unwrap_or_else(|_| panic!("{} should exist in the heap tuple", field))
+            match (field.root(), field.path()) {
+                (root, Some(path)) => {
+                    let value = heap_tuple
+                        .get_by_name::<pgrx::datum::JsonB>(&root)
+                        .expect(&format!("should be able to read {}", root))?;
+                    let pointer = format!("/{}", path.replace('.', "/"));
+                    value.0.pointer(&pointer).map(|v| v.to_string())
+                }
+                (root, None) => heap_tuple
+                    .get_by_name(&root)
+                    .expect(&format!("should be able to read {}", root)),
+            }
         }
     }
 }

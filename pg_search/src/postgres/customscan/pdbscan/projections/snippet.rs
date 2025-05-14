@@ -20,10 +20,9 @@ use crate::api::index::FieldName;
 use crate::api::operator::try_pullout_var;
 use crate::api::Varno;
 use crate::nodecast;
-use pgrx::pg_sys::NodeTag::{T_Const, T_FuncExpr, T_OpExpr, T_Var};
-use pgrx::pg_sys::{expression_tree_walker, Const, FuncExpr, OpExpr, Var};
+use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{
-    default, direct_function_call, extension_sql, is_a, pg_extern, pg_guard, pg_sys, AnyElement,
+    default, direct_function_call, extension_sql, pg_extern, pg_guard, pg_sys, AnyElement,
     FromDatum, IntoDatum, PgList,
 };
 use pgrx::pg_sys::NodeTag::{T_FuncExpr, T_OpExpr, T_Var, T_Const};
@@ -230,7 +229,7 @@ unsafe fn extract_snippet_positions(
 ) -> Option<SnippetType> {
     assert!(args.len() == 1);
 
-    let field_arg = nodecast!(Var, T_Var, args.get_ptr(0).unwrap());
+    let field_arg = try_pullout_var(args.get_ptr(0).unwrap());
 
     if let Some(field_arg) = field_arg {
         let attname = (*context)

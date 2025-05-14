@@ -114,7 +114,7 @@ impl MixedFastFieldExecState {
         }
 
         Self {
-            inner: FastFieldExecState::new(),
+            inner: FastFieldExecState::new(which_fast_fields),
             mixed_results: MixedAggResults::None,
             string_fields,
             numeric_fields,
@@ -254,7 +254,7 @@ impl ExecMethod for MixedFastFieldExecState {
                         }
 
                         let fast_fields = &mut self.inner.ffhelper;
-                        let which_fast_fields = &state.exec_tuple_which_fast_fields;
+                        let which_fast_fields = &self.inner.which_fast_fields;
                         let tupdesc = self.inner.tupdesc.as_ref().unwrap();
                         debug_assert!(natts == which_fast_fields.len());
 

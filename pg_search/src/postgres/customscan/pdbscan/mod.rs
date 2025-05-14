@@ -30,6 +30,7 @@ use crate::api::operator::{
 };
 use crate::api::Cardinality;
 use crate::gucs;
+use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::builders::custom_path::{
@@ -65,7 +66,7 @@ use crate::schema::SearchIndexSchema;
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
 use pgrx::pg_sys::CustomExecMethods;
 use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts, PgRelation};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::HashSet;
 use std::ffi::CStr;
 use std::ptr::addr_of_mut;
@@ -584,52 +585,6 @@ impl CustomScan for PdbScan {
                 .range_table_index()
                 .expect("range table index should have been set");
 
-            {
-                let indexrel = PgRelation::open(builder.custom_state().indexrelid);
-                let heaprel = indexrel
-                    .heap_relation()
-                    .expect("index should belong to a table");
-                let directory = MVCCDirectory::snapshot(indexrel.oid());
-                let index = Index::open(directory)
-                    .expect("create_custom_scan_state: should be able to open index");
-                let schema = SearchIndexSchema::open(index.schema(), &indexrel);
-
-                // Calculate the ordered set of fast fields which have actually been requested in
-                // the target list.
-                //
-                // In order for our planned ExecMethodType to be accurate, this must always be a
-                // subset of the fast fields which were extracted at planning time.
-                builder.custom_state().exec_tuple_which_fast_fields =
-                    exec_methods::fast_fields::collect_fast_fields(
-                        builder.custom_private().maybe_ff(),
-                        builder.target_list().as_ptr(),
-                        // At this point, all fast fields which we need to extract are listed directly
-                        // in our execution-time target list, so there is no need to extract from other
-                        // positions.
-                        &HashSet::default(),
-                        builder.custom_state().rti,
-                        &schema,
-                        &heaprel,
-                    );
-
-                let planned_which_fast_fields = builder
-                    .custom_private()
-                    .which_fast_fields()
-                    .as_ref()
-                    .unwrap();
-                let missing_fast_fields = builder
-                    .custom_state_ref()
-                    .exec_tuple_which_fast_fields
-                    .iter()
-                    .filter(|ff| !planned_which_fast_fields.contains(ff))
-                    .collect::<Vec<_>>();
-                assert!(
-                    missing_fast_fields.is_empty(),
-                    "Failed to extract all fast fields at planning time: {missing_fast_fields:?} ({planned_which_fast_fields:?} vs {:?})",
-                    builder.custom_state_ref().exec_tuple_which_fast_fields,
-                );
-            }
-
             builder.custom_state().exec_method_type =
                 builder.custom_private().exec_method_type().clone();
 
@@ -682,7 +637,7 @@ impl CustomScan for PdbScan {
             .map(|field| (field, None))
             .collect();
 
-            assign_exec_method(builder.custom_state());
+            assign_exec_method(&mut builder);
 
             builder.build()
         }
@@ -1106,40 +1061,103 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
 ///
 /// Creates and assigns the execution method which was chosen at planning time.
 ///
-/// Note that the `which_fast_fields` which are used here are the subset of the planning
-/// `which_fast_fields` that corresponds to the execution time output tuple.
-///
-fn assign_exec_method(custom_state: &mut PdbScanState) {
-    match &custom_state.exec_method_type {
-        ExecMethodType::Normal => custom_state.assign_exec_method(NormalScanExecState::default()),
+fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>) {
+    match builder.custom_state_ref().exec_method_type.clone() {
+        ExecMethodType::Normal => builder
+            .custom_state()
+            .assign_exec_method(NormalScanExecState::default()),
         ExecMethodType::TopN {
             heaprelid,
             limit,
             sort_direction,
             need_scores,
-        } => custom_state.assign_exec_method(exec_methods::top_n::TopNScanExecState::new(
-            *heaprelid,
-            *limit,
-            *sort_direction,
-            *need_scores,
-        )),
-        ExecMethodType::FastFieldString { field, .. } => custom_state.assign_exec_method(
-            exec_methods::fast_fields::string::StringFastFieldExecState::new(
-                field.to_owned(),
-                custom_state.exec_tuple_which_fast_fields.clone(),
-            ),
-        ),
-        ExecMethodType::FastFieldNumeric { .. } => custom_state.assign_exec_method(
-            exec_methods::fast_fields::numeric::NumericFastFieldExecState::new(
-                custom_state.exec_tuple_which_fast_fields.clone(),
-            ),
-        ),
-        ExecMethodType::FastFieldMixed { .. } => custom_state.assign_exec_method(
-            exec_methods::fast_fields::mixed::MixedFastFieldExecState::new(
-                custom_state.exec_tuple_which_fast_fields.clone(),
-            ),
-        ),
+        } => {
+            builder
+                .custom_state()
+                .assign_exec_method(exec_methods::top_n::TopNScanExecState::new(
+                    heaprelid,
+                    limit,
+                    sort_direction,
+                    need_scores,
+                ))
+        }
+        ExecMethodType::FastFieldString {
+            field,
+            which_fast_fields,
+        } => {
+            let which_fast_fields = compute_exec_which_fast_fields(builder, which_fast_fields);
+            builder.custom_state().assign_exec_method(
+                exec_methods::fast_fields::string::StringFastFieldExecState::new(
+                    field,
+                    which_fast_fields,
+                ),
+            )
+        }
+        ExecMethodType::FastFieldNumeric { which_fast_fields } => {
+            let which_fast_fields = compute_exec_which_fast_fields(builder, which_fast_fields);
+            builder.custom_state().assign_exec_method(
+                exec_methods::fast_fields::numeric::NumericFastFieldExecState::new(
+                    which_fast_fields,
+                ),
+            )
+        }
+        ExecMethodType::FastFieldMixed { which_fast_fields } => {
+            let which_fast_fields = compute_exec_which_fast_fields(builder, which_fast_fields);
+            builder.custom_state().assign_exec_method(
+                exec_methods::fast_fields::mixed::MixedFastFieldExecState::new(which_fast_fields),
+            )
+        }
     }
+}
+
+///
+/// Computes the execution time `which_fast_fields`, which are validated to be a subset of the
+/// planning time `which_fast_fields`.
+///
+fn compute_exec_which_fast_fields(
+    builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>,
+    planned_which_fast_fields: FxHashSet<WhichFastField>,
+) -> Vec<WhichFastField> {
+    let exec_which_fast_fields = unsafe {
+        let indexrel = PgRelation::open(builder.custom_state().indexrelid);
+        let heaprel = indexrel
+            .heap_relation()
+            .expect("index should belong to a table");
+        let directory = MVCCDirectory::snapshot(indexrel.oid());
+        let index =
+            Index::open(directory).expect("create_custom_scan_state: should be able to open index");
+        let schema = SearchIndexSchema::open(index.schema(), &indexrel);
+
+        // Calculate the ordered set of fast fields which have actually been requested in
+        // the target list.
+        //
+        // In order for our planned ExecMethodType to be accurate, this must always be a
+        // subset of the fast fields which were extracted at planning time.
+        exec_methods::fast_fields::collect_fast_fields(
+            builder.custom_private().maybe_ff(),
+            builder.target_list().as_ptr(),
+            // At this point, all fast fields which we need to extract are listed directly
+            // in our execution-time target list, so there is no need to extract from other
+            // positions.
+            &HashSet::default(),
+            builder.custom_state().rti,
+            &schema,
+            &heaprel,
+        )
+    };
+
+    let missing_fast_fields = exec_which_fast_fields
+        .iter()
+        .filter(|ff| !planned_which_fast_fields.contains(ff))
+        .collect::<Vec<_>>();
+
+    assert!(
+        missing_fast_fields.is_empty(),
+        "Failed to extract all fast fields at planning time: {missing_fast_fields:?} ({planned_which_fast_fields:?} vs {:?})",
+        exec_which_fast_fields,
+    );
+
+    exec_which_fast_fields
 }
 
 /// Use the [`VisibilityChecker`] to lookup the [`SearchIndexScore`] document in the underlying heap

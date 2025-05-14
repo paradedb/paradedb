@@ -16,7 +16,6 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::Varno;
-use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::reader::index::{SearchIndexReader, SearchResults};
 use crate::postgres::customscan::builders::custom_path::{ExecMethodType, SortDirection};
 use crate::postgres::customscan::pdbscan::exec_methods::ExecMethod;
@@ -47,10 +46,6 @@ pub struct PdbScanState {
 
     pub search_results: SearchResults,
     pub targetlist_len: usize,
-
-    // The fast fields extract from the target list at execution time: always a subset
-    // of the fast fields which were extracted during planning.
-    pub exec_tuple_which_fast_fields: Vec<WhichFastField>,
 
     pub limit: Option<usize>,
     pub sort_field: Option<String>,

@@ -833,7 +833,7 @@ mod tests {
                     value,
                     ..
                 },
-            ) => field.attname() == f && matches!(value, OwnedValue::Bool(true)),
+            ) => field.attname() == *f && matches!(value, OwnedValue::Bool(true)),
 
             // Match boolean field FALSE cases
             (
@@ -843,11 +843,11 @@ mod tests {
                     value,
                     ..
                 },
-            ) => field.attname() == f && matches!(value, OwnedValue::Bool(false)),
+            ) => field.attname() == *f && matches!(value, OwnedValue::Bool(false)),
 
             // Match IS NOT NULL
             (Qual::PushdownIsNotNull { field }, SearchQueryInput::Exists { field: f }) => {
-                field.attname() == f
+                field.attname() == *f
             }
 
             // Match AND clauses
@@ -888,7 +888,7 @@ mod tests {
                     value: OwnedValue::Bool(false),
                     ..
                 },
-            ) if matches!(**inner, Qual::PushdownVarEqTrue { field: ref a } if a.attname() == f) => {
+            ) if matches!(**inner, Qual::PushdownVarEqTrue { field: ref a } if a.attname() == *f) => {
                 true
             }
 
@@ -900,7 +900,7 @@ mod tests {
                     value: OwnedValue::Bool(true),
                     ..
                 },
-            ) if matches!(**inner, Qual::PushdownVarEqFalse { field: ref a } if a.attname() == f) => {
+            ) if matches!(**inner, Qual::PushdownVarEqFalse { field: ref a } if a.attname() == *f) => {
                 true
             }
 

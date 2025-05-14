@@ -782,13 +782,13 @@ impl SearchQueryInput {
                 }
             }
             Self::Empty => Ok(Box::new(EmptyQuery)),
-            Self::Exists { field } => Ok(Box::new(ExistsQuery::new(field.field(), false))),
+            Self::Exists { field } => Ok(Box::new(ExistsQuery::new(field.root(), false))),
             Self::FastFieldRangeWeight {
                 field,
                 lower_bound,
                 upper_bound,
             } => {
-                let field = field.field();
+                let field = field.root();
                 let field = field_lookup
                     .as_u64(&field)
                     .or_else(|| field_lookup.as_i64(&field))
@@ -818,7 +818,7 @@ impl SearchQueryInput {
                 transposition_cost_one,
                 prefix,
             } => {
-                let (field, path) = (field.field(), field.path());
+                let (field, path) = (field.root(), field.path());
                 let (field_type, _, field) = field_lookup
                     .as_field_type(&field)
                     .ok_or(QueryError::NonIndexedField(field))?;
@@ -854,7 +854,7 @@ impl SearchQueryInput {
                 prefix,
                 conjunction_mode,
             } => {
-                let (field, path) = (field.field(), field.path());
+                let (field, path) = (field.root(), field.path());
                 let distance = distance.unwrap_or(0);
                 let transposition_cost_one = transposition_cost_one.unwrap_or(true);
                 let conjunction_mode = conjunction_mode.unwrap_or(false);
@@ -989,7 +989,7 @@ impl SearchQueryInput {
                 phrases,
                 max_expansions,
             } => {
-                let (field, path) = (field.field(), field.path());
+                let (field, path) = (field.root(), field.path());
                 let (field_type, _, field) = field_lookup
                     .as_field_type(&field)
                     .ok_or(QueryError::NonIndexedField(field))?;
@@ -1049,7 +1049,7 @@ impl SearchQueryInput {
                 phrases,
                 slop,
             } => {
-                let (field, path) = (field.field(), field.path());
+                let (field, path) = (field.root(), field.path());
                 let (field_type, _, field) = field_lookup
                     .as_field_type(&field)
                     .ok_or(QueryError::NonIndexedField(field))?;
@@ -1075,7 +1075,7 @@ impl SearchQueryInput {
                 upper_bound,
                 is_datetime,
             } => {
-                let (field, path) = (field.field(), field.path());
+                let (field, path) = (field.root(), field.path());
                 let field_name = field;
                 let (field_type, typeoid, field) = field_lookup
                     .as_field_type(&field_name)
@@ -1132,7 +1132,7 @@ impl SearchQueryInput {
                 upper_bound,
                 is_datetime,
             } => {
-                let field = field.field();
+                let field = field.root();
                 let (_, typeoid, _) = field_lookup
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::NonIndexedField(field.clone()))?;
@@ -1293,7 +1293,7 @@ impl SearchQueryInput {
                 is_datetime,
                 ..
             } => {
-                let field = field.field();
+                let field = field.root();
                 let (_, typeoid, _) = field_lookup
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::NonIndexedField(field.clone()))?;
@@ -1465,7 +1465,7 @@ impl SearchQueryInput {
                 value,
                 is_datetime,
             } => {
-                let field = field.field();
+                let field = field.root();
                 let range_field = RangeField::new(
                     field_lookup
                         .as_json_object(&field)
@@ -1573,7 +1573,7 @@ impl SearchQueryInput {
                 upper_bound,
                 is_datetime,
             } => {
-                let field = field.field();
+                let field = field.root();
                 let (_, typeoid, _) = field_lookup
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::NonIndexedField(field.clone()))?;
@@ -1739,7 +1739,7 @@ impl SearchQueryInput {
                 }
             }
             Self::Regex { field, pattern } => {
-                let field = field.field();
+                let field = field.root();
                 Ok(Box::new(
                     RegexQuery::from_pattern(
                         &pattern,
@@ -1756,7 +1756,7 @@ impl SearchQueryInput {
                 slop,
                 max_expansions,
             } => {
-                let field = field.field();
+                let field = field.root();
                 let (_, _, field) = field_lookup
                     .as_field_type(&field)
                     .ok_or(QueryError::NonIndexedField(field))?;
@@ -1779,7 +1779,7 @@ impl SearchQueryInput {
             } => {
                 let record_option = IndexRecordOption::WithFreqsAndPositions;
                 if let Some(field) = field {
-                    let (field, path) = (field.field(), field.path());
+                    let (field, path) = (field.root(), field.path());
                     let (field_type, typeoid, field) = field_lookup
                         .as_field_type(&field)
                         .ok_or(QueryError::NonIndexedField(field))?;
@@ -1812,7 +1812,7 @@ impl SearchQueryInput {
                     is_datetime,
                 } in fields
                 {
-                    let (field, path) = (field.field(), field.path());
+                    let (field, path) = (field.root(), field.path());
                     let (field_type, typeoid, field) = field_lookup
                         .as_field_type(&field)
                         .ok_or(QueryError::NonIndexedField(field))?;

@@ -45,6 +45,23 @@ impl Display for TestTable {
     }
 }
 
+#[derive(PostgresEnum, Serialize)]
+pub enum TestTableCreateMode {
+    TableAndRows,
+    TableOnly,
+    RowsOnly,
+}
+
+impl Display for TestTableCreateMode {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        match self {
+            TestTableCreateMode::TableAndRows => write!(f, "TableAndRows"),
+            TestTableCreateMode::TableOnly => write!(f, "TableOnly"),
+            TestTableCreateMode::RowsOnly => write!(f, "RowsOnly"),
+        }
+    }
+}
+
 type MockDeliveryRow = (
     i32,
     Range<i32>,
@@ -56,17 +73,19 @@ type MockDeliveryRow = (
 );
 
 #[pg_extern(sql = "
-CREATE OR REPLACE PROCEDURE paradedb.create_bm25_test_table(table_name VARCHAR DEFAULT 'bm25_test_table', schema_name VARCHAR DEFAULT 'paradedb', table_type paradedb.TestTable DEFAULT 'Items')
+CREATE OR REPLACE PROCEDURE paradedb.create_bm25_test_table(table_name VARCHAR DEFAULT 'bm25_test_table', schema_name VARCHAR DEFAULT 'paradedb', table_type paradedb.TestTable DEFAULT 'Items', create_mode paradedb.TestTableCreateMode DEFAULT 'TableAndRows')
 LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
 ", requires = [ TestTable ])]
 fn create_bm25_test_table(
     table_name: Option<&str>,
     schema_name: Option<&str>,
     table_type: Option<TestTable>,
+    create_mode: Option<TestTableCreateMode>,
 ) -> Result<()> {
     let table_name = table_name.unwrap_or("bm25_test_table");
     let schema_name = schema_name.unwrap_or("paradedb");
     let table_type = table_type.unwrap_or(TestTable::Items);
+    let create_mode = create_mode.unwrap_or(TestTableCreateMode::TableAndRows);
     let full_table_name = format!("{}.{}", schema_name, table_name);
 
     Spi::connect_mut(|client| {
@@ -89,7 +108,12 @@ fn create_bm25_test_table(
             )?
             .is_empty();
 
-        if table_not_found {
+        // Create the table.
+        if matches!(
+            create_mode,
+            TestTableCreateMode::TableAndRows | TestTableCreateMode::TableOnly
+        ) && table_not_found
+        {
             match table_type {
                 TestTable::Items => {
                     client.update(
@@ -111,7 +135,81 @@ fn create_bm25_test_table(
                         None,
                         &[],
                     )?;
+                }
+                TestTable::Orders => {
+                    client.update(
+                        &format!(
+                            "CREATE TABLE {} (
+                                order_id SERIAL PRIMARY KEY,
+                                product_id INTEGER NOT NULL,
+                                order_quantity INTEGER NOT NULL,
+                                order_total DECIMAL(10, 2) NOT NULL,
+                                customer_name VARCHAR(255) NOT NULL
+                            )",
+                            full_table_name
+                        ),
+                        None,
+                        &[],
+                    )?;
+                }
+                TestTable::Parts => {
+                    client.update(
+                        &format!(
+                            "CREATE TABLE {} (
+                                part_id SERIAL PRIMARY KEY,
+                                parent_part_id INTEGER NOT NULL,
+                                description VARCHAR(255) NOT NULL
+                            )",
+                            full_table_name
+                        ),
+                        None,
+                        &[],
+                    )?;
+                }
+                TestTable::Deliveries => {
+                    client.update(
+                        &format!(
+                            "CREATE TABLE {} (
+                                delivery_id SERIAL PRIMARY KEY,
+                                weights INT4RANGE,
+                                quantities INT8RANGE,
+                                prices NUMRANGE,
+                                ship_dates DATERANGE,
+                                facility_arrival_times TSRANGE,
+                                delivery_times TSTZRANGE
+                            )",
+                            full_table_name
+                        ),
+                        None,
+                        &[],
+                    )?;
+                }
+                TestTable::Customers => {
+                    client.update(
+                        &format!(
+                            "CREATE TABLE {} (
+                                id SERIAL PRIMARY KEY,
+                                name TEXT,
+                                crm_data JSONB
+                            )",
+                            full_table_name
+                        ),
+                        None,
+                        &[],
+                    )?;
+                }
+            }
+        } else if !matches!(create_mode, TestTableCreateMode::RowsOnly) {
+            pgrx::warning!("The table {} already exists, skipping.", full_table_name);
+        }
 
+        // Create the rows.
+        if matches!(
+            create_mode,
+            TestTableCreateMode::TableAndRows | TestTableCreateMode::RowsOnly
+        ) {
+            match table_type {
+                TestTable::Items => {
                     for record in mock_items_data() {
                         client.update(
                             &format!(
@@ -134,21 +232,6 @@ fn create_bm25_test_table(
                     }
                 }
                 TestTable::Orders => {
-                    client.update(
-                        &format!(
-                            "CREATE TABLE {} (
-                                order_id SERIAL PRIMARY KEY,
-                                product_id INTEGER NOT NULL,
-                                order_quantity INTEGER NOT NULL,
-                                order_total DECIMAL(10, 2) NOT NULL,
-                                customer_name VARCHAR(255) NOT NULL
-                            )",
-                            full_table_name
-                        ),
-                        None,
-                        &[],
-                    )?;
-
                     for record in mock_orders_data() {
                         client.update(
                             &format!(
@@ -166,19 +249,6 @@ fn create_bm25_test_table(
                     }
                 }
                 TestTable::Parts => {
-                    client.update(
-                        &format!(
-                            "CREATE TABLE {} (
-                                part_id SERIAL PRIMARY KEY,
-                                parent_part_id INTEGER NOT NULL,
-                                description VARCHAR(255) NOT NULL
-                            )",
-                            full_table_name
-                        ),
-                        None,
-                        &[],
-                    )?;
-
                     for record in mock_parts_data() {
                         client.update(
                             &format!(
@@ -195,23 +265,6 @@ fn create_bm25_test_table(
                     }
                 }
                 TestTable::Deliveries => {
-                    client.update(
-                        &format!(
-                            "CREATE TABLE {} (
-                                delivery_id SERIAL PRIMARY KEY,
-                                weights INT4RANGE,
-                                quantities INT8RANGE,
-                                prices NUMRANGE,
-                                ship_dates DATERANGE,
-                                facility_arrival_times TSRANGE,
-                                delivery_times TSTZRANGE
-                            )",
-                            full_table_name
-                        ),
-                        None,
-                        &[],
-                    )?;
-
                     for record in mock_deliveries_data() {
                         client.update(
                             &format!(
@@ -231,21 +284,7 @@ fn create_bm25_test_table(
                         )?;
                     }
                 }
-                // Then in the match statement, add the Customers variant:
                 TestTable::Customers => {
-                    client.update(
-                        &format!(
-                            "CREATE TABLE {} (
-                id SERIAL PRIMARY KEY,
-                name TEXT,
-                crm_data JSONB
-            )",
-                            full_table_name
-                        ),
-                        None,
-                        &[],
-                    )?;
-
                     for record in mock_customers_data() {
                         client.update(
                             &format!(
@@ -258,8 +297,6 @@ fn create_bm25_test_table(
                     }
                 }
             }
-        } else {
-            pgrx::warning!("The table {} already exists, skipping.", full_table_name);
         }
 
         client.update(

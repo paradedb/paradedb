@@ -33,17 +33,36 @@ pub struct SimpleProductsTable {
 
 impl SimpleProductsTable {
     pub fn setup() -> String {
-        SIMPLE_PRODUCTS_TABLE_SETUP.into()
+        format!(
+            r#"
+            BEGIN;
+                CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
+                {CREATE_INDEX}
+            COMMIT;
+            "#
+        )
+    }
+
+    ///
+    /// Similar to `setup`, but ensures that multiple segments are created.
+    ///
+    pub fn setup_multi_segment() -> String {
+        // Create the table, then the index, and then finally insert the rows.
+        format!(
+            r#"
+            BEGIN;
+                CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb', create_mode => 'TableOnly');
+                {CREATE_INDEX}
+                CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb', create_mode => 'RowsOnly');
+            COMMIT;
+            "#
+        )
     }
 }
 
-static SIMPLE_PRODUCTS_TABLE_SETUP: &str = r#"
-BEGIN;
-    CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
-
-    CREATE INDEX bm25_search_bm25_index
-    ON paradedb.bm25_search
-    USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
-    WITH (key_field='id');
-COMMIT;
+static CREATE_INDEX: &str = r#"
+CREATE INDEX bm25_search_bm25_index
+ON paradedb.bm25_search
+USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
+WITH (key_field='id');
 "#;

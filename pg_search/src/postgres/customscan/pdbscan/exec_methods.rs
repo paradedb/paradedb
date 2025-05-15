@@ -24,7 +24,7 @@ use pgrx::pg_sys;
 use tantivy::{DocAddress, Score};
 
 pub enum ExecState {
-    RequiresVisibilityCheck {
+    Ctid {
         ctid: u64,
         score: Score,
         doc_address: DocAddress,
@@ -63,10 +63,6 @@ pub trait ExecMethod {
                 other => return other,
             }
         }
-    }
-
-    fn increment_visible(&mut self) {
-        // default of noop
     }
 
     fn internal_next(&mut self, state: &mut PdbScanState) -> ExecState;

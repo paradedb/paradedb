@@ -662,20 +662,27 @@ impl CustomScan for PdbScan {
         );
 
         if explainer.is_analyze() {
-            explainer.add_unsigned_integer(
-                "Heap Fetches",
-                state.custom_state().heap_tuple_check_count as u64,
-                None,
-            );
+            if let Some(visibility_checker) = state.custom_state().visibility_checker.as_ref() {
+                explainer.add_unsigned_integer(
+                    "Heap Fetches",
+                    visibility_checker.heap_tuple_fetch_count() as u64,
+                    None,
+                );
+                explainer.add_unsigned_integer(
+                    "Heap Checks",
+                    visibility_checker.heap_tuple_check_count() as u64,
+                    None,
+                );
+                explainer.add_unsigned_integer(
+                    "Heap Invisible Tuples",
+                    visibility_checker.invisible_tuple_count() as u64,
+                    None,
+                );
+            }
             if explainer.is_verbose() {
                 explainer.add_unsigned_integer(
                     "Virtual Tuples",
                     state.custom_state().virtual_tuple_count as u64,
-                    None,
-                );
-                explainer.add_unsigned_integer(
-                    "Invisible Tuples",
-                    state.custom_state().invisible_tuple_count as u64,
                     None,
                 );
             }
@@ -710,13 +717,6 @@ impl CustomScan for PdbScan {
 
         if let Some(limit) = state.custom_state().limit {
             explainer.add_unsigned_integer("   Top N Limit", limit as u64, None);
-            if explainer.is_analyze() && state.custom_state().retry_count > 0 {
-                explainer.add_unsigned_integer(
-                    "   Invisible Tuple Retries",
-                    state.custom_state().retry_count as u64,
-                    None,
-                );
-            }
         }
 
         let json_query = serde_json::to_string(&state.custom_state().search_query_input)
@@ -850,25 +850,15 @@ impl CustomScan for PdbScan {
                 }
 
                 // SearchResults found a match
-                ExecState::RequiresVisibilityCheck {
+                ExecState::Ctid {
                     ctid,
                     score,
                     doc_address,
                 } => {
                     unsafe {
-                        let slot = match check_visibility(state, ctid, state.scanslot().cast()) {
-                            // the ctid is visible
-                            Some(slot) => {
-                                exec_method.increment_visible();
-                                state.custom_state_mut().heap_tuple_check_count += 1;
-                                slot
-                            }
-
+                        let Some(slot) = fetch_ctid(state, ctid, state.scanslot().cast()) else {
                             // the ctid is not visible
-                            None => {
-                                state.custom_state_mut().invisible_tuple_count += 1;
-                                continue;
-                            }
+                            continue;
                         };
 
                         if !state.custom_state().need_scores()
@@ -1075,7 +1065,6 @@ fn assign_exec_method(custom_state: &mut PdbScanState) {
             sort_direction,
             need_scores,
         } => custom_state.assign_exec_method(exec_methods::top_n::TopNScanExecState::new(
-            *heaprelid,
             *limit,
             *sort_direction,
             *need_scores,
@@ -1106,7 +1095,7 @@ fn assign_exec_method(custom_state: &mut PdbScanState) {
 /// Use the [`VisibilityChecker`] to lookup the [`SearchIndexScore`] document in the underlying heap
 /// and if it exists return a formed [`TupleTableSlot`].
 #[inline(always)]
-fn check_visibility(
+fn fetch_ctid(
     state: &mut CustomScanStateWrapper<PdbScan>,
     ctid: u64,
     bslot: *mut pg_sys::BufferHeapTupleTableSlot,

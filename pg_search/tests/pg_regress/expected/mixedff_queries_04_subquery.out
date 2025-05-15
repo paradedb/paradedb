@@ -131,12 +131,10 @@ ORDER BY invoice_file_count DESC, d.id;
                        Table: files
                        Index: files_search
                        Segment Count: 2
-                       Exec Method: StringFastFieldExecState
-                       Fast Fields: documentid
-                       String Agg Field: documentid
+                       Exec Method: NormalScanExecState
                        Scores: false
                        Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Invoice","lenient":null,"conjunction_mode":null}}}},{}]}}
-(20 rows)
+(18 rows)
 
 -- Test with subquery
 SELECT d.id, d.title, d.parents,
@@ -151,7 +149,7 @@ ORDER BY invoice_file_count DESC, d.id;
   id  |    title     | parents  | invoice_file_count 
 ------+--------------+----------+--------------------
  doc1 | Invoice 2023 | Factures |                  2
- doc2 | Receipt 2023 | Factures |                  2
+ doc2 | Receipt 2023 | Factures |                  0
 (2 rows)
 
 \i common/mixedff_queries_cleanup.sql

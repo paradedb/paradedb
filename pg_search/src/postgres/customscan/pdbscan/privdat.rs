@@ -22,7 +22,7 @@ use crate::postgres::customscan::pdbscan::ExecMethodType;
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::{pg_sys, PgList};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Serialize, Deserialize)]
@@ -36,9 +36,12 @@ pub struct PrivateData {
     sort_direction: Option<SortDirection>,
     #[serde(with = "var_attname_lookup_serializer")]
     var_attname_lookup: Option<FxHashMap<(Varno, pg_sys::AttrNumber), String>>,
-    maybe_ff: bool,
     segment_count: usize,
-    which_fast_fields: Option<Vec<WhichFastField>>,
+    // The fast fields which were identified during planning time as potentially being
+    // needed at execution time. In order for our planning-time-chosen ExecMethodType to be
+    // accurate, this must always be a superset of the fields extracted from the execution
+    // time target list.
+    planned_which_fast_fields: Option<FxHashSet<WhichFastField>>,
     target_list_len: Option<usize>,
     referenced_columns_count: usize,
     need_scores: bool,
@@ -185,16 +188,15 @@ impl PrivateData {
         self.var_attname_lookup = Some(var_attname_lookup);
     }
 
-    pub fn set_maybe_ff(&mut self, maybe: bool) {
-        self.maybe_ff = maybe;
-    }
-
     pub fn set_segment_count(&mut self, segment_count: usize) {
         self.segment_count = segment_count;
     }
 
-    pub fn set_which_fast_fields(&mut self, which_fast_fields: Vec<WhichFastField>) {
-        self.which_fast_fields = Some(which_fast_fields);
+    pub fn set_planned_which_fast_fields(
+        &mut self,
+        planned_which_fast_fields: FxHashSet<WhichFastField>,
+    ) {
+        self.planned_which_fast_fields = Some(planned_which_fast_fields);
     }
 
     pub fn set_exec_method_type(&mut self, exec_method_type: ExecMethodType) {
@@ -259,15 +261,16 @@ impl PrivateData {
     }
 
     pub fn maybe_ff(&self) -> bool {
-        self.maybe_ff
+        // If we have planned fast fields, then maybe we can use them!
+        !self.planned_which_fast_fields.as_ref().unwrap().is_empty()
     }
 
     pub fn segment_count(&self) -> usize {
         self.segment_count
     }
 
-    pub fn which_fast_fields(&self) -> &Option<Vec<WhichFastField>> {
-        &self.which_fast_fields
+    pub fn planned_which_fast_fields(&self) -> &Option<FxHashSet<WhichFastField>> {
+        &self.planned_which_fast_fields
     }
 
     pub fn exec_method_type(&self) -> &ExecMethodType {

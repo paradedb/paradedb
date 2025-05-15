@@ -14,7 +14,10 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
-use std::fmt::Display;
+
+use std::fmt::{Debug, Display};
+
+use proptest::prelude::*;
 
 pub trait SqlValue {
     fn to_sql_literal(&self) -> String;
@@ -26,124 +29,69 @@ impl<D: Display> SqlValue for D {
     }
 }
 
-#[derive(Clone)]
-pub enum Expr<V: Clone + Eq> {
-    Atom(usize, V), // column index, literal
+#[derive(Clone, Debug)]
+pub enum Expr<V: Clone + Debug + Eq> {
+    Atom(String, V), // column name, literal
     Not(Box<Expr<V>>),
     And(Box<Expr<V>>, Box<Expr<V>>),
     Or(Box<Expr<V>>, Box<Expr<V>>),
 }
 
-impl<V: Clone + Eq + SqlValue> Expr<V> {
-    fn eval(&self, row: &[V]) -> bool {
+impl<V: Clone + Debug + Eq + SqlValue> Expr<V> {
+    pub fn to_sql(&self, op: &str) -> String {
         match self {
-            Expr::Atom(i, v) => &row[*i] == v,
-            Expr::Not(e) => !e.eval(row),
-            Expr::And(l, r) => l.eval(row) && r.eval(row),
-            Expr::Or(l, r) => l.eval(row) || r.eval(row),
-        }
-    }
-
-    fn to_sql(&self, op: &str, cols: &[String]) -> String {
-        match self {
-            Expr::Atom(i, v) => {
-                format!("{} {op} {}", cols[*i], v.to_sql_literal())
+            Expr::Atom(col, v) => {
+                format!("{} {op} {}", col, v.to_sql_literal())
             }
             Expr::Not(e) => {
-                format!("NOT ({})", e.to_sql(op, cols))
+                format!("NOT ({})", e.to_sql(op))
             }
             Expr::And(l, r) => {
-                format!("({}) AND ({})", l.to_sql(op, cols), r.to_sql(op, cols))
+                format!("({}) AND ({})", l.to_sql(op), r.to_sql(op))
             }
             Expr::Or(l, r) => {
-                format!("({}) OR ({})", l.to_sql(op, cols), r.to_sql(op, cols))
+                format!("({}) OR ({})", l.to_sql(op), r.to_sql(op))
             }
         }
     }
 }
 
-pub struct WhereGenerator<V: Clone + Eq + SqlValue> {
-    cols: Vec<String>,
-    row: Vec<V>,
-    op: String,
-    size_to_exprs: Vec<Vec<Expr<V>>>,
-    current_size: usize,
-    current_index: usize,
-}
+pub fn arb_wheres<V: Clone + Debug + Eq + SqlValue + 'static>(
+    tables: Vec<impl AsRef<str>>,
+    columns: Vec<(impl AsRef<str>, V)>,
+) -> impl Strategy<Value = Expr<V>> {
+    let tables = tables
+        .into_iter()
+        .map(|t| t.as_ref().to_owned())
+        .collect::<Vec<_>>();
+    let columns = columns
+        .into_iter()
+        .map(|(c, value)| (c.as_ref().to_owned(), value))
+        .collect::<Vec<_>>();
 
-impl<V: Clone + Eq + SqlValue> WhereGenerator<V> {
-    pub fn new(operator: &str, data: Vec<(impl AsRef<str>, V)>) -> Self {
-        // size 1 = the atomic predicates for each column, on that row
-        let atoms = (0..data.len())
-            .map(|i| Expr::Atom(i, data[i].1.clone()))
-            .collect();
+    // leaves: the atomic predicate. select a table, and a column.
+    let atom = proptest::sample::select(tables).prop_flat_map(move |table| {
+        proptest::sample::select::<Expr<V>>(
+            columns
+                .iter()
+                .map(|(col, val)| Expr::Atom(format!("{table}.{col}"), val.clone()))
+                .collect::<Vec<_>>(),
+        )
+    });
 
-        let mut cols = Vec::with_capacity(data.len());
-        let mut row = Vec::with_capacity(data.len());
-        for (col, value) in data {
-            cols.push(col.as_ref().to_string());
-            row.push(value);
-        }
-
-        WhereGenerator {
-            cols,
-            row,
-            op: operator.to_string(),
-            size_to_exprs: vec![Vec::new(), atoms],
-            current_size: 1,
-            current_index: 0,
-        }
-    }
-
-    /// Produce _all_ Expr of the given `size`, by
-    /// - unary: `NOT` of every expr of size size−1  
-    /// - binary: for every split `i + j + 1 == size`, combine size-i and size-j with `AND` and `OR`
-    fn build_size(&self, size: usize) -> Vec<Expr<V>> {
-        let mut out = Vec::new();
-        // unary NOT
-        for e in &self.size_to_exprs[size - 1] {
-            out.push(Expr::Not(Box::new(e.clone())));
-        }
-        // binary AND/OR
-        for i in 1..size - 1 {
-            let j = size - 1 - i;
-            for left in &self.size_to_exprs[i] {
-                for right in &self.size_to_exprs[j] {
-                    out.push(Expr::And(Box::new(left.clone()), Box::new(right.clone())));
-                    out.push(Expr::Or(Box::new(left.clone()), Box::new(right.clone())));
-                }
-            }
-        }
-        out
-    }
-}
-
-impl<V: Clone + Eq + SqlValue> Iterator for WhereGenerator<V> {
-    type Item = String;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            // ensure size bucket exists
-            if self.current_size >= self.size_to_exprs.len() {
-                let exprs = self.build_size(self.current_size);
-                self.size_to_exprs.push(exprs);
-            }
-
-            let bucket = &self.size_to_exprs[self.current_size];
-            if self.current_index < bucket.len() {
-                let expr = &bucket[self.current_index];
-                self.current_index += 1;
-
-                // only yield it if it actually matches our target row
-                if expr.eval(&self.row) {
-                    return Some(expr.to_sql(&self.op, &self.cols));
-                }
-                // otherwise skip it
-            } else {
-                // advance to next size
-                self.current_size += 1;
-                self.current_index = 0;
-            }
-        }
-    }
+    // inner nodes
+    atom.prop_recursive(
+        5, // target depth
+        8, // target total size
+        3, // expected size of each node
+        |child| {
+            prop_oneof![
+                child.clone().prop_map(|c| Expr::Not(Box::new(c.clone()))),
+                (child.clone(), child.clone())
+                    .prop_map(|(l, r)| Expr::And(Box::new(l), Box::new(r))),
+                (child.clone(), child.clone())
+                    .prop_map(|(l, r)| Expr::Or(Box::new(l), Box::new(r))),
+            ]
+        },
+    )
 }

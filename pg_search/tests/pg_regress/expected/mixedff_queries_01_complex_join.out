@@ -140,8 +140,8 @@ ORDER BY d.id, f.id, p.id;
                            Index: files_search
                            Segment Count: 2
                            Exec Method: MixedFastFieldExecState
-                           Fast Fields: file_path, id, title
-                           String Fast Fields: file_path, id, title
+                           Fast Fields: documentid, file_path, id, title
+                           String Fast Fields: documentid, file_path, id, title
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Receipt","lenient":null,"conjunction_mode":null}}}}
          ->  Custom Scan (ParadeDB Scan) on pages p
@@ -205,12 +205,10 @@ LIMIT 10;
                                  Table: files
                                  Index: files_search
                                  Segment Count: 2
-                                 Exec Method: StringFastFieldExecState
-                                 Fast Fields: id
-                                 String Agg Field: id
+                                 Exec Method: MixedFastFieldExecState
+                                 Fast Fields: documentid, id
+                                 String Fast Fields: documentid, id
                                  Scores: false
-                                    Sort Field: id
-                                    Sort Direction: asc
                                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Receipt","lenient":null,"conjunction_mode":null}}}}
                      ->  Sort
                            Sort Key: pages.fileid
@@ -225,10 +223,14 @@ LIMIT 10;
                      Table: documents
                      Index: documents_search
                      Segment Count: 2
-                     Exec Method: NormalScanExecState
+                     Exec Method: StringFastFieldExecState
+                     Fast Fields: id
+                     String Agg Field: id
                      Scores: false
+                        Sort Field: id
+                        Sort Direction: asc
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Factures","lenient":null,"conjunction_mode":null}}}}
-(37 rows)
+(39 rows)
 
 DROP TABLE IF EXISTS pages CASCADE;
 CREATE TABLE pages (
@@ -336,42 +338,44 @@ JOIN files ON documents.id = files.documentId
 JOIN pages ON pages.fileId = files.id
 WHERE documents.parents @@@ 'Factures' AND files.title @@@ 'Receipt' AND pages.content @@@ 'Socienty'
 LIMIT 10;
-                                                                                   QUERY PLAN                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                QUERY PLAN                                                                                
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Hash Join
-         Hash Cond: (documents.id = files.documentid)
-         ->  Custom Scan (ParadeDB Scan) on documents
-               Table: documents
-               Index: documents_search
-               Segment Count: 16
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Factures","lenient":null,"conjunction_mode":null}}}}
-         ->  Hash
-               ->  Hash Join
-                     Hash Cond: (pages.fileid = files.id)
-                     ->  Custom Scan (ParadeDB Scan) on pages
-                           Table: pages
-                           Index: pages_search
-                           Segment Count: 15
+         Hash Cond: (files.documentid = documents.id)
+         ->  Hash Join
+               Hash Cond: (pages.fileid = files.id)
+               ->  Custom Scan (ParadeDB Scan) on pages
+                     Table: pages
+                     Index: pages_search
+                     Segment Count: 8
+                     Exec Method: MixedFastFieldExecState
+                     Fast Fields: content, fileid, page_number
+                     String Fast Fields: content, fileid
+                     Numeric Fast Fields: page_number
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
+               ->  Hash
+                     ->  Custom Scan (ParadeDB Scan) on files
+                           Table: files
+                           Index: files_search
+                           Segment Count: 8
                            Exec Method: MixedFastFieldExecState
-                           Fast Fields: content, fileid, page_number
-                           String Fast Fields: content, fileid
-                           Numeric Fast Fields: page_number
+                           Fast Fields: documentid, id
+                           String Fast Fields: documentid, id
                            Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
-                     ->  Hash
-                           ->  Custom Scan (ParadeDB Scan) on files
-                                 Table: files
-                                 Index: files_search
-                                 Segment Count: 16
-                                 Exec Method: StringFastFieldExecState
-                                 Fast Fields: id
-                                 String Agg Field: id
-                                 Scores: false
-                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Receipt","lenient":null,"conjunction_mode":null}}}}
-(33 rows)
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Receipt","lenient":null,"conjunction_mode":null}}}}
+         ->  Hash
+               ->  Custom Scan (ParadeDB Scan) on documents
+                     Table: documents
+                     Index: documents_search
+                     Segment Count: 8
+                     Exec Method: StringFastFieldExecState
+                     Fast Fields: id
+                     String Agg Field: id
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Factures","lenient":null,"conjunction_mode":null}}}}
+(35 rows)
 
 \i common/mixedff_queries_cleanup.sql
 -- Cleanup for relational query tests (07-10)

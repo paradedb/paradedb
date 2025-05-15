@@ -1,0 +1,10 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc f72c048460d617ea52434bea9a1267d8df9208b7223cf3659954885f177cd0f2 # shrinks to (join, where_expr) = (JoinExpr { sql: "FROM users CROSS JOIN products", .. }, Or(Not(Atom("users.id", "3")), Atom("products.id", "3")))
+cc 8c21c606da860748226e7c0947c721e9182e5aa3984f03b778f6fd95344d2c94 # shrinks to (join, where_expr) = (JoinExpr { sql: "FROM products JOIN orders ON products.name = orders.name", .. }, Or(And(Atom("products.name", "bob"), Atom("products.id", "3")), Not(Atom("orders.id", "3")))), target_list = ["age"]
+cc b33b5d9a0b23c471963c2ab6580012fe97de890660ca480bffc18165af774fe7 # shrinks to (join, where_expr) = (JoinExpr { sql: "FROM users JOIN orders ON users.color = orders.color", .. }, Not(Not(And(Atom("users.color", "blue"), Atom("users.id", "3"))))), target_list = ["age"]
+cc 1f6666372781b50f0844cbbc1e19248b69c42de14a8458aaa5ac9f1202fc5452 # shrinks to (join, where_expr) = (JoinExpr { sql: "FROM users JOIN orders ON users.name = orders.name", .. }, And(Atom("users.id", "3"), Or(Atom("users.id", "3"), Atom("users.id", "3")))), target_list = ["color", "age"]

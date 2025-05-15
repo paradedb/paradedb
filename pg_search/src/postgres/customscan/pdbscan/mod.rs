@@ -276,15 +276,6 @@ impl CustomScan for PdbScan {
                 .custom_private()
                 .set_referenced_columns_count(referenced_columns.len());
 
-            exec_methods::fast_fields::count_fast_fields(
-                &mut builder,
-                rti,
-                &table,
-                &schema,
-                target_list,
-                &referenced_columns,
-            );
-            let maybe_ff = builder.custom_private().maybe_ff();
             let is_topn = limit.is_some() && pathkey.is_some();
 
             // When collecting which_fast_fields, analyze the entire set of referenced columns,
@@ -293,7 +284,6 @@ impl CustomScan for PdbScan {
             // execution-time target list: see `assign_exec_method` for more info.
             builder.custom_private().set_planned_which_fast_fields(
                 exec_methods::fast_fields::collect_fast_fields(
-                    maybe_ff,
                     target_list,
                     &referenced_columns,
                     rti,
@@ -303,6 +293,7 @@ impl CustomScan for PdbScan {
                 .into_iter()
                 .collect(),
             );
+            let maybe_ff = builder.custom_private().maybe_ff();
 
             //
             // look for quals we can support
@@ -1167,7 +1158,6 @@ fn compute_exec_which_fast_fields(
         // In order for our planned ExecMethodType to be accurate, this must always be a
         // subset of the fast fields which were extracted at planning time.
         exec_methods::fast_fields::collect_fast_fields(
-            builder.custom_private().maybe_ff(),
             builder.target_list().as_ptr(),
             // At this point, all fast fields which we need to extract are listed directly
             // in our execution-time target list, so there is no need to extract from other

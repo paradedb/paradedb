@@ -23,7 +23,6 @@ use crate::index::fast_fields_helper::{FFHelper, FastFieldType, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{SearchIndexReader, SearchIndexScore, SearchResults};
 use crate::nodecast;
-use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
@@ -162,41 +161,20 @@ unsafe fn ff_to_datum(
     }
 }
 
-/// Count how many "fast fields" are requested to be used by the query, as described by the `builder` argument.
-pub unsafe fn count_fast_fields(
-    builder: &mut CustomPathBuilder<PrivateData>,
-    rti: pg_sys::Index,
-    table: &PgRelation,
-    schema: &SearchIndexSchema,
-    target_list: *mut pg_sys::List,
-    referenced_columns: &HashSet<pg_sys::AttrNumber>,
-) -> f64 {
-    let ff =
-        pullup_fast_fields(target_list, referenced_columns, schema, table, rti).unwrap_or_default();
-
-    builder.custom_private().set_maybe_ff(!ff.is_empty());
-    ff.iter().sorted().dedup().count() as f64
-}
-
 /// Find all the fields that can be used as "fast fields", categorize them as [`WhichFastField`]s,
 /// and return the list. If there are none, or one or more of the fields can't be used as a
 /// "fast field", we return [`None`].
 pub unsafe fn collect_fast_fields(
-    maybe_ff: bool,
     target_list: *mut pg_sys::List,
     referenced_columns: &HashSet<pg_sys::AttrNumber>,
     rti: pg_sys::Index,
     schema: &SearchIndexSchema,
     heaprel: &PgRelation,
 ) -> Vec<WhichFastField> {
-    if maybe_ff {
-        let fast_fields = pullup_fast_fields(target_list, referenced_columns, schema, heaprel, rti);
-        fast_fields
-            .filter(|fast_fields| !fast_fields.is_empty())
-            .unwrap_or_default()
-    } else {
-        Default::default()
-    }
+    let fast_fields = pullup_fast_fields(target_list, referenced_columns, schema, heaprel, rti);
+    fast_fields
+        .filter(|fast_fields| !fast_fields.is_empty())
+        .unwrap_or_default()
 }
 
 // Helper function to process an attribute number and add a fast field if appropriate

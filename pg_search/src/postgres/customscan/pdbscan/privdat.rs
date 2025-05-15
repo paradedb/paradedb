@@ -36,7 +36,6 @@ pub struct PrivateData {
     sort_direction: Option<SortDirection>,
     #[serde(with = "var_attname_lookup_serializer")]
     var_attname_lookup: Option<FxHashMap<(Varno, pg_sys::AttrNumber), String>>,
-    maybe_ff: bool,
     segment_count: usize,
     // The fast fields which were identified during planning time as potentially being
     // needed at execution time. In order for our planning-time-chosen ExecMethodType to be
@@ -189,10 +188,6 @@ impl PrivateData {
         self.var_attname_lookup = Some(var_attname_lookup);
     }
 
-    pub fn set_maybe_ff(&mut self, maybe: bool) {
-        self.maybe_ff = maybe;
-    }
-
     pub fn set_segment_count(&mut self, segment_count: usize) {
         self.segment_count = segment_count;
     }
@@ -266,7 +261,8 @@ impl PrivateData {
     }
 
     pub fn maybe_ff(&self) -> bool {
-        self.maybe_ff
+        // If we have planned fast fields, then maybe we can use them!
+        !self.planned_which_fast_fields.as_ref().unwrap().is_empty()
     }
 
     pub fn segment_count(&self) -> usize {

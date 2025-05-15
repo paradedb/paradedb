@@ -1061,6 +1061,10 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
 ///
 /// Creates and assigns the execution method which was chosen at planning time.
 ///
+/// TODO: This method currently has a fallback to the `Normal` execution mode for rare cases where
+/// the execution time target list actually contains _fewer_ fast fields than we expected at
+/// planning time. See #TODO-ISSUE-NUMBER
+///
 fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>) {
     match builder.custom_state_ref().exec_method_type.clone() {
         ExecMethodType::Normal => builder
@@ -1085,27 +1089,50 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>
             field,
             which_fast_fields,
         } => {
-            let which_fast_fields = compute_exec_which_fast_fields(builder, which_fast_fields);
-            builder.custom_state().assign_exec_method(
-                exec_methods::fast_fields::string::StringFastFieldExecState::new(
-                    field,
-                    which_fast_fields,
-                ),
-            )
+            if let Some(which_fast_fields) =
+                compute_exec_which_fast_fields(builder, which_fast_fields)
+            {
+                builder.custom_state().assign_exec_method(
+                    exec_methods::fast_fields::string::StringFastFieldExecState::new(
+                        field,
+                        which_fast_fields,
+                    ),
+                )
+            } else {
+                builder
+                    .custom_state()
+                    .assign_exec_method(NormalScanExecState::default())
+            }
         }
         ExecMethodType::FastFieldNumeric { which_fast_fields } => {
-            let which_fast_fields = compute_exec_which_fast_fields(builder, which_fast_fields);
-            builder.custom_state().assign_exec_method(
-                exec_methods::fast_fields::numeric::NumericFastFieldExecState::new(
-                    which_fast_fields,
-                ),
-            )
+            if let Some(which_fast_fields) =
+                compute_exec_which_fast_fields(builder, which_fast_fields)
+            {
+                builder.custom_state().assign_exec_method(
+                    exec_methods::fast_fields::numeric::NumericFastFieldExecState::new(
+                        which_fast_fields,
+                    ),
+                )
+            } else {
+                builder
+                    .custom_state()
+                    .assign_exec_method(NormalScanExecState::default())
+            }
         }
         ExecMethodType::FastFieldMixed { which_fast_fields } => {
-            let which_fast_fields = compute_exec_which_fast_fields(builder, which_fast_fields);
-            builder.custom_state().assign_exec_method(
-                exec_methods::fast_fields::mixed::MixedFastFieldExecState::new(which_fast_fields),
-            )
+            if let Some(which_fast_fields) =
+                compute_exec_which_fast_fields(builder, which_fast_fields)
+            {
+                builder.custom_state().assign_exec_method(
+                    exec_methods::fast_fields::mixed::MixedFastFieldExecState::new(
+                        which_fast_fields,
+                    ),
+                )
+            } else {
+                builder
+                    .custom_state()
+                    .assign_exec_method(NormalScanExecState::default())
+            }
         }
     }
 }
@@ -1114,10 +1141,12 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>
 /// Computes the execution time `which_fast_fields`, which are validated to be a subset of the
 /// planning time `which_fast_fields`.
 ///
+/// TODO: See the note on `assign_exec_method`.
+///
 fn compute_exec_which_fast_fields(
     builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>,
     planned_which_fast_fields: FxHashSet<WhichFastField>,
-) -> Vec<WhichFastField> {
+) -> Option<Vec<WhichFastField>> {
     let exec_which_fast_fields = unsafe {
         let indexrel = PgRelation::open(builder.custom_state().indexrelid);
         let heaprel = indexrel
@@ -1151,13 +1180,22 @@ fn compute_exec_which_fast_fields(
         .filter(|ff| !planned_which_fast_fields.contains(ff))
         .collect::<Vec<_>>();
 
+    if exec_which_fast_fields.len() != builder.target_list().len() {
+        pgrx::warning!(
+            "Did not extract as many fast fields as we expected to: \
+             got {exec_which_fast_fields:?}, but expected {} items.",
+            builder.target_list().len()
+        );
+        return None;
+    }
+
     assert!(
         missing_fast_fields.is_empty(),
         "Failed to extract all fast fields at planning time: {missing_fast_fields:?} ({planned_which_fast_fields:?} vs {:?})",
         exec_which_fast_fields,
     );
 
-    exec_which_fast_fields
+    Some(exec_which_fast_fields)
 }
 
 /// Use the [`VisibilityChecker`] to lookup the [`SearchIndexScore`] document in the underlying heap

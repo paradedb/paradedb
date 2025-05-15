@@ -26,12 +26,11 @@ mod scan_state;
 mod solve_expr;
 
 use crate::api::operator::{
-    anyelement_query_input_opoid, anyelement_query_input_procoid, anyelement_text_opoid,
-    anyelement_text_procoid, attname_from_var, estimate_selectivity, find_var_relation,
-    parse_with_field_procoid, searchqueryinput_typoid,
+    anyelement_query_input_opoid, attname_from_var, estimate_selectivity, find_var_relation,
 };
 use crate::api::Cardinality;
 use crate::gucs;
+use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::builders::custom_path::{
@@ -67,7 +66,7 @@ use crate::schema::SearchIndexSchema;
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
 use pgrx::pg_sys::CustomExecMethods;
 use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts, PgRelation};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::HashSet;
 use std::ffi::CStr;
 use std::ptr::addr_of_mut;
@@ -236,6 +235,7 @@ impl CustomScan for PdbScan {
             };
 
             let root = builder.args().root;
+            let rel = builder.args().rel;
 
             let directory = MVCCDirectory::snapshot(bm25_index.oid());
             let index = Index::open(directory).expect("custom_scan: should be able to open index");
@@ -249,13 +249,8 @@ impl CustomScan for PdbScan {
 
             let limit = if (*builder.args().root).limit_tuples > -1.0 {
                 // Check if this is a single relation or a partitioned table setup
-                let rel_is_single_or_partitioned =
-                    pg_sys::bms_equal((*builder.args().rel).relids, baserels)
-                        || is_partitioned_table_setup(
-                            builder.args().root,
-                            (*builder.args().rel).relids,
-                            baserels,
-                        );
+                let rel_is_single_or_partitioned = pg_sys::bms_equal((*rel).relids, baserels)
+                    || is_partitioned_table_setup(builder.args().root, (*rel).relids, baserels);
 
                 if rel_is_single_or_partitioned {
                     // We can use the limit for estimates if:
@@ -274,36 +269,31 @@ impl CustomScan for PdbScan {
             let maybe_needs_const_projections = maybe_needs_const_projections(target_list.cast());
 
             // Get all columns referenced by this RTE throughout the entire query
-            let referenced_columns = collect_maybe_fast_field_referenced_columns(root, rti);
+            let referenced_columns = collect_maybe_fast_field_referenced_columns(rti, rel);
 
             // Save the count of referenced columns for decision-making
             builder
                 .custom_private()
                 .set_referenced_columns_count(referenced_columns.len());
 
-            let ff_cnt = exec_methods::fast_fields::count_fast_fields(
-                &mut builder,
-                rti,
-                &table,
-                &schema,
-                target_list,
-                &referenced_columns,
-            );
-            let maybe_ff = builder.custom_private().maybe_ff();
             let is_topn = limit.is_some() && pathkey.is_some();
 
-            // When collecting which_fast_fields, analyze the entire set of referenced columns
-            // not just those in the target list, to avoid execution-time surprises
-            builder.custom_private().set_which_fast_fields(
+            // When collecting which_fast_fields, analyze the entire set of referenced columns,
+            // not just those in the target list. To avoid execution-time surprises, the "planned"
+            // fast fields must be a superset of the fast fields which are extracted from the
+            // execution-time target list: see `assign_exec_method` for more info.
+            builder.custom_private().set_planned_which_fast_fields(
                 exec_methods::fast_fields::collect_fast_fields(
-                    maybe_ff,
                     target_list,
                     &referenced_columns,
                     rti,
                     &schema,
                     &table,
-                ),
+                )
+                .into_iter()
+                .collect(),
             );
+            let maybe_ff = builder.custom_private().maybe_ff();
 
             //
             // look for quals we can support
@@ -590,9 +580,6 @@ impl CustomScan for PdbScan {
             builder.custom_state().exec_method_type =
                 builder.custom_private().exec_method_type().clone();
 
-            builder.custom_state().planned_which_fast_fields =
-                builder.custom_private().which_fast_fields().clone();
-
             builder.custom_state().targetlist_len = builder.target_list().len();
 
             // information about if we're sorted by score and our limit
@@ -642,7 +629,7 @@ impl CustomScan for PdbScan {
             .map(|field| (field, None))
             .collect();
 
-            assign_exec_method(builder.custom_state());
+            assign_exec_method(&mut builder);
 
             builder.build()
         }
@@ -784,9 +771,6 @@ impl CustomScan for PdbScan {
 
             // and finally, get the custom scan itself properly initialized
             let tupdesc = state.custom_state().heaptupdesc();
-            state
-                .custom_state_mut()
-                .align_fast_fields_with_tuple_descriptor(&*tupdesc);
             pg_sys::ExecInitScanTupleSlot(
                 estate,
                 addr_of_mut!(state.csstate.ss),
@@ -1040,20 +1024,20 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
         if fast_fields::is_numeric_fast_field_capable(privdata) {
             // Check for numeric-only fast fields first because they're more selective
             ExecMethodType::FastFieldNumeric {
-                which_fast_fields: privdata.which_fast_fields().clone().unwrap_or_default(),
+                which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
             }
         } else if let Some(field) = fast_fields::is_string_agg_capable(privdata) {
             // Check for string-only fast fields next
             ExecMethodType::FastFieldString {
                 field,
-                which_fast_fields: privdata.which_fast_fields().clone().unwrap_or_default(),
+                which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
             }
         } else if fast_fields::is_mixed_fast_field_capable(privdata) {
             // Check if mixed fast field executor is enabled
             if gucs::is_mixed_fast_field_exec_enabled() {
                 // Use MixedFastFieldExec if enabled
                 ExecMethodType::FastFieldMixed {
-                    which_fast_fields: privdata.which_fast_fields().clone().unwrap_or_default(),
+                    which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
                 }
             } else {
                 // Fall back to normal execution
@@ -1066,41 +1050,151 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
     }
 }
 
-fn assign_exec_method(custom_state: &mut PdbScanState) {
-    match &custom_state.exec_method_type {
-        ExecMethodType::Normal => custom_state.assign_exec_method(NormalScanExecState::default()),
+///
+/// Creates and assigns the execution method which was chosen at planning time.
+///
+/// TODO: See #2576. This method currently has fallbacks to the `Normal` execution mode for rare
+/// cases where:
+/// 1. the execution time target list contains more columns than we have been able to extract fast
+///    fields for
+/// 2. we failed to extract the superset of fields during planning time which was needed at
+///    execution time.
+///
+fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>) {
+    match builder.custom_state_ref().exec_method_type.clone() {
+        ExecMethodType::Normal => builder
+            .custom_state()
+            .assign_exec_method(NormalScanExecState::default()),
         ExecMethodType::TopN {
             heaprelid,
             limit,
             sort_direction,
             need_scores,
-        } => custom_state.assign_exec_method(exec_methods::top_n::TopNScanExecState::new(
-            *heaprelid,
-            *limit,
-            *sort_direction,
-            *need_scores,
-        )),
+        } => {
+            builder
+                .custom_state()
+                .assign_exec_method(exec_methods::top_n::TopNScanExecState::new(
+                    heaprelid,
+                    limit,
+                    sort_direction,
+                    need_scores,
+                ))
+        }
         ExecMethodType::FastFieldString {
             field,
             which_fast_fields,
-        } => custom_state.assign_exec_method(
-            exec_methods::fast_fields::string::StringFastFieldExecState::new(
-                field.to_owned(),
-                which_fast_fields.clone(),
-            ),
-        ),
-        ExecMethodType::FastFieldNumeric { which_fast_fields } => custom_state.assign_exec_method(
-            exec_methods::fast_fields::numeric::NumericFastFieldExecState::new(
-                which_fast_fields.clone(),
-            ),
-        ),
-        // Check for mixed fast fields
-        ExecMethodType::FastFieldMixed { which_fast_fields } => custom_state.assign_exec_method(
-            exec_methods::fast_fields::mixed::MixedFastFieldExecState::new(
-                which_fast_fields.clone(),
-            ),
-        ),
+        } => {
+            if let Some(which_fast_fields) =
+                compute_exec_which_fast_fields(builder, which_fast_fields)
+            {
+                builder.custom_state().assign_exec_method(
+                    exec_methods::fast_fields::string::StringFastFieldExecState::new(
+                        field,
+                        which_fast_fields,
+                    ),
+                )
+            } else {
+                builder
+                    .custom_state()
+                    .assign_exec_method(NormalScanExecState::default())
+            }
+        }
+        ExecMethodType::FastFieldNumeric { which_fast_fields } => {
+            if let Some(which_fast_fields) =
+                compute_exec_which_fast_fields(builder, which_fast_fields)
+            {
+                builder.custom_state().assign_exec_method(
+                    exec_methods::fast_fields::numeric::NumericFastFieldExecState::new(
+                        which_fast_fields,
+                    ),
+                )
+            } else {
+                builder
+                    .custom_state()
+                    .assign_exec_method(NormalScanExecState::default())
+            }
+        }
+        ExecMethodType::FastFieldMixed { which_fast_fields } => {
+            if let Some(which_fast_fields) =
+                compute_exec_which_fast_fields(builder, which_fast_fields)
+            {
+                builder.custom_state().assign_exec_method(
+                    exec_methods::fast_fields::mixed::MixedFastFieldExecState::new(
+                        which_fast_fields,
+                    ),
+                )
+            } else {
+                builder
+                    .custom_state()
+                    .assign_exec_method(NormalScanExecState::default())
+            }
+        }
     }
+}
+
+///
+/// Computes the execution time `which_fast_fields`, which are validated to be a subset of the
+/// planning time `which_fast_fields`.
+///
+/// TODO: See the note on `assign_exec_method`.
+///
+fn compute_exec_which_fast_fields(
+    builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>,
+    planned_which_fast_fields: FxHashSet<WhichFastField>,
+) -> Option<Vec<WhichFastField>> {
+    let exec_which_fast_fields = unsafe {
+        let indexrel = PgRelation::open(builder.custom_state().indexrelid);
+        let heaprel = indexrel
+            .heap_relation()
+            .expect("index should belong to a table");
+        let directory = MVCCDirectory::snapshot(indexrel.oid());
+        let index =
+            Index::open(directory).expect("create_custom_scan_state: should be able to open index");
+        let schema = SearchIndexSchema::open(index.schema(), &indexrel);
+
+        // Calculate the ordered set of fast fields which have actually been requested in
+        // the target list.
+        //
+        // In order for our planned ExecMethodType to be accurate, this must always be a
+        // subset of the fast fields which were extracted at planning time.
+        exec_methods::fast_fields::collect_fast_fields(
+            builder.target_list().as_ptr(),
+            // At this point, all fast fields which we need to extract are listed directly
+            // in our execution-time target list, so there is no need to extract from other
+            // positions.
+            &HashSet::default(),
+            builder.custom_state().rti,
+            &schema,
+            &heaprel,
+        )
+    };
+
+    // TODO: We would like this check to be stronger, in order to rule out certain types of
+    // confusion where some target list entries involve multiple fast fields. See #2576.
+    if exec_which_fast_fields.len() != builder.target_list().len() {
+        pgrx::log!(
+            "Expected to extract {} fast fields, but only found: {exec_which_fast_fields:?}. \
+             Falling back to Normal execution.",
+            builder.target_list().len()
+        );
+        return None;
+    }
+
+    let missing_fast_fields = exec_which_fast_fields
+        .iter()
+        .filter(|ff| !planned_which_fast_fields.contains(ff))
+        .collect::<Vec<_>>();
+
+    if !missing_fast_fields.is_empty() {
+        pgrx::log!(
+            "Failed to extract all fast fields at planning time: \
+             was missing {missing_fast_fields:?} from {planned_which_fast_fields:?} \
+             Falling back to Normal execution.",
+        );
+        return None;
+    }
+
+    Some(exec_which_fast_fields)
 }
 
 /// Use the [`VisibilityChecker`] to lookup the [`SearchIndexScore`] document in the underlying heap
@@ -1321,171 +1415,29 @@ unsafe fn is_partitioned_table_setup(
     false
 }
 
-/// Simplified helper to collect Var nodes from a quals expression
-///
-/// This function recursively navigates through expression trees in search of column
-/// references (Var nodes) that match the given RTE index. It's used to identify all
-/// columns referenced throughout a query (WHERE clauses, JOIN conditions, etc.)
-///
-/// However, it skips full-text search operators because they're not relevant to our
-/// execution method selection.
-unsafe fn collect_maybe_fast_field_vars_from_quals(
-    node: *mut pg_sys::Node,
-    rte_index: pg_sys::Index,
-    columns: &mut HashSet<pg_sys::AttrNumber>,
-) {
-    if node.is_null() {
-        return;
-    }
-
-    // Expr types we know are relevant
-    match (*node).type_ {
-        // Handle Lists - which can contain qualifier expressions
-        pg_sys::NodeTag::T_List => {
-            let list = PgList::<pg_sys::Node>::from_pg(node.cast());
-
-            for item in list.iter_ptr() {
-                collect_maybe_fast_field_vars_from_quals(
-                    item as *mut pg_sys::Node,
-                    rte_index,
-                    columns,
-                );
-            }
-        }
-
-        // Handle OpExpr, BoolExpr, etc.
-        pg_sys::NodeTag::T_OpExpr => {
-            let opexpr = node.cast::<pg_sys::OpExpr>();
-
-            // Check if this is one of our full-text search operators
-            let is_fulltext_op = (*opexpr).opno == anyelement_query_input_opoid()
-                || (*opexpr).opno == anyelement_text_opoid()
-                || (*opexpr).opno == searchqueryinput_typoid()
-                || (*opexpr).opno == anyelement_query_input_opoid()
-                || (*opexpr).opno == anyelement_text_opoid()
-                || (*opexpr).opno == anyelement_text_procoid()
-                || (*opexpr).opno == anyelement_query_input_procoid()
-                || (*opexpr).opno == parse_with_field_procoid();
-
-            if is_fulltext_op {
-                // Skip collection of variables for our fulltext operators
-                return;
-            }
-
-            let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
-            for arg in args.iter_ptr() {
-                collect_maybe_fast_field_vars_from_quals(
-                    arg as *mut pg_sys::Node,
-                    rte_index,
-                    columns,
-                );
-            }
-        }
-
-        pg_sys::NodeTag::T_BoolExpr => {
-            let boolexpr = node.cast::<pg_sys::BoolExpr>();
-            let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
-            for arg in args.iter_ptr() {
-                collect_maybe_fast_field_vars_from_quals(
-                    arg as *mut pg_sys::Node,
-                    rte_index,
-                    columns,
-                );
-            }
-        }
-
-        // Handle function calls
-        pg_sys::NodeTag::T_FuncExpr => {
-            let funcexpr = node.cast::<pg_sys::FuncExpr>();
-            let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-            for arg in args.iter_ptr() {
-                collect_maybe_fast_field_vars_from_quals(
-                    arg as *mut pg_sys::Node,
-                    rte_index,
-                    columns,
-                );
-            }
-        }
-
-        // Direct Var references
-        pg_sys::NodeTag::T_Var => {
-            let var = node.cast::<pg_sys::Var>();
-            if (*var).varno as u32 == rte_index {
-                columns.insert((*var).varattno);
-            }
-        }
-
-        // Default - we don't handle other node types for simplicity
-        _ => {}
-    }
-}
-
 /// Gather all columns referenced by the specified RTE (Range Table Entry) throughout the query.
 /// This gives us a more complete picture than just looking at the target list.
 ///
-/// This function is critical for issue #2505 where we need to detect all columns used in JOIN
+/// This function is critical for issue #2505/#2556 where we need to detect all columns used in JOIN
 /// conditions to ensure we select the right execution method. Previously, only looking at the
 /// target list would miss columns referenced in JOIN conditions, leading to execution-time errors.
-///
-/// However, it skips full-text search operators because they're not relevant to our
-/// execution method selection.
 unsafe fn collect_maybe_fast_field_referenced_columns(
-    root: *mut pg_sys::PlannerInfo,
     rte_index: pg_sys::Index,
+    rel: *mut pg_sys::RelOptInfo,
 ) -> HashSet<pg_sys::AttrNumber> {
     let mut referenced_columns = HashSet::new();
 
-    // First check the target list (columns in SELECT)
-    let target_list = (*(*root).parse).targetList;
-    let tlist = PgList::<pg_sys::TargetEntry>::from_pg(target_list);
-
-    // Process all Var nodes in the target list
-    for te in tlist.iter_ptr() {
-        if let Some(var) = nodecast!(Var, T_Var, (*te).expr) {
+    // Check reltarget exprs.
+    let reltarget_exprs = PgList::<pg_sys::Expr>::from_pg((*(*rel).reltarget).exprs);
+    for rte in reltarget_exprs.iter_ptr() {
+        if let Some(var) = nodecast!(Var, T_Var, rte) {
             if (*var).varno as u32 == rte_index {
                 referenced_columns.insert((*var).varattno);
             }
         }
-    }
-
-    // Check WHERE clause from jointree
-    if !(*(*root).parse).jointree.is_null() {
-        let jointree = &*(*(*root).parse).jointree;
-        if !jointree.quals.is_null() {
-            collect_maybe_fast_field_vars_from_quals(
-                jointree.quals,
-                rte_index,
-                &mut referenced_columns,
-            );
-        }
-
-        // Also check join info - this is important for JOIN conditions!
-        if !jointree.fromlist.is_null() {
-            let fromlist = PgList::<pg_sys::Node>::from_pg(jointree.fromlist);
-
-            for from_item in fromlist.iter_ptr() {
-                // Check if it's a JOIN node
-                if (*from_item).type_ == pg_sys::NodeTag::T_JoinExpr {
-                    let join_expr = from_item.cast::<pg_sys::JoinExpr>();
-
-                    // Examine join quals
-                    if !(*join_expr).quals.is_null() {
-                        collect_maybe_fast_field_vars_from_quals(
-                            (*join_expr).quals,
-                            rte_index,
-                            &mut referenced_columns,
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    // Get the corresponding RTE to log column names
-    let rte = pg_sys::planner_rt_fetch(rte_index, root);
-    if !rte.is_null() && (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
-        let rel = PgRelation::with_lock((*rte).relid, pg_sys::AccessShareLock as _);
-        let tupdesc = rel.tuple_desc();
+        // NOTE: Unless we encounter the second type of fallback in `assign_exec_method`, then we
+        // can be reasonably confident that directly inspecting Vars is sufficient. We haven't seen
+        // it yet in the wild.
     }
 
     referenced_columns

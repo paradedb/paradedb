@@ -159,11 +159,11 @@ async fn generated_join_queries(database: Db) {
             }
 
             let pg = format!(
-                "{from} WHERE {}",
+                "{from} WHERE {};",
                 pg_where_clauses.join(&format!(" {connector} "))
             );
             let bm25 = format!(
-                "{from} WHERE {}",
+                "{from} WHERE {};",
                 bm25_where_clauses.join(&format!(" {connector} ")),
             );
 
@@ -182,10 +182,9 @@ async fn generated_join_queries(database: Db) {
         });
     }
 
-    // TODO:  turn this into a panic! once the actual bugs here are fixed
     let errors = errors.into_inner();
     if !errors.is_empty() {
-        eprintln!("{setup_sql}\n{errors}");
+        panic!("{setup_sql}\n{errors}");
     }
 }
 

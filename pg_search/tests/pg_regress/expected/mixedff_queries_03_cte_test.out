@@ -140,7 +140,7 @@ ORDER BY document_title, file_title, page_number;
            Table: documents
            Index: documents_search
            Segment Count: 2
-           Exec Method: MixedFastFieldExecState
+           Exec Method: NormalScanExecState
            Fast Fields: id, parents, title
            String Fast Fields: id, parents, title
            Scores: false

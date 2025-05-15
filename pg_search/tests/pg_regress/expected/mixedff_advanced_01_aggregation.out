@@ -343,10 +343,11 @@ WHERE content @@@ 'Socienty';
          Table: pages
          Index: pages_search
          Segment Count: 1
-         Exec Method: NormalScanExecState
+         Exec Method: NumericFastFieldExecState
+         Fast Fields: page_number
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
-(8 rows)
+(9 rows)
 
 -- Test other aggregations
 SELECT 

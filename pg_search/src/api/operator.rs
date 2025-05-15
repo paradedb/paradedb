@@ -433,47 +433,10 @@ pub unsafe fn find_vars(node: *mut pg_sys::Node) -> Vec<*mut pg_sys::Var> {
     data.vars
 }
 
-/// Given a [`pg_sys::PlannerInfo`] and a [`pg_sys::Var`] from it, figure out the name of the `Var`
-///
-/// # Return
-///
-/// Returns the heap relation [`pg_sys::Oid`] that contains the `Var` along with its name.
-pub unsafe fn attname_from_var(
-    heaprelid: pg_sys::Oid,
-    var: *mut pg_sys::Var,
-    varattno: pg_sys::AttrNumber,
-) -> Option<FieldName> {
-    if (*var).varattno == 0 {
-        return None;
-    }
-    let heaprel = PgRelation::open(heaprelid);
-    let tupdesc = heaprel.tuple_desc();
-    if varattno == pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber {
-        Some("ctid".into())
-    } else {
-        tupdesc
-            .get(varattno as usize - 1)
-            .map(|attribute| attribute.name().into())
-    }
-}
-
-pub unsafe fn try_pullout_var(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {
-    unsafe fn pullout_var_inner(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {
-        if is_a(node, T_Var) {
-            Some(node.cast::<Var>())
-        } else if is_a(node, T_OpExpr) {
-            let node = node as *mut OpExpr;
-            for expr in PgList::from_pg((*node).args).iter_ptr() {
-                if let Some(var) = pullout_var_inner(expr) {
-                    return Some(var);
-                }
-            }
-            None
-        } else {
-            None
-        }
-    }
-
+pub unsafe fn try_pullout_var_and_fieldname(
+    root: *mut pg_sys::PlannerInfo,
+    node: *mut pg_sys::Node,
+) -> Option<(*mut pg_sys::Var, FieldName)> {
     if is_a(node, T_OpExpr) {
         let opexpr = node.cast::<OpExpr>();
         static JSON_OPERATOR_LOOKUP: OnceLock<FxHashSet<pg_sys::Oid>> = OnceLock::new();
@@ -481,43 +444,39 @@ pub unsafe fn try_pullout_var(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Va
             .get_or_init(|| initialize_json_operator_lookup())
             .contains(&(*opexpr).opno)
         {
-            return pullout_var_inner(node);
+            let var = try_pullout_var(node)?;
+            let path = pullout_json_path(root, node);
+            return Some((var, path.join(".").into()));
         }
         None
-    } else if is_a(node, T_Var) {
-        Some(node.cast::<Var>())
-    } else {
-        None
-    }
-}
-
-pub unsafe fn fieldname_from_node(
-    root: *mut pg_sys::PlannerInfo,
-    node: *mut pg_sys::Node,
-) -> Option<FieldName> {
-    if is_a(node, T_OpExpr) {
-        let opexpr = node.cast::<OpExpr>();
-
-        static JSON_OPERATOR_LOOKUP: OnceLock<FxHashSet<pg_sys::Oid>> = OnceLock::new();
-        let lookup = JSON_OPERATOR_LOOKUP.get_or_init(|| initialize_json_operator_lookup());
-
-        if !lookup.contains(&(*opexpr).opno) {
-            return None;
-        }
-
-        let path = extract_json_path(root, node);
-        Some(path.join(".").into())
     } else if is_a(node, T_Var) {
         let var = node.cast::<Var>();
         let (heaprelid, varattno, _) = find_var_relation(var, root);
-        attname_from_var(heaprelid, var, varattno)
+        Some((var, attname_from_var(heaprelid, var, varattno)?))
     } else {
         None
     }
 }
 
 #[inline(always)]
-unsafe fn extract_json_path(
+pub unsafe fn try_pullout_var(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {
+    if is_a(node, T_Var) {
+        Some(node.cast::<Var>())
+    } else if is_a(node, T_OpExpr) {
+        let node = node as *mut OpExpr;
+        for expr in PgList::from_pg((*node).args).iter_ptr() {
+            if let Some(var) = try_pullout_var(expr) {
+                return Some(var);
+            }
+        }
+        None
+    } else {
+        None
+    }
+}
+
+#[inline(always)]
+unsafe fn pullout_json_path(
     root: *mut pg_sys::PlannerInfo,
     node: *mut pg_sys::Node,
 ) -> Vec<String> {
@@ -538,13 +497,34 @@ unsafe fn extract_json_path(
     } else if is_a(node, T_OpExpr) {
         let node = node as *mut OpExpr;
         for expr in PgList::from_pg((*node).args).iter_ptr() {
-            path.extend(extract_json_path(root, expr));
+            path.extend(pullout_json_path(root, expr));
         }
     }
 
     path
 }
 
+#[inline(always)]
+pub unsafe fn attname_from_var(
+    heaprelid: pg_sys::Oid,
+    var: *mut pg_sys::Var,
+    varattno: pg_sys::AttrNumber,
+) -> Option<FieldName> {
+    if (*var).varattno == 0 {
+        return None;
+    }
+    let heaprel = PgRelation::open(heaprelid);
+    let tupdesc = heaprel.tuple_desc();
+    if varattno == pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber {
+        Some("ctid".into())
+    } else {
+        tupdesc
+            .get(varattno as usize - 1)
+            .map(|attribute| attribute.name().into())
+    }
+}
+
+#[inline(always)]
 unsafe fn initialize_json_operator_lookup() -> FxHashSet<pg_sys::Oid> {
     const OPERATORS: [&str; 2] = ["->", "->>"];
     const TYPE_PAIRS: &[[&str; 2]] = &[

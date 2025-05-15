@@ -19,7 +19,9 @@ pub mod score;
 pub mod snippet;
 
 use crate::api::index::FieldName;
-use crate::api::operator::{fieldname_from_node, find_vars, try_pullout_var, ReturnedNodePointer};
+use crate::api::operator::{
+    find_vars, try_pullout_var, try_pullout_var_and_fieldname, ReturnedNodePointer,
+};
 use crate::api::HashMap;
 use crate::api::Varno;
 use crate::nodecast;
@@ -148,14 +150,9 @@ pub unsafe fn pullout_funcexprs(
             if data.funcids.contains(&(*funcexpr).funcid) {
                 let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
                 for arg in args.iter_ptr() {
-                    if let Some(var) = try_pullout_var(arg) {
+                    if let Some((var, fieldname)) = try_pullout_var_and_fieldname(data.root, arg) {
                         if (*var).varno as i32 == data.rti as i32 {
-                            data.matches.push((
-                                funcexpr,
-                                var,
-                                fieldname_from_node(data.root, arg)
-                                    .expect("function call argument should be a column name"),
-                            ));
+                            data.matches.push((funcexpr, var, fieldname));
                         }
                     }
                 }

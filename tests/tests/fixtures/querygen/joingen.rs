@@ -14,9 +14,15 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
-use std::fmt::{self, Display};
 
-#[derive(Clone, Debug)]
+use std::collections::HashMap;
+use std::fmt::{self, Debug, Display, Formatter};
+
+use proptest::prelude::*;
+use proptest::sample;
+use proptest_derive::Arbitrary;
+
+#[derive(Arbitrary, Copy, Clone, Debug)]
 pub enum JoinType {
     Inner,
     Left,
@@ -41,185 +47,121 @@ impl Display for JoinType {
 #[derive(Clone, Debug)]
 struct JoinStep {
     join_type: JoinType,
-    table_idx: usize,
-    on_left_table: Option<usize>,
+    table: String,
+    on_left_table: Option<String>,
     on_left_col: Option<String>,
     on_right_col: Option<String>,
 }
 
-#[derive(Clone, Debug)]
-struct JoinExpr {
-    initial_table: usize,
+#[derive(Clone)]
+pub struct JoinExpr {
+    initial_table: String,
     steps: Vec<JoinStep>,
 }
 
 impl JoinExpr {
-    fn used_tables(&self) -> Vec<usize> {
+    pub fn used_tables(&self) -> Vec<&str> {
         let mut v = Vec::with_capacity(1 + self.steps.len());
-        v.push(self.initial_table);
+        v.push(self.initial_table.as_str());
         for s in &self.steps {
-            v.push(s.table_idx);
+            v.push(s.table.as_str());
         }
         v
     }
 
     /// Render as a SQL fragment, e.g.
     /// `FROM t0 JOIN t1 ON t0.a = t1.b LEFT JOIN t2 ON t1.x = t2.y ...`
-    fn to_sql(&self, names: &[String]) -> (String, Vec<String>) {
-        let mut used = Vec::new();
-        let mut sql = format!("FROM {}", names[self.initial_table]);
-        used.push(names[self.initial_table].clone());
+    pub fn to_sql(&self) -> String {
+        let mut join_clause = format!("FROM {}", self.initial_table);
 
         for step in &self.steps {
-            sql.push(' ');
-            sql.push_str(&step.join_type.to_string());
-            sql.push(' ');
-            sql.push_str(&names[step.table_idx]);
-            used.push(names[step.table_idx].clone()); // rhs
+            join_clause.push(' ');
+            join_clause.push_str(&step.join_type.to_string());
+            join_clause.push(' ');
+            join_clause.push_str(&step.table);
             if let JoinType::Cross = step.join_type {
                 // no ON clause
             } else {
-                let lt = step.on_left_table.unwrap();
+                let lt = step.on_left_table.as_ref().unwrap();
                 let lc = step.on_left_col.as_ref().unwrap();
                 let rc = step.on_right_col.as_ref().unwrap();
-                sql.push_str(&format!(
-                    " ON {}.{} = {}.{}",
-                    names[lt], lc, names[step.table_idx], rc
-                ));
-                used.push(names[lt].clone()); // lhs
-                used.push(names[step.table_idx].clone()); // rhs
+                join_clause.push_str(&format!(" ON {}.{} = {}.{}", lt, lc, step.table, rc));
             }
         }
-        (sql, used)
+
+        join_clause
     }
 }
 
-/// The generator itself.  On each `next()` it returns one more `JoinExpr.to_sql(...)`.
-pub struct JoinGenerator {
-    table_names: Vec<String>,
-    table_cols: Vec<Vec<String>>,
-    size_to_exprs: Vec<Vec<JoinExpr>>,
-    current_size: usize,
-    current_index: usize,
+impl Debug for JoinExpr {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("JoinExpr")
+            .field("sql", &self.to_sql())
+            .finish_non_exhaustive()
+    }
 }
 
-impl JoinGenerator {
-    /// `tables` is a Vec of `(table_name, Vec<column_names>)`.
-    pub fn new<T: AsRef<str>>(tables: Vec<(T, Vec<T>)>) -> Self {
-        let mut names = Vec::with_capacity(tables.len());
-        let mut cols = Vec::with_capacity(tables.len());
+///
+/// Generate all possible joins involving exactly the given tables.
+///
+pub fn arb_joins(
+    join_types: impl Strategy<Value = JoinType>,
+    tables_to_join: Vec<impl AsRef<str>>,
+    columns: Vec<impl AsRef<str>>,
+) -> impl Strategy<Value = JoinExpr> {
+    let tables_to_join = tables_to_join
+        .into_iter()
+        .map(|tn| tn.as_ref().to_string())
+        .collect::<Vec<_>>();
+    let table_cols = columns
+        .into_iter()
+        .map(|cn| cn.as_ref().to_string())
+        .collect::<Vec<_>>();
 
-        for (tn, cs) in tables {
-            names.push(tn.as_ref().to_string());
-            cols.push(cs.into_iter().map(|c| c.as_ref().to_string()).collect());
-        }
+    // Choose joins and join columns.
+    let join_count = tables_to_join.len() - 1;
+    (
+        proptest::collection::vec(join_types, join_count),
+        proptest::sample::subsequence(table_cols, join_count),
+    )
+        .prop_map(move |(join_types, join_columns)| {
+            // Construct a JoinExpr for the tables and joins.
+            let mut tables_to_join = tables_to_join.clone().into_iter();
+            let initial_table = tables_to_join
+                .next()
+                .expect("At least one table in a join.");
 
-        // size 0: unused
-        // size 1: “ FROM each_table ”
-        let mut size_to_exprs = Vec::new();
-        size_to_exprs.push(Vec::new());
-        let one = (0..names.len())
-            .map(|i| JoinExpr {
-                initial_table: i,
-                steps: Vec::new(),
-            })
-            .collect();
-        size_to_exprs.push(one);
-
-        // we’ll start yielding at size = 2 (i.e. real joins of 2+ tables)
-        JoinGenerator {
-            table_names: names,
-            table_cols: cols,
-            size_to_exprs,
-            current_size: 2,
-            current_index: 0,
-        }
-    }
-
-    /// Build all partial joins that use exactly `size` tables,
-    /// by extending each expr of size−1 with one new table.
-    fn build_size(&self, size: usize) -> Vec<JoinExpr> {
-        let mut out = Vec::new();
-        let types = [
-            JoinType::Inner,
-            JoinType::Left,
-            JoinType::Right,
-            JoinType::Full,
-            JoinType::Cross,
-        ];
-
-        for expr in &self.size_to_exprs[size - 1] {
-            let used = expr.used_tables();
-            for new_idx in 0..self.table_names.len() {
-                if used.contains(&new_idx) {
-                    continue;
-                }
-
-                for jt in &types {
-                    match jt {
-                        JoinType::Cross => {
-                            let mut e = expr.clone();
-                            e.steps.push(JoinStep {
-                                join_type: jt.clone(),
-                                table_idx: new_idx,
-                                on_left_table: None,
-                                on_left_col: None,
-                                on_right_col: None,
-                            });
-                            out.push(e);
-                        }
-                        _ => {
-                            // for non‐CROSS joins, try matching new table to every old one
-                            for &left_idx in &used {
-                                for lc in &self.table_cols[left_idx] {
-                                    for rc in &self.table_cols[new_idx] {
-                                        let mut e = expr.clone();
-                                        e.steps.push(JoinStep {
-                                            join_type: jt.clone(),
-                                            table_idx: new_idx,
-                                            on_left_table: Some(left_idx),
-                                            on_left_col: Some(lc.clone()),
-                                            on_right_col: Some(rc.clone()),
-                                        });
-                                        out.push(e);
-                                    }
-                                }
-                            }
-                        }
+            let mut previous_table = initial_table.clone();
+            let mut steps = Vec::with_capacity(join_types.len());
+            for ((join_type, join_column), table_to_join) in
+                join_types.into_iter().zip(join_columns).zip(tables_to_join)
+            {
+                match join_type {
+                    JoinType::Cross => {
+                        steps.push(JoinStep {
+                            join_type,
+                            table: table_to_join.clone(),
+                            on_left_table: None,
+                            on_left_col: None,
+                            on_right_col: None,
+                        });
+                    }
+                    _ => {
+                        steps.push(JoinStep {
+                            join_type,
+                            table: table_to_join.clone(),
+                            on_left_table: Some(previous_table.to_owned()),
+                            on_left_col: Some(join_column.clone()),
+                            on_right_col: Some(join_column),
+                        });
                     }
                 }
-            }
-        }
-
-        out
-    }
-}
-
-impl Iterator for JoinGenerator {
-    type Item = (String, Vec<String>);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            // if we've already built all possible JOIN‐sizes, terminate
-            if self.current_size > self.table_names.len() {
-                return None;
-            }
-            // ensure bucket exists
-            if self.current_size >= self.size_to_exprs.len() {
-                let built = self.build_size(self.current_size);
-                self.size_to_exprs.push(built);
+                previous_table = table_to_join;
             }
 
-            let bucket = &self.size_to_exprs[self.current_size];
-            if self.current_index < bucket.len() {
-                let expr = &bucket[self.current_index];
-                self.current_index += 1;
-                return Some(expr.to_sql(&self.table_names));
-            } else {
-                // advance to the next size
-                self.current_size += 1;
-                self.current_index = 0;
+            JoinExpr {
+                initial_table,
+                steps,
             }
-        }
-    }
+        })
 }

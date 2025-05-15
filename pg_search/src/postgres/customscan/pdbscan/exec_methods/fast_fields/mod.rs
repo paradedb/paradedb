@@ -339,7 +339,7 @@ pub fn fast_field_capable_prereqs(privdata: &PrivateData) -> bool {
         return false;
     }
 
-    let which_fast_fields = privdata.which_fast_fields().as_ref().unwrap();
+    let which_fast_fields = privdata.planned_which_fast_fields().as_ref().unwrap();
 
     if is_all_special_or_junk_fields(which_fast_fields) {
         // if all the fast fields we have are Junk fields, then we're not actually
@@ -371,7 +371,7 @@ pub fn is_mixed_fast_field_capable(privdata: &PrivateData) -> bool {
     }
 
     // Normal mixed fast field detection logic
-    let which_fast_fields = privdata.which_fast_fields().as_ref().unwrap();
+    let which_fast_fields = privdata.planned_which_fast_fields().as_ref().unwrap();
 
     // Filter out junk and system fields for our analysis - we only care about real column fast fields
     let field_types = which_fast_fields
@@ -404,7 +404,7 @@ pub fn is_string_agg_capable(privdata: &PrivateData) -> Option<String> {
         return None;
     }
 
-    let which_fast_fields = privdata.which_fast_fields().as_ref().unwrap();
+    let which_fast_fields = privdata.planned_which_fast_fields().as_ref().unwrap();
 
     let mut string_field = None;
     // Count the number of string fields
@@ -434,7 +434,7 @@ pub fn is_string_agg_capable(privdata: &PrivateData) -> Option<String> {
 
 // Check if we can use numeric fast field execution method
 pub fn is_numeric_fast_field_capable(privdata: &PrivateData) -> bool {
-    let which_fast_fields = privdata.which_fast_fields().as_ref().unwrap();
+    let which_fast_fields = privdata.planned_which_fast_fields().as_ref().unwrap();
     // Make sure we don't have any string fast fields
     for ff in which_fast_fields.iter() {
         if matches!(ff, WhichFastField::Named(_, FastFieldType::String)) {

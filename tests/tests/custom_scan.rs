@@ -518,7 +518,8 @@ fn cte_issue_1951(mut conn: PgConnection) {
 }
 
 #[rstest]
-// See #TODO-ISSUE-NUMBER
+// TODO: See #2576: we fail to extract the execution-time fast fields here, and so we fall back to
+// `Normal` execution.
 #[should_panic]
 fn is_numeric_fast_field_capable(mut conn: PgConnection) {
     r#"
@@ -575,8 +576,7 @@ fn is_numeric_fast_field_capable(mut conn: PgConnection) {
     let (b, count) = sql.fetch_one::<(bool, i64)>(&mut conn);
     assert_eq!((b, count), (true, 8));
 
-    // This falls back to Normal because we fail to extract the relevant fast fields at execution
-    // time: see #TODO-ISSUE-NUMBER
+    // TODO: See the method doc.
     let (plan,) =
         format!("EXPLAIN (FORMAT JSON) {sql}").fetch_one::<(serde_json::Value,)>(&mut conn);
     eprintln!(">>> {plan:#?}");

@@ -288,9 +288,10 @@ impl CustomScan for PdbScan {
             let is_topn = limit.is_some() && pathkey.is_some();
 
             // When collecting which_fast_fields, analyze the entire set of referenced columns,
-            // not just those in the target list. To avoid execution-time surprises, this must be a
-            // superset of the fast fields which are extracted from the execution-time target list.
-            builder.custom_private().set_which_fast_fields(
+            // not just those in the target list. To avoid execution-time surprises, the "planned"
+            // fast fields must be a superset of the fast fields which are extracted from the
+            // execution-time target list: see `assign_exec_method` for more info.
+            builder.custom_private().set_planned_which_fast_fields(
                 exec_methods::fast_fields::collect_fast_fields(
                     maybe_ff,
                     target_list,
@@ -1032,20 +1033,20 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
         if fast_fields::is_numeric_fast_field_capable(privdata) {
             // Check for numeric-only fast fields first because they're more selective
             ExecMethodType::FastFieldNumeric {
-                which_fast_fields: privdata.which_fast_fields().clone().unwrap_or_default(),
+                which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
             }
         } else if let Some(field) = fast_fields::is_string_agg_capable(privdata) {
             // Check for string-only fast fields next
             ExecMethodType::FastFieldString {
                 field,
-                which_fast_fields: privdata.which_fast_fields().clone().unwrap_or_default(),
+                which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
             }
         } else if fast_fields::is_mixed_fast_field_capable(privdata) {
             // Check if mixed fast field executor is enabled
             if gucs::is_mixed_fast_field_exec_enabled() {
                 // Use MixedFastFieldExec if enabled
                 ExecMethodType::FastFieldMixed {
-                    which_fast_fields: privdata.which_fast_fields().clone().unwrap_or_default(),
+                    which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
                 }
             } else {
                 // Fall back to normal execution
@@ -1061,13 +1062,12 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
 ///
 /// Creates and assigns the execution method which was chosen at planning time.
 ///
-/// TODO: This method currently has fallbacks to the `Normal` execution mode for rare cases where:
+/// TODO: See #2576. This method currently has fallbacks to the `Normal` execution mode for rare
+/// cases where:
 /// 1. the execution time target list contains more columns than we have been able to extract fast
 ///    fields for
 /// 2. we failed to extract the superset of fields during planning time which was needed at
 ///    execution time.
-///
-/// See #TODO-ISSUE-NUMBER
 ///
 fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>) {
     match builder.custom_state_ref().exec_method_type.clone() {
@@ -1179,6 +1179,8 @@ fn compute_exec_which_fast_fields(
         )
     };
 
+    // TODO: We would like this check to be stronger, in order to rule out certain types of
+    // confusion where some target list entries involve multiple fast fields. See #2576.
     if exec_which_fast_fields.len() != builder.target_list().len() {
         pgrx::log!(
             "Expected to extract {} fast fields, but only found: {exec_which_fast_fields:?}. \
@@ -1443,6 +1445,9 @@ unsafe fn collect_maybe_fast_field_referenced_columns(
                 referenced_columns.insert((*var).varattno);
             }
         }
+        // NOTE: Unless we encounter the second type of fallback in `assign_exec_method`, then we
+        // can be reasonably confident that directly inspecting Vars is sufficient. We haven't seen
+        // it yet in the wild.
     }
 
     referenced_columns

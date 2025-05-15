@@ -42,7 +42,7 @@ pub struct PrivateData {
     // needed at execution time. In order for our planning-time-chosen ExecMethodType to be
     // accurate, this must always be a superset of the fields extracted from the execution
     // time target list.
-    which_fast_fields: Option<FxHashSet<WhichFastField>>,
+    planned_which_fast_fields: Option<FxHashSet<WhichFastField>>,
     target_list_len: Option<usize>,
     referenced_columns_count: usize,
     need_scores: bool,
@@ -197,8 +197,11 @@ impl PrivateData {
         self.segment_count = segment_count;
     }
 
-    pub fn set_which_fast_fields(&mut self, which_fast_fields: FxHashSet<WhichFastField>) {
-        self.which_fast_fields = Some(which_fast_fields);
+    pub fn set_planned_which_fast_fields(
+        &mut self,
+        planned_which_fast_fields: FxHashSet<WhichFastField>,
+    ) {
+        self.planned_which_fast_fields = Some(planned_which_fast_fields);
     }
 
     pub fn set_exec_method_type(&mut self, exec_method_type: ExecMethodType) {
@@ -270,8 +273,8 @@ impl PrivateData {
         self.segment_count
     }
 
-    pub fn which_fast_fields(&self) -> &Option<FxHashSet<WhichFastField>> {
-        &self.which_fast_fields
+    pub fn planned_which_fast_fields(&self) -> &Option<FxHashSet<WhichFastField>> {
+        &self.planned_which_fast_fields
     }
 
     pub fn exec_method_type(&self) -> &ExecMethodType {

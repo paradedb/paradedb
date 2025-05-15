@@ -287,9 +287,9 @@ impl CustomScan for PdbScan {
             let maybe_ff = builder.custom_private().maybe_ff();
             let is_topn = limit.is_some() && pathkey.is_some();
 
-            // When collecting which_fast_fields, analyze the entire set of referenced columns
+            // When collecting which_fast_fields, analyze the entire set of referenced columns,
             // not just those in the target list. To avoid execution-time surprises, this must be a
-            // superset of
+            // superset of the fast fields which are extracted from the execution-time target list.
             builder.custom_private().set_which_fast_fields(
                 exec_methods::fast_fields::collect_fast_fields(
                     maybe_ff,
@@ -1061,9 +1061,13 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
 ///
 /// Creates and assigns the execution method which was chosen at planning time.
 ///
-/// TODO: This method currently has a fallback to the `Normal` execution mode for rare cases where
-/// the execution time target list actually contains _fewer_ fast fields than we expected at
-/// planning time. See #TODO-ISSUE-NUMBER
+/// TODO: This method currently has fallbacks to the `Normal` execution mode for rare cases where:
+/// 1. the execution time target list contains more columns than we have been able to extract fast
+///    fields for
+/// 2. we failed to extract the superset of fields during planning time which was needed at
+///    execution time.
+///
+/// See #TODO-ISSUE-NUMBER
 ///
 fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>) {
     match builder.custom_state_ref().exec_method_type.clone() {
@@ -1175,25 +1179,28 @@ fn compute_exec_which_fast_fields(
         )
     };
 
-    let missing_fast_fields = exec_which_fast_fields
-        .iter()
-        .filter(|ff| !planned_which_fast_fields.contains(ff))
-        .collect::<Vec<_>>();
-
     if exec_which_fast_fields.len() != builder.target_list().len() {
-        pgrx::warning!(
-            "Did not extract as many fast fields as we expected to: \
-             got {exec_which_fast_fields:?}, but expected {} items.",
+        pgrx::log!(
+            "Expected to extract {} fast fields, but only found: {exec_which_fast_fields:?}. \
+             Falling back to Normal execution.",
             builder.target_list().len()
         );
         return None;
     }
 
-    assert!(
-        missing_fast_fields.is_empty(),
-        "Failed to extract all fast fields at planning time: {missing_fast_fields:?} ({planned_which_fast_fields:?} vs {:?})",
-        exec_which_fast_fields,
-    );
+    let missing_fast_fields = exec_which_fast_fields
+        .iter()
+        .filter(|ff| !planned_which_fast_fields.contains(ff))
+        .collect::<Vec<_>>();
+
+    if !missing_fast_fields.is_empty() {
+        pgrx::log!(
+            "Failed to extract all fast fields at planning time: \
+             was missing {missing_fast_fields:?} from {planned_which_fast_fields:?} \
+             Falling back to Normal execution.",
+        );
+        return None;
+    }
 
     Some(exec_which_fast_fields)
 }
@@ -1428,7 +1435,7 @@ unsafe fn collect_maybe_fast_field_referenced_columns(
 ) -> HashSet<pg_sys::AttrNumber> {
     let mut referenced_columns = HashSet::new();
 
-    // Check reltarget
+    // Check reltarget exprs.
     let reltarget_exprs = PgList::<pg_sys::Expr>::from_pg((*(*rel).reltarget).exprs);
     for rte in reltarget_exprs.iter_ptr() {
         if let Some(var) = nodecast!(Var, T_Var, rte) {

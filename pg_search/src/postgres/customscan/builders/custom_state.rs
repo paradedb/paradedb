@@ -103,6 +103,10 @@ impl<CS: CustomScan, P: From<*mut pg_sys::List>> CustomScanStateBuilder<CS, P> {
         &mut self.custom_state
     }
 
+    pub fn custom_state_ref(&self) -> &CS::State {
+        &self.custom_state
+    }
+
     pub fn target_list(&self) -> PgList<pg_sys::TargetEntry> {
         unsafe { PgList::from_pg((*self.args.cscan).scan.plan.targetlist) }
     }

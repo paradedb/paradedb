@@ -19,6 +19,7 @@ use crate::api::Cardinality;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::CustomScan;
 use pgrx::{pg_sys, PgList};
+use rustc_hash::FxHashSet;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fmt::{Debug, Display, Formatter};
@@ -104,6 +105,16 @@ impl OrderByStyle {
     }
 }
 
+///
+/// The type of ExecMethod that was chosen at planning time. We fully select an ExecMethodType at
+/// planning time in order to be able to make claims about the sortedness and estimates for our
+/// execution.
+///
+/// `which_fast_fields` lists in this enum are _all_ of the fast fields which were identified at
+/// planning time: based on the join order that the planner ends up choosing, only a subset of
+/// these might be used at execution time (in an order specified by the execution time target
+/// list), but never a superset.
+///
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub enum ExecMethodType {
     #[default]
@@ -116,13 +127,13 @@ pub enum ExecMethodType {
     },
     FastFieldString {
         field: String,
-        which_fast_fields: Vec<WhichFastField>,
+        which_fast_fields: FxHashSet<WhichFastField>,
     },
     FastFieldNumeric {
-        which_fast_fields: Vec<WhichFastField>,
+        which_fast_fields: FxHashSet<WhichFastField>,
     },
     FastFieldMixed {
-        which_fast_fields: Vec<WhichFastField>,
+        which_fast_fields: FxHashSet<WhichFastField>,
     },
 }
 

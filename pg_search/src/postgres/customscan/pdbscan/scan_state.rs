@@ -16,7 +16,6 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::Varno;
-use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::reader::index::{SearchIndexReader, SearchResults};
 use crate::postgres::customscan::builders::custom_path::{ExecMethodType, SortDirection};
 use crate::postgres::customscan::pdbscan::exec_methods::ExecMethod;
@@ -29,7 +28,6 @@ use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
 use pgrx::heap_tuple::PgHeapTuple;
-use pgrx::pg_sys::TupleDescData;
 use pgrx::{name_data_to_str, pg_sys, PgRelation, PgTupleDesc};
 use rustc_hash::FxHashMap;
 use std::cell::UnsafeCell;
@@ -48,12 +46,6 @@ pub struct PdbScanState {
 
     pub search_results: SearchResults,
     pub targetlist_len: usize,
-
-    // The fast fields extracted from the query at query planning time
-    pub planned_which_fast_fields: Option<Vec<WhichFastField>>,
-    // The fast fields aligned with the tuple descriptor at execution time
-    // This is used to index into the exec_tuple_which_fast_fields array using the tuple attribute position
-    pub exec_tuple_which_fast_fields: Vec<Option<WhichFastField>>,
 
     pub limit: Option<usize>,
     pub sort_field: Option<String>,
@@ -258,41 +250,6 @@ impl PdbScanState {
         self.virtual_tuple_count = 0;
         self.invisible_tuple_count = 0;
         self.exec_method_mut().reset(self);
-    }
-
-    /// Aligns the planned_which_fast_fields with the tuple descriptor.
-    /// This ensures that we can index into exec_tuple_which_fast_fields using the tuple attribute position.
-    ///
-    /// For each attribute in the tuple descriptor, this method attempts to find a matching field
-    /// in planned_which_fast_fields. If found, it stores the field in exec_tuple_which_fast_fields
-    /// at the attribute's position. If not found, that position will contain None.
-    ///
-    /// Note: When a field from planned_which_fast_fields doesn't match any attribute in the tuple descriptor,
-    /// that field won't be included in exec_tuple_which_fast_fields. When an attribute position contains None,
-    /// it will be treated as a non-fast field (as FFType::Junk) during execution.
-    pub fn align_fast_fields_with_tuple_descriptor(&mut self, tupdesc: &TupleDescData) {
-        let which_fast_fields = self.planned_which_fast_fields.as_ref().unwrap();
-
-        let natts = tupdesc.natts as usize;
-        // Create an array with None values for each attribute in the tuple descriptor
-        self.exec_tuple_which_fast_fields = vec![None; natts];
-        let attrs = unsafe { tupdesc.attrs.as_slice(natts) };
-
-        // Map field names from which_fast_fields to their positions in the tuple descriptor
-        for field in which_fast_fields {
-            if let WhichFastField::Named(field_name, field_type) = field {
-                // Find this field in the tuple descriptor
-
-                for (i, att) in attrs.iter().enumerate().take(natts) {
-                    if att.name() == field_name {
-                        // Found a match, store a clone of this field at the right position
-
-                        self.exec_tuple_which_fast_fields[i] = Some(field.clone());
-                        break;
-                    }
-                }
-            }
-        }
     }
 
     /// Given a ctid and field name, get the corresponding value from the heap

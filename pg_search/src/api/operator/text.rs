@@ -17,7 +17,7 @@
 
 use crate::api::operator::{
     anyelement_text_opoid, anyelement_text_procoid, attname_from_var, estimate_selectivity,
-    make_search_query_input_opexpr_node, ReturnedNodePointer,
+    find_var_relation, make_search_query_input_opexpr_node, ReturnedNodePointer,
 };
 use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
@@ -57,19 +57,18 @@ fn text_support_request_simplify(arg: Internal) -> Option<ReturnedNodePointer> {
 
         let lhs = input_args.get_ptr(0)?;
         let rhs = input_args.get_ptr(1)?;
-
         let var = nodecast!(Var, T_Var, lhs)?;
         let (query, param) = if let Some(const_) = nodecast!(Const, T_Const, rhs) {
             // the field name comes from the lhs of the @@@ operator
             let (_, query) = make_query_from_var_and_const((*srs).root, var, const_);
             (Some(query), None)
         } else {
+            let (heaprelid, varattno, _) = find_var_relation(var, (*srs).root);
             (
                 None,
                 Some((
                     rhs,
-                    attname_from_var((*srs).root, var)
-                        .1
+                    attname_from_var(heaprelid, var, varattno)
                         .expect("should be able to determine Var name"),
                 )),
             )
@@ -127,7 +126,8 @@ unsafe fn make_query_from_var_and_const(
     var: *mut pg_sys::Var,
     const_: *mut pg_sys::Const,
 ) -> (pg_sys::Oid, SearchQueryInput) {
-    let (heaprelid, attname) = attname_from_var(root, var);
+    let (heaprelid, varattno, _) = find_var_relation(var, root);
+    let attname = attname_from_var(heaprelid, var, varattno);
     // the query comes from the rhs of the @@@ operator.  we've already proved it's a `pg_sys::Const` node
     let query_string = String::from_datum((*const_).constvalue, (*const_).constisnull)
         .expect("query must not be NULL");

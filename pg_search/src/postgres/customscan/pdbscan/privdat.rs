@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::index::FieldName;
 use crate::api::{AsCStr, Cardinality, Varno};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::builders::custom_path::{OrderByStyle, SortDirection};
@@ -35,7 +36,7 @@ pub struct PrivateData {
     sort_field: Option<String>,
     sort_direction: Option<SortDirection>,
     #[serde(with = "var_attname_lookup_serializer")]
-    var_attname_lookup: Option<FxHashMap<(Varno, pg_sys::AttrNumber), String>>,
+    var_attname_lookup: Option<FxHashMap<(Varno, pg_sys::AttrNumber), FieldName>>,
     maybe_ff: bool,
     segment_count: usize,
     which_fast_fields: Option<Vec<WhichFastField>>,
@@ -74,7 +75,7 @@ mod var_attname_lookup_serializer {
     }
 
     pub fn serialize<S>(
-        map_option: &Option<FxHashMap<(Varno, i16), String>>,
+        map_option: &Option<FxHashMap<(Varno, i16), FieldName>>,
         serializer: S,
     ) -> Result<S::Ok, S::Error>
     where
@@ -87,19 +88,20 @@ mod var_attname_lookup_serializer {
         // Serialize as Vec<(String, String)>.
         map.iter()
             .map(|(k, v)| (key_to_string(k), v))
-            .collect::<Vec<(String, &String)>>()
+            .collect::<Vec<(String, &FieldName)>>()
             .serialize(serializer)
     }
 
     #[allow(clippy::type_complexity)]
     pub fn deserialize<'de, D>(
         deserializer: D,
-    ) -> Result<Option<FxHashMap<(Varno, i16), String>>, D::Error>
+    ) -> Result<Option<FxHashMap<(Varno, i16), FieldName>>, D::Error>
     where
         D: Deserializer<'de>,
     {
         // Deserialize as Vec<(String, String)>.
-        let Some(string_map) = Option::<Vec<(&'de str, String)>>::deserialize(deserializer)? else {
+        let Some(string_map) = Option::<Vec<(&'de str, FieldName)>>::deserialize(deserializer)?
+        else {
             return Ok(None);
         };
 
@@ -180,7 +182,7 @@ impl PrivateData {
 
     pub fn set_var_attname_lookup(
         &mut self,
-        var_attname_lookup: FxHashMap<(Varno, pg_sys::AttrNumber), String>,
+        var_attname_lookup: FxHashMap<(Varno, pg_sys::AttrNumber), FieldName>,
     ) {
         self.var_attname_lookup = Some(var_attname_lookup);
     }
@@ -254,7 +256,7 @@ impl PrivateData {
         )
     }
 
-    pub fn var_attname_lookup(&self) -> &Option<FxHashMap<(Varno, pg_sys::AttrNumber), String>> {
+    pub fn var_attname_lookup(&self) -> &Option<FxHashMap<(Varno, pg_sys::AttrNumber), FieldName>> {
         &self.var_attname_lookup
     }
 

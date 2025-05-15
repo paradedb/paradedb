@@ -19,6 +19,7 @@ mod searchqueryinput;
 mod text;
 
 use crate::api::index::{fieldname_typoid, FieldName};
+use crate::customscan::operator_oid;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::nodecast;
@@ -26,14 +27,16 @@ use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
 use pgrx::callconv::{BoxRet, FcInfo};
 use pgrx::datum::Datum;
-use pgrx::pg_sys::expression_tree_walker;
+use pgrx::pg_sys::NodeTag::{T_Const, T_OpExpr, T_Var};
+use pgrx::pg_sys::{expression_tree_walker, Const, OpExpr, Var};
 use pgrx::pgrx_sql_entity_graph::metadata::{
     ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
 };
 use pgrx::*;
+use rustc_hash::FxHashSet;
 use std::ffi::CStr;
 use std::ptr::{addr_of_mut, NonNull};
-
+use std::sync::OnceLock;
 #[derive(Debug)]
 #[repr(transparent)]
 pub struct ReturnedNodePointer(pub Option<NonNull<pg_sys::Node>>);
@@ -154,7 +157,7 @@ unsafe fn make_search_query_input_opexpr_node(
     input_args: &mut PgList<pg_sys::Node>,
     var: *mut pg_sys::Var,
     query: Option<SearchQueryInput>,
-    parse_with_field: Option<(*mut pg_sys::Node, String)>,
+    parse_with_field: Option<(*mut pg_sys::Node, FieldName)>,
     opoid: pg_sys::Oid,
     procoid: pg_sys::Oid,
 ) -> ReturnedNodePointer {
@@ -239,7 +242,7 @@ unsafe fn make_search_query_input_opexpr_node(
 
         newopexpr.opno = anyelement_query_input_opoid();
         newopexpr.opfuncid = anyelement_query_input_procoid();
-    } else if let Some((param, attname)) = parse_with_field {
+    } else if let Some((param, field)) = parse_with_field {
         // rewrite the rhs to be a function call to our `paradedb.parse_with_field(...)` function
         let mut parse_with_field_args = PgList::<pg_sys::Node>::new();
 
@@ -249,7 +252,7 @@ unsafe fn make_search_query_input_opexpr_node(
                 -1,
                 pg_sys::Oid::INVALID,
                 -1,
-                FieldName::from(attname).into_datum().unwrap(),
+                field.into_datum().unwrap(),
                 false,
                 false,
             )
@@ -436,23 +439,129 @@ pub unsafe fn find_vars(node: *mut pg_sys::Node) -> Vec<*mut pg_sys::Var> {
 ///
 /// Returns the heap relation [`pg_sys::Oid`] that contains the `Var` along with its name.
 pub unsafe fn attname_from_var(
-    root: *mut pg_sys::PlannerInfo,
+    heaprelid: pg_sys::Oid,
     var: *mut pg_sys::Var,
-) -> (pg_sys::Oid, Option<String>) {
-    let (heaprelid, varattno, _) = find_var_relation(var, root);
+    varattno: pg_sys::AttrNumber,
+) -> Option<FieldName> {
     if (*var).varattno == 0 {
-        return (heaprelid, None);
+        return None;
     }
     let heaprel = PgRelation::open(heaprelid);
     let tupdesc = heaprel.tuple_desc();
-    let attname = if varattno == pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber {
+    if varattno == pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber {
         Some("ctid".into())
     } else {
         tupdesc
             .get(varattno as usize - 1)
-            .map(|attribute| attribute.name().to_string())
-    };
-    (heaprelid, attname)
+            .map(|attribute| attribute.name().into())
+    }
+}
+
+pub unsafe fn try_pullout_var(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {
+    unsafe fn pullout_var_inner(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {
+        if is_a(node, T_Var) {
+            Some(node.cast::<Var>())
+        } else if is_a(node, T_OpExpr) {
+            let node = node as *mut OpExpr;
+            for expr in PgList::from_pg((*node).args).iter_ptr() {
+                if let Some(var) = pullout_var_inner(expr) {
+                    return Some(var);
+                }
+            }
+            None
+        } else {
+            None
+        }
+    }
+
+    if is_a(node, T_OpExpr) {
+        let opexpr = node.cast::<OpExpr>();
+        static JSON_OPERATOR_LOOKUP: OnceLock<FxHashSet<pg_sys::Oid>> = OnceLock::new();
+        if JSON_OPERATOR_LOOKUP
+            .get_or_init(|| initialize_json_operator_lookup())
+            .contains(&(*opexpr).opno)
+        {
+            return pullout_var_inner(node);
+        }
+        None
+    } else if is_a(node, T_Var) {
+        Some(node.cast::<Var>())
+    } else {
+        None
+    }
+}
+
+pub unsafe fn fieldname_from_node(
+    root: *mut pg_sys::PlannerInfo,
+    node: *mut pg_sys::Node,
+) -> Option<FieldName> {
+    if is_a(node, T_OpExpr) {
+        let opexpr = node.cast::<OpExpr>();
+
+        static JSON_OPERATOR_LOOKUP: OnceLock<FxHashSet<pg_sys::Oid>> = OnceLock::new();
+        let lookup = JSON_OPERATOR_LOOKUP.get_or_init(|| initialize_json_operator_lookup());
+
+        if !lookup.contains(&(*opexpr).opno) {
+            return None;
+        }
+
+        let path = extract_json_path(root, node);
+        Some(path.join(".").into())
+    } else if is_a(node, T_Var) {
+        let var = node.cast::<Var>();
+        let (heaprelid, varattno, _) = find_var_relation(var, root);
+        attname_from_var(heaprelid, var, varattno)
+    } else {
+        None
+    }
+}
+
+#[inline(always)]
+unsafe fn extract_json_path(
+    root: *mut pg_sys::PlannerInfo,
+    node: *mut pg_sys::Node,
+) -> Vec<String> {
+    let mut path = Vec::new();
+
+    if is_a(node, T_Var) {
+        let node = node as *mut Var;
+        let (heaprelid, varattno, _) = find_var_relation(node, root);
+        let attname = pg_sys::get_attname(heaprelid, varattno, false);
+        path.push(CStr::from_ptr(attname).to_string_lossy().into_owned());
+        return path;
+    } else if is_a(node, T_Const) {
+        let node = node as *mut Const;
+        if let Some(s) = String::from_datum((*node).constvalue, (*node).constisnull) {
+            path.push(s);
+        }
+        return path;
+    } else if is_a(node, T_OpExpr) {
+        let node = node as *mut OpExpr;
+        for expr in PgList::from_pg((*node).args).iter_ptr() {
+            path.extend(extract_json_path(root, expr));
+        }
+    }
+
+    path
+}
+
+unsafe fn initialize_json_operator_lookup() -> FxHashSet<pg_sys::Oid> {
+    const OPERATORS: [&str; 2] = ["->", "->>"];
+    const TYPE_PAIRS: &[[&str; 2]] = &[
+        ["json", "text"],
+        ["jsonb", "text"],
+        ["json", "int4"],
+        ["jsonb", "int4"],
+    ];
+
+    let mut lookup = FxHashSet::default();
+    for o in OPERATORS {
+        for [l, r] in TYPE_PAIRS {
+            lookup.insert(operator_oid(&format!("{o}({l},{r})")));
+        }
+    }
+
+    lookup
 }
 
 extension_sql!(

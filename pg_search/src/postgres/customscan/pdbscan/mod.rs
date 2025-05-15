@@ -27,8 +27,8 @@ mod solve_expr;
 
 use crate::api::operator::{
     anyelement_query_input_opoid, anyelement_query_input_procoid, anyelement_text_opoid,
-    anyelement_text_procoid, attname_from_var, estimate_selectivity, find_var_relation,
-    parse_with_field_procoid, searchqueryinput_typoid,
+    anyelement_text_procoid, estimate_selectivity, find_var_relation, parse_with_field_procoid,
+    searchqueryinput_typoid,
 };
 use crate::api::Cardinality;
 use crate::gucs;
@@ -536,9 +536,10 @@ impl CustomScan for PdbScan {
                     te.cast(),
                     &[score_funcoid, snippet_funcoid, snippet_positions_funcoid],
                     rti,
+                    builder.args().root,
                 );
 
-                for (funcexpr, var) in func_vars_at_level {
+                for (funcexpr, var, attname) in func_vars_at_level {
                     // if we have a tlist, then we need to add the specific function that uses
                     // a Var at our level to that tlist.
                     //
@@ -555,9 +556,6 @@ impl CustomScan for PdbScan {
 
                     // track a triplet of (varno, varattno, attname) as 3 individual
                     // entries in the `attname_lookup` List
-                    let attname = attname_from_var(builder.args().root, var)
-                        .1
-                        .expect("function call argument should be a column name");
                     attname_lookup.insert(((*var).varno, (*var).varattno), attname);
                 }
             }

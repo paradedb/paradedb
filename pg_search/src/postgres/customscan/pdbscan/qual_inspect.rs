@@ -191,27 +191,27 @@ impl From<&Qual> for SearchQueryInput {
                     .expect("pushdown expression should not evaluate to NULL")
             },
             Qual::PushdownVarEqTrue { field } => SearchQueryInput::Term {
-                field: Some(field.attname().to_string()),
+                field: Some(field.attname()),
                 value: OwnedValue::Bool(true),
                 is_datetime: false,
             },
             Qual::PushdownVarEqFalse { field } => SearchQueryInput::Term {
-                field: Some(field.attname().to_string()),
+                field: Some(field.attname()),
                 value: OwnedValue::Bool(false),
                 is_datetime: false,
             },
             Qual::PushdownVarIsTrue { field } => SearchQueryInput::Term {
-                field: Some(field.attname().to_string()),
+                field: Some(field.attname()),
                 value: OwnedValue::Bool(true),
                 is_datetime: false,
             },
             Qual::PushdownVarIsFalse { field } => SearchQueryInput::Term {
-                field: Some(field.attname().to_string()),
+                field: Some(field.attname()),
                 value: OwnedValue::Bool(false),
                 is_datetime: false,
             },
             Qual::PushdownIsNotNull { field } => SearchQueryInput::Exists {
-                field: field.attname().to_string(),
+                field: field.attname(),
             },
             Qual::ScoreExpr { opoid, value } => unsafe {
                 let score_value = {
@@ -840,7 +840,7 @@ mod tests {
                     value,
                     ..
                 },
-            ) => field.attname() == f && matches!(value, OwnedValue::Bool(true)),
+            ) => field.attname() == *f && matches!(value, OwnedValue::Bool(true)),
 
             // Match boolean field FALSE cases
             (
@@ -850,11 +850,11 @@ mod tests {
                     value,
                     ..
                 },
-            ) => field.attname() == f && matches!(value, OwnedValue::Bool(false)),
+            ) => field.attname() == *f && matches!(value, OwnedValue::Bool(false)),
 
             // Match IS NOT NULL
             (Qual::PushdownIsNotNull { field }, SearchQueryInput::Exists { field: f }) => {
-                field.attname() == f
+                field.attname() == *f
             }
 
             // Match AND clauses
@@ -895,7 +895,7 @@ mod tests {
                     value: OwnedValue::Bool(false),
                     ..
                 },
-            ) if matches!(**inner, Qual::PushdownVarEqTrue { field: ref a } if a.attname() == f) => {
+            ) if matches!(**inner, Qual::PushdownVarEqTrue { field: ref a } if a.attname() == *f) => {
                 true
             }
 
@@ -907,7 +907,7 @@ mod tests {
                     value: OwnedValue::Bool(true),
                     ..
                 },
-            ) if matches!(**inner, Qual::PushdownVarEqFalse { field: ref a } if a.attname() == f) => {
+            ) if matches!(**inner, Qual::PushdownVarEqFalse { field: ref a } if a.attname() == *f) => {
                 true
             }
 

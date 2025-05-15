@@ -151,7 +151,7 @@ jobs:
           gh --version
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: actions-rust-lang/setup-rust-toolchain@v1
 
       - name: Retrieve OS & GitHub Tag Versions
         id: version

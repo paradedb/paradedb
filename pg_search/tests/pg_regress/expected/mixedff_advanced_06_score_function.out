@@ -357,9 +357,9 @@ LIMIT 10;
                Index: score_test_idx
                Segment Count: 1
                Exec Method: MixedFastFieldExecState
-               Fast Fields: title, rating
+               Fast Fields: title, id, rating
                String Fast Fields: title
-               Numeric Fast Fields: rating
+               Numeric Fast Fields: id, rating
                Scores: true
                   Top N Limit: 10
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
@@ -401,9 +401,9 @@ LIMIT 5;
                Index: score_test_idx
                Segment Count: 1
                Exec Method: MixedFastFieldExecState
-               Fast Fields: author, title, rating, views
+               Fast Fields: author, title, id, rating, views
                String Fast Fields: author, title
-               Numeric Fast Fields: rating, views
+               Numeric Fast Fields: id, rating, views
                Scores: true
                   Top N Limit: 5
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"research","lenient":null,"conjunction_mode":null}}}}
@@ -438,9 +438,9 @@ ORDER BY title, author, paradedb.score(id) DESC;
          Index: score_test_idx
          Segment Count: 1
          Exec Method: MixedFastFieldExecState
-         Fast Fields: author, title, is_featured, rating
+         Fast Fields: author, title, id
          String Fast Fields: author, title
-         Numeric Fast Fields: is_featured, rating
+         Numeric Fast Fields: id
          Scores: true
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":null,"is_datetime":false}},{"term":{"field":"is_featured","value":true,"is_datetime":false}}]}}
 (12 rows)
@@ -483,9 +483,9 @@ LIMIT 10;
                Index: score_test_idx
                Segment Count: 1
                Exec Method: MixedFastFieldExecState
-               Fast Fields: author, title, rating
+               Fast Fields: author, title, id, rating
                String Fast Fields: author, title
-               Numeric Fast Fields: rating
+               Numeric Fast Fields: id, rating
                Scores: true
                   Top N Limit: 10
                Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"science OR research","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":3},"upper_bound":null,"is_datetime":false}}]}}
@@ -616,21 +616,23 @@ LIMIT 10;
                      Table: score_test
                      Index: score_test_idx
                      Segment Count: 1
-                     Exec Method: MixedFastFieldExecState
-                     Fast Fields: author, title
+                     Exec Method: NormalScanExecState
+                     Fast Fields: author, title, id
                      String Fast Fields: author, title
+                     Numeric Fast Fields: id
                      Scores: true
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
                ->  Custom Scan (ParadeDB Scan) on score_test score_test_1
                      Table: score_test
                      Index: score_test_idx
                      Segment Count: 1
-                     Exec Method: MixedFastFieldExecState
-                     Fast Fields: author, title
+                     Exec Method: NormalScanExecState
+                     Fast Fields: author, title, id
                      String Fast Fields: author, title
+                     Numeric Fast Fields: id
                      Scores: true
                      Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"science","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"technology","lenient":null,"conjunction_mode":null}}}}]}}]}}
-(22 rows)
+(24 rows)
 
 SELECT title, author, paradedb.score(id) as relevance
 FROM score_test
@@ -643,15 +645,15 @@ ORDER BY title, author, relevance DESC
 LIMIT 10;
   title   |  author  |  relevance   
 ----------+----------+--------------
- Post 1   | Author 2 |    1.0340093
+ Post 1   | Author 2 |   0.03400928
  Post 1   | Author 2 | 0.0144330505
- Post 10  | Author 1 |    1.0340093
+ Post 10  | Author 1 |   0.03400928
  Post 10  | Author 1 | 0.0144330505
- Post 100 | Author 1 |    1.0340093
+ Post 100 | Author 1 |   0.03400928
  Post 100 | Author 1 | 0.0144330505
- Post 11  | Author 2 |    1.0340093
+ Post 11  | Author 2 |   0.03400928
  Post 11  | Author 2 | 0.0144330505
- Post 12  | Author 3 |    1.0340093
+ Post 12  | Author 3 |   0.03400928
  Post 12  | Author 3 | 0.0144330505
 (10 rows)
 
@@ -698,10 +700,14 @@ ORDER BY a.title, a.author, a.rating, a.score, b.title;
                      Table: score_test
                      Index: score_test_idx
                      Segment Count: 1
-                     Exec Method: NormalScanExecState
+                     Exec Method: StringFastFieldExecState
+                     Fast Fields: author
+                     String Agg Field: author
                      Scores: false
+                        Sort Field: title
+                        Sort Direction: asc
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-(28 rows)
+(32 rows)
 
 SELECT a.title, a.author, a.rating, a.score, b.title as related_title
 FROM (
@@ -807,9 +813,9 @@ LIMIT 10;
                Index: score_test_idx
                Segment Count: 1
                Exec Method: MixedFastFieldExecState
-               Fast Fields: author, title, rating
+               Fast Fields: author, title, id, rating
                String Fast Fields: author, title
-               Numeric Fast Fields: rating
+               Numeric Fast Fields: id, rating
                Scores: true
                   Top N Limit: 10
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"research OR development","lenient":null,"conjunction_mode":null}}}}

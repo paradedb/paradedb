@@ -51,3 +51,5 @@ tokenizers = { path = "../tokenizers" }
 tokio = { version = "1.44.2", features = ["rt-multi-thread", "macros"] }
 uuid = "1.16.0"
 num-traits = "0.2.19"
+proptest = "1.6.0"
+proptest-derive = "0.5.1"

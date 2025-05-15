@@ -56,6 +56,8 @@ from (select relname,
       group by relname, low, high
       order by relname, low desc) x;
 
+GRANT SELECT ON paradedb.index_layer_info TO PUBLIC;
+
 DROP FUNCTION IF EXISTS merge_info(index regclass);
 CREATE OR REPLACE FUNCTION merge_info(index regclass)
     RETURNS TABLE

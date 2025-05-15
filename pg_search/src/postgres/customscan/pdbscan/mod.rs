@@ -132,7 +132,7 @@ impl PdbScan {
                     .as_ref()
                     .unwrap()
                     .snippet_generator(
-                        &snippet_type.field().root(),
+                        snippet_type.field(),
                         &state.custom_state().search_query_input,
                     );
 

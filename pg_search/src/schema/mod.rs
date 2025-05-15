@@ -45,9 +45,6 @@ use tokenizers::manager::SearchTokenizerFilters;
 #[from(forward)]
 pub struct SearchFieldId(pub Field);
 
-/// The name of the index, as it appears to Postgres.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SearchIndexName(pub String);
 /// The type of the search field.
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SearchFieldType {
@@ -689,7 +686,7 @@ pub struct SearchIndexSchema {
     pub schema: Schema,
     /// A lookup cache for retrieving search fields.
     #[serde(skip_serializing)]
-    pub lookup: Option<HashMap<FieldName, usize>>,
+    pub lookup: Option<HashMap<String, usize>>,
 }
 
 impl SearchIndexSchema {
@@ -753,14 +750,13 @@ impl SearchIndexSchema {
         }
     }
 
-    fn build_lookup(search_fields: &[SearchField]) -> HashMap<FieldName, usize> {
+    fn build_lookup(search_fields: &[SearchField]) -> HashMap<String, usize> {
         let mut lookup = HashMap::new();
         search_fields
             .iter()
             .enumerate()
             .for_each(|(idx, search_field)| {
-                let name = search_field.name.clone();
-                lookup.insert(name, idx);
+                lookup.insert(search_field.name.root(), idx);
             });
         lookup
     }
@@ -785,10 +781,14 @@ impl SearchIndexSchema {
 
     pub fn get_search_field(&self, name: &FieldName) -> Option<&SearchField> {
         if let Some(lookup) = &self.lookup {
-            lookup.get(name).and_then(|idx| self.fields.get(*idx))
+            lookup
+                .get(&name.root())
+                .and_then(|idx| self.fields.get(*idx))
         } else {
             let lookup = Self::build_lookup(&self.fields);
-            lookup.get(name).and_then(|idx| self.fields.get(*idx))
+            lookup
+                .get(&name.root())
+                .and_then(|idx| self.fields.get(*idx))
         }
     }
 

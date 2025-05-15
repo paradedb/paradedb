@@ -353,7 +353,7 @@ impl SearchIndexReader {
     ) -> (tantivy::schema::Field, SnippetGenerator) {
         let field = self
             .schema
-            .get_search_field(&field_name)
+            .get_search_field(field_name)
             .expect("cannot generate snippet, field does not exist");
 
         match self.schema.schema.get_field_entry(field.into()).field_type() {

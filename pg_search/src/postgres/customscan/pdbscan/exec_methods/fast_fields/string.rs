@@ -44,7 +44,7 @@ pub struct StringFastFieldExecState {
 impl StringFastFieldExecState {
     pub fn new(field: String, which_fast_fields: Vec<WhichFastField>) -> Self {
         Self {
-            inner: FastFieldExecState::new(),
+            inner: FastFieldExecState::new(which_fast_fields),
             search_results: StringAggResults::None,
             field,
         }
@@ -128,7 +128,7 @@ impl ExecMethod for StringFastFieldExecState {
                         crate::postgres::customscan::pdbscan::exec_methods::fast_fields::extract_data_from_fast_fields(
                             natts,
                             tupdesc,
-                            &state.exec_tuple_which_fast_fields,
+                            &self.inner.which_fast_fields,
                             &mut self.inner.ffhelper,
                             slot,
                             scored,

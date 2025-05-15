@@ -450,9 +450,9 @@ LIMIT 10;
                            Index: products_idx
                            Segment Count: 1
                            Exec Method: MixedFastFieldExecState
-                           Fast Fields: name, price
+                           Fast Fields: name, id, price
                            String Fast Fields: name
-                           Numeric Fast Fields: price
+                           Numeric Fast Fields: id, price
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}}
 (22 rows)
@@ -669,7 +669,7 @@ ORDER BY type, item_name;
                Table: categories
                Index: categories_idx
                Segment Count: 1
-               Exec Method: MixedFastFieldExecState
+               Exec Method: NormalScanExecState
                Fast Fields: description, name
                String Fast Fields: description, name
                Scores: false
@@ -771,10 +771,11 @@ ORDER BY p.price;
                            Table: categories
                            Index: categories_idx
                            Segment Count: 1
-                           Exec Method: NormalScanExecState
+                           Exec Method: NumericFastFieldExecState
+                           Fast Fields: id
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"electronics OR clothing","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+(20 rows)
 
 SELECT p.name, p.price, p.stock_count
 FROM products p
@@ -939,9 +940,9 @@ ORDER BY r.rating DESC, p.price DESC;
                                  Index: products_idx
                                  Segment Count: 1
                                  Exec Method: MixedFastFieldExecState
-                                 Fast Fields: name, is_available, price
+                                 Fast Fields: name, id, price
                                  String Fast Fields: name
-                                 Numeric Fast Fields: is_available, price
+                                 Numeric Fast Fields: id, price
                                  Scores: false
                                  Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}},{"term":{"field":"is_available","value":true,"is_datetime":false}}]}}
 (27 rows)

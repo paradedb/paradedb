@@ -153,14 +153,8 @@ jobs:
 
       - name: Run pg_search Regression Tests Against distro-managed Postgres
         run: |
-          output=$(cargo pgrx regress --package pg_search pg${{ matrix.pg_version }} --features=icu)
-          echo "$output"
-          if echo "$output" | grep -q "failed="; then
-            failed_count=$(echo "$output" | grep -o "failed=[0-9]*" | cut -d'=' -f2)
-            if [ "$failed_count" -gt 0 ]; then
-              exit 1
-            fi
-          fi
+          set -e
+          cargo pgrx regress --package pg_search pg${{ matrix.pg_version }} --features=icu --auto
 
       - name: Print the Postgres Logs
         if: always()

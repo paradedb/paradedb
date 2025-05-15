@@ -152,7 +152,11 @@ jobs:
           RUST_BACKTRACE=1 cargo test --jobs $(nproc) --features pg${{ matrix.pg_version }} --no-default-features
 
       - name: Run pg_search Regression Tests Against distro-managed Postgres
-        run: cargo pgrx regress --package pg_search pg${{ matrix.pg_version }} --features=icu
+        run: |
+          cargo pgrx regress --package pg_search pg${{ matrix.pg_version }} --features=icu
+          if [ $? -ne 0 ]; then
+            exit 1
+          fi
 
       - name: Print the Postgres Logs
         if: always()

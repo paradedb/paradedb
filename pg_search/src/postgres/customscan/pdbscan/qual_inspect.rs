@@ -439,10 +439,14 @@ pub unsafe fn extract_quals(
         pg_sys::NodeTag::T_NullTest => {
             let nulltest = nodecast!(NullTest, T_NullTest, node)?;
             if let Some(field) = PushdownField::try_new(root, (*nulltest).arg.cast(), schema) {
-                if (*nulltest).nulltesttype == pg_sys::NullTestType::IS_NOT_NULL {
-                    Some(Qual::PushdownIsNotNull { field })
+                if schema.is_fast_field(field.attname()) {
+                    if (*nulltest).nulltesttype == pg_sys::NullTestType::IS_NOT_NULL {
+                        Some(Qual::PushdownIsNotNull { field })
+                    } else {
+                        Some(Qual::Not(Box::new(Qual::PushdownIsNotNull { field })))
+                    }
                 } else {
-                    Some(Qual::Not(Box::new(Qual::PushdownIsNotNull { field })))
+                    None
                 }
             } else {
                 None

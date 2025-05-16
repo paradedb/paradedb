@@ -205,7 +205,6 @@ pub fn query_input_restrict(
             // create the search query from the rhs Const node
             let search_query_input =
                 SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull)?;
-
             estimate_selectivity(&indexrel, &search_query_input)
         }
     }

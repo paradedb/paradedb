@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2024 Retake, Inc.
+// Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -19,8 +19,9 @@ mod searchqueryinput;
 mod text;
 
 use crate::api::index::{fieldname_typoid, FieldName};
+use crate::index::mvcc::MvccSatisfies;
+use crate::index::reader::index::SearchIndexReader;
 use crate::nodecast;
-use crate::postgres::index::open_search_index;
 use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
 use pgrx::callconv::{BoxRet, FcInfo};
@@ -58,7 +59,7 @@ unsafe impl SqlTranslatable for ReturnedNodePointer {
     }
 }
 
-fn parse_with_field_procoid() -> pg_sys::Oid {
+pub fn parse_with_field_procoid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(
             pg_sys::regprocedurein,
@@ -69,7 +70,7 @@ fn parse_with_field_procoid() -> pg_sys::Oid {
     }
 }
 
-fn anyelement_query_input_procoid() -> pg_sys::Oid {
+pub fn anyelement_query_input_procoid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(
             pg_sys::regprocedurein,
@@ -79,7 +80,7 @@ fn anyelement_query_input_procoid() -> pg_sys::Oid {
     }
 }
 
-fn anyelement_text_procoid() -> pg_sys::Oid {
+pub fn anyelement_text_procoid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(
             pg_sys::regprocedurein,
@@ -89,7 +90,7 @@ fn anyelement_text_procoid() -> pg_sys::Oid {
     }
 }
 
-fn anyelement_text_opoid() -> pg_sys::Oid {
+pub fn anyelement_text_opoid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(
             pg_sys::regoperatorin,
@@ -137,18 +138,9 @@ pub(crate) fn estimate_selectivity(
         return None;
     }
 
-    let search_index = open_search_index(indexrel).expect("should be able to open search index");
-    let search_reader = search_index
-        .get_reader()
-        .expect("search reader creation should not fail");
-    let estimate = search_reader
-        .estimate_docs(
-            indexrel,
-            search_index.query_parser(),
-            search_query_input.clone(),
-        )
-        .unwrap_or(1) as f64;
-
+    let search_reader = SearchIndexReader::open(indexrel, MvccSatisfies::Snapshot)
+        .expect("estimate_selectivity: should be able to open a SearchIndexReader");
+    let estimate = search_reader.estimate_docs(search_query_input).unwrap_or(1) as f64;
     let mut selectivity = estimate / reltuples;
     if selectivity > 1.0 {
         selectivity = 1.0;
@@ -345,6 +337,9 @@ pub unsafe fn find_var_relation(
         // the Var comes from a subquery, so dig into its target list and find the original
         // table it comes from along with its original column AttributeNumber
         pg_sys::RTEKind::RTE_SUBQUERY => {
+            if (*rte).subquery.is_null() {
+                panic!("unable to determine Var relation as it belongs to a NULL subquery");
+            }
             let targetlist = PgList::<pg_sys::TargetEntry>::from_pg((*(*rte).subquery).targetList);
             let te = targetlist
                 .get_ptr((*var).varattno as usize - 1)
@@ -409,7 +404,10 @@ pub unsafe fn find_var_relation(
 /// Find all the Vars referenced in the specified node
 pub unsafe fn find_vars(node: *mut pg_sys::Node) -> Vec<*mut pg_sys::Var> {
     #[pg_guard]
-    unsafe extern "C" fn walker(node: *mut pg_sys::Node, data: *mut core::ffi::c_void) -> bool {
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        data: *mut core::ffi::c_void,
+    ) -> bool {
         if node.is_null() {
             return false;
         }

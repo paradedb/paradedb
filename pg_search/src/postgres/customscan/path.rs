@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2024 Retake, Inc.
+// Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -22,7 +22,7 @@ use pgrx::{pg_guard, pg_sys, PgMemoryContexts};
 /// Convert a custom path to a finished plan. The return value will generally be a CustomScan object,
 /// which the callback must allocate and initialize. See Section 61.2 for more details.
 #[pg_guard]
-pub extern "C" fn plan_custom_path<CS: CustomScan>(
+pub extern "C-unwind" fn plan_custom_path<CS: CustomScan>(
     root: *mut pg_sys::PlannerInfo,
     rel: *mut pg_sys::RelOptInfo,
     best_path: *mut pg_sys::CustomPath,
@@ -43,7 +43,7 @@ pub extern "C" fn plan_custom_path<CS: CustomScan>(
 /// member of a CustomPath. The callback may use reparameterize_path_by_child,
 /// adjust_appendrel_attrs or adjust_appendrel_attrs_multilevel as required.
 #[pg_guard]
-pub extern "C" fn reparameterize_custom_path_by_child<CS: CustomScan>(
+pub extern "C-unwind" fn reparameterize_custom_path_by_child<CS: CustomScan>(
     root: *mut pg_sys::PlannerInfo,
     custom_private: *mut pg_sys::List,
     child_rel: *mut pg_sys::RelOptInfo,

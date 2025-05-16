@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2024 Retake, Inc.
+// Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -17,11 +17,10 @@
 
 pub mod directory;
 pub mod fast_fields_helper;
-mod merge_policy;
+pub mod merge_policy;
 pub mod reader;
 pub mod search;
 pub mod writer;
 
 pub use directory::*;
 pub use search::*;
-pub use writer::*;

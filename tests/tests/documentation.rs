@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2024 Retake, Inc.
+// Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -17,7 +17,9 @@
 
 mod fixtures;
 
+use approx::assert_relative_eq;
 use fixtures::*;
+use num_traits::ToPrimitive;
 use pgvector::Vector;
 use rstest::*;
 use sqlx::types::BigDecimal;
@@ -51,7 +53,7 @@ fn quickstart(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range) 
+    USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
     WITH (key_field='id');
     "#
     .execute(&mut conn);
@@ -80,13 +82,13 @@ fn quickstart(mut conn: PgConnection) {
     assert_eq!(rows[1].0, "Sleek running shoes".to_string());
     assert_eq!(rows[2].0, "White jogging shoes".to_string());
     assert_eq!(rows[3].0, "Comfortable slippers".to_string());
-    // TODO: Fix error in CI where "Sturdy hiking boots" is inexplicably swapped with "Winter woolen socks"
-    // assert_eq!(rows[4].0, "Sturdy hiking boots".to_string());
+    // The BM25 score here is a tie, so the order is arbitrary
+    assert!(rows[4].0 == *"Sturdy hiking boots" || rows[4].0 == *"Winter woolen socks");
     assert_eq!(rows[0].3, 5.8135376);
     assert_eq!(rows[1].3, 5.4211845);
     assert_eq!(rows[2].3, 5.4211845);
     assert_eq!(rows[3].3, 2.9362776);
-    // assert_eq!(rows[4].3, 2.9362776);
+    assert_eq!(rows[4].3, 2.9362776);
 
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
@@ -110,7 +112,7 @@ fn quickstart(mut conn: PgConnection) {
     REFERENCES mock_items(id);
 
     CREATE INDEX orders_idx ON orders
-    USING bm25 (order_id, customer_name) 
+    USING bm25 (order_id, customer_name)
     WITH (key_field='order_id');
     "#
     .execute(&mut conn);
@@ -512,7 +514,7 @@ fn full_text_search(mut conn: PgConnection) {
     SELECT id, paradedb.score(id) * COALESCE(rating, 1) as score
     FROM mock_items
     WHERE description @@@ 'shoes'
-    ORDER BY score DESC 
+    ORDER BY score DESC
     LIMIT 5
     "#
     .fetch(&mut conn);
@@ -524,6 +526,116 @@ fn full_text_search(mut conn: PgConnection) {
             (4, 7.4547200202941895),
         ]
     );
+}
+
+#[rstest]
+fn match_query(mut conn: PgConnection) {
+    r#"
+    CALL paradedb.create_bm25_test_table(
+      schema_name => 'public',
+      table_name => 'mock_items'
+    );
+
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
+    WITH (key_field='id');
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@ paradedb.match('description', 'running shoes');
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 3);
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@
+    '{
+        "match": {
+            "field": "description",
+            "value": "running shoes"
+        }
+    }'::jsonb;
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 3);
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@ paradedb.match(
+        'description',
+        'running shoes',
+        tokenizer => paradedb.tokenizer('whitespace')
+    );
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 3);
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@
+    '{
+        "match": {
+            "field": "description",
+            "value": "running shoes",
+            "tokenizer": {"type": "whitespace", "lowercase": true, "remove_long": 255}
+        }
+    }'::jsonb;
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 3);
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@ paradedb.match('description', 'ruining shoez', distance => 2);
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 3);
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@
+    '{
+        "match": {
+            "field": "description",
+            "value": "ruining shoez",
+            "distance": 2
+        }
+    }'::jsonb;
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 3);
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@ paradedb.match('description', 'running shoes', conjunction_mode => true);
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@
+    '{
+        "match": {
+            "field": "description",
+            "value": "running shoes",
+            "conjunction_mode": true
+        }
+    }'::jsonb;
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
 }
 
 #[rstest]
@@ -811,7 +923,7 @@ fn term_level_queries(mut conn: PgConnection) {
     WHERE id @@@
     '{
         "range_within": {
-            "field": "weight_range", 
+            "field": "weight_range",
             "lower_bound": {"excluded": 2},
             "upper_bound": {"included": 11}
         }
@@ -955,20 +1067,50 @@ fn phrase_level_queries(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    // Fuzzy phrase
-    let rows: Vec<(String, i32, String)> = r#"
-    SELECT description, rating, category
-    FROM mock_items
-    WHERE id @@@ paradedb.fuzzy_phrase('description', 'ruining shoez')
-    "#
-    .fetch(&mut conn);
-    assert_eq!(rows.len(), 3);
-
     // Phrase
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.phrase('description', ARRAY['running', 'shoes'])
+    WHERE id @@@ paradedb.phrase(
+        field => 'description',
+        phrases => ARRAY['running', 'shoes']
+    )"#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@
+    '{
+        "phrase": {
+            "field": "description",
+            "phrases": ["running", "shoes"]
+        }
+    }'::jsonb;
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@ paradedb.phrase('description', ARRAY['sleek', 'shoes'], slop => 1);
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@
+    '{
+        "phrase": {
+            "field": "description",
+            "phrases": ["sleek", "shoes"],
+            "slop": 1
+        }
+    }'::jsonb;
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
@@ -995,6 +1137,23 @@ fn phrase_level_queries(mut conn: PgConnection) {
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
+
+    // Regex phrase
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@ paradedb.regex_phrase('description', ARRAY['run.*', 'shoe.*'])
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@ paradedb.regex_phrase('description', ARRAY['run.*', 'sh.*'])
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
 }
 
 #[rstest]
@@ -1006,11 +1165,11 @@ fn json_queries(mut conn: PgConnection) {
     );
 
     UPDATE mock_items
-    SET metadata = '{"attributes": {"score": 3, "tstz": "2023-05-01T08:12:34Z"}}'::jsonb 
+    SET metadata = '{"attributes": {"score": 3, "tstz": "2023-05-01T08:12:34Z"}}'::jsonb
     WHERE id = 1;
 
     UPDATE mock_items
-    SET metadata = '{"attributes": {"score": 4, "tstz": "2023-05-01T09:12:34Z"}}'::jsonb 
+    SET metadata = '{"attributes": {"score": 4, "tstz": "2023-05-01T09:12:34Z"}}'::jsonb
     WHERE id = 2;
 
 
@@ -1057,6 +1216,86 @@ fn json_queries(mut conn: PgConnection) {
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 2);
+}
+
+#[rstest]
+fn json_arrays(mut conn: PgConnection) {
+    //
+    // 1) Create the mock_items test table with ParadeDB helper
+    //
+    r#"
+    CALL paradedb.create_bm25_test_table(
+      schema_name => 'public',
+      table_name => 'mock_items'
+    );
+    "#
+    .execute(&mut conn);
+
+    //
+    // 2) Insert some JSON arrays so we can test array-flattening
+    //
+    r#"
+    UPDATE mock_items
+    SET metadata = '{"colors": ["red", "green", "blue"]}'::jsonb
+    WHERE id = 1;
+    UPDATE mock_items
+    SET metadata = '{"colors": ["red", "yellow"]}'::jsonb
+    WHERE id = 2;
+    UPDATE mock_items
+    SET metadata = '{"colors": ["blue", "purple"]}'::jsonb
+    WHERE id = 3;
+    "#
+    .execute(&mut conn);
+
+    //
+    // 3) Create an index that includes metadata
+    //
+    r#"
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, metadata)
+    WITH (key_field='id');
+    "#
+    .execute(&mut conn);
+
+    //
+    // 4) Query via function syntax
+    //
+    let rows: Vec<(String, serde_json::Value)> = r#"
+    SELECT description, metadata
+    FROM mock_items
+    WHERE id @@@ paradedb.term('metadata.colors', 'blue')
+       OR id @@@ paradedb.term('metadata.colors', 'red');
+    "#
+    .fetch(&mut conn);
+
+    // We expect these three rows to match IDs 1, 2, and/or 3
+    assert_eq!(rows.len(), 3);
+
+    //
+    // 5) Query via JSON syntax
+    //
+    let rows2: Vec<(String, serde_json::Value)> = r#"
+    SELECT description, metadata
+    FROM mock_items
+    WHERE id @@@
+    '{
+        "term": {
+            "field": "metadata.colors",
+            "value": "blue"
+        }
+    }'::jsonb
+    OR id @@@
+    '{
+        "term": {
+            "field": "metadata.colors",
+            "value": "red"
+        }
+    }'::jsonb;
+    "#
+    .fetch(&mut conn);
+
+    // Same three rows should appear
+    assert_eq!(rows2.len(), 3);
 }
 
 #[rstest]
@@ -1287,7 +1526,7 @@ fn compound_queries(mut conn: PgConnection) {
                 {"term": {"field": "description", "value": "running"}}
             ]
         }
-    }'::jsonb;    
+    }'::jsonb;
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 3);
@@ -1641,12 +1880,13 @@ fn autocomplete(mut conn: PgConnection) {
     .fetch(&mut conn);
     assert_eq!(rows, expected);
 
-    // Fuzzy phrase
+    // Match
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category FROM mock_items
-    WHERE id @@@ paradedb.fuzzy_phrase(
+    WHERE id @@@ paradedb.match(
         field => 'description',
-        value => 'ruining shoez'
+        value => 'ruining shoez',
+        distance => 2
     ) ORDER BY rating DESC
     "#
     .fetch(&mut conn);
@@ -1654,10 +1894,11 @@ fn autocomplete(mut conn: PgConnection) {
 
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category FROM mock_items
-    WHERE id @@@ paradedb.fuzzy_phrase(
+    WHERE id @@@ paradedb.match(
         field => 'description',
         value => 'ruining shoez',
-        match_all_terms => true
+        distance => 2,
+        conjunction_mode => true
     )
     "#
     .fetch(&mut conn);
@@ -1668,8 +1909,8 @@ fn autocomplete(mut conn: PgConnection) {
     SELECT description, rating, category FROM mock_items
     WHERE id @@@ paradedb.boolean(
         should => ARRAY[
-            paradedb.fuzzy_phrase(field => 'description', value => 'ruining shoez'),
-            paradedb.fuzzy_phrase(field => 'category', value => 'ruining shoez')
+            paradedb.match(field => 'description', value => 'ruining shoez', distance => 2),
+            paradedb.match(field => 'category', value => 'ruining shoez', distance => 2)
         ]
     ) ORDER BY rating DESC
     "#
@@ -1699,7 +1940,7 @@ fn autocomplete(mut conn: PgConnection) {
     // Ngram term set
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category FROM mock_items
-    WHERE id @@@ paradedb.fuzzy_phrase(
+    WHERE id @@@ paradedb.match(
         field => 'description',
         value => 'hsoes',
         distance => 0
@@ -1733,62 +1974,81 @@ fn hybrid_search(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(i32, BigDecimal, String, Vector)> = r#"
-    WITH semantic_search AS (
-        SELECT id, RANK () OVER (ORDER BY embedding <=> '[1,2,3]') AS rank
-        FROM mock_items ORDER BY embedding <=> '[1,2,3]' LIMIT 20
+    WITH bm25_ranked AS (
+        SELECT id, RANK() OVER (ORDER BY score DESC) AS rank
+        FROM (
+            SELECT id, paradedb.score(id) AS score
+            FROM mock_items
+            WHERE description @@@ 'keyboard'
+            ORDER BY paradedb.score(id) DESC
+            LIMIT 20
+        ) AS bm25_score
     ),
-    bm25_search AS (
-        SELECT id, RANK () OVER (ORDER BY paradedb.score(id) DESC) as rank
-        FROM mock_items WHERE description @@@ 'keyboard' LIMIT 20
+    semantic_search AS (
+        SELECT id, RANK() OVER (ORDER BY embedding <=> '[1,2,3]') AS rank
+        FROM mock_items
+        ORDER BY embedding <=> '[1,2,3]'
+        LIMIT 20
     )
     SELECT
-        COALESCE(semantic_search.id, bm25_search.id) AS id,
+        COALESCE(semantic_search.id, bm25_ranked.id) AS id,
         COALESCE(1.0 / (60 + semantic_search.rank), 0.0) +
-        COALESCE(1.0 / (60 + bm25_search.rank), 0.0) AS score,
+        COALESCE(1.0 / (60 + bm25_ranked.rank), 0.0) AS score,
         mock_items.description,
         mock_items.embedding
     FROM semantic_search
-    FULL OUTER JOIN bm25_search ON semantic_search.id = bm25_search.id
-    JOIN mock_items ON mock_items.id = COALESCE(semantic_search.id, bm25_search.id)
+    FULL OUTER JOIN bm25_ranked ON semantic_search.id = bm25_ranked.id
+    JOIN mock_items ON mock_items.id = COALESCE(semantic_search.id, bm25_ranked.id)
     ORDER BY score DESC, description
-    LIMIT 5
+    LIMIT 5;
     "#
     .fetch(&mut conn);
-    assert_eq!(
-        rows,
-        vec![
-            (
-                1,
-                BigDecimal::from_str("0.03062178588125292193").unwrap(),
-                String::from("Ergonomic metal keyboard"),
-                Vector::from(vec![3.0, 4.0, 5.0])
-            ),
-            (
-                2,
-                BigDecimal::from_str("0.02990695613646433318").unwrap(),
-                String::from("Plastic Keyboard"),
-                Vector::from(vec![4.0, 5.0, 6.0])
-            ),
-            (
-                19,
-                BigDecimal::from_str("0.01639344262295081967").unwrap(),
-                String::from("Artistic ceramic vase"),
-                Vector::from(vec![1.0, 2.0, 3.0])
-            ),
-            (
-                29,
-                BigDecimal::from_str("0.01639344262295081967").unwrap(),
-                String::from("Designer wall paintings"),
-                Vector::from(vec![1.0, 2.0, 3.0])
-            ),
-            (
-                39,
-                BigDecimal::from_str("0.01639344262295081967").unwrap(),
-                String::from("Handcrafted wooden frame"),
-                Vector::from(vec![1.0, 2.0, 3.0])
-            ),
-        ]
-    );
+
+    // Expected results
+    let expected = vec![
+        (
+            1,
+            BigDecimal::from_str("0.03062178588125292193").unwrap(),
+            String::from("Ergonomic metal keyboard"),
+            Vector::from(vec![3.0, 4.0, 5.0]),
+        ),
+        (
+            2,
+            BigDecimal::from_str("0.02990695613646433318").unwrap(),
+            String::from("Plastic Keyboard"),
+            Vector::from(vec![4.0, 5.0, 6.0]),
+        ),
+        (
+            19,
+            BigDecimal::from_str("0.01639344262295081967").unwrap(),
+            String::from("Artistic ceramic vase"),
+            Vector::from(vec![1.0, 2.0, 3.0]),
+        ),
+        (
+            29,
+            BigDecimal::from_str("0.01639344262295081967").unwrap(),
+            String::from("Designer wall paintings"),
+            Vector::from(vec![1.0, 2.0, 3.0]),
+        ),
+        (
+            39,
+            BigDecimal::from_str("0.01639344262295081967").unwrap(),
+            String::from("Handcrafted wooden frame"),
+            Vector::from(vec![1.0, 2.0, 3.0]),
+        ),
+    ];
+
+    // Compare each row individually
+    for (actual, expected) in rows.iter().zip(expected.iter()) {
+        assert_eq!(actual.0, expected.0); // Compare IDs
+        assert_relative_eq!(
+            actual.1.to_f64().unwrap(),
+            expected.1.to_f64().unwrap(),
+            epsilon = 0.000265
+        ); // Compare BigDecimal scores
+        assert_eq!(actual.2, expected.2); // Compare descriptions
+        assert_eq!(actual.3, expected.3); // Compare embeddings
+    }
 }
 
 #[rstest]
@@ -1833,7 +2093,7 @@ fn concurrent_indexing(mut conn: PgConnection) {
 
     CREATE INDEX search_idx ON mock_items
     USING bm25 (id, description, category, rating)
-    WITH (key_field='id'); 
+    WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -1905,7 +2165,7 @@ fn index_size(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    let size: i64 = "SELECT index_size FROM paradedb.index_size('search_idx')"
+    let size: i64 = "SELECT pg_relation_size('search_idx')"
         .fetch_one::<(i64,)>(&mut conn)
         .0;
 
@@ -2028,12 +2288,7 @@ fn field_configuration(mut conn: PgConnection) {
     r#"
     CREATE INDEX search_idx ON mock_items
     USING bm25 (id, weight_range)
-    WITH (
-    key_field = 'id',
-    range_fields = '{
-        "weight_range": {"stored": true}
-    }'
-    );
+    WITH (key_field='id');
     DROP INDEX search_idx;
     "#
     .execute(&mut conn);
@@ -2211,6 +2466,45 @@ fn available_tokenizers(mut conn: PgConnection) {
     );
     "#
     .execute(&mut conn);
+
+    // Test multiple tokenizers for the same field
+    r#"
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description)
+    WITH (
+        key_field='id',
+        text_fields='{
+            "description": {"tokenizer": {"type": "whitespace"}},
+            "description_ngram": {"tokenizer": {"type": "ngram", "min_gram": 3, "max_gram": 3, "prefix_only": false}, "column": "description"},
+            "description_stem": {"tokenizer": {"type": "default", "stemmer": "English"}, "column": "description"}
+        }'
+    );
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@ paradedb.parse('description_ngram:cam AND description_stem:digitally')
+    ORDER BY rating DESC
+    LIMIT 5;
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    assert!(rows[0].0.contains("camera"));
+    assert!(rows[0].0.contains("digital"));
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@ paradedb.parse('description:"Soft cotton" OR description_stem:shirts')
+    ORDER BY rating DESC
+    LIMIT 5;
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    assert!(rows.iter().any(|r| r.0.contains("cotton")));
+    assert!(rows.iter().any(|r| r.0.contains("shirt")));
 }
 
 #[rstest]
@@ -2275,7 +2569,7 @@ fn fast_fields(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, rating)
+    USING bm25 (id, description, rating)
     WITH (
         key_field = 'id',
         text_fields ='{

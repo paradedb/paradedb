@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2024 Retake, Inc.
+// Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -19,12 +19,15 @@ pub mod score;
 pub mod snippet;
 
 use crate::api::operator::{find_vars, ReturnedNodePointer};
+use crate::api::Varno;
 use crate::nodecast;
 use crate::postgres::customscan::pdbscan::projections::score::score_funcoid;
-use crate::postgres::customscan::pdbscan::projections::snippet::{snippet_funcoid, SnippetInfo};
+use crate::postgres::customscan::pdbscan::projections::snippet::{
+    snippet_funcoid, snippet_positions_funcoid, SnippetType,
+};
 use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{pg_extern, pg_guard, pg_sys, Internal, PgList};
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::ptr::{addr_of_mut, NonNull};
 use tantivy::snippet::SnippetGenerator;
 
@@ -56,7 +59,7 @@ pub unsafe fn placeholder_support(arg: Internal) -> ReturnedNodePointer {
         let phv = pg_sys::submodules::ffi::pg_guard_ffi_boundary(|| {
             #[allow(improper_ctypes)]
             #[rustfmt::skip]
-            extern "C" {
+            extern "C-unwind" {
                 fn make_placeholder_expr(root: *mut pg_sys::PlannerInfo, expr: *mut pg_sys::Expr, phrels: pg_sys::Relids) -> *mut pg_sys::PlaceHolderVar;
             }
 
@@ -69,7 +72,7 @@ pub unsafe fn placeholder_support(arg: Internal) -> ReturnedNodePointer {
 
         // copy these properties up from the Var to its placeholder
         (*phv).phlevelsup = (*var).varlevelsup;
-        #[cfg(not(any(feature = "pg13", feature = "pg14", feature = "pg15")))]
+        #[cfg(not(any(feature = "pg14", feature = "pg15")))]
         {
             (*phv).phnullingrels = (*var).varnullingrels;
         }
@@ -82,7 +85,10 @@ pub unsafe fn placeholder_support(arg: Internal) -> ReturnedNodePointer {
 
 pub unsafe fn maybe_needs_const_projections(node: *mut pg_sys::Node) -> bool {
     #[pg_guard]
-    unsafe extern "C" fn walker(node: *mut pg_sys::Node, data: *mut core::ffi::c_void) -> bool {
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        data: *mut core::ffi::c_void,
+    ) -> bool {
         if node.is_null() {
             return false;
         }
@@ -91,6 +97,7 @@ pub unsafe fn maybe_needs_const_projections(node: *mut pg_sys::Node) -> bool {
             let data = &*data.cast::<Data>();
             if (*funcexpr).funcid == data.score_funcoid
                 || (*funcexpr).funcid == data.snipped_funcoid
+                || (*funcexpr).funcid == data.snippet_positions_funcoid
             {
                 return true;
             }
@@ -102,11 +109,13 @@ pub unsafe fn maybe_needs_const_projections(node: *mut pg_sys::Node) -> bool {
     struct Data {
         score_funcoid: pg_sys::Oid,
         snipped_funcoid: pg_sys::Oid,
+        snippet_positions_funcoid: pg_sys::Oid,
     }
 
     let mut data = Data {
         score_funcoid: score_funcoid(),
         snipped_funcoid: snippet_funcoid(),
+        snippet_positions_funcoid: snippet_positions_funcoid(),
     };
 
     let data = addr_of_mut!(data).cast();
@@ -124,7 +133,10 @@ pub unsafe fn pullout_funcexprs(
     rti: i32,
 ) -> Vec<(*mut pg_sys::FuncExpr, *mut pg_sys::Var)> {
     #[pg_guard]
-    unsafe extern "C" fn walker(node: *mut pg_sys::Node, data: *mut core::ffi::c_void) -> bool {
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        data: *mut core::ffi::c_void,
+    ) -> bool {
         if node.is_null() {
             return false;
         }
@@ -165,20 +177,22 @@ pub unsafe fn pullout_funcexprs(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::type_complexity)]
 pub unsafe fn inject_placeholders(
     targetlist: *mut pg_sys::List,
     rti: pg_sys::Index,
     score_funcoid: pg_sys::Oid,
     snippet_funcoid: pg_sys::Oid,
-    attname_lookup: &HashMap<(i32, pg_sys::AttrNumber), String>,
-    snippet_infos: &HashMap<SnippetInfo, Option<SnippetGenerator>>,
+    snippet_positions_funcoid: pg_sys::Oid,
+    attname_lookup: &FxHashMap<(Varno, pg_sys::AttrNumber), String>,
+    snippet_generators: &FxHashMap<SnippetType, Option<(tantivy::schema::Field, SnippetGenerator)>>,
 ) -> (
     *mut pg_sys::List,
     *mut pg_sys::Const,
-    HashMap<SnippetInfo, *mut pg_sys::Const>,
+    FxHashMap<SnippetType, Vec<*mut pg_sys::Const>>,
 ) {
     #[pg_guard]
-    unsafe extern "C" fn walker(
+    unsafe extern "C-unwind" fn walker(
         node: *mut pg_sys::Node,
         context: *mut std::ffi::c_void,
     ) -> *mut pg_sys::Node {
@@ -193,14 +207,21 @@ pub unsafe fn inject_placeholders(
 
             if (*funcexpr).funcid == data.score_funcoid {
                 return Some(data.const_score_node.cast());
-            } else if (*funcexpr).funcid == data.snippet_funcoid {
+            }
+
+            if (*funcexpr).funcid == data.snippet_funcoid
+                || (*funcexpr).funcid == data.snippet_positions_funcoid
+            {
                 let var = nodecast!(Var, T_Var, args.get_ptr(0)?)?;
-                let key = (data.rti as i32, (*var).varattno);
+                let key = (data.rti as Varno, (*var).varattno);
+
                 if let Some(attname) = data.attname_lookup.get(&key) {
-                    for snippet_info in data.snippet_infos.keys() {
-                        if &snippet_info.field == attname {
+                    for snippet_type in data.snippet_generators.keys() {
+                        if snippet_type.field() == attname
+                            && snippet_type.funcoid() == (*funcexpr).funcid
+                        {
                             let const_ = pg_sys::makeConst(
-                                pg_sys::TEXTOID,
+                                snippet_type.nodeoid(),
                                 -1,
                                 pg_sys::DEFAULT_COLLATION_OID,
                                 -1,
@@ -208,8 +229,12 @@ pub unsafe fn inject_placeholders(
                                 true,
                                 false,
                             );
+
                             data.const_snippet_nodes
-                                .insert(snippet_info.clone(), const_);
+                                .entry(snippet_type.clone())
+                                .or_default()
+                                .push(const_);
+
                             return Some(const_.cast());
                         }
                     }
@@ -227,7 +252,8 @@ pub unsafe fn inject_placeholders(
         #[cfg(not(any(feature = "pg16", feature = "pg17")))]
         {
             let fnptr = walker as usize as *const ();
-            let walker: unsafe extern "C" fn() -> *mut pg_sys::Node = std::mem::transmute(fnptr);
+            let walker: unsafe extern "C-unwind" fn() -> *mut pg_sys::Node =
+                std::mem::transmute(fnptr);
             pg_sys::expression_tree_mutator(node, Some(walker), context)
         }
 
@@ -244,9 +270,12 @@ pub unsafe fn inject_placeholders(
         const_score_node: *mut pg_sys::Const,
 
         snippet_funcoid: pg_sys::Oid,
-        attname_lookup: &'a HashMap<(i32, pg_sys::AttrNumber), String>,
-        snippet_infos: &'a HashMap<SnippetInfo, Option<SnippetGenerator>>,
-        const_snippet_nodes: HashMap<SnippetInfo, *mut pg_sys::Const>,
+        snippet_positions_funcoid: pg_sys::Oid,
+        attname_lookup: &'a FxHashMap<(Varno, pg_sys::AttrNumber), String>,
+
+        snippet_generators:
+            &'a FxHashMap<SnippetType, Option<(tantivy::schema::Field, SnippetGenerator)>>,
+        const_snippet_nodes: FxHashMap<SnippetType, Vec<*mut pg_sys::Const>>,
     }
 
     let mut data = Data {
@@ -264,8 +293,9 @@ pub unsafe fn inject_placeholders(
         ),
 
         snippet_funcoid,
+        snippet_positions_funcoid,
         attname_lookup,
-        snippet_infos,
+        snippet_generators,
         const_snippet_nodes: Default::default(),
     };
     let targetlist = walker(targetlist.cast(), addr_of_mut!(data).cast());

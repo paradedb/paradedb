@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2024 Retake, Inc.
+// Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -15,12 +15,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::reader::SearchResults;
-use crate::index::SearchIndex;
+use crate::index::reader::index::SearchResults;
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::is_block_all_visible;
+use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::utils::u64_to_item_pointer;
+use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::pg_sys;
 
 pub struct NormalScanExecState {
@@ -30,6 +31,9 @@ pub struct NormalScanExecState {
     vmbuff: pg_sys::Buffer,
 
     search_results: SearchResults,
+
+    // tracks our previous block visibility so we can elide checking again
+    blockvis: (pg_sys::BlockNumber, bool),
 
     did_query: bool,
 }
@@ -42,6 +46,7 @@ impl Default for NormalScanExecState {
             slot: std::ptr::null_mut(),
             vmbuff: pg_sys::InvalidBuffer as pg_sys::Buffer,
             search_results: SearchResults::None,
+            blockvis: (pg_sys::InvalidBlockNumber, false),
             did_query: false,
         }
     }
@@ -50,7 +55,7 @@ impl Default for NormalScanExecState {
 impl Drop for NormalScanExecState {
     fn drop(&mut self) {
         unsafe {
-            if pg_sys::IsTransactionState()
+            if crate::postgres::utils::IsTransactionState()
                 && self.vmbuff != pg_sys::InvalidBuffer as pg_sys::Buffer
             {
                 pg_sys::ReleaseBuffer(self.vmbuff);
@@ -59,7 +64,7 @@ impl Drop for NormalScanExecState {
     }
 }
 impl ExecMethod for NormalScanExecState {
-    fn init(&mut self, state: &PdbScanState, cstate: *mut pg_sys::CustomScanState) {
+    fn init(&mut self, state: &mut PdbScanState, cstate: *mut pg_sys::CustomScanState) {
         unsafe {
             self.heaprel = state.heaprel.unwrap();
             self.slot = pg_sys::MakeTupleTableSlot(
@@ -70,11 +75,37 @@ impl ExecMethod for NormalScanExecState {
         }
     }
 
-    fn query(&mut self, state: &PdbScanState) -> bool {
-        self.do_query(state)
+    fn uses_visibility_map(&self, state: &PdbScanState) -> bool {
+        // if we don't return any actual fields, then we'll use the visibility map
+        state.targetlist_len == 0
     }
 
-    fn internal_next(&mut self) -> ExecState {
+    fn query(&mut self, state: &mut PdbScanState) -> bool {
+        if let Some(parallel_state) = state.parallel_state {
+            if let Some(segment_id) = unsafe { checkout_segment(parallel_state) } {
+                self.search_results = state.search_reader.as_ref().unwrap().search_segment(
+                    state.need_scores(),
+                    segment_id,
+                    &state.search_query_input,
+                );
+                return true;
+            }
+
+            // no more segments to query
+            self.search_results = SearchResults::None;
+            false
+        } else if self.did_query {
+            // not parallel, so we're done
+            false
+        } else {
+            // not parallel, first time query
+            self.do_query(state);
+            self.did_query = true;
+            true
+        }
+    }
+
+    fn internal_next(&mut self, _state: &mut PdbScanState) -> ExecState {
         match self.search_results.next() {
             // no more rows
             None => ExecState::Eof,
@@ -84,14 +115,25 @@ impl ExecMethod for NormalScanExecState {
                 let mut tid = pg_sys::ItemPointerData::default();
                 u64_to_item_pointer(scored.ctid, &mut tid);
 
-                let slot = self.slot;
-                (*slot).tts_flags &= !pg_sys::TTS_FLAG_EMPTY as u16;
-                (*slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
-                (*slot).tts_nvalid = 0;
+                let blockno = item_pointer_get_block_number(&tid);
+                let is_visible = if blockno == self.blockvis.0 {
+                    // we know the visibility of this block because we just checked it last time
+                    self.blockvis.1
+                } else {
+                    // new block so check its visibility
+                    self.blockvis.0 = blockno;
+                    self.blockvis.1 = is_block_all_visible(self.heaprel, &mut self.vmbuff, blockno);
+                    self.blockvis.1
+                };
 
-                if is_block_all_visible(self.heaprel, &mut self.vmbuff, tid, (*self.heaprel).rd_id)
-                {
+                if is_visible {
                     // everything on this block is visible
+
+                    let slot = self.slot;
+                    (*slot).tts_flags &= !pg_sys::TTS_FLAG_EMPTY as u16;
+                    (*slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
+                    (*slot).tts_nvalid = 0;
+
                     ExecState::Virtual { slot }
                 } else {
                     // not sure about the block visibility so the tuple requires a heap check
@@ -111,6 +153,13 @@ impl ExecMethod for NormalScanExecState {
             },
         }
     }
+
+    fn reset(&mut self, _state: &mut PdbScanState) {
+        // Reset tracking state but don't clear search_results - that's handled by PdbScanState.reset()
+
+        // Reset the block visibility cache
+        self.blockvis = (pg_sys::InvalidBlockNumber, false);
+    }
 }
 
 impl NormalScanExecState {
@@ -119,13 +168,16 @@ impl NormalScanExecState {
         if self.did_query {
             return false;
         }
-        self.search_results = state.search_reader.as_ref().unwrap().search_via_channel(
-            state.need_scores(),
-            false,
-            SearchIndex::executor(),
-            state.query.as_ref().unwrap(),
-            state.limit,
-        );
+        self.search_results = state
+            .search_reader
+            .as_ref()
+            .expect("must have a search_reader to do a query")
+            .search(
+                state.need_scores(),
+                false,
+                &state.search_query_input,
+                state.limit,
+            );
         self.did_query = true;
         true
     }

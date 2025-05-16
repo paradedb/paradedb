@@ -17,7 +17,7 @@ concurrency:
 jobs:
   check-typo:
     name: Check Typo using codespell
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     if: github.event.pull_request.draft == false
 
     steps:
@@ -31,7 +31,7 @@ jobs:
         with:
           check_filenames: true
           ignore_words_file: .codespellignore
-          skip: "Cargo.lock,./tests"
+          skip: "Cargo.lock,./tests,./pg_search/tests/pg_regress"
         env:
-          DOCKER_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKER_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
           DOCKER_PASSWORD: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}

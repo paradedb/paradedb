@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2024 Retake, Inc.
+// Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -15,37 +15,43 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::fast_fields_helper::WhichFastField;
-use crate::index::reader::{SearchIndexReader, SearchResults};
-use crate::postgres::customscan::builders::custom_path::SortDirection;
+use crate::api::Varno;
+use crate::index::reader::index::{SearchIndexReader, SearchResults};
+use crate::postgres::customscan::builders::custom_path::{ExecMethodType, SortDirection};
 use crate::postgres::customscan::pdbscan::exec_methods::ExecMethod;
-use crate::postgres::customscan::pdbscan::projections::snippet::SnippetInfo;
+use crate::postgres::customscan::pdbscan::projections::snippet::SnippetType;
+use crate::postgres::customscan::pdbscan::qual_inspect::Qual;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::options::SearchIndexCreateOptions;
+use crate::postgres::utils::u64_to_item_pointer;
 use crate::postgres::visibility_checker::VisibilityChecker;
+use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
-use pgrx::{name_data_to_str, pg_sys, PgRelation};
+use pgrx::heap_tuple::PgHeapTuple;
+use pgrx::{name_data_to_str, pg_sys, PgRelation, PgTupleDesc};
+use rustc_hash::FxHashMap;
 use std::cell::UnsafeCell;
-use std::collections::HashMap;
-use tantivy::query::Query;
 use tantivy::snippet::SnippetGenerator;
-use tantivy::DocAddress;
 
 #[derive(Default)]
 pub struct PdbScanState {
+    pub parallel_state: Option<*mut ParallelScanState>,
+
     pub rti: pg_sys::Index,
 
-    pub query: Option<Box<dyn Query>>,
     pub search_query_input: SearchQueryInput,
+    pub serialized_query: Vec<u8>,
+    pub nexprs: usize,
     pub search_reader: Option<SearchIndexReader>,
 
     pub search_results: SearchResults,
-    pub which_fast_fields: Option<Vec<WhichFastField>>,
     pub targetlist_len: usize,
 
     pub limit: Option<usize>,
     pub sort_field: Option<String>,
     pub sort_direction: Option<SortDirection>,
+
+    pub exec_method_type: ExecMethodType,
     pub retry_count: usize,
     pub heap_tuple_check_count: usize,
     pub virtual_tuple_count: usize,
@@ -57,17 +63,26 @@ pub struct PdbScanState {
     pub indexrelid: pg_sys::Oid,
     pub lockmode: pg_sys::LOCKMODE,
 
+    pub heaprel_namespace: String,
+    pub heaprel_relname: String,
+
     pub visibility_checker: Option<VisibilityChecker>,
+    pub segment_count: usize,
+    pub quals: Option<Qual>,
 
     pub need_scores: bool,
     pub const_score_node: Option<*mut pg_sys::Const>,
     pub score_funcoid: pg_sys::Oid,
 
-    pub const_snippet_nodes: HashMap<SnippetInfo, *mut pg_sys::Const>,
-    pub snippet_funcoid: pg_sys::Oid,
-    pub snippet_generators: HashMap<SnippetInfo, Option<SnippetGenerator>>,
-    pub var_attname_lookup: HashMap<(i32, pg_sys::AttrNumber), String>,
+    pub const_snippet_nodes: FxHashMap<SnippetType, Vec<*mut pg_sys::Const>>,
 
+    pub snippet_funcoid: pg_sys::Oid,
+    pub snippet_positions_funcoid: pg_sys::Oid,
+
+    pub snippet_generators:
+        FxHashMap<SnippetType, Option<(tantivy::schema::Field, SnippetGenerator)>>,
+
+    pub var_attname_lookup: FxHashMap<(Varno, pg_sys::AttrNumber), String>,
     pub placeholder_targetlist: Option<*mut pg_sys::List>,
 
     exec_method: UnsafeCell<Box<dyn ExecMethod>>,
@@ -81,13 +96,6 @@ impl CustomScanState for PdbScanState {
             (*self.exec_method.get()).init(self, cstate)
         }
     }
-
-    fn is_top_n_capable(&self) -> Option<(usize, SortDirection)> {
-        match (self.limit, self.sort_direction) {
-            (Some(limit), Some(sort_direction)) => Some((limit, sort_direction)),
-            _ => None,
-        }
-    }
 }
 
 impl PdbScanState {
@@ -98,7 +106,14 @@ impl PdbScanState {
     }
 
     #[inline(always)]
-    pub fn exec_method<'a>(&mut self) -> &'a mut Box<dyn ExecMethod> {
+    pub fn exec_method<'a>(&self) -> &'a dyn ExecMethod {
+        let ptr = self.exec_method.get();
+        assert!(!ptr.is_null());
+        unsafe { ptr.as_ref().unwrap_unchecked().as_ref() }
+    }
+
+    #[inline(always)]
+    pub fn exec_method_mut<'a>(&mut self) -> &'a mut Box<dyn ExecMethod> {
         let ptr = self.exec_method.get();
         assert!(!ptr.is_null());
         unsafe { ptr.as_mut().unwrap_unchecked() }
@@ -110,7 +125,13 @@ impl PdbScanState {
 
     #[inline(always)]
     pub fn need_scores(&self) -> bool {
-        self.need_scores || self.search_query_input.contains_more_like_this()
+        self.need_scores
+            || self.search_query_input.need_scores()
+            || self
+                .quals
+                .as_ref()
+                .map(|quals| quals.contains_score_exprs())
+                .unwrap_or_default()
     }
 
     #[inline(always)]
@@ -142,8 +163,13 @@ impl PdbScanState {
     }
 
     #[inline(always)]
+    pub fn heaprel_namespace(&self) -> &str {
+        &self.heaprel_namespace
+    }
+
+    #[inline(always)]
     pub fn heaprelname(&self) -> &str {
-        unsafe { name_data_to_str(&(*(*self.heaprel()).rd_rel).relname) }
+        &self.heaprel_relname
     }
 
     #[inline(always)]
@@ -161,16 +187,132 @@ impl PdbScanState {
         self.visibility_checker.as_mut().unwrap()
     }
 
-    pub fn make_snippet(
-        &self,
-        doc_address: DocAddress,
-        snippet_info: &SnippetInfo,
-    ) -> Option<String> {
-        let doc = self.search_reader.as_ref()?.get_doc(doc_address).ok()?;
-        let generator = self.snippet_generators.get(snippet_info)?.as_ref()?;
-        let mut snippet = generator.snippet_from_doc(&doc);
+    pub fn make_snippet(&self, ctid: u64, snippet_type: &SnippetType) -> Option<String> {
+        let text = unsafe { self.doc_from_heap(ctid, snippet_type.field())? };
+        let (field, generator) = self.snippet_generators.get(snippet_type)?.as_ref()?;
+        let mut snippet = generator.snippet(&text);
 
-        snippet.set_snippet_prefix_postfix(&snippet_info.start_tag, &snippet_info.end_tag);
-        Some(snippet.to_html())
+        if let SnippetType::Text(_, _, config) = snippet_type {
+            snippet.set_snippet_prefix_postfix(&config.start_tag, &config.end_tag);
+        }
+
+        let html = snippet.to_html();
+        if html.trim().is_empty() {
+            None
+        } else {
+            Some(html)
+        }
+    }
+
+    pub fn get_snippet_positions(
+        &self,
+        ctid: u64,
+        snippet_type: &SnippetType,
+    ) -> Option<Vec<Vec<i32>>> {
+        let text = unsafe { self.doc_from_heap(ctid, snippet_type.field())? };
+        let (field, generator) = self.snippet_generators.get(snippet_type)?.as_ref()?;
+        let snippet = generator.snippet(&text);
+        let highlighted = snippet.highlighted();
+
+        if highlighted.is_empty() {
+            None
+        } else {
+            Some(
+                snippet
+                    .highlighted()
+                    .iter()
+                    .map(|span| vec![span.start as i32, span.end as i32])
+                    .collect(),
+            )
+        }
+    }
+
+    pub fn is_sorted(&self) -> bool {
+        matches!(
+            self.sort_direction,
+            Some(SortDirection::Asc | SortDirection::Desc)
+        )
+    }
+
+    pub fn reset(&mut self) {
+        if let Some(parallel_state) = self.parallel_state {
+            unsafe {
+                let worker_number = pg_sys::ParallelWorkerNumber;
+                if worker_number == -1 {
+                    let _mutex = (*parallel_state).acquire_mutex();
+                    ParallelScanState::reset(&mut *parallel_state);
+                }
+            }
+        }
+        self.search_results = SearchResults::None;
+        self.retry_count = 0;
+        self.heap_tuple_check_count = 0;
+        self.virtual_tuple_count = 0;
+        self.invisible_tuple_count = 0;
+        self.exec_method_mut().reset(self);
+    }
+
+    /// Given a ctid and field name, get the corresponding value from the heap
+    ///
+    /// This function supports text and text[] fields
+    unsafe fn doc_from_heap(&self, ctid: u64, field: &str) -> Option<String> {
+        let heaprel = self
+            .heaprel
+            .expect("make_snippet: heaprel should be initialized");
+        let mut ipd = pg_sys::ItemPointerData::default();
+        u64_to_item_pointer(ctid, &mut ipd);
+
+        let mut htup = pg_sys::HeapTupleData {
+            t_self: ipd,
+            ..Default::default()
+        };
+        let mut buffer: pg_sys::Buffer = pg_sys::InvalidBuffer as i32;
+
+        #[cfg(feature = "pg14")]
+        {
+            if !pg_sys::heap_fetch(heaprel, pg_sys::GetActiveSnapshot(), &mut htup, &mut buffer) {
+                return None;
+            }
+        }
+
+        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+        {
+            if !pg_sys::heap_fetch(
+                heaprel,
+                pg_sys::GetActiveSnapshot(),
+                &mut htup,
+                &mut buffer,
+                false,
+            ) {
+                return None;
+            }
+        }
+
+        pg_sys::ReleaseBuffer(buffer);
+
+        let tuple_desc = PgTupleDesc::from_pg_unchecked((*heaprel).rd_att);
+        let heap_tuple = PgHeapTuple::from_heap_tuple(tuple_desc.clone(), &mut htup);
+        let (index, attribute) = heap_tuple.get_attribute_by_name(field).unwrap();
+
+        if pg_sys::type_is_array(attribute.type_oid().value()) {
+            // varchar[] and text[] are flattened into a single string
+            // to emulate Tantivy's default behavior for highlighting text arrays
+            Some(
+                pgrx::htup::heap_getattr::<Vec<Option<String>>, _>(
+                    &pgrx::pgbox::PgBox::from_pg(&mut htup),
+                    index,
+                    &tuple_desc,
+                )
+                .unwrap_or_default()
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+                .join(" "),
+            )
+        } else {
+            heap_tuple
+                .get_by_name(field)
+                .unwrap_or_else(|_| panic!("{} should exist in the heap tuple", field))
+        }
     }
 }

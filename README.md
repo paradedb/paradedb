@@ -10,7 +10,7 @@
 <h3 align="center">
   <a href="https://paradedb.com">Website</a> &bull;
   <a href="https://docs.paradedb.com">Docs</a> &bull;
-  <a href="https://join.slack.com/t/paradedbcommunity/shared_invite/zt-2lkzdsetw-OiIgbyFeiibd1DG~6wFgTQ">Community</a> &bull;
+  <a href="https://join.slack.com/t/paradedbcommunity/shared_invite/zt-32abtyjg4-yoYoi~RPh9MSW8tDbl0BQw">Community</a> &bull;
   <a href="https://paradedb.com/blog/">Blog</a> &bull;
   <a href="https://docs.paradedb.com/changelog/">Changelog</a>
 </h3>
@@ -20,10 +20,10 @@
 [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/paradedb)](https://artifacthub.io/packages/search?repo=paradedb)
 [![Docker Pulls](https://img.shields.io/docker/pulls/paradedb/paradedb)](https://hub.docker.com/r/paradedb/paradedb)
 [![License](https://img.shields.io/github/license/paradedb/paradedb?color=blue)](https://github.com/paradedb/paradedb?tab=AGPL-3.0-1-ov-file#readme)
-[![Slack URL](https://img.shields.io/badge/Join%20Slack-purple?logo=slack&link=https%3A%2F%2Fjoin.slack.com%2Ft%2Fparadedbcommunity%2Fshared_invite%2Fzt-2lkzdsetw-OiIgbyFeiibd1DG~6wFgTQ)](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-2lkzdsetw-OiIgbyFeiibd1DG~6wFgTQ)
+[![Slack URL](https://img.shields.io/badge/Join%20Slack-purple?logo=slack&link=https%3A%2F%2Fjoin.slack.com%2Ft%2Fparadedbcommunity%2Fshared_invite%2Fzt-32abtyjg4-yoYoi~RPh9MSW8tDbl0BQw)](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-32abtyjg4-yoYoi~RPh9MSW8tDbl0BQw)
 [![X URL](https://img.shields.io/twitter/url?url=https%3A%2F%2Ftwitter.com%2Fparadedb&label=Follow%20%40paradedb)](https://x.com/paradedb)
 
-[ParadeDB](https://paradedb.com) is an Elasticsearch alternative built on Postgres. We're modernizing the features of Elasticsearch's product suite, starting with real-time search and analytics.
+[ParadeDB](https://paradedb.com) is a modern Elasticsearch alternative built on Postgres. Built for real-time, update-heavy workloads.
 
 ## Roadmap
 
@@ -32,10 +32,10 @@
   - [x] Dense and sparse vector search with [pgvector](https://github.com/pgvector/pgvector#pgvector)
   - [ ] Distributed search
 - [ ] Analytics
-  - [x] Fast analytics over data lakes (i.e. S3) and table formats (i.e. Iceberg) with [pg_analytics](https://github.com/paradedb/pg_analytics)
+  - [x] Faceted search over Postgres data with [pg_search](https://github.com/paradedb/paradedb/tree/dev/pg_search#overview)
   - [ ] Column-oriented Postgres table access method
 
-For a detailed roadmap, see the [ParadeDB Roadmap for 2024 - 2025](https://github.com/orgs/paradedb/discussions/1668).
+For a detailed roadmap, see the [ParadeDB Roadmap for 2025](https://github.com/orgs/paradedb/discussions/2041).
 
 ## Get Started
 
@@ -52,7 +52,9 @@ For more information, including enterprise features and support, please [contact
 
 ### Extensions
 
-You can find prebuilt binaries for all ParadeDB extensions on Debian 12, Ubuntu 22.04 and 24.04, and Red Hat Enterprise Linux 8 and 9 for Postgres 14, 15, 16 and 17 in the [GitHub Releases](https://github.com/paradedb/paradedb/releases/latest). ParadeDB supports all versions supported by the PostgreSQL Global Development Group, which includes PostgreSQL 13+, and you can compile the extensions for other versions of Postgres by following the instructions in the respective extension's README.
+You can find prebuilt binaries for the ParadeDB Postgres extensions on Debian 11, 12, Ubuntu 22.04 and 24.04, Red Hat Enterprise Linux 8 and 9, and macOS 14 (Sonoma) and 15 (Sequoia) for Postgres 14+ in the [GitHub Releases](https://github.com/paradedb/paradedb/releases/latest).
+
+ParadeDB supports all versions supported by the PostgreSQL Global Development Group, which includes PostgreSQL 14+, and you can compile the extensions for other versions of Postgres by following the instructions in the respective extension's README.
 
 ### Docker Image
 
@@ -90,12 +92,6 @@ You can then connect to the database using `psql`:
 docker exec -it paradedb psql -U <user> -d <dbname> -p 5432 -W
 ```
 
-ParadeDB collects anonymous telemetry to help us understand how many people are using the project. You can opt out of telemetry using configuration variables within Postgres:
-
-```sql
-ALTER SYSTEM SET paradedb.pg_search_telemetry TO 'off';
-```
-
 ### Helm Chart
 
 ParadeDB is also available for Kubernetes via our Helm chart. You can find our Helm chart in the [ParadeDB Helm Chart GitHub repository](https://github.com/paradedb/charts) or download it directly from [Artifact Hub](https://artifacthub.io/packages/helm/paradedb/paradedb).
@@ -111,7 +107,7 @@ If you're missing a feature or have found a bug, please open a
 
 To get community support, you can:
 
-- Post a question in the [ParadeDB Slack Community](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-2lkzdsetw-OiIgbyFeiibd1DG~6wFgTQ)
+- Post a question in the [ParadeDB Slack Community](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-32abtyjg4-yoYoi~RPh9MSW8tDbl0BQw)
 - Ask for help on our [GitHub Discussions](https://github.com/paradedb/paradedb/discussions)
 
 If you need commercial support, please [contact the ParadeDB team](mailto:sales@paradedb.com).
@@ -120,7 +116,7 @@ If you need commercial support, please [contact the ParadeDB team](mailto:sales@
 
 We welcome community contributions, big or small, and are here to guide you along
 the way. To get started contributing, check our [first timer issues](https://github.com/paradedb/paradedb/labels/good%20first%20issue)
-or message us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-2lkzdsetw-OiIgbyFeiibd1DG~6wFgTQ). Once you contribute, ping us in Slack and we'll send you some ParadeDB swag!
+or message us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-32abtyjg4-yoYoi~RPh9MSW8tDbl0BQw). Once you contribute, ping us in Slack and we'll send you some ParadeDB swag!
 
 For more information on how to contribute, please see our
 [Contributing Guide](/CONTRIBUTING.md).

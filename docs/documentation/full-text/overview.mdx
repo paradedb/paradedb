@@ -3,25 +3,58 @@ title: Overview
 ---
 
 <Note>
-  **Prerequisite** Before performing full text search over a table, it must
-  first be [indexed](/documentation/indexing/create_index).
+  **Prerequisite** Before performing full text search over a table, ensure that
+  it has been [indexed](/documentation/indexing/create_index) and properly
+  [tuned](/documentation/configuration).
 </Note>
 
-## Basic Usage
+`@@@` is ParadeDB's full text search operator that means "find all rows matching a full text query."
+`@@@` accepts two styles of queries:
 
-`@@@` is ParadeDB's full text search operator that means "find all rows matching a full text query." The left-hand side of `@@@` accepts the field to search against, and the right-hand side accepts the query string.
+## Query String Syntax
+
+The left-hand side of `@@@` is the **field to search against**, and the right-hand side is a **query string**.
+For example, the following query returns all rows where the `description` field matches the query `shoes`.
 
 ```sql
 SELECT description, rating, category
 FROM mock_items
-WHERE description @@@ 'shoes'
-LIMIT 5;
+WHERE description @@@ 'shoes';
 ```
 
-`@@@` itself **does not** perform any ordering, offsets, limits, or scoring. These operations need to be added to the overall query with `ORDER BY`, `OFFSET`, `LIMIT`, and [`paradedb.score`](/documentation/full-text/scoring).
+Under the hood, the query string is tokenized with the same tokenizer that the field used at index creation time.
 
-## Query Language
+This syntax is friendly to ORMs and prepared statements. For consistency, all examples in this section use the query string syntax.
 
-The query string on the right-hand side of `@@@` uses a mini query language that supports [term](/documentation/full-text/term),
-[phrase](/documentation/full-text/phrase), [filtered](/documentation/full-text/filtering), and [boosted](/documentation/full-text/boosting) queries.
-It also accepts [query builder functions](/documentation/advanced) for advanced, "Elastic DSL" style queries.
+### Special Characters
+
+The special characters `+` , `^`, `` ` ``, `:`, `{`, `}`, `"`, `[`, `]`, `(`, `)`, `<`, `>`,`~`, `!`, `\\`, `\*`, and `SPACE` must
+be escaped by a `\` inside the query term.
+
+## Query Builder Syntax
+
+The left-hand side of `@@@` is the **[key field](/documentation/indexing/create_index#choosing-a-key-field)** and the right-hand side is
+a **[query builder function or JSON object](/documentation/advanced/overview)**. This syntax is necessary for capturing more complex query types
+like fuzzy matching or term-level search that cannot be expressed by query strings.
+
+<CodeGroup>
+
+```sql Function Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.match('description', 'shoes');
+```
+
+```sql JSON Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@
+'{
+    "match": {
+        "field": "description",
+        "value": "shoes"
+    }
+}'::jsonb;
+```
+
+</CodeGroup>

@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2024 Retake, Inc.
+// Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -20,6 +20,7 @@ use async_std::prelude::Stream;
 use async_std::stream::StreamExt;
 use async_std::task::block_on;
 use bytes::Bytes;
+use rand::Rng;
 use sqlx::{
     postgres::PgRow,
     testing::{TestArgs, TestContext, TestSupport},
@@ -33,12 +34,26 @@ pub struct Db {
 
 impl Db {
     pub async fn new() -> Self {
-        // Use a timestamp as a unique identifier.
-        let path = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("current time should be retrievable")
-            .as_micros()
-            .to_string();
+        let path =
+            // timestamp
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("current time should be retrievable")
+                .as_micros()
+                .to_string()
+
+                // plus the current thread name, which is typically going to be the test name
+                + &std::thread::current()
+                .name()
+                .map(String::from)
+                .unwrap_or_else(|| {
+                    // or a random 7-letter "word"
+                    rand::rng()
+                        .sample_iter(&rand::distr::Alphanumeric)
+                        .take(7)
+                        .map(char::from)
+                        .collect()
+                });
 
         let args = TestArgs::new(Box::leak(path.into_boxed_str()));
         let context = Postgres::test_context(&args)
@@ -61,9 +76,7 @@ impl Drop for Db {
     fn drop(&mut self) {
         let db_name = self.context.db_name.to_string();
         async_std::task::spawn(async move {
-            Postgres::cleanup_test(db_name.as_str())
-                .await
-                .expect("dropping test database should succeed");
+            Postgres::cleanup_test(db_name.as_str()).await.ok(); // ignore errors as there's nothing we can do about it
         });
     }
 }

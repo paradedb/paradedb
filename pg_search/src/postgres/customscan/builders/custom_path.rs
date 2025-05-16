@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2024 Retake, Inc.
+// Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -16,17 +16,21 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::Cardinality;
+use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::CustomScan;
 use pgrx::{pg_sys, PgList};
+use rustc_hash::FxHashSet;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fmt::{Debug, Display, Formatter};
 
-#[derive(Debug, Default, Copy, Clone)]
-#[repr(u32)]
+#[derive(Debug, Default, Copy, Clone, Serialize, Deserialize)]
+#[repr(i32)]
 pub enum SortDirection {
     #[default]
-    Asc = pg_sys::BTLessStrategyNumber,
-    Desc = pg_sys::BTGreaterStrategyNumber,
+    Asc = pg_sys::BTLessStrategyNumber as i32,
+    Desc = pg_sys::BTGreaterStrategyNumber as i32,
+    None = pg_sys::BTEqualStrategyNumber as i32,
 }
 
 impl AsRef<str> for SortDirection {
@@ -34,6 +38,7 @@ impl AsRef<str> for SortDirection {
         match self {
             SortDirection::Asc => "asc",
             SortDirection::Desc => "desc",
+            SortDirection::None => "<none>",
         }
     }
 }
@@ -60,11 +65,12 @@ impl From<u32> for SortDirection {
     }
 }
 
-impl From<SortDirection> for crate::index::reader::SortDirection {
+impl From<SortDirection> for crate::index::reader::index::SortDirection {
     fn from(value: SortDirection) -> Self {
         match value {
-            SortDirection::Asc => crate::index::reader::SortDirection::Asc,
-            SortDirection::Desc => crate::index::reader::SortDirection::Desc,
+            SortDirection::Asc => crate::index::reader::index::SortDirection::Asc,
+            SortDirection::Desc => crate::index::reader::index::SortDirection::Desc,
+            SortDirection::None => crate::index::reader::index::SortDirection::None,
         }
     }
 }
@@ -75,6 +81,7 @@ impl From<SortDirection> for u32 {
     }
 }
 
+#[derive(Debug)]
 pub enum OrderByStyle {
     Score(*mut pg_sys::PathKey),
     Field(*mut pg_sys::PathKey, String),
@@ -94,6 +101,56 @@ impl OrderByStyle {
             assert!(!pathkey.is_null());
 
             (*self.pathkey()).pk_strategy.into()
+        }
+    }
+}
+
+///
+/// The type of ExecMethod that was chosen at planning time. We fully select an ExecMethodType at
+/// planning time in order to be able to make claims about the sortedness and estimates for our
+/// execution.
+///
+/// `which_fast_fields` lists in this enum are _all_ of the fast fields which were identified at
+/// planning time: based on the join order that the planner ends up choosing, only a subset of
+/// these might be used at execution time (in an order specified by the execution time target
+/// list), but never a superset.
+///
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub enum ExecMethodType {
+    #[default]
+    Normal,
+    TopN {
+        heaprelid: pg_sys::Oid,
+        limit: usize,
+        sort_direction: SortDirection,
+        need_scores: bool,
+    },
+    FastFieldString {
+        field: String,
+        which_fast_fields: FxHashSet<WhichFastField>,
+    },
+    FastFieldNumeric {
+        which_fast_fields: FxHashSet<WhichFastField>,
+    },
+    FastFieldMixed {
+        which_fast_fields: FxHashSet<WhichFastField>,
+    },
+}
+
+impl ExecMethodType {
+    ///
+    /// Returns true if this execution method will emit results in sorted order with the given
+    /// number of workers.
+    ///
+    pub fn is_sorted(&self, nworkers: usize) -> bool {
+        match self {
+            ExecMethodType::TopN { .. } if nworkers == 0 => {
+                // TODO: To allow sorted output with parallel workers, we would need to partition
+                // our segments across the workers so that each worker emitted all of its results
+                // in sorted order.
+                true
+            }
+            _ => false,
         }
     }
 }
@@ -152,6 +209,13 @@ pub struct CustomPathBuilder<P: Into<*mut pg_sys::List> + Default> {
     custom_private: P,
 }
 
+#[derive(Copy, Clone, Debug)]
+pub enum RestrictInfoType {
+    BaseRelation,
+    Join,
+    None,
+}
+
 impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
     pub fn new<CS: CustomScan>(
         root: *mut pg_sys::PlannerInfo,
@@ -159,28 +223,35 @@ impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
         rti: pg_sys::Index,
         rte: *mut pg_sys::RangeTblEntry,
     ) -> CustomPathBuilder<P> {
-        Self {
-            args: Args {
-                root,
-                rel,
-                rti,
-                rte,
-            },
-            flags: Default::default(),
+        unsafe {
+            Self {
+                args: Args {
+                    root,
+                    rel,
+                    rti,
+                    rte,
+                },
+                flags: Default::default(),
 
-            custom_path_node: pg_sys::CustomPath {
-                path: pg_sys::Path {
-                    type_: pg_sys::NodeTag::T_CustomPath,
-                    pathtype: pg_sys::NodeTag::T_CustomScan,
-                    parent: rel,
-                    pathtarget: unsafe { *rel }.reltarget,
+                custom_path_node: pg_sys::CustomPath {
+                    path: pg_sys::Path {
+                        type_: pg_sys::NodeTag::T_CustomPath,
+                        pathtype: pg_sys::NodeTag::T_CustomScan,
+                        parent: rel,
+                        pathtarget: (*rel).reltarget,
+                        param_info: pg_sys::get_baserel_parampathinfo(
+                            root,
+                            rel,
+                            pg_sys::bms_copy((*rel).lateral_relids),
+                        ),
+                        ..Default::default()
+                    },
+                    methods: CS::custom_path_methods(),
                     ..Default::default()
                 },
-                methods: CS::custom_path_methods(),
-                ..Default::default()
-            },
-            custom_paths: PgList::default(),
-            custom_private: P::default(),
+                custom_paths: PgList::default(),
+                custom_private: P::default(),
+            }
         }
     }
 
@@ -192,17 +263,20 @@ impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
     // convenience getters for type safety
     //
 
-    pub fn restrict_info(&self) -> PgList<pg_sys::RestrictInfo> {
+    pub fn restrict_info(&self) -> (PgList<pg_sys::RestrictInfo>, RestrictInfoType) {
         unsafe {
             let baseri = PgList::from_pg(self.args.rel().baserestrictinfo);
             let joinri = PgList::from_pg(self.args.rel().joininfo);
 
             if baseri.is_empty() && joinri.is_empty() {
-                PgList::new()
-            } else if baseri.is_empty() {
-                joinri
+                // both lists are empty, so return an empty list
+                (PgList::new(), RestrictInfoType::None)
+            } else if !baseri.is_empty() {
+                // the baserestrictinfo has entries, so we prefer that first
+                (baseri, RestrictInfoType::BaseRelation)
             } else {
-                baseri
+                // only the joininfo has entries, so that's what we'll use
+                (joinri, RestrictInfoType::Join)
             }
         }
     }
@@ -257,17 +331,15 @@ impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
         self
     }
 
-    pub fn add_path_key(mut self, pathkey: &Option<OrderByStyle>) -> Self {
+    pub fn add_path_key(mut self, style: &OrderByStyle) -> Self {
         unsafe {
-            if let Some(style) = pathkey {
-                let mut pklist =
-                    PgList::<pg_sys::PathKey>::from_pg(self.custom_path_node.path.pathkeys);
-                pklist.push(style.pathkey());
+            let mut pklist =
+                PgList::<pg_sys::PathKey>::from_pg(self.custom_path_node.path.pathkeys);
+            pklist.push(style.pathkey());
 
-                self.custom_path_node.path.pathkeys = pklist.into_pg();
-            }
-            self
+            self.custom_path_node.path.pathkeys = pklist.into_pg();
         }
+        self
     }
 
     pub fn set_force_path(mut self, force: bool) -> Self {
@@ -276,6 +348,15 @@ impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
         } else {
             self.flags.remove(&Flags::Force);
         }
+        self
+    }
+
+    pub fn set_parallel(mut self, nworkers: usize) -> Self {
+        self.custom_path_node.path.parallel_aware = true;
+        self.custom_path_node.path.parallel_safe = true;
+        self.custom_path_node.path.parallel_workers =
+            nworkers.try_into().expect("nworkers should be a valid i32");
+
         self
     }
 

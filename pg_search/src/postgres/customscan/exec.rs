@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2024 Retake, Inc.
+// Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -22,7 +22,7 @@ use pgrx::{pg_guard, pg_sys};
 /// Complete initialization of the supplied CustomScanState. Standard fields have been initialized
 /// by ExecInitCustomScan, but any private fields should be initialized here.
 #[pg_guard]
-pub extern "C" fn begin_custom_scan<CS: CustomScan>(
+pub extern "C-unwind" fn begin_custom_scan<CS: CustomScan>(
     node: *mut pg_sys::CustomScanState,
     estate: *mut pg_sys::EState,
     eflags: i32,
@@ -34,7 +34,7 @@ pub extern "C" fn begin_custom_scan<CS: CustomScan>(
 /// tuple in the current scan direction, and then return the tuple slot. If not, NULL or an empty
 /// slot should be returned.
 #[pg_guard]
-pub extern "C" fn exec_custom_scan<CS: CustomScan>(
+pub extern "C-unwind" fn exec_custom_scan<CS: CustomScan>(
     node: *mut pg_sys::CustomScanState,
 ) -> *mut pg_sys::TupleTableSlot {
     let mut custom_state = wrap_custom_scan_state::<CS>(node);
@@ -44,14 +44,14 @@ pub extern "C" fn exec_custom_scan<CS: CustomScan>(
 /// Clean up any private data associated with the CustomScanState. This method is required, but it
 /// does not need to do anything if there is no associated data or it will be cleaned up automatically.
 #[pg_guard]
-pub extern "C" fn end_custom_scan<CS: CustomScan>(node: *mut pg_sys::CustomScanState) {
+pub extern "C-unwind" fn end_custom_scan<CS: CustomScan>(node: *mut pg_sys::CustomScanState) {
     let mut custom_state = wrap_custom_scan_state(node);
     unsafe { CS::end_custom_scan(custom_state.as_mut()) }
 }
 
 /// Rewind the current scan to the beginning and prepare to rescan the relation.
 #[pg_guard]
-pub extern "C" fn rescan_custom_scan<CS: CustomScan>(node: *mut pg_sys::CustomScanState) {
+pub extern "C-unwind" fn rescan_custom_scan<CS: CustomScan>(node: *mut pg_sys::CustomScanState) {
     let mut custom_state = wrap_custom_scan_state(node);
     unsafe { CS::rescan_custom_scan(custom_state.as_mut()) }
 }
@@ -60,7 +60,7 @@ pub extern "C" fn rescan_custom_scan<CS: CustomScan>(node: *mut pg_sys::CustomSc
 /// callback. This callback is optional, and need only be supplied if the CUSTOMPATH_SUPPORT_MARK_RESTORE
 /// flag is set.
 #[pg_guard]
-pub extern "C" fn mark_pos_custom_scan<CS: CustomScan + MarkRestoreCapable>(
+pub extern "C-unwind" fn mark_pos_custom_scan<CS: CustomScan + MarkRestoreCapable>(
     node: *mut pg_sys::CustomScanState,
 ) {
     let mut custom_state = wrap_custom_scan_state(node);
@@ -70,7 +70,7 @@ pub extern "C" fn mark_pos_custom_scan<CS: CustomScan + MarkRestoreCapable>(
 /// Restore the previous scan position as saved by the MarkPosCustomScan callback. This callback is
 /// optional, and need only be supplied if the CUSTOMPATH_SUPPORT_MARK_RESTORE flag is set.
 #[pg_guard]
-pub extern "C" fn restr_pos_custom_scan<CS: CustomScan + MarkRestoreCapable>(
+pub extern "C-unwind" fn restr_pos_custom_scan<CS: CustomScan + MarkRestoreCapable>(
     node: *mut pg_sys::CustomScanState,
 ) {
     let mut custom_state = wrap_custom_scan_state(node);
@@ -83,7 +83,7 @@ pub extern "C" fn restr_pos_custom_scan<CS: CustomScan + MarkRestoreCapable>(
 /// callback is invoked, custom scan providers that wish to take some action before the DSM segment
 /// goes away should implement this method.
 #[pg_guard]
-pub extern "C" fn shutdown_custom_scan<CS: CustomScan>(node: *mut pg_sys::CustomScanState) {
+pub extern "C-unwind" fn shutdown_custom_scan<CS: CustomScan>(node: *mut pg_sys::CustomScanState) {
     let mut custom_state = wrap_custom_scan_state(node);
     unsafe { CS::shutdown_custom_scan(custom_state.as_mut()) }
 }
@@ -92,7 +92,7 @@ pub extern "C" fn shutdown_custom_scan<CS: CustomScan>(node: *mut pg_sys::Custom
 /// Common data stored in the ScanState, such as the target list and scan relation, will be shown
 /// even without this callback, but the callback allows the display of additional, private state.
 #[pg_guard]
-pub extern "C" fn explain_custom_scan<CS: CustomScan>(
+pub extern "C-unwind" fn explain_custom_scan<CS: CustomScan>(
     node: *mut pg_sys::CustomScanState,
     ancestors: *mut pg_sys::List,
     es: *mut pg_sys::ExplainState,

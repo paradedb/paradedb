@@ -1,0 +1,222 @@
+---
+title: Getting Started
+---
+
+<Info>
+  Deploying ParadeDB as a logical replication worker is a [ParadeDB
+  Enterprise](/deploy/enterprise) feature. This guide assumes you are using a
+  ParadeDB Enterprise build.
+</Info>
+
+<Note>
+  In order for ParadeDB to run as a logical replica, ParadeDB must be using
+  Postgres 17+.
+</Note>
+
+In production, ParadeDB is designed to be deployed as a logical replica of your primary Postgres. This
+allows ParadeDB to stay in sync with managed Postgres providers like AWS RDS, Google CloudSQL, and Azure Postgres with zero additional
+infrastructure overhead. It also isolates search and analytical workloads from your primary Postgres, which can prevent downtime caused by long-running queries.
+
+ParadeDB supports logical replication from any primary Postgres. This could be AWS RDS/Aurora, Azure Database, GCP CloudSQL for PostgreSQL, AlloyDB for PostgreSQL, or a self-hosted Postgres.
+
+## AWS RDS/Aurora
+
+Please follow AWS' [tutorial for configuring logical replication](https://aws.amazon.com/blogs/database/using-logical-replication-to-replicate-managed-amazon-rds-for-postgresql-and-amazon-aurora-to-self-managed-postgresql/).
+In this tutorial, AWS RDS/Aurora is the **publisher** and ParadeDB is the **subscriber**.
+
+## Azure Database
+
+Please follow Azure's [tutorial for configuring logical replication](https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/concepts-logical).
+In this tutorial, Azure Database is the **publisher** and ParadeDB is the **subscriber**.
+
+<Note>
+  Azure Cosmos DB for PostgreSQL [does not support logical
+  replication](https://learn.microsoft.com/en-us/answers/questions/1193391/does-azure-cosmos-db-for-postgresql-support-logica).
+</Note>
+
+## GCP CloudSQL for PostgreSQL
+
+Please follow Google's [tutorial for configuring logical replication](https://cloud.google.com/sql/docs/postgres/replication/configure-logical-replication#set-up-native-postgresql-logical-replication).
+In this tutorial, GCP CloudSQL for PostgreSQL is the **publisher** and ParadeDB is the **subscriber**.
+
+## AlloyDB for PostgreSQL
+
+Please follow Google's [tutorial for configuring logical replication](https://cloud.google.com/alloydb/docs/omni/replicate-data-omni-other-db).
+In this tutorial, AlloyDB is the **publisher** and ParadeDB is the **subscriber**.
+
+## Self-Hosted Postgres
+
+This guide demonstrates how to configure replication between a self-hosted primary Postgres and ParadeDB.
+
+### Environment Setup
+
+We'll use the following environment setup for our demonstration:
+
+**Primary Server**
+
+- **OS**: Ubuntu 24.04
+- **IP**: 192.168.0.30
+- **Database Name**: `marketplace`
+- **Replication User**: `replicator`
+- **Replication Password**: `passw0rd`
+
+**Standby Servers**
+
+- **OS**: Ubuntu 24.04
+- **IP**: `192.168.0.31`, `192.168.0.32`
+
+### Primary Server Setup
+
+#### 1. Edit `postgresql.conf`
+
+The `postgresql.conf` file is the main configuration file for PostgreSQL. It contains all the server settings that control the behavior and performance of your PostgreSQL instance.
+Ensure that your `postgresql.conf` has the following settings applied:
+
+```ini
+listen_addresses = 'localhost,192.168.0.30'
+max_wal_senders = 10
+```
+
+- `listen_addresses` specifies the IP addresses on which PostgreSQL listens for connections. By default, PostgreSQL only listens on `localhost`. To allow other servers (like your standby servers) to connect for replication, you need to include their IP addresses.
+- `max_wal_senders` determines the maximum number of concurrent connections that can send WAL (Write-Ahead Log) data.
+
+If you are running `pg_search` on the primary server, make sure to add it to `shared_preload_libraries` if your Postgres version is less than 17. If you are installing it only on the standby server as a search replica,
+you should skip this step.
+
+```ini
+# Include this only if pg_search is installed on the primary
+shared_preload_libraries = 'pg_search'
+```
+
+#### 2. Edit `pg_hba.conf`
+
+The `pg_hba.conf` file (PostgreSQL Host-Based Authentication file) controls client authentication, defining who can connect to the PostgreSQL server, how they can connect, and from where. It ensures that only authorized users and systems can access the database.
+
+We need to allow the replication user to connect from the standby servers' IP addresses. Add the following lines to allow replication from the local network and localhost. This configuration ensures that the replication user can connect from the specified IP range.
+
+```ini
+local   replication     all                                     peer
+host    replication     all             127.0.0.1/32            scram-sha-256
+host    replication     all             ::1/128                 scram-sha-256
+host    replication     all             192.168.0.0/24          scram-sha-256
+```
+
+#### 3. Create the Replication User
+
+In PostgreSQL, a user is required to handle replication connections securely. This user needs specific permissions to read the WAL and perform replication tasks.
+
+Creating a dedicated replication user ensures that the replication process is secure and isolated from other database operations. This user will have the necessary permissions to perform replication but will not have broader administrative privileges.
+
+```bash
+sudo -u postgres createuser --pwprompt --replication replicator
+```
+
+`--pwprompt` prompts you to enter a password for the new user. In this tutorial, we will be setting the password to `passw0rd`.
+
+`--replication` grants the replication privilege to the new user, allowing it to handle replication tasks.
+
+#### 4. Create Mock Table on Primary
+
+Create a database:
+
+```bash
+sudo -u postgres -H createdb marketplace
+```
+
+Insert some data:
+
+```sql
+CREATE TABLE mock_items (
+  id SERIAL PRIMARY KEY,
+  description TEXT,
+  rating INTEGER CHECK (rating BETWEEN 1 AND 5),
+  category VARCHAR(255),
+  in_stock BOOLEAN,
+  metadata JSONB,
+  created_at TIMESTAMP,
+  last_updated_date DATE,
+  latest_available_time TIME
+);
+
+
+INSERT INTO mock_items (description, category, in_stock, latest_available_time, last_updated_date, metadata, created_at, rating)
+VALUES ('Red sports shoes', 'Footwear', true, '12:00:00', '2024-07-10', '{}', '2024-07-10 12:00:00', 1);
+```
+
+If you have installed `pg_search` on the primary, you can build a BM25 index over the table.
+
+```sql
+-- Skip this if pg_search is not installed on the primary
+CREATE INDEX mock_items_bm25_idx ON public.mock_items
+USING bm25 (id, description) WITH (key_field='id');
+```
+
+### Standby Server Setup
+
+Standby servers do not have any specific configuration necessary other than the tables in which you are ingesting logical replication must start off empty. Configuring
+replication consists of two steps:
+
+- Running pg_basebackup, which will create a snapshot of your primary onto your standby servers. This makes the initial replication much faster.
+- Subscribing via logical replication, which will create a subscription that continuously propagates changes on the primary server to the standby.
+
+#### 1. Run pg_basebackup
+
+You should run `pg_basebackup` on your standby server to create a physical byte-for-byte replica of your primary cluster. The `--pgdata` directory specifies the where the standby cluster will be created. The directory must exist, and must be empty.
+
+```bash
+mkdir -p /var/lib/postgresql/17/main
+
+pg_basebackup --create-slot --slot standby1 --host 192.168.0.30 --pgdata /var/lib/postgresql/17/main --progress --username replicator --write-recovery-conf
+pg_basebackup --create-slot --slot standby2 --host 192.168.0.30 --pgdata /var/lib/postgresql/17/main --progress --username replicator --write-recovery-conf
+```
+
+#### 2. Start PostgreSQL on Standby Server
+
+Start PostgreSQL on standby servers:
+
+```bash
+sudo systemctl start postgresql
+```
+
+#### 3. Verify Replication
+
+Now you can verify the replication. The data inserted on the primary server should appear on the standby servers, confirming that streaming replication with ParadeDB is working correctly.
+
+```sql
+SELECT * FROM mock_items WHERE description @@@ 'shoes';
+```
+
+### Logical Replication Setup
+
+Logical replication allows you to replicate changes to specific tables between PostgreSQL instances. After creating a physical replica with `pg_basebackup`, you can set up a subscription to propagate changes on the primary server to the standby.
+
+#### 1. Create Publication on Primary
+
+```sql
+CREATE PUBLICATION mock_items_pub FOR TABLE mock_items;
+```
+
+#### 2. Create Subscription on Standby
+
+```sql
+CREATE SUBSCRIPTION sub_marketplace
+CONNECTION 'host=172.16.0.1 port=5432 dbname=marketplace user=replicator password=passw0rd'
+PUBLICATION pub_marketplace;
+```
+
+#### 3. Insert Data on Publisher
+
+```sql
+INSERT INTO mock_items (description, category, in_stock, latest_available_time, last_updated_date, metadata, created_at, rating)
+VALUES ('Blue running shoes', 'Footwear', true, '14:00:00', '2024-07-10', '{}', '2024-07-10 14:00:00', 2)
+```
+
+#### 4. Verify Replication
+
+Verify the replication on the Subscriber server:
+
+```sql
+SELECT * FROM mock_items WHERE description @@@ '"running shoes"';
+```
+
+The data inserted on the Publisher server should appear on the Subscriber server.

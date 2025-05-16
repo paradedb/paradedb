@@ -1,7 +1,9 @@
 # workflows/publish-pg_search-rhel.yml
 #
 # Publish pg_search (Red Hat)
-# Build and publish the pg_search extension as .rpm to GitHub Releases.
+# Build and publish the pg_search extension as .rpm to GitHub Releases. This workflow is
+# gets triggered for both pushes to `main` and `staging`, but beta releases get filtered
+# out by the `if` condition of the job.
 
 name: Publish pg_search (Red Hat)
 
@@ -27,13 +29,11 @@ permissions:
 
 jobs:
   publish-pg_search:
-    name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.arch }}
+    name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.name }} ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     container:
       image: ${{ matrix.image }}
-      credentials:
-        username: ${{ secrets.DOCKERHUB_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
+    if: ${{ !contains(github.ref, '-rc') }}
     strategy:
       matrix:
         include:
@@ -129,8 +129,8 @@ jobs:
           # Extract RHEL version from the image name
           RHEL_VERSION=$(echo "${{ matrix.image }}" | awk -F'ubi|:' '{print $2}')
 
-          # Install dependencies
-          dnf install -y sudo wget gcc llvm-toolset pkgconf-pkg-config openssl-devel jq rpm-build
+          # Install dependencies (including ICU devel for cargo pgrx --features icu)
+          dnf install -y sudo wget gcc llvm-toolset pkgconf-pkg-config openssl-devel jq rpm-build libicu-devel clang clang-devel
 
           # Add Oracle Linux ${RHEL_VERSION} repositories to enable epel-release
           sudo tee /etc/yum.repos.d/oracle-linux-ol${RHEL_VERSION}.repo > /dev/null <<EOF
@@ -164,6 +164,39 @@ jobs:
           # configure the build environment for creating the RPM package via rpmbuild
           sudo dnf install -y rpmdevtools
 
+      # Install ICU 76.1 from source for compatibility with rust_icu
+      - name: Download, Compile & Install ICU 76.1
+        run: |
+          # Download ICU 76.1 source code
+          wget https://github.com/unicode-org/icu/releases/download/release-76-1/icu4c-76_1-src.tgz
+          tar xzf icu4c-76_1-src.tgz
+
+          # Compile and install ICU
+          cd icu/source
+          ./configure --prefix=/usr/local/icu76 --enable-shared --disable-static
+          make -j$(nproc)
+          sudo make install
+
+          # Configure ICU flags for bindgen
+          echo "ICU_CFLAGS=-I/usr/local/icu76/include" >> $GITHUB_ENV
+          echo "ICU_LDFLAGS=-L/usr/local/icu76/lib -licui18n -licuuc -licudata" >> $GITHUB_ENV
+
+          # Configure pkg-config for ICU 76.1
+          echo "PKG_CONFIG_PATH=/usr/local/icu76/lib/pkgconfig:/usr/lib64/pkgconfig" >> $GITHUB_ENV
+          echo "PKG_CONFIG_ALLOW_SYSTEM_CFLAGS=1" >> $GITHUB_ENV
+          echo "PKG_CONFIG_ALLOW_SYSTEM_LIBS=1" >> $GITHUB_ENV
+
+      # This confirms that the installation was successful and that the correct version will
+      # be picked up when doing `cargo pgrx package`
+      - name: Verify pkg-config is on ICU 76.1
+        run: |
+          export PKG_CONFIG_PATH="/usr/local/icu76/lib/pkgconfig:/usr/lib64/pkgconfig"
+          export PKG_CONFIG_ALLOW_SYSTEM_CFLAGS=1
+          export PKG_CONFIG_ALLOW_SYSTEM_LIBS=1
+          pkg-config --modversion icu-i18n   # should print 76.1
+          pkg-config --cflags icu-i18n       # should print -I/usr/local/icu76/include
+          pkg-config --libs icu-i18n         # should include -L/usr/local/icu76/lib
+
       # Used to upload the release to GitHub Releases
       - name: Install GitHub CLI
         run: |
@@ -172,11 +205,12 @@ jobs:
           gh --version
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: actions-rust-lang/setup-rust-toolchain@v1
 
       - name: Retrieve OS & GitHub Tag Versions
         id: version
         run: |
+          # If no workflow_dispatch version is provided, we use workflow tag trigger version
           if [ -z "${{ github.event.inputs.version }}" ]; then
             if [[ $GITHUB_REF == refs/tags/v* ]]; then
               VERSION=${GITHUB_REF#refs/tags/v}
@@ -189,6 +223,7 @@ jobs:
           fi
           echo "GitHub Tag Version: $VERSION"
           echo "tag_version=$VERSION" >> $GITHUB_OUTPUT
+          echo "commit_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
           OS_VERSION="el$(cat /etc/os-release | grep ^VERSION_ID= | cut -d= -f2 | tr -d '"' | cut -d. -f1)"
           echo "OS Version: $OS_VERSION"
@@ -216,7 +251,7 @@ jobs:
       - name: Extract pgrx Version
         id: pgrx
         working-directory: pg_search/
-        run: echo version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv) >> $GITHUB_OUTPUT
+        run: echo version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/') >> $GITHUB_OUTPUT
 
       - name: Install pgrx
         run: cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
@@ -229,9 +264,21 @@ jobs:
 
       - name: Package pg_search Extension with pgrx
         working-directory: pg_search/
+        env:
+          COMMIT_SHA: ${{ steps.version.outputs.commit_sha }}
+          PARADEDB_VERSION: ${{ steps.version.outputs.tag_version }}
+          # Point pkg-config at our custom ICU 76.1 installation
+          PKG_CONFIG_PATH: /usr/local/icu76/lib/pkgconfig:/usr/lib64/pkgconfig
+          PKG_CONFIG_ALLOW_SYSTEM_CFLAGS: 1
+          PKG_CONFIG_ALLOW_SYSTEM_LIBS: 1
+          # Required for bindgen to find the ICU headers
+          ICU_CFLAGS: ${{ env.ICU_CFLAGS }}
+          ICU_LDFLAGS: ${{ env.ICU_LDFLAGS }}
+          # Required for pgrx_embed to open the shared ICU library
+          LD_LIBRARY_PATH: /usr/local/icu76/lib:${LD_LIBRARY_PATH}
         run: |
           PG_CONFIG_PATH="/usr/pgsql-${{ matrix.pg_version }}/bin/pg_config"
-          cargo pgrx package --pg-config $PG_CONFIG_PATH
+          cargo pgrx package --features icu --pg-config $PG_CONFIG_PATH
 
       - name: Create .rpm Package
         run: |
@@ -283,7 +330,7 @@ jobs:
           rpmbuild --without debuginfo -ba ~/rpmbuild/SPECS/pg_search.spec
 
       - name: Sign and Attest Build Provenance
-        uses: actions/attest-build-provenance@v1
+        uses: actions/attest-build-provenance@v2
         with:
           subject-path: |
             ~/rpmbuild/RPMS/${{ matrix.arch }}/pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm

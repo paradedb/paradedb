@@ -24,7 +24,12 @@ Once this index is created, it automatically stays in sync with the underlying t
 ## Segment
 
 A BM25 index is made up of many segments. Each segment stores a small part of the index. A segment is analogous to an ElasticSearch shard,
-with the caveat that all segments are stored on the same Postgres node.
+with the caveat that all segments are stored on the same Postgres node. The index's segment count is unrelated to the underlying table's
+partitioning strategy.
 
-Every atomic insert or update creates a new segment. Because having too many (or too few) segments can negatively impact performance, ParadeDB tries to
-maintain an optimal segment count during index build, insert, and vacuum operations. This behavior can be configured in the [index settings](/documentation/configuration/index#target-segment-count).
+Every `INSERT`/`UPDATE`/`COPY` statement creates at least one new segment. Generally speaking, search performance is improved if the number of segments is equal to the number of [parallel workers](/documentation/configuration/parallel).
+It is acceptable to have more segments than parallel workers, but anything more than several hundred segments will likely degrade search performance.
+
+To guard against excessive segment growth, the index will try to merge segments together as part of an `INSERT`/`UPDATE`/`COPY` statement.
+The merge policy is a configurable [layered](/documentation/configuration/segment_size) policy that attempts to merge segments into
+layers of different sizes.

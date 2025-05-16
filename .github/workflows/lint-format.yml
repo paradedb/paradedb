@@ -17,7 +17,7 @@ concurrency:
 jobs:
   lint-format:
     name: Lint File Endings & Trailing Whitespaces
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     if: github.event.pull_request.draft == false
 
     steps:
@@ -43,7 +43,7 @@ jobs:
 
       - name: Check for Trailing Whitespaces
         run: |
-          FILES=$(git grep -Ilr '[[:blank:]]$' -- ':(exclude)*.sql' ':(exclude)*.rs' || true)
+          FILES=$(git grep -Ilr '[[:blank:]]$' -- ':(exclude)*.sql' ':(exclude)*.out' ':(exclude)*.rs' || true)
           if [[ ! -z "$FILES" ]]; then
             echo "The following files have trailing whitespaces:"
             echo "$FILES"

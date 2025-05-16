@@ -10,7 +10,7 @@
 
 `pg_search` is a Postgres extension that enables full text search over heap tables using the BM25 algorithm. It is built on top of Tantivy, the Rust-based alternative to Apache Lucene, using `pgrx`. Please refer to the [ParadeDB documentation](https://docs.paradedb.com/documentation/getting-started/quickstart) to get started.
 
-`pg_search` is supported on all versions supported by the PostgreSQL Global Development Group, which includes PostgreSQL 13+.
+`pg_search` is supported on official PostgreSQL Global Development Group Postgres versions, starting at v14.
 
 Check out the `pg_search` benchmarks [here](../benchmarks/README.md).
 
@@ -40,7 +40,7 @@ This will spin up a Postgres instance with `pg_search` preinstalled.
 
 If you are self-hosting Postgres and would like to use the extension within your existing Postgres, follow the steps below.
 
-It's **very important** to make the following change to your `postgresql.conf` configuration file. `pg_search` must be in the list of `shared_preload_libraries`:
+It's **very important** to make the following change to your `postgresql.conf` configuration file. `pg_search` must be in the list of `shared_preload_libraries` if your Postgres version is less than 17:
 
 ```c
 shared_preload_libraries = 'pg_search'
@@ -63,8 +63,6 @@ sudo apt-get install -y libicu74
 ```
 
 Or, you can compile the extension from source without `--features icu` to build without the ICU tokenizer.
-
-ParadeDB collects anonymous telemetry to help us understand how many people are using the project. You can opt out of telemetry by setting `export PARADEDB_TELEMETRY=false` (or unsetting the variable) in your shell or in your `~/.bashrc` file before running the extension.
 
 #### macOS
 
@@ -120,7 +118,7 @@ Then, install and initialize `pgrx`:
 
 ```bash
 # Note: Replace --pg17 with your version of Postgres, if different (i.e. --pg16, etc.)
-cargo install --locked cargo-pgrx --version 0.12.7
+cargo install --locked cargo-pgrx --version 0.13.0
 
 # macOS arm64
 cargo pgrx init --pg17=/opt/homebrew/opt/postgresql@17/bin/pg_config
@@ -185,7 +183,10 @@ Ensure that the `libicu` library is installed. It should come preinstalled on mo
 # macOS
 brew install icu4c
 
-# Ubuntu 20.04 or 22.04
+# Ubuntu 20.04
+sudo apt-get install -y libicu66
+
+# Ubuntu 22.04
 sudo apt-get install -y libicu70
 
 # Ubuntu 24.04

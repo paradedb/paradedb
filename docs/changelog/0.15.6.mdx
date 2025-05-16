@@ -1,0 +1,16 @@
+---
+title: 0.15.6
+---
+
+## Performance Improvements 🚀
+
+- Significantly improves segment merge speeds, leading to 10-15X higher `INSERT`/`UPDATE` throughput in our testing and more optimal segment counts
+- Support for basic predicate pushdown: `<`, `>`, `=`, etc. predicates get "pushed down" to the BM25 index when used alonside an `@@@`
+
+## Stability Improvements 💪
+
+- Fixed a compatibility issue between `pg_search` and `pg_ivm`
+
+## Full Changelog
+
+The full changelog is available [here](https://github.com/paradedb/paradedb/releases/tag/v0.15.6).

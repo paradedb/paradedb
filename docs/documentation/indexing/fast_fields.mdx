@@ -8,8 +8,8 @@ A field that is indexed as `fast` is stored in a column-oriented fashion. Fast f
 [aggregations](/documentation/aggregates/overview). They can also improve the query times of [filtering](/documentation/full-text/filtering) and
 [sorting](/documentation/full-text/sorting).
 
-By default, [numeric](/documentation/indexing/create_index#numeric-fields), [datetime](/documentation/indexing/create_index#datetime-fields), and [boolean](/documentation/indexing/create_index#boolean-fields)
-are indexed as fast. The following code block demonstrates how to specify a fast field.
+By default, [numeric](/documentation/indexing/field_options#numeric-fields), [datetime](/documentation/indexing/field_options#datetime-fields), [UUID](/documentation/indexing/field_options#text-fields) and [boolean](/documentation/indexing/field_options#boolean-fields)
+are indexed as fast. The following code block demonstrates how to specify other data types as fast fields.
 
 ```sql
 CREATE INDEX search_idx ON mock_items

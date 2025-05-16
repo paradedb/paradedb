@@ -19,7 +19,7 @@ concurrency:
 jobs:
   lint-pr-title:
     name: Validate PR Title
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     if: github.event.pull_request.draft == false
 
     steps:

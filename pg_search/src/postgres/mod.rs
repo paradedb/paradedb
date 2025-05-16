@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2024 Retake, Inc.
+// Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -15,12 +15,19 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::postgres::build::is_bm25_index;
+use crate::postgres::parallel::Spinlock;
+use crate::query::SearchQueryInput;
 use pgrx::*;
+use rustc_hash::FxHashMap;
+use std::io::Write;
+use tantivy::index::SegmentId;
+use tantivy::SegmentReader;
 
 mod build;
 mod cost;
 mod delete;
-mod insert;
+pub mod insert;
 pub mod options;
 mod range;
 mod scan;
@@ -29,9 +36,11 @@ mod validate;
 
 pub mod customscan;
 pub mod datetime;
+#[cfg(not(feature = "pg17"))]
+pub mod fake_aminsertcleanup;
 pub mod index;
 mod parallel;
-pub mod transaction;
+pub mod storage;
 pub mod types;
 pub mod utils;
 pub mod visibility_checker;
@@ -77,6 +86,10 @@ fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRouti
     amroutine.ambuild = Some(build::ambuild);
     amroutine.ambuildempty = Some(build::ambuildempty);
     amroutine.aminsert = Some(insert::aminsert);
+    #[cfg(feature = "pg17")]
+    {
+        amroutine.aminsertcleanup = Some(insert::aminsertcleanup);
+    }
     amroutine.ambulkdelete = Some(delete::ambulkdelete);
     amroutine.amvacuumcleanup = Some(vacuum::amvacuumcleanup);
     amroutine.amcostestimate = Some(cost::amcostestimate);
@@ -99,11 +112,167 @@ fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRouti
 pub fn rel_get_bm25_index(relid: pg_sys::Oid) -> Option<(PgRelation, PgRelation)> {
     unsafe {
         let rel = PgRelation::with_lock(relid, pg_sys::AccessShareLock as _);
-        for index in rel.indices(pg_sys::AccessShareLock as _) {
-            if (*index.rd_indam).ambuild == Some(build::ambuild) {
-                return Some((rel, index));
+        rel.indices(pg_sys::AccessShareLock as _)
+            .find(is_bm25_index)
+            .map(|index| (rel, index))
+    }
+}
+
+// 16 bytes for segment id + 4 bytes for u32 num_deleted_docs
+const SEGMENT_INFO_SIZE: usize = 20;
+
+#[derive(Debug)]
+#[repr(C, packed)]
+struct ParallelScanPayload {
+    query: (usize, usize),
+    segments: (usize, usize),
+    data: [u8; 0], // dynamically sized, allocated after
+}
+
+impl ParallelScanPayload {
+    fn init(&mut self, segments: &[SegmentReader], query: &[u8]) {
+        unsafe {
+            self.query = (0, query.len());
+            self.segments = (
+                self.query.1,
+                self.query.1 + segments.len() * SEGMENT_INFO_SIZE,
+            );
+
+            let query_start = self.query.0;
+            let query_end = self.query.1;
+            let _ = (&mut self.data_mut()[query_start..query_end])
+                .write(query)
+                .expect("failed to write query bytes");
+
+            let segments_start = self.segments.0;
+            let segments_end = self.segments.1;
+            let ptr = &mut self.data_mut()[segments_start..segments_end].as_mut_ptr();
+            let segments_slice: &mut [[u8; SEGMENT_INFO_SIZE]] =
+                std::slice::from_raw_parts_mut(ptr.cast(), segments.len());
+
+            for (segment, target) in segments.iter().zip(segments_slice.iter_mut()) {
+                let mut writer = &mut target[..];
+                writer
+                    .write_all(segment.segment_id().uuid_bytes())
+                    .expect("failed to write segment bytes");
+                writer
+                    .write_all(&segment.num_deleted_docs().to_le_bytes())
+                    .expect("failed to write deleted docs count");
             }
         }
-        None
+    }
+
+    #[inline(always)]
+    fn data(&self) -> &[u8] {
+        assert!(self.segments.1 > 0);
+        unsafe {
+            let data_end = self.segments.1;
+            let data_ptr = self.data.as_ptr();
+            std::slice::from_raw_parts(data_ptr, data_end)
+        }
+    }
+
+    #[inline(always)]
+    fn data_mut(&mut self) -> &mut [u8] {
+        assert!(self.segments.1 > 0);
+        unsafe {
+            let data_end = self.segments.1;
+            let data_ptr = self.data.as_mut_ptr();
+            std::slice::from_raw_parts_mut(data_ptr, data_end)
+        }
+    }
+
+    fn query(&self) -> anyhow::Result<Option<SearchQueryInput>> {
+        let query_start = self.query.0;
+        let query_end = self.query.1;
+        if query_end == 0 {
+            return Ok(None);
+        }
+        let query_data = &self.data()[query_start..query_end];
+        Ok(Some(serde_json::from_slice(query_data)?))
+    }
+
+    fn segments(&self) -> &[[u8; SEGMENT_INFO_SIZE]] {
+        let segments_start = self.segments.0;
+        let segments_end = self.segments.1;
+        let segments_data = &self.data()[segments_start..segments_end];
+        assert!(
+            segments_data.len() % SEGMENT_INFO_SIZE == 0,
+            "segment data length mismatch"
+        );
+
+        unsafe { std::mem::transmute(segments_data) }
+    }
+}
+
+#[repr(C)]
+pub struct ParallelScanState {
+    mutex: Spinlock,
+    remaining_segments: usize,
+    nsegments: usize,
+    payload: ParallelScanPayload, // must be last field, b/c it allocates on the heap after this struct
+}
+
+impl ParallelScanState {
+    #[inline]
+    fn size_of(nsegments: usize, serialized_query: &[u8]) -> usize {
+        // a SegmentId, in byte form, is 16 bytes
+        size_of::<Self>()
+            + size_of::<Self>()
+            + (nsegments * SEGMENT_INFO_SIZE)
+            + serialized_query.len()
+    }
+
+    fn init(&mut self, segments: &[SegmentReader], query: &[u8]) {
+        self.mutex.init();
+        self.init_without_mutex(segments, query);
+    }
+
+    fn init_without_mutex(&mut self, segments: &[SegmentReader], query: &[u8]) {
+        assert!(!segments.is_empty());
+        self.payload.init(segments, query);
+        self.remaining_segments = segments.len();
+        self.nsegments = segments.len();
+    }
+
+    fn init_mutex(&mut self) {
+        self.mutex.init();
+    }
+
+    pub fn acquire_mutex(&mut self) -> impl Drop {
+        self.mutex.acquire()
+    }
+
+    pub fn remaining_segments(&self) -> usize {
+        self.remaining_segments
+    }
+
+    pub fn decrement_remaining_segments(&mut self) -> usize {
+        self.remaining_segments -= 1;
+        self.remaining_segments
+    }
+
+    pub fn segments(&self) -> FxHashMap<SegmentId, u32> {
+        let mut segments = FxHashMap::default();
+        for i in 0..self.nsegments {
+            segments.insert(self.segment_id(i), self.num_deleted_docs(i));
+        }
+        segments
+    }
+
+    fn segment_id(&self, i: usize) -> SegmentId {
+        SegmentId::from_bytes(self.payload.segments()[i][..16].try_into().unwrap())
+    }
+
+    fn num_deleted_docs(&self, i: usize) -> u32 {
+        u32::from_le_bytes(self.payload.segments()[i][16..].try_into().unwrap())
+    }
+
+    fn query(&self) -> anyhow::Result<Option<SearchQueryInput>> {
+        self.payload.query()
+    }
+
+    fn reset(&mut self) {
+        self.remaining_segments = self.nsegments;
     }
 }

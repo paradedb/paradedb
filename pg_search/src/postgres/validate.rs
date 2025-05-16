@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2024 Retake, Inc.
+// Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -18,6 +18,6 @@
 use pgrx::*;
 
 #[pg_guard]
-pub extern "C" fn amvalidate(_opclassoid: pg_sys::Oid) -> bool {
+pub extern "C-unwind" fn amvalidate(_opclassoid: pg_sys::Oid) -> bool {
     true
 }

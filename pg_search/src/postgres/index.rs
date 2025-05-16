@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2024 Retake, Inc.
+// Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -15,33 +15,74 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::{SearchIndex, SearchIndexError, WriterDirectory};
-use pgrx::{pg_sys, PgRelation};
+use crate::postgres::options::SearchIndexCreateOptions;
+use crate::schema::{SearchFieldConfig, SearchFieldName, SearchFieldType};
+use anyhow::{anyhow, Result};
+use pgrx::{pg_sys, PgRelation, Spi};
 
-/// Open the underlying [`SearchIndex`] for the specified Postgres index relation
-pub fn open_search_index(
-    index_relation: &PgRelation,
-) -> anyhow::Result<SearchIndex, SearchIndexError> {
-    let database_oid = unsafe { pg_sys::MyDatabaseId };
-    let index_oid = index_relation.oid();
-    let relfilenode = relfilenode_from_pg_relation(index_relation);
-    let directory = WriterDirectory::from_oids(
-        database_oid.as_u32(),
-        index_oid.as_u32(),
-        relfilenode.as_u32(),
-    );
-    SearchIndex::from_disk(&directory)
+type Fields = Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>;
+type KeyFieldIndex = usize;
+pub unsafe fn get_fields(index_relation: &PgRelation) -> (Fields, KeyFieldIndex) {
+    let options = SearchIndexCreateOptions::from_relation(index_relation);
+    let fields = options.get_all_fields(index_relation).collect::<Vec<_>>();
+    let key_field = options.get_key_field().expect("key_field is required");
+
+    let key_field_index = fields
+        .iter()
+        .position(|(name, _, _)| name == &key_field)
+        .expect("key field not found in columns"); // key field is already validated by now.
+
+    (fields, key_field_index)
 }
 
-/// Retrieves the `relfilenode` from a `PgRelation`, handling PostgreSQL version differences.
-#[inline(always)]
-pub fn relfilenode_from_pg_relation(index_relation: &PgRelation) -> pg_sys::Oid {
-    #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15"))]
-    {
-        index_relation.rd_node.relNode
+pub enum IndexKind {
+    Index(PgRelation),
+    PartitionedIndex(Vec<PgRelation>),
+}
+
+impl IndexKind {
+    ///
+    /// Get the IndexKind for the given relation, or an error if it is not an index.
+    ///
+    pub fn for_index(index_relation: PgRelation) -> Result<IndexKind> {
+        let index_relkind = unsafe { pg_sys::get_rel_relkind(index_relation.oid()) as u8 };
+        match index_relkind {
+            pg_sys::RELKIND_INDEX => {
+                // The index is not partitioned.
+                Ok(IndexKind::Index(index_relation))
+            }
+            pg_sys::RELKIND_PARTITIONED_INDEX => {
+                // Locate the child index Oids, and open them.
+                let child_array: Vec<pg_sys::Oid> = Spi::get_one_with_args(
+                    "SELECT ARRAY_AGG(c.oid)
+                     FROM pg_inherits i
+                     JOIN pg_class c ON i.inhrelid = c.oid
+                     WHERE i.inhparent = $1;",
+                    &[index_relation.oid().into()],
+                )
+                .expect("failed to lookup child partitions")
+                .unwrap();
+                let child_relations = child_array
+                    .into_iter()
+                    .map(|oid| {
+                        // TODO: Do these acquisitions need to be sorted?
+                        unsafe { PgRelation::with_lock(oid, pg_sys::AccessShareLock as _) }
+                    })
+                    .collect();
+                Ok(IndexKind::PartitionedIndex(child_relations))
+            }
+            _ => Err(anyhow!("Expected to receive an index argument.")),
+        }
     }
-    #[cfg(any(feature = "pg16", feature = "pg17"))]
-    {
-        index_relation.rd_locator.relNumber
+
+    ///
+    /// Return an iterator over the partitions of this index, which might be
+    /// of length 1 if it is not partitioned.
+    ///
+    pub fn partitions(self) -> Box<dyn Iterator<Item = PgRelation>> {
+        match self {
+            Self::Index(rel) => Box::new(std::iter::once(rel)),
+            Self::PartitionedIndex(rel) => Box::new(rel.into_iter()),
+        }
     }
 }

@@ -1,0 +1,31 @@
+---
+title: High Availability
+---
+
+High availability (HA) minimizes downtime in the event of failures and is crucial for production deployments. To achieve high availability, you need to have
+[ParadeDB Enterprise](/deploy/enterprise) deployed inside a [CNPG Kubernetes cluster](/deploy/self-hosted/kubernetes).
+
+## How High Availability Works
+
+In a highly available configuration, ParadeDB deploys as a cluster of Postgres instances. One instance is designated as the **primary** while the other instances are designated as
+**standby** instances. The primary server sends write-ahead logs (WAL) to the standby servers, which replicate the primary by replaying these logs.
+
+If the primary server goes down, a standby server is promoted to become the new primary server. This process is called failover.
+
+For a thorough architecture overview, please consult the [CloudNativePG Architecture documentation](https://cloudnative-pg.io/documentation/1.18/architecture/).
+
+## Enable High Availability
+
+Prior to starting the CNPG cluster, modify the `values.yaml` file to increase the number of instances.
+
+```yaml ParadeDB Enterprise
+type: paradedb-enterprise
+mode: standalone
+
+cluster:
+  instances: 3
+  storage:
+    size: 256Mi
+```
+
+The number of replicas is equal to `instances - 1`. Having at least `3` instances guarantees that a standby will be available even while a failover process is occurring.

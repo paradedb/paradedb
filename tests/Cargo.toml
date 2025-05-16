@@ -15,23 +15,26 @@ icu = ["tokenizers/icu"]
 
 [dev-dependencies]
 approx = "0.5.1"
-anyhow = "1.0.89"
-async-std = { version = "1.13.0", features = ["attributes"] }
-bigdecimal = { version = "0.3.1", features = ["serde"] }
-bytes = "1.7.2"
-chrono = { version = "0.4.38", features = ["clock", "alloc"] }
-cmd_lib = "1.9.4"
+anyhow = "1.0.98"
+async-std = { version = "1.13.1", features = ["attributes"] }
+bigdecimal = { version = "0.4.8", features = ["serde"] }
+bytes = "1.10.1"
+chrono = { version = "0.4.41", features = ["clock", "alloc"] }
+cmd_lib = "1.9.5"
 dotenvy = "0.15.7"
-futures = "0.3.30"
-pgvector = { version = "0.3.4", features = ["sqlx"] }
+futures = "0.3.31"
+lockfree-object-pool = "0.1.6"
+parking_lot = "0.12.3"
+pgvector = { version = "0.4.0", features = ["sqlx"] }
 portpicker = "0.1.1"
-pretty_assertions = "1.4.0"
-rand = "0.8.5"
-rstest = "0.18.2"
-serde = "1.0.210"
-serde_json = "1.0.128"
-soa_derive = "0.13.0"
-sqlx = { version = "0.7.4", features = [
+pretty_assertions = "1.4.1"
+rand = "0.9.1"
+rayon = "1.10.0"
+rstest = "0.25.0"
+serde = "1.0.219"
+serde_json = "1.0.140"
+soa_derive = "0.14.0"
+sqlx = { version = "0.8.5", features = [
   "postgres",
   "runtime-async-std",
   "time",
@@ -39,12 +42,14 @@ sqlx = { version = "0.7.4", features = [
   "uuid",
   "chrono",
 ] }
-strum = "0.26.3"
-strum_macros = "0.26.4"
+strum = "0.27.1"
+strum_macros = "0.27.1"
 tantivy.workspace = true
-tantivy-common.workspace = true
-tempfile = "3.12.0"
-time = { version = "0.3.36", features = ["serde"] }
+tempfile = "3.19.1"
+time = { version = "0.3.41", features = ["serde"] }
 tokenizers = { path = "../tokenizers" }
-tokio = { version = "1.40.0", features = ["rt-multi-thread", "macros"] }
-uuid = "1.11.0"
+tokio = { version = "1.44.2", features = ["rt-multi-thread", "macros"] }
+uuid = "1.16.0"
+num-traits = "0.2.19"
+proptest = "1.6.0"
+proptest-derive = "0.5.1"

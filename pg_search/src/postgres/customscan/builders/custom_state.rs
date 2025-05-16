@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2024 Retake, Inc.
+// Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -28,6 +28,7 @@ pub struct Args {
 pub struct CustomScanStateWrapper<CS: CustomScan> {
     pub csstate: pg_sys::CustomScanState,
     custom_state: CS::State,
+    pub runtime_context: *mut pg_sys::ExprContext,
 }
 
 impl<CS: CustomScan> Debug for CustomScanStateWrapper<CS>
@@ -102,6 +103,10 @@ impl<CS: CustomScan, P: From<*mut pg_sys::List>> CustomScanStateBuilder<CS, P> {
         &mut self.custom_state
     }
 
+    pub fn custom_state_ref(&self) -> &CS::State {
+        &self.custom_state
+    }
+
     pub fn target_list(&self) -> PgList<pg_sys::TargetEntry> {
         unsafe { PgList::from_pg((*self.args.cscan).scan.plan.targetlist) }
     }
@@ -125,6 +130,7 @@ impl<CS: CustomScan, P: From<*mut pg_sys::List>> CustomScanStateBuilder<CS, P> {
                     slotOps: std::ptr::null_mut(),
                 },
                 custom_state: self.custom_state,
+                runtime_context: std::ptr::null_mut(),
             })
         }
     }

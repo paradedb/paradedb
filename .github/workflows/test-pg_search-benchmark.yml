@@ -1,0 +1,113 @@
+# workflows/test-pg_search-benchmark.yml
+#
+# Test pg_search Benchmark
+# Benchmark pg_search performance on a nightly basis. This workflow can also be triggered
+# manually to benchmark other systems on one-off basis, to compare against pg_search.
+
+name: Test pg_search Benchmark
+
+on:
+  pull_request:
+    branches: # On the `staging` and `main` branches, we run benchmarks in PRs to test thoroughly
+      - main
+      - staging
+  push:
+    branches: # On the `dev` branch, we run benchmarks post pushes to speed up CI
+      - dev
+    paths:
+      - ".github/workflows/test-pg_search-benchmark.yml"
+      - "**/*.rs"
+      - "**/*.toml"
+  workflow_dispatch:
+
+# - New commits to a feature branch PR cancel previous runs.
+# - Pushes to `dev` get grouped under "dev".
+# - Pushes to `staging` get grouped under "staging".
+# - A PR from `dev` to `main` uses the same key as pushes to `dev`, avoiding duplicate runs when doing a promotion.
+concurrency:
+  group: test-pg_search-benchmark-${{ (github.event_name == 'push' && github.ref == 'refs/heads/dev' || github.event.pull_request.head.ref == 'dev') && 'dev' || (github.event_name == 'push' && github.ref == 'refs/heads/staging' || github.event.pull_request.head.ref == 'staging') && 'staging' || github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark-pg_search:
+    name: Benchmark pg_search
+    runs-on: ubicloud-standard-8
+    if: ${{ !cancelled() && github.event.pull_request.draft == false }}
+    strategy:
+      matrix:
+        pg_version: [17]
+        num_rows: [100000000]
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Install & Configure Supported PostgreSQL Version
+        run: |
+          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
+          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
+
+      - name: Extract pgrx Version
+        id: pgrx
+        working-directory: pg_search/
+        run: |
+          version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          echo "version=$version" >> $GITHUB_OUTPUT
+
+      - name: Install Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          prefix-key: "v1-rust"
+          key: ${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}
+          cache-targets: true
+          cache-all-crates: true
+          save-if: ${{ github.ref == 'refs/heads/dev' }}
+
+      - name: Install pgrx & pg_search
+        working-directory: pg_search/
+        run: |
+          cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
+          cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
+          cargo pgrx install --sudo --release --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+
+      - name: Configure PostgreSQL settings
+        working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
+        run: |
+          sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
+          sed -i "s/^#maintenance_work_mem = .*/maintenance_work_mem = '12GB'/" postgresql.conf
+          sed -i "s/^shared_buffers = .*/shared_buffers = '12GB'/" postgresql.conf
+          sed -i "s/^#max_parallel_workers = .*/max_parallel_workers = 8/" postgresql.conf
+          sed -i "s/^#max_worker_processes = .*/max_worker_processes = 8/" postgresql.conf
+          sed -i "s/^#max_parallel_workers_per_gather = .*/max_parallel_workers_per_gather = 8/" postgresql.conf
+
+      - name: Restart Postgres
+        working-directory: pg_search/
+        run: |
+          cargo pgrx stop pg${{ matrix.pg_version }}
+          cargo pgrx start pg${{ matrix.pg_version }}
+
+      - name: Install pg_search
+        working-directory: pg_search/
+        run: |
+          psql postgresql://localhost:288${{ matrix.pg_version }}/postgres -c "CREATE EXTENSION IF NOT EXISTS pg_search;"
+
+      - name: Run Benchmark
+        working-directory: benchmarks/
+        run: cargo run -- --url postgresql://localhost:288${{ matrix.pg_version }}/postgres --rows ${{ matrix.num_rows }} --type pg_search --output csv
+
+      - name: Upload Benchmark Results to Slack
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
+        working-directory: benchmarks/
+        run: |
+          for file in results_pg_search_{test_info,index_creation,benchmark_results,postgres_settings}.csv; do
+            curl -F "file=@$file" \
+              -F "channels=${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}" \
+              -H "Authorization: Bearer ${{ secrets.SLACK_OAUTH_TOKEN }}" \
+              https://slack.com/api/files.upload
+          done

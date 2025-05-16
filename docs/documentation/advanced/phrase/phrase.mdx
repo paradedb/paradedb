@@ -20,7 +20,7 @@ WHERE id @@@
 '{
     "phrase": {
         "field": "description",
-        "values": ["running", "shoes"]
+        "phrases": ["running", "shoes"]
     }
 }'::jsonb;
 ```
@@ -57,7 +57,7 @@ WHERE id @@@
 '{
     "phrase": {
         "field": "description",
-        "values": ["sleek", "shoes"],
+        "phrases": ["sleek", "shoes"],
         "slop": 1
     }
 }'::jsonb;

@@ -1,0 +1,41 @@
+---
+title: 0.15.0
+---
+
+<Note>
+  `0.15.0` contains breaking changes. After upgrading, all BM25 indexes must be
+  recreated with `REINDEX`.
+</Note>
+
+## New Features 🎉
+
+### Match Query
+
+Introducing a new query builder function: [`paradedb.match`](/documentation/advanced/full-text/match). Similar to Elasticsearch's match query,
+`paradedb.match` is meant to be the standard query function for full text search, allowing for
+custom tokenizers and fuzzy matching. It supersedes the `paradedb.fuzzy_phrase` query.
+
+### JSON Term Set
+
+`paradedb.term_set` now supports JSON fields.
+
+## Performance Improvements 🚀
+
+- Modified the block storage layout for faster reads. This breaking change necessitates existing indexes to be
+  recreated.
+- Significantly improved `VACUUM` times when the table contains updated or deleted rows - `VACUUM`ing one million
+  updated rows went from 20 minutes to 0.8 seconds.
+
+## Stability Improvements 💪
+
+- Fixed a bug where datetime values with sub-second precision were truncated to second precision.
+- Fixed an issue where `VACUUM`s could not receive `SIGINT`s.
+- Fixed concurrency issues around concurrent `UPDATE`, `VACUUM`, and parallel custom scans.
+
+## New Contributors 👋
+
+- [AdamGS](https://github.com/AdamGS) made their first contribution in [2146](https://github.com/paradedb/paradedb/pull/2146).
+
+## Full Changelog
+
+The full changelog is available [here](https://github.com/paradedb/paradedb/releases/tag/v0.15.0).

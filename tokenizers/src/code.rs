@@ -37,7 +37,7 @@ pub struct CodeTokenStream<'a> {
     state: CodeTokenStreamState,
 }
 
-impl<'a> TokenStream for CodeTokenStream<'a> {
+impl TokenStream for CodeTokenStream<'_> {
     fn advance(&mut self) -> bool {
         self.token.text.clear();
         self.token.position = self.token.position.wrapping_add(1);
@@ -73,7 +73,7 @@ impl<'a> TokenStream for CodeTokenStream<'a> {
     }
 }
 
-impl<'a> CodeTokenStream<'a> {
+impl CodeTokenStream<'_> {
     fn update_token(&mut self, token_offsets: Range<usize>) {
         self.token.offset_from = token_offsets.start;
         self.token.offset_to = token_offsets.end;

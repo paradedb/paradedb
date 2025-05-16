@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2024 Retake, Inc.
+// Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -19,11 +19,11 @@ use crate::index::Parallelism;
 use pgrx::{pg_sys, GucContext, GucFlags, GucRegistry, GucSetting};
 use std::num::NonZeroUsize;
 
-/// Is our telemetry tracking enabled?  Default is `true`.
-static TELEMETRY: GucSetting<bool> = GucSetting::<bool>::new(true);
-
 /// Allows the user to toggle the use of our "ParadeDB Custom Scan".  The default is `true`.
 static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+/// Allows the user to enable or disable the MixedFastFieldExecState executor. Default is `false`.
+static ENABLE_MIXED_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(false);
 
 /// The `PER_TUPLE_COST` is an arbitrary value that needs to be really high.  In fact, we default
 /// to one hundred million.
@@ -44,38 +44,37 @@ static PER_TUPLE_COST: GucSetting<f64> = GucSetting::<f64>::new(100_000_000.0);
 static LOG_CREATE_INDEX_PROGRESS: GucSetting<bool> = GucSetting::<bool>::new(false);
 
 /// How many threads should tantivy use during CREATE INDEX?
-static CREATE_INDEX_PARALLELISM: GucSetting<i32> = GucSetting::<i32>::new(8);
+static CREATE_INDEX_PARALLELISM: GucSetting<i32> = GucSetting::<i32>::new(0);
 
 /// How much memory should tantivy use during CREATE INDEX.  This value is decided to each indexing
 /// thread.  So if there's 10 threads and this value is 100MB, then a total of 1GB will be allocated.
-static CREATE_INDEX_MEMORY_BUDGET: GucSetting<i32> = GucSetting::<i32>::new(0);
+static CREATE_INDEX_MEMORY_BUDGET: GucSetting<i32> = GucSetting::<i32>::new(1024);
 
 /// How many threads should tantivy use during a regular INSERT/UPDATE/COPY statement?
-static STATEMENT_PARALLELISM: GucSetting<i32> = GucSetting::<i32>::new(8);
+static STATEMENT_PARALLELISM: GucSetting<i32> = GucSetting::<i32>::new(1);
 
 /// How much memory should tantivy use during a regular INSERT/UPDATE/COPY statement?  This value is decided to each indexing
 /// thread.  So if there's 10 threads and this value is 100MB, then a total of 1GB will be allocated.
-static STATEMENT_MEMORY_BUDGET: GucSetting<i32> = GucSetting::<i32>::new(0);
+static STATEMENT_MEMORY_BUDGET: GucSetting<i32> = GucSetting::<i32>::new(1024);
 
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
-    // They cannot have more than one '.' - paradedb.pg_search.telemetry will not work.
-
-    GucRegistry::define_bool_guc(
-        "paradedb.pg_search_telemetry",
-        "Enable telemetry on the ParadeDB pg_search extension.",
-        "Enable telemetry on the ParadeDB pg_search extension.",
-        &TELEMETRY,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
 
     GucRegistry::define_bool_guc(
         "paradedb.enable_custom_scan",
         "Enable ParadeDB's custom scan",
         "Enable ParadeDB's custom scan",
         &ENABLE_CUSTOM_SCAN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        "paradedb.enable_mixed_fast_field_exec",
+        "Enable MixedFastFieldExecState executor",
+        "Enable the MixedFastFieldExecState executor for handling multiple string fast fields or mixed string/numeric fast fields",
+        &ENABLE_MIXED_FAST_FIELD_EXEC,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -103,56 +102,58 @@ pub fn init() {
     GucRegistry::define_int_guc(
         "paradedb.create_index_parallelism",
         "The number of threads to use when creating an index",
-        "Default is 8.  Recommended value is roughly the number of cores in the machine.  Value of zero means a thread for as many cores in the machine",
+        "Default is 0, which means a thread for as many cores in the machine",
         &CREATE_INDEX_PARALLELISM,
         0,
-        std::thread::available_parallelism().expect("your computer should have at least one core").get().try_into().expect("your computer has too many cores"),
-        GucContext::Suset,
+        std::thread::available_parallelism()
+            .expect("your computer should have at least one core")
+            .get()
+            .try_into()
+            .expect("your computer has too many cores"),
+        GucContext::Userset,
         GucFlags::default(),
     );
 
     GucRegistry::define_int_guc(
         "paradedb.create_index_memory_budget",
         "The amount of memory to allocate to 1 thread during indexing",
-        "Default is `maintenance_work_mem`",
+        "Default is `1GB`, which is allocated to each thread defined by `paradedb.create_index_parallelism`",
         &CREATE_INDEX_MEMORY_BUDGET,
         0,
         i32::MAX,
-        GucContext::Suset,
+        GucContext::Userset,
         GucFlags::UNIT_MB,
     );
 
     GucRegistry::define_int_guc(
         "paradedb.statement_parallelism",
         "The number of threads to use when indexing during an INSERT/UPDATE/COPY statement",
-        "Default is 8.  Recommended value is roughly the number of cores in the machine.  Value of zero means a thread for as many cores in the machine",
+        "Default is 1.  Recommended value is generally 1.  Value of zero means a thread for as many cores in the machine",
         &STATEMENT_PARALLELISM,
         0,
         std::thread::available_parallelism().expect("your computer should have at least one core").get().try_into().expect("your computer has too many cores"),
-        GucContext::Suset,
+        GucContext::Userset,
         GucFlags::default(),
     );
 
     GucRegistry::define_int_guc(
         "paradedb.statement_memory_budget",
         "The amount of memory to allocate to 1 thread during an INSERT/UPDATE/COPY statement",
-        "Default is `maintenance_work_mem`",
+        "Default is `1GB`, which is allocated to each thread defined by `paradedb.statement_parallelism`",
         &STATEMENT_MEMORY_BUDGET,
         0,
         i32::MAX,
-        GucContext::Suset,
+        GucContext::Userset,
         GucFlags::UNIT_MB,
     );
 }
 
-pub fn telemetry_enabled() -> bool {
-    // If PARADEDB_TELEMETRY is not 'true' at compile time, then we will never enable.
-    // This is useful for test builds and CI.
-    option_env!("PARADEDB_TELEMETRY") == Some("true") && TELEMETRY.get()
-}
-
 pub fn enable_custom_scan() -> bool {
     ENABLE_CUSTOM_SCAN.get()
+}
+
+pub fn is_mixed_fast_field_exec_enabled() -> bool {
+    ENABLE_MIXED_FAST_FIELD_EXEC.get()
 }
 
 pub fn per_tuple_cost() -> f64 {

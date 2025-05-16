@@ -4,7 +4,7 @@ title: Overview
 
 ## Basic Usage
 
-You can change how individual fields are tokenized and stored by passing JSON strings to the `WITH` clause of `CREATE INDEX`.
+You can change how individual fields are tokenized by passing JSON strings to the `WITH` clause of `CREATE INDEX`.
 For instance, the following statement configures an ngram tokenizer for the `description` field.
 
 ```sql
@@ -89,9 +89,6 @@ The nested configuration JSON for `text_fields` accepts the following keys.
     Whether the field is indexed. Must be `true` in order for the field to be
     tokenized and searchable.
   </ParamField>
-  <ParamField body="stored" default={true}>
-    Whether the original value of the field is stored.
-  </ParamField>
   <ParamField body="fieldnorms" default={true}>
     Fieldnorms store information about the length of the text field. Must be
     `true` to calculate the BM25 score.
@@ -139,9 +136,6 @@ The nested configuration JSON for `json_fields` accepts the following keys.
     Whether the field is indexed. Must be `true` in order for the field to be
     tokenized and searchable.
   </ParamField>
-  <ParamField body="stored" default={true}>
-    Whether the original value of the field is stored.
-  </ParamField>
   <ParamField body="fieldnorms" default={true}>
     Fieldnorms store information about the length of the text field. Must be
     `true` to calculate the BM25 score.
@@ -174,9 +168,6 @@ WITH (
     Whether the field is indexed. Must be `true` in order for the field to be
     tokenized and searchable.
   </ParamField>
-  <ParamField body="stored" default={true}>
-    Whether the original value of the field is stored.
-  </ParamField>
   <ParamField body="fast" default={true}>
     Fast fields can be random-accessed rapidly. Fields used for aggregation must
     have `fast` set to `true`. Fast fields are also useful for accelerated
@@ -205,9 +196,6 @@ WITH (
   <ParamField body="indexed" default={true}>
     Whether the field is indexed. Must be `true` in order for the field to be
     tokenized and searchable.
-  </ParamField>
-  <ParamField body="stored" default={true}>
-    Whether the original value of the field is stored.
   </ParamField>
   <ParamField body="fast" default={true}>
     Fast fields can be random-accessed rapidly. Fields used for aggregation must
@@ -238,37 +226,10 @@ WITH (
     Whether the field is indexed. Must be `true` in order for the field to be
     tokenized and searchable.
   </ParamField>
-  <ParamField body="stored" default={true}>
-    Whether the original value of the field is stored.
-  </ParamField>
   <ParamField body="fast" default={true}>
     Fast fields can be random-accessed rapidly. Fields used for aggregation must
     have `fast` set to `true`. Fast fields are also useful for accelerated
     scoring and filtering.
-  </ParamField>
-</Accordion>
-
-### Range Fields
-
-Options for columns of type `int4range`, `int8range`, `numrange`, `tsrange`, and `tstzrange` should be passed to `range_fields`.
-The [range term](/documentation/advanced/term/range_term) query is used to filter over these fields.
-
-```sql
-CREATE INDEX search_idx ON mock_items
-USING bm25 (id, weight_range)
-WITH (
-  key_field = 'id',
-  range_fields = '{
-    "weight_range": {"stored": true}
-  }'
-);
-```
-
-`CREATE INDEX` accepts several configuration options for `range_fields`:
-
-<Accordion title="Advanced Options">
-  <ParamField body="stored" default={true}>
-    Whether the original value of the field is stored.
   </ParamField>
 </Accordion>
 

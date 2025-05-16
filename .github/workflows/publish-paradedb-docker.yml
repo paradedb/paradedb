@@ -17,6 +17,10 @@ on:
         description: "The version to set for the ParadeDB release. This publishes the latest commit of the chosen branch and tags it with the provided version."
         required: true
         default: ""
+      pg_version:
+        description: "The Postgres major version(s) to build ParadeDB for. This needs to be a comma-separated list of integers (e.g. [14] or [14, 15, 16, 17])."
+        required: true
+        default: "[14, 15, 16, 17]"
 
 concurrency:
   group: publish-paradedb-docker-${{ github.head_ref || github.ref }}
@@ -28,12 +32,31 @@ permissions:
   attestations: write
 
 jobs:
+  set-matrix:
+    name: Define the PostgreSQL Version Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Define the PostgreSQL Version Matrix
+        id: set-matrix
+        run: |
+          echo "Evaluating tag: $GITHUB_REF"
+          if [[ "$GITHUB_REF" == *"-rc"* ]]; then
+            echo "Release candidate tag detected; using only PostgreSQL version 17."
+            echo "matrix=[17]" >> $GITHUB_OUTPUT
+          else
+            echo "Regular promotion tag detected; using provided PostgreSQL version(s)."
+            echo "matrix=${{ github.event.inputs.pg_version || '[14, 15, 16, 17]' }}" >> $GITHUB_OUTPUT
+          fi
+
   publish-paradedb-docker-image:
     name: Publish ParadeDB Docker Image for PostgreSQL ${{ matrix.pg_version }}
     runs-on: ubuntu-latest
+    needs: set-matrix
     strategy:
       matrix:
-        pg_version: [13, 14, 15, 16, 17]
+        pg_version: ${{ fromJson(needs.set-matrix.outputs.matrix) }}
     env:
       default_pg_version: 17
 
@@ -46,18 +69,34 @@ jobs:
         run: |
           # If no workflow_dispatch version is provided, we use workflow tag trigger version
           if [ -z "${{ github.event.inputs.version }}" ]; then
-            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+            if [[ $GITHUB_REF == refs/tags/v* ]]; then
+              VERSION=${GITHUB_REF#refs/tags/v}
+              TAG=${GITHUB_REF#refs/tags/}
+            else
+              # If there is no tag and no provided version, it's a test run and we set a default version
+              VERSION="0.0.0"
+              TAG="v0.0.0"
+            fi
           else
-            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
-            echo "tag=v${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            VERSION=${{ github.event.inputs.version }}
           fi
-          echo "COMMIT_SHA=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+          echo "GitHub Tag Version: $VERSION"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "commit_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
+      # Cross-compilation is incredibly slow, so we use an external service called Depot to
+      # speed up container builds for universal images. We could eventually replace this with
+      # Docker Build Cloud once they add support for multiple concurrent builders.
       - name: Configure Depot CLI
         uses: depot/setup-action@v1
 
-      # The pg_version-tag Docker tag syntax is necessary for our CloudNativePG Helm chart
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # The pg_version-tag Docker tag syntax is necessary for our CloudNativePG Helm chart. We only deploy
+      # the `latest` and `latest-pg` tags on production releases, not for beta releases. All other tags get
+      # deployed by both releases and will have a `-rc.X` suffix inherited from the GitHub tag.
       - name: Setup Docker Image tags
         id: meta
         uses: docker/metadata-action@v5
@@ -67,15 +106,15 @@ jobs:
             type=raw,value=${{ matrix.pg_version }}-${{ steps.version.outputs.tag }}
             type=raw,value=${{ steps.version.outputs.tag }}-pg${{ matrix.pg_version }}
             type=raw,value=${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}
-            type=raw,value=latest-pg${{ matrix.pg_version }}
-            type=raw,value=latest,enable=${{ matrix.pg_version == env.default_pg_version }}
             type=raw,value=${{ steps.version.outputs.tag }},enable=${{ matrix.pg_version == env.default_pg_version }}
             type=raw,value=${{ steps.version.outputs.version }},enable=${{ matrix.pg_version == env.default_pg_version }}
+            type=raw,value=latest-pg${{ matrix.pg_version }},enable=${{ !contains(github.ref, '-rc')}}
+            type=raw,value=latest,enable=${{ matrix.pg_version == env.default_pg_version && !contains(github.ref, '-rc') }}
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
       - name: Build and Push Docker Image to Docker Hub
@@ -85,47 +124,20 @@ jobs:
           context: .
           build-args: |
             PG_VERSION_MAJOR=${{ matrix.pg_version }}
-            POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}
-            POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
-            COMMIT_SHA=${{ steps.version.outputs.COMMIT_SHA }}
-            PARADEDB_TELEMETRY=true
+            COMMIT_SHA=${{ steps.version.outputs.commit_sha }}
+            PARADEDB_VERSION=${{ steps.version.outputs.version }}
           platforms: linux/amd64,linux/arm64
           file: docker/Dockerfile
           push: true
+          sbom: true
+          provenance: mode=max
           project: ${{ secrets.DEPOT_PROJECT }}
           token: ${{ secrets.DEPOT_TOKEN }}
           tags: ${{ steps.meta.outputs.tags }}
 
       - name: Sign and Attest Build Provenance
-        uses: actions/attest-build-provenance@v1
+        uses: actions/attest-build-provenance@v2
         with:
           subject-name: index.docker.io/paradedb/paradedb
           subject-digest: ${{ steps.build-push.outputs.digest }}
           push-to-registry: true
-
-  publish-paradedb-helm-chart:
-    name: Publish ParadeDB Helm Chart for PostgreSQL ${{ matrix.pg_version }}
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        pg_version: [17]
-
-    steps:
-      - name: Retrieve GitHub Release Version
-        id: version
-        run: |
-          # If no workflow_dispatch version is provided, we use workflow tag trigger version
-          if [ -z "${{ github.event.inputs.version }}" ]; then
-            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-          else
-            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Trigger paradedb/charts Release Workflow
-        uses: multinarity/workflow-dispatch@master
-        with:
-          token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
-          workflow: paradedb-publish-chart.yml
-          repo: paradedb/charts
-          ref: main
-          inputs: '{ "appVersion": "${{ steps.version.outputs.version }}" }'

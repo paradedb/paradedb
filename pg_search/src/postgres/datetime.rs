@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2024 Retake, Inc.
+// Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use chrono::{NaiveDate, NaiveDateTime};
+use chrono::{DateTime, NaiveDate};
 use pgrx::datum::datetime_support::DateTimeConversionError;
 
 pub static MICROSECONDS_IN_SECOND: u32 = 1_000_000;
@@ -27,7 +27,7 @@ pub fn datetime_components_to_tantivy_date(
     let naive_dt = match ymd {
         Some(ymd) => NaiveDate::from_ymd_opt(ymd.0, ymd.1.into(), ymd.2.into())
             .expect("ymd should be valid for NaiveDate::from_ymd_opt"),
-        None => NaiveDateTime::UNIX_EPOCH.date(),
+        None => DateTime::UNIX_EPOCH.date_naive(),
     }
     .and_hms_micro_opt(
         hms_micro.0.into(),

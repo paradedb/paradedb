@@ -1,0 +1,39 @@
+---
+title: Mixed Fast Fields
+---
+
+## Mixed Fast Fields Execution
+
+The Mixed Fast Fields execution state (`MixedFastFieldExecState`) is a specialized execution method for handling both multiple string fast fields and mixed string/numeric fast fields in a single query. By default, this execution method is disabled in favor of more stable execution methods.
+
+To enable the Mixed Fast Fields execution state:
+
+```sql
+SET paradedb.enable_mixed_fast_field_exec = true;
+```
+
+### When to Use
+
+Mixed Fast Fields execution can provide performance benefits in queries that:
+
+1. Use multiple string fast fields in a single query
+2. Use a combination of string and numeric fast fields in a single query
+
+This is particularly useful in complex join queries where multiple fast fields need to be accessed efficiently.
+
+### Trade-offs
+
+While the Mixed Fast Fields execution state can provide performance improvements, it's disabled by default because:
+
+1. It's a newer feature that may have edge cases not covered by existing tests
+2. The standard execution methods are well-tested and stable for most use cases
+
+If you're experiencing performance issues with complex queries involving multiple fast fields, enabling this feature flag might help.
+
+### Usage in Production
+
+We recommend testing thoroughly in a staging environment before enabling this feature in production. You can permanently enable it in your `postgresql.conf` file:
+
+```
+paradedb.enable_mixed_fast_field_exec = true
+```

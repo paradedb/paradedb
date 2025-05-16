@@ -13,10 +13,6 @@ WHERE description @@@ 'shoes';
 
 ## Fast Aggregates
 
-<Info>
-  Fast aggregates are an enterprise-only feature. [Contact us](mailto:sales@paradedb.com) for access.
-</Info>
-
 The performance of aggregates over very large result sets (millions of rows or more) is a well-known problem in Postgres.
 
 In ParadeDB Enterprise, aggregates over full text search results are drastically accelerated by [fast fields](/documentation/indexing/fast_fields).
@@ -38,7 +34,7 @@ Remember to restart Postgres in order for `postgresql.conf` changes to take effe
 ### Run `VACUUM`
 
 `VACUUM` updates the table's [visibility map](https://www.postgresql.org/docs/current/storage-vm.html),
-which speeds up Postgres' visibility checks. Specifying `INDEX_CLEANUP = false` allows `VACUUM` to run much
+which speeds up Postgres' visibility checks. Specifying `INDEX_CLEANUP false` allows `VACUUM` to run much
 faster over large tables by skipping the cleanup of dead rows in the index.
 
 <Note>
@@ -46,23 +42,20 @@ Make sure to pass the table name, not the index name, to `VACUUM`.
 </Note>
 
 ```sql
-VACUUM (INDEX_CLEANUP = false) mock_items;
+VACUUM (INDEX_CLEANUP false) mock_items;
 ```
 
 If the table experiences frequent updates, we recommend configuring [autovacuum](https://www.postgresql.org/docs/current/routine-vacuuming.html).
 
-### Run Cold Query
+### Run `pg_prewarm`
 
-The following query allows Postgres to cache the underlying index files. This is a one-time cold query that will
-**not** be fast, but allows subsequent queries to be fast.
+The `pg_prewarm` extension can be used to preload data from the index into the Postgres buffer cache, which
+improves the response times of "cold" queries (i.e. the first search query after Postgres has restarted).
 
 ```sql
-SELECT COUNT(*) FROM mock_items WHERE id @@@ paradedb.all();
+CREATE EXTENSION pg_prewarm;
+SELECT pg_prewarm('search_idx');
 ```
-
-<Note>
-Replace `mock_items` with your table name, and `id` with your key field.
-</Note>
 
 ### Index Fast Fields
 
@@ -121,7 +114,7 @@ GROUP BY rating LIMIT 5;
                      Fast Fields: rating
                      Exec Method: NumericFastFieldExecState
                      Scores: false
-                     Tantivy Query: {"with_index":{"oid":3748196,"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}
 (12 rows)
 ```
 </Accordion>
@@ -152,7 +145,7 @@ GROUP BY description LIMIT 5;
          ->  Sort  (cost=14.04..14.04 rows=2 width=32)
                Sort Key: description
                ->  Index Scan using search_idx on mock_items  (cost=10.00..14.03 rows=2 width=32)
-                     Index Cond: (id @@@ '{"with_index":{"oid":3567455,"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput COLLATE "default")
+                     Index Cond: (id @@@ '{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput COLLATE "default")
 (7 rows)
 ```
 </Accordion>

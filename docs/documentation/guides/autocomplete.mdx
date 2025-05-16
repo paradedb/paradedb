@@ -32,17 +32,18 @@ WHERE id @@@ paradedb.fuzzy_term(
 ```
 </Accordion>
 
-## Fuzzy Phrase
+## Fuzzy Matching
 
 Suppose the user provides a misspelled phrase like `ruining shoez` when searching for `running shoes`. Because `fuzzy_term` treats `value` as a single token,
-passing the entire phrase to `fuzzy_term` will not yield any matches. Instead, `fuzzy_phrase` should be used. `fuzzy_phrase` finds documents where
-**any** of the query's tokens are a `fuzzy_term` match.
+passing the entire phrase to `fuzzy_term` will not yield any matches. Instead, `match` should be used. `match` finds documents where
+**any** of the query's tokens are a fuzzy match.
 
 ```sql
 SELECT description, rating, category FROM mock_items
-WHERE id @@@ paradedb.fuzzy_phrase(
+WHERE id @@@ paradedb.match(
     field => 'description',
-    value => 'ruining shoez'
+    value => 'ruining shoez',
+    distance => 2
 ) ORDER BY rating DESC;
 ```
 
@@ -57,14 +58,15 @@ WHERE id @@@ paradedb.fuzzy_phrase(
 ```
 </Accordion>
 
-For a stricter result set, `fuzzy_phrase` can be configured to match documents if **all** query tokens match.
+For a stricter result set, `match` can be configured to match documents if **all** query tokens match.
 
 ```sql
 SELECT description, rating, category FROM mock_items
-WHERE id @@@ paradedb.fuzzy_phrase(
+WHERE id @@@ paradedb.match(
     field => 'description',
     value => 'ruining shoez',
-    match_all_terms => true
+    distance => 2,
+    conjunction_mode => true
 );
 ```
 
@@ -85,8 +87,8 @@ Suppose we want to compare a query against both `description` and `category`. Th
 SELECT description, rating, category FROM mock_items
 WHERE id @@@ paradedb.boolean(
     should => ARRAY[
-        paradedb.fuzzy_phrase(field => 'description', value => 'ruining shoez'),
-        paradedb.fuzzy_phrase(field => 'category', value => 'ruining shoez')
+        paradedb.match(field => 'description', value => 'ruining shoez', distance => 2),
+        paradedb.match(field => 'category', value => 'ruining shoez', distance => 2)
     ]
 ) ORDER BY rating DESC;
 ```
@@ -142,12 +144,12 @@ ORDER BY rating DESC;
 When querying against an ngrams field, all ngrams of the query must match in order for the document to be considered a match.
 This means that a query like `hsoes` does not match `shoes`, because the `hso` token does not match any of the tokens of `shoes`.
 
-To match documents where **any** ngram token of the query matches, the `fuzzy_phrase` query can again be used. Since we are looking for
+To match documents where **any** ngram token of the query matches, the `match` query can again be used. Since we are looking for
 exact ngram matches, the `distance` parameter can be lowered to `0`.
 
 ```sql
 SELECT description, rating, category FROM mock_items
-WHERE id @@@ paradedb.fuzzy_phrase(
+WHERE id @@@ paradedb.match(
     field => 'description',
     value => 'hsoes',
     distance => 0

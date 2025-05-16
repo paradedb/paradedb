@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2024 Retake, Inc.
+// Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -30,13 +30,14 @@ pub fn register_rel_pathlist<CS: CustomScan + 'static>(_: CS) {
         > = Lazy::new(Default::default);
 
         #[pg_guard]
-        extern "C" fn __priv_callback<CS: CustomScan + 'static>(
+        extern "C-unwind" fn __priv_callback<CS: CustomScan + 'static>(
             root: *mut pg_sys::PlannerInfo,
             rel: *mut pg_sys::RelOptInfo,
             rti: pg_sys::Index,
             rte: *mut pg_sys::RangeTblEntry,
         ) {
             unsafe {
+                #[allow(static_mut_refs)]
                 if let Some(Some(prev_hook)) = PREV_HOOKS.get(&std::any::TypeId::of::<CS>()) {
                     (*prev_hook)(root, rel, rti, rte);
                 }
@@ -45,6 +46,7 @@ pub fn register_rel_pathlist<CS: CustomScan + 'static>(_: CS) {
             }
         }
 
+        #[allow(static_mut_refs)]
         match PREV_HOOKS.entry(std::any::TypeId::of::<CS>()) {
             Entry::Occupied(_) => panic!("{} is already registered", std::any::type_name::<CS>()),
             Entry::Vacant(entry) => entry.insert(pg_sys::set_rel_pathlist_hook),
@@ -61,7 +63,7 @@ pub fn register_rel_pathlist<CS: CustomScan + 'static>(_: CS) {
 /// objects and adding them to rel using add_path. The custom scan provider is responsible for
 /// initializing the CustomPath object, which is declared like this:
 #[pg_guard]
-pub extern "C" fn paradedb_rel_pathlist_callback<CS: CustomScan>(
+pub extern "C-unwind" fn paradedb_rel_pathlist_callback<CS: CustomScan>(
     root: *mut pg_sys::PlannerInfo,
     rel: *mut pg_sys::RelOptInfo,
     rti: pg_sys::Index,
@@ -76,10 +78,31 @@ pub extern "C" fn paradedb_rel_pathlist_callback<CS: CustomScan>(
             let forced = path.flags & Flags::Force as u32 != 0;
             path.flags ^= Flags::Force as u32; // make sure to clear this flag because it's special to us
 
-            let custom_path = PgMemoryContexts::CurrentMemoryContext
+            let mut custom_path = PgMemoryContexts::CurrentMemoryContext
                 .copy_ptr_into(&mut path, std::mem::size_of_val(&path));
 
-            if forced {
+            if (*custom_path).path.parallel_aware {
+                // add the partial path since the user-generated plan is parallel aware
+                pg_sys::add_partial_path(rel, custom_path.cast());
+
+                // remove all the existing possible paths
+                (*rel).pathlist = std::ptr::null_mut();
+
+                // then make another copy of it, increase its costs really, really high and
+                // submit it as a regular path too, immediately after clearing out all the other
+                // existing possible paths.
+                //
+                // We don't want postgres to choose this path, but we have to have at least one
+                // non-partial path available for it to consider
+                let copy = PgMemoryContexts::CurrentMemoryContext
+                    .copy_ptr_into(&mut path, std::mem::size_of_val(&path));
+                (*copy).path.parallel_aware = false;
+                (*copy).path.total_cost = 1000000000.0;
+                (*copy).path.startup_cost = 1000000000.0;
+
+                // will be added down below
+                custom_path = copy.cast();
+            } else if forced {
                 // remove all the existing possible paths
                 (*rel).pathlist = std::ptr::null_mut();
             }

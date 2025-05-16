@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2024 Retake, Inc.
+// Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -508,6 +508,24 @@ fn language_stem_filter(mut conn: PgConnection) {
         "#
         .execute(&mut conn);
     }
+}
+
+#[rstest]
+fn default_config_is_stored_false(mut conn: PgConnection) {
+    r#"
+    CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
+
+    CREATE INDEX bm25_search_idx ON paradedb.bm25_search
+        USING bm25 (id, description)
+        WITH (key_field='id');
+    "#
+    .execute(&mut conn);
+
+    // we are using our default configurations for this index and none of them should be `stored = true`
+    let count: (i64,) =
+        r#"SELECT COUNT(*) FROM paradedb.schema('paradedb.bm25_search_idx') WHERE stored = true"#
+            .fetch_one(&mut conn);
+    assert_eq!(count.0, 0);
 }
 
 #[rstest]

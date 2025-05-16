@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2024 Retake, Inc.
+// Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -29,7 +29,7 @@ pub struct VisibilityChecker {
 impl Drop for VisibilityChecker {
     fn drop(&mut self) {
         unsafe {
-            if !pg_sys::IsTransactionState() {
+            if !crate::postgres::utils::IsTransactionState() {
                 // we are not in a transaction, so we can't do things like release buffers and close relations
                 return;
             }

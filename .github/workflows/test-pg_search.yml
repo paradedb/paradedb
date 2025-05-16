@@ -9,100 +9,80 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches:
-      - dev
       - main
+      - staging
+      - dev
     paths:
       - ".github/workflows/test-pg_search.yml"
       - "pg_search/**"
       - "tests/**"
       - "tokenizers/**"
   push:
-    branches: # Also run on `dev` and `main` to fill the GitHub Actions Rust cache in a way that PRs can see it
-      - dev
+    branches: # Also run on `main`, `staging` and `dev` to fill the GitHub Actions Rust cache in a way that PRs can see it
       - main
+      - staging
+      - dev
     paths:
       - "**/*.rs"
       - "**/*.toml"
   workflow_dispatch:
-    inputs:
-      test_upgrade_version:
-        description: "Upcoming pg_search version to test upgrading against"
-        required: false
-        default: ""
 
+# - New commits to a feature branch PR cancel previous runs.
+# - Pushes to `dev` get grouped under "dev".
+# - Pushes to `staging` get grouped under "staging".
+# - A PR from `dev` to `main` uses the same key as pushes to `dev`, avoiding duplicate runs when doing a promotion.
 concurrency:
-  group: test-pg_search-${{ github.head_ref || github.ref }}
+  group: test-pg_search-${{ (github.event_name == 'push' && github.ref == 'refs/heads/dev' || github.event.pull_request.head.ref == 'dev') && 'dev' || (github.event_name == 'push' && github.ref == 'refs/heads/staging' || github.event.pull_request.head.ref == 'staging') && 'staging' || github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
+  set-matrix:
+    name: Define the PostgreSQL Version Matrix
+    runs-on: ubuntu-latest
+    if: ${{ !cancelled() && github.event.pull_request.draft == false }}
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Define the PostgreSQL Version Matrix
+        id: set-matrix
+        run: |
+          if [[ ${{ github.event_name }} == "push" ]]; then
+            echo "Push event detected; using only PostgreSQL version 17."
+            echo "matrix=[17]" >> $GITHUB_OUTPUT
+          else
+            echo "Pull request event detected, using all PostgreSQL versions."
+            echo "matrix=[14, 15, 16, 17]" >> $GITHUB_OUTPUT
+          fi
+
   test-pg_search-postgres:
-    name: Test pg_search on PostgreSQL ${{ matrix.pg_version }} for ${{ matrix.arch }}
-    runs-on: ${{ matrix.runner }}
-    if: github.event.pull_request.draft == false
+    name: Test pg_search on PostgreSQL ${{ matrix.pg_version }}
+    runs-on: ubicloud-standard-8
+    if: ${{ !cancelled() && github.event.pull_request.draft == false }}
+    needs: set-matrix
     strategy:
       matrix:
-        include:
-          - runner: ubicloud-standard-8
-            pg_version: 13
-            arch: amd64
-          - runner: ubicloud-standard-8
-            pg_version: 14
-            arch: amd64
-          - runner: ubicloud-standard-8
-            pg_version: 15
-            arch: amd64
-          - runner: ubicloud-standard-8
-            pg_version: 16
-            arch: amd64
-          - runner: ubicloud-standard-8
-            pg_version: 17
-            arch: amd64
+        pg_version: ${{ fromJson(needs.set-matrix.outputs.matrix) }}
     env:
       default_pg_version: 17
 
     steps:
-      # For the Rust cache to get filled, we need to run the CI on the dev branch after every merge. This only
-      # needs to happen once, so we skip the workflow for all but one of the matrix jobs in that case.
-      - name: Check if Skipping
-        id: check_skip
-        run: |
-          if [[ "${{ github.event_name }}" == "push" && "${{ matrix.pg_version }}" != "${{ env.default_pg_version }}" ]]; then
-            echo "This is a push event to fill Rust cache. Skipping this job."
-            echo "skip_remaining_steps=true" >> $GITHUB_OUTPUT
-          fi
-
       - name: Checkout Git Repository
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         uses: actions/checkout@v4
 
       - name: Install Rust
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        uses: dtolnay/rust-toolchain@stable
-
-      # This checks that the version in the top-level Cargo.toml is incremented to the next release.
-      # We only run it on PRs to main, which are our promotion PRs.
-      - name: Check version in Cargo.toml
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && github.base_ref == 'main'
-        run: |
-          CARGO_VERSION=$(grep "^version" Cargo.toml | head -1 | awk -F '"' '{print $2}')
-          RELEASE_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}"
-          if [ "$CARGO_VERSION" != "$RELEASE_VERSION" ]; then
-            echo "Version in top-level Cargo.toml ($CARGO_VERSION) does not match upcoming release version ($RELEASE_VERSION). Did you forget to increment it?"
-            exit 1
-          fi
-          echo "Version check passed!"
+        uses: actions-rust-lang/setup-rust-toolchain@v1
 
       - name: Extract pgrx Version
         id: pgrx
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: pg_search/
-        run: echo version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv) >> $GITHUB_OUTPUT
+        run: |
+          version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          echo "version=$version" >> $GITHUB_OUTPUT
 
       # Caches from base branches are available to PRs, but not across unrelated branches, so we only
       # save the cache on the 'dev' branch, but load it on all branches.
       - name: Install Rust Cache
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        uses: ubicloud/rust-cache@v2
+        uses: swatinem/rust-cache@v2
         with:
           prefix-key: "v1-rust"
           key: ${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}
@@ -111,21 +91,17 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/dev' }}
 
       - name: Install required system tools
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: sudo apt-get update && sudo apt-get install -y lsof
 
       - name: Install & Configure Supported PostgreSQL Version
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
           sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
-          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/ /var/lib/postgresql/${{ matrix.pg_version }}/
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
       # Needed for hybrid search unit tests
       - name: Install pgvector
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |
           git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git
           cd pgvector/
@@ -133,90 +109,82 @@ jobs:
           sudo PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config make install -j
 
       - name: Install llvm-tools-preview
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: rustup component add llvm-tools-preview
 
       - name: Install cargo-pgrx
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
+        run: cargo install -j $(nproc) --locked cargo-pgrx --version "${{ steps.pgrx.outputs.version }}" --debug
 
       - name: Initialize cargo-pgrx environment
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
       - name: Add pg_search to shared_preload_libraries
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        if: matrix.pg_version < 17
         working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
         run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
 
       - name: Compile & install pg_search extension
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: pg_search/
-        run: cargo pgrx install --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+        run: cargo pgrx install --sudo --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
       - name: Start Postgres via cargo-pgrx
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: pg_search/
         run: |
-          RUST_BACKTRACE=1 cargo pgrx start pg${{ matrix.pg_version }}
           # Necessary for the ephemeral Postgres test to have proper permissions
           sudo chown -R $(whoami) /var/run/postgresql/
 
-      - name: Run pg_search test suite
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+          # Start Postgres
+          RUST_BACKTRACE=1 cargo pgrx start pg${{ matrix.pg_version }}
+
+      - name: Run pg_search Integration Tests
         run: |
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
           export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
-          export PARADEDB_TELEMETRY=false
-          RUST_BACKTRACE=1 cargo test --features pg${{ matrix.pg_version }},icu --no-default-features
+          RUST_BACKTRACE=1 cargo test --jobs $(nproc) --features icu --package tests --package tokenizers
+
+      - name: Run pg_search Unit Tests
+        working-directory: pg_search/
+        run: |
+          # Necessary for the ephemeral Postgres test to have proper permissions
+          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/
+
+          # Run tests
+          export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
+          RUST_BACKTRACE=1 cargo test --jobs $(nproc) --features pg${{ matrix.pg_version }} --no-default-features
 
       - name: Print the Postgres Logs
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && always()
+        if: always()
         run: cat ~/.pgrx/${{ matrix.pg_version}}.log
 
+  # Don't run pgrx-managed Postgres tests on push events, since they are only used to fill the Rust cache, which
+  # is already handled in the test-pg_search-postgres job.
   test-pg_search-pgrx-postgres:
-    name: Test pg_search on pgrx PostgreSQL ${{ matrix.pg_version }} for ${{ matrix.arch }}
-    runs-on: ${{ matrix.runner }}
-    if: github.event.pull_request.draft == false
+    name: Test pg_search on pgrx PostgreSQL ${{ matrix.pg_version }}
+    runs-on: ubicloud-standard-8
+    if: github.event.pull_request.draft == false || github.event_name == 'push'
     strategy:
       matrix:
-        include:
-          - runner: ubicloud-standard-8
-            pg_version: 17
-            arch: amd64
+        pg_version: [17]
     env:
       default_pg_version: 17
 
     steps:
-      # For the Rust cache to get filled, we need to run the CI on the dev branch after every merge. This only
-      # needs to happen once, so we skip the workflow for all but one of the matrix jobs in that case.
-      - name: Check if Skipping
-        id: check_skip
-        run: |
-          if [[ "${{ github.event_name }}" == "push" && "${{ matrix.pg_version }}" != "${{ env.default_pg_version }}" ]]; then
-            echo "This is a push event to fill Rust cache. Skipping this job."
-            echo "skip_remaining_steps=true" >> $GITHUB_OUTPUT
-          fi
-
       - name: Checkout Git Repository
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         uses: actions/checkout@v4
 
       - name: Install Rust
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        uses: dtolnay/rust-toolchain@stable
+        uses: actions-rust-lang/setup-rust-toolchain@v1
 
       - name: Extract pgrx Version
         id: pgrx
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: pg_search/
-        run: echo version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv) >> $GITHUB_OUTPUT
+        run: |
+          version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          echo "version=$version" >> $GITHUB_OUTPUT
 
       # Caches from base branches are available to PRs, but not across unrelated branches, so we only
       # save the cache on the 'dev' branch, but load it on all branches.
       - name: Install Rust Cache
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        uses: ubicloud/rust-cache@v2
+        uses: swatinem/rust-cache@v2
         with:
           prefix-key: "v1-rust"
           key: ${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}
@@ -225,24 +193,19 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/dev' }}
 
       - name: Install required system tools
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: sudo apt-get update && sudo apt-get install -y lsof
 
       - name: Install llvm-tools-preview
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: rustup component add llvm-tools-preview
 
       - name: Install cargo-pgrx
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
 
       - name: Initialize cargo-pgrx environment
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: cargo pgrx init "--pg${{ matrix.pg_version }}=download"
 
       # Needed for hybrid search unit tests
       - name: Install pgvector
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |
           git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git
           cd pgvector/
@@ -250,31 +213,34 @@ jobs:
           PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config make install -j
 
       - name: Add pg_search to shared_preload_libraries
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        if: matrix.pg_version < 17
         working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
         run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
 
       - name: Stop postgres
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: pg_search/
         run: cargo pgrx stop all
 
       - name: Compile & install pg_search extension
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: pg_search/
         run: cargo pgrx install --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config --features=pg${{ matrix.pg_version }},icu
 
       - name: Start Postgres and create database
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        working-directory: pg_search/
+        working-directory: tests/
         run: |
           RUST_BACKTRACE=1 cargo pgrx start pg${{ matrix.pg_version }}
           ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/createdb -p 288${{ matrix.pg_version }} -h localhost pg_search
 
-      - name: Run pg_search test suite against pgrx-managed Postgres
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        run: RUST_BACKTRACE=1 DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/pg_search cargo test --no-default-features --features=pg${{ matrix.pg_version }},icu -- --skip replication --skip ephemeral
+      - name: Run pg_search Integration Tests Against pgrx-managed Postgres
+        run: RUST_BACKTRACE=1 DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/pg_search cargo test --jobs $(nproc) --no-default-features --features=icu --package tests --package tokenizers -- --skip replication --skip ephemeral
+
+      - name: Run pg_search Regression Tests Against pgrx-managed Postgres
+        run: |
+          set -e
+          if ! cargo pgrx regress --package pg_search pg${{ matrix.pg_version }} --features=icu --auto; then
+            git diff
+            exit 1
+          fi
 
       - name: Print the Postgres Logs
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && always()
         run: cat ~/.pgrx/${{ matrix.pg_version}}.log

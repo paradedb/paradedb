@@ -4,56 +4,60 @@ description = "Full text search for PostgreSQL using BM25"
 version = { workspace = true }
 edition = { workspace = true }
 license = { workspace = true }
+build = "build.rs"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [features]
 default = ["pg17"]
-pg13 = ["pgrx/pg13"]
-pg14 = ["pgrx/pg14"]
-pg15 = ["pgrx/pg15"]
-pg16 = ["pgrx/pg16"]
-pg17 = ["pgrx/pg17"]
+pg14 = ["pgrx/pg14", "pgrx-tests/pg14"]
+pg15 = ["pgrx/pg15", "pgrx-tests/pg15"]
+pg16 = ["pgrx/pg16", "pgrx-tests/pg16"]
+pg17 = ["pgrx/pg17", "pgrx-tests/pg17"]
 pg_test = []
 icu = ["tokenizers/icu"]
+unsafe-postgres = ["pgrx/unsafe-postgres"]
 
 [dependencies]
-anyhow = { version = "1.0.87", features = ["backtrace"] }
-chrono = "0.4.38"
+anyhow = { version = "1.0.98", features = ["backtrace"] }
+bitpacking = "0.9.2"
+chrono = "0.4.41"
 crossbeam = "0.8.4"
-derive_more = "0.99.18"
-fs2 = "0.4.3"
-humansize = "2.1.3"
+derive_more = { version = "2.0.1", features = ["full"] }
+env_logger = "0.11.8"
+itertools = "0.14.0"
 json5 = "0.4.1"
-libc = "0.2.158"
 memoffset = "0.9.1"
-once_cell = "1.19.0"
-os_info = { version = "3", default-features = false }
+oneshot = "0.1.11"
+once_cell = "1.21.3"
 parking_lot = "0.12.3"
 tokenizers = { path = "../tokenizers" }
-pgrx = "=0.12.7"
-reqwest = { version = "0.11.27", features = ["blocking"] }
-rustc-hash = "1.1.0"
-serde = "1.0.210"
-serde_json = "1.0.128"
+pgrx.workspace = true
+rayon = "1.10.0"
+rustc-hash = "2.1.1"
+serde = "1.0.219"
+serde_json = { version = "1.0.140", features = ["preserve_order"] }
 tantivy.workspace = true
-tantivy-common.workspace = true
-thiserror = "1.0.63"
-tracing = "0.1.40"
-tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
-walkdir = "2.5.0"
-ordered-float = "4.2.2"
-uuid = "1.10.0"
-url = "2.5.2"
-strum = { version = "0.26.3" }
-serde_path_to_error = "0.1.16"
+thiserror = "2.0.12"
+ordered-float = "5.0.0"
+uuid = "1.16.0"
+strum = { version = "0.27.1" }
+serde_path_to_error = "0.1.17"
+bincode = { version = "2.0.1", features = [
+  "serde",
+  "std",
+], default-features = false }
+rand = "0.9.1"
+proptest = "1.6.0"
 
 [dev-dependencies]
-fixture = "0.3.1"
-rstest = "0.23.0"
-tempfile = "3.13.0"
+pgrx-tests.workspace = true
+rstest = "0.25.0"
 
+[build-dependencies]
+vergen = { version = "9.0.6", features = ["build", "cargo", "rustc", "si"] }
+vergen-git2 = "1.0.7"
 
 [package.metadata.cargo-machete]
 ignored = ["indexmap", "libc", "tantivy-common"]

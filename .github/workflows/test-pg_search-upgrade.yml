@@ -1,7 +1,8 @@
 # workflows/test-pg_search-upgrade.yml
 #
 # Test pg_search Upgrade
-# Test that the pg_search extension can upgrade via ALTER EXTENSION.
+# Test that the pg_search extension can upgrade via ALTER EXTENSION. This test is only run on
+# promotion PRs to `main` and `staging`.
 
 name: Test pg_search Upgrade
 
@@ -9,7 +10,8 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches:
-      - main # We only run the extension upgrade test on PRs to `main`, since it's when we do the release
+      - main
+      - staging
     paths:
       - ".github/workflows/test-pg_search-upgrade.yml"
       - "pg_search/**"
@@ -28,7 +30,7 @@ jobs:
     if: github.event.pull_request.draft == false
     strategy:
       matrix:
-        pg_version: [16] # We test extension upgrade on Postgres 16 for compatibility with older versions of pg_search
+        pg_version: [17]
 
     steps:
       - name: Checkout Git Repository
@@ -37,17 +39,33 @@ jobs:
           fetch-depth: 0 # Fetch the entire history
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: actions-rust-lang/setup-rust-toolchain@v1
 
       - name: Extract pgrx Version
         id: pgrx
         working-directory: pg_search/
-        run: echo version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv) >> $GITHUB_OUTPUT
+        run: |
+          version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          echo "version=$version" >> $GITHUB_OUTPUT
+
+      # This checks that the version in the top-level Cargo.toml is incremented to that of the upcoming release. For both
+      # PRs to `main` and `staging`, we check that the version in the top-level Cargo.toml is incremented to that of the
+      # upcoming production release (e.g. without `-rc.X`), so that we can publish the release from `staging` to `main`
+      # without needing any further changes.
+      - name: Check Version Upgrade in Cargo.toml
+        run: |
+          CARGO_VERSION=$(grep "^version" Cargo.toml | head -1 | awk -F '"' '{print $2}')
+          PROD_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}"
+          if [ "$CARGO_VERSION" != "$PROD_VERSION" ]; then
+            echo "Version in top-level Cargo.toml ($CARGO_VERSION) does not match upcoming release version ($PROD_VERSION). Did you forget to increment it?"
+            exit 1
+          fi
+          echo "Version check passed!"
 
       # Caches from base branches are available to PRs, but not across unrelated branches, so we only
       # save the cache on the 'dev' branch, but load it on all branches.
       - name: Install Rust Cache
-        uses: ubicloud/rust-cache@v2
+        uses: swatinem/rust-cache@v2
         with:
           prefix-key: "v1-rust"
           key: ${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}
@@ -63,7 +81,6 @@ jobs:
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
           sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
-          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/ /var/lib/postgresql/${{ matrix.pg_version }}/
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
       # Needed for hybrid search unit tests
@@ -77,24 +94,22 @@ jobs:
       - name: Install llvm-tools-preview
         run: rustup component add llvm-tools-preview
 
-      # This is the pgrx version compatible with ParadeDB v0.10.0
-      - name: Install cargo-pgrx for ParadeDB v0.10.0
-        run: cargo install -j $(nproc) --locked cargo-pgrx --version 0.12.4 --debug
+      # This is the pgrx version compatible with ParadeDB v0.15.11
+      - name: Install cargo-pgrx for ParadeDB v0.15.11
+        run: cargo install -j $(nproc) --locked cargo-pgrx --version 0.13.0 --debug
 
-      - name: Initialize cargo-pgrx environment for ParadeDB v0.10.0
+      - name: Initialize cargo-pgrx environment for ParadeDB v0.15.11
         run: cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
-      - name: Add pg_search to shared_preload_libraries
-        working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
-        run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
+      # While technically backwards-compatible since 0.15.0, our Lindera dependency made a backwards-incompatible
+      # change by deleting its previous repositroy URL and forcing dependencies to upgrade, which forces us to test
+      # our upgrade compatibility from 0.15.11 onwards
+      - name: Checkout ParadeDB v0.15.11
+        run: git checkout v0.15.11
 
-      # This is the first version at which we started supporting upgrading via ALTER EXTENSION
-      - name: Checkout ParadeDB v0.10.0
-        run: git checkout v0.10.0
-
-      - name: Compile & install pg_search v0.10.0
+      - name: Compile & install pg_search v0.15.11
         working-directory: pg_search/
-        run: cargo pgrx install --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+        run: cargo pgrx install --sudo --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
       - name: Start Postgres via cargo-pgrx
         working-directory: pg_search/
@@ -103,9 +118,18 @@ jobs:
           # Necessary for the ephemeral Postgres test to have proper permissions
           sudo chown -R $(whoami) /var/run/postgresql/
 
-      - name: Create pg_search extension
+      - name: Create pg_search Extension
         working-directory: pg_search/
         run: psql -h localhost -p 288${{ matrix.pg_version }} postgres -c 'CREATE EXTENSION pg_search;'
+
+      # We create and test the BM25 index before and after the upgrade to test for version compatibility
+      - name: Create and Test BM25 Index
+        working-directory: pg_search/
+        run: |
+          psql -h localhost -p 288${{ matrix.pg_version }} postgres -c "CALL paradedb.create_bm25_test_table(schema_name => 'public', table_name => 'mock_items');"
+          psql -h localhost -p 288${{ matrix.pg_version }} postgres -c "SELECT description, rating, category FROM mock_items LIMIT 3;"
+          psql -h localhost -p 288${{ matrix.pg_version }} postgres -c "CREATE INDEX search_idx ON mock_items USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range) WITH (key_field='id');"
+          psql -h localhost -p 288${{ matrix.pg_version }} postgres -c "SELECT description, rating, category FROM mock_items WHERE description @@@ 'shoes' OR category @@@ 'footwear' AND rating @@@ '>2' ORDER BY description LIMIT 5;"
 
       - name: Stop Postgres via cargo-pgrx
         working-directory: pg_search/
@@ -123,7 +147,7 @@ jobs:
 
       - name: Compile & install pg_search `dev`
         working-directory: pg_search/
-        run: cargo pgrx install --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+        run: cargo pgrx install --sudo --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
       - name: Start Postgres via cargo-pgrx
         working-directory: pg_search/
@@ -138,12 +162,20 @@ jobs:
           VERSION=$(grep "^version" ../Cargo.toml | head -1 | awk -F '"' '{print $2}')
           psql -h localhost -p 288${{ matrix.pg_version }} postgres -c "ALTER EXTENSION pg_search UPDATE TO '$VERSION';"
 
-      - name: Run pg_search test suite
+      # We test the BM25 index before and after the upgrade to test for version compatibility
+      - name: Test BM25 Index
+        working-directory: pg_search/
+        run: |
+          psql -h localhost -p 288${{ matrix.pg_version }} postgres -c "CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool STABLE STRICT LANGUAGE plpgsql AS \$\$ BEGIN IF a <> b THEN RAISE EXCEPTION 'Assertion failed: % <> %', a, b; END IF; RETURN true; END; \$\$;"
+          psql -h localhost -p 288${{ matrix.pg_version }} postgres -c "SELECT assert(count(*), 0) FROM paradedb.validate_checksum('search_idx');"
+
+      # We only run the integration tests since pgrx won't run the #[pg_test] unit tests in an existing database
+      - name: Run pg_search Integration Tests
+        working-directory: tests/
         run: |
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
           export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
-          export PARADEDB_TELEMETRY=false
-          RUST_BACKTRACE=1 cargo test --features pg${{ matrix.pg_version }},icu --no-default-features
+          RUST_BACKTRACE=1 cargo test --jobs $(nproc) --features icu
 
       - name: Print the Postgres Logs
         if: always()

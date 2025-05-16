@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2024 Retake, Inc.
+// Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+pub(crate) mod fast_fields;
 pub(crate) mod normal;
 pub(crate) mod top_n;
 
@@ -41,15 +42,19 @@ impl Default for Box<dyn ExecMethod> {
 }
 
 pub trait ExecMethod {
-    fn init(&mut self, state: &PdbScanState, cstate: *mut pg_sys::CustomScanState);
+    fn init(&mut self, state: &mut PdbScanState, cstate: *mut pg_sys::CustomScanState);
 
-    fn query(&mut self, state: &PdbScanState) -> bool {
+    fn uses_visibility_map(&self, state: &PdbScanState) -> bool {
+        true
+    }
+
+    fn query(&mut self, state: &mut PdbScanState) -> bool {
         false
     }
 
-    fn next(&mut self, state: &PdbScanState) -> ExecState {
+    fn next(&mut self, state: &mut PdbScanState) -> ExecState {
         loop {
-            match self.internal_next() {
+            match self.internal_next(state) {
                 ExecState::Eof => {
                     if !self.query(state) {
                         return ExecState::Eof;
@@ -60,21 +65,38 @@ pub trait ExecMethod {
         }
     }
 
-    fn internal_next(&mut self) -> ExecState;
+    fn increment_visible(&mut self) {
+        // default of noop
+    }
+
+    fn internal_next(&mut self, state: &mut PdbScanState) -> ExecState;
+
+    // This is called when the scan is rescanned.
+    // Implementations should override this if they need to reset their state
+    fn reset(&mut self, state: &mut PdbScanState) {
+        // Default implementation does nothing
+        // Note: SearchResults are handled by PdbScanState.reset() - don't clear them here.
+    }
 }
 
 struct UnknownScanStyle;
 
 impl ExecMethod for UnknownScanStyle {
-    fn init(&mut self, _state: &PdbScanState, _cstate: *mut pg_sys::CustomScanState) {
+    fn init(&mut self, _state: &mut PdbScanState, _cstate: *mut pg_sys::CustomScanState) {
         unimplemented!(
             "logic error in pg_search:  `UnknownScanStyle::init()` should never be called"
         )
     }
 
-    fn internal_next(&mut self) -> ExecState {
+    fn internal_next(&mut self, _state: &mut PdbScanState) -> ExecState {
         unimplemented!(
             "logic error in pg_search:  `UnknownScanStyle::internal_next()` should never be called"
+        )
+    }
+
+    fn reset(&mut self, _state: &mut PdbScanState) {
+        unimplemented!(
+            "logic error in pg_search:  `UnknownScanStyle::reset()` should never be called"
         )
     }
 }

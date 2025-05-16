@@ -20,7 +20,7 @@ concurrency:
 jobs:
   lint-bash:
     name: Lint Bash Scripts
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     if: github.event.pull_request.draft == false
 
     steps:
@@ -81,7 +81,7 @@ jobs:
           sh_files = set(glob.glob("**/*.sh", recursive=True))
           for file in sh_files:
             p = subprocess.run(
-                f"shellcheck {file}", shell=True, capture_output=True, check=False
+                f"shellcheck -x {file}", shell=True, capture_output=True, check=False
             )
             print(p.stdout.decode())
             if p.returncode != 0:

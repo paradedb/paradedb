@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2024 Retake, Inc.
+// Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -44,20 +44,6 @@ BEGIN;
     CREATE INDEX bm25_search_bm25_index
     ON paradedb.bm25_search
     USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
-    WITH (
-        key_field='id',
-        text_fields='{
-            "description": {},
-            "category": {}
-        }',
-        numeric_fields='{"rating": {}}',
-        boolean_fields='{"in_stock": {}}',
-        json_fields='{"metadata": {}}',
-        datetime_fields='{
-            "created_at": {},
-            "last_updated_date": {},
-            "latest_available_time": {}
-        }'
-    );
+    WITH (key_field='id');
 COMMIT;
 "#;

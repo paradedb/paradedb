@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2024 Retake, Inc.
+// Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -19,6 +19,7 @@
 #![allow(unused_imports)]
 
 pub mod db;
+pub mod querygen;
 pub mod tables;
 pub mod utils;
 
@@ -32,6 +33,12 @@ pub use crate::fixtures::tables::*;
 #[fixture]
 pub fn database() -> Db {
     block_on(async { Db::new().await })
+}
+
+pub fn pg_major_version(conn: &mut PgConnection) -> usize {
+    r#"select (regexp_match(version(), 'PostgreSQL (\d+)'))[1]::int;"#
+        .fetch_one::<(i32,)>(conn)
+        .0 as usize
 }
 
 #[fixture]
@@ -50,6 +57,12 @@ pub fn conn(database: Db) -> PgConnection {
             .execute(&mut conn)
             .await
             .expect("could not create extension pg_search");
+
+        sqlx::query("SET log_error_verbosity TO VERBOSE;")
+            .execute(&mut conn)
+            .await
+            .expect("could not adjust log_error_verbosity");
+
         conn
     })
 }

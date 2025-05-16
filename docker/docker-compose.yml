@@ -14,7 +14,6 @@ services:
       POSTGRES_USER: myuser
       POSTGRES_PASSWORD: mypassword
       POSTGRES_DB: mydatabase
-      PARADEDB_TELEMETRY: true # Set to 'false' (or remove) to disable anonymous telemetry
     ports:
       - "5432:5432"
     volumes:

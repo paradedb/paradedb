@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2024 Retake, Inc.
+// Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -14,6 +14,7 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
+#![allow(deprecated)]
 
 use std::fmt::Write;
 
@@ -33,17 +34,33 @@ use tantivy::tokenizer::{
     AsciiFoldingFilter, Language, LowerCaser, NgramTokenizer, RawTokenizer, RegexTokenizer,
     RemoveLongFilter, SimpleTokenizer, Stemmer, StopWordFilter, TextAnalyzer, WhitespaceTokenizer,
 };
+use tantivy_jieba;
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq, Eq)]
 pub struct SearchTokenizerFilters {
-    remove_long: Option<usize>,
-    lowercase: Option<bool>,
-    stemmer: Option<Language>,
-    stopwords_language: Option<Language>,
-    stopwords: Option<Vec<String>>,
+    pub remove_long: Option<usize>,
+    pub lowercase: Option<bool>,
+    pub stemmer: Option<Language>,
+    pub stopwords_language: Option<Language>,
+    pub stopwords: Option<Vec<String>>,
 }
 
 impl SearchTokenizerFilters {
+    /// Returns a [`SearchTokenizerFilter`] instance that effectively does not filter, or otherwise
+    /// mutate tokens.
+    ///
+    /// This should be used for declaring the "key field" in an index.  It can be used for other
+    /// text types that don't want tokenization too.
+    pub const fn keyword() -> &'static Self {
+        &SearchTokenizerFilters {
+            remove_long: Some(usize::MAX),
+            lowercase: Some(false),
+            stemmer: None,
+            stopwords_language: None,
+            stopwords: None,
+        }
+    }
+
     fn from_json_value(value: &serde_json::Value) -> Result<Self, anyhow::Error> {
         let mut filters = SearchTokenizerFilters::default();
 
@@ -195,7 +212,14 @@ impl SearchTokenizerFilters {
 #[strum(serialize_all = "snake_case")]
 pub enum SearchTokenizer {
     Default(SearchTokenizerFilters),
+    Keyword,
+
+    #[deprecated(
+        since = "0.15.17",
+        note = "use the `SearchTokenizer::Keyword` variant instead"
+    )]
     Raw(SearchTokenizerFilters),
+
     EnStem(SearchTokenizerFilters),
     Stem {
         language: Language,
@@ -221,6 +245,7 @@ pub enum SearchTokenizer {
     #[cfg(feature = "icu")]
     #[strum(serialize = "icu")]
     ICUTokenizer(SearchTokenizerFilters),
+    Jieba(SearchTokenizerFilters),
 }
 
 impl Default for SearchTokenizer {
@@ -233,6 +258,8 @@ impl SearchTokenizer {
     pub fn to_json_value(&self) -> serde_json::Value {
         let mut json = match self {
             SearchTokenizer::Default(_filters) => json!({ "type": "default" }),
+            SearchTokenizer::Keyword => json!({ "type": "keyword" }),
+            #[allow(deprecated)]
             SearchTokenizer::Raw(_filters) => json!({ "type": "raw" }),
             SearchTokenizer::EnStem(_filters) => json!({ "type": "en_stem" }),
             SearchTokenizer::Stem {
@@ -265,6 +292,7 @@ impl SearchTokenizer {
             SearchTokenizer::KoreanLindera(_filters) => json!({ "type": "korean_lindera" }),
             #[cfg(feature = "icu")]
             SearchTokenizer::ICUTokenizer(_filters) => json!({ "type": "icu" }),
+            SearchTokenizer::Jieba(_filters) => json!({ "type": "jieba" }),
         };
 
         // Serialize filters to the enclosing json object.
@@ -286,6 +314,8 @@ impl SearchTokenizer {
 
         match tokenizer_type {
             "default" => Ok(SearchTokenizer::Default(filters)),
+            "keyword" => Ok(SearchTokenizer::Keyword),
+            #[allow(deprecated)]
             "raw" => Ok(SearchTokenizer::Raw(filters)),
             "en_stem" => Ok(SearchTokenizer::EnStem(filters)),
             "stem" => {
@@ -331,6 +361,7 @@ impl SearchTokenizer {
             "korean_lindera" => Ok(SearchTokenizer::KoreanLindera(filters)),
             #[cfg(feature = "icu")]
             "icu" => Ok(SearchTokenizer::ICUTokenizer(filters)),
+            "jieba" => Ok(SearchTokenizer::Jieba(filters)),
             _ => Err(anyhow::anyhow!(
                 "unknown tokenizer type: {}",
                 tokenizer_type
@@ -349,6 +380,18 @@ impl SearchTokenizer {
                     .filter(filters.stopwords())
                     .build(),
             ),
+
+            SearchTokenizer::Keyword => {
+                Some(TextAnalyzer::builder(RawTokenizer::default()).build())
+            }
+
+            // this Tokenizer is deprecated because it's bugged.  The `filters.remove_long_filter()`
+            // and `filters.lower_caser()` provide defaults that do those things, but that is the
+            // opposite of what the `raw` tokenizer should do.
+            //
+            // the decision was made to introduce the `keyword` tokenizer which does the correct thing
+            // that is, doesn't mutate the input tokens
+            #[allow(deprecated)]
             SearchTokenizer::Raw(filters) => Some(
                 TextAnalyzer::builder(RawTokenizer::default())
                     .filter(filters.remove_long_filter())
@@ -479,12 +522,21 @@ impl SearchTokenizer {
                     .filter(filters.stopwords())
                     .build(),
             ),
+            SearchTokenizer::Jieba(filters) => Some(
+                TextAnalyzer::builder(tantivy_jieba::JiebaTokenizer {})
+                    .filter(filters.remove_long_filter())
+                    .filter(filters.lower_caser())
+                    .filter(filters.stemmer())
+                    .build(),
+            ),
         }
     }
 
     fn filters(&self) -> &SearchTokenizerFilters {
         match self {
             SearchTokenizer::Default(filters) => filters,
+            SearchTokenizer::Keyword => SearchTokenizerFilters::keyword(),
+            #[allow(deprecated)]
             SearchTokenizer::Raw(filters) => filters,
             SearchTokenizer::EnStem(filters) => filters,
             SearchTokenizer::Stem { filters, .. } => filters,
@@ -499,6 +551,7 @@ impl SearchTokenizer {
             SearchTokenizer::KoreanLindera(filters) => filters,
             #[cfg(feature = "icu")]
             SearchTokenizer::ICUTokenizer(filters) => filters,
+            SearchTokenizer::Jieba(filters) => filters,
         }
     }
 }
@@ -531,6 +584,8 @@ impl SearchTokenizer {
         let filters_suffix = self.filters().name_suffix();
         match self {
             SearchTokenizer::Default(_filters) => format!("default{filters_suffix}"),
+            SearchTokenizer::Keyword => format!("keyword{filters_suffix}"),
+            #[allow(deprecated)]
             SearchTokenizer::Raw(_filters) => format!("raw{filters_suffix}"),
             SearchTokenizer::EnStem(_filters) => format!("en_stem{filters_suffix}"),
             SearchTokenizer::Stem {
@@ -560,6 +615,7 @@ impl SearchTokenizer {
             SearchTokenizer::KoreanLindera(_filters) => format!("korean_lindera{filters_suffix}"),
             #[cfg(feature = "icu")]
             SearchTokenizer::ICUTokenizer(_filters) => format!("icu{filters_suffix}"),
+            SearchTokenizer::Jieba(_filters) => format!("jieba{filters_suffix}"),
         }
     }
 }

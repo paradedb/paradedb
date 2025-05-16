@@ -1,6 +1,6 @@
 # workflows/check-pg_search-schema-upgrade.yml
 #
-# Check pg_search Schema Upgrade pg_search
+# Check pg_search Schema Upgrade
 # Determine if a commit introduces an extension schema change for pg_search.
 
 name: Check pg_search Schema Upgrade
@@ -9,8 +9,9 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches:
-      - dev
       - main
+      - staging
+      - dev
     paths:
       - ".github/workflows/check-pg_search-schema-upgrade.yml"
       - "pg_search/**"
@@ -31,8 +32,9 @@ jobs:
     name: Post Schema Change to PR
     runs-on: ubicloud-standard-8
     if: github.event.pull_request.draft == false
-    env:
-      pg_version: 13 # Required by pg-schema-diff
+    strategy:
+      matrix:
+        pg_version: [14] # pg_search's minimum supported Postgres version
 
     steps:
       - name: Checkout Git Repository
@@ -43,18 +45,20 @@ jobs:
       - name: Extract pgrx Version
         id: pgrx
         working-directory: pg_search/
-        run: echo version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv) >> $GITHUB_OUTPUT
+        run: |
+          version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          echo "version=$version" >> $GITHUB_OUTPUT
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: actions-rust-lang/setup-rust-toolchain@v1
 
       # Caches from base branches are available to PRs, but not across unrelated branches, so we only
       # save the cache on the 'dev' branch, but load it on all branches.
       - name: Install Rust Cache
-        uses: ubicloud/rust-cache@v2
+        uses: swatinem/rust-cache@v2
         with:
           prefix-key: "v1-rust"
-          key: ${{ env.pg_version }}-${{ steps.pgrx.outputs.version }}
+          key: ${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}
           cache-targets: true
           cache-all-crates: true
           save-if: ${{ github.ref == 'refs/heads/dev' }}
@@ -63,27 +67,24 @@ jobs:
         run: |
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          sudo apt-get update && sudo apt-get install -y postgresql-${{ env.pg_version }} postgresql-server-dev-${{ env.pg_version }}
-          sudo chown -R $(whoami) /usr/share/postgresql/${{ env.pg_version }}/ /usr/lib/postgresql/${{ env.pg_version }}/ /var/lib/postgresql/${{ env.pg_version }}/
-          rustup component add llvm-tools-preview
-          echo "/usr/lib/postgresql/${{ env.pg_version }}/bin" >> $GITHUB_PATH
+          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
+          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Install pg-schema-diff and its Required Dependencies
         run: |
           sudo apt install clang llvm diffutils
           cargo install --git https://github.com/zombodb/pg-schema-diff.git --debug
 
-      - name: Extract pgrx Version & Install cargo-pgrx
+      - name: Install cargo-pgrx
         run: |
-          PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv)
-          cargo install -j $(nproc) --locked cargo-pgrx --version ${PGRX_VERSION} --debug
-          cargo pgrx init "--pg${{ env.pg_version }}=/usr/lib/postgresql/${{ env.pg_version }}/bin/pg_config"
+          cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
+          cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
           # Save the pgrx version for comparison later
           echo "FIRST_PGRX_VERSION=${PGRX_VERSION}" >> $GITHUB_ENV
 
       - name: Generate Schema from this git rev
-        run: cargo pgrx schema -p pg_search pg${{ env.pg_version }} > ~/this.sql
+        run: cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/this.sql
 
       - name: Switch to Base git rev and Generate Schema Again
         run: |
@@ -92,17 +93,17 @@ jobs:
           git checkout ${{ github.event.pull_request.base.ref }}
 
           # See if we need a different cargo-pgrx and install it if so
-          THIS_PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv)
+          THIS_PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
           if [[ "${THIS_PGRX_VERSION}" != "${FIRST_PGRX_VERSION}" ]]; then
             # Install cargo-pgrx
             cargo install -j $(nproc) --locked cargo-pgrx --version ${THIS_PGRX_VERSION} --force --debug
 
             # Initialize it (again) -- probably unnecessary, but might as well in case ~/.pgrx/config.toml ever changes
-            cargo pgrx init "--pg${{ env.pg_version }}=/usr/lib/postgresql/${{ env.pg_version }}/bin/pg_config"
+            cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
           fi
 
           # Generate schema
-          cargo pgrx schema -p pg_search pg${{ env.pg_version }} > ~/old.sql
+          cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/old.sql
 
       - name: Generate Schema Diffs
         run: |

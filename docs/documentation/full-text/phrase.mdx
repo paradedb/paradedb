@@ -1,22 +1,22 @@
 ---
-title: Phrase Search
+title: Phrase
 ---
 
-<Note>
-  To enable phrase search, a field must be indexed with
-  [record](/documentation/indexing/record) of `position`.
-</Note>
+Searches for the presence of a [phrase](/documentation/concepts/phrase). The field must be indexed with [record](/documentation/indexing/record) of `position`.
+For more granular controls, see the [phrase query](/documentation/advanced/phrase).
 
 ## Basic Usage
 
-Searches for a specific [phrase](/documentation/concepts/phrase). Phrases must be wrapped inside
-double quotes. The following query finds all documents with the word `plastic` followed immediately by `keyboard`.
+Phrases must be wrapped inside double quotes. The following query finds all documents with the word `plastic` followed immediately by `keyboard`.
 
 ```sql
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ '"plastic keyboard"';
 ```
+
+Under the hood, the query string is first tokenized in the same way as the field was at index time. Then, a phrase query is executed with the tokenized
+values.
 
 ## Slop Operator
 
@@ -39,8 +39,3 @@ SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ '"plastic keyb"*';
 ```
-
-## Special Characters
-
-The special characters `+` , `^`, `` ` ``, `:`, `{`, `}`, `"`, `[`, `]`, `(`, `)`, `<`, `>`, `~`, `!`, `\\`, and `\*` must be
-escaped by a `\` inside the query term.

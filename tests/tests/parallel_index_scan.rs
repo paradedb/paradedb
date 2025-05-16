@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2024 Retake, Inc.
+// Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -25,9 +25,7 @@ use sqlx::PgConnection;
 
 #[rstest]
 fn index_scan_under_parallel_path(mut conn: PgConnection) {
-    let (major_version,) = r#"select (regexp_match(version(), 'PostgreSQL (\d+)'))[1]::int;"#
-        .fetch_one::<(i32,)>(&mut conn);
-    if major_version < 16 {
+    if pg_major_version(&mut conn) < 16 {
         // the `debug_parallel_query` was added in pg16, so we simply cannot run this test on anything
         // less than pg16
         return;
@@ -57,7 +55,7 @@ fn dont_do_parallel_index_scan(mut conn: PgConnection) {
     "set enable_indexscan to off;".execute(&mut conn);
     let (plan, ) = "EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON) select count(*) from paradedb.bm25_search where description @@@ 'shoes';".fetch_one::<(Value,)>(&mut conn);
     let plan = plan
-        .pointer("/0/Plan/Plans/0")
+        .pointer("/0/Plan/Plans/0/Plans/0/Plans/0")
         .unwrap()
         .as_object()
         .unwrap();

@@ -87,9 +87,9 @@ impl SearchTokenizerFilters {
         }
         if let Some(stopwords_language) = value.get("stopwords_language") {
             filters.stopwords_language = Some(
-                serde_json::from_value(stopwords_language.clone()).map_err(|_| {
+                serde_json::from_value(stopwords_language.clone()).map_err(|e| {
                     anyhow::anyhow!(
-                        "stopwords_language tokenizer requires a valid 'stopwords_language' field"
+                        "stopwords_language tokenizer requires a valid 'stopwords_language' field: {e}"
                     )
                 })?,
             );

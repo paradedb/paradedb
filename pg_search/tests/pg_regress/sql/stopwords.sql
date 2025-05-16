@@ -1,0 +1,63 @@
+-- test stopwords and stopwords_language
+
+\echo 'Test: Stopwords processing'
+
+
+
+-- direct stop words list
+SELECT * FROM paradedb.tokenize(
+        paradedb.tokenizer('default', stopwords => ARRAY['stopword']),
+        'something, stopword, else'
+);
+
+
+SELECT * FROM paradedb.tokenize(
+        paradedb.tokenizer('default', stopwords_language => 'English'),
+        'something and else'
+);
+
+-- Meaningful error when language doesn't exist
+SELECT * FROM paradedb.tokenize(
+        paradedb.tokenizer('default', stopwords_language => 'abc'),
+        'something and else'
+);
+
+-- direct stopwords AND stopwords language
+SELECT * FROM paradedb.tokenize(
+        paradedb.tokenizer('default', stopwords_language => 'English', stopwords => ARRAY['stopword']),
+        'stopword and else'
+);
+
+
+-- Use in search
+DROP TABLE IF EXISTS test_stopwords CASCADE;
+CREATE TABLE test_stopwords
+(
+    id    serial8 not null primary key,
+    name  text
+);
+
+
+insert into test_stopwords (name)
+values
+    ('something, stopword, else'), -- those two should be equivalent with the index below
+    ('something else'),
+    ('something more');
+
+
+CREATE INDEX idx_stopwords_bm25 ON test_stopwords
+    USING bm25 (id, name)
+    WITH (
+    key_field = 'id',
+    text_fields ='{
+        "name": {"tokenizer": {"type": "default", "stopwords": ["stopword"]}}
+    }'
+);
+
+-- "something else" and "something, stopword, else" have the same score
+SELECT paradedb.score(id) AS score, name
+FROM test_stopwords
+WHERE name @@@ '("something" "else")'
+ORDER BY name;
+
+DROP TABLE test_stopwords CASCADE;

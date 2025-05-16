@@ -107,6 +107,7 @@ pub fn text_restrict(
 
             let (heaprelid, search_query_input) = make_query_from_var_and_const(info, var, const_);
             let indexrel = locate_bm25_index(heaprelid)?;
+
             estimate_selectivity(&indexrel, &search_query_input)
         }
     }

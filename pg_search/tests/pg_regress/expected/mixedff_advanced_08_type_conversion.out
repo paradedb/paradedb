@@ -311,14 +311,13 @@ WHERE content @@@ 'conversion test';
  Custom Scan (ParadeDB Scan) on conversion_test
    Table: conversion_test
    Index: conversion_search
-   Segment Count: 1
    Exec Method: MixedFastFieldExecState
    Fast Fields: id, bigint_field, integer_field, smallint_field
    String Fast Fields: id
    Numeric Fast Fields: bigint_field, integer_field, smallint_field
    Scores: false
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"conversion test","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+(9 rows)
 
 -- Check values for different integer types
 SELECT id, smallint_field, integer_field, bigint_field

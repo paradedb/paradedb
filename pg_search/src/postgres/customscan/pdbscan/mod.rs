@@ -642,11 +642,13 @@ impl CustomScan for PdbScan {
     ) {
         explainer.add_text("Table", state.custom_state().heaprelname());
         explainer.add_text("Index", state.custom_state().indexrelname());
-        explainer.add_unsigned_integer(
-            "Segment Count",
-            state.custom_state().segment_count as u64,
-            None,
-        );
+        if explainer.is_costs() {
+            explainer.add_unsigned_integer(
+                "Segment Count",
+                state.custom_state().segment_count as u64,
+                None,
+            );
+        }
 
         if explainer.is_analyze() {
             explainer.add_unsigned_integer(

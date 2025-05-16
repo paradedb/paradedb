@@ -357,13 +357,12 @@ ORDER BY text_field1, text_field2;
    ->  Custom Scan (ParadeDB Scan) on exec_method_test
          Table: exec_method_test
          Index: exec_method_idx
-         Segment Count: 1
          Exec Method: MixedFastFieldExecState
          Fast Fields: text_field1, text_field2
          String Fast Fields: text_field1, text_field2
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(10 rows)
 
 SELECT text_field1, text_field2
 FROM exec_method_test
@@ -436,14 +435,13 @@ ORDER BY text_field1, num_field1, num_field2;
    ->  Custom Scan (ParadeDB Scan) on exec_method_test
          Table: exec_method_test
          Index: exec_method_idx
-         Segment Count: 1
          Exec Method: MixedFastFieldExecState
          Fast Fields: text_field1, num_field1, num_field2
          String Fast Fields: text_field1
          Numeric Fast Fields: num_field1, num_field2
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"num_field1","lower_bound":{"excluded":10},"upper_bound":null,"is_datetime":false}}]}}
-(12 rows)
+(11 rows)
 
 SELECT text_field1, num_field1, num_field2
 FROM exec_method_test
@@ -506,14 +504,13 @@ ORDER BY text_field1, text_field2, num_field1, bool_field;
    ->  Custom Scan (ParadeDB Scan) on exec_method_test
          Table: exec_method_test
          Index: exec_method_idx
-         Segment Count: 1
          Exec Method: MixedFastFieldExecState
          Fast Fields: text_field1, text_field2, bool_field, num_field1
          String Fast Fields: text_field1, text_field2
          Numeric Fast Fields: bool_field, num_field1
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}},{"term":{"field":"bool_field","value":true,"is_datetime":false}}]}}
-(12 rows)
+(11 rows)
 
 SELECT text_field1, text_field2, num_field1, bool_field
 FROM exec_method_test
@@ -561,7 +558,6 @@ ORDER BY text_field1;
    ->  Custom Scan (ParadeDB Scan) on exec_method_test
          Table: exec_method_test
          Index: exec_method_idx
-         Segment Count: 1
          Exec Method: StringFastFieldExecState
          Fast Fields: text_field1
          String Agg Field: text_field1
@@ -569,7 +565,7 @@ ORDER BY text_field1;
             Sort Field: text_field1
             Sort Direction: asc
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}}
-(13 rows)
+(12 rows)
 
 SELECT text_field1
 FROM exec_method_test
@@ -642,12 +638,11 @@ ORDER BY num_field1, num_field2;
    ->  Custom Scan (ParadeDB Scan) on exec_method_test
          Table: exec_method_test
          Index: exec_method_idx
-         Segment Count: 1
          Exec Method: NumericFastFieldExecState
          Fast Fields: num_field1, num_field2
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"range":{"field":"num_field1","lower_bound":{"excluded":25},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}}]}}
-(10 rows)
+(9 rows)
 
 SELECT num_field1, num_field2
 FROM exec_method_test
@@ -695,11 +690,10 @@ ORDER BY text_field1, non_indexed_field;
    ->  Custom Scan (ParadeDB Scan) on exec_method_test
          Table: exec_method_test
          Index: exec_method_idx
-         Segment Count: 1
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}}
-(9 rows)
+(8 rows)
 
 SELECT text_field1, non_indexed_field
 FROM exec_method_test
@@ -772,14 +766,13 @@ ORDER BY text_field1, num_field1 DESC;
    ->  Custom Scan (ParadeDB Scan) on exec_method_test
          Table: exec_method_test
          Index: exec_method_idx
-         Segment Count: 1
          Exec Method: MixedFastFieldExecState
          Fast Fields: text_field1, num_field1
          String Fast Fields: text_field1
          Numeric Fast Fields: num_field1
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}}
-(12 rows)
+(11 rows)
 
 SELECT text_field1, num_field1
 FROM exec_method_test
@@ -855,14 +848,13 @@ ORDER BY text_field1, text_field2, num_field1, bool_field;
    ->  Custom Scan (ParadeDB Scan) on exec_method_test
          Table: exec_method_test
          Index: exec_method_idx
-         Segment Count: 1
          Exec Method: MixedFastFieldExecState
          Fast Fields: text_field1, text_field2, bool_field, num_field1
          String Fast Fields: text_field1, text_field2
          Numeric Fast Fields: bool_field, num_field1
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"text_field2","query_string":"Sample","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"num_field1","lower_bound":{"included":10},"upper_bound":null,"is_datetime":false}},{"range":{"field":"num_field1","lower_bound":null,"upper_bound":{"included":40},"is_datetime":false}},{"term":{"field":"bool_field","value":true,"is_datetime":false}}]}}
-(12 rows)
+(11 rows)
 
 SELECT text_field1, text_field2, num_field1, bool_field
 FROM exec_method_test
@@ -908,14 +900,13 @@ ORDER BY t.text_field1, t.num_field1;
    ->  Custom Scan (ParadeDB Scan) on exec_method_test
          Table: exec_method_test
          Index: exec_method_idx
-         Segment Count: 1
          Exec Method: MixedFastFieldExecState
          Fast Fields: text_field1, num_field1
          String Fast Fields: text_field1
          Numeric Fast Fields: num_field1
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"num_field1","lower_bound":{"excluded":10},"upper_bound":null,"is_datetime":false}},{"range":{"field":"num_field1","lower_bound":null,"upper_bound":{"excluded":30},"is_datetime":false}}]}}
-(12 rows)
+(11 rows)
 
 SELECT t.text_field1, t.num_field1
 FROM (

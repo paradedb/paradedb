@@ -355,7 +355,6 @@ LIMIT 10;
          ->  Custom Scan (ParadeDB Scan) on score_test
                Table: score_test
                Index: score_test_idx
-               Segment Count: 1
                Exec Method: MixedFastFieldExecState
                Fast Fields: title, id, rating
                String Fast Fields: title
@@ -363,7 +362,7 @@ LIMIT 10;
                Scores: true
                   Top N Limit: 10
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-(14 rows)
+(13 rows)
 
 SELECT title, paradedb.score(id), rating
 FROM score_test
@@ -399,7 +398,6 @@ LIMIT 5;
          ->  Custom Scan (ParadeDB Scan) on score_test
                Table: score_test
                Index: score_test_idx
-               Segment Count: 1
                Exec Method: MixedFastFieldExecState
                Fast Fields: author, title, id, rating, views
                String Fast Fields: author, title
@@ -407,7 +405,7 @@ LIMIT 5;
                Scores: true
                   Top N Limit: 5
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"research","lenient":null,"conjunction_mode":null}}}}
-(14 rows)
+(13 rows)
 
 SELECT title, author, rating, views, paradedb.score(id)
 FROM score_test
@@ -436,14 +434,13 @@ ORDER BY title, author, paradedb.score(id) DESC;
    ->  Custom Scan (ParadeDB Scan) on score_test
          Table: score_test
          Index: score_test_idx
-         Segment Count: 1
          Exec Method: MixedFastFieldExecState
          Fast Fields: author, title, id
          String Fast Fields: author, title
          Numeric Fast Fields: id
          Scores: true
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":null,"is_datetime":false}},{"term":{"field":"is_featured","value":true,"is_datetime":false}}]}}
-(12 rows)
+(11 rows)
 
 SELECT title, author, paradedb.score(id)
 FROM score_test
@@ -481,7 +478,6 @@ LIMIT 10;
          ->  Custom Scan (ParadeDB Scan) on score_test
                Table: score_test
                Index: score_test_idx
-               Segment Count: 1
                Exec Method: MixedFastFieldExecState
                Fast Fields: author, title, id, rating
                String Fast Fields: author, title
@@ -489,7 +485,7 @@ LIMIT 10;
                Scores: true
                   Top N Limit: 10
                Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"science OR research","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":3},"upper_bound":null,"is_datetime":false}}]}}
-(14 rows)
+(13 rows)
 
 WITH scored_posts AS (
     SELECT title, author, rating, paradedb.score(id) as relevance
@@ -532,14 +528,13 @@ ORDER BY sp.title, sp.author, sp.relevance DESC;
    ->  Custom Scan (ParadeDB Scan) on score_test
          Table: score_test
          Index: score_test_idx
-         Segment Count: 1
          Exec Method: MixedFastFieldExecState
          Fast Fields: author, title, id
          String Fast Fields: author, title
          Numeric Fast Fields: id
          Scores: true
          Tantivy Query: {"score_filter":{"bounds":[[{"Excluded":0.5},"Unbounded"]],"query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":3},"upper_bound":null,"is_datetime":false}}]}}}}
-(12 rows)
+(11 rows)
 
 SELECT sp.title, sp.author, sp.relevance
 FROM (
@@ -615,7 +610,6 @@ LIMIT 10;
                ->  Custom Scan (ParadeDB Scan) on score_test
                      Table: score_test
                      Index: score_test_idx
-                     Segment Count: 1
                      Exec Method: NormalScanExecState
                      Fast Fields: author, title, id
                      String Fast Fields: author, title
@@ -625,14 +619,13 @@ LIMIT 10;
                ->  Custom Scan (ParadeDB Scan) on score_test score_test_1
                      Table: score_test
                      Index: score_test_idx
-                     Segment Count: 1
                      Exec Method: NormalScanExecState
                      Fast Fields: author, title, id
                      String Fast Fields: author, title
                      Numeric Fast Fields: id
                      Scores: true
                      Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"science","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"technology","lenient":null,"conjunction_mode":null}}}}]}}]}}
-(24 rows)
+(22 rows)
 
 SELECT title, author, paradedb.score(id) as relevance
 FROM score_test
@@ -688,7 +681,6 @@ ORDER BY a.title, a.author, a.rating, a.score, b.title;
                            ->  Custom Scan (ParadeDB Scan) on score_test score_test_2
                                  Table: score_test
                                  Index: score_test_idx
-                                 Segment Count: 1
                                  Exec Method: TopNScanExecState
                                  Scores: true
                                     Sort Field: paradedb.score()
@@ -699,7 +691,6 @@ ORDER BY a.title, a.author, a.rating, a.score, b.title;
                ->  Custom Scan (ParadeDB Scan) on score_test score_test_1
                      Table: score_test
                      Index: score_test_idx
-                     Segment Count: 1
                      Exec Method: StringFastFieldExecState
                      Fast Fields: author
                      String Agg Field: author
@@ -707,7 +698,7 @@ ORDER BY a.title, a.author, a.rating, a.score, b.title;
                         Sort Field: title
                         Sort Direction: asc
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-(32 rows)
+(30 rows)
 
 SELECT a.title, a.author, a.rating, a.score, b.title as related_title
 FROM (
@@ -811,7 +802,6 @@ LIMIT 10;
          ->  Custom Scan (ParadeDB Scan) on score_test
                Table: score_test
                Index: score_test_idx
-               Segment Count: 1
                Exec Method: MixedFastFieldExecState
                Fast Fields: author, title, id, rating
                String Fast Fields: author, title
@@ -819,7 +809,7 @@ LIMIT 10;
                Scores: true
                   Top N Limit: 10
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"research OR development","lenient":null,"conjunction_mode":null}}}}
-(14 rows)
+(13 rows)
 
 SELECT 
     title, 

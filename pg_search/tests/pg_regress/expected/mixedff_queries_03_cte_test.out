@@ -139,7 +139,7 @@ ORDER BY document_title, file_title, page_number;
      ->  Custom Scan (ParadeDB Scan) on documents d
            Table: documents
            Index: documents_search
-           Exec Method: NormalScanExecState
+           Exec Method: MixedFastFieldExecState
            Fast Fields: id, parents, title
            String Fast Fields: id, parents, title
            Scores: false

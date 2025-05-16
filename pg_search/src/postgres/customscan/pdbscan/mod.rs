@@ -289,6 +289,7 @@ impl CustomScan for PdbScan {
                     rti,
                     &schema,
                     &table,
+                    false,
                 )
                 .into_iter()
                 .collect(),
@@ -360,7 +361,6 @@ impl CustomScan for PdbScan {
 
             builder.custom_private().set_heaprelid(table.oid());
             builder.custom_private().set_indexrelid(bm25_index.oid());
-            builder.custom_private().set_range_table_index(rti);
             builder.custom_private().set_query(query);
             builder.custom_private().set_limit(limit);
 
@@ -509,9 +509,9 @@ impl CustomScan for PdbScan {
 
             let private_data = builder.custom_private();
 
-            let rti: i32 = private_data
-                .range_table_index()
-                .expect("range table index should have been set")
+            let rel = builder.args().rel;
+            let rti: i32 = (*rel)
+                .relid
                 .try_into()
                 .expect("range table index should not be negative");
             let processed_tlist =
@@ -563,6 +563,21 @@ impl CustomScan for PdbScan {
         mut builder: CustomScanStateBuilder<Self, Self::PrivateData>,
     ) -> *mut CustomScanStateWrapper<Self> {
         unsafe {
+            let rti_list = (*builder.args().cscan).custom_relids;
+            let mut rti_list_iter = bms_iter(rti_list);
+
+            // Note: the range table index at execution time might be different from the one at planning time,
+            // so we need to use the one at execution time when creating the custom scan state.
+            let execution_rti = rti_list_iter.next().unwrap();
+            assert!(
+                rti_list_iter.next().is_none(),
+                "Expected 1 relid, got {}",
+                bms_iter(rti_list)
+                    .map(|id| id.to_string())
+                    .collect::<Vec<String>>()
+                    .join(", ")
+            );
+
             builder.custom_state().heaprelid = builder
                 .custom_private()
                 .heaprelid()
@@ -572,10 +587,7 @@ impl CustomScan for PdbScan {
                 .indexrelid()
                 .expect("indexrelid should have a value");
 
-            builder.custom_state().rti = builder
-                .custom_private()
-                .range_table_index()
-                .expect("range table index should have been set");
+            builder.custom_state().rti = execution_rti;
 
             builder.custom_state().exec_method_type =
                 builder.custom_private().exec_method_type().clone();
@@ -617,9 +629,9 @@ impl CustomScan for PdbScan {
             );
 
             let node = builder.target_list().as_ptr().cast();
-            let rti = builder.custom_state().rti;
+            let planning_rti = builder.custom_state().rti;
             builder.custom_state().snippet_generators = uses_snippets(
-                rti,
+                planning_rti,
                 &builder.custom_state().var_attname_lookup,
                 node,
                 snippet_funcoid,
@@ -1168,19 +1180,24 @@ fn compute_exec_which_fast_fields(
             builder.custom_state().rti,
             &schema,
             &heaprel,
+            true,
         )
     };
 
-    // TODO: We would like this check to be stronger, in order to rule out certain types of
-    // confusion where some target list entries involve multiple fast fields. See #2576.
-    if exec_which_fast_fields.len() != builder.target_list().len() {
-        pgrx::log!(
-            "Expected to extract {} fast fields, but only found: {exec_which_fast_fields:?}. \
-             Falling back to Normal execution.",
-            builder.target_list().len()
-        );
-        return None;
-    }
+    // It's guaranteed that the number of fast fields extracted at execution time is the same as
+    // the number of target list entries, as we extract fast fields from the target list.
+    // Note: based on the PG docs:
+    // >  (If CUSTOMPATH_SUPPORT_PROJECTION is not set, the scan node will only be asked to produce
+    // >  Vars of the scanned relation; while if that flag is set, the scan node must be able to
+    // >  evaluate scalar expressions over these Vars.)
+    // Then, we if we extracted the same number of fast fields at execution time for all Vars in the
+    // target list, we can be sure that we didn't miss any fast fields.
+    debug_assert!(
+        exec_which_fast_fields.len() == builder.target_list().len(),
+        "Expected to extract {} fast fields, but only found: {exec_which_fast_fields:?}. \
+         Falling back to Normal execution.",
+        builder.target_list().len()
+    );
 
     let missing_fast_fields = exec_which_fast_fields
         .iter()
@@ -1346,14 +1363,14 @@ pub fn is_block_all_visible(
 }
 
 // Helper function to create an iterator over Bitmapset members
-unsafe fn bms_iter(bms: *mut pg_sys::Bitmapset) -> impl Iterator<Item = i32> {
+unsafe fn bms_iter(bms: *mut pg_sys::Bitmapset) -> impl Iterator<Item = pg_sys::Index> {
     let mut set_bit: i32 = -1;
     std::iter::from_fn(move || {
         set_bit = pg_sys::bms_next_member(bms, set_bit);
         if set_bit < 0 {
             None
         } else {
-            Some(set_bit)
+            Some(set_bit as pg_sys::Index)
         }
     })
 }
@@ -1380,12 +1397,12 @@ unsafe fn is_partitioned_table_setup(
     // For each relation in baserels
     for baserel_idx in bms_iter(baserels) {
         // Skip invalid indices
-        if baserel_idx <= 0 || baserel_idx as usize >= (*root).simple_rel_array_size as usize {
+        if baserel_idx == 0 || baserel_idx >= (*root).simple_rel_array_size as pg_sys::Index {
             continue;
         }
 
         // Get the RTE to check if this is a partitioned table
-        let rte = pg_sys::rt_fetch(baserel_idx as pg_sys::Index, rtable);
+        let rte = pg_sys::rt_fetch(baserel_idx, rtable);
         if (*rte).relkind as u8 != pg_sys::RELKIND_PARTITIONED_TABLE {
             continue;
         }

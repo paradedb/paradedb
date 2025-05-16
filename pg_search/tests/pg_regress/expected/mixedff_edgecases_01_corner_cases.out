@@ -184,10 +184,12 @@ ORDER BY id;
    ->  Custom Scan (ParadeDB Scan) on corner_case_test
          Table: corner_case_test
          Index: corner_case_search
-         Exec Method: NormalScanExecState
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, very_long_string
+         String Fast Fields: id, very_long_string
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-(8 rows)
+(10 rows)
 
 SELECT id, length(very_long_string) as long_string_length
 FROM corner_case_test

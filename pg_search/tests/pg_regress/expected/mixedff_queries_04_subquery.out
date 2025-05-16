@@ -121,7 +121,9 @@ ORDER BY invoice_file_count DESC, d.id;
    ->  Custom Scan (ParadeDB Scan) on documents d
          Table: documents
          Index: documents_search
-         Exec Method: NormalScanExecState
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, parents, title
+         String Fast Fields: id, parents, title
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Factures","lenient":null,"conjunction_mode":null}}}}
          SubPlan 1
@@ -132,7 +134,7 @@ ORDER BY invoice_file_count DESC, d.id;
                        Exec Method: NormalScanExecState
                        Scores: false
                        Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Invoice","lenient":null,"conjunction_mode":null}}}},{}]}}
-(16 rows)
+(18 rows)
 
 -- Test with subquery
 SELECT d.id, d.title, d.parents,
@@ -146,9 +148,49 @@ WHERE d.parents @@@ 'Factures'
 ORDER BY invoice_file_count DESC, d.id;
   id  |    title     | parents  | invoice_file_count 
 ------+--------------+----------+--------------------
+ doc1 | Invoice 2023 | Factures |                  0
+ doc2 | Receipt 2023 | Factures |                  0
+(2 rows)
+
+SELECT d.id, d.title, d.parents,
+    (
+        SELECT COUNT(*)
+        FROM files f
+        WHERE f.documentId = d.id AND (f.title = 'Invoice Receipt' OR f.title = 'Invoice PDF')
+    ) AS invoice_file_count
+FROM documents d
+WHERE d.parents = 'Factures'
+ORDER BY invoice_file_count DESC, d.id;
+  id  |    title     | parents  | invoice_file_count 
+------+--------------+----------+--------------------
  doc1 | Invoice 2023 | Factures |                  2
  doc2 | Receipt 2023 | Factures |                  0
 (2 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT d.id, d.title, d.parents,
+    (
+        SELECT COUNT(*)
+        FROM files f
+        WHERE f.documentId = d.id AND (f.title = 'Invoice Receipt' OR f.title = 'Invoice PDF')
+    ) AS invoice_file_count
+FROM documents d
+WHERE d.parents = 'Factures'
+ORDER BY invoice_file_count DESC, d.id;
+                                             QUERY PLAN                                             
+----------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: ((SubPlan 1)) DESC, d.id
+   ->  Seq Scan on documents d
+         Filter: (parents = 'Factures'::text)
+         SubPlan 1
+           ->  Aggregate
+                 ->  Bitmap Heap Scan on files f
+                       Recheck Cond: (documentid = d.id)
+                       Filter: ((title = 'Invoice Receipt'::text) OR (title = 'Invoice PDF'::text))
+                       ->  Bitmap Index Scan on files_pkey
+                             Index Cond: (documentid = d.id)
+(11 rows)
 
 \i common/mixedff_queries_cleanup.sql
 -- Cleanup for relational query tests (07-10)

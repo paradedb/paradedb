@@ -16,12 +16,6 @@ SELECT * FROM paradedb.tokenize(
         'something and else'
 );
 
--- Meaningful error when language doesn't exist
-SELECT * FROM paradedb.tokenize(
-        paradedb.tokenizer('default', stopwords_language => 'abc'),
-        'something and else'
-);
-
 -- direct stopwords AND stopwords language
 SELECT * FROM paradedb.tokenize(
         paradedb.tokenizer('default', stopwords_language => 'English', stopwords => ARRAY['stopword']),

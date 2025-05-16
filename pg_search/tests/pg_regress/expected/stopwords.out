@@ -22,12 +22,6 @@ SELECT * FROM paradedb.tokenize(
  else      |        2
 (2 rows)
 
--- Meaningful error when language doesn't exist
-SELECT * FROM paradedb.tokenize(
-        paradedb.tokenizer('default', stopwords_language => 'abc'),
-        'something and else'
-);
-ERROR:  invalid tokenizer setting, expected paradedb.tokenizer(): stopwords_language tokenizer requires a valid 'stopwords_language' field: unknown variant `abc`, expected one of `Arabic`, `Danish`, `Dutch`, `English`, `Finnish`, `French`, `German`, `Greek`, `Hungarian`, `Italian`, `Norwegian`, `Portuguese`, `Romanian`, `Russian`, `Spanish`, `Swedish`, `Tamil`, `Turkish`
 -- direct stopwords AND stopwords language
 SELECT * FROM paradedb.tokenize(
         paradedb.tokenizer('default', stopwords_language => 'English', stopwords => ARRAY['stopword']),

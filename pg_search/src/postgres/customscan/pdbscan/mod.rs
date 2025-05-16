@@ -568,6 +568,7 @@ impl CustomScan for PdbScan {
 
             // Note: the range table index at execution time might be different from the one at planning time,
             // so we need to use the one at execution time when creating the custom scan state.
+            // See https://www.postgresql.org/docs/current/custom-scan-plan.html
             let execution_rti = rti_list_iter.next().unwrap();
             assert!(
                 rti_list_iter.next().is_none(),

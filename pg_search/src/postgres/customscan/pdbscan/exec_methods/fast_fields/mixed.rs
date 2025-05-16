@@ -22,6 +22,7 @@
 //! overcoming the limitation where previously ParadeDB could only support
 //! either multiple numeric fast fields OR a single string fast field.
 
+use crate::api::HashMap;
 use crate::index::fast_fields_helper::{FastFieldType, WhichFastField};
 use crate::index::reader::index::{SearchIndexReader, SearchIndexScore, SearchResults};
 use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::{
@@ -38,7 +39,7 @@ use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::pg_sys;
 use pgrx::PgOid;
 use rayon::prelude::*;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use tantivy::collector::Collector;
 use tantivy::index::SegmentId;
 use tantivy::query::Query;
@@ -439,8 +440,8 @@ impl FieldValues {
     /// Creates a new empty FieldValues container.
     fn new() -> Self {
         Self {
-            string_values: HashMap::new(),
-            numeric_values: HashMap::new(),
+            string_values: HashMap::default(),
+            numeric_values: HashMap::default(),
         }
     }
 
@@ -698,7 +699,7 @@ impl MixedAggSearcher<'_> {
         let processed_docs = merged.into_inner();
 
         // Group results by field value patterns for more efficient processing
-        let mut field_groups: FieldGroups = HashMap::new();
+        let mut field_groups: FieldGroups = HashMap::default();
 
         // Group documents with the same field values
         for (doc_addr, (field_values, score)) in processed_docs {
@@ -820,7 +821,7 @@ impl MixedAggSearcher<'_> {
         let (sender, receiver) = crossbeam::channel::unbounded();
 
         // Track documents and their field values
-        let mut doc_fields = HashMap::new();
+        let mut doc_fields = HashMap::default();
 
         // Process string fields from this segment
         let string_columns = &segment_result.0;
@@ -925,8 +926,9 @@ impl MixedAggSearcher<'_> {
 /// This implementation extends Tantivy's collector framework to efficiently gather
 /// multiple field types simultaneously during a single index traversal.
 mod multi_field_collector {
+    use crate::api::HashMap;
     use crate::index::reader::index::SearchIndexScore;
-    use std::collections::{BTreeMap, HashMap};
+    use std::collections::BTreeMap;
     use tantivy::collector::{Collector, SegmentCollector};
     use tantivy::columnar::StrColumn;
     use tantivy::schema::document::OwnedValue;
@@ -1009,7 +1011,7 @@ mod multi_field_collector {
 
                 if let Some(field_type) = ff_type {
                     numeric_columns.push((field_name.clone(), field_type));
-                    numeric_values.push(HashMap::new());
+                    numeric_values.push(HashMap::default());
                 }
             }
 

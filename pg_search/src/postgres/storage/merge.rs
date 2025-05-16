@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::HashSet;
 use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::postgres::storage::block::{
     bm25_max_free_space, BM25PageSpecialData, LinkedList, MVCCEntry, PgItem, MERGE_LOCK,
@@ -23,7 +24,6 @@ use crate::postgres::storage::buffer::{BufferManager, BufferMut, PinnedBuffer};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use pgrx::{pg_sys, StringInfo};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 use std::slice::from_raw_parts;
 use tantivy::index::SegmentId;
 
@@ -467,7 +467,7 @@ impl VacuumList {
     }
 
     pub fn read_list(&self) -> HashSet<SegmentId> {
-        let mut segment_ids = HashSet::new();
+        let mut segment_ids = HashSet::default();
 
         let bman = BufferManager::new(self.relation_oid);
         let mut buffer = bman.get_buffer(self.start_block_number);

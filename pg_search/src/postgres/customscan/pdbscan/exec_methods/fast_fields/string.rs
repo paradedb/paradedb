@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::HashMap;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::reader::index::{SearchIndexReader, SearchIndexScore, SearchResults};
 use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::FastFieldExecState;
@@ -28,7 +29,6 @@ use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::pg_sys;
 use pgrx::pg_sys::CustomScanState;
 use rayon::prelude::*;
-use rustc_hash::FxHashMap;
 use std::collections::BTreeMap;
 use tantivy::collector::Collector;
 use tantivy::index::SegmentId;
@@ -236,7 +236,7 @@ impl StringAggSearcher<'_> {
                 let keys = segment_results.keys().cloned().collect::<Vec<_>>();
                 let segment_values: Vec<_> = segment_results.into_iter().collect();
                 let mut values_iter = segment_values.into_iter();
-                let mut resolved = FxHashMap::default();
+                let mut resolved = HashMap::default();
                 str_ff
                     .dictionary()
                     .sorted_ords_to_term_cb(keys.into_iter(), |bytes| {

@@ -300,7 +300,7 @@ impl SearchIndexCreateOptions {
                 (
                     field_name.clone().into(),
                     parser(field_config)
-                        .expect("field config should be valid for SearchFieldConfig::{field_name}"),
+                        .unwrap_or_else(|err| panic!("field config should be valid for SearchFieldConfig::{field_name}: {err:?}")),
                     None,
                 )
             })

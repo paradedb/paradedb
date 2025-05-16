@@ -139,7 +139,6 @@ ORDER BY document_title, file_title, page_number;
      ->  Custom Scan (ParadeDB Scan) on documents d
            Table: documents
            Index: documents_search
-           Segment Count: 2
            Exec Method: NormalScanExecState
            Fast Fields: id, parents, title
            String Fast Fields: id, parents, title
@@ -151,7 +150,6 @@ ORDER BY document_title, file_title, page_number;
            ->  Custom Scan (ParadeDB Scan) on files f
                  Table: files
                  Index: files_search
-                 Segment Count: 2
                  Exec Method: NormalScanExecState
                  Scores: false
                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"CTE Test","lenient":null,"conjunction_mode":null}}}}
@@ -168,14 +166,13 @@ ORDER BY document_title, file_title, page_number;
          ->  Custom Scan (ParadeDB Scan) on pages p
                Table: pages
                Index: pages_search
-               Segment Count: 2
                Exec Method: MixedFastFieldExecState
                Fast Fields: fileid, page_number
                String Fast Fields: fileid
                Numeric Fast Fields: page_number
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable OR testing","lenient":null,"conjunction_mode":null}}}}
-(42 rows)
+(39 rows)
 
 -- Test with CTE
 WITH searchable_docs AS (

@@ -37,6 +37,10 @@ impl Explainer {
         unsafe { (*self.state.as_ptr()).analyze }
     }
 
+    pub fn is_costs(&self) -> bool {
+        unsafe { (*self.state.as_ptr()).costs }
+    }
+
     pub fn add_text<S: AsRef<str>>(&mut self, key: &str, value: S) {
         unsafe {
             pg_sys::ExplainPropertyText(

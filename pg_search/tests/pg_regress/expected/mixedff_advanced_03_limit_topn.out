@@ -350,14 +350,13 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Scan) on limit_topn_test
          Table: limit_topn_test
          Index: limit_topn_idx
-         Segment Count: 1
          Exec Method: TopNScanExecState
          Scores: false
             Sort Field: rating
             Sort Direction: desc
             Top N Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Product","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(10 rows)
 
 -- Test LIMIT with mixed text and numeric fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -372,14 +371,13 @@ LIMIT 5;
    ->  Custom Scan (ParadeDB Scan) on limit_topn_test
          Table: limit_topn_test
          Index: limit_topn_idx
-         Segment Count: 1
          Exec Method: TopNScanExecState
          Scores: false
             Sort Field: price
             Sort Direction: asc
             Top N Limit: 5
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(10 rows)
 
 SELECT title, category, rating, price
 FROM limit_topn_test
@@ -408,14 +406,13 @@ LIMIT 15;
    ->  Custom Scan (ParadeDB Scan) on limit_topn_test
          Table: limit_topn_test
          Index: limit_topn_idx
-         Segment Count: 1
          Exec Method: TopNScanExecState
          Scores: false
             Sort Field: title
             Sort Direction: asc
             Top N Limit: 15
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Books OR Electronics","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(10 rows)
 
 SELECT title, category
 FROM limit_topn_test
@@ -513,14 +510,13 @@ LIMIT 8;
    ->  Custom Scan (ParadeDB Scan) on limit_topn_test
          Table: limit_topn_test
          Index: limit_topn_idx
-         Segment Count: 1
          Exec Method: TopNScanExecState
          Scores: false
             Sort Field: price
             Sort Direction: desc
             Top N Limit: 8
          Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"included":2.5},"upper_bound":null,"is_datetime":false}},{"range":{"field":"rating","lower_bound":null,"upper_bound":{"included":4.5},"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Toys OR Clothing","lenient":null,"conjunction_mode":null}}}}]}}
-(11 rows)
+(10 rows)
 
 SELECT title, category, rating, price
 FROM limit_topn_test

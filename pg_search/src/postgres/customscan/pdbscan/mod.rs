@@ -563,22 +563,6 @@ impl CustomScan for PdbScan {
         mut builder: CustomScanStateBuilder<Self, Self::PrivateData>,
     ) -> *mut CustomScanStateWrapper<Self> {
         unsafe {
-            let rti_list = (*builder.args().cscan).custom_relids;
-            let mut rti_list_iter = bms_iter(rti_list);
-
-            // Note: the range table index at execution time might be different from the one at planning time,
-            // so we need to use the one at execution time when creating the custom scan state.
-            // See https://www.postgresql.org/docs/current/custom-scan-plan.html
-            let execution_rti = rti_list_iter.next().unwrap();
-            assert!(
-                rti_list_iter.next().is_none(),
-                "Expected 1 relid, got {}",
-                bms_iter(rti_list)
-                    .map(|id| id.to_string())
-                    .collect::<Vec<String>>()
-                    .join(", ")
-            );
-
             builder.custom_state().heaprelid = builder
                 .custom_private()
                 .heaprelid()
@@ -588,7 +572,8 @@ impl CustomScan for PdbScan {
                 .indexrelid()
                 .expect("indexrelid should have a value");
 
-            builder.custom_state().rti = execution_rti;
+            builder.custom_state().execution_rti =
+                (*builder.args().cscan).scan.scanrelid as pg_sys::Index;
 
             builder.custom_state().exec_method_type =
                 builder.custom_private().exec_method_type().clone();
@@ -626,18 +611,17 @@ impl CustomScan for PdbScan {
             builder.custom_state().need_scores = uses_scores(
                 builder.target_list().as_ptr().cast(),
                 score_funcoid,
-                (*builder.args().cscan).scan.scanrelid as pg_sys::Index,
+                builder.custom_state().execution_rti,
             );
 
             let node = builder.target_list().as_ptr().cast();
-            let planning_rti = builder
+            builder.custom_state().planning_rti = builder
                 .custom_private()
                 .range_table_index()
                 .expect("range table index should have been set");
-            pgrx::log!("execution_rti: {}", execution_rti);
-            pgrx::log!("planning_rti: {}", planning_rti);
             builder.custom_state().snippet_generators = uses_snippets(
-                planning_rti,
+                builder.custom_state().planning_rti,
+                builder.custom_state().execution_rti,
                 &builder.custom_state().var_attname_lookup,
                 node,
                 snippet_funcoid,
@@ -754,7 +738,7 @@ impl CustomScan for PdbScan {
     ) {
         unsafe {
             // open the heap and index relations with the proper locks
-            let rte = pg_sys::exec_rt_fetch(state.custom_state().rti, estate);
+            let rte = pg_sys::exec_rt_fetch(state.custom_state().execution_rti, estate);
             assert!(!rte.is_null());
             let lockmode = (*rte).rellockmode as pg_sys::LOCKMODE;
 
@@ -1183,7 +1167,7 @@ fn compute_exec_which_fast_fields(
             // in our execution-time target list, so there is no need to extract from other
             // positions.
             &HashSet::default(),
-            builder.custom_state().rti,
+            builder.custom_state().execution_rti,
             &schema,
             &heaprel,
             true,
@@ -1249,7 +1233,7 @@ unsafe fn inject_score_and_snippet_placeholders(state: &mut CustomScanStateWrapp
 
     let (targetlist, const_score_node, const_snippet_nodes) = inject_placeholders(
         (*(*planstate).plan).targetlist,
-        state.custom_state().rti,
+        state.custom_state().planning_rti,
         state.custom_state().score_funcoid,
         state.custom_state().snippet_funcoid,
         state.custom_state().snippet_positions_funcoid,

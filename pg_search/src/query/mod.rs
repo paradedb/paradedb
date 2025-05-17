@@ -20,6 +20,7 @@ mod more_like_this;
 mod range;
 mod score;
 
+use crate::api::HashMap;
 use crate::postgres::utils::convert_pg_date_string;
 use crate::query::more_like_this::MoreLikeThisQuery;
 use crate::query::range::{Comparison, RangeField};
@@ -32,7 +33,7 @@ use range::{deserialize_bound, serialize_bound};
 use serde::de::Visitor;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt::{Debug, Formatter};
-use std::{collections::HashMap, ops::Bound};
+use std::ops::Bound;
 use tantivy::DateTime;
 use tantivy::{
     json_utils::split_json_path,
@@ -727,7 +728,7 @@ impl SearchQueryInput {
     ) -> Result<Box<dyn Query>, Box<dyn std::error::Error>> {
         match self {
             Self::Uninitialized => panic!("this `SearchQueryInput` instance is uninitialized"),
-            Self::All => Ok(Box::new(AllQuery)),
+            Self::All => Ok(Box::new(ConstScoreQuery::new(Box::new(AllQuery), 0.0))),
             Self::Boolean {
                 must,
                 should,
@@ -961,7 +962,7 @@ impl SearchQueryInput {
                         Ok(Box::new(builder.with_document(key_value, index_oid)))
                     }
                     (None, Some(doc_fields)) => {
-                        let mut fields_map = HashMap::new();
+                        let mut fields_map = HashMap::default();
                         for (field_name, value) in doc_fields {
                             let value = field_lookup
                                 .coerce_value_to_field_type(&field_name, value)

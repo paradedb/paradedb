@@ -22,6 +22,7 @@
 //! overcoming the limitation where previously ParadeDB could only support
 //! either multiple numeric fast fields OR a single string fast field.
 
+use crate::api::HashMap;
 use crate::index::fast_fields_helper::{FastFieldType, WhichFastField};
 use crate::index::reader::index::{SearchIndexReader, SearchIndexScore, SearchResults};
 use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::{
@@ -38,7 +39,7 @@ use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::pg_sys;
 use pgrx::PgOid;
 use rayon::prelude::*;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use tantivy::collector::Collector;
 use tantivy::index::SegmentId;
 use tantivy::query::Query;
@@ -59,6 +60,13 @@ use tantivy::{DocAddress, Executor, SegmentOrdinal};
 /// This execution method is selected when a query uses multiple fast fields with at least one
 /// string fast field. It processes both string and numeric fields directly from the index's
 /// fast field data structures, avoiding the need to fetch full documents.
+///
+/// # Feature Flag
+/// This execution method is controlled by the `paradedb.enable_mixed_fast_field_exec` GUC setting.
+/// It is disabled by default and can be enabled with:
+/// ```sql
+/// SET paradedb.enable_mixed_fast_field_exec = true;
+/// ```
 pub struct MixedFastFieldExecState {
     /// Core functionality shared with other fast field execution methods
     inner: FastFieldExecState,
@@ -195,7 +203,7 @@ impl ExecMethod for MixedFastFieldExecState {
     /// # Returns
     ///
     /// The next execution state containing the result or EOF
-    fn internal_next(&mut self, _state: &mut PdbScanState) -> ExecState {
+    fn internal_next(&mut self, state: &mut PdbScanState) -> ExecState {
         // Check if we have any results left
         if matches!(self.mixed_results, MixedAggResults::None) {
             return ExecState::Eof;
@@ -249,6 +257,7 @@ impl ExecMethod for MixedFastFieldExecState {
                         let fast_fields = &mut self.inner.ffhelper;
                         let which_fast_fields = &self.inner.which_fast_fields;
                         let tupdesc = self.inner.tupdesc.as_ref().unwrap();
+                        debug_assert!(natts == which_fast_fields.len());
 
                         // Take the string buffer from inner
                         let mut string_buf = self.inner.strbuf.take().unwrap_or_default();
@@ -431,8 +440,8 @@ impl FieldValues {
     /// Creates a new empty FieldValues container.
     fn new() -> Self {
         Self {
-            string_values: HashMap::new(),
-            numeric_values: HashMap::new(),
+            string_values: HashMap::default(),
+            numeric_values: HashMap::default(),
         }
     }
 
@@ -690,7 +699,7 @@ impl MixedAggSearcher<'_> {
         let processed_docs = merged.into_inner();
 
         // Group results by field value patterns for more efficient processing
-        let mut field_groups: FieldGroups = HashMap::new();
+        let mut field_groups: FieldGroups = HashMap::default();
 
         // Group documents with the same field values
         for (doc_addr, (field_values, score)) in processed_docs {
@@ -812,7 +821,7 @@ impl MixedAggSearcher<'_> {
         let (sender, receiver) = crossbeam::channel::unbounded();
 
         // Track documents and their field values
-        let mut doc_fields = HashMap::new();
+        let mut doc_fields = HashMap::default();
 
         // Process string fields from this segment
         let string_columns = &segment_result.0;
@@ -917,8 +926,9 @@ impl MixedAggSearcher<'_> {
 /// This implementation extends Tantivy's collector framework to efficiently gather
 /// multiple field types simultaneously during a single index traversal.
 mod multi_field_collector {
+    use crate::api::HashMap;
     use crate::index::reader::index::SearchIndexScore;
-    use std::collections::{BTreeMap, HashMap};
+    use std::collections::BTreeMap;
     use tantivy::collector::{Collector, SegmentCollector};
     use tantivy::columnar::StrColumn;
     use tantivy::schema::document::OwnedValue;
@@ -1001,7 +1011,7 @@ mod multi_field_collector {
 
                 if let Some(field_type) = ff_type {
                     numeric_columns.push((field_name.clone(), field_type));
-                    numeric_values.push(HashMap::new());
+                    numeric_values.push(HashMap::default());
                 }
             }
 

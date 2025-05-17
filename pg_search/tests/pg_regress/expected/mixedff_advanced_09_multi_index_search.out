@@ -5,6 +5,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
 -- Drop any existing test tables from this group
 DROP TABLE IF EXISTS documents CASCADE;
 DROP TABLE IF EXISTS files CASCADE; 
@@ -36,7 +37,7 @@ CREATE INDEX mixed_test_search ON mixed_numeric_string_test USING bm25 (
     text_fields = '{"string_field1": {"tokenizer": {"type": "default"}, "fast": true}, "string_field2": {"tokenizer": {"type": "default"}, "fast": true}, "string_field3": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
     numeric_fields = '{"numeric_field1": {"fast": true}, "numeric_field2": {"fast": true}}'
 );
-psql:common/mixedff_advanced_setup.sql:39: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_advanced_setup.sql:40: WARNING:  the `raw` tokenizer is deprecated
 -- Insert test data
 INSERT INTO mixed_numeric_string_test (id, numeric_field1, numeric_field2, string_field1, string_field2, string_field3, content) VALUES
 ('mix1', 100, 10000, 'Apple', 'Red', 'Fruit', 'This is a red apple'),
@@ -107,7 +108,7 @@ CREATE INDEX documents_search ON documents USING bm25 (
     key_field = 'id',
     text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "parents": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
-psql:common/mixedff_advanced_setup.sql:115: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_advanced_setup.sql:116: WARNING:  the `raw` tokenizer is deprecated
 CREATE INDEX files_search ON files USING bm25 (
     id,
     documentId,
@@ -117,7 +118,7 @@ CREATE INDEX files_search ON files USING bm25 (
     key_field = 'id',
     text_fields = '{"documentid": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "file_path": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
-psql:common/mixedff_advanced_setup.sql:125: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_advanced_setup.sql:126: WARNING:  the `raw` tokenizer is deprecated
 CREATE INDEX pages_search ON pages USING bm25 (
     id,
     fileId,
@@ -128,7 +129,7 @@ CREATE INDEX pages_search ON pages USING bm25 (
     text_fields = '{"fileid": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
     numeric_fields = '{"page_number": {"fast": true}}'
 );
-psql:common/mixedff_advanced_setup.sql:136: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_advanced_setup.sql:137: WARNING:  the `raw` tokenizer is deprecated
 -- Insert sample data
 INSERT INTO documents (id, title, content, parents) VALUES
 ('doc1', 'Invoice 2023', 'This is an invoice for services rendered in 2023', 'Factures'),
@@ -232,7 +233,7 @@ CREATE INDEX conversion_search ON conversion_test USING bm25 (
     }',
     boolean_fields = '{"bool_from_int": {"fast": true}}'
 );
-psql:common/mixedff_advanced_setup.sql:250: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_advanced_setup.sql:251: WARNING:  the `raw` tokenizer is deprecated
 INSERT INTO conversion_test VALUES
 ('conv1', 32767, 2147483647, 9223372036854775807, 9999999.99, 3.402e38, 1.7976931348623157e308, true, '1988-04-29', 'conversion test'),
 ('conv2', -32768, -2147483648, -9223372036854775808, -9999999.99, -3.402e38, -1.7976931348623157e308, false, '1999-12-31', 'conversion test'),
@@ -447,14 +448,13 @@ LIMIT 10;
                      ->  Custom Scan (ParadeDB Scan) on products p
                            Table: products
                            Index: products_idx
-                           Segment Count: 1
                            Exec Method: MixedFastFieldExecState
-                           Fast Fields: name, price
+                           Fast Fields: name, id, price
                            String Fast Fields: name
-                           Numeric Fast Fields: price
+                           Numeric Fast Fields: id, price
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+(21 rows)
 
 SELECT p.name, p.price, c.name as category
 FROM products p
@@ -498,14 +498,13 @@ LIMIT 5;
                      ->  Custom Scan (ParadeDB Scan) on products p
                            Table: products
                            Index: products_idx
-                           Segment Count: 1
                            Exec Method: MixedFastFieldExecState
                            Fast Fields: name, id
                            String Fast Fields: name
                            Numeric Fast Fields: id
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"product","lenient":null,"conjunction_mode":null}}}}
-(18 rows)
+(17 rows)
 
 SELECT p.name, r.rating, r.content
 FROM products p
@@ -596,14 +595,13 @@ ORDER BY pr.avg_rating DESC, paradedb.score(tp.id), tp.price DESC;
                            ->  Custom Scan (ParadeDB Scan) on products p
                                  Table: products
                                  Index: products_idx
-                                 Segment Count: 1
                                  Exec Method: TopNScanExecState
                                  Scores: false
                                     Sort Field: price
                                     Sort Direction: desc
                                     Top N Limit: 50
                                  Tantivy Query: {"boolean":{"must":[{"range":{"field":"price","lower_bound":{"included":100.0},"upper_bound":null,"is_datetime":false}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":800.0},"is_datetime":false}},{"term":{"field":"is_available","value":true,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}}]}}
-(32 rows)
+(31 rows)
 
 WITH top_products AS (
     SELECT p.id, p.name, p.price, p.stock_count
@@ -660,15 +658,13 @@ ORDER BY type, item_name;
          ->  Custom Scan (ParadeDB Scan) on products
                Table: products
                Index: products_idx
-               Segment Count: 1
                Exec Method: NormalScanExecState
                Scores: false
                Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"10","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"feature","lenient":null,"conjunction_mode":null}}}}]}}
          ->  Custom Scan (ParadeDB Scan) on categories
                Table: categories
                Index: categories_idx
-               Segment Count: 1
-               Exec Method: MixedFastFieldExecState
+               Exec Method: NormalScanExecState
                Fast Fields: description, name
                String Fast Fields: description, name
                Scores: false
@@ -676,11 +672,10 @@ ORDER BY type, item_name;
          ->  Custom Scan (ParadeDB Scan) on reviews
                Table: reviews
                Index: reviews_idx
-               Segment Count: 1
                Exec Method: NormalScanExecState
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"great","lenient":null,"conjunction_mode":null}}}}
-(26 rows)
+(23 rows)
 
 SELECT 'Product' as type, name as item_name, description as content
 FROM products
@@ -769,8 +764,8 @@ ORDER BY p.price;
                      ->  Custom Scan (ParadeDB Scan) on categories c
                            Table: categories
                            Index: categories_idx
-                           Segment Count: 1
-                           Exec Method: NormalScanExecState
+                           Exec Method: NumericFastFieldExecState
+                           Fast Fields: id
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"electronics OR clothing","lenient":null,"conjunction_mode":null}}}}
 (19 rows)
@@ -835,11 +830,10 @@ ORDER BY
                ->  Custom Scan (ParadeDB Scan) on products p
                      Table: products
                      Index: products_idx
-                     Segment Count: 1
                      Exec Method: NormalScanExecState
                      Scores: true
                      Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_available","value":true,"is_datetime":false}},{"range":{"field":"price","lower_bound":{"included":200.0},"upper_bound":null,"is_datetime":false}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":600.0},"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}}]}}
-(15 rows)
+(14 rows)
 
 SELECT 
     p.name,
@@ -936,14 +930,13 @@ ORDER BY r.rating DESC, p.price DESC;
                            ->  Custom Scan (ParadeDB Scan) on products p
                                  Table: products
                                  Index: products_idx
-                                 Segment Count: 1
                                  Exec Method: MixedFastFieldExecState
-                                 Fast Fields: name, is_available, price
+                                 Fast Fields: name, id, price
                                  String Fast Fields: name
-                                 Numeric Fast Fields: is_available, price
+                                 Numeric Fast Fields: id, price
                                  Scores: false
                                  Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}},{"term":{"field":"is_available","value":true,"is_datetime":false}}]}}
-(27 rows)
+(26 rows)
 
 SELECT p.name, p.price, r.content, r.rating
 FROM products p
@@ -1002,6 +995,7 @@ DROP TABLE IF EXISTS union_test_b CASCADE;
 -- Reset parallel workers setting to default
 RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;
+RESET paradedb.enable_mixed_fast_field_exec;
 SELECT 'Advanced features tests cleanup complete' AS status; 
                   status                  
 ------------------------------------------

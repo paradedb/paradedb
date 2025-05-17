@@ -4,6 +4,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
 -- Drop any existing test tables from this group
 DROP TABLE IF EXISTS documents CASCADE;
 DROP TABLE IF EXISTS files CASCADE;
@@ -46,7 +47,7 @@ CREATE INDEX documents_search ON documents USING bm25 (
     key_field = 'id',
     text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "parents": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
-psql:common/mixedff_queries_setup.sql:52: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_queries_setup.sql:53: WARNING:  the `raw` tokenizer is deprecated
 CREATE INDEX files_search ON files USING bm25 (
     id,
     documentId,
@@ -56,7 +57,7 @@ CREATE INDEX files_search ON files USING bm25 (
     key_field = 'id',
     text_fields = '{"documentid": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "file_path": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
-psql:common/mixedff_queries_setup.sql:62: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_queries_setup.sql:63: WARNING:  the `raw` tokenizer is deprecated
 CREATE INDEX pages_search ON pages USING bm25 (
     id,
     fileId,
@@ -67,7 +68,7 @@ CREATE INDEX pages_search ON pages USING bm25 (
     text_fields = '{"fileid": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
     numeric_fields = '{"page_number": {"fast": true}}'
 );
-psql:common/mixedff_queries_setup.sql:73: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_queries_setup.sql:74: WARNING:  the `raw` tokenizer is deprecated
 -- Insert sample data for documents
 INSERT INTO documents (id, title, content, parents) VALUES
 ('doc1', 'Invoice 2023', 'This is an invoice for services rendered in 2023', 'Factures'),
@@ -115,14 +116,13 @@ ORDER BY fileid, page_number;
    ->  Custom Scan (ParadeDB Scan) on pages
          Table: pages
          Index: pages_search
-         Segment Count: 2
          Exec Method: MixedFastFieldExecState
          Fast Fields: fileid, page_number
          String Fast Fields: fileid
          Numeric Fast Fields: page_number
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
-(12 rows)
+(11 rows)
 
 -- Execute query and verify results are ordered
 SELECT fileId, page_number
@@ -144,6 +144,7 @@ DROP TABLE IF EXISTS documents CASCADE;
 -- Reset parallel workers setting to default
 RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;
+RESET paradedb.enable_mixed_fast_field_exec;
 SELECT 'Relational query tests cleanup complete' AS status; 
                  status                  
 -----------------------------------------

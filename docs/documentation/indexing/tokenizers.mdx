@@ -216,6 +216,23 @@ WITH (
 );
 ```
 
+### Jieba
+
+[Jieba](https://github.com/jiegec/tantivy-jieba) is a Chinese language tokenizer that uses a dictionary-based approach for word segmentation. It is generally superior for tokenization accuracy of Chinese text, but may run significantly slower than either `chinese_lindera` or `chinese_compatible`.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description)
+WITH (
+    key_field = 'id',
+    text_fields = '{
+        "description": {
+          "tokenizer": {"type": "jieba"}
+        }
+    }'
+);
+```
+
 ### ICU
 
 The ICU (International Components for Unicode) tokenizer breaks down text according to the Unicode standard. It can be used to tokenize most languages

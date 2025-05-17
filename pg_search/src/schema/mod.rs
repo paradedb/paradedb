@@ -19,13 +19,13 @@ mod anyenum;
 mod document;
 pub mod range;
 
+use crate::api::HashMap;
 use anyhow::{Context, Result};
 use derive_more::{AsRef, Display, From, Into};
 pub use document::*;
 use pgrx::{PgBuiltInOids, PgOid, PgRelation};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use tantivy::schema::{
     DateOptions, DateTimePrecision, Field, JsonObjectOptions, NumericOptions, Schema,
@@ -749,7 +749,7 @@ impl SearchIndexSchema {
     }
 
     fn build_lookup(search_fields: &[SearchField]) -> HashMap<SearchFieldName, usize> {
-        let mut lookup = HashMap::new();
+        let mut lookup = HashMap::default();
         search_fields
             .iter()
             .enumerate()
@@ -833,7 +833,7 @@ impl SearchIndexSchema {
     /// A lookup from a Postgres column name to search fields that have
     /// marked it as their source column with the 'column' key.
     pub fn alias_lookup(&self) -> HashMap<String, Vec<&SearchField>> {
-        let mut lookup = HashMap::new();
+        let mut lookup = HashMap::default();
         for field in &self.fields {
             if let Some(column) = field.config.column() {
                 lookup

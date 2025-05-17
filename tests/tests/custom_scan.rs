@@ -518,6 +518,9 @@ fn cte_issue_1951(mut conn: PgConnection) {
 }
 
 #[rstest]
+// TODO: See #2576: we fail to extract the execution-time fast fields here, and so we fall back to
+// `Normal` execution.
+#[should_panic]
 fn is_numeric_fast_field_capable(mut conn: PgConnection) {
     r#"
         CREATE TABLE test (
@@ -569,8 +572,23 @@ fn is_numeric_fast_field_capable(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    let (b, count) = "select assert(count(*), 8), count(*) from (select id from test where message @@@ 'beer' order by severity) x limit 8;".fetch_one::<(bool, i64)>(&mut conn);
+    let sql = "select assert(count(*), 8), count(*) from (select id from test where message @@@ 'beer' order by severity) x limit 8;";
+    let (b, count) = sql.fetch_one::<(bool, i64)>(&mut conn);
     assert_eq!((b, count), (true, 8));
+
+    // TODO: See the method doc.
+    let (plan,) =
+        format!("EXPLAIN (FORMAT JSON) {sql}").fetch_one::<(serde_json::Value,)>(&mut conn);
+    eprintln!(">>> {plan:#?}");
+    assert_eq!(
+        plan.pointer("/0/Plan/Plans/0/Plans/0/Plans/0")
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .get("Exec Method")
+            .unwrap(),
+        &Value::String("NumericFastFieldExecState".to_owned())
+    );
 }
 
 #[rstest]
@@ -1107,7 +1125,7 @@ fn join_with_string_fast_fields_issue_2505(mut conn: PgConnection) {
     "VACUUM a, b;  -- needed to get Visibility Map up-to-date".execute(&mut conn);
 
     // This query previously failed with:
-    // "ERROR: assertion failed: natts == self.inner.which_fast_fields.len()"
+    // "ERROR: assertion failed: natts == state.exec_tuple_which_fast_fields.len()"
     let result = r#"
     SELECT a.a_id_pk as my_a_id_pk, b.b_id_pk as my_b_id_pk
     FROM b

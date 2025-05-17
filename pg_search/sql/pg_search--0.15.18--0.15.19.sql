@@ -56,6 +56,8 @@ from (select relname,
       group by relname, low, high
       order by relname, low desc) x;
 
+GRANT SELECT ON paradedb.index_layer_info TO PUBLIC;
+
 DROP FUNCTION IF EXISTS merge_info(index regclass);
 CREATE OR REPLACE FUNCTION merge_info(index regclass)
     RETURNS TABLE
@@ -70,3 +72,21 @@ AS
 'merge_info_wrapper' LANGUAGE c STRICT;
 
 ALTER FUNCTION paradedb.jsonb_to_searchqueryinput IMMUTABLE STRICT PARALLEL SAFE;
+
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/postgres/customscan/pdbscan/projections/snippet.rs:55
+-- pg_search::postgres::customscan::pdbscan::projections::snippet::snippet_positions
+CREATE  FUNCTION "snippet_positions"(
+	"field" anyelement /* pgrx::datum::anyelement::AnyElement */
+) RETURNS INT[][] /* core::option::Option<alloc::vec::Vec<alloc::vec::Vec<i32>>> */
+STRICT STABLE PARALLEL SAFE
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'snippet_positions_from_relation_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/postgres/customscan/pdbscan/projections/snippet.rs:68
+-- requires:
+--   snippet_positions_from_relation
+--   placeholder_support
+ALTER FUNCTION snippet_positions SUPPORT placeholder_support;

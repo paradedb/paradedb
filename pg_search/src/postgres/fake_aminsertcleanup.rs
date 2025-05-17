@@ -19,15 +19,15 @@
 //! "finish", and "process utility" hooks.
 #![allow(static_mut_refs)]
 
+use crate::api::HashMap;
 use crate::postgres::insert::{paradedb_aminsertcleanup, InsertState};
 use pgrx::pg_sys::{uint64, QueryDesc, ScanDirection};
 use pgrx::{pg_guard, pg_sys};
-use rustc_hash::FxHashMap;
 use std::collections::hash_map::Entry;
 
 #[derive(Default)]
 struct ExecutorRunEntry {
-    active: FxHashMap<pg_sys::Oid, InsertState>,
+    active: HashMap<pg_sys::Oid, InsertState>,
 }
 
 static mut EXECUTOR_RUN_STACK: Vec<Option<ExecutorRunEntry>> = Vec::new();

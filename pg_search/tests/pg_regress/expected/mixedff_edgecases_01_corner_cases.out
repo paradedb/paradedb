@@ -148,13 +148,12 @@ ORDER BY id;
    ->  Custom Scan (ParadeDB Scan) on corner_case_test
          Table: corner_case_test
          Index: corner_case_search
-         Segment Count: 2
          Exec Method: MixedFastFieldExecState
          Fast Fields: empty_string, id
          String Fast Fields: empty_string, id
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(10 rows)
 
 -- Test handling of empty strings
 SELECT id, empty_string
@@ -185,11 +184,10 @@ ORDER BY id;
    ->  Custom Scan (ParadeDB Scan) on corner_case_test
          Table: corner_case_test
          Index: corner_case_search
-         Segment Count: 2
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-(9 rows)
+(8 rows)
 
 SELECT id, length(very_long_string) as long_string_length
 FROM corner_case_test
@@ -219,13 +217,12 @@ ORDER BY id;
    ->  Custom Scan (ParadeDB Scan) on corner_case_test
          Table: corner_case_test
          Index: corner_case_search
-         Segment Count: 2
          Exec Method: MixedFastFieldExecState
          Fast Fields: id, special_chars
          String Fast Fields: id, special_chars
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(10 rows)
 
 SELECT id, special_chars
 FROM corner_case_test
@@ -255,14 +252,13 @@ ORDER BY id;
    ->  Custom Scan (ParadeDB Scan) on corner_case_test
          Table: corner_case_test
          Index: corner_case_search
-         Segment Count: 2
          Exec Method: MixedFastFieldExecState
          Fast Fields: id, extreme_large, extreme_small
          String Fast Fields: id
          Numeric Fast Fields: extreme_large, extreme_small
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-(12 rows)
+(11 rows)
 
 -- Test handling of extreme numeric values
 SELECT id, extreme_large, extreme_small
@@ -293,14 +289,13 @@ ORDER BY id;
    ->  Custom Scan (ParadeDB Scan) on corner_case_test
          Table: corner_case_test
          Index: corner_case_search
-         Segment Count: 2
          Exec Method: MixedFastFieldExecState
          Fast Fields: id, bool_field
          String Fast Fields: id
          Numeric Fast Fields: bool_field
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-(12 rows)
+(11 rows)
 
 SELECT id, bool_field
 FROM corner_case_test

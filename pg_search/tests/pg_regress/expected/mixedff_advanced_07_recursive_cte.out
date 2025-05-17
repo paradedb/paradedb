@@ -529,7 +529,6 @@ ORDER BY level, name;
            ->  Custom Scan (ParadeDB Scan) on category
                  Table: category
                  Index: category_idx
-                 Segment Count: 1
                  Exec Method: NormalScanExecState
                  Scores: false
                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"books","lenient":null,"conjunction_mode":null}}}}
@@ -539,7 +538,7 @@ ORDER BY level, name;
                  ->  Hash
                        ->  Seq Scan on category c
    ->  CTE Scan on category_tree
-(17 rows)
+(16 rows)
 
 WITH RECURSIVE category_tree AS (
     -- Base case with search
@@ -601,12 +600,11 @@ ORDER BY level, name;
                        ->  Custom Scan (ParadeDB Scan) on category c
                              Table: category
                              Index: category_idx
-                             Segment Count: 1
                              Exec Method: NormalScanExecState
                              Scores: false
                              Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"computer","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"item_count","lower_bound":{"excluded":30},"upper_bound":null,"is_datetime":false}}]}}
    ->  CTE Scan on category_tree
-(18 rows)
+(17 rows)
 
 WITH RECURSIVE category_tree AS (
     -- Base case

@@ -374,7 +374,7 @@ checksum = "89e25b6adfb930f02d1981565a6e5d9c547ac15a96606256d3b59040e5cd4ca3"
 
 [[package]]
 name = "benchmarks"
-version = "0.15.19"
+version = "0.15.20"
 dependencies = [
  "clap",
 ]
@@ -3009,7 +3009,7 @@ dependencies = [
 
 [[package]]
 name = "pg_search"
-version = "0.15.19"
+version = "0.15.20"
 dependencies = [
  "anyhow",
  "bincode 2.0.1",
@@ -4812,7 +4812,7 @@ dependencies = [
 
 [[package]]
 name = "tests"
-version = "0.15.19"
+version = "0.15.20"
 dependencies = [
  "anyhow",
  "approx",
@@ -4834,6 +4834,7 @@ dependencies = [
  "rand 0.9.1",
  "rayon",
  "rstest",
+ "rustc-hash 2.1.1",
  "serde",
  "serde_json",
  "soa_derive",
@@ -4948,7 +4949,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokenizers"
-version = "0.15.19"
+version = "0.15.20"
 dependencies = [
  "anyhow",
  "lindera",

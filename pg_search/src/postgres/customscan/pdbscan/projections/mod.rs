@@ -19,6 +19,7 @@ pub mod score;
 pub mod snippet;
 
 use crate::api::operator::{find_vars, ReturnedNodePointer};
+use crate::api::HashMap;
 use crate::api::Varno;
 use crate::nodecast;
 use crate::postgres::customscan::pdbscan::projections::score::score_funcoid;
@@ -27,7 +28,6 @@ use crate::postgres::customscan::pdbscan::projections::snippet::{
 };
 use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{pg_extern, pg_guard, pg_sys, Internal, PgList};
-use rustc_hash::FxHashMap;
 use std::ptr::{addr_of_mut, NonNull};
 use tantivy::snippet::SnippetGenerator;
 
@@ -184,12 +184,12 @@ pub unsafe fn inject_placeholders(
     score_funcoid: pg_sys::Oid,
     snippet_funcoid: pg_sys::Oid,
     snippet_positions_funcoid: pg_sys::Oid,
-    attname_lookup: &FxHashMap<(Varno, pg_sys::AttrNumber), String>,
-    snippet_generators: &FxHashMap<SnippetType, Option<(tantivy::schema::Field, SnippetGenerator)>>,
+    attname_lookup: &HashMap<(Varno, pg_sys::AttrNumber), String>,
+    snippet_generators: &HashMap<SnippetType, Option<(tantivy::schema::Field, SnippetGenerator)>>,
 ) -> (
     *mut pg_sys::List,
     *mut pg_sys::Const,
-    FxHashMap<SnippetType, Vec<*mut pg_sys::Const>>,
+    HashMap<SnippetType, Vec<*mut pg_sys::Const>>,
 ) {
     #[pg_guard]
     unsafe extern "C-unwind" fn walker(
@@ -271,11 +271,11 @@ pub unsafe fn inject_placeholders(
 
         snippet_funcoid: pg_sys::Oid,
         snippet_positions_funcoid: pg_sys::Oid,
-        attname_lookup: &'a FxHashMap<(Varno, pg_sys::AttrNumber), String>,
+        attname_lookup: &'a HashMap<(Varno, pg_sys::AttrNumber), String>,
 
         snippet_generators:
-            &'a FxHashMap<SnippetType, Option<(tantivy::schema::Field, SnippetGenerator)>>,
-        const_snippet_nodes: FxHashMap<SnippetType, Vec<*mut pg_sys::Const>>,
+            &'a HashMap<SnippetType, Option<(tantivy::schema::Field, SnippetGenerator)>>,
+        const_snippet_nodes: HashMap<SnippetType, Vec<*mut pg_sys::Const>>,
     }
 
     let mut data = Data {

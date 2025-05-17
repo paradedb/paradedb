@@ -146,13 +146,12 @@ ORDER BY id;
    ->  Custom Scan (ParadeDB Scan) on corner_case_test
          Table: corner_case_test
          Index: corner_case_search
-         Segment Count: 2
          Exec Method: MixedFastFieldExecState
          Fast Fields: empty_string, id, special_chars
          String Fast Fields: empty_string, id, special_chars
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"complex pattern","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(10 rows)
 
 -- Test query
 SELECT id, empty_string, special_chars 

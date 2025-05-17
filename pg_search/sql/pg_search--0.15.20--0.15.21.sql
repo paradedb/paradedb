@@ -1,3 +1,5 @@
+\echo Use "ALTER EXTENSION pg_search UPDATE TO '0.15.21'" to load this file. \quit
+
 DROP FUNCTION IF EXISTS tokenizer(name text,
     remove_long pg_catalog.int4,
     lowercase bool,

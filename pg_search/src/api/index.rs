@@ -18,6 +18,7 @@
 use pgrx::datum::RangeBound;
 use pgrx::{iter::TableIterator, *};
 
+use crate::api::HashMap;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::index::IndexKind;
@@ -26,7 +27,6 @@ use crate::query::{SearchQueryInput, TermInput};
 use crate::schema::AnyEnum;
 use crate::schema::IndexRecordOption;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::ffi::CStr;
 use std::fmt::{Display, Formatter};
 use std::ops::Bound;

@@ -4,6 +4,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
 -- Drop any existing test tables from this group
 DROP TABLE IF EXISTS mixed_numeric_string_test CASCADE;
 -- Create test table for mixed numeric/string testing
@@ -50,14 +51,13 @@ WHERE content @@@ 'red';
  Custom Scan (ParadeDB Scan) on mixed_numeric_string_test
    Table: mixed_numeric_string_test
    Index: mixed_test_search
-   Segment Count: 1
    Exec Method: MixedFastFieldExecState
    Fast Fields: string_field1, string_field2, numeric_field1, numeric_field2
    String Fast Fields: string_field1, string_field2
    Numeric Fast Fields: numeric_field1, numeric_field2
    Scores: false
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"red","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+(9 rows)
 
 -- Execute query and check results
 SELECT numeric_field1, numeric_field2, string_field1, string_field2
@@ -75,6 +75,7 @@ DROP TABLE IF EXISTS mixed_numeric_string_test CASCADE;
 -- Reset parallel workers setting to default
 RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;
+RESET paradedb.enable_mixed_fast_field_exec;
 SELECT 'Basic tests cleanup complete' AS status; 
             status            
 ------------------------------

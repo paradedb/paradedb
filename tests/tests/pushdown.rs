@@ -2,9 +2,9 @@ mod fixtures;
 
 use fixtures::*;
 use rstest::*;
+use rustc_hash::FxHashSet as HashSet;
 use serde_json::Value;
 use sqlx::PgConnection;
-use std::collections::HashSet;
 
 /// Helper function to verify that a query plan uses ParadeDB's custom scan operator
 /// This checks if the plan node is either:
@@ -227,7 +227,7 @@ fn issue2301_is_null_with_joins(mut conn: PgConnection) {
             removed_at timestamp with time zone
         );
         CREATE INDEX mcp_server_search_idx ON mcp_server
-        USING bm25 (id, name, description)
+        USING bm25 (id, name, description, synced_at, removed_at)
         WITH (key_field='id');
     "#
     .execute(&mut conn);
@@ -840,7 +840,7 @@ mod pushdown_is_bool_operator {
 
     INSERT INTO is_true (bool_field, message) VALUES (true, 'beer');
     INSERT INTO is_true (bool_field, message) VALUES (false, 'beer');
-    
+
     CREATE OR REPLACE FUNCTION is_true_test(b boolean) RETURNS boolean AS $$
     BEGIN
         RETURN b;

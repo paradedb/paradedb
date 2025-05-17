@@ -6,6 +6,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
 -- Drop any existing test tables from this group
 DROP TABLE IF EXISTS documents CASCADE;
 DROP TABLE IF EXISTS files CASCADE; 
@@ -37,7 +38,7 @@ CREATE INDEX mixed_test_search ON mixed_numeric_string_test USING bm25 (
     text_fields = '{"string_field1": {"tokenizer": {"type": "default"}, "fast": true}, "string_field2": {"tokenizer": {"type": "default"}, "fast": true}, "string_field3": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
     numeric_fields = '{"numeric_field1": {"fast": true}, "numeric_field2": {"fast": true}}'
 );
-psql:common/mixedff_advanced_setup.sql:39: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_advanced_setup.sql:40: WARNING:  the `raw` tokenizer is deprecated
 -- Insert test data
 INSERT INTO mixed_numeric_string_test (id, numeric_field1, numeric_field2, string_field1, string_field2, string_field3, content) VALUES
 ('mix1', 100, 10000, 'Apple', 'Red', 'Fruit', 'This is a red apple'),
@@ -108,7 +109,7 @@ CREATE INDEX documents_search ON documents USING bm25 (
     key_field = 'id',
     text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "parents": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
-psql:common/mixedff_advanced_setup.sql:115: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_advanced_setup.sql:116: WARNING:  the `raw` tokenizer is deprecated
 CREATE INDEX files_search ON files USING bm25 (
     id,
     documentId,
@@ -118,7 +119,7 @@ CREATE INDEX files_search ON files USING bm25 (
     key_field = 'id',
     text_fields = '{"documentid": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "file_path": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
-psql:common/mixedff_advanced_setup.sql:125: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_advanced_setup.sql:126: WARNING:  the `raw` tokenizer is deprecated
 CREATE INDEX pages_search ON pages USING bm25 (
     id,
     fileId,
@@ -129,7 +130,7 @@ CREATE INDEX pages_search ON pages USING bm25 (
     text_fields = '{"fileid": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
     numeric_fields = '{"page_number": {"fast": true}}'
 );
-psql:common/mixedff_advanced_setup.sql:136: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_advanced_setup.sql:137: WARNING:  the `raw` tokenizer is deprecated
 -- Insert sample data
 INSERT INTO documents (id, title, content, parents) VALUES
 ('doc1', 'Invoice 2023', 'This is an invoice for services rendered in 2023', 'Factures'),
@@ -233,7 +234,7 @@ CREATE INDEX conversion_search ON conversion_test USING bm25 (
     }',
     boolean_fields = '{"bool_from_int": {"fast": true}}'
 );
-psql:common/mixedff_advanced_setup.sql:250: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_advanced_setup.sql:251: WARNING:  the `raw` tokenizer is deprecated
 INSERT INTO conversion_test VALUES
 ('conv1', 32767, 2147483647, 9223372036854775807, 9999999.99, 3.402e38, 1.7976931348623157e308, true, '1988-04-29', 'conversion test'),
 ('conv2', -32768, -2147483648, -9223372036854775808, -9999999.99, -3.402e38, -1.7976931348623157e308, false, '1999-12-31', 'conversion test'),
@@ -349,14 +350,13 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Scan) on limit_topn_test
          Table: limit_topn_test
          Index: limit_topn_idx
-         Segment Count: 1
          Exec Method: TopNScanExecState
          Scores: false
             Sort Field: rating
             Sort Direction: desc
             Top N Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Product","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(10 rows)
 
 -- Test LIMIT with mixed text and numeric fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -371,14 +371,13 @@ LIMIT 5;
    ->  Custom Scan (ParadeDB Scan) on limit_topn_test
          Table: limit_topn_test
          Index: limit_topn_idx
-         Segment Count: 1
          Exec Method: TopNScanExecState
          Scores: false
             Sort Field: price
             Sort Direction: asc
             Top N Limit: 5
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(10 rows)
 
 SELECT title, category, rating, price
 FROM limit_topn_test
@@ -407,14 +406,13 @@ LIMIT 15;
    ->  Custom Scan (ParadeDB Scan) on limit_topn_test
          Table: limit_topn_test
          Index: limit_topn_idx
-         Segment Count: 1
          Exec Method: TopNScanExecState
          Scores: false
             Sort Field: title
             Sort Direction: asc
             Top N Limit: 15
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Books OR Electronics","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(10 rows)
 
 SELECT title, category
 FROM limit_topn_test
@@ -512,14 +510,13 @@ LIMIT 8;
    ->  Custom Scan (ParadeDB Scan) on limit_topn_test
          Table: limit_topn_test
          Index: limit_topn_idx
-         Segment Count: 1
          Exec Method: TopNScanExecState
          Scores: false
             Sort Field: price
             Sort Direction: desc
             Top N Limit: 8
          Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"included":2.5},"upper_bound":null,"is_datetime":false}},{"range":{"field":"rating","lower_bound":null,"upper_bound":{"included":4.5},"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Toys OR Clothing","lenient":null,"conjunction_mode":null}}}}]}}
-(11 rows)
+(10 rows)
 
 SELECT title, category, rating, price
 FROM limit_topn_test
@@ -573,6 +570,7 @@ DROP TABLE IF EXISTS union_test_b CASCADE;
 -- Reset parallel workers setting to default
 RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;
+RESET paradedb.enable_mixed_fast_field_exec;
 SELECT 'Advanced features tests cleanup complete' AS status; 
                   status                  
 ------------------------------------------

@@ -3,7 +3,7 @@ resolver = "2"
 members = ["pg_search", "tests", "tokenizers", "benchmarks"]
 
 [workspace.package]
-version = "0.15.19"
+version = "0.15.20"
 edition = "2021"
 license = "AGPL-3.0"
 
@@ -28,8 +28,8 @@ tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy"
   "stopwords",
   "lz4-compression",
 ], default-features = false }
-pgrx = "=0.14.2"
-pgrx-tests = "=0.14.2"
+pgrx = "=0.14.3"
+pgrx-tests = "=0.14.3"
 tantivy-jieba = "0.11.0"
 
 [patch.crates-io]

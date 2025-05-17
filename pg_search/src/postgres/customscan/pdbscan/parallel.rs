@@ -1,10 +1,10 @@
 use crate::api::Cardinality;
+use crate::api::HashSet;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::pdbscan::PdbScan;
 use crate::postgres::ParallelScanState;
 use pgrx::pg_sys::{self, shm_toc, ParallelContext, Size};
-use std::collections::HashSet;
 use std::os::raw::c_void;
 use tantivy::index::SegmentId;
 

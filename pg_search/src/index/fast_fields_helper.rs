@@ -46,6 +46,11 @@ impl FFHelper {
                 let mut lookup = Vec::new();
                 for field in fields {
                     match field {
+                        WhichFastField::Named(name, _) => lookup.push((
+                            fast_fields_reader.clone(),
+                            name.to_string(),
+                            OnceLock::default(),
+                        )),
                         WhichFastField::Ctid
                         | WhichFastField::TableOid
                         | WhichFastField::Score
@@ -53,11 +58,6 @@ impl FFHelper {
                             fast_fields_reader.clone(),
                             String::from("junk"),
                             OnceLock::from(FFType::Junk),
-                        )),
-                        WhichFastField::Named(name, _) => lookup.push((
-                            fast_fields_reader.clone(),
-                            name.to_string(),
-                            OnceLock::default(),
                         )),
                     }
                 }
@@ -239,7 +239,7 @@ impl FFType {
     }
 }
 
-#[derive(Debug, Clone, Ord, Eq, PartialOrd, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Ord, Eq, PartialOrd, PartialEq, Serialize, Deserialize, Hash)]
 pub enum WhichFastField {
     Junk(String),
     Ctid,
@@ -248,7 +248,7 @@ pub enum WhichFastField {
     Named(String, FastFieldType),
 }
 
-#[derive(Debug, Clone, Ord, Eq, PartialOrd, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Ord, Eq, PartialOrd, PartialEq, Serialize, Deserialize, Hash)]
 pub enum FastFieldType {
     String,
     Numeric,

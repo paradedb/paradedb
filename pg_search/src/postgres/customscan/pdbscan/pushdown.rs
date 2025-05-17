@@ -17,13 +17,50 @@
 
 use crate::api::index::{fieldname_typoid, FieldName};
 use crate::api::operator::{attname_from_var, searchqueryinput_typoid};
+use crate::api::HashMap;
 use crate::nodecast;
 use crate::postgres::customscan::operator_oid;
 use crate::postgres::customscan::pdbscan::qual_inspect::Qual;
-use crate::schema::{SearchFieldName, SearchIndexSchema};
+use crate::schema::{SearchField, SearchFieldName, SearchIndexSchema};
 use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList};
-use rustc_hash::FxHashMap;
 use std::sync::OnceLock;
+
+#[derive(Debug, Clone)]
+pub struct PushdownField(String);
+
+impl PushdownField {
+    /// Given a Postgres [`pg_sys::Var`] and a [`SearchIndexSchema`], try to create a [`PushdownField`].
+    /// The purpose of this is to guard against the case where we mistakenly push down a field that's not indexed.
+    ///
+    /// Returns `Some(PushdownField)` if the field is found in the schema, `None` otherwise.
+    /// If `None` is returned, a helpful warning is logged.
+    pub unsafe fn try_new(
+        root: *mut pg_sys::PlannerInfo,
+        var: *mut pg_sys::Var,
+        schema: &SearchIndexSchema,
+    ) -> Option<Self> {
+        let (_, attname) = attname_from_var(root, var);
+        let attname = attname?;
+        schema
+            .get_search_field(&SearchFieldName(attname.clone()))
+            .map(|_| Self(attname))
+    }
+
+    /// Create a new [`PushdownField`] from an attribute name.
+    ///
+    /// This does not verify if field can be pushed down and is intended to be used for testing.
+    pub fn new(attname: &str) -> Self {
+        Self(attname.into())
+    }
+
+    pub fn attname(&self) -> &str {
+        &self.0
+    }
+
+    pub fn search_field<'a>(&self, schema: &'a SearchIndexSchema) -> Option<&'a SearchField> {
+        schema.get_search_field(&SearchFieldName(self.0.clone()))
+    }
+}
 
 macro_rules! pushdown {
     ($attname:expr, $opexpr:expr, $operator:expr, $rhs:ident) => {
@@ -43,7 +80,7 @@ macro_rules! pushdown {
 type PostgresOperatorOid = pg_sys::Oid;
 type TantivyOperator = &'static str;
 
-unsafe fn initialize_equality_operator_lookup() -> FxHashMap<PostgresOperatorOid, TantivyOperator> {
+unsafe fn initialize_equality_operator_lookup() -> HashMap<PostgresOperatorOid, TantivyOperator> {
     const OPERATORS: [&str; 6] = ["=", ">", "<", ">=", "<=", "<>"];
     const TYPE_PAIRS: &[[&str; 2]] = &[
         // integers
@@ -68,7 +105,7 @@ unsafe fn initialize_equality_operator_lookup() -> FxHashMap<PostgresOperatorOid
         ["uuid", "uuid"],
     ];
 
-    let mut lookup = FxHashMap::default();
+    let mut lookup = HashMap::default();
 
     // tantivy doesn't support range operators on bools, so we can only support the equality operator
     lookup.insert(operator_oid("=(bool,bool)"), "=");
@@ -100,7 +137,7 @@ pub unsafe fn try_pushdown(
     let var = {
         // inspect the left-hand-side of the operator expression...
         let mut lhs = args.get_ptr(0)?;
-        
+
         while (*lhs).type_ == pg_sys::NodeTag::T_RelabelType {
             // and keep following it as long as it's still a RelabelType
             let relabel_type = lhs as *mut pg_sys::RelabelType;
@@ -110,19 +147,15 @@ pub unsafe fn try_pushdown(
     };
     let rhs = args.get_ptr(1)?;
 
-    let (typeoid, attname) = attname_from_var(root, var);
-    let attname = attname?;
-
-    let search_field = schema.get_search_field(&SearchFieldName(attname.clone()))?;
-    
-    if search_field.is_text() && !search_field.is_keyword() {
+    let pushdown = PushdownField::try_new(root, var, schema)?;
+    let field = pushdown.search_field(schema)?;
+    if field.is_text() && !field.is_keyword() {
         return None;
     }
-    
 
-    static EQUALITY_OPERATOR_LOOKUP: OnceLock<FxHashMap<pg_sys::Oid, &str>> = OnceLock::new();
+    static EQUALITY_OPERATOR_LOOKUP: OnceLock<HashMap<pg_sys::Oid, &str>> = OnceLock::new();
     match EQUALITY_OPERATOR_LOOKUP.get_or_init(|| initialize_equality_operator_lookup()).get(&(*opexpr).opno) {
-        Some(pgsearch_operator) => { pushdown!(&attname, opexpr, pgsearch_operator, rhs); },
+        Some(pgsearch_operator) => { pushdown!(&pushdown.attname(), opexpr, pgsearch_operator, rhs); },
         None => {
             // TODO:  support other types of OpExprs
             None

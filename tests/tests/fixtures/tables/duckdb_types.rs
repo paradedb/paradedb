@@ -15,10 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 use sqlx::postgres::types::PgInterval;
 use sqlx::types::{BigDecimal, Json, Uuid};
 use sqlx::FromRow;
-use std::collections::HashMap;
 use time::{Date, OffsetDateTime, PrimitiveDateTime, Time};
 
 #[derive(Debug, PartialEq, FromRow)]

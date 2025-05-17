@@ -1,3 +1,4 @@
+use crate::api::HashMap;
 use crate::index::mvcc::MVCCDirectory;
 use crate::index::reader::channel::ChannelReader;
 use crate::index::reader::segment_component::SegmentComponentReader;
@@ -7,9 +8,7 @@ use crate::postgres::storage::block::{bm25_max_free_space, FileEntry};
 use anyhow::Result;
 use crossbeam::channel::{Receiver, Sender, TryRecvError};
 use pgrx::pg_sys;
-use rustc_hash::FxHashMap;
 use std::any::Any;
-use std::collections::HashSet;
 use std::fmt::Debug;
 use std::panic::panic_any;
 use std::path::{Path, PathBuf};
@@ -125,7 +124,7 @@ impl Directory for ChannelDirectory {
         Ok(())
     }
 
-    fn list_managed_files(&self) -> tantivy::Result<HashSet<PathBuf>> {
+    fn list_managed_files(&self) -> tantivy::Result<std::collections::HashSet<PathBuf>> {
         // because we don't support garbage collection
         unimplemented!("list_managed_files should not be called");
     }
@@ -222,10 +221,10 @@ pub struct ChannelRequestHandler {
     directory: MVCCDirectory,
     relation_oid: pg_sys::Oid,
     receiver: Receiver<ChannelRequest>,
-    writers: FxHashMap<PathBuf, SegmentComponentWriter>,
-    readers: FxHashMap<FileEntry, SegmentComponentReader>,
+    writers: HashMap<PathBuf, SegmentComponentWriter>,
+    readers: HashMap<FileEntry, SegmentComponentReader>,
 
-    file_entries: FxHashMap<PathBuf, FileEntry>,
+    file_entries: HashMap<PathBuf, FileEntry>,
 
     action: (Sender<Action<'static>>, Receiver<Action<'static>>),
     reply: (Sender<Reply>, Receiver<Reply>),

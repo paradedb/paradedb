@@ -66,7 +66,8 @@ impl SnippetType {
 }
 
 struct Context<'a> {
-    rti: pg_sys::Index,
+    execution_rti: pg_sys::Index,
+    planning_rti: pg_sys::Index,
     attname_lookup: &'a HashMap<(Varno, pg_sys::AttrNumber), String>,
     snippet_funcoid: pg_sys::Oid,
     snippet_positions_funcoid: pg_sys::Oid,
@@ -125,7 +126,8 @@ pub fn snippet_positions_funcoid() -> pg_sys::Oid {
 }
 
 pub unsafe fn uses_snippets(
-    rti: pg_sys::Index,
+    planning_rti: pg_sys::Index,
+    execution_rti: pg_sys::Index,
     attname_lookup: &HashMap<(Varno, pg_sys::AttrNumber), String>,
     node: *mut pg_sys::Node,
     snippet_funcoid: pg_sys::Oid,
@@ -166,7 +168,8 @@ pub unsafe fn uses_snippets(
     }
 
     let mut context = Context {
-        rti,
+        execution_rti,
+        planning_rti,
         attname_lookup,
         snippet_funcoid,
         snippet_positions_funcoid,
@@ -194,7 +197,7 @@ unsafe fn extract_snippet_text(
     {
         let attname = (*context)
             .attname_lookup
-            .get(&((*context).rti as _, (*field_arg).varattno as _))
+            .get(&((*context).planning_rti as _, (*field_arg).varattno as _))
             .cloned()
             .expect("Var attname should be in lookup");
         let start_tag = String::from_datum((*start_arg).constvalue, (*start_arg).constisnull);
@@ -230,7 +233,7 @@ unsafe fn extract_snippet_positions(
     if let Some(field_arg) = field_arg {
         let attname = (*context)
             .attname_lookup
-            .get(&((*context).rti as _, (*field_arg).varattno as _))
+            .get(&((*context).execution_rti as _, (*field_arg).varattno as _))
             .cloned()
             .expect("Var attname should be in lookup");
 

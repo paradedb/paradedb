@@ -610,7 +610,7 @@ LIMIT 10;
                ->  Custom Scan (ParadeDB Scan) on score_test
                      Table: score_test
                      Index: score_test_idx
-                     Exec Method: NormalScanExecState
+                     Exec Method: MixedFastFieldExecState
                      Fast Fields: author, title, id
                      String Fast Fields: author, title
                      Numeric Fast Fields: id
@@ -619,7 +619,7 @@ LIMIT 10;
                ->  Custom Scan (ParadeDB Scan) on score_test score_test_1
                      Table: score_test
                      Index: score_test_idx
-                     Exec Method: NormalScanExecState
+                     Exec Method: MixedFastFieldExecState
                      Fast Fields: author, title, id
                      String Fast Fields: author, title
                      Numeric Fast Fields: id

@@ -321,7 +321,7 @@ ORDER BY rating DESC, title;
                ->  Custom Scan (ParadeDB Scan) on union_test_a
                      Table: union_test_a
                      Index: union_test_a_idx
-                     Exec Method: NormalScanExecState
+                     Exec Method: MixedFastFieldExecState
                      Fast Fields: author, title, price, rating
                      String Fast Fields: author, title
                      Numeric Fast Fields: price, rating
@@ -330,7 +330,7 @@ ORDER BY rating DESC, title;
                ->  Custom Scan (ParadeDB Scan) on union_test_b
                      Table: union_test_b
                      Index: union_test_b_idx
-                     Exec Method: NormalScanExecState
+                     Exec Method: MixedFastFieldExecState
                      Fast Fields: author, title, price, rating
                      String Fast Fields: author, title
                      Numeric Fast Fields: price, rating
@@ -405,7 +405,7 @@ ORDER BY price;
          ->  Custom Scan (ParadeDB Scan) on union_test_a
                Table: union_test_a
                Index: union_test_a_idx
-               Exec Method: NormalScanExecState
+               Exec Method: MixedFastFieldExecState
                Fast Fields: title, price, year
                String Fast Fields: title
                Numeric Fast Fields: price, year
@@ -414,7 +414,7 @@ ORDER BY price;
          ->  Custom Scan (ParadeDB Scan) on union_test_b
                Table: union_test_b
                Index: union_test_b_idx
-               Exec Method: NormalScanExecState
+               Exec Method: MixedFastFieldExecState
                Fast Fields: title, price, year
                String Fast Fields: title
                Numeric Fast Fields: price, year
@@ -761,7 +761,7 @@ ORDER BY author, title;
                      ->  Custom Scan (ParadeDB Scan) on union_test_a
                            Table: union_test_a
                            Index: union_test_a_idx
-                           Exec Method: NormalScanExecState
+                           Exec Method: MixedFastFieldExecState
                            Fast Fields: author, title, is_published
                            String Fast Fields: author, title
                            Numeric Fast Fields: is_published
@@ -772,7 +772,7 @@ ORDER BY author, title;
                      ->  Custom Scan (ParadeDB Scan) on union_test_b
                            Table: union_test_b
                            Index: union_test_b_idx
-                           Exec Method: NormalScanExecState
+                           Exec Method: MixedFastFieldExecState
                            Fast Fields: author, title, is_published
                            String Fast Fields: author, title
                            Numeric Fast Fields: is_published
@@ -934,7 +934,7 @@ INTERSECT
                ->  Custom Scan (ParadeDB Scan) on union_test_b
                      Table: union_test_b
                      Index: union_test_b_idx
-                     Exec Method: NormalScanExecState
+                     Exec Method: StringFastFieldExecState
                      Fast Fields: author
                      String Agg Field: author
                      Scores: false
@@ -943,7 +943,7 @@ INTERSECT
                ->  Custom Scan (ParadeDB Scan) on union_test_a
                      Table: union_test_a
                      Index: union_test_a_idx
-                     Exec Method: NormalScanExecState
+                     Exec Method: StringFastFieldExecState
                      Fast Fields: author
                      String Agg Field: author
                      Scores: false

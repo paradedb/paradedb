@@ -65,3 +65,121 @@ ORDER BY name;
 (3 rows)
 
 DROP TABLE test_stopwords CASCADE;
+--- Languages support:
+SELECT * FROM paradedb.tokenize(
+        paradedb.tokenizer('default', stopwords_language => 'Danish'),
+        'ikke æbler'
+              );
+ token | position 
+-------+----------
+ æbler |        1
+(1 row)
+
+SELECT * FROM paradedb.tokenize(
+        paradedb.tokenizer('default', stopwords_language => 'Dutch'),
+        'geen appels'
+              );
+ token  | position 
+--------+----------
+ appels |        1
+(1 row)
+
+SELECT * FROM paradedb.tokenize(
+        paradedb.tokenizer('default', stopwords_language => 'English'),
+        'no apples'
+              );
+ token  | position 
+--------+----------
+ apples |        1
+(1 row)
+
+SELECT * FROM paradedb.tokenize(
+        paradedb.tokenizer('default', stopwords_language => 'Finnish'),
+        'ei omenoita'
+              );
+  token   | position 
+----------+----------
+ omenoita |        1
+(1 row)
+
+SELECT * FROM paradedb.tokenize(
+        paradedb.tokenizer('default', stopwords_language => 'French'),
+        'pas de pommes'
+              );
+ token  | position 
+--------+----------
+ pommes |        2
+(1 row)
+
+SELECT * FROM paradedb.tokenize(
+        paradedb.tokenizer('default', stopwords_language => 'German'),
+        'keine Äpfel'
+              );
+ token | position 
+-------+----------
+ äpfel |        1
+(1 row)
+
+SELECT * FROM paradedb.tokenize(
+        paradedb.tokenizer('default', stopwords_language => 'Hungarian'),
+        'nincs alma'
+              );
+ token | position 
+-------+----------
+ alma  |        1
+(1 row)
+
+SELECT * FROM paradedb.tokenize(
+        paradedb.tokenizer('default', stopwords_language => 'Italian'),
+        'non mele'
+              );
+ token | position 
+-------+----------
+ mele  |        1
+(1 row)
+
+SELECT * FROM paradedb.tokenize(
+        paradedb.tokenizer('default', stopwords_language => 'Norwegian'),
+        'ingen epler'
+              );
+ token | position 
+-------+----------
+ epler |        1
+(1 row)
+
+SELECT * FROM paradedb.tokenize(
+        paradedb.tokenizer('default', stopwords_language => 'Portuguese'),
+        'sem maçãs'
+              );
+ token | position 
+-------+----------
+ maçãs |        1
+(1 row)
+
+SELECT * FROM paradedb.tokenize(
+        paradedb.tokenizer('default', stopwords_language => 'Russian'),
+        'нет яблок'
+              );
+ token | position 
+-------+----------
+ яблок |        1
+(1 row)
+
+SELECT * FROM paradedb.tokenize(
+        paradedb.tokenizer('default', stopwords_language => 'Spanish'),
+        'sin manzanas'
+              );
+  token   | position 
+----------+----------
+ manzanas |        1
+(1 row)
+
+SELECT * FROM paradedb.tokenize(
+        paradedb.tokenizer('default', stopwords_language => 'Swedish'),
+        'inte äpplen'
+              );
+ token  | position 
+--------+----------
+ äpplen |        1
+(1 row)
+

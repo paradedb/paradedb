@@ -146,14 +146,13 @@ ORDER BY id;
    ->  Custom Scan (ParadeDB Scan) on nullable_test
          Table: nullable_test
          Index: nullable_search
-         Segment Count: 1
          Exec Method: MixedFastFieldExecState
          Fast Fields: id, string_field, numeric_field
          String Fast Fields: id, string_field
          Numeric Fast Fields: numeric_field
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"null","lenient":null,"conjunction_mode":null}}}}
-(12 rows)
+(11 rows)
 
 -- Test retrieval of NULL values
 SELECT id, string_field, numeric_field

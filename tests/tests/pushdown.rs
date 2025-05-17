@@ -2,9 +2,9 @@ mod fixtures;
 
 use fixtures::*;
 use rstest::*;
+use rustc_hash::FxHashSet as HashSet;
 use serde_json::Value;
 use sqlx::PgConnection;
-use std::collections::HashSet;
 
 /// Helper function to verify that a query plan uses ParadeDB's custom scan operator
 /// This checks if the plan node is either:

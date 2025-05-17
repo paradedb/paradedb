@@ -54,14 +54,13 @@ ORDER BY id;
    ->  Custom Scan (ParadeDB Scan) on mixed_numeric_string_test
          Table: mixed_numeric_string_test
          Index: mixed_test_search
-         Segment Count: 1
          Exec Method: MixedFastFieldExecState
          Fast Fields: id, numeric_field1, numeric_field2
          String Fast Fields: id
          Numeric Fast Fields: numeric_field1, numeric_field2
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"red","lenient":null,"conjunction_mode":null}}}}
-(12 rows)
+(11 rows)
 
 -- Execute query and check results
 SELECT numeric_field1, numeric_field2

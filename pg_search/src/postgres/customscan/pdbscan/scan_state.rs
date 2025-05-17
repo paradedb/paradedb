@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::HashMap;
 use crate::api::Varno;
 use crate::index::reader::index::{SearchIndexReader, SearchResults};
 use crate::postgres::customscan::builders::custom_path::{ExecMethodType, SortDirection};
@@ -29,7 +30,6 @@ use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
 use pgrx::heap_tuple::PgHeapTuple;
 use pgrx::{name_data_to_str, pg_sys, PgRelation, PgTupleDesc};
-use rustc_hash::FxHashMap;
 use std::cell::UnsafeCell;
 use tantivy::snippet::SnippetGenerator;
 
@@ -74,15 +74,15 @@ pub struct PdbScanState {
     pub const_score_node: Option<*mut pg_sys::Const>,
     pub score_funcoid: pg_sys::Oid,
 
-    pub const_snippet_nodes: FxHashMap<SnippetType, Vec<*mut pg_sys::Const>>,
+    pub const_snippet_nodes: HashMap<SnippetType, Vec<*mut pg_sys::Const>>,
 
     pub snippet_funcoid: pg_sys::Oid,
     pub snippet_positions_funcoid: pg_sys::Oid,
 
     pub snippet_generators:
-        FxHashMap<SnippetType, Option<(tantivy::schema::Field, SnippetGenerator)>>,
+        HashMap<SnippetType, Option<(tantivy::schema::Field, SnippetGenerator)>>,
 
-    pub var_attname_lookup: FxHashMap<(Varno, pg_sys::AttrNumber), String>,
+    pub var_attname_lookup: HashMap<(Varno, pg_sys::AttrNumber), String>,
     pub placeholder_targetlist: Option<*mut pg_sys::List>,
 
     exec_method: UnsafeCell<Box<dyn ExecMethod>>,

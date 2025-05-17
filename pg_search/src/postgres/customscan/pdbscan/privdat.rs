@@ -16,13 +16,13 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::{AsCStr, Cardinality, Varno};
+use crate::api::{HashMap, HashSet};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::builders::custom_path::{OrderByStyle, SortDirection};
 use crate::postgres::customscan::pdbscan::ExecMethodType;
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::{pg_sys, PgList};
-use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Serialize, Deserialize)]
@@ -35,13 +35,13 @@ pub struct PrivateData {
     sort_field: Option<String>,
     sort_direction: Option<SortDirection>,
     #[serde(with = "var_attname_lookup_serializer")]
-    var_attname_lookup: Option<FxHashMap<(Varno, pg_sys::AttrNumber), String>>,
+    var_attname_lookup: Option<HashMap<(Varno, pg_sys::AttrNumber), String>>,
     segment_count: usize,
     // The fast fields which were identified during planning time as potentially being
     // needed at execution time. In order for our planning-time-chosen ExecMethodType to be
     // accurate, this must always be a superset of the fields extracted from the execution
     // time target list.
-    planned_which_fast_fields: Option<FxHashSet<WhichFastField>>,
+    planned_which_fast_fields: Option<HashSet<WhichFastField>>,
     target_list_len: Option<usize>,
     referenced_columns_count: usize,
     need_scores: bool,
@@ -77,7 +77,7 @@ mod var_attname_lookup_serializer {
     }
 
     pub fn serialize<S>(
-        map_option: &Option<FxHashMap<(Varno, i16), String>>,
+        map_option: &Option<HashMap<(Varno, i16), String>>,
         serializer: S,
     ) -> Result<S::Ok, S::Error>
     where
@@ -97,7 +97,7 @@ mod var_attname_lookup_serializer {
     #[allow(clippy::type_complexity)]
     pub fn deserialize<'de, D>(
         deserializer: D,
-    ) -> Result<Option<FxHashMap<(Varno, i16), String>>, D::Error>
+    ) -> Result<Option<HashMap<(Varno, i16), String>>, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -106,7 +106,7 @@ mod var_attname_lookup_serializer {
             return Ok(None);
         };
 
-        let mut map = FxHashMap::default();
+        let mut map = HashMap::default();
         map.reserve(string_map.len());
 
         for (k_str, v) in string_map {
@@ -183,7 +183,7 @@ impl PrivateData {
 
     pub fn set_var_attname_lookup(
         &mut self,
-        var_attname_lookup: FxHashMap<(Varno, pg_sys::AttrNumber), String>,
+        var_attname_lookup: HashMap<(Varno, pg_sys::AttrNumber), String>,
     ) {
         self.var_attname_lookup = Some(var_attname_lookup);
     }
@@ -194,7 +194,7 @@ impl PrivateData {
 
     pub fn set_planned_which_fast_fields(
         &mut self,
-        planned_which_fast_fields: FxHashSet<WhichFastField>,
+        planned_which_fast_fields: HashSet<WhichFastField>,
     ) {
         self.planned_which_fast_fields = Some(planned_which_fast_fields);
     }
@@ -256,7 +256,7 @@ impl PrivateData {
         )
     }
 
-    pub fn var_attname_lookup(&self) -> &Option<FxHashMap<(Varno, pg_sys::AttrNumber), String>> {
+    pub fn var_attname_lookup(&self) -> &Option<HashMap<(Varno, pg_sys::AttrNumber), String>> {
         &self.var_attname_lookup
     }
 
@@ -269,7 +269,7 @@ impl PrivateData {
         self.segment_count
     }
 
-    pub fn planned_which_fast_fields(&self) -> &Option<FxHashSet<WhichFastField>> {
+    pub fn planned_which_fast_fields(&self) -> &Option<HashSet<WhichFastField>> {
         &self.planned_which_fast_fields
     }
 

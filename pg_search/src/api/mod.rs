@@ -20,6 +20,9 @@ pub mod index;
 pub mod operator;
 pub mod tokenize;
 
+pub use rustc_hash::FxHashMap as HashMap;
+pub use rustc_hash::FxHashSet as HashSet;
+
 #[macro_export]
 macro_rules! nodecast {
     ($type_:ident, $kind:ident, $node:expr) => {{

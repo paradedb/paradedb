@@ -530,8 +530,8 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> Drop for Atomic
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
+    use crate::api::HashSet;
     use pgrx::prelude::*;
-    use std::collections::HashSet;
     use tantivy::index::SegmentId;
     use uuid::Uuid;
 
@@ -545,7 +545,7 @@ mod tests {
         list: &LinkedItemList<SegmentMetaEntry>,
     ) -> HashSet<pg_sys::BlockNumber> {
         let (mut blockno, _) = list.get_start_blockno();
-        let mut block_numbers = HashSet::new();
+        let mut block_numbers = HashSet::default();
 
         while blockno != pg_sys::InvalidBlockNumber {
             block_numbers.insert(blockno);

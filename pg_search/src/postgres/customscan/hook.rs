@@ -15,19 +15,18 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::HashMap;
 use crate::gucs;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::postgres::customscan::CustomScan;
 use once_cell::sync::Lazy;
 use pgrx::{pg_guard, pg_sys, PgMemoryContexts};
-use rustc_hash::FxHashMap;
 use std::collections::hash_map::Entry;
 
 pub fn register_rel_pathlist<CS: CustomScan + 'static>(_: CS) {
     unsafe {
-        static mut PREV_HOOKS: Lazy<
-            FxHashMap<std::any::TypeId, pg_sys::set_rel_pathlist_hook_type>,
-        > = Lazy::new(Default::default);
+        static mut PREV_HOOKS: Lazy<HashMap<std::any::TypeId, pg_sys::set_rel_pathlist_hook_type>> =
+            Lazy::new(Default::default);
 
         #[pg_guard]
         extern "C-unwind" fn __priv_callback<CS: CustomScan + 'static>(

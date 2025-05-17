@@ -64,6 +64,15 @@ ORDER BY name;
  0.60353506 | something, stopword, else
 (3 rows)
 
+-- stopword is filtered out hence when trying to search for it, the result is empty
+SELECT paradedb.score(id) AS score, name
+FROM test_stopwords
+WHERE name @@@ 'and'
+ORDER BY name;
+ score | name 
+-------+------
+(0 rows)
+
 DROP TABLE test_stopwords CASCADE;
 --- Languages support:
 SELECT * FROM paradedb.tokenize(

@@ -54,6 +54,13 @@ FROM test_stopwords
 WHERE name @@@ '("something" "else")'
 ORDER BY name;
 
+
+-- stopword is filtered out hence when trying to search for it, the result is empty
+SELECT paradedb.score(id) AS score, name
+FROM test_stopwords
+WHERE name @@@ 'and'
+ORDER BY name;
+
 DROP TABLE test_stopwords CASCADE;
 
 

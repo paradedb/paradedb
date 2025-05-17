@@ -830,13 +830,10 @@ ORDER BY
                ->  Custom Scan (ParadeDB Scan) on products p
                      Table: products
                      Index: products_idx
-                     Exec Method: MixedFastFieldExecState
-                     Fast Fields: name, id, price
-                     String Fast Fields: name
-                     Numeric Fast Fields: id, price
+                     Exec Method: NormalScanExecState
                      Scores: true
                      Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_available","value":true,"is_datetime":false}},{"range":{"field":"price","lower_bound":{"included":200.0},"upper_bound":null,"is_datetime":false}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":600.0},"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}}]}}
-(17 rows)
+(14 rows)
 
 SELECT 
     p.name,

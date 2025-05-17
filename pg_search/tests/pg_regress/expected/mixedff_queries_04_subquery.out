@@ -121,9 +121,7 @@ ORDER BY invoice_file_count DESC, d.id;
    ->  Custom Scan (ParadeDB Scan) on documents d
          Table: documents
          Index: documents_search
-         Exec Method: MixedFastFieldExecState
-         Fast Fields: id, parents, title
-         String Fast Fields: id, parents, title
+         Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Factures","lenient":null,"conjunction_mode":null}}}}
          SubPlan 1
@@ -134,7 +132,7 @@ ORDER BY invoice_file_count DESC, d.id;
                        Exec Method: NormalScanExecState
                        Scores: false
                        Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Invoice","lenient":null,"conjunction_mode":null}}}},{}]}}
-(18 rows)
+(16 rows)
 
 -- Test with subquery
 SELECT d.id, d.title, d.parents,

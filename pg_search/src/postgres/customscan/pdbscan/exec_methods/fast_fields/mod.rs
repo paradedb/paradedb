@@ -282,10 +282,10 @@ pub unsafe fn pullup_fast_fields(
                     // index we're searching. As we're not supporting JOINs and Projection, at
                     // execution time (not planning time), we expect all Vars in the target list to
                     // be from the same range table as the index we're searching.
-                    pgrx::warning!(
-                        "Encountered a Var with a different range table index: {} (expected {})",
-                        (*var).varno,
-                        rti
+                    debug_assert_eq!(
+                        (*var).varno as i32,
+                        rti as i32,
+                        "Encountered a Var with a different range table index.",
                     );
                 }
                 continue;
@@ -301,9 +301,14 @@ pub unsafe fn pullup_fast_fields(
             ) {
                 return None;
             }
+            continue;
         } else if uses_scores((*te).expr.cast(), score_funcoid(), rti) {
             matches.push(WhichFastField::Score);
-        } else {
+            continue;
+        } else if pgrx::is_a((*te).expr.cast(), pg_sys::NodeTag::T_Aggref)
+            || nodecast!(Const, T_Const, (*te).expr).is_some()
+            || nodecast!(WindowFunc, T_WindowFunc, (*te).expr).is_some()
+        {
             let create_resname = |base: &str, te: &pg_sys::TargetEntry| {
                 let restype = (*te.expr).type_;
                 let resno = te.resno;
@@ -325,7 +330,12 @@ pub unsafe fn pullup_fast_fields(
             };
 
             matches.push(WhichFastField::Junk(resname));
+            continue;
         }
+        // we only support Vars or our score function in the target list
+        // Other nodes (e.g., T_SubPlan, T_FuncExpr, T_OpExpr, T_CaseExpr, T_PlaceHolderVar, etc.)
+        // are not supported in FastFields yet
+        return None;
     }
 
     // Now also consider all referenced columns from other parts of the query

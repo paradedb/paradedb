@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::utils::{load_metas, save_new_metas, save_schema, save_settings};
+use crate::api::{HashMap, HashSet};
 use crate::index::channel::{ChannelRequest, ChannelRequestHandler};
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
@@ -27,10 +28,8 @@ use crate::postgres::storage::LinkedItemList;
 use crossbeam::channel::Receiver;
 use parking_lot::Mutex;
 use pgrx::{pg_sys, PgRelation};
-use rustc_hash::FxHashMap;
 use std::any::Any;
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt::{Debug, Display};
 use std::panic::panic_any;
@@ -92,8 +91,8 @@ pub struct MVCCDirectory {
     // keep a cache of readers behind an Arc<Mutex<_>> so that if/when this MVCCDirectory is
     // cloned, we don't lose all the work we did originally creating the FileHandler impls.  And
     // it's cloned a lot!
-    readers: Arc<Mutex<FxHashMap<PathBuf, Arc<dyn FileHandle>>>>,
-    new_files: Arc<Mutex<FxHashMap<PathBuf, AtomicFileEntry>>>,
+    readers: Arc<Mutex<HashMap<PathBuf, Arc<dyn FileHandle>>>>,
+    new_files: Arc<Mutex<HashMap<PathBuf, AtomicFileEntry>>>,
 
     // a lazily loaded [`IndexMeta`], which is only created once per MVCCDirectory instance
     // we cannot tolerate tantivy calling `load_metas()` multiple times and giving it a different
@@ -288,7 +287,7 @@ impl Directory for MVCCDirectory {
 
     /// Returns a list of all segment components to Tantivy,
     /// identified by <uuid>.<ext> PathBufs
-    fn list_managed_files(&self) -> tantivy::Result<HashSet<PathBuf>> {
+    fn list_managed_files(&self) -> tantivy::Result<std::collections::HashSet<PathBuf>> {
         unsafe {
             let segment_metas =
                 LinkedItemList::<SegmentMetaEntry>::open(self.relation_oid, SEGMENT_METAS_START);
@@ -320,9 +319,8 @@ impl Directory for MVCCDirectory {
         previous_meta: &IndexMeta,
         payload: &mut (dyn Any + '_),
     ) -> tantivy::Result<()> {
-        let mut file_entries = FxHashMap::default();
-        let payload = if let Some(payload) = payload.downcast_mut::<FxHashMap<PathBuf, FileEntry>>()
-        {
+        let mut file_entries = HashMap::default();
+        let payload = if let Some(payload) = payload.downcast_mut::<HashMap<PathBuf, FileEntry>>() {
             payload
         } else {
             for (path, (file_entry, total_bytes)) in self.new_files.lock().iter() {

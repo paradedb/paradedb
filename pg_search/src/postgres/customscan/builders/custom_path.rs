@@ -16,12 +16,11 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::Cardinality;
+use crate::api::HashSet;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::CustomScan;
 use pgrx::{pg_sys, PgList};
-use rustc_hash::FxHashSet;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 use std::fmt::{Debug, Display, Formatter};
 
 #[derive(Debug, Default, Copy, Clone, Serialize, Deserialize)]
@@ -127,13 +126,13 @@ pub enum ExecMethodType {
     },
     FastFieldString {
         field: String,
-        which_fast_fields: FxHashSet<WhichFastField>,
+        which_fast_fields: HashSet<WhichFastField>,
     },
     FastFieldNumeric {
-        which_fast_fields: FxHashSet<WhichFastField>,
+        which_fast_fields: HashSet<WhichFastField>,
     },
     FastFieldMixed {
-        which_fast_fields: FxHashSet<WhichFastField>,
+        which_fast_fields: HashSet<WhichFastField>,
     },
 }
 

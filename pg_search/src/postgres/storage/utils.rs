@@ -15,11 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::HashMap;
 use crate::postgres::storage::block::{bm25_max_free_space, BM25PageSpecialData, PgItem};
 use parking_lot::Mutex;
 use pgrx::pg_sys;
 use pgrx::pg_sys::OffsetNumber;
-use rustc_hash::FxHashMap;
 
 pub trait BM25Page {
     /// Read the opaque, non-decoded [`PgItem`] at `offno`.
@@ -79,7 +79,7 @@ impl BM25Page for pg_sys::Page {
 #[derive(Debug)]
 pub struct BM25BufferCache {
     indexrel: pg_sys::Relation,
-    cache: Mutex<FxHashMap<pg_sys::BlockNumber, Vec<u8>>>,
+    cache: Mutex<HashMap<pg_sys::BlockNumber, Vec<u8>>>,
 }
 
 unsafe impl Send for BM25BufferCache {}

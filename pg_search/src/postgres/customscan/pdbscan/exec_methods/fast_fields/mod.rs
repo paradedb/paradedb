@@ -19,6 +19,7 @@ pub mod mixed;
 pub mod numeric;
 pub mod string;
 
+use crate::api::HashSet;
 use crate::index::fast_fields_helper::{FFHelper, FastFieldType, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{SearchIndexReader, SearchIndexScore, SearchResults};
@@ -32,8 +33,6 @@ use crate::schema::SearchIndexSchema;
 use itertools::Itertools;
 use pgrx::pg_sys::CustomScanState;
 use pgrx::{pg_sys, IntoDatum, PgList, PgOid, PgRelation, PgTupleDesc};
-use rustc_hash::FxHashSet;
-use std::collections::HashSet;
 use tantivy::DocAddress;
 
 pub struct FastFieldExecState {
@@ -260,7 +259,7 @@ pub unsafe fn pullup_fast_fields(
     is_execution_time: bool,
 ) -> Option<Vec<WhichFastField>> {
     let mut matches = Vec::new();
-    let mut processed_attnos = HashSet::new();
+    let mut processed_attnos = HashSet::default();
 
     let tupdesc = heaprel.tuple_desc();
 
@@ -465,7 +464,7 @@ pub fn is_numeric_fast_field_capable(privdata: &PrivateData) -> bool {
     true
 }
 
-fn is_all_special_or_junk_fields(which_fast_fields: &FxHashSet<WhichFastField>) -> bool {
+fn is_all_special_or_junk_fields(which_fast_fields: &HashSet<WhichFastField>) -> bool {
     which_fast_fields.iter().all(|ff| {
         matches!(
             ff,

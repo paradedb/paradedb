@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::{HashMap, HashSet};
 use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::scorer_iter::DeferredScorer;
@@ -26,9 +27,7 @@ use crate::schema::SearchField;
 use crate::schema::{SearchFieldName, SearchIndexSchema};
 use anyhow::Result;
 use pgrx::{pg_sys, PgRelation};
-use rustc_hash::FxHashMap;
 use std::cmp::Ordering;
-use std::collections::HashSet;
 use std::fmt::Debug;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -81,7 +80,7 @@ impl From<SortDirection> for Order {
     }
 }
 
-pub type FastFieldCache = FxHashMap<SegmentOrdinal, FFType>;
+pub type FastFieldCache = HashMap<SegmentOrdinal, FFType>;
 /// An iterator of the different styles of search results we can return
 #[allow(clippy::large_enum_variant)]
 #[derive(Default)]
@@ -365,7 +364,7 @@ impl SearchIndexReader {
         &self.searcher
     }
 
-    pub fn validate_checksum(&self) -> Result<HashSet<PathBuf>> {
+    pub fn validate_checksum(&self) -> Result<std::collections::HashSet<PathBuf>> {
         Ok(self.underlying_index.validate_checksum()?)
     }
 

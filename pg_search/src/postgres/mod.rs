@@ -15,11 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::HashMap;
 use crate::postgres::build::is_bm25_index;
 use crate::postgres::parallel::Spinlock;
 use crate::query::SearchQueryInput;
 use pgrx::*;
-use rustc_hash::FxHashMap;
 use std::io::Write;
 use tantivy::index::SegmentId;
 use tantivy::SegmentReader;
@@ -252,8 +252,8 @@ impl ParallelScanState {
         self.remaining_segments
     }
 
-    pub fn segments(&self) -> FxHashMap<SegmentId, u32> {
-        let mut segments = FxHashMap::default();
+    pub fn segments(&self) -> HashMap<SegmentId, u32> {
+        let mut segments = HashMap::default();
         for i in 0..self.nsegments {
             segments.insert(self.segment_id(i), self.num_deleted_docs(i));
         }

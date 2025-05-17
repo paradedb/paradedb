@@ -29,6 +29,7 @@ use crate::api::operator::{
     anyelement_query_input_opoid, attname_from_var, estimate_selectivity, find_var_relation,
 };
 use crate::api::Cardinality;
+use crate::api::{HashMap, HashSet};
 use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
@@ -66,8 +67,6 @@ use crate::schema::SearchIndexSchema;
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
 use pgrx::pg_sys::CustomExecMethods;
 use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts, PgRelation};
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::HashSet;
 use std::ffi::CStr;
 use std::ptr::addr_of_mut;
 use tantivy::snippet::SnippetGenerator;
@@ -120,7 +119,7 @@ impl PdbScan {
         state.custom_state_mut().init_exec_method(csstate);
 
         if need_snippets {
-            let mut snippet_generators: FxHashMap<
+            let mut snippet_generators: HashMap<
                 SnippetType,
                 Option<(tantivy::schema::Field, SnippetGenerator)>,
             > = state
@@ -517,7 +516,7 @@ impl CustomScan for PdbScan {
             let processed_tlist =
                 PgList::<pg_sys::TargetEntry>::from_pg((*builder.args().root).processed_tlist);
 
-            let mut attname_lookup = FxHashMap::default();
+            let mut attname_lookup = HashMap::default();
             let score_funcoid = score_funcoid();
             let snippet_funcoid = snippet_funcoid();
             let snippet_positions_funcoid = snippet_positions_funcoid();
@@ -1155,7 +1154,7 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>
 ///
 fn compute_exec_which_fast_fields(
     builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>,
-    planned_which_fast_fields: FxHashSet<WhichFastField>,
+    planned_which_fast_fields: HashSet<WhichFastField>,
 ) -> Option<Vec<WhichFastField>> {
     let exec_which_fast_fields = unsafe {
         let indexrel = PgRelation::open(builder.custom_state().indexrelid);
@@ -1445,7 +1444,7 @@ unsafe fn collect_maybe_fast_field_referenced_columns(
     rte_index: pg_sys::Index,
     rel: *mut pg_sys::RelOptInfo,
 ) -> HashSet<pg_sys::AttrNumber> {
-    let mut referenced_columns = HashSet::new();
+    let mut referenced_columns = HashSet::default();
 
     // Check reltarget exprs.
     let reltarget_exprs = PgList::<pg_sys::Expr>::from_pg((*(*rel).reltarget).exprs);

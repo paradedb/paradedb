@@ -360,6 +360,7 @@ impl CustomScan for PdbScan {
 
             builder.custom_private().set_heaprelid(table.oid());
             builder.custom_private().set_indexrelid(bm25_index.oid());
+            builder.custom_private().set_range_table_index(rti);
             builder.custom_private().set_query(query);
             builder.custom_private().set_limit(limit);
 
@@ -508,9 +509,9 @@ impl CustomScan for PdbScan {
 
             let private_data = builder.custom_private();
 
-            let rel = builder.args().rel;
-            let rti: i32 = (*rel)
-                .relid
+            let rti: i32 = private_data
+                .range_table_index()
+                .expect("range table index should have been set")
                 .try_into()
                 .expect("range table index should not be negative");
             let processed_tlist =
@@ -629,7 +630,12 @@ impl CustomScan for PdbScan {
             );
 
             let node = builder.target_list().as_ptr().cast();
-            let planning_rti = builder.custom_state().rti;
+            let planning_rti = builder
+                .custom_private()
+                .range_table_index()
+                .expect("range table index should have been set");
+            pgrx::log!("execution_rti: {}", execution_rti);
+            pgrx::log!("planning_rti: {}", planning_rti);
             builder.custom_state().snippet_generators = uses_snippets(
                 planning_rti,
                 &builder.custom_state().var_attname_lookup,

@@ -29,6 +29,7 @@ use serde::{Deserialize, Serialize};
 pub struct PrivateData {
     heaprelid: Option<pg_sys::Oid>,
     indexrelid: Option<pg_sys::Oid>,
+    range_table_index: Option<pg_sys::Index>,
     query: Option<SearchQueryInput>,
     limit: Option<usize>,
     sort_field: Option<String>,
@@ -156,6 +157,10 @@ impl PrivateData {
         self.indexrelid = Some(oid);
     }
 
+    pub fn set_range_table_index(&mut self, rti: pg_sys::Index) {
+        self.range_table_index = Some(rti);
+    }
+
     pub fn set_query(&mut self, query: SearchQueryInput) {
         self.query = Some(query);
     }
@@ -222,6 +227,10 @@ impl PrivateData {
 
     pub fn indexrelid(&self) -> Option<pg_sys::Oid> {
         self.indexrelid
+    }
+
+    pub fn range_table_index(&self) -> Option<pg_sys::Index> {
+        self.range_table_index
     }
 
     pub fn query(&self) -> &Option<SearchQueryInput> {

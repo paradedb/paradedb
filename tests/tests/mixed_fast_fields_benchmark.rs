@@ -366,13 +366,26 @@ async fn set_execution_method(
 ) -> Result<()> {
     // Create appropriate index if execution method is specified
     // This should be either "mixed" or "normal"
-    if execution_method.is_some()
-        && (execution_method.unwrap() == "mixed" || execution_method.unwrap() == "string")
-    {
+    if execution_method.is_some() && execution_method.unwrap() == "mixed" {
+        sqlx::query("SET paradedb.enable_fast_field_exec = false")
+            .execute(&mut *conn)
+            .await?;
         sqlx::query("SET paradedb.enable_mixed_fast_field_exec = true")
             .execute(&mut *conn)
             .await?;
+    } else if execution_method.is_some()
+        && (execution_method.unwrap() == "string" || execution_method.unwrap() == "numeric")
+    {
+        sqlx::query("SET paradedb.enable_fast_field_exec = true")
+            .execute(&mut *conn)
+            .await?;
+        sqlx::query("SET paradedb.enable_mixed_fast_field_exec = false")
+            .execute(&mut *conn)
+            .await?;
     } else {
+        sqlx::query("SET paradedb.enable_fast_field_exec = false")
+            .execute(&mut *conn)
+            .await?;
         sqlx::query("SET paradedb.enable_mixed_fast_field_exec = false")
             .execute(&mut *conn)
             .await?;
@@ -482,6 +495,7 @@ fn display_results(results: &[BenchmarkResult]) {
         let mixed_result = group_results.iter().find(|r| {
             r.test_name.contains("MixedFastFieldExec")
                 || r.test_name.contains("StringFastFieldExec")
+                || r.test_name.contains("NumericFastFieldExec")
         });
 
         let normal_result = group_results
@@ -716,11 +730,6 @@ async fn benchmark_mixed_fast_fields(mut conn: PgConnection) -> Result<()> {
             string_field2 @@@ 'IN [red blue green]'
         ORDER BY string_field1";
 
-    // Drop any existing index before creating our specific one
-    sqlx::query("DROP INDEX IF EXISTS benchmark_string_field_idx")
-        .execute(&mut conn)
-        .await?;
-
     // Run the tests with a single string fast field
     println!("Running Single String Fast Field test...");
     // Use StringFastFieldExecState
@@ -797,6 +806,56 @@ async fn benchmark_mixed_fast_fields(mut conn: PgConnection) -> Result<()> {
     assert!(
         normal_result.exec_method.contains("NormalScanExecState"),
         "Mixed Str/Num Field benchmark is not using NormalScanExecState as intended. Got: {}",
+        normal_result.exec_method
+    );
+    results.push(normal_result);
+
+    // Test 5: Multiple Numeric Fast Field Query (1-2 seconds)
+    // This query specifically tests performance with multiple numeric fast fields,
+    // which should use NumericFastFieldExecState instead of MixedFastFieldExecState
+    let multiple_numeric_query = "
+            SELECT 
+                numeric_field1, numeric_field2, numeric_field3
+            FROM benchmark_data 
+            WHERE 
+                string_field1 @@@ 'IN [alpha beta gamma delta epsilon]' AND
+                string_field2 @@@ 'IN [red blue green]'
+            ORDER BY numeric_field1";
+
+    // Run the tests with a single string fast field
+    println!("Running Multiple Numeric Fast Field test...");
+    // Use NumericFastFieldExecState
+    let numeric_fast_result = run_benchmark(
+        &mut conn,
+        &multiple_numeric_query,
+        "Multiple Numeric Field (NumericFastFieldExec)",
+        Some("numeric"),
+    )
+    .await?;
+
+    // ENFORCE: Validate we're actually using StringFastFieldExec
+    assert!(
+        numeric_fast_result
+            .exec_method
+            .contains("NumericFastFieldExec"),
+        "Multiple Numeric Field benchmark is not using NumericFastFieldExec as intended. Got: {}",
+        numeric_fast_result.exec_method
+    );
+    results.push(numeric_fast_result);
+
+    // Use NormalScanExecState
+    let normal_result = run_benchmark(
+        &mut conn,
+        &multiple_numeric_query,
+        "Multiple Numeric Field (NormalScanExecState)",
+        Some("normal"),
+    )
+    .await?;
+
+    // ENFORCE: Validate we're actually using NormalScanExecState
+    assert!(
+        normal_result.exec_method.contains("NormalScanExecState"),
+        "Multiple Numeric Field benchmark is not using NormalScanExecState as intended. Got: {}",
         normal_result.exec_method
     );
     results.push(normal_result);

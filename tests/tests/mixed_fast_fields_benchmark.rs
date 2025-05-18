@@ -33,6 +33,7 @@ const WARMUP_ITERATIONS: usize = 2;
 // Number of rows to use in the benchmark
 const NUM_ROWS_BENCHMARK: usize = 1000000; // Reduced for faster test runs
 const NUM_ROWS_VALIDATION: usize = 1000; // Reduced for faster test runs
+const BATCH_SIZE: usize = 100000; // For efficiency with large datasets, use batch inserts
 /// Structure to store benchmark results
 #[derive(Debug, Clone)]
 struct BenchmarkResult {
@@ -187,8 +188,6 @@ async fn setup_benchmark_database(conn: &mut PgConnection, num_rows: usize) -> R
         "red", "orange", "yellow", "green", "blue", "indigo", "violet", "black", "white", "gray",
     ];
 
-    // For efficiency with large datasets, use batch inserts
-    const BATCH_SIZE: usize = 10000;
     let mut inserted = 0;
 
     while inserted < rows_to_add {

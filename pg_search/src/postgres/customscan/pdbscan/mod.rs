@@ -1025,37 +1025,27 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
         if !fast_fields::fast_field_capable_prereqs(privdata) {
             return ExecMethodType::Normal;
         }
-        if fast_fields::is_numeric_fast_field_capable(privdata) {
-            if gucs::is_mixed_fast_field_exec_enabled() {
-                // Check for numeric-only fast fields first because they're more selective
-                ExecMethodType::FastFieldNumeric {
-                    which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
-                }
-            } else {
-                // Fall back to normal execution
-                ExecMethodType::Normal
+        if fast_fields::is_numeric_fast_field_capable(privdata)
+            && gucs::is_fast_field_exec_enabled()
+        {
+            // Check for numeric-only fast fields first because they're more selective
+            ExecMethodType::FastFieldNumeric {
+                which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
             }
-        } else if let Some(field) = fast_fields::is_string_agg_capable(privdata) {
-            if gucs::is_mixed_fast_field_exec_enabled() {
-                // Check for string-only fast fields next
-                ExecMethodType::FastFieldString {
-                    field,
-                    which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
-                }
-            } else {
-                // Fall back to normal execution
-                ExecMethodType::Normal
+        } else if fast_fields::is_string_agg_capable(privdata).is_some()
+            && gucs::is_fast_field_exec_enabled()
+        {
+            let field = fast_fields::is_string_agg_capable(privdata).unwrap();
+            ExecMethodType::FastFieldString {
+                field,
+                which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
             }
-        } else if fast_fields::is_mixed_fast_field_capable(privdata) {
-            // Check if mixed fast field executor is enabled
-            if gucs::is_mixed_fast_field_exec_enabled() {
-                // Use MixedFastFieldExec if enabled
-                ExecMethodType::FastFieldMixed {
-                    which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
-                }
-            } else {
-                // Fall back to normal execution
-                ExecMethodType::Normal
+        } else if fast_fields::is_mixed_fast_field_capable(privdata)
+            && gucs::is_mixed_fast_field_exec_enabled()
+        {
+            // Use MixedFastFieldExec if enabled
+            ExecMethodType::FastFieldMixed {
+                which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
             }
         } else {
             // Fall back to normal execution

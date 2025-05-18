@@ -1026,15 +1026,25 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
             return ExecMethodType::Normal;
         }
         if fast_fields::is_numeric_fast_field_capable(privdata) {
-            // Check for numeric-only fast fields first because they're more selective
-            ExecMethodType::FastFieldNumeric {
-                which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
+            if gucs::is_mixed_fast_field_exec_enabled() {
+                // Check for numeric-only fast fields first because they're more selective
+                ExecMethodType::FastFieldNumeric {
+                    which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
+                }
+            } else {
+                // Fall back to normal execution
+                ExecMethodType::Normal
             }
         } else if let Some(field) = fast_fields::is_string_agg_capable(privdata) {
-            // Check for string-only fast fields next
-            ExecMethodType::FastFieldString {
-                field,
-                which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
+            if gucs::is_mixed_fast_field_exec_enabled() {
+                // Check for string-only fast fields next
+                ExecMethodType::FastFieldString {
+                    field,
+                    which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
+                }
+            } else {
+                // Fall back to normal execution
+                ExecMethodType::Normal
             }
         } else if fast_fields::is_mixed_fast_field_capable(privdata) {
             // Check if mixed fast field executor is enabled

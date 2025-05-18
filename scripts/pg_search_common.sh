@@ -13,6 +13,15 @@
 
 set -Eeuo pipefail
 
+# Parse arguments for the --release flag
+RELEASE_FLAG=""
+for arg in "$@"; do
+  if [ "$arg" = "--release" ]; then
+    RELEASE_FLAG="--release"
+    break
+  fi
+done
+
 # Get the directory where this script is located
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 
@@ -33,8 +42,8 @@ set -x
 # Stop any existing pgrx server with this feature
 cargo pgrx stop "${FEATURE}" --package pg_search
 
-# Install pg_search extension with ICU support
-cargo pgrx install --package pg_search --features=icu --pg-config "${HOME}/.pgrx/${PGVER}/pgrx-install/bin/pg_config" || exit $?
+# Install pg_search extension with ICU support, conditionally using --release
+cargo pgrx install --package pg_search ${RELEASE_FLAG} --features=icu --pg-config "${HOME}/.pgrx/${PGVER}/pgrx-install/bin/pg_config" || exit $?
 
 # Start the PostgreSQL server with the installed extension
 RUST_BACKTRACE=1 cargo pgrx start "${FEATURE}" --package pg_search

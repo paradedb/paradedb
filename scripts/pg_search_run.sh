@@ -7,17 +7,27 @@
 # and connects to it with psql.
 #
 # Usage:
-#   PGVER=<version> ./pg_search_run.sh [psql arguments]
-#   Example: PGVER=17.4 ./pg_search_run.sh psql -c "SELECT 1"
+#   PGVER=<version> ./pg_search_run.sh [--release] [psql arguments]
+#   Example: PGVER=17.4 ./pg_search_run.sh --release psql -c "SELECT 1"
 
 CURRENT_DIR=$(pwd)
 
 set -Eeuo pipefail
 
-# Source the common setup script
+# Get script directory
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+
+# Extract --release flag if present
+COMMON_ARGS=()
+for arg in "$@"; do
+  if [ "$arg" = "--release" ]; then
+    COMMON_ARGS+=("$arg")
+  fi
+done
+
+# Source the common setup script with appropriate arguments
 # shellcheck source=./scripts/pg_search_common.sh
-source "${SCRIPT_DIR}/pg_search_common.sh"
+source "${SCRIPT_DIR}/pg_search_common.sh" "${COMMON_ARGS[@]+"${COMMON_ARGS[@]}"}"
 
 cd "${CURRENT_DIR}"
 

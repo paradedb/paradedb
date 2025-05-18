@@ -31,7 +31,7 @@ const ITERATIONS: usize = 5;
 // Number of warmup iterations before measuring performance
 const WARMUP_ITERATIONS: usize = 2;
 // Number of rows to use in the benchmark
-const NUM_ROWS_BENCHMARK: usize = 1000000; // Reduced for faster test runs
+const NUM_ROWS_BENCHMARK: usize = 100000; // Reduced for faster test runs
 const NUM_ROWS_VALIDATION: usize = 1000; // Reduced for faster test runs
 const BATCH_SIZE: usize = 100000; // For efficiency with large datasets, use batch inserts
 /// Structure to store benchmark results
@@ -251,64 +251,38 @@ async fn setup_benchmark_database(conn: &mut PgConnection, num_rows: usize) -> R
         final_count, num_rows
     );
 
-    create_index_for_execution_method(conn, "mixed").await?;
+    create_bm25_index(conn).await?;
 
     Ok(())
 }
 
 /// Creates an index with the specified configuration
-async fn create_index_for_execution_method(
-    conn: &mut PgConnection,
-    exec_method: &str,
-) -> Result<()> {
+async fn create_bm25_index(conn: &mut PgConnection) -> Result<()> {
     // First drop any existing index
     sqlx::query("DROP INDEX IF EXISTS benchmark_data_idx CASCADE")
         .execute(&mut *conn)
         .await?;
 
     // Define configuration based on the desired execution method
-    let index_definition = match exec_method {
-        "mixed" => {
-            // All fields are marked as fast for MixedFastFieldExec
-            // IMPORTANT: ALL fields, including ID and those used in SELECT must be fast
-            // Use keyword tokenizer for string fields to ensure exact matching
-            "CREATE INDEX benchmark_data_idx ON benchmark_data 
-            USING bm25(
-                id, 
-                string_field1,
-                string_field2,
-                numeric_field1,
-                numeric_field2,
-                numeric_field3
-            ) WITH (
-                key_field = 'id',
-                text_fields = '{\"string_field1\": {\"fast\": true, \"tokenizer\": {\"type\": \"keyword\"}}, \"string_field2\": {\"fast\": true, \"tokenizer\": {\"type\": \"keyword\"}}}',
-                numeric_fields = '{\"numeric_field1\": {\"fast\": true}, \"numeric_field2\": {\"fast\": true}, \"numeric_field3\": {\"fast\": true}}'
-            )"
-        }
-        "normal" => {
-            // No fast fields to force NormalScanExecState
-            "CREATE INDEX benchmark_data_idx ON benchmark_data 
-            USING bm25(
-                id, 
-                string_field1,
-                string_field2,
-                numeric_field1,
-                numeric_field2,
-                numeric_field3
-            ) WITH (
-                key_field = 'id',
-                text_fields = '{\"string_field1\": {\"fast\": false}, \"string_field2\": {\"fast\": false}}',
-                numeric_fields = '{\"numeric_field1\": {\"fast\": false}, \"numeric_field2\": {\"fast\": false}, \"numeric_field3\": {\"fast\": false}}'
-            )"
-        }
-        _ => {
-            panic!("Unsupported execution method: {}", exec_method);
-        }
-    };
+    // All fields are marked as fast for MixedFastFieldExec
+    // IMPORTANT: ALL fields, including ID and those used in SELECT must be fast
+    // Use keyword tokenizer for string fields to ensure exact matching
+    let index_definition = "CREATE INDEX benchmark_data_idx ON benchmark_data 
+        USING bm25(
+            id, 
+            string_field1,
+            string_field2,
+            numeric_field1,
+            numeric_field2,
+            numeric_field3
+        ) WITH (
+            key_field = 'id',
+            text_fields = '{\"string_field1\": {\"fast\": true, \"tokenizer\": {\"type\": \"keyword\"}}, \"string_field2\": {\"fast\": true, \"tokenizer\": {\"type\": \"keyword\"}}}',
+            numeric_fields = '{\"numeric_field1\": {\"fast\": true}, \"numeric_field2\": {\"fast\": true}, \"numeric_field3\": {\"fast\": true}}'
+    )";
 
     // Create the index
-    println!("Creating index for {} execution method...", exec_method);
+    println!("Creating index...");
     sqlx::query(index_definition).execute(&mut *conn).await?;
 
     // Wait a moment for the index to be fully ready
@@ -365,8 +339,8 @@ async fn set_execution_method(
     execution_method: &Option<&str>,
 ) -> Result<()> {
     // Create appropriate index if execution method is specified
-    // This should be either "mixed" or "normal"
-    if execution_method.is_some() && execution_method.unwrap() == "mixed" {
+    // This should be either "MixedFastFieldExec" or "StringFastFieldExec" or "NumericFastFieldExec"
+    if execution_method.is_some() && execution_method.unwrap() == "MixedFastFieldExec" {
         sqlx::query("SET paradedb.enable_fast_field_exec = false")
             .execute(&mut *conn)
             .await?;
@@ -374,7 +348,8 @@ async fn set_execution_method(
             .execute(&mut *conn)
             .await?;
     } else if execution_method.is_some()
-        && (execution_method.unwrap() == "string" || execution_method.unwrap() == "numeric")
+        && (execution_method.unwrap() == "StringFastFieldExec"
+            || execution_method.unwrap() == "NumericFastFieldExec")
     {
         sqlx::query("SET paradedb.enable_fast_field_exec = true")
             .execute(&mut *conn)
@@ -528,6 +503,36 @@ fn display_results(results: &[BenchmarkResult]) {
     }
 }
 
+/// Helper function to run benchmarks with multiple execution methods
+async fn run_benchmarks_with_methods(
+    conn: &mut PgConnection,
+    query: &str,
+    benchmark_name: &str,
+    methods: &[&str], // (method_name, expected_substring_in_exec_method)
+    results: &mut Vec<BenchmarkResult>,
+) -> Result<()> {
+    println!("Running {} test...", benchmark_name);
+
+    for method_name in methods {
+        let full_benchmark_name = format!("{} ({})", benchmark_name, method_name);
+
+        let result = run_benchmark(conn, query, &full_benchmark_name, Some(method_name)).await?;
+
+        // Validate we're using the expected execution method
+        assert!(
+            result.exec_method.contains(method_name),
+            "{} benchmark is not using {} as intended. Got: {}",
+            benchmark_name,
+            method_name,
+            result.exec_method
+        );
+
+        results.push(result);
+    }
+
+    Ok(())
+}
+
 #[rstest]
 async fn benchmark_mixed_fast_fields(mut conn: PgConnection) -> Result<()> {
     // Set up the benchmark database
@@ -546,82 +551,30 @@ async fn benchmark_mixed_fast_fields(mut conn: PgConnection) -> Result<()> {
          WHERE numeric_field1 < 500 AND string_field1 @@@ '\"alpha\"' AND string_field2 @@@ '\"red\"'
          ORDER BY id";
 
-    // Run with all fast fields to force MixedFastFieldExec
-    let mixed_result = run_benchmark(
+    // Run the benchmarks with different execution methods
+    run_benchmarks_with_methods(
         &mut conn,
         basic_query,
-        "Basic Mixed Fields (MixedFastFieldExec)",
-        Some("mixed"),
+        "Basic Mixed Fields",
+        &["MixedFastFieldExec", "NormalScanExecState"],
+        &mut results,
     )
     .await?;
-
-    // ENFORCE: Validate we're actually using MixedFastFieldExec
-    assert!(
-        mixed_result.exec_method.contains("MixedFastFieldExec"),
-        "Mixed benchmark is not using MixedFastFieldExec as intended. Got: {}",
-        mixed_result.exec_method
-    );
-    results.push(mixed_result);
-
-    // Run with no fast fields to force NormalScanExecState
-    let normal_result = run_benchmark(
-        &mut conn,
-        basic_query,
-        "Basic Mixed Fields (NormalScanExecState)",
-        Some("normal"),
-    )
-    .await?;
-
-    // ENFORCE: Validate we're actually using NormalScanExecState
-    assert!(
-        normal_result.exec_method.contains("NormalScanExecState"),
-        "Normal benchmark is not using NormalScanExecState as intended. Got: {}",
-        normal_result.exec_method
-    );
-    results.push(normal_result);
 
     // Test 2: Count query (simpler test)
     let count_query = "SELECT numeric_field1, string_field1
                       FROM benchmark_data 
                       WHERE numeric_field1 < 500 AND string_field1 @@@ '\"alpha\"'";
 
-    // Run with mixed fast field execution
-    let count_mixed_result = run_benchmark(
+    // Run the benchmarks with different execution methods
+    run_benchmarks_with_methods(
         &mut conn,
         count_query,
-        "Count Query (MixedFastFieldExec)",
-        Some("mixed"),
+        "Count Query",
+        &["MixedFastFieldExec", "NormalScanExecState"],
+        &mut results,
     )
     .await?;
-
-    // ENFORCE: Validate we're actually using MixedFastFieldExec
-    assert!(
-        count_mixed_result
-            .exec_method
-            .contains("MixedFastFieldExec"),
-        "Count Mixed benchmark is not using MixedFastFieldExec as intended. Got: {}",
-        count_mixed_result.exec_method
-    );
-    results.push(count_mixed_result);
-
-    // Run with normal execution
-    let count_normal_result = run_benchmark(
-        &mut conn,
-        count_query,
-        "Count Query (NormalScanExecState)",
-        Some("normal"),
-    )
-    .await?;
-
-    // ENFORCE: Validate we're actually using NormalScanExecState
-    assert!(
-        count_normal_result
-            .exec_method
-            .contains("NormalScanExecState"),
-        "Count Normal benchmark is not using NormalScanExecState as intended. Got: {}",
-        count_normal_result.exec_method
-    );
-    results.push(count_normal_result);
 
     // Test 3: Complex Aggregation Query (1-2 seconds)
     // This query performs multiple aggregations across many groups with additional filtering
@@ -680,43 +633,15 @@ async fn benchmark_mixed_fast_fields(mut conn: PgConnection) -> Result<()> {
         ORDER BY s1.sum_field1 DESC, s2.avg_field3 ASC
         LIMIT 100";
 
-    // Run with mixed fast field execution
-    let complex_mixed_result = run_benchmark(
+    // Run the benchmarks with different execution methods
+    run_benchmarks_with_methods(
         &mut conn,
         complex_query,
-        "Complex Aggregation (MixedFastFieldExec)",
-        Some("mixed"),
+        "Complex Aggregation",
+        &["MixedFastFieldExec", "NormalScanExecState"],
+        &mut results,
     )
     .await?;
-
-    // ENFORCE: Validate we're actually using MixedFastFieldExec
-    assert!(
-        complex_mixed_result
-            .exec_method
-            .contains("MixedFastFieldExec"),
-        "Complex Mixed benchmark is not using MixedFastFieldExec as intended. Got: {}",
-        complex_mixed_result.exec_method
-    );
-    results.push(complex_mixed_result);
-
-    // Run with normal execution
-    let complex_normal_result = run_benchmark(
-        &mut conn,
-        complex_query,
-        "Complex Aggregation (NormalScanExecState)",
-        Some("normal"),
-    )
-    .await?;
-
-    // ENFORCE: Validate we're actually using NormalScanExecState
-    assert!(
-        complex_normal_result
-            .exec_method
-            .contains("NormalScanExecState"),
-        "Complex Normal benchmark is not using NormalScanExecState as intended. Got: {}",
-        complex_normal_result.exec_method
-    );
-    results.push(complex_normal_result);
 
     // Test 4: Single String Fast Field Query (1-2 seconds)
     // This query specifically tests performance with a single string fast field,
@@ -730,43 +655,15 @@ async fn benchmark_mixed_fast_fields(mut conn: PgConnection) -> Result<()> {
             string_field2 @@@ 'IN [red blue green]'
         ORDER BY string_field1";
 
-    // Run the tests with a single string fast field
-    println!("Running Single String Fast Field test...");
-    // Use StringFastFieldExecState
-    let string_fast_result = run_benchmark(
+    // Run the benchmarks with different execution methods
+    run_benchmarks_with_methods(
         &mut conn,
-        &single_string_query,
-        "Single String Field (StringFastFieldExec)",
-        Some("string"),
+        single_string_query,
+        "Single String Field",
+        &["StringFastFieldExec", "NormalScanExecState"],
+        &mut results,
     )
     .await?;
-
-    // ENFORCE: Validate we're actually using StringFastFieldExec
-    assert!(
-        string_fast_result
-            .exec_method
-            .contains("StringFastFieldExec"),
-        "Single String Field benchmark is not using StringFastFieldExec as intended. Got: {}",
-        string_fast_result.exec_method
-    );
-    results.push(string_fast_result);
-
-    // Use NormalScanExecState
-    let normal_result = run_benchmark(
-        &mut conn,
-        &single_string_query,
-        "Single String Field (NormalScanExecState)",
-        Some("normal"),
-    )
-    .await?;
-
-    // ENFORCE: Validate we're actually using NormalScanExecState
-    assert!(
-        normal_result.exec_method.contains("NormalScanExecState"),
-        "Single String Field benchmark is not using NormalScanExecState as intended. Got: {}",
-        normal_result.exec_method
-    );
-    results.push(normal_result);
 
     let single_string_query_with_numeric = "SELECT 
             string_field1, numeric_field1
@@ -776,39 +673,15 @@ async fn benchmark_mixed_fast_fields(mut conn: PgConnection) -> Result<()> {
             string_field2 @@@ 'IN [red blue green]'
         ORDER BY string_field1";
 
-    // Use MixedFastFieldExec
-    let mixed_result = run_benchmark(
+    // Run the benchmarks with different execution methods
+    run_benchmarks_with_methods(
         &mut conn,
         single_string_query_with_numeric,
-        "Mixed Str/Num Field (MixedFastFieldExec)",
-        Some("mixed"),
+        "Mixed Str/Num Field",
+        &["MixedFastFieldExec", "NormalScanExecState"],
+        &mut results,
     )
     .await?;
-
-    // ENFORCE: Validate we're actually using MixedFastFieldExec
-    assert!(
-        mixed_result.exec_method.contains("MixedFastFieldExec"),
-        "Mixed Str/Num Field benchmark is not using MixedFastFieldExec as intended. Got: {}",
-        mixed_result.exec_method
-    );
-    results.push(mixed_result);
-
-    // Use NormalScanExecState
-    let normal_result = run_benchmark(
-        &mut conn,
-        &single_string_query_with_numeric,
-        "Mixed Str/Num Field (NormalScanExecState)",
-        Some("normal"),
-    )
-    .await?;
-
-    // ENFORCE: Validate we're actually using NormalScanExecState
-    assert!(
-        normal_result.exec_method.contains("NormalScanExecState"),
-        "Mixed Str/Num Field benchmark is not using NormalScanExecState as intended. Got: {}",
-        normal_result.exec_method
-    );
-    results.push(normal_result);
 
     // Test 5: Multiple Numeric Fast Field Query (1-2 seconds)
     // This query specifically tests performance with multiple numeric fast fields,
@@ -822,43 +695,15 @@ async fn benchmark_mixed_fast_fields(mut conn: PgConnection) -> Result<()> {
                 string_field2 @@@ 'IN [red blue green]'
             ORDER BY numeric_field1";
 
-    // Run the tests with a single string fast field
-    println!("Running Multiple Numeric Fast Field test...");
-    // Use NumericFastFieldExecState
-    let numeric_fast_result = run_benchmark(
+    // Run the benchmarks with different execution methods
+    run_benchmarks_with_methods(
         &mut conn,
-        &multiple_numeric_query,
-        "Multiple Numeric Field (NumericFastFieldExec)",
-        Some("numeric"),
+        multiple_numeric_query,
+        "Multiple Numeric Fast Field",
+        &["NumericFastFieldExec", "NormalScanExecState"],
+        &mut results,
     )
     .await?;
-
-    // ENFORCE: Validate we're actually using StringFastFieldExec
-    assert!(
-        numeric_fast_result
-            .exec_method
-            .contains("NumericFastFieldExec"),
-        "Multiple Numeric Field benchmark is not using NumericFastFieldExec as intended. Got: {}",
-        numeric_fast_result.exec_method
-    );
-    results.push(numeric_fast_result);
-
-    // Use NormalScanExecState
-    let normal_result = run_benchmark(
-        &mut conn,
-        &multiple_numeric_query,
-        "Multiple Numeric Field (NormalScanExecState)",
-        Some("normal"),
-    )
-    .await?;
-
-    // ENFORCE: Validate we're actually using NormalScanExecState
-    assert!(
-        normal_result.exec_method.contains("NormalScanExecState"),
-        "Multiple Numeric Field benchmark is not using NormalScanExecState as intended. Got: {}",
-        normal_result.exec_method
-    );
-    results.push(normal_result);
 
     // Display all benchmark results
     display_results(&results);
@@ -913,12 +758,6 @@ async fn validate_mixed_fast_fields_correctness(mut conn: PgConnection) -> Resul
     println!("Testing query correctness between execution methods...");
     println!("────────────────────────────────────────────────────────");
 
-    // Run VACUUM ANALYZE to ensure statistics are up-to-date
-    println!("Running VACUUM ANALYZE on benchmark_data...");
-    sqlx::query("VACUUM ANALYZE benchmark_data")
-        .execute(&mut conn)
-        .await?;
-
     // Define a test query that will use both string and numeric fast fields
     let test_query =
         "SELECT id, string_field1, string_field2, numeric_field1, numeric_field2, numeric_field3 
@@ -928,8 +767,6 @@ async fn validate_mixed_fast_fields_correctness(mut conn: PgConnection) -> Resul
 
     println!("Testing query correctness between execution methods...");
     println!("────────────────────────────────────────────────────────");
-
-    set_execution_method(&mut conn, &Some("mixed")).await?;
 
     // Set PostgreSQL settings to ensure index usage
     sqlx::query("SET enable_seqscan = off")
@@ -942,10 +779,7 @@ async fn validate_mixed_fast_fields_correctness(mut conn: PgConnection) -> Resul
         .execute(&mut conn)
         .await?;
 
-    // Analyze to update statistics
-    sqlx::query("ANALYZE benchmark_data")
-        .execute(&mut conn)
-        .await?;
+    set_execution_method(&mut conn, &Some("MixedFastFieldExec")).await?;
 
     // Get results with MixedFastFieldExec
     let mixed_results = sqlx::query(test_query).fetch_all(&mut conn).await?;
@@ -965,8 +799,7 @@ async fn validate_mixed_fast_fields_correctness(mut conn: PgConnection) -> Resul
         mixed_method
     );
 
-    // Create index for NormalScanExecState
-    create_index_for_execution_method(&mut conn, "normal").await?;
+    set_execution_method(&mut conn, &Some("NormalScanExecState")).await?;
 
     // Get results with NormalScanExecState
     let normal_results = sqlx::query(test_query).fetch_all(&mut conn).await?;

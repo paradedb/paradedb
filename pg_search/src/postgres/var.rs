@@ -4,7 +4,7 @@ use crate::customscan::operator_oid;
 use crate::nodecast;
 use pgrx::pg_sys::NodeTag::{T_Const, T_OpExpr, T_Var};
 use pgrx::pg_sys::{expression_tree_walker, Const, OpExpr, Var};
-use pgrx::{is_a, pg_guard, pg_sys, FromDatum, PgList, PgRelation};
+use pgrx::{is_a, pg_guard, pg_sys, FromDatum, PgList, PgOid, PgRelation};
 use std::ffi::CStr;
 use std::ptr::addr_of_mut;
 use std::sync::OnceLock;
@@ -182,14 +182,29 @@ unsafe fn find_json_path(root: *mut pg_sys::PlannerInfo, node: *mut pg_sys::Node
         let node = node as *mut Var;
         let (heaprelid, varattno, _) = find_var_relation(node, root);
         let field_name = fieldname_from_var(heaprelid, node, varattno)
-            .expect("Var should have a valid FieldName");
+            .expect("find_json_path: var should have a valid FieldName");
         path.push(field_name.root());
         return path;
     } else if is_a(node, T_Const) {
         let node = node as *mut Const;
-        if let Some(s) = String::from_datum((*node).constvalue, (*node).constisnull) {
-            path.push(s);
+        if let PgOid::BuiltIn(oid) = PgOid::from((*node).consttype) {
+            match oid {
+                pg_sys::BuiltinOid::TEXTOID | pg_sys::BuiltinOid::VARCHAROID => {
+                    if let Some(s) = String::from_datum((*node).constvalue, (*node).constisnull) {
+                        path.push(s);
+                    }
+                }
+                pg_sys::BuiltinOid::TEXTARRAYOID | pg_sys::BuiltinOid::VARCHARARRAYOID => {
+                    if let Some(array) =
+                        pgrx::Array::<String>::from_datum((*node).constvalue, (*node).constisnull)
+                    {
+                        path.extend(array.iter().flatten());
+                    }
+                }
+                _ => {}
+            }
         }
+
         return path;
     } else if is_a(node, T_OpExpr) {
         let node = node as *mut OpExpr;
@@ -237,6 +252,11 @@ unsafe fn initialize_json_operator_lookup() -> HashSet<pg_sys::Oid> {
             lookup.insert(operator_oid(&format!("{o}({l},{r})")));
         }
     }
+
+    lookup.insert(operator_oid("#>(json,text[])"));
+    lookup.insert(operator_oid("#>(jsonb,text[])"));
+    lookup.insert(operator_oid("#>>(json,text[])"));
+    lookup.insert(operator_oid("#>>(jsonb,text[])"));
 
     lookup
 }

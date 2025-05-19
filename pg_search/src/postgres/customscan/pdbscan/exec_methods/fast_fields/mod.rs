@@ -169,8 +169,16 @@ pub unsafe fn collect_fast_fields(
     rti: pg_sys::Index,
     schema: &SearchIndexSchema,
     heaprel: &PgRelation,
+    is_execution_time: bool,
 ) -> Vec<WhichFastField> {
-    let fast_fields = pullup_fast_fields(target_list, referenced_columns, schema, heaprel, rti);
+    let fast_fields = pullup_fast_fields(
+        target_list,
+        referenced_columns,
+        schema,
+        heaprel,
+        rti,
+        is_execution_time,
+    );
     fast_fields
         .filter(|fast_fields| !fast_fields.is_empty())
         .unwrap_or_default()
@@ -248,6 +256,7 @@ pub unsafe fn pullup_fast_fields(
     schema: &SearchIndexSchema,
     heaprel: &PgRelation,
     rti: pg_sys::Index,
+    is_execution_time: bool,
 ) -> Option<Vec<WhichFastField>> {
     let mut matches = Vec::new();
     let mut processed_attnos = HashSet::default();
@@ -265,8 +274,19 @@ pub unsafe fn pullup_fast_fields(
 
         if let Some(var) = nodecast!(Var, T_Var, (*te).expr) {
             if (*var).varno as i32 != rti as i32 {
-                // this TargetEntry's Var isn't from the same RangeTable as we were asked to inspect,
-                // so just skip it
+                // We expect all Vars in the target list to be from the same range table as the
+                // index we're searching, so if we see a Var from a different range table, we skip it.
+                if is_execution_time {
+                    // This is a sanity check to ensure that the target list is consistent with the
+                    // index we're searching. As we're not supporting JOINs and Projection, at
+                    // execution time (not planning time), we expect all Vars in the target list to
+                    // be from the same range table as the index we're searching.
+                    debug_assert_eq!(
+                        (*var).varno as i32,
+                        rti as i32,
+                        "Encountered a Var with a different range table index.",
+                    );
+                }
                 continue;
             }
             let attno = (*var).varattno as i32;
@@ -288,9 +308,32 @@ pub unsafe fn pullup_fast_fields(
             || nodecast!(Const, T_Const, (*te).expr).is_some()
             || nodecast!(WindowFunc, T_WindowFunc, (*te).expr).is_some()
         {
+            let create_resname = |base: &str, te: &pg_sys::TargetEntry| {
+                let restype = (*te.expr).type_;
+                let resno = te.resno;
+                let isjunk = te.resjunk;
+                format!(
+                    "{}(resno={}, restype={:?}, resjunk={})",
+                    base, resno, restype, isjunk
+                )
+            };
+            let resname = if (*te).resname.is_null() {
+                create_resname("NONAME", &*te)
+            } else {
+                unsafe {
+                    std::ffi::CStr::from_ptr((*te).resname)
+                        .to_str()
+                        .unwrap_or(create_resname("INVALID_NAME_STRING", &*te).as_str())
+                }
+                .to_string()
+            };
+
+            matches.push(WhichFastField::Junk(resname));
             continue;
         }
         // we only support Vars or our score function in the target list
+        // Other nodes (e.g., T_SubPlan, T_FuncExpr, T_OpExpr, T_CaseExpr, T_PlaceHolderVar, etc.)
+        // are not supported in FastFields yet
         return None;
     }
 

@@ -34,6 +34,7 @@ use serde::de::Visitor;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt::{Debug, Formatter};
 use std::ops::Bound;
+use tantivy::tokenizer::TokenStream;
 use tantivy::DateTime;
 use tantivy::{
     json_utils::split_json_path,
@@ -486,23 +487,26 @@ pub trait AsFieldType<T> {
 
     fn as_field_type(&self, from: &T) -> Option<(FieldType, PgOid, Field)>;
 
-    fn is_field_type(&self, from: &T, value: &OwnedValue) -> bool {
-        matches!(
-            (self.as_field_type(from), value),
-            (Some((FieldType::Str(_), _, _)), OwnedValue::Str(_))
-                | (Some((FieldType::U64(_), _, _)), OwnedValue::U64(_))
-                | (Some((FieldType::I64(_), _, _)), OwnedValue::I64(_))
-                | (Some((FieldType::F64(_), _, _)), OwnedValue::F64(_))
-                | (Some((FieldType::Bool(_), _, _)), OwnedValue::Bool(_))
-                | (Some((FieldType::Date(_), _, _)), OwnedValue::Date(_))
-                | (Some((FieldType::Facet(_), _, _)), OwnedValue::Facet(_))
-                | (Some((FieldType::Bytes(_), _, _)), OwnedValue::Bytes(_))
-                | (
-                    Some((FieldType::JsonObject(_), _, _)),
-                    OwnedValue::Object(_)
-                )
-                | (Some((FieldType::IpAddr(_), _, _)), OwnedValue::IpAddr(_))
-        )
+    fn coerce_value_to_field_type(&self, from: &T, value: OwnedValue) -> Option<OwnedValue> {
+        let (ft, _, _) = self.as_field_type(from)?;
+
+        match (ft, &value) {
+            (FieldType::Str(_), OwnedValue::Str(_))
+            | (FieldType::U64(_), OwnedValue::U64(_))
+            | (FieldType::I64(_), OwnedValue::I64(_))
+            | (FieldType::F64(_), OwnedValue::F64(_))
+            | (FieldType::Bool(_), OwnedValue::Bool(_))
+            | (FieldType::Date(_), OwnedValue::Date(_))
+            | (FieldType::Facet(_), OwnedValue::Facet(_))
+            | (FieldType::Bytes(_), OwnedValue::Bytes(_))
+            | (FieldType::JsonObject(_), OwnedValue::Object(_))
+            | (FieldType::IpAddr(_), OwnedValue::IpAddr(_)) => Some(value),
+
+            (FieldType::U64(_), OwnedValue::I64(v)) => (*v).try_into().ok().map(OwnedValue::U64),
+            (FieldType::I64(_), OwnedValue::U64(v)) => (*v).try_into().ok().map(OwnedValue::I64),
+
+            _ => None,
+        }
     }
 
     fn as_str(&self, from: &T) -> Option<Field> {
@@ -958,9 +962,10 @@ impl SearchQueryInput {
                     (None, Some(doc_fields)) => {
                         let mut fields_map = HashMap::default();
                         for (field_name, value) in doc_fields {
-                            if !field_lookup.is_field_type(&field_name, &value) {
-                                return Err(Box::new(QueryError::WrongFieldType(field_name)));
-                            }
+                            let value = field_lookup
+                                .coerce_value_to_field_type(&field_name, value)
+                                // None means we couldn't coerce the type
+                                .ok_or_else(|| QueryError::WrongFieldType(field_name.clone()))?;
 
                             let (_, _, field) = field_lookup
                                 .as_field_type(&field_name)
@@ -1053,17 +1058,42 @@ impl SearchQueryInput {
                 let (field_type, _, field) = field_lookup
                     .as_field_type(&field)
                     .ok_or(QueryError::NonIndexedField(field))?;
-                let terms = phrases.clone().into_iter().map(|phrase| {
-                    value_to_term(
-                        field,
-                        &OwnedValue::Str(phrase),
-                        &field_type,
-                        path.as_deref(),
-                        false,
-                    )
-                    .unwrap()
-                });
-                let mut query = PhraseQuery::new(terms.collect());
+
+                let mut terms = Vec::new();
+                let mut analyzer = searcher.index().tokenizer_for_field(field)?;
+                let mut should_warn = false;
+
+                for phrase in phrases.into_iter() {
+                    let mut stream = analyzer.token_stream(&phrase);
+                    let len_before = terms.len();
+
+                    while stream.advance() {
+                        let token = stream.token().text.clone();
+                        let term = value_to_term(
+                            field,
+                            &OwnedValue::Str(token),
+                            &field_type,
+                            path.as_deref(),
+                            false,
+                        )?;
+
+                        terms.push(term);
+                    }
+
+                    if len_before + 1 < terms.len() {
+                        should_warn = true;
+                    }
+                }
+
+                // When tokeniser produce more than one token per phrase, their position may not
+                // correctly represent the original query.
+                // For example, NgramTokenizer can produce many tokens per word and all of them will
+                // have position=0 which won't be correctly interpreted when processing slop
+                if should_warn {
+                    pgrx::warning!("Phrase query with multiple tokens per phrase may not be correctly interpreted. Consider using a different tokenizer or switch to parse/match");
+                }
+
+                let mut query = PhraseQuery::new(terms);
                 if let Some(slop) = slop {
                     query.set_slop(slop)
                 }

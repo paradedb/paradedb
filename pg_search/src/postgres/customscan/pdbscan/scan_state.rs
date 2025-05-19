@@ -37,7 +37,13 @@ use tantivy::snippet::SnippetGenerator;
 pub struct PdbScanState {
     pub parallel_state: Option<*mut ParallelScanState>,
 
-    pub rti: pg_sys::Index,
+    // Note: the range table index at execution time might be different from the one at planning time,
+    // so we need to use the one at execution time when creating the custom scan state.
+    // But, we also keep the planning RTI for the case when we need to use it for the `var_attname_lookup`
+    // because the `var_attname_lookup` is created based on the planning RTI.
+    // See https://www.postgresql.org/docs/current/custom-scan-plan.html
+    pub planning_rti: pg_sys::Index,
+    pub execution_rti: pg_sys::Index,
 
     pub search_query_input: SearchQueryInput,
     pub serialized_query: Vec<u8>,

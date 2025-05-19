@@ -624,6 +624,40 @@ fn more_like_this_i32_key(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn more_like_this_literal_cast(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_more_like_this_table (
+        id INT PRIMARY KEY,
+        year INTEGER
+    );
+
+    INSERT INTO test_more_like_this_table (id, year) VALUES
+        (1, 2012),
+        (2, 2013),
+        (3, 2014),
+        (4, 2012);
+    "#
+    .execute(&mut conn);
+
+    r#"
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, year)
+        WITH (key_field='id');
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(i32, i32)> = r#"
+    SELECT id, year FROM test_more_like_this_table
+    WHERE test_more_like_this_table @@@ paradedb.more_like_this(
+        min_doc_frequency => 0,
+        min_term_frequency => 0,
+        document_fields => '{"year": 2012}'
+    ) ORDER BY id;
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 2);
+}
+
+#[rstest]
 fn more_like_this_i16_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_more_like_this_table (

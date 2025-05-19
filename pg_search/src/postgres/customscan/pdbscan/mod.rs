@@ -288,6 +288,7 @@ impl CustomScan for PdbScan {
                     rti,
                     &schema,
                     &table,
+                    false,
                 )
                 .into_iter()
                 .collect(),
@@ -571,10 +572,8 @@ impl CustomScan for PdbScan {
                 .indexrelid()
                 .expect("indexrelid should have a value");
 
-            builder.custom_state().rti = builder
-                .custom_private()
-                .range_table_index()
-                .expect("range table index should have been set");
+            builder.custom_state().execution_rti =
+                (*builder.args().cscan).scan.scanrelid as pg_sys::Index;
 
             builder.custom_state().exec_method_type =
                 builder.custom_private().exec_method_type().clone();
@@ -612,13 +611,16 @@ impl CustomScan for PdbScan {
             builder.custom_state().need_scores = uses_scores(
                 builder.target_list().as_ptr().cast(),
                 score_funcoid,
-                (*builder.args().cscan).scan.scanrelid as pg_sys::Index,
+                builder.custom_state().execution_rti,
             );
 
             let node = builder.target_list().as_ptr().cast();
-            let rti = builder.custom_state().rti;
+            builder.custom_state().planning_rti = builder
+                .custom_private()
+                .range_table_index()
+                .expect("range table index should have been set");
             builder.custom_state().snippet_generators = uses_snippets(
-                rti,
+                builder.custom_state().planning_rti,
                 &builder.custom_state().var_attname_lookup,
                 node,
                 snippet_funcoid,
@@ -735,7 +737,7 @@ impl CustomScan for PdbScan {
     ) {
         unsafe {
             // open the heap and index relations with the proper locks
-            let rte = pg_sys::exec_rt_fetch(state.custom_state().rti, estate);
+            let rte = pg_sys::exec_rt_fetch(state.custom_state().execution_rti, estate);
             assert!(!rte.is_null());
             let lockmode = (*rte).rellockmode as pg_sys::LOCKMODE;
 
@@ -1164,22 +1166,30 @@ fn compute_exec_which_fast_fields(
             // in our execution-time target list, so there is no need to extract from other
             // positions.
             &HashSet::default(),
-            builder.custom_state().rti,
+            builder.custom_state().execution_rti,
             &schema,
             &heaprel,
+            true,
         )
     };
 
-    // TODO: We would like this check to be stronger, in order to rule out certain types of
-    // confusion where some target list entries involve multiple fast fields. See #2576.
-    if exec_which_fast_fields.len() != builder.target_list().len() {
-        pgrx::log!(
-            "Expected to extract {} fast fields, but only found: {exec_which_fast_fields:?}. \
-             Falling back to Normal execution.",
-            builder.target_list().len()
-        );
-        return None;
-    }
+    // Iff we have chosen a FastField execution method, then it is because we determined at planning
+    // time that we can provide all possible target list values. Thus, we should
+    // always be able to extract fast fields for the entire execution time target list.
+    //
+    // Note: based on the PG docs:
+    // >  (If CUSTOMPATH_SUPPORT_PROJECTION is not set, the scan node will only be asked to produce
+    // >  Vars of the scanned relation; while if that flag is set, the scan node must be able to
+    // >  evaluate scalar expressions over these Vars.)
+    //
+    // Then, we if we extracted the same number of fast fields at execution time for all Vars in the
+    // target list, we can be sure that we didn't miss any fast fields.
+    debug_assert!(
+        exec_which_fast_fields.len() == builder.target_list().len(),
+        "Expected to extract {} fast fields, but only found: {exec_which_fast_fields:?}. \
+         Falling back to Normal execution.",
+        builder.target_list().len()
+    );
 
     let missing_fast_fields = exec_which_fast_fields
         .iter()
@@ -1225,7 +1235,7 @@ unsafe fn inject_score_and_snippet_placeholders(state: &mut CustomScanStateWrapp
 
     let (targetlist, const_score_node, const_snippet_nodes) = inject_placeholders(
         (*(*planstate).plan).targetlist,
-        state.custom_state().rti,
+        state.custom_state().planning_rti,
         state.custom_state().score_funcoid,
         state.custom_state().snippet_funcoid,
         state.custom_state().snippet_positions_funcoid,
@@ -1345,14 +1355,14 @@ pub fn is_block_all_visible(
 }
 
 // Helper function to create an iterator over Bitmapset members
-unsafe fn bms_iter(bms: *mut pg_sys::Bitmapset) -> impl Iterator<Item = i32> {
+unsafe fn bms_iter(bms: *mut pg_sys::Bitmapset) -> impl Iterator<Item = pg_sys::Index> {
     let mut set_bit: i32 = -1;
     std::iter::from_fn(move || {
         set_bit = pg_sys::bms_next_member(bms, set_bit);
         if set_bit < 0 {
             None
         } else {
-            Some(set_bit)
+            Some(set_bit as pg_sys::Index)
         }
     })
 }
@@ -1379,12 +1389,12 @@ unsafe fn is_partitioned_table_setup(
     // For each relation in baserels
     for baserel_idx in bms_iter(baserels) {
         // Skip invalid indices
-        if baserel_idx <= 0 || baserel_idx as usize >= (*root).simple_rel_array_size as usize {
+        if baserel_idx == 0 || baserel_idx >= (*root).simple_rel_array_size as pg_sys::Index {
             continue;
         }
 
         // Get the RTE to check if this is a partitioned table
-        let rte = pg_sys::rt_fetch(baserel_idx as pg_sys::Index, rtable);
+        let rte = pg_sys::rt_fetch(baserel_idx, rtable);
         if (*rte).relkind as u8 != pg_sys::RELKIND_PARTITIONED_TABLE {
             continue;
         }

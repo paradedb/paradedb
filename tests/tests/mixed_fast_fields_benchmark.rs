@@ -425,14 +425,14 @@ async fn run_benchmark(
 fn display_results(results: &[BenchmarkResult]) {
     println!("\n======== BENCHMARK RESULTS ========");
     println!(
-        "{:<42} {:<20} {:<15} {:<15} {:<15}",
+        "{:<65} {:<20} {:<15} {:<15} {:<15}",
         "Test Name", "Exec Method", "Avg Time (ms)", "Min Time (ms)", "Max Time (ms)"
     );
-    println!("{}", "=".repeat(112));
+    println!("{}", "=".repeat(135));
 
     for result in results {
         println!(
-            "{:<42} {:<20} {:<15.2} {:<15.2} {:<15.2}",
+            "{:<65} {:<20} {:<15.2} {:<15.2} {:<15.2}",
             result.test_name,
             result.exec_method,
             result.avg_time_ms,
@@ -460,10 +460,10 @@ fn display_results(results: &[BenchmarkResult]) {
 
     println!("\n======== PERFORMANCE COMPARISON ========");
     println!(
-        "{:<30} {:<15} {:<15} {:<15} {:<15}",
+        "{:<45} {:<15} {:<15} {:<15} {:<15}",
         "Test Group", "MixedFF/StringFF (ms)", "Normal (ms)", "Ratio", "Performance"
     );
-    println!("{}", "=".repeat(90));
+    println!("{}", "=".repeat(105));
 
     for (base_name, group_results) in test_groups {
         // Identify results by their test names, which include the execution method
@@ -486,13 +486,13 @@ fn display_results(results: &[BenchmarkResult]) {
             };
 
             println!(
-                "{:<30} {:<15.2} {:<15.2} {:<15.2} {:<15}",
+                "{:<45} {:<15.2} {:<15.2} {:<15.2} {:<15}",
                 base_name, mixed.avg_time_ms, normal.avg_time_ms, ratio, performance
             );
         } else {
             // For debugging if no match found
             println!(
-                "{:<30} {:<15} {:<15} {:<15} {:<15}",
+                "{:<45} {:<15} {:<15} {:<15} {:<15}",
                 base_name,
                 mixed_result.map_or("Not found", |_| "Found"),
                 normal_result.map_or("Not found", |_| "Found"),
@@ -659,25 +659,17 @@ async fn benchmark_mixed_fast_fields(mut conn: PgConnection) -> Result<()> {
     run_benchmarks_with_methods(
         &mut conn,
         single_string_query,
-        "Single String Field",
+        "Single String Field - StringFF",
         &["StringFastFieldExec", "NormalScanExecState"],
         &mut results,
     )
     .await?;
 
-    let single_string_query_with_numeric = "SELECT 
-            string_field1, numeric_field1
-        FROM benchmark_data 
-        WHERE 
-            string_field1 @@@ 'IN [alpha beta gamma delta epsilon]' AND
-            string_field2 @@@ 'IN [red blue green]'
-        ORDER BY string_field1";
-
     // Run the benchmarks with different execution methods
     run_benchmarks_with_methods(
         &mut conn,
-        single_string_query_with_numeric,
-        "Mixed Str/Num Field",
+        single_string_query,
+        "Single String Field - MixedFF",
         &["MixedFastFieldExec", "NormalScanExecState"],
         &mut results,
     )
@@ -699,8 +691,17 @@ async fn benchmark_mixed_fast_fields(mut conn: PgConnection) -> Result<()> {
     run_benchmarks_with_methods(
         &mut conn,
         multiple_numeric_query,
-        "Multiple Numeric Fast Field",
+        "Multiple Numeric Fast Fields - NumericFF",
         &["NumericFastFieldExec", "NormalScanExecState"],
+        &mut results,
+    )
+    .await?;
+
+    run_benchmarks_with_methods(
+        &mut conn,
+        multiple_numeric_query,
+        "Multiple Numeric Fast Fields - MixedFF",
+        &["MixedFastFieldExec", "NormalScanExecState"],
         &mut results,
     )
     .await?;

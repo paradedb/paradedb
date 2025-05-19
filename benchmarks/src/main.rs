@@ -12,6 +12,9 @@ struct Args {
     #[arg(long)]
     url: String,
 
+    #[arg(long, default_value = "single")]
+    dataset: String,
+
     #[arg(long, default_value = "true")]
     prewarm: bool,
 
@@ -30,7 +33,7 @@ struct Args {
 
 fn main() {
     let args = Args::parse();
-    generate_test_data(&args.url, args.rows);
+    generate_test_data(&args.url, &args.dataset, args.rows);
 
     match args.output.as_str() {
         "md" => generate_markdown_output(&args),
@@ -46,14 +49,14 @@ fn generate_markdown_output(args: &Args) {
     write_benchmark_header(&mut file);
     write_test_info(&mut file, args);
     write_postgres_settings(&mut file, &args.url);
-    process_index_creation(&mut file, &args.url, &args.r#type);
+    process_index_creation(&mut file, &args.url, &args.dataset, &args.r#type);
     run_benchmarks_md(&mut file, args);
 }
 
 fn generate_csv_output(args: &Args) {
     write_test_info_csv(args);
     write_postgres_settings_csv(&args.url, &args.r#type);
-    process_index_creation_csv(&args.url, &args.r#type);
+    process_index_creation_csv(&args.url, &args.dataset, &args.r#type);
     run_benchmarks_csv(args);
 }
 
@@ -105,8 +108,8 @@ fn write_postgres_settings_csv(url: &str, test_type: &str) {
     }
 }
 
-fn process_index_creation_csv(url: &str, test_type: &str) {
-    let filename = format!("results_{}_index_creation.csv", test_type);
+fn process_index_creation_csv(url: &str, dataset: &str, test_type: &str) {
+    let filename = format!("results_{test_type}_index_creation.csv");
     let mut file = File::create(&filename).expect("Failed to create index creation CSV");
 
     writeln!(
@@ -115,7 +118,7 @@ fn process_index_creation_csv(url: &str, test_type: &str) {
     )
     .unwrap();
 
-    let index_sql = format!("create_index/{}.sql", test_type);
+    let index_sql = format!("datasets/{dataset}/create_index/{test_type}.sql");
     let index_file = File::open(&index_sql).expect("Failed to open index file");
     let reader = BufReader::new(index_file);
 
@@ -159,10 +162,10 @@ fn run_benchmarks_csv(args: &Args) {
     }
 
     if args.prewarm {
-        prewarm_indexes(&args.url, &args.r#type);
+        prewarm_indexes(&args.url, &args.dataset, &args.r#type);
     }
 
-    let queries_dir = format!("queries/{}", args.r#type);
+    let queries_dir = format!("datasets/{}/queries/{}", args.dataset, args.r#type);
     for entry in std::fs::read_dir(queries_dir).expect("Failed to read queries directory") {
         let entry = entry.expect("Failed to read directory entry");
         let path = entry.path();
@@ -250,13 +253,13 @@ fn write_postgres_settings(file: &mut File, url: &str) {
     }
 }
 
-fn generate_test_data(url: &str, rows: u32) {
+fn generate_test_data(url: &str, dataset: &str, rows: u32) {
     let status = Command::new("psql")
         .arg(url)
         .arg("-v")
-        .arg(format!("rows={}", rows))
+        .arg(format!("rows={rows}"))
         .arg("-f")
-        .arg("generate.sql")
+        .arg(format!("datasets/{dataset}/generate.sql"))
         .status()
         .expect("Failed to create table");
 
@@ -266,7 +269,7 @@ fn generate_test_data(url: &str, rows: u32) {
     }
 }
 
-fn process_index_creation(file: &mut File, url: &str, r#type: &str) {
+fn process_index_creation(file: &mut File, url: &str, dataset: &str, r#type: &str) {
     writeln!(file, "\n## Index Creation Results").unwrap();
     writeln!(
         file,
@@ -279,7 +282,7 @@ fn process_index_creation(file: &mut File, url: &str, r#type: &str) {
     )
     .unwrap();
 
-    let index_sql = format!("create_index/{}.sql", r#type);
+    let index_sql = format!("datasets/{dataset}/create_index/{}.sql", r#type);
     let index_file = File::open(&index_sql).expect("Failed to open index file");
     let reader = BufReader::new(index_file);
 
@@ -316,10 +319,10 @@ fn run_benchmarks_md(file: &mut File, args: &Args) {
     }
 
     if args.prewarm {
-        prewarm_indexes(&args.url, &args.r#type);
+        prewarm_indexes(&args.url, &args.dataset, &args.r#type);
     }
 
-    let queries_dir = format!("queries/{}", args.r#type);
+    let queries_dir = format!("datasets/{}/queries/{}", args.dataset, args.r#type);
     for entry in std::fs::read_dir(queries_dir).expect("Failed to read queries directory") {
         let entry = entry.expect("Failed to read directory entry");
         let path = entry.path();
@@ -463,8 +466,8 @@ fn get_segment_count(url: &str, index_name: &str) -> i64 {
         .expect("Failed to parse segment count")
 }
 
-fn prewarm_indexes(url: &str, r#type: &str) {
-    let prewarm_sql = format!("prewarm/{}.sql", r#type);
+fn prewarm_indexes(url: &str, dataset: &str, r#type: &str) {
+    let prewarm_sql = format!("datasets/{dataset}/prewarm/{}.sql", r#type);
     let status = Command::new("psql")
         .arg(url)
         .arg("-f")

@@ -15,11 +15,30 @@ set -Eeuo pipefail
 
 # Parse arguments for the --release flag
 RELEASE_FLAG=""
-for arg in "$@"; do
+PROFILE_FLAG=""
+
+# Loop through arguments
+i=1
+while [ $i -le $# ]; do
+  arg="${!i}"
   if [ "$arg" = "--release" ]; then
     RELEASE_FLAG="--release"
-    break
+  elif [ "$arg" = "--profile" ]; then
+    i=$((i+1))
+    if [ $i -le $# ]; then
+      PROFILE_VALUE="${!i}"
+      # Check if the next argument is another flag
+      if [[ "$PROFILE_VALUE" == --* ]]; then
+        echo "Error: --profile requires a value"
+        exit 1
+      fi
+      PROFILE_FLAG="--profile ${PROFILE_VALUE}"
+    else
+      echo "Error: --profile requires a value"
+      exit 1
+    fi
   fi
+  i=$((i+1))
 done
 
 # Get the directory where this script is located
@@ -43,7 +62,7 @@ set -x
 cargo pgrx stop "${FEATURE}" --package pg_search
 
 # Install pg_search extension with ICU support, conditionally using --release
-cargo pgrx install --package pg_search ${RELEASE_FLAG} --features=icu --pg-config "${HOME}/.pgrx/${PGVER}/pgrx-install/bin/pg_config" || exit $?
+cargo pgrx install --package pg_search "${RELEASE_FLAG}" "${PROFILE_FLAG}" --features=icu --pg-config "${HOME}/.pgrx/${PGVER}/pgrx-install/bin/pg_config" || exit $?
 
 # Start the PostgreSQL server with the installed extension
 RUST_BACKTRACE=1 cargo pgrx start "${FEATURE}" --package pg_search

@@ -198,7 +198,7 @@ unsafe fn extract_snippet_text(
             .attname_lookup
             .get(&((*context).planning_rti as _, (*field_arg).varattno as _))
             .cloned()
-            .expect("Var attname should be in lookup");
+            .expect("extract_snippet_text: attname should be in lookup");
         let start_tag = String::from_datum((*start_arg).constvalue, (*start_arg).constisnull);
         let end_tag = String::from_datum((*end_arg).constvalue, (*end_arg).constisnull);
         let max_num_chars = i32::from_datum(
@@ -234,7 +234,7 @@ unsafe fn extract_snippet_positions(
             .attname_lookup
             .get(&((*context).planning_rti as _, (*field_arg).varattno as _))
             .cloned()
-            .expect("Var attname should be in lookup");
+            .expect("extract_snippet_positions: attname should be in lookup");
 
         Some(SnippetType::Positions(
             attname,

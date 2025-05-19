@@ -461,10 +461,12 @@ fn display_results(results: &[BenchmarkResult]) {
     println!("\n======== PERFORMANCE COMPARISON ========");
     println!(
         "{:<45} {:<15} {:<15} {:<15} {:<15}",
-        "Test Group", "MixedFF/StringFF (ms)", "Normal (ms)", "Ratio", "Performance"
+        "Test Group", "FastField (ms)", "Normal (ms)", "Ratio", "Performance"
     );
-    println!("{}", "=".repeat(105));
+    println!("{}", "=".repeat(115));
 
+    let mut test_groups = test_groups.iter().collect::<Vec<_>>();
+    test_groups.sort_by_key(|(name, _)| name.to_string());
     for (base_name, group_results) in test_groups {
         // Identify results by their test names, which include the execution method
         let mixed_result = group_results.iter().find(|r| {
@@ -555,7 +557,7 @@ async fn benchmark_mixed_fast_fields(mut conn: PgConnection) -> Result<()> {
     run_benchmarks_with_methods(
         &mut conn,
         basic_query,
-        "Basic Mixed Fields",
+        "Basic - MixedFF",
         &["MixedFastFieldExec", "NormalScanExecState"],
         &mut results,
     )
@@ -570,7 +572,7 @@ async fn benchmark_mixed_fast_fields(mut conn: PgConnection) -> Result<()> {
     run_benchmarks_with_methods(
         &mut conn,
         count_query,
-        "Count Query",
+        "Count Query - MixedFF",
         &["MixedFastFieldExec", "NormalScanExecState"],
         &mut results,
     )
@@ -637,7 +639,7 @@ async fn benchmark_mixed_fast_fields(mut conn: PgConnection) -> Result<()> {
     run_benchmarks_with_methods(
         &mut conn,
         complex_query,
-        "Complex Aggregation",
+        "Complex Aggregation - MixedFF",
         &["MixedFastFieldExec", "NormalScanExecState"],
         &mut results,
     )

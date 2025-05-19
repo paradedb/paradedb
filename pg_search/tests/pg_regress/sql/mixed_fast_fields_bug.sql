@@ -1,0 +1,131 @@
+-- Test file to reproduce the bug where MixedFastFieldExec doesn't produce expected data
+
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+-- Create test table
+DROP TABLE IF EXISTS benchmark_data CASCADE;
+CREATE TABLE benchmark_data (
+    id SERIAL PRIMARY KEY,
+    string_field1 TEXT NOT NULL,
+    string_field2 TEXT NOT NULL,
+    numeric_field1 INTEGER NOT NULL,
+    numeric_field2 FLOAT NOT NULL,
+    numeric_field3 NUMERIC(10,2) NOT NULL
+);
+
+-- Insert test data
+INSERT INTO benchmark_data (string_field1, string_field2, numeric_field1, numeric_field2, numeric_field3)
+SELECT
+    CASE (i % 24)
+        WHEN 0 THEN 'alpha' WHEN 1 THEN 'beta' WHEN 2 THEN 'gamma' WHEN 3 THEN 'delta'
+        WHEN 4 THEN 'epsilon' WHEN 5 THEN 'zeta' WHEN 6 THEN 'eta' WHEN 7 THEN 'theta'
+        WHEN 8 THEN 'iota' WHEN 9 THEN 'kappa' WHEN 10 THEN 'lambda' WHEN 11 THEN 'mu'
+        WHEN 12 THEN 'nu' WHEN 13 THEN 'xi' WHEN 14 THEN 'omicron' WHEN 15 THEN 'pi'
+        WHEN 16 THEN 'rho' WHEN 17 THEN 'sigma' WHEN 18 THEN 'tau' WHEN 19 THEN 'upsilon'
+        WHEN 20 THEN 'phi' WHEN 21 THEN 'chi' WHEN 22 THEN 'psi' WHEN 23 THEN 'omega'
+    END,
+    CASE (i % 10)
+        WHEN 0 THEN 'red' WHEN 1 THEN 'orange' WHEN 2 THEN 'yellow' WHEN 3 THEN 'green'
+        WHEN 4 THEN 'blue' WHEN 5 THEN 'indigo' WHEN 6 THEN 'violet' WHEN 7 THEN 'black'
+        WHEN 8 THEN 'white' WHEN 9 THEN 'gray'
+    END,
+    i % 1000,
+    (i % 100)::float,
+    (i % 10000)::numeric(10,2)
+FROM generate_series(1, 100) AS i;
+
+-- Create BM25 index with fast fields
+DROP INDEX IF EXISTS benchmark_data_idx CASCADE;
+CREATE INDEX benchmark_data_idx ON benchmark_data 
+USING bm25(
+    id, 
+    string_field1,
+    string_field2,
+    numeric_field1,
+    numeric_field2,
+    numeric_field3
+) WITH (
+    key_field = 'id',
+    text_fields = '{"string_field1": {"fast": true, "tokenizer": {"type": "keyword"}}, "string_field2": {"fast": true, "tokenizer": {"type": "keyword"}}}',
+    numeric_fields = '{"numeric_field1": {"fast": true}, "numeric_field2": {"fast": true}, "numeric_field3": {"fast": true}}'
+);
+
+-- Force index usage
+SET enable_seqscan = off;
+SET enable_bitmapscan = off;
+SET enable_indexscan = off;
+
+-- First run with normal execution method
+SET paradedb.enable_fast_field_exec = false;
+SET paradedb.enable_mixed_fast_field_exec = false;
+
+-- Get query plan to verify we're using NormalScanExecState
+EXPLAIN (VERBOSE, ANALYZE, FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT
+    numeric_field1, numeric_field2, numeric_field3
+FROM benchmark_data
+WHERE
+    string_field1 @@@ 'IN [alpha beta gamma delta epsilon]' AND
+    string_field2 @@@ 'IN [red blue green]'
+ORDER BY numeric_field1;
+
+-- Run the query with normal execution
+SELECT
+    numeric_field1, numeric_field2, numeric_field3
+FROM benchmark_data
+WHERE
+    string_field1 @@@ 'IN [alpha beta gamma delta epsilon]' AND
+    string_field2 @@@ 'IN [red blue green]'
+ORDER BY numeric_field1;
+
+-- Then, run with NumericFastFieldExec
+SET paradedb.enable_fast_field_exec = true;
+SET paradedb.enable_mixed_fast_field_exec = false;
+
+-- Get query plan to verify we're using NumericFastFieldExec
+EXPLAIN (VERBOSE, ANALYZE, FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT
+    numeric_field1, numeric_field2, numeric_field3
+FROM benchmark_data
+WHERE
+    string_field1 @@@ 'IN [alpha beta gamma delta epsilon]' AND
+    string_field2 @@@ 'IN [red blue green]'
+ORDER BY numeric_field1;
+
+-- Run the query with NumericFastFieldExec (should return same data)
+SELECT
+    numeric_field1, numeric_field2, numeric_field3
+FROM benchmark_data
+WHERE
+    string_field1 @@@ 'IN [alpha beta gamma delta epsilon]' AND
+    string_field2 @@@ 'IN [red blue green]'
+ORDER BY numeric_field1;
+
+-- Now enable MixedFastFieldExec
+SET paradedb.enable_fast_field_exec = false;
+SET paradedb.enable_mixed_fast_field_exec = true;
+
+-- Get query plan to verify we're using MixedFastFieldExec
+EXPLAIN (VERBOSE, ANALYZE, FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT
+    numeric_field1, numeric_field2, numeric_field3
+FROM benchmark_data
+WHERE
+    string_field1 @@@ 'IN [alpha beta gamma delta epsilon]' AND
+    string_field2 @@@ 'IN [red blue green]'
+ORDER BY numeric_field1;
+
+-- Run the query with MixedFastFieldExec (should return same data)
+SELECT
+    numeric_field1, numeric_field2, numeric_field3
+FROM benchmark_data
+WHERE
+    string_field1 @@@ 'IN [alpha beta gamma delta epsilon]' AND
+    string_field2 @@@ 'IN [red blue green]'
+ORDER BY numeric_field1; 
+
+RESET paradedb.enable_fast_field_exec;
+RESET paradedb.enable_mixed_fast_field_exec;
+RESET enable_seqscan;
+RESET enable_bitmapscan;
+RESET enable_indexscan;

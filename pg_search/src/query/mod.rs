@@ -487,23 +487,26 @@ pub trait AsFieldType<T> {
 
     fn as_field_type(&self, from: &T) -> Option<(FieldType, PgOid, Field)>;
 
-    fn is_field_type(&self, from: &T, value: &OwnedValue) -> bool {
-        matches!(
-            (self.as_field_type(from), value),
-            (Some((FieldType::Str(_), _, _)), OwnedValue::Str(_))
-                | (Some((FieldType::U64(_), _, _)), OwnedValue::U64(_))
-                | (Some((FieldType::I64(_), _, _)), OwnedValue::I64(_))
-                | (Some((FieldType::F64(_), _, _)), OwnedValue::F64(_))
-                | (Some((FieldType::Bool(_), _, _)), OwnedValue::Bool(_))
-                | (Some((FieldType::Date(_), _, _)), OwnedValue::Date(_))
-                | (Some((FieldType::Facet(_), _, _)), OwnedValue::Facet(_))
-                | (Some((FieldType::Bytes(_), _, _)), OwnedValue::Bytes(_))
-                | (
-                    Some((FieldType::JsonObject(_), _, _)),
-                    OwnedValue::Object(_)
-                )
-                | (Some((FieldType::IpAddr(_), _, _)), OwnedValue::IpAddr(_))
-        )
+    fn coerce_value_to_field_type(&self, from: &T, value: OwnedValue) -> Option<OwnedValue> {
+        let (ft, _, _) = self.as_field_type(from)?;
+
+        match (ft, &value) {
+            (FieldType::Str(_), OwnedValue::Str(_))
+            | (FieldType::U64(_), OwnedValue::U64(_))
+            | (FieldType::I64(_), OwnedValue::I64(_))
+            | (FieldType::F64(_), OwnedValue::F64(_))
+            | (FieldType::Bool(_), OwnedValue::Bool(_))
+            | (FieldType::Date(_), OwnedValue::Date(_))
+            | (FieldType::Facet(_), OwnedValue::Facet(_))
+            | (FieldType::Bytes(_), OwnedValue::Bytes(_))
+            | (FieldType::JsonObject(_), OwnedValue::Object(_))
+            | (FieldType::IpAddr(_), OwnedValue::IpAddr(_)) => Some(value),
+
+            (FieldType::U64(_), OwnedValue::I64(v)) => (*v).try_into().ok().map(OwnedValue::U64),
+            (FieldType::I64(_), OwnedValue::U64(v)) => (*v).try_into().ok().map(OwnedValue::I64),
+
+            _ => None,
+        }
     }
 
     fn as_str(&self, from: &T) -> Option<Field> {
@@ -959,9 +962,10 @@ impl SearchQueryInput {
                     (None, Some(doc_fields)) => {
                         let mut fields_map = HashMap::default();
                         for (field_name, value) in doc_fields {
-                            if !field_lookup.is_field_type(&field_name, &value) {
-                                return Err(Box::new(QueryError::WrongFieldType(field_name)));
-                            }
+                            let value = field_lookup
+                                .coerce_value_to_field_type(&field_name, value)
+                                // None means we couldn't coerce the type
+                                .ok_or_else(|| QueryError::WrongFieldType(field_name.clone()))?;
 
                             let (_, _, field) = field_lookup
                                 .as_field_type(&field_name)

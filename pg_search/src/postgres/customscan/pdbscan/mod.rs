@@ -621,7 +621,6 @@ impl CustomScan for PdbScan {
                 .expect("range table index should have been set");
             builder.custom_state().snippet_generators = uses_snippets(
                 builder.custom_state().planning_rti,
-                builder.custom_state().execution_rti,
                 &builder.custom_state().var_attname_lookup,
                 node,
                 snippet_funcoid,

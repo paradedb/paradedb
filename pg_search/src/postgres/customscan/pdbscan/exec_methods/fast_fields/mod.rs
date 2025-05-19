@@ -19,6 +19,7 @@ pub mod mixed;
 pub mod numeric;
 pub mod string;
 
+use crate::api::index::FieldName;
 use crate::api::HashSet;
 use crate::index::fast_fields_helper::{FFHelper, FastFieldType, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
@@ -230,8 +231,7 @@ fn collect_fast_field_try_for_attno(
 
             // Get attribute info - use if let to handle missing attributes gracefully
             if let Some(att) = tupdesc.get((attno - 1) as usize) {
-                let att_name = att.name().to_string();
-                if schema.is_fast_field(att.name()) {
+                if schema.is_fast_field(&FieldName::from(att.name())) {
                     let ff_type = if att.type_oid().value() == pg_sys::TEXTOID
                         || att.type_oid().value() == pg_sys::VARCHAROID
                     {
@@ -239,7 +239,7 @@ fn collect_fast_field_try_for_attno(
                     } else {
                         FastFieldType::Numeric
                     };
-                    matches.push(WhichFastField::Named(att_name, ff_type));
+                    matches.push(WhichFastField::Named(att.name().to_string(), ff_type));
                 }
             }
             // If the attribute doesn't exist in this relation, just continue

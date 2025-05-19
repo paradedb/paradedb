@@ -25,11 +25,8 @@ mod qual_inspect;
 mod scan_state;
 mod solve_expr;
 
-use crate::api::operator::{
-    anyelement_query_input_opoid, anyelement_query_input_procoid, anyelement_text_opoid,
-    anyelement_text_procoid, estimate_selectivity, find_var_relation, parse_with_field_procoid,
-    searchqueryinput_typoid,
-};
+use crate::api::index::FieldName;
+use crate::api::operator::{anyelement_query_input_opoid, estimate_selectivity};
 use crate::api::Cardinality;
 use crate::api::{HashMap, HashSet};
 use crate::gucs;
@@ -63,6 +60,7 @@ use crate::postgres::customscan::pdbscan::qual_inspect::extract_quals;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::customscan::{self, CustomScan, CustomScanState};
 use crate::postgres::rel_get_bm25_index;
+use crate::postgres::var::find_var_relation;
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
@@ -1260,7 +1258,7 @@ unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
                 let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                 let tupdesc = heaprel.tuple_desc();
                 if let Some(att) = tupdesc.get(attno as usize - 1) {
-                    if schema.is_field_lower_sortable(att.name()) {
+                    if schema.is_field_lower_sortable(&FieldName::from(att.name())) {
                         return Some(OrderByStyle::Field(first_pathkey, att.name().to_string()));
                     }
                 }
@@ -1270,7 +1268,7 @@ unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
                     let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                     let tupdesc = heaprel.tuple_desc();
                     if let Some(att) = tupdesc.get(attno as usize - 1) {
-                        if schema.is_field_raw_sortable(att.name()) {
+                        if schema.is_field_raw_sortable(&FieldName::from(att.name())) {
                             return Some(OrderByStyle::Field(
                                 first_pathkey,
                                 att.name().to_string(),
@@ -1286,7 +1284,7 @@ unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
                 let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                 let tupdesc = heaprel.tuple_desc();
                 if let Some(att) = tupdesc.get(attno as usize - 1) {
-                    if schema.is_field_raw_sortable(att.name()) {
+                    if schema.is_field_raw_sortable(&FieldName::from(att.name())) {
                         return Some(OrderByStyle::Field(first_pathkey, att.name().to_string()));
                     }
                 }

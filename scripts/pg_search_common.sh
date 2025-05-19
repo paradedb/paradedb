@@ -14,15 +14,14 @@
 set -Eeuo pipefail
 
 # Parse arguments for the --release flag
-RELEASE_FLAG=""
-PROFILE_FLAG=""
+BUILD_PARAMS=("--features=icu")
 
 # Loop through arguments
 i=1
 while [ $i -le $# ]; do
   arg="${!i}"
   if [ "$arg" = "--release" ]; then
-    RELEASE_FLAG="--release"
+    BUILD_PARAMS=("${BUILD_PARAMS[@]}" "--release")
   elif [ "$arg" = "--profile" ]; then
     i=$((i+1))
     if [ $i -le $# ]; then
@@ -32,7 +31,7 @@ while [ $i -le $# ]; do
         echo "Error: --profile requires a value"
         exit 1
       fi
-      PROFILE_FLAG="--profile ${PROFILE_VALUE}"
+      BUILD_PARAMS=("${BUILD_PARAMS[@]}" "--profile" "${PROFILE_VALUE}")
     else
       echo "Error: --profile requires a value"
       exit 1
@@ -62,7 +61,7 @@ set -x
 cargo pgrx stop "${FEATURE}" --package pg_search
 
 # Install pg_search extension with ICU support, conditionally using --release
-cargo pgrx install --package pg_search "${RELEASE_FLAG}" "${PROFILE_FLAG}" --features=icu --pg-config "${HOME}/.pgrx/${PGVER}/pgrx-install/bin/pg_config" || exit $?
+cargo pgrx install --package pg_search "${BUILD_PARAMS[@]}" --pg-config "${HOME}/.pgrx/${PGVER}/pgrx-install/bin/pg_config" || exit $? # ksh88: there's a space between --profile and the value
 
 # Start the PostgreSQL server with the installed extension
 RUST_BACKTRACE=1 cargo pgrx start "${FEATURE}" --package pg_search

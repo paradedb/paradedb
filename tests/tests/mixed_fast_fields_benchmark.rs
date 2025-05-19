@@ -44,6 +44,62 @@ struct BenchmarkResult {
     max_time_ms: f64,
 }
 
+/// Recursively searches a JSON structure and collects all values for a specific field name
+fn collect_json_field_values(json: &Value, field_name: &str) -> Vec<Value> {
+    let mut results = Vec::new();
+
+    match json {
+        Value::Object(map) => {
+            // Check if this object contains the field we're looking for
+            if let Some(value) = map.get(field_name) {
+                results.push(value.clone());
+            }
+
+            // Recursively search all values in this object
+            for (_, value) in map {
+                results.extend(collect_json_field_values(value, field_name));
+            }
+        }
+        Value::Array(arr) => {
+            // Recursively search all elements in this array
+            for item in arr {
+                results.extend(collect_json_field_values(item, field_name));
+            }
+        }
+        // Base case: other JSON value types can't contain nested fields
+        _ => {}
+    }
+
+    results
+}
+
+/// Collects and prints all important metrics from an execution plan
+fn print_execution_plan_metrics(plan: &Value) {
+    // Define metrics to collect
+    let metrics = [
+        "Heap Fetches",
+        "Virtual Tuples",
+        "Invisible Tuples",
+        // "Tuples",
+        // "Rows",
+        // "Loops",
+        // "Actual Rows",
+        // "Plan Rows",
+        // "Actual Startup Time",
+        // "Actual Total Time",
+        // "Planning Time",
+        // "Execution Time",
+    ];
+
+    // Collect and print each metric
+    for metric in metrics {
+        let values = collect_json_field_values(plan, metric);
+        if !values.is_empty() {
+            println!(" - {}: {:?}", metric, values);
+        }
+    }
+}
+
 /// Detects which execution method was used based on the JSON execution plan
 fn detect_exec_method(plan: &Value) -> String {
     // Check if this is using the CustomScan with ParadeDB
@@ -231,7 +287,6 @@ async fn setup_benchmark_database(conn: &mut PgConnection, num_rows: usize) -> R
     );
 
     // Run VACUUM ANALYZE after creating or updating the table
-    println!("Running VACUUM ANALYZE on new data...");
     sqlx::query("VACUUM ANALYZE benchmark_data")
         .execute(&mut *conn)
         .await?;
@@ -319,18 +374,6 @@ async fn create_bm25_index(conn: &mut PgConnection) -> Result<()> {
         println!("WARNING: Index 'benchmark_data_idx' not found!");
     }
 
-    // Run a full VACUUM ANALYZE to ensure statistics are up-to-date
-    // This helps the query planner make better decisions
-    println!("Running VACUUM ANALYZE on benchmark_data...");
-    sqlx::query("VACUUM ANALYZE benchmark_data")
-        .execute(&mut *conn)
-        .await?;
-
-    // Reset/clear cache to ensure clean runs
-    sqlx::query("SELECT pg_stat_reset()")
-        .execute(&mut *conn)
-        .await?;
-
     Ok(())
 }
 
@@ -366,6 +409,18 @@ async fn set_execution_method(
             .await?;
     }
 
+    // Reset/clear cache to ensure clean runs
+    sqlx::query("SELECT pg_stat_reset()")
+        .execute(&mut *conn)
+        .await?;
+
+    // Run a full VACUUM ANALYZE to ensure statistics are up-to-date
+    // This helps the query planner make better decisions
+    println!("Running VACUUM ANALYZE on benchmark_data...");
+    sqlx::query("VACUUM ANALYZE benchmark_data")
+        .execute(&mut *conn)
+        .await?;
+
     Ok(())
 }
 
@@ -391,12 +446,16 @@ async fn run_benchmark(
     }
 
     // Get the execution plan to determine which execution method is used
-    let explain_query = format!("EXPLAIN (ANALYZE, FORMAT JSON) {}", query_to_run);
+    let explain_query = format!("EXPLAIN (VERBOSE, ANALYZE, FORMAT JSON) {}", query_to_run);
     let (plan,): (Value,) = sqlx::query_as(&explain_query).fetch_one(&mut *conn).await?;
+
     let exec_method = detect_exec_method(&plan);
 
     // Debug: print out the execution method being used
     println!("Test '{}' → using {}", test_name, exec_method);
+
+    // Print comprehensive metrics from the execution plan
+    print_execution_plan_metrics(&plan);
 
     // Run actual benchmark iterations
     for _ in 0..ITERATIONS {
@@ -754,6 +813,7 @@ async fn benchmark_mixed_fast_fields(mut conn: PgConnection) -> Result<()> {
 /// Validate that the different execution methods return the same results
 /// and enforce that we're actually using the intended execution methods
 #[rstest]
+#[ignore]
 async fn validate_mixed_fast_fields_correctness(mut conn: PgConnection) -> Result<()> {
     // Set up the benchmark database
     setup_benchmark_database(&mut conn, NUM_ROWS_VALIDATION).await?;

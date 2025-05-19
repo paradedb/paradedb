@@ -128,7 +128,11 @@ pub unsafe fn find_vars(node: *mut pg_sys::Node) -> Vec<*mut pg_sys::Var> {
     data.vars
 }
 
-pub unsafe fn try_find_var_and_fieldname(
+/// Given a [`pg_sys::Node`] and a [`pg_sys::PlannerInfo`], attempt to find the [`pg_sys::Var`] and
+/// the [`FieldName`] that it references.
+///
+/// It is the caller's responsibility to ensure that the node contains a Var with a valid FieldName.
+pub unsafe fn find_one_var_and_fieldname(
     root: *mut pg_sys::PlannerInfo,
     node: *mut pg_sys::Node,
 ) -> Option<(*mut pg_sys::Var, FieldName)> {
@@ -139,7 +143,7 @@ pub unsafe fn try_find_var_and_fieldname(
             .get_or_init(|| initialize_json_operator_lookup())
             .contains(&(*opexpr).opno)
         {
-            let var = try_find_var(node)?;
+            let var = find_one_var(node)?;
             let path = find_json_path(root, node);
             return Some((var, path.join(".").into()));
         }
@@ -153,23 +157,23 @@ pub unsafe fn try_find_var_and_fieldname(
     }
 }
 
+/// Given a [`pg_sys::Node`], attempt to find the [`pg_sys::Var`] that it references.
+///
+/// If there is not exactly one Var in the node, then this function will return `None`.
 #[inline(always)]
-pub unsafe fn try_find_var(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {
-    if is_a(node, T_Var) {
-        Some(node.cast::<Var>())
-    } else if is_a(node, T_OpExpr) {
-        let node = node as *mut OpExpr;
-        for expr in PgList::from_pg((*node).args).iter_ptr() {
-            if let Some(var) = try_find_var(expr) {
-                return Some(var);
-            }
-        }
-        None
+pub unsafe fn find_one_var(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {
+    let mut vars = find_vars(node);
+    if vars.len() == 1 {
+        Some(vars.pop().unwrap())
     } else {
         None
     }
 }
 
+/// Given a [`pg_sys::Node`] and a [`pg_sys::PlannerInfo`], attempt to find the JSON path that the
+/// node references.
+///
+/// It is the caller's responsibility to ensure that the node is a JSON path expression.
 #[inline(always)]
 unsafe fn find_json_path(root: *mut pg_sys::PlannerInfo, node: *mut pg_sys::Node) -> Vec<String> {
     let mut path = Vec::new();
@@ -177,8 +181,9 @@ unsafe fn find_json_path(root: *mut pg_sys::PlannerInfo, node: *mut pg_sys::Node
     if is_a(node, T_Var) {
         let node = node as *mut Var;
         let (heaprelid, varattno, _) = find_var_relation(node, root);
-        let attname = pg_sys::get_attname(heaprelid, varattno, false);
-        path.push(CStr::from_ptr(attname).to_string_lossy().into_owned());
+        let field_name = fieldname_from_var(heaprelid, node, varattno)
+            .expect("Var should have a valid FieldName");
+        path.push(field_name.root());
         return path;
     } else if is_a(node, T_Const) {
         let node = node as *mut Const;
@@ -196,7 +201,7 @@ unsafe fn find_json_path(root: *mut pg_sys::PlannerInfo, node: *mut pg_sys::Node
     path
 }
 
-#[inline(always)]
+/// Given a [`pg_sys::Var`], attempt to find the [`FieldName`] that it references.
 pub unsafe fn fieldname_from_var(
     heaprelid: pg_sys::Oid,
     var: *mut pg_sys::Var,

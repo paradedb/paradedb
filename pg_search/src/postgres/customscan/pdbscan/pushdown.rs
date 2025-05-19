@@ -16,11 +16,12 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::index::{fieldname_typoid, FieldName};
-use crate::api::operator::{attname_from_var, find_var_relation, searchqueryinput_typoid};
+use crate::api::operator::searchqueryinput_typoid;
 use crate::api::HashMap;
 use crate::nodecast;
 use crate::postgres::customscan::operator_oid;
 use crate::postgres::customscan::pdbscan::qual_inspect::Qual;
+use crate::postgres::var::{fieldname_from_var, find_var_relation};
 use crate::schema::{SearchField, SearchIndexSchema};
 use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList};
 use std::sync::OnceLock;
@@ -40,7 +41,7 @@ impl PushdownField {
         schema: &SearchIndexSchema,
     ) -> Option<Self> {
         let (heaprelid, varattno, _) = find_var_relation(var, root);
-        let field = attname_from_var(heaprelid, var, varattno)?;
+        let field = fieldname_from_var(heaprelid, var, varattno)?;
         schema.get_search_field(&field).map(|_| Self(field))
     }
 

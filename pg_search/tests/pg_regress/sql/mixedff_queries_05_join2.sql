@@ -5,6 +5,7 @@
 \echo 'Test: join with mixed fast fields'
 
 SET enable_hashjoin=off;
+SET enable_memoize=off;
 
 DROP TABLE IF EXISTS users CASCADE;
 CREATE TABLE users
@@ -123,5 +124,6 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN 
 SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color @@@ 'blue') AND (users.name @@@ 'bob') LIMIT 10;
 
 RESET enable_hashjoin;
+RESET enable_memoize;
 
 \i common/mixedff_queries_cleanup.sql

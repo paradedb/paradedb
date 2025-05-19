@@ -128,6 +128,19 @@ pub unsafe fn find_vars(node: *mut pg_sys::Node) -> Vec<*mut pg_sys::Var> {
     data.vars
 }
 
+/// Given a [`pg_sys::Node`], attempt to find the [`pg_sys::Var`] that it references.
+///
+/// If there is not exactly one Var in the node, then this function will return `None`.
+#[inline(always)]
+pub unsafe fn find_one_var(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {
+    let mut vars = find_vars(node);
+    if vars.len() == 1 {
+        Some(vars.pop().unwrap())
+    } else {
+        None
+    }
+}
+
 /// Given a [`pg_sys::Node`] and a [`pg_sys::PlannerInfo`], attempt to find the [`pg_sys::Var`] and
 /// the [`FieldName`] that it references.
 ///
@@ -152,19 +165,6 @@ pub unsafe fn find_one_var_and_fieldname(
         let var = node.cast::<Var>();
         let (heaprelid, varattno, _) = find_var_relation(var, root);
         Some((var, fieldname_from_var(heaprelid, var, varattno)?))
-    } else {
-        None
-    }
-}
-
-/// Given a [`pg_sys::Node`], attempt to find the [`pg_sys::Var`] that it references.
-///
-/// If there is not exactly one Var in the node, then this function will return `None`.
-#[inline(always)]
-pub unsafe fn find_one_var(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {
-    let mut vars = find_vars(node);
-    if vars.len() == 1 {
-        Some(vars.pop().unwrap())
     } else {
         None
     }

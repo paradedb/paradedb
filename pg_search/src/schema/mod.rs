@@ -751,7 +751,7 @@ impl SearchIndexSchema {
     }
 
     fn build_lookup(search_fields: &[SearchField]) -> HashMap<String, usize> {
-        let mut lookup = HashMap::new();
+        let mut lookup = HashMap::default();
         search_fields
             .iter()
             .enumerate()
@@ -792,22 +792,22 @@ impl SearchIndexSchema {
         }
     }
 
-    pub fn is_field_raw_sortable(&self, name: &str) -> bool {
+    pub fn is_field_raw_sortable(&self, name: &FieldName) -> bool {
         self.is_field_sortable(name, SearchNormalizer::Raw)
             .is_some()
     }
 
-    pub fn is_field_lower_sortable(&self, name: &str) -> bool {
+    pub fn is_field_lower_sortable(&self, name: &FieldName) -> bool {
         self.is_field_sortable(name, SearchNormalizer::Lowercase)
             .is_some()
     }
 
-    pub fn is_fast_field(&self, name: &str) -> bool {
+    pub fn is_fast_field(&self, name: &FieldName) -> bool {
         self.is_field_raw_sortable(name)
     }
 
-    pub fn is_numeric_fast_field(&self, name: &str) -> bool {
-        if let Some(search_field) = self.get_search_field(&FieldName(name.to_string())) {
+    pub fn is_numeric_fast_field(&self, name: &FieldName) -> bool {
+        if let Some(search_field) = self.get_search_field(name) {
             matches!(
                 search_field.config,
                 SearchFieldConfig::Numeric { fast: true, .. }
@@ -819,8 +819,12 @@ impl SearchIndexSchema {
         }
     }
 
-    fn is_field_sortable(&self, name: &str, desired_normalizer: SearchNormalizer) -> Option<()> {
-        let search_field = self.get_search_field(&FieldName(name.to_string()))?;
+    fn is_field_sortable(
+        &self,
+        name: &FieldName,
+        desired_normalizer: SearchNormalizer,
+    ) -> Option<()> {
+        let search_field = self.get_search_field(name)?;
 
         match search_field.config {
             SearchFieldConfig::Text {

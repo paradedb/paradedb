@@ -19,9 +19,7 @@ pub mod score;
 pub mod snippet;
 
 use crate::api::index::FieldName;
-use crate::api::operator::{
-    find_vars, try_pullout_var, try_pullout_var_and_fieldname, ReturnedNodePointer,
-};
+use crate::api::operator::ReturnedNodePointer;
 use crate::api::HashMap;
 use crate::api::Varno;
 use crate::nodecast;
@@ -29,6 +27,7 @@ use crate::postgres::customscan::pdbscan::projections::score::score_funcoid;
 use crate::postgres::customscan::pdbscan::projections::snippet::{
     snippet_funcoid, snippet_positions_funcoid, SnippetType,
 };
+use crate::postgres::var::{find_vars, try_find_var, try_find_var_and_fieldname};
 use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{pg_extern, pg_guard, pg_sys, Internal, PgList};
 use std::ptr::{addr_of_mut, NonNull};
@@ -150,7 +149,7 @@ pub unsafe fn pullout_funcexprs(
             if data.funcids.contains(&(*funcexpr).funcid) {
                 let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
                 for arg in args.iter_ptr() {
-                    if let Some((var, fieldname)) = try_pullout_var_and_fieldname(data.root, arg) {
+                    if let Some((var, fieldname)) = try_find_var_and_fieldname(data.root, arg) {
                         if (*var).varno as i32 == data.rti as i32 {
                             data.matches.push((funcexpr, var, fieldname));
                         }
@@ -218,7 +217,7 @@ pub unsafe fn inject_placeholders(
             if (*funcexpr).funcid == data.snippet_funcoid
                 || (*funcexpr).funcid == data.snippet_positions_funcoid
             {
-                let var = try_pullout_var(args.get_ptr(0)?)?;
+                let var = try_find_var(args.get_ptr(0)?)?;
                 let key = (data.rti as Varno, (*var).varattno);
 
                 if let Some(attname) = data.attname_lookup.get(&key) {

@@ -15,18 +15,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::HashMap;
 use crate::api::index::FieldName;
-use crate::api::operator::try_pullout_var;
+use crate::api::HashMap;
 use crate::api::Varno;
 use crate::nodecast;
+use crate::postgres::var::try_find_var;
 use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{
     default, direct_function_call, extension_sql, pg_extern, pg_guard, pg_sys, AnyElement,
     FromDatum, IntoDatum, PgList,
 };
-use pgrx::pg_sys::NodeTag::{T_FuncExpr, T_OpExpr, T_Var, T_Const};
-use std::ffi::CStr;
 use std::ptr::addr_of_mut;
 
 const DEFAULT_SNIPPET_PREFIX: &str = "<b>";
@@ -188,7 +186,7 @@ unsafe fn extract_snippet_text(
 ) -> Option<SnippetType> {
     assert!(args.len() == 4);
 
-    let field_arg = try_pullout_var(args.get_ptr(0).unwrap());
+    let field_arg = try_find_var(args.get_ptr(0).unwrap());
     let start_arg = nodecast!(Const, T_Const, args.get_ptr(1).unwrap());
     let end_arg = nodecast!(Const, T_Const, args.get_ptr(2).unwrap());
     let max_num_chars_arg = nodecast!(Const, T_Const, args.get_ptr(3).unwrap());
@@ -229,7 +227,7 @@ unsafe fn extract_snippet_positions(
 ) -> Option<SnippetType> {
     assert!(args.len() == 1);
 
-    let field_arg = try_pullout_var(args.get_ptr(0).unwrap());
+    let field_arg = try_find_var(args.get_ptr(0).unwrap());
 
     if let Some(field_arg) = field_arg {
         let attname = (*context)

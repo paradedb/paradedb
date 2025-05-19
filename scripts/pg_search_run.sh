@@ -19,10 +19,19 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 
 # Extract --release flag if present
 COMMON_ARGS=()
-for arg in "$@"; do
+i=1
+while [ $i -le $# ]; do
+  arg="${!i}"
   if [ "$arg" = "--release" ]; then
     COMMON_ARGS+=("$arg")
+  elif [ "$arg" = "--profile" ]; then
+    COMMON_ARGS+=("$arg")
+    i=$((i+1))
+    if [ $i -le $# ]; then
+      COMMON_ARGS+=("${!i}")
+    fi
   fi
+  i=$((i+1))
 done
 
 # Source the common setup script with appropriate arguments

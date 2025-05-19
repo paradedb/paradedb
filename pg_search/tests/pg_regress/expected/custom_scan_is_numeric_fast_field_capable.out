@@ -61,3 +61,49 @@ select assert(count(*), 8), count(*) from (select id from test where message @@@
  t      |     8
 (1 row)
 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+select assert(count(*), 8), count(*), max(id) from (select id from test where message @@@ 'beer' order by severity) x limit 8;
+                                                                            QUERY PLAN                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Aggregate
+         ->  Sort
+               Sort Key: test.severity
+               ->  Custom Scan (ParadeDB Scan) on test
+                     Table: test
+                     Index: idxtest
+                     Exec Method: NumericFastFieldExecState
+                     Fast Fields: id, severity
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"beer","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
+select assert(count(*), 8), count(*), max(id) from (select id from test where message @@@ 'beer' order by severity) x limit 8;
+ assert | count | max 
+--------+-------+-----
+ t      |     8 |  11
+(1 row)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+select assert(count(*), 8), count(*), max(myid) from (select 12 as myid from test where message @@@ 'beer' order by severity) x limit 8;
+                                                                            QUERY PLAN                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Aggregate
+         ->  Sort
+               Sort Key: test.severity
+               ->  Custom Scan (ParadeDB Scan) on test
+                     Table: test
+                     Index: idxtest
+                     Exec Method: NumericFastFieldExecState
+                     Fast Fields: junk(myid), severity
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"beer","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
+select assert(count(*), 8), count(*), max(myid) from (select 12 as myid from test where message @@@ 'beer' order by severity) x limit 8;
+ assert | count | max 
+--------+-------+-----
+ t      |     8 |  12
+(1 row)
+

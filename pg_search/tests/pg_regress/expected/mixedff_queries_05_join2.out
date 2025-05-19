@@ -103,6 +103,8 @@ INSERT INTO pages (id, fileId, page_number, content) VALUES
 ('page_cte4', 'file_cte3', 1, 'Final test page for CTE testing'); 
 \echo 'Test: join with mixed fast fields'
 Test: join with mixed fast fields
+SET enable_hashjoin=off;
+SET enable_memoize=off;
 DROP TABLE IF EXISTS users CASCADE;
 CREATE TABLE users
 (
@@ -254,6 +256,8 @@ SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.
  blue
 (1 row)
 
+RESET enable_hashjoin;
+RESET enable_memoize;
 \i common/mixedff_queries_cleanup.sql
 -- Cleanup for relational query tests (07-10)
 -- Drop the tables used in these tests

@@ -442,7 +442,7 @@ async fn run_benchmark(
 
     // Warmup runs to ensure caches are primed
     for _ in 0..WARMUP_ITERATIONS {
-        let _ = sqlx::query(&query_to_run).execute(&mut *conn).await?;
+        let _ = sqlx::query(&query_to_run).fetch_all(&mut *conn).await?;
     }
 
     // Get the execution plan to determine which execution method is used
@@ -458,9 +458,9 @@ async fn run_benchmark(
     print_execution_plan_metrics(&plan);
 
     // Run actual benchmark iterations
-    for _ in 0..ITERATIONS {
+    for _i in 0..ITERATIONS {
         let start = Instant::now();
-        let _ = sqlx::query(&query_to_run).execute(&mut *conn).await?;
+        let _res = sqlx::query(&query_to_run).fetch_all(&mut *conn).await?;
         let elapsed = start.elapsed();
         let time_ms = elapsed.as_secs_f64() * 1000.0;
 

@@ -1173,12 +1173,15 @@ fn compute_exec_which_fast_fields(
         )
     };
 
-    // It's guaranteed that the number of fast fields extracted at execution time is the same as
-    // the number of target list entries, as we extract fast fields from the target list.
+    // Iff we have chosen a FastField execution method, then it is because we determined at planning
+    // time that we can provide all possible target list values. Thus, we should
+    // always be able to extract fast fields for the entire execution time target list.
+    //
     // Note: based on the PG docs:
     // >  (If CUSTOMPATH_SUPPORT_PROJECTION is not set, the scan node will only be asked to produce
     // >  Vars of the scanned relation; while if that flag is set, the scan node must be able to
     // >  evaluate scalar expressions over these Vars.)
+    //
     // Then, we if we extracted the same number of fast fields at execution time for all Vars in the
     // target list, we can be sure that we didn't miss any fast fields.
     debug_assert!(

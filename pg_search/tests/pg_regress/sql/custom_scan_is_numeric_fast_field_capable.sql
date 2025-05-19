@@ -49,3 +49,8 @@ select assert(count(*), 8), count(*) from (select id from test where message @@@
 
 select assert(count(*), 8), count(*) from (select id from test where message @@@ 'beer' order by severity) x limit 8;
 
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+select assert(count(*), 8), count(*), max(id) from (select id from test where message @@@ 'beer' order by severity) x limit 8;
+
+select assert(count(*), 8), count(*), max(id) from (select id from test where message @@@ 'beer' order by severity) x limit 8;

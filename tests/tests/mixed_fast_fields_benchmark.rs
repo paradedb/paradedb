@@ -74,7 +74,7 @@ fn collect_json_field_values(json: &Value, field_name: &str) -> Vec<Value> {
 }
 
 /// Collects and prints all important metrics from an execution plan
-fn print_execution_plan_metrics(plan: &Value) {
+fn check_execution_plan_metrics(execution_method: &str, plan: &Value) {
     // Define metrics to collect
     let metrics = [
         "Heap Fetches",
@@ -94,6 +94,38 @@ fn print_execution_plan_metrics(plan: &Value) {
     // Collect and print each metric
     for metric in metrics {
         let values = collect_json_field_values(plan, metric);
+        if execution_method == "MixedFastFieldExec"
+            || execution_method == "NumericFastFieldExec"
+            || execution_method == "StringFastFieldExec"
+        {
+            values.iter().for_each(|v| {
+                assert!(v.is_number());
+                if metric == "Heap Fetches" {
+                    assert!(v.as_i64().unwrap() == 0);
+                }
+                if metric == "Virtual Tuples" {
+                    // Fast fields should have virtual tuples
+                    assert!(v.as_i64().unwrap() > 0);
+                }
+                if metric == "Invisible Tuples" {
+                    assert!(v.as_i64().unwrap() == 0);
+                }
+            });
+        } else {
+            values.iter().for_each(|v| {
+                assert!(v.is_number());
+                if metric == "Heap Fetches" {
+                    // Normal scan should have heap fetches
+                    assert!(v.as_i64().unwrap() > 0);
+                }
+                if metric == "Virtual Tuples" {
+                    assert!(v.as_i64().unwrap() == 0);
+                }
+                if metric == "Invisible Tuples" {
+                    assert!(v.as_i64().unwrap() == 0);
+                }
+            });
+        }
         if !values.is_empty() {
             println!(" - {}: {:?}", metric, values);
         }
@@ -377,22 +409,18 @@ async fn create_bm25_index(conn: &mut PgConnection) -> Result<()> {
     Ok(())
 }
 
-async fn set_execution_method(
-    conn: &mut PgConnection,
-    execution_method: &Option<&str>,
-) -> Result<()> {
+async fn set_execution_method(conn: &mut PgConnection, execution_method: &str) -> Result<()> {
     // Create appropriate index if execution method is specified
     // This should be either "MixedFastFieldExec" or "StringFastFieldExec" or "NumericFastFieldExec"
-    if execution_method.is_some() && execution_method.unwrap() == "MixedFastFieldExec" {
+    if execution_method == "MixedFastFieldExec" {
         sqlx::query("SET paradedb.enable_fast_field_exec = false")
             .execute(&mut *conn)
             .await?;
         sqlx::query("SET paradedb.enable_mixed_fast_field_exec = true")
             .execute(&mut *conn)
             .await?;
-    } else if execution_method.is_some()
-        && (execution_method.unwrap() == "StringFastFieldExec"
-            || execution_method.unwrap() == "NumericFastFieldExec")
+    } else if execution_method == "StringFastFieldExec"
+        || execution_method == "NumericFastFieldExec"
     {
         sqlx::query("SET paradedb.enable_fast_field_exec = true")
             .execute(&mut *conn)
@@ -429,7 +457,7 @@ async fn run_benchmark(
     conn: &mut PgConnection,
     query: &str,
     test_name: &str,
-    execution_method: Option<&str>,
+    execution_method: &str,
 ) -> Result<BenchmarkResult> {
     let mut total_time_ms: f64 = 0.0;
     let mut min_time_ms: f64 = f64::MAX;
@@ -455,7 +483,7 @@ async fn run_benchmark(
     println!("Test '{}' → using {}", test_name, exec_method);
 
     // Print comprehensive metrics from the execution plan
-    print_execution_plan_metrics(&plan);
+    check_execution_plan_metrics(execution_method, &plan);
 
     // Run actual benchmark iterations
     for _i in 0..ITERATIONS {
@@ -577,7 +605,7 @@ async fn run_benchmarks_with_methods(
     for method_name in methods {
         let full_benchmark_name = format!("{} ({})", benchmark_name, method_name);
 
-        let result = run_benchmark(conn, query, &full_benchmark_name, Some(method_name)).await?;
+        let result = run_benchmark(conn, query, &full_benchmark_name, method_name).await?;
 
         // Validate we're using the expected execution method
         assert!(
@@ -842,7 +870,7 @@ async fn validate_mixed_fast_fields_correctness(mut conn: PgConnection) -> Resul
         .execute(&mut conn)
         .await?;
 
-    set_execution_method(&mut conn, &Some("MixedFastFieldExec")).await?;
+    set_execution_method(&mut conn, "MixedFastFieldExec").await?;
 
     // Get results with MixedFastFieldExec
     let mixed_results = sqlx::query(test_query).fetch_all(&mut conn).await?;
@@ -862,7 +890,7 @@ async fn validate_mixed_fast_fields_correctness(mut conn: PgConnection) -> Resul
         mixed_method
     );
 
-    set_execution_method(&mut conn, &Some("NormalScanExecState")).await?;
+    set_execution_method(&mut conn, "NormalScanExecState").await?;
 
     // Get results with NormalScanExecState
     let normal_results = sqlx::query(test_query).fetch_all(&mut conn).await?;

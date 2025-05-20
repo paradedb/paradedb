@@ -27,11 +27,12 @@ use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::utils::u64_to_item_pointer;
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::postgres::ParallelScanState;
-use crate::query::SearchQueryInput;
+use crate::query::{AsHumanReadable, SearchQueryInput};
 use pgrx::heap_tuple::PgHeapTuple;
 use pgrx::{name_data_to_str, pg_sys, PgRelation, PgTupleDesc};
 use std::cell::UnsafeCell;
 use tantivy::snippet::SnippetGenerator;
+use tantivy::SegmentReader;
 
 #[derive(Default)]
 pub struct PdbScanState {
@@ -45,9 +46,8 @@ pub struct PdbScanState {
     pub planning_rti: pg_sys::Index,
     pub execution_rti: pg_sys::Index,
 
-    pub search_query_input: SearchQueryInput,
-    pub serialized_query: Vec<u8>,
-    pub nexprs: usize,
+    base_search_query_input: SearchQueryInput,
+    search_query_input: SearchQueryInput,
     pub search_reader: Option<SearchIndexReader>,
 
     pub search_results: SearchResults,
@@ -105,6 +105,30 @@ impl CustomScanState for PdbScanState {
 }
 
 impl PdbScanState {
+    pub fn set_base_search_query_input(&mut self, input: SearchQueryInput) {
+        self.base_search_query_input = input;
+    }
+
+    pub fn prepare_query_for_execution(
+        &mut self,
+        planstate: *mut pg_sys::PlanState,
+        expr_context: *mut pg_sys::ExprContext,
+    ) {
+        self.search_query_input = self.base_search_query_input.clone();
+        if self.search_query_input.has_postgres_expressions() {
+            self.search_query_input.init_postgres_expressions(planstate);
+            self.search_query_input
+                .solve_postgres_expressions(expr_context);
+        }
+    }
+
+    pub fn search_query_input(&self) -> &SearchQueryInput {
+        if matches!(self.search_query_input, SearchQueryInput::Uninitialized) {
+            panic!("search_query_input should be initialized");
+        }
+        &self.search_query_input
+    }
+
     #[inline(always)]
     pub fn assign_exec_method<T: ExecMethod + 'static>(&mut self, method: T) {
         self.exec_method = UnsafeCell::new(Box::new(method));
@@ -129,10 +153,35 @@ impl PdbScanState {
         &self.exec_method_name
     }
 
+    pub fn query_to_json(&self) -> serde_json::Result<serde_json::Value> {
+        serde_json::to_value(&self.base_search_query_input)
+    }
+
+    pub fn parallel_serialization_data(&self) -> (&[SegmentReader], Vec<u8>) {
+        let serialized_query = serde_json::to_vec(self.search_query_input())
+            .expect("should be able to serialize query");
+
+        let segment_readers = self
+            .search_reader
+            .as_ref()
+            .expect("search reader must be initialized to build parallel serialization data")
+            .segment_readers();
+
+        (segment_readers, serialized_query)
+    }
+
+    pub fn human_readable_query_string(&self) -> String {
+        self.base_search_query_input.as_human_readable()
+    }
+
+    pub fn has_postgres_expressions(&mut self) -> bool {
+        self.base_search_query_input.has_postgres_expressions()
+    }
+
     #[inline(always)]
     pub fn need_scores(&self) -> bool {
         self.need_scores
-            || self.search_query_input.need_scores()
+            || self.base_search_query_input.need_scores()
             || self
                 .quals
                 .as_ref()

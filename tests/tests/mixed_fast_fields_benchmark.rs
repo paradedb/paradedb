@@ -299,7 +299,7 @@ async fn setup_benchmark_database(conn: &mut PgConnection, num_rows: usize) -> R
         "omega_feature_flag_management_605ghi",
     ];
 
-    let string_array2 = vec![
+    let string_array2 = [
         "red_velvet_cupcake_with_cream_cheese_frosting",
         "orange_marmalade_with_sourdough_toast",
         "yellow_sponge_cake_with_lemon_buttercream",
@@ -313,18 +313,16 @@ async fn setup_benchmark_database(conn: &mut PgConnection, num_rows: usize) -> R
     ];
 
     // Array of longer texts (paragraphs of content)
-    let long_text_array = vec![
-        "The importance of efficient database indexing cannot be overstated in modern application development. When dealing with large datasets, the difference between milliseconds and seconds in query response time significantly impacts user experience. Fast field execution in ParadeDB leverages memory-mapped structures to reduce disk I/O and accelerate data retrieval operations. By maintaining field values in an optimized format directly accessible by the query engine, we bypass the overhead associated with traditional heap fetches and tuple reconstruction. This benchmark aims to quantify these advantages across various query patterns and data types.",
+    let long_text_array = ["The importance of efficient database indexing cannot be overstated in modern application development. When dealing with large datasets, the difference between milliseconds and seconds in query response time significantly impacts user experience. Fast field execution in ParadeDB leverages memory-mapped structures to reduce disk I/O and accelerate data retrieval operations. By maintaining field values in an optimized format directly accessible by the query engine, we bypass the overhead associated with traditional heap fetches and tuple reconstruction. This benchmark aims to quantify these advantages across various query patterns and data types.",
         "Cloud native architectures require databases that can scale horizontally while maintaining consistent performance characteristics. Container orchestration platforms like Kubernetes have revolutionized deployment strategies, but database systems often remain a bottleneck. ParadeDB's approach combines PostgreSQL's reliability with innovative indexing techniques specifically designed for contemporary workloads. By embedding Tantivy's search capabilities and enhancing them with custom execution paths, we achieve both flexibility and performance. The benchmarks in this test suite demonstrate real-world scenarios where these optimizations provide measurable benefits.",
         "Text search performance has traditionally involved tradeoffs between accuracy and speed. Conventional database systems either provide basic pattern matching or rely on external search engines, introducing complexity and synchronization challenges. The BM25 index implementation in ParadeDB addresses these limitations by tightly integrating full-text search capabilities within the PostgreSQL ecosystem. Fast fields extend this concept to non-text data types, providing uniform performance optimizations across heterogeneous data. This unified approach simplifies application development while delivering performance improvements that particularly benefit complex analytical queries.",
         "Data analytics workloads typically involve scanning large volumes of records, applying filters, and performing aggregations. Traditional database execution plans often struggle with these patterns, especially when they include text fields alongside numeric data. The mixed fast field execution path specifically targets these scenarios by optimizing the scanning phase with memory-efficient representations of both text and numeric values. By eliminating the need to reconstruct complete tuples from the heap for filtering operations, we reduce both CPU and I/O overhead. The benchmarks in this suite quantify these benefits across representative query patterns.",
         "Security and compliance requirements often necessitate text analysis on sensitive data fields. Encryption status, access logs, and audit trails frequently combine textual descriptions with numeric identifiers and timestamps. Efficiently querying these mixed data types presents unique challenges for database systems. ParadeDB's specialized execution paths address these use cases by maintaining both text and numeric fields in optimized in-memory structures, enabling rapid filtering and aggregation. This approach is particularly valuable for security information and event management (SIEM) systems where response time directly impacts threat detection and mitigation capabilities.",
         "Time series data analysis combines the challenges of high ingest rates with complex query patterns. Device telemetry, system metrics, and application logs typically contain both structured numeric data and semi-structured text fields. Analyzing this information efficiently requires specialized indexing strategies. The fast field execution paths in ParadeDB provide optimized access patterns for both numeric time series data and associated text annotations. This benchmark suite includes representative queries that demonstrate the performance characteristics of these optimization techniques across varying data volumes and query complexities.",
-        "Machine learning operations increasingly depend on efficient data retrieval for both training and inference phases. Feature stores must handle diverse data types while providing consistent low-latency access patterns. The combination of text features (like user agent strings, product descriptions, or error messages) with numeric features (counts, measurements, or derived metrics) presents particular challenges for traditional database systems. ParadeDB's mixed fast field execution optimizes these access patterns, reducing the time required for feature extraction and transformation. The benchmarks in this suite model common ML feature access patterns to quantify these performance benefits."
-    ];
+        "Machine learning operations increasingly depend on efficient data retrieval for both training and inference phases. Feature stores must handle diverse data types while providing consistent low-latency access patterns. The combination of text features (like user agent strings, product descriptions, or error messages) with numeric features (counts, measurements, or derived metrics) presents particular challenges for traditional database systems. ParadeDB's mixed fast field execution optimizes these access patterns, reducing the time required for feature extraction and transformation. The benchmarks in this suite model common ML feature access patterns to quantify these performance benefits."];
 
     // JSON data templates (complex nested structures)
-    let json_templates = vec![
+    let json_templates = [
         r#"{"user":{"id":%ID%,"username":"%USERNAME%","profile":{"age":%AGE%,"interests":["%INTEREST1%","%INTEREST2%"],"location":{"city":"%CITY%","country":"USA","coordinates":{"lat":40.7128,"lng":-74.0060}}}},"metadata":{"last_login":"2023-10-%DAY%","device":"mobile","settings":{"notifications":true,"theme":"dark"}}}"#,
         r#"{"product":{"id":%ID%,"name":"%NAME%","details":{"price":%PRICE%.99,"category":"%CATEGORY%","tags":["%TAG1%","%TAG2%","%TAG3%"],"stock":{"warehouse_a":%STOCK_A%,"warehouse_b":%STOCK_B%}},"ratings":[%RATING1%,%RATING2%,%RATING3%,%RATING4%]},"audit":{"created":"2023-%MONTH1%-15","modified":"2023-%MONTH2%-20"}}"#,
         r#"{"transaction":{"id":"tx-%ID%","amount":%AMOUNT%.%CENTS%,"currency":"USD","status":"%STATUS%","items":[{"product_id":%PROD_ID1%,"quantity":%QTY1%,"price":%PRICE1%.99},{"product_id":%PROD_ID2%,"quantity":%QTY2%,"price":%PRICE2%.49}],"customer":{"id":"cust-%CUST_ID%","segment":"%SEGMENT%"}},"processing":{"timestamp":"2023-%MONTH%-%DAY%T10:30:00Z","gateway":"%GATEWAY%","attempt":%ATTEMPT%}}"#,
@@ -332,7 +330,7 @@ async fn setup_benchmark_database(conn: &mut PgConnection, num_rows: usize) -> R
     ];
 
     // City names for JSON data
-    let cities = vec![
+    let cities = [
         "New York",
         "Los Angeles",
         "Chicago",
@@ -346,7 +344,7 @@ async fn setup_benchmark_database(conn: &mut PgConnection, num_rows: usize) -> R
     ];
 
     // Categories for JSON data
-    let categories = vec![
+    let categories = [
         "Electronics",
         "Clothing",
         "Home & Garden",
@@ -360,7 +358,7 @@ async fn setup_benchmark_database(conn: &mut PgConnection, num_rows: usize) -> R
     ];
 
     // Tags for JSON data
-    let tags = vec![
+    let tags = [
         "bestseller",
         "new",
         "sale",
@@ -374,13 +372,13 @@ async fn setup_benchmark_database(conn: &mut PgConnection, num_rows: usize) -> R
     ];
 
     // Customer segments
-    let segments = vec!["premium", "standard", "business", "enterprise", "partner"];
+    let segments = ["premium", "standard", "business", "enterprise", "partner"];
 
     // Payment gateways
-    let gateways = vec!["Stripe", "PayPal", "Square", "Braintree", "Adyen"];
+    let gateways = ["Stripe", "PayPal", "Square", "Braintree", "Adyen"];
 
     // Event types
-    let event_types = vec![
+    let event_types = [
         "system_error",
         "user_action",
         "api_request",
@@ -389,7 +387,7 @@ async fn setup_benchmark_database(conn: &mut PgConnection, num_rows: usize) -> R
     ];
 
     // Event sources
-    let event_sources = vec![
+    let event_sources = [
         "web_frontend",
         "mobile_app",
         "background_job",
@@ -398,10 +396,10 @@ async fn setup_benchmark_database(conn: &mut PgConnection, num_rows: usize) -> R
     ];
 
     // Environments
-    let environments = vec!["production", "staging", "development", "testing", "qa"];
+    let environments = ["production", "staging", "development", "testing", "qa"];
 
     // Status values
-    let statuses = vec!["completed", "pending", "failed", "processing", "refunded"];
+    let statuses = ["completed", "pending", "failed", "processing", "refunded"];
 
     let mut inserted = 0;
 
@@ -429,9 +427,9 @@ async fn setup_benchmark_database(conn: &mut PgConnection, num_rows: usize) -> R
                         .replace("%ID%", &i.to_string())
                         .replace("%USERNAME%", string1)
                         .replace("%AGE%", &((i % 50) + 20).to_string())
-                        .replace("%INTEREST1%", &tags[i % tags.len()])
-                        .replace("%INTEREST2%", &tags[(i + 3) % tags.len()])
-                        .replace("%CITY%", &cities[i % cities.len()])
+                        .replace("%INTEREST1%", tags[i % tags.len()])
+                        .replace("%INTEREST2%", tags[(i + 3) % tags.len()])
+                        .replace("%CITY%", cities[i % cities.len()])
                         .replace("%DAY%", &((i % 28) + 1).to_string())
                 }
                 1 => {
@@ -440,10 +438,10 @@ async fn setup_benchmark_database(conn: &mut PgConnection, num_rows: usize) -> R
                         .replace("%ID%", &i.to_string())
                         .replace("%NAME%", &format!("{} {}", string1, string2))
                         .replace("%PRICE%", &((i % 100) + 10).to_string())
-                        .replace("%CATEGORY%", &categories[i % categories.len()])
-                        .replace("%TAG1%", &tags[i % tags.len()])
-                        .replace("%TAG2%", &tags[(i + 2) % tags.len()])
-                        .replace("%TAG3%", &tags[(i + 4) % tags.len()])
+                        .replace("%CATEGORY%", categories[i % categories.len()])
+                        .replace("%TAG1%", tags[i % tags.len()])
+                        .replace("%TAG2%", tags[(i + 2) % tags.len()])
+                        .replace("%TAG3%", tags[(i + 4) % tags.len()])
                         .replace("%STOCK_A%", &((i % 1000) + 100).to_string())
                         .replace("%STOCK_B%", &((i % 500) + 50).to_string())
                         .replace("%RATING1%", &((i % 5) + 1).to_string())
@@ -459,7 +457,7 @@ async fn setup_benchmark_database(conn: &mut PgConnection, num_rows: usize) -> R
                         .replace("%ID%", &i.to_string())
                         .replace("%AMOUNT%", &((i % 1000) + 10).to_string())
                         .replace("%CENTS%", &(i % 100).to_string())
-                        .replace("%STATUS%", &statuses[i % statuses.len()])
+                        .replace("%STATUS%", statuses[i % statuses.len()])
                         .replace("%PROD_ID1%", &(i % 1000).to_string())
                         .replace("%QTY1%", &((i % 10) + 1).to_string())
                         .replace("%PRICE1%", &((i % 100) + 10).to_string())
@@ -467,10 +465,10 @@ async fn setup_benchmark_database(conn: &mut PgConnection, num_rows: usize) -> R
                         .replace("%QTY2%", &((i % 5) + 1).to_string())
                         .replace("%PRICE2%", &((i % 50) + 5).to_string())
                         .replace("%CUST_ID%", &(i % 10000).to_string())
-                        .replace("%SEGMENT%", &segments[i % segments.len()])
+                        .replace("%SEGMENT%", segments[i % segments.len()])
                         .replace("%MONTH%", &((i % 12) + 1).to_string())
                         .replace("%DAY%", &((i % 28) + 1).to_string())
-                        .replace("%GATEWAY%", &gateways[i % gateways.len()])
+                        .replace("%GATEWAY%", gateways[i % gateways.len()])
                         .replace("%ATTEMPT%", &((i % 3) + 1).to_string())
                 }
                 _ => {
@@ -493,7 +491,7 @@ async fn setup_benchmark_database(conn: &mut PgConnection, num_rows: usize) -> R
                         .replace("%DURATION%", &((i % 1000) + 100).to_string())
                         .replace("%RESOURCE%", &(i % 100).to_string())
                         .replace("%RESOURCE_DEC%", &(i % 10).to_string())
-                        .replace("%ENV%", &environments[i % environments.len()])
+                        .replace("%ENV%", environments[i % environments.len()])
                         .replace("%REGION%", &((i % 3) + 1).to_string())
                         .replace("%TRACE%", &(i % 100000).to_string())
                 }
@@ -685,7 +683,7 @@ async fn run_benchmark(
     let mut min_time_ms: f64 = f64::MAX;
     let mut max_time_ms: f64 = 0.0;
 
-    set_execution_method(conn, &execution_method).await?;
+    set_execution_method(conn, execution_method).await?;
 
     // The query to run, with no modification
     let query_to_run = query.to_string();

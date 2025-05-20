@@ -655,15 +655,15 @@ async fn set_execution_method(conn: &mut PgConnection, execution_method: &str) -
             .await?;
     }
 
-    sqlx::query("SET max_parallel_workers_per_gather = 0")
-        .execute(&mut *conn)
-        .await?;
-
     let _count: i64 =
         sqlx::query("SELECT COUNT(*) FROM benchmark_data WHERE id @@@ paradedb.all()")
             .fetch_one(&mut *conn)
             .await?
             .get(0);
+
+    sqlx::query("SET max_parallel_workers_per_gather = 0")
+        .execute(&mut *conn)
+        .await?;
 
     Ok(())
 }
@@ -1024,6 +1024,111 @@ async fn benchmark_mixed_fast_fields(mut conn: PgConnection) -> Result<()> {
         &mut conn,
         ordering_query,
         "Heavy Ordering - MixedFF",
+        &["MixedFastFieldExec", "NormalScanExecState"],
+        &mut results,
+    )
+    .await?;
+
+    // Test 8: Group by numeric field with filtered count
+    let group_count_query = "SELECT numeric_field1, COUNT(*) FROM benchmark_data WHERE string_field1 @@@ '\"alpha_complex_identifier_123456789\"' GROUP BY numeric_field1";
+
+    run_benchmarks_with_methods(
+        &mut conn,
+        group_count_query,
+        "Group By Count - MixedFF",
+        &["MixedFastFieldExec", "NormalScanExecState"],
+        &mut results,
+    )
+    .await?;
+
+    run_benchmarks_with_methods(
+        &mut conn,
+        group_count_query,
+        "Group By Count - NumericFF",
+        &["NumericFastFieldExec", "NormalScanExecState"],
+        &mut results,
+    )
+    .await?;
+
+    // Test 9: Select ID with filter
+    let select_id_query = "SELECT id FROM benchmark_data WHERE string_field1 @@@ '\"alpha_complex_identifier_123456789\"'";
+
+    run_benchmarks_with_methods(
+        &mut conn,
+        select_id_query,
+        "Select ID - MixedFF",
+        &["MixedFastFieldExec", "NormalScanExecState"],
+        &mut results,
+    )
+    .await?;
+
+    run_benchmarks_with_methods(
+        &mut conn,
+        select_id_query,
+        "Select ID - NumericFF",
+        &["NumericFastFieldExec", "NormalScanExecState"],
+        &mut results,
+    )
+    .await?;
+
+    // Test 10: Aggregation with sum
+    let sum_query = "SELECT SUM(numeric_field1) FROM benchmark_data WHERE string_field1 @@@ '\"alpha_complex_identifier_123456789\"'";
+
+    run_benchmarks_with_methods(
+        &mut conn,
+        sum_query,
+        "Sum Aggregation - MixedFF",
+        &["MixedFastFieldExec", "NormalScanExecState"],
+        &mut results,
+    )
+    .await?;
+
+    run_benchmarks_with_methods(
+        &mut conn,
+        sum_query,
+        "Sum Aggregation - NumericFF",
+        &["NumericFastFieldExec", "NormalScanExecState"],
+        &mut results,
+    )
+    .await?;
+
+    // Test 11: Group by string with count
+    let string_group_query = "SELECT string_field1, COUNT(*) FROM benchmark_data WHERE long_text @@@ '\"database\"' GROUP BY string_field1";
+
+    run_benchmarks_with_methods(
+        &mut conn,
+        string_group_query,
+        "String Group Count - MixedFF",
+        &["MixedFastFieldExec", "NormalScanExecState"],
+        &mut results,
+    )
+    .await?;
+
+    run_benchmarks_with_methods(
+        &mut conn,
+        string_group_query,
+        "String Group Count - StringFF",
+        &["StringFastFieldExec", "NormalScanExecState"],
+        &mut results,
+    )
+    .await?;
+
+    // Test 12: Set up a self-join to simulate a join between two tables
+    let join_query = "
+        WITH a AS (
+            SELECT id AS a_id, numeric_field1 AS a_numeric, string_field1 AS a_string FROM benchmark_data
+        ),
+        b AS (
+            SELECT id AS b_id, numeric_field1 AS b_numeric, string_field2 AS b_string FROM benchmark_data
+        )
+        SELECT a.a_numeric, b.b_string 
+        FROM a, b 
+        WHERE a.a_numeric = b.b_numeric AND b.b_string @@@ '\"red_velvet_cupcake_with_cream_cheese_frosting\"'";
+
+    run_benchmarks_with_methods(
+        &mut conn,
+        join_query,
+        "Join Query - MixedFF",
         &["MixedFastFieldExec", "NormalScanExecState"],
         &mut results,
     )

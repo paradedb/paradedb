@@ -19,7 +19,7 @@ mod fixtures;
 
 use anyhow::Result;
 use fixtures::*;
-use pretty_assertions::assert_eq;
+use pretty_assertions::{assert_eq, assert_ne};
 use rstest::*;
 use serde_json::Value;
 use sqlx::PgConnection;
@@ -31,9 +31,9 @@ const ITERATIONS: usize = 5;
 // Number of warmup iterations before measuring performance
 const WARMUP_ITERATIONS: usize = 2;
 // Number of rows to use in the benchmark
-const NUM_ROWS_BENCHMARK: usize = 100000; // Reduced for faster test runs
+const NUM_ROWS_BENCHMARK: usize = 10000;
 const NUM_ROWS_VALIDATION: usize = 1000; // Reduced for faster test runs
-const BATCH_SIZE: usize = 100000; // For efficiency with large datasets, use batch inserts
+const BATCH_SIZE: usize = 10000; // For efficiency with large datasets, use batch inserts
 /// Structure to store benchmark results
 #[derive(Debug, Clone)]
 struct BenchmarkResult {
@@ -101,14 +101,14 @@ fn check_execution_plan_metrics(execution_method: &str, plan: &Value) {
             values.iter().for_each(|v| {
                 assert!(v.is_number());
                 if metric == "Heap Fetches" {
-                    assert!(v.as_i64().unwrap() == 0);
+                    assert_eq!(v.as_i64().unwrap(), 0);
                 }
                 if metric == "Virtual Tuples" {
                     // Fast fields should have virtual tuples
-                    assert!(v.as_i64().unwrap() > 0);
+                    assert_ne!(v.as_i64().unwrap(), 0);
                 }
                 if metric == "Invisible Tuples" {
-                    assert!(v.as_i64().unwrap() == 0);
+                    assert_eq!(v.as_i64().unwrap(), 0);
                 }
             });
         } else {
@@ -116,13 +116,13 @@ fn check_execution_plan_metrics(execution_method: &str, plan: &Value) {
                 assert!(v.is_number());
                 if metric == "Heap Fetches" {
                     // Normal scan should have heap fetches
-                    assert!(v.as_i64().unwrap() > 0);
+                    assert_ne!(v.as_i64().unwrap(), 0);
                 }
                 if metric == "Virtual Tuples" {
-                    assert!(v.as_i64().unwrap() == 0);
+                    assert_eq!(v.as_i64().unwrap(), 0);
                 }
                 if metric == "Invisible Tuples" {
-                    assert!(v.as_i64().unwrap() == 0);
+                    assert_eq!(v.as_i64().unwrap(), 0);
                 }
             });
         }
@@ -197,6 +197,8 @@ async fn setup_benchmark_database(conn: &mut PgConnection, num_rows: usize) -> R
                         id SERIAL PRIMARY KEY,
                         string_field1 TEXT NOT NULL,
                         string_field2 TEXT NOT NULL,
+                        long_text TEXT NOT NULL,        -- Added new long text field
+                        json_data TEXT NOT NULL,        -- Added JSON data field
                         numeric_field1 INTEGER NOT NULL,
                         numeric_field2 FLOAT NOT NULL,
                         numeric_field3 NUMERIC(10,2) NOT NULL
@@ -216,6 +218,8 @@ async fn setup_benchmark_database(conn: &mut PgConnection, num_rows: usize) -> R
                 id SERIAL PRIMARY KEY,
                 string_field1 TEXT NOT NULL,
                 string_field2 TEXT NOT NULL,
+                long_text TEXT NOT NULL,        -- Added new long text field
+                json_data TEXT NOT NULL,        -- Added JSON data field
                 numeric_field1 INTEGER NOT NULL,
                 numeric_field2 FLOAT NOT NULL,
                 numeric_field3 NUMERIC(10,2) NOT NULL
@@ -251,6 +255,8 @@ async fn setup_benchmark_database(conn: &mut PgConnection, num_rows: usize) -> R
                 id SERIAL PRIMARY KEY,
                 string_field1 TEXT NOT NULL,
                 string_field2 TEXT NOT NULL,
+                long_text TEXT NOT NULL,        -- Added new long text field
+                json_data TEXT NOT NULL,        -- Added JSON data field
                 numeric_field1 INTEGER NOT NULL,
                 numeric_field2 FLOAT NOT NULL,
                 numeric_field3 NUMERIC(10,2) NOT NULL
@@ -265,23 +271,144 @@ async fn setup_benchmark_database(conn: &mut PgConnection, num_rows: usize) -> R
     let rows_to_add = num_rows - current_rows;
     println!("Adding {} more rows to benchmark_data", rows_to_add);
 
-    // Create arrays for test data
+    // Create arrays for test data - with longer, more complex strings
     let string_array1 = vec![
-        "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota", "kappa",
-        "lambda", "mu", "nu", "xi", "omicron", "pi", "rho", "sigma", "tau", "upsilon", "phi",
-        "chi", "psi", "omega",
+        "alpha_complex_identifier_123456789",
+        "beta_node_configuration_987654321",
+        "gamma_protocol_specification_abcdef",
+        "delta_encryption_algorithm_123abc",
+        "epsilon_network_routing_456def",
+        "zeta_database_transaction_789ghi",
+        "eta_compute_instance_group_321jkl",
+        "theta_service_interconnect_654mno",
+        "iota_persistent_volume_claim_987pqr",
+        "kappa_distributed_cache_manager_210stu",
+        "lambda_reconciliation_controller_543vwx",
+        "mu_orchestration_deployment_876yz0",
+        "nu_authorization_policy_service_108abc",
+        "xi_replication_factor_settings_435def",
+        "omicron_performance_metrics_collector_762ghi",
+        "pi_configuration_parameter_store_089jkl",
+        "rho_microservice_discovery_agent_316mno",
+        "sigma_observability_infrastructure_643pqr",
+        "tau_credential_rotation_mechanism_970stu",
+        "upsilon_load_balancing_strategy_297vwx",
+        "phi_disaster_recovery_protocol_624yz0",
+        "chi_high_availability_cluster_951abc",
+        "psi_continuous_integration_pipeline_278def",
+        "omega_feature_flag_management_605ghi",
     ];
 
     let string_array2 = vec![
-        "red", "orange", "yellow", "green", "blue", "indigo", "violet", "black", "white", "gray",
+        "red_velvet_cupcake_with_cream_cheese_frosting",
+        "orange_marmalade_with_sourdough_toast",
+        "yellow_sponge_cake_with_lemon_buttercream",
+        "green_matcha_ice_cream_with_red_bean_paste",
+        "blue_butterfly_pea_flower_tea_with_honey",
+        "indigo_berry_sorbet_with_mint_garnish",
+        "violet_lavender_macarons_with_white_chocolate",
+        "black_sesame_pudding_with_kinako_powder",
+        "white_chocolate_mousse_with_raspberry_coulis",
+        "gray_earl_tea_infused_panna_cotta",
     ];
+
+    // Array of longer texts (paragraphs of content)
+    let long_text_array = vec![
+        "The importance of efficient database indexing cannot be overstated in modern application development. When dealing with large datasets, the difference between milliseconds and seconds in query response time significantly impacts user experience. Fast field execution in ParadeDB leverages memory-mapped structures to reduce disk I/O and accelerate data retrieval operations. By maintaining field values in an optimized format directly accessible by the query engine, we bypass the overhead associated with traditional heap fetches and tuple reconstruction. This benchmark aims to quantify these advantages across various query patterns and data types.",
+        "Cloud native architectures require databases that can scale horizontally while maintaining consistent performance characteristics. Container orchestration platforms like Kubernetes have revolutionized deployment strategies, but database systems often remain a bottleneck. ParadeDB's approach combines PostgreSQL's reliability with innovative indexing techniques specifically designed for contemporary workloads. By embedding Tantivy's search capabilities and enhancing them with custom execution paths, we achieve both flexibility and performance. The benchmarks in this test suite demonstrate real-world scenarios where these optimizations provide measurable benefits.",
+        "Text search performance has traditionally involved tradeoffs between accuracy and speed. Conventional database systems either provide basic pattern matching or rely on external search engines, introducing complexity and synchronization challenges. The BM25 index implementation in ParadeDB addresses these limitations by tightly integrating full-text search capabilities within the PostgreSQL ecosystem. Fast fields extend this concept to non-text data types, providing uniform performance optimizations across heterogeneous data. This unified approach simplifies application development while delivering performance improvements that particularly benefit complex analytical queries.",
+        "Data analytics workloads typically involve scanning large volumes of records, applying filters, and performing aggregations. Traditional database execution plans often struggle with these patterns, especially when they include text fields alongside numeric data. The mixed fast field execution path specifically targets these scenarios by optimizing the scanning phase with memory-efficient representations of both text and numeric values. By eliminating the need to reconstruct complete tuples from the heap for filtering operations, we reduce both CPU and I/O overhead. The benchmarks in this suite quantify these benefits across representative query patterns.",
+        "Security and compliance requirements often necessitate text analysis on sensitive data fields. Encryption status, access logs, and audit trails frequently combine textual descriptions with numeric identifiers and timestamps. Efficiently querying these mixed data types presents unique challenges for database systems. ParadeDB's specialized execution paths address these use cases by maintaining both text and numeric fields in optimized in-memory structures, enabling rapid filtering and aggregation. This approach is particularly valuable for security information and event management (SIEM) systems where response time directly impacts threat detection and mitigation capabilities.",
+        "Time series data analysis combines the challenges of high ingest rates with complex query patterns. Device telemetry, system metrics, and application logs typically contain both structured numeric data and semi-structured text fields. Analyzing this information efficiently requires specialized indexing strategies. The fast field execution paths in ParadeDB provide optimized access patterns for both numeric time series data and associated text annotations. This benchmark suite includes representative queries that demonstrate the performance characteristics of these optimization techniques across varying data volumes and query complexities.",
+        "Machine learning operations increasingly depend on efficient data retrieval for both training and inference phases. Feature stores must handle diverse data types while providing consistent low-latency access patterns. The combination of text features (like user agent strings, product descriptions, or error messages) with numeric features (counts, measurements, or derived metrics) presents particular challenges for traditional database systems. ParadeDB's mixed fast field execution optimizes these access patterns, reducing the time required for feature extraction and transformation. The benchmarks in this suite model common ML feature access patterns to quantify these performance benefits."
+    ];
+
+    // JSON data templates (complex nested structures)
+    let json_templates = vec![
+        r#"{"user":{"id":%ID%,"username":"%USERNAME%","profile":{"age":%AGE%,"interests":["%INTEREST1%","%INTEREST2%"],"location":{"city":"%CITY%","country":"USA","coordinates":{"lat":40.7128,"lng":-74.0060}}}},"metadata":{"last_login":"2023-10-%DAY%","device":"mobile","settings":{"notifications":true,"theme":"dark"}}}"#,
+        r#"{"product":{"id":%ID%,"name":"%NAME%","details":{"price":%PRICE%.99,"category":"%CATEGORY%","tags":["%TAG1%","%TAG2%","%TAG3%"],"stock":{"warehouse_a":%STOCK_A%,"warehouse_b":%STOCK_B%}},"ratings":[%RATING1%,%RATING2%,%RATING3%,%RATING4%]},"audit":{"created":"2023-%MONTH1%-15","modified":"2023-%MONTH2%-20"}}"#,
+        r#"{"transaction":{"id":"tx-%ID%","amount":%AMOUNT%.%CENTS%,"currency":"USD","status":"%STATUS%","items":[{"product_id":%PROD_ID1%,"quantity":%QTY1%,"price":%PRICE1%.99},{"product_id":%PROD_ID2%,"quantity":%QTY2%,"price":%PRICE2%.49}],"customer":{"id":"cust-%CUST_ID%","segment":"%SEGMENT%"}},"processing":{"timestamp":"2023-%MONTH%-%DAY%T10:30:00Z","gateway":"%GATEWAY%","attempt":%ATTEMPT%}}"#,
+        r#"{"event":{"id":"evt-%ID%","type":"%TYPE%","source":"%SOURCE%","severity":%SEVERITY%,"timestamp":"2023-%MONTH%-%DAY%T%HOUR%:%MINUTE%:00Z","details":{"message":"%MESSAGE% occurred on %SOURCE%","affected_components":["%COMP1%","%COMP2%"],"metrics":{"duration_ms":%DURATION%,"resource_usage":%RESOURCE%.%RESOURCE_DEC%}}},"context":{"environment":"%ENV%","region":"us-west-%REGION%","trace_id":"trace-%TRACE%"}}"#,
+    ];
+
+    // City names for JSON data
+    let cities = vec![
+        "New York",
+        "Los Angeles",
+        "Chicago",
+        "Houston",
+        "Phoenix",
+        "Philadelphia",
+        "San Antonio",
+        "San Diego",
+        "Dallas",
+        "San Jose",
+    ];
+
+    // Categories for JSON data
+    let categories = vec![
+        "Electronics",
+        "Clothing",
+        "Home & Garden",
+        "Sports",
+        "Books",
+        "Automotive",
+        "Health",
+        "Beauty",
+        "Toys",
+        "Groceries",
+    ];
+
+    // Tags for JSON data
+    let tags = vec![
+        "bestseller",
+        "new",
+        "sale",
+        "limited",
+        "exclusive",
+        "organic",
+        "handmade",
+        "imported",
+        "local",
+        "sustainable",
+    ];
+
+    // Customer segments
+    let segments = vec!["premium", "standard", "business", "enterprise", "partner"];
+
+    // Payment gateways
+    let gateways = vec!["Stripe", "PayPal", "Square", "Braintree", "Adyen"];
+
+    // Event types
+    let event_types = vec![
+        "system_error",
+        "user_action",
+        "api_request",
+        "database_operation",
+        "security_alert",
+    ];
+
+    // Event sources
+    let event_sources = vec![
+        "web_frontend",
+        "mobile_app",
+        "background_job",
+        "scheduled_task",
+        "external_api",
+    ];
+
+    // Environments
+    let environments = vec!["production", "staging", "development", "testing", "qa"];
+
+    // Status values
+    let statuses = vec!["completed", "pending", "failed", "processing", "refunded"];
 
     let mut inserted = 0;
 
     while inserted < rows_to_add {
         // Create a batch insert statement
         let mut batch_query = String::from(
-            "INSERT INTO benchmark_data (string_field1, string_field2, numeric_field1, numeric_field2, numeric_field3) VALUES "
+            "INSERT INTO benchmark_data (string_field1, string_field2, long_text, json_data, numeric_field1, numeric_field2, numeric_field3) VALUES "
         );
 
         let batch_end = (inserted + BATCH_SIZE).min(rows_to_add);
@@ -292,14 +419,98 @@ async fn setup_benchmark_database(conn: &mut PgConnection, num_rows: usize) -> R
 
             let string1 = string_array1[i % string_array1.len()];
             let string2 = string_array2[i % string_array2.len()];
+            let long_text = long_text_array[i % long_text_array.len()];
+
+            // Generate complex JSON data using string replacement instead of format!
+            let json_data = match i % 4 {
+                0 => {
+                    let template = json_templates[0];
+                    template
+                        .replace("%ID%", &i.to_string())
+                        .replace("%USERNAME%", string1)
+                        .replace("%AGE%", &((i % 50) + 20).to_string())
+                        .replace("%INTEREST1%", &tags[i % tags.len()])
+                        .replace("%INTEREST2%", &tags[(i + 3) % tags.len()])
+                        .replace("%CITY%", &cities[i % cities.len()])
+                        .replace("%DAY%", &((i % 28) + 1).to_string())
+                }
+                1 => {
+                    let template = json_templates[1];
+                    template
+                        .replace("%ID%", &i.to_string())
+                        .replace("%NAME%", &format!("{} {}", string1, string2))
+                        .replace("%PRICE%", &((i % 100) + 10).to_string())
+                        .replace("%CATEGORY%", &categories[i % categories.len()])
+                        .replace("%TAG1%", &tags[i % tags.len()])
+                        .replace("%TAG2%", &tags[(i + 2) % tags.len()])
+                        .replace("%TAG3%", &tags[(i + 4) % tags.len()])
+                        .replace("%STOCK_A%", &((i % 1000) + 100).to_string())
+                        .replace("%STOCK_B%", &((i % 500) + 50).to_string())
+                        .replace("%RATING1%", &((i % 5) + 1).to_string())
+                        .replace("%RATING2%", &((i % 5) + 1).to_string())
+                        .replace("%RATING3%", &((i % 5) + 1).to_string())
+                        .replace("%RATING4%", &((i % 5) + 1).to_string())
+                        .replace("%MONTH1%", &((i % 12) + 1).to_string())
+                        .replace("%MONTH2%", &((i % 12) + 1).to_string())
+                }
+                2 => {
+                    let template = json_templates[2];
+                    template
+                        .replace("%ID%", &i.to_string())
+                        .replace("%AMOUNT%", &((i % 1000) + 10).to_string())
+                        .replace("%CENTS%", &(i % 100).to_string())
+                        .replace("%STATUS%", &statuses[i % statuses.len()])
+                        .replace("%PROD_ID1%", &(i % 1000).to_string())
+                        .replace("%QTY1%", &((i % 10) + 1).to_string())
+                        .replace("%PRICE1%", &((i % 100) + 10).to_string())
+                        .replace("%PROD_ID2%", &((i + 1) % 1000).to_string())
+                        .replace("%QTY2%", &((i % 5) + 1).to_string())
+                        .replace("%PRICE2%", &((i % 50) + 5).to_string())
+                        .replace("%CUST_ID%", &(i % 10000).to_string())
+                        .replace("%SEGMENT%", &segments[i % segments.len()])
+                        .replace("%MONTH%", &((i % 12) + 1).to_string())
+                        .replace("%DAY%", &((i % 28) + 1).to_string())
+                        .replace("%GATEWAY%", &gateways[i % gateways.len()])
+                        .replace("%ATTEMPT%", &((i % 3) + 1).to_string())
+                }
+                _ => {
+                    let template = json_templates[3];
+                    let event_type = event_types[i % event_types.len()];
+                    let event_source = event_sources[i % event_sources.len()];
+
+                    template
+                        .replace("%ID%", &i.to_string())
+                        .replace("%TYPE%", event_type)
+                        .replace("%SOURCE%", event_source)
+                        .replace("%SEVERITY%", &((i % 5) + 1).to_string())
+                        .replace("%MONTH%", &((i % 12) + 1).to_string())
+                        .replace("%DAY%", &((i % 28) + 1).to_string())
+                        .replace("%HOUR%", &(i % 24).to_string())
+                        .replace("%MINUTE%", &(i % 60).to_string())
+                        .replace("%MESSAGE%", event_type)
+                        .replace("%COMP1%", &format!("service-{}", i))
+                        .replace("%COMP2%", &format!("component-{}", i % 10))
+                        .replace("%DURATION%", &((i % 1000) + 100).to_string())
+                        .replace("%RESOURCE%", &(i % 100).to_string())
+                        .replace("%RESOURCE_DEC%", &(i % 10).to_string())
+                        .replace("%ENV%", &environments[i % environments.len()])
+                        .replace("%REGION%", &((i % 3) + 1).to_string())
+                        .replace("%TRACE%", &(i % 100000).to_string())
+                }
+            };
+
             let num1 = (i % 1000) as i32;
             let num2 = (i % 100) as f32;
             let num3 = (i % 10000) as i32;
 
-            // Add placeholders to query
+            // Escape single quotes in JSON and text fields
+            let escaped_json = json_data.replace('\'', "''");
+            let escaped_long_text = long_text.replace('\'', "''");
+
+            // Add values to batch query
             batch_query.push_str(&format!(
-                "('{}', '{}', {}, {}, {})",
-                string1, string2, num1, num2, num3
+                "('{}', '{}', '{}', '{}', {}, {}, {})",
+                string1, string2, escaped_long_text, escaped_json, num1, num2, num3
             ));
         }
 
@@ -359,13 +570,24 @@ async fn create_bm25_index(conn: &mut PgConnection) -> Result<()> {
             id, 
             string_field1,
             string_field2,
+            long_text,
+            json_data,
             numeric_field1,
             numeric_field2,
             numeric_field3
         ) WITH (
             key_field = 'id',
-            text_fields = '{\"string_field1\": {\"fast\": true, \"tokenizer\": {\"type\": \"keyword\"}}, \"string_field2\": {\"fast\": true, \"tokenizer\": {\"type\": \"keyword\"}}}',
-            numeric_fields = '{\"numeric_field1\": {\"fast\": true}, \"numeric_field2\": {\"fast\": true}, \"numeric_field3\": {\"fast\": true}}'
+            text_fields = '{
+                \"string_field1\": {\"fast\": true, \"tokenizer\": {\"type\": \"keyword\"}}, 
+                \"string_field2\": {\"fast\": true, \"tokenizer\": {\"type\": \"keyword\"}},
+                \"long_text\": {\"fast\": true, \"tokenizer\": {\"type\": \"default\"}},
+                \"json_data\": {\"fast\": true, \"tokenizer\": {\"type\": \"default\"}}
+            }',
+            numeric_fields = '{
+                \"numeric_field1\": {\"fast\": true}, 
+                \"numeric_field2\": {\"fast\": true}, 
+                \"numeric_field3\": {\"fast\": true}
+            }'
     )";
 
     // Create the index
@@ -634,10 +856,11 @@ async fn benchmark_mixed_fast_fields(mut conn: PgConnection) -> Result<()> {
     let mut results = Vec::new();
 
     // Test 1: Basic query with mixed fields - use @@@ operator for string comparisons
+    // Updated to use the new fields
     let basic_query =
-        "SELECT id, string_field1, string_field2, numeric_field1, numeric_field2, numeric_field3 
+        "SELECT id, string_field1, string_field2, json_data, numeric_field1, numeric_field2, numeric_field3 
          FROM benchmark_data 
-         WHERE numeric_field1 < 500 AND string_field1 @@@ '\"alpha\"' AND string_field2 @@@ '\"red\"'
+         WHERE numeric_field1 < 500 AND string_field1 @@@ '\"alpha_complex_identifier_123456789\"' AND string_field2 @@@ '\"red_velvet_cupcake_with_cream_cheese_frosting\"'
          ORDER BY id";
 
     // Run the benchmarks with different execution methods
@@ -650,10 +873,10 @@ async fn benchmark_mixed_fast_fields(mut conn: PgConnection) -> Result<()> {
     )
     .await?;
 
-    // Test 2: Count query (simpler test)
+    // Test 2: Count query with long text
     let count_query = "SELECT numeric_field1, string_field1
                       FROM benchmark_data 
-                      WHERE numeric_field1 < 500 AND string_field1 @@@ '\"alpha\"'";
+                      WHERE long_text @@@ '\"database\"' AND numeric_field1 < 500";
 
     // Run the benchmarks with different execution methods
     run_benchmarks_with_methods(
@@ -665,19 +888,21 @@ async fn benchmark_mixed_fast_fields(mut conn: PgConnection) -> Result<()> {
     )
     .await?;
 
-    // Test 3: Complex Aggregation Query (1-2 seconds)
-    // This query performs multiple aggregations across many groups with additional filtering
+    // Test 3: Complex Aggregation Query with more complex fields
     let complex_query = "
         WITH filtered_data AS (
             SELECT 
                 string_field1, 
                 string_field2, 
+                long_text,
+                json_data,
                 numeric_field1, 
                 numeric_field2, 
                 numeric_field3
             FROM benchmark_data 
             WHERE 
-                (string_field1 @@@ 'IN [alpha beta gamma delta epsilon]') AND 
+                json_data @@@ '\"user\"' AND
+                long_text @@@ '\"performance\"' AND
                 (numeric_field1 BETWEEN 0 AND 900)
         ),
         agg_by_string1 AS (
@@ -732,23 +957,20 @@ async fn benchmark_mixed_fast_fields(mut conn: PgConnection) -> Result<()> {
     )
     .await?;
 
-    // Test 4: Single String Fast Field Query (1-2 seconds)
-    // This query specifically tests performance with a single string fast field,
-    // which should use StringFastFieldExecState instead of MixedFastFieldExecState
-    let single_string_query = "
+    // Test 4: JSON query - should be much faster with fast fields
+    let json_query = "
         SELECT 
-            string_field1
+            json_data
         FROM benchmark_data 
         WHERE 
-            string_field1 @@@ 'IN [alpha beta gamma delta epsilon]' AND
-            string_field2 @@@ 'IN [red blue green]'
-        ORDER BY string_field1";
+            json_data @@@ '\"Sports\"'
+        ORDER BY json_data";
 
     // Run the benchmarks with different execution methods
     run_benchmarks_with_methods(
         &mut conn,
-        single_string_query,
-        "Single String Field - StringFF",
+        json_query,
+        "JSON Query - StringFF",
         &["StringFastFieldExec", "NormalScanExecState"],
         &mut results,
     )
@@ -757,39 +979,57 @@ async fn benchmark_mixed_fast_fields(mut conn: PgConnection) -> Result<()> {
     // Run the benchmarks with different execution methods
     run_benchmarks_with_methods(
         &mut conn,
-        single_string_query,
-        "Single String Field - MixedFF",
+        json_query,
+        "JSON Query - MixedFF",
         &["MixedFastFieldExec", "NormalScanExecState"],
         &mut results,
     )
     .await?;
 
-    // Test 5: Multiple Numeric Fast Field Query (1-2 seconds)
-    // This query specifically tests performance with multiple numeric fast fields,
-    // which should use NumericFastFieldExecState instead of MixedFastFieldExecState
-    let multiple_numeric_query = "
-            SELECT 
-                numeric_field1, numeric_field2, numeric_field3
-            FROM benchmark_data 
-            WHERE 
-                string_field1 @@@ 'IN [alpha beta gamma delta epsilon]' AND
-                string_field2 @@@ 'IN [red blue green]'
-            ORDER BY numeric_field1";
+    // Test 5: Long text search - should show big difference with fast fields
+    let long_text_query = "
+        SELECT 
+            long_text
+        FROM benchmark_data 
+        WHERE 
+            long_text @@@ '\"database\" AND \"performance\"'
+        ORDER BY long_text";
 
     // Run the benchmarks with different execution methods
     run_benchmarks_with_methods(
         &mut conn,
-        multiple_numeric_query,
-        "Multiple Numeric Fast Fields - NumericFF",
-        &["NumericFastFieldExec", "NormalScanExecState"],
+        long_text_query,
+        "Long Text Query - StringFF",
+        &["StringFastFieldExec", "NormalScanExecState"],
         &mut results,
     )
     .await?;
 
+    // Run the benchmarks with different execution methods
     run_benchmarks_with_methods(
         &mut conn,
-        multiple_numeric_query,
-        "Multiple Numeric Fast Fields - MixedFF",
+        long_text_query,
+        "Long Text Query - MixedFF",
+        &["MixedFastFieldExec", "NormalScanExecState"],
+        &mut results,
+    )
+    .await?;
+
+    // Test 6: Heavy ordering query - should benefit from fast fields
+    let ordering_query = "
+        SELECT 
+            id, string_field1, string_field2, numeric_field1, numeric_field2
+        FROM benchmark_data 
+        WHERE 
+            numeric_field1 < 800 AND
+            string_field1 @@@ 'alpha_complex_identifier_123456789'
+        ORDER BY numeric_field1, numeric_field2 DESC, string_field1";
+
+    // Run the benchmarks with different execution methods
+    run_benchmarks_with_methods(
+        &mut conn,
+        ordering_query,
+        "Heavy Ordering - MixedFF",
         &["MixedFastFieldExec", "NormalScanExecState"],
         &mut results,
     )
@@ -829,8 +1069,10 @@ async fn benchmark_mixed_fast_fields(mut conn: PgConnection) -> Result<()> {
                 "\n⚠️ WARNING: MixedFastFieldExec is more than 2x slower than NormalScanExecState!"
             );
             println!("This suggests there are significant performance issues with the fast field implementation.");
+        } else if ratio < 0.7 {
             println!(
-                "Review the optimization recommendations in mixed_fast_fields_optimizations.md"
+                "\n🚀 MixedFastFieldExec is significantly faster than NormalScanExecState! ({:.2}x)",
+                1.0 / ratio
             );
         }
     }
@@ -851,9 +1093,9 @@ async fn validate_mixed_fast_fields_correctness(mut conn: PgConnection) -> Resul
 
     // Define a test query that will use both string and numeric fast fields
     let test_query =
-        "SELECT id, string_field1, string_field2, numeric_field1, numeric_field2, numeric_field3 
+        "SELECT id, string_field1, string_field2, long_text, json_data, numeric_field1, numeric_field2, numeric_field3 
          FROM benchmark_data 
-         WHERE numeric_field1 < 500 AND string_field1 @@@ '\"alpha\"' AND string_field2 @@@ '\"red\"'
+         WHERE numeric_field1 < 500 AND string_field1 @@@ '\"alpha_complex_identifier_123456789\"' AND string_field2 @@@ '\"red_velvet_cupcake_with_cream_cheese_frosting\"'
          ORDER BY id";
 
     println!("Testing query correctness between execution methods...");

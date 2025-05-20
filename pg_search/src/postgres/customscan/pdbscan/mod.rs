@@ -62,7 +62,7 @@ use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::customscan::{self, CustomScan, CustomScanState};
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::visibility_checker::VisibilityChecker;
-use crate::query::{AsHumanReadable, SearchQueryInput};
+use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
 use pgrx::pg_sys::CustomExecMethods;
@@ -78,15 +78,11 @@ pub struct PdbScan;
 impl PdbScan {
     // This is the core logic for (re-)initializing the search reader
     fn init_search_reader(state: &mut CustomScanStateWrapper<Self>) {
-        if state.custom_state().nexprs > 0 {
-            let expr_context = state.runtime_context;
-            state
-                .custom_state_mut()
-                .search_query_input
-                .solve_postgres_expressions(expr_context);
-        }
-
-        let need_snippets = state.custom_state().need_snippets();
+        let planstate = state.planstate();
+        let expr_context = state.runtime_context;
+        state
+            .custom_state_mut()
+            .prepare_query_for_execution(planstate, expr_context);
 
         // Open the index
         let indexrel = state
@@ -118,7 +114,7 @@ impl PdbScan {
         let csstate = addr_of_mut!(state.csstate);
         state.custom_state_mut().init_exec_method(csstate);
 
-        if need_snippets {
+        if state.custom_state().need_snippets() {
             let mut snippet_generators: HashMap<
                 SnippetType,
                 Option<(tantivy::schema::Field, SnippetGenerator)>,
@@ -135,7 +131,7 @@ impl PdbScan {
                     .unwrap()
                     .snippet_generator(
                         snippet_type.field(),
-                        &state.custom_state().search_query_input,
+                        state.custom_state().search_query_input(),
                     );
 
                 // If SnippetType::Positions, set max_num_chars to u32::MAX because the entire doc must be considered
@@ -587,12 +583,14 @@ impl CustomScan for PdbScan {
             builder.custom_state().sort_direction = builder.custom_private().sort_direction();
 
             // store our query into our custom state too
-            builder.custom_state().search_query_input = builder
+            let base_query = builder
                 .custom_private()
                 .query()
-                .as_ref()
-                .cloned()
+                .clone()
                 .expect("should have a SearchQueryInput");
+            builder
+                .custom_state()
+                .set_base_search_query_input(base_query);
 
             builder.custom_state().segment_count = builder.custom_private().segment_count();
             builder.custom_state().var_attname_lookup = builder
@@ -707,23 +705,21 @@ impl CustomScan for PdbScan {
             }
         }
 
-        let json_query = serde_json::to_string(&state.custom_state().search_query_input)
+        let mut json_value = state
+            .custom_state()
+            .query_to_json()
             .expect("query should serialize to json");
-        if let Ok(mut json_value) = serde_json::from_str::<serde_json::Value>(&json_query) {
-            // Remove the oid from the with_index object
-            // This helps to reduce the variability of the explain output used in regression tests
-            Self::cleanup_varibilities_from_tantivy_query(&mut json_value);
-            let updated_json_query =
-                serde_json::to_string(&json_value).expect("updated query should serialize to json");
-            explainer.add_text("Tantivy Query", &updated_json_query);
-        } else {
-            explainer.add_text("Tantivy Query", &json_query);
-        }
+        // Remove the oid from the with_index object
+        // This helps to reduce the variability of the explain output used in regression tests
+        Self::cleanup_varibilities_from_tantivy_query(&mut json_value);
+        let updated_json_query =
+            serde_json::to_string(&json_value).expect("updated query should serialize to json");
+        explainer.add_text("Tantivy Query", &updated_json_query);
 
         if explainer.is_verbose() {
             explainer.add_text(
                 "Human Readable Query",
-                state.custom_state().search_query_input.as_human_readable(),
+                state.custom_state().human_readable_query_string(),
             );
         }
     }
@@ -784,20 +780,14 @@ impl CustomScan for PdbScan {
                 (*state.csstate.ss.ss_ScanTupleSlot).tts_tupleDescriptor,
             );
 
-            let planstate = state.planstate();
-            let nexprs = state
-                .custom_state_mut()
-                .search_query_input
-                .init_postgres_expressions(planstate);
-            state.custom_state_mut().nexprs = nexprs;
-
-            if nexprs > 0 {
+            if state.custom_state_mut().has_postgres_expressions() {
                 // we have some runtime Postgres expressions that need to be evaluated in `rescan_custom_scan`
                 //
                 // Our planstate's ExprContext isn't sufficiently configured for that, so we need to
                 // make a new one and swap some pointers around
 
                 // hold onto the planstate's current ExprContext
+                let planstate = state.planstate();
                 let stdecontext = (*planstate).ps_ExprContext;
 
                 // assign a new one

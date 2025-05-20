@@ -1,8 +1,8 @@
 -- uses the same schema as the mixed fast fields queries
 \i common/mixedff_queries_setup.sql
 
--- Disable parallel workers to avoid differences in plans
-SET max_parallel_workers_per_gather = 0;
+-- Enable parallel workers to ensure they work too
+SET max_parallel_workers_per_gather = 2;
 SET enable_indexscan to OFF;
 
 -- by turning off this GUC we're forcing pg_search to choose its "NormalScanExecState", which is the method under test

@@ -101,8 +101,8 @@ INSERT INTO pages (id, fileId, page_number, content) VALUES
 ('page_cte2', 'file_cte1', 2, 'Page 2 with more content for testing'),
 ('page_cte3', 'file_cte2', 1, 'Another page with test terms to search'),
 ('page_cte4', 'file_cte3', 1, 'Final test page for CTE testing'); 
--- Disable parallel workers to avoid differences in plans
-SET max_parallel_workers_per_gather = 0;
+-- Enable parallel workers to ensure they work too
+SET max_parallel_workers_per_gather = 2;
 SET enable_indexscan to OFF;
 -- by turning off this GUC we're forcing pg_search to choose its "NormalScanExecState", which is the method under test
 SET paradedb.enable_mixed_fast_field_exec = false;
@@ -115,38 +115,37 @@ WHERE d.parents @@@ 'Factures'
   AND f.title @@@ 'Receipt'
   AND p.content @@@ 'Socienty'
 ORDER BY d.id, f.id, p.id;
-                                                                                 QUERY PLAN                                                                                  
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Incremental Sort
-   Sort Key: d.id, p.fileid, p.id
-   Presorted Key: d.id
-   ->  Nested Loop
-         Join Filter: (f.id = p.fileid)
-         ->  Merge Join
-               Merge Cond: (d.id = f.documentid)
-               ->  Sort
-                     Sort Key: d.id
-                     ->  Custom Scan (ParadeDB Scan) on documents d
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Gather Merge
+   Workers Planned: 2
+   ->  Sort
+         Sort Key: d.id, p.fileid, p.id
+         ->  Parallel Hash Join
+               Hash Cond: (f.documentid = d.id)
+               ->  Parallel Hash Join
+                     Hash Cond: (p.fileid = f.id)
+                     ->  Parallel Custom Scan (ParadeDB Scan) on pages p
+                           Table: pages
+                           Index: pages_search
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
+                     ->  Parallel Hash
+                           ->  Parallel Custom Scan (ParadeDB Scan) on files f
+                                 Table: files
+                                 Index: files_search
+                                 Exec Method: NormalScanExecState
+                                 Scores: false
+                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Receipt","lenient":null,"conjunction_mode":null}}}}
+               ->  Parallel Hash
+                     ->  Parallel Custom Scan (ParadeDB Scan) on documents d
                            Table: documents
                            Index: documents_search
                            Exec Method: NormalScanExecState
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Factures","lenient":null,"conjunction_mode":null}}}}
-               ->  Sort
-                     Sort Key: f.documentid
-                     ->  Custom Scan (ParadeDB Scan) on files f
-                           Table: files
-                           Index: files_search
-                           Exec Method: NormalScanExecState
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Receipt","lenient":null,"conjunction_mode":null}}}}
-         ->  Custom Scan (ParadeDB Scan) on pages p
-               Table: pages
-               Index: pages_search
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
-(29 rows)
+(28 rows)
 
 SELECT d.id, d.parents, f.title, f.file_path, p.fileId, p.page_number
 FROM documents d
@@ -173,28 +172,30 @@ EXPLAIN (COSTS OFF) SELECT d.id, d.title, d.parents,
 FROM documents d
 WHERE d.parents @@@ 'Factures'
 ORDER BY d.id;
-                                                                                           QUERY PLAN                                                                                           
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort
-   Sort Key: d.id
-   ->  Custom Scan (ParadeDB Scan) on documents d
-         Table: documents
-         Index: documents_search
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Factures","lenient":null,"conjunction_mode":null}}}}
-         SubPlan 1
-           ->  Limit
-                 ->  Custom Scan (ParadeDB Scan) on files f
-                       Table: files
-                       Index: files_search
-                       Exec Method: TopNScanExecState
-                       Scores: true
-                          Sort Field: paradedb.score()
-                          Sort Direction: desc
-                          Top N Limit: 1
-                       Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Invoice","lenient":null,"conjunction_mode":null}}}},{}]}}
-(19 rows)
+                                                                                        QUERY PLAN                                                                                        
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Gather Merge
+   Workers Planned: 2
+   ->  Sort
+         Sort Key: d.id
+         ->  Parallel Custom Scan (ParadeDB Scan) on documents d
+               Table: documents
+               Index: documents_search
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Factures","lenient":null,"conjunction_mode":null}}}}
+   SubPlan 1
+     ->  Limit
+           ->  Custom Scan (ParadeDB Scan) on files f
+                 Table: files
+                 Index: files_search
+                 Exec Method: TopNScanExecState
+                 Scores: true
+                    Sort Field: paradedb.score()
+                    Sort Direction: desc
+                    Top N Limit: 1
+                 Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Invoice","lenient":null,"conjunction_mode":null}}}},{}]}}
+(21 rows)
 
 SELECT d.id, d.title, d.parents,
        (

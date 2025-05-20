@@ -147,7 +147,7 @@ ORDER BY invoice_file_count DESC, d.id;
   id  |    title     | parents  | invoice_file_count 
 ------+--------------+----------+--------------------
  doc1 | Invoice 2023 | Factures |                  2
- doc2 | Receipt 2023 | Factures |                  2
+ doc2 | Receipt 2023 | Factures |                  0
 (2 rows)
 
 \i common/mixedff_queries_cleanup.sql

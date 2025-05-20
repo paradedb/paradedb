@@ -75,6 +75,9 @@ fn collect_json_field_values(json: &Value, field_name: &str) -> Vec<Value> {
 
 /// Collects and prints all important metrics from an execution plan
 fn check_execution_plan_metrics(execution_method: &str, plan: &Value) {
+    let plan_str = plan.to_string();
+    println!("Execution plan: {}", plan_str);
+
     // Define metrics to collect
     let metrics = [
         "Heap Fetches",
@@ -527,11 +530,6 @@ async fn setup_benchmark_database(conn: &mut PgConnection, num_rows: usize) -> R
         num_rows, current_rows, rows_to_add
     );
 
-    // Run VACUUM ANALYZE after creating or updating the table
-    sqlx::query("VACUUM ANALYZE benchmark_data")
-        .execute(&mut *conn)
-        .await?;
-
     // Verify the actual row count
     let final_count: i64 = sqlx::query("SELECT COUNT(*)::bigint FROM benchmark_data")
         .fetch_one(&mut *conn)
@@ -613,9 +611,6 @@ async fn create_bm25_index(conn: &mut PgConnection) -> Result<()> {
     sqlx::query("SET enable_indexscan = off")
         .execute(&mut *conn)
         .await?;
-    sqlx::query("SET max_parallel_workers_per_gather = 0")
-        .execute(&mut *conn)
-        .await?;
 
     // Verify the index was created
     let verify_index =
@@ -660,17 +655,15 @@ async fn set_execution_method(conn: &mut PgConnection, execution_method: &str) -
             .await?;
     }
 
-    // Reset/clear cache to ensure clean runs
-    sqlx::query("SELECT pg_stat_reset()")
+    sqlx::query("SET max_parallel_workers_per_gather = 0")
         .execute(&mut *conn)
         .await?;
 
-    // Run a full VACUUM ANALYZE to ensure statistics are up-to-date
-    // This helps the query planner make better decisions
-    println!("Running VACUUM ANALYZE on benchmark_data...");
-    sqlx::query("VACUUM ANALYZE benchmark_data")
-        .execute(&mut *conn)
-        .await?;
+    let _count: i64 =
+        sqlx::query("SELECT COUNT(*) FROM benchmark_data WHERE id @@@ paradedb.all()")
+            .fetch_one(&mut *conn)
+            .await?
+            .get(0);
 
     Ok(())
 }

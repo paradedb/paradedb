@@ -789,8 +789,8 @@ fn display_results(results: &[BenchmarkResult]) {
             .find(|r| r.test_name.contains("NormalScanExecState"));
 
         if let (Some(mixed), Some(normal)) = (mixed_result, normal_result) {
-            let ratio = mixed.avg_time_ms / normal.avg_time_ms;
-            let performance = if mixed.avg_time_ms > normal.avg_time_ms {
+            let ratio = mixed.min_time_ms / normal.min_time_ms;
+            let performance = if mixed.min_time_ms > normal.min_time_ms {
                 "SLOWER"
             } else {
                 "FASTER"
@@ -798,7 +798,7 @@ fn display_results(results: &[BenchmarkResult]) {
 
             println!(
                 "{:<45} {:<15.2} {:<15.2} {:<15.2} {:<15}",
-                base_name, mixed.avg_time_ms, normal.avg_time_ms, ratio, performance
+                base_name, mixed.min_time_ms, normal.min_time_ms, ratio, performance
             );
         } else {
             // For debugging if no match found
@@ -1054,7 +1054,7 @@ async fn benchmark_mixed_fast_fields(mut conn: PgConnection) -> Result<()> {
         let normal = normal_test_cases[0];
 
         // Print the ratio for verification
-        let ratio = mixed.avg_time_ms / normal.avg_time_ms;
+        let ratio = mixed.min_time_ms / normal.min_time_ms;
         println!(
             "\nMixedFastFieldExec to NormalScanExecState performance ratio: {:.2}",
             ratio

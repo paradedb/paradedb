@@ -1083,7 +1083,6 @@ async fn benchmark_mixed_fast_fields(mut conn: PgConnection) -> Result<()> {
 /// Validate that the different execution methods return the same results
 /// and enforce that we're actually using the intended execution methods
 #[rstest]
-#[ignore]
 async fn validate_mixed_fast_fields_correctness(mut conn: PgConnection) -> Result<()> {
     // Set up the benchmark database
     setup_benchmark_database(&mut conn, NUM_ROWS_VALIDATION).await?;

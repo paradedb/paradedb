@@ -1,6 +1,6 @@
 use clap::Parser;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Write};
+use std::io::Write;
 use std::path::Path;
 use std::process::Command;
 
@@ -10,31 +10,44 @@ struct Args {
     #[arg(long, value_parser = ["pg_search", "tuned_postgres"], default_value = "pg_search")]
     r#type: String,
 
+    /// Postgres URL.
     #[arg(long)]
     url: String,
 
+    /// Dataset to use.
     #[arg(long, default_value = "single")]
     dataset: String,
 
+    /// Whether to pre-warm the dataset using `pg_prewarm`.
     #[arg(long, default_value = "true")]
     prewarm: bool,
 
+    /// Whether to run `VACUUM ANALYZE` before executing queries.
     #[arg(long, default_value = "true")]
     vacuum: bool,
 
+    /// True to skip creating the dataset, and only run queries.
+    #[arg(long, default_value = "false")]
+    existing: bool,
+
+    /// Number of rows to insert (in the largest generated table for the dataset).
     #[arg(long, default_value = "10000000")]
     rows: u32,
 
+    /// Number of runs to execute for each query.
     #[arg(long, default_value = "3")]
     runs: usize,
 
+    /// Output format.
     #[arg(long, value_parser = ["md", "csv"], default_value = "md")]
     output: String,
 }
 
 fn main() {
     let args = Args::parse();
-    generate_test_data(&args.url, &args.dataset, args.rows);
+    if !args.existing {
+        generate_test_data(&args.url, &args.dataset, args.rows);
+    }
 
     match args.output.as_str() {
         "md" => generate_markdown_output(&args),
@@ -50,14 +63,18 @@ fn generate_markdown_output(args: &Args) {
     write_benchmark_header(&mut file);
     write_test_info(&mut file, args);
     write_postgres_settings(&mut file, &args.url);
-    process_index_creation(&mut file, &args.url, &args.dataset, &args.r#type);
+    if !args.existing {
+        process_index_creation(&mut file, &args.url, &args.dataset, &args.r#type);
+    }
     run_benchmarks_md(&mut file, args);
 }
 
 fn generate_csv_output(args: &Args) {
     write_test_info_csv(args);
     write_postgres_settings_csv(&args.url, &args.r#type);
-    process_index_creation_csv(&args.url, &args.dataset, &args.r#type);
+    if !args.existing {
+        process_index_creation_csv(&args.url, &args.dataset, &args.r#type);
+    }
     run_benchmarks_csv(args);
 }
 
@@ -120,15 +137,7 @@ fn process_index_creation_csv(url: &str, dataset: &str, test_type: &str) {
     .unwrap();
 
     let index_sql = format!("datasets/{dataset}/create_index/{test_type}.sql");
-    let index_file = File::open(&index_sql).expect("Failed to open index file");
-    let reader = BufReader::new(index_file);
-
-    for line in reader.lines() {
-        let statement = line.unwrap();
-        if statement.trim().is_empty() {
-            continue;
-        }
-
+    for statement in queries(Path::new(&index_sql)) {
         println!("{}", statement);
 
         let duration_min = execute_sql_with_timing(url, &statement);
@@ -158,8 +167,7 @@ fn run_benchmarks_csv(args: &Args) {
     writeln!(file, "{}", header).unwrap();
 
     if args.vacuum {
-        execute_psql_command(&args.url, "VACUUM ANALYZE benchmark_logs;")
-            .expect("Failed to vacuum");
+        execute_psql_command(&args.url, "VACUUM ANALYZE;").expect("Failed to vacuum");
     }
 
     if args.prewarm {

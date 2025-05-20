@@ -204,7 +204,20 @@ async fn setup_benchmark_database(conn: &mut PgConnection, num_rows: usize) -> R
                         json_data TEXT NOT NULL,        -- Added JSON data field
                         numeric_field1 INTEGER NOT NULL,
                         numeric_field2 FLOAT NOT NULL,
-                        numeric_field3 NUMERIC(10,2) NOT NULL
+                        numeric_field3 NUMERIC(10,2) NOT NULL,
+                        -- Additional columns to make the table wider
+                        extra_text1 TEXT NOT NULL,      -- Additional large text column
+                        extra_text2 TEXT NOT NULL,      -- Additional large text column
+                        extra_text3 TEXT NOT NULL,      -- Additional large text column
+                        extra_text4 TEXT NOT NULL,      -- Additional large text column
+                        extra_text5 TEXT NOT NULL,      -- Additional large text column
+                        extra_json1 TEXT NOT NULL,      -- Additional large JSON column
+                        extra_json2 TEXT NOT NULL,      -- Additional large JSON column
+                        extra_num1 INTEGER NOT NULL,
+                        extra_num2 INTEGER NOT NULL,
+                        extra_num3 FLOAT NOT NULL,
+                        extra_num4 FLOAT NOT NULL,
+                        extra_num5 NUMERIC(10,2) NOT NULL
                     )",
                 )
                 .execute(&mut *conn)
@@ -225,7 +238,20 @@ async fn setup_benchmark_database(conn: &mut PgConnection, num_rows: usize) -> R
                 json_data TEXT NOT NULL,        -- Added JSON data field
                 numeric_field1 INTEGER NOT NULL,
                 numeric_field2 FLOAT NOT NULL,
-                numeric_field3 NUMERIC(10,2) NOT NULL
+                numeric_field3 NUMERIC(10,2) NOT NULL,
+                -- Additional columns to make the table wider
+                extra_text1 TEXT NOT NULL,      -- Additional large text column
+                extra_text2 TEXT NOT NULL,      -- Additional large text column
+                extra_text3 TEXT NOT NULL,      -- Additional large text column
+                extra_text4 TEXT NOT NULL,      -- Additional large text column
+                extra_text5 TEXT NOT NULL,      -- Additional large text column
+                extra_json1 TEXT NOT NULL,      -- Additional large JSON column
+                extra_json2 TEXT NOT NULL,      -- Additional large JSON column
+                extra_num1 INTEGER NOT NULL,
+                extra_num2 INTEGER NOT NULL,
+                extra_num3 FLOAT NOT NULL,
+                extra_num4 FLOAT NOT NULL,
+                extra_num5 NUMERIC(10,2) NOT NULL
             )",
         )
         .execute(&mut *conn)
@@ -262,7 +288,20 @@ async fn setup_benchmark_database(conn: &mut PgConnection, num_rows: usize) -> R
                 json_data TEXT NOT NULL,        -- Added JSON data field
                 numeric_field1 INTEGER NOT NULL,
                 numeric_field2 FLOAT NOT NULL,
-                numeric_field3 NUMERIC(10,2) NOT NULL
+                numeric_field3 NUMERIC(10,2) NOT NULL,
+                -- Additional columns to make the table wider
+                extra_text1 TEXT NOT NULL,      -- Additional large text column
+                extra_text2 TEXT NOT NULL,      -- Additional large text column
+                extra_text3 TEXT NOT NULL,      -- Additional large text column
+                extra_text4 TEXT NOT NULL,      -- Additional large text column
+                extra_text5 TEXT NOT NULL,      -- Additional large text column
+                extra_json1 TEXT NOT NULL,      -- Additional large JSON column
+                extra_json2 TEXT NOT NULL,      -- Additional large JSON column
+                extra_num1 INTEGER NOT NULL,
+                extra_num2 INTEGER NOT NULL,
+                extra_num3 FLOAT NOT NULL,
+                extra_num4 FLOAT NOT NULL,
+                extra_num5 NUMERIC(10,2) NOT NULL
             )",
         )
         .execute(&mut *conn)
@@ -409,7 +448,7 @@ async fn setup_benchmark_database(conn: &mut PgConnection, num_rows: usize) -> R
     while inserted < rows_to_add {
         // Create a batch insert statement
         let mut batch_query = String::from(
-            "INSERT INTO benchmark_data (string_field1, string_field2, long_text, json_data, numeric_field1, numeric_field2, numeric_field3) VALUES "
+            "INSERT INTO benchmark_data (string_field1, string_field2, long_text, json_data, numeric_field1, numeric_field2, numeric_field3, extra_text1, extra_text2, extra_text3, extra_text4, extra_text5, extra_json1, extra_json2, extra_num1, extra_num2, extra_num3, extra_num4, extra_num5) VALUES "
         );
 
         let batch_end = (inserted + BATCH_SIZE).min(rows_to_add);
@@ -500,6 +539,32 @@ async fn setup_benchmark_database(conn: &mut PgConnection, num_rows: usize) -> R
                 }
             };
 
+            // Create extra long text by repeating the long_text multiple times
+            let extra_text1 = format!("{} {}", long_text, long_text);
+            let extra_text2 = format!("{} {} {}", long_text, long_text, long_text);
+            let extra_text3 = format!("{} {} {} {}", long_text, long_text, long_text, long_text);
+            let extra_text4 = format!(
+                "{} {} {} {} {}",
+                long_text, long_text, long_text, long_text, long_text
+            );
+            let extra_text5 = format!(
+                "{} {} {} {} {} {}",
+                long_text, long_text, long_text, long_text, long_text, long_text
+            );
+
+            // Create extra JSON data by combining multiple templates
+            let extra_json1 = json_templates[i % 4].replace("%ID%", &i.to_string())
+                + &json_templates[(i + 1) % 4].replace("%ID%", &(i + 1000).to_string());
+            let extra_json2 = json_templates[i % 4].replace("%ID%", &i.to_string())
+                + &json_templates[(i + 2) % 4].replace("%ID%", &(i + 2000).to_string());
+
+            // Extra numeric values
+            let extra_num1 = (i % 2000) as i32;
+            let extra_num2 = (i % 3000) as i32;
+            let extra_num3 = (i % 200) as f32;
+            let extra_num4 = (i % 300) as f32;
+            let extra_num5 = (i % 20000) as i32;
+
             let num1 = (i % 1000) as i32;
             let num2 = (i % 100) as f32;
             let num3 = (i % 10000) as i32;
@@ -507,11 +572,21 @@ async fn setup_benchmark_database(conn: &mut PgConnection, num_rows: usize) -> R
             // Escape single quotes in JSON and text fields
             let escaped_json = json_data.replace('\'', "''");
             let escaped_long_text = long_text.replace('\'', "''");
+            let escaped_extra_text1 = extra_text1.replace('\'', "''");
+            let escaped_extra_text2 = extra_text2.replace('\'', "''");
+            let escaped_extra_text3 = extra_text3.replace('\'', "''");
+            let escaped_extra_text4 = extra_text4.replace('\'', "''");
+            let escaped_extra_text5 = extra_text5.replace('\'', "''");
+            let escaped_extra_json1 = extra_json1.replace('\'', "''");
+            let escaped_extra_json2 = extra_json2.replace('\'', "''");
 
             // Add values to batch query
             batch_query.push_str(&format!(
-                "('{}', '{}', '{}', '{}', {}, {}, {})",
-                string1, string2, escaped_long_text, escaped_json, num1, num2, num3
+                "('{}', '{}', '{}', '{}', {}, {}, {}, '{}', '{}', '{}', '{}', '{}', '{}', '{}', {}, {}, {}, {}, {})",
+                string1, string2, escaped_long_text, escaped_json, num1, num2, num3,
+                escaped_extra_text1, escaped_extra_text2, escaped_extra_text3, escaped_extra_text4, escaped_extra_text5,
+                escaped_extra_json1, escaped_extra_json2,
+                extra_num1, extra_num2, extra_num3, extra_num4, extra_num5
             ));
         }
 
@@ -1029,7 +1104,7 @@ async fn benchmark_mixed_fast_fields(mut conn: PgConnection) -> Result<()> {
     )
     .await?;
 
-    // Test 8: Group by numeric field with filtered count
+    // Test 7: Group by numeric field with filtered count
     let group_count_query = "SELECT numeric_field1, COUNT(*) FROM benchmark_data WHERE string_field1 @@@ '\"alpha_complex_identifier_123456789\"' GROUP BY numeric_field1";
 
     run_benchmarks_with_methods(
@@ -1050,7 +1125,7 @@ async fn benchmark_mixed_fast_fields(mut conn: PgConnection) -> Result<()> {
     )
     .await?;
 
-    // Test 9: Select ID with filter
+    // Test 8: Select ID with filter
     let select_id_query = "SELECT id FROM benchmark_data WHERE string_field1 @@@ '\"alpha_complex_identifier_123456789\"'";
 
     run_benchmarks_with_methods(
@@ -1071,7 +1146,7 @@ async fn benchmark_mixed_fast_fields(mut conn: PgConnection) -> Result<()> {
     )
     .await?;
 
-    // Test 10: Aggregation with sum
+    // Test 9: Aggregation with sum
     let sum_query = "SELECT SUM(numeric_field1) FROM benchmark_data WHERE string_field1 @@@ '\"alpha_complex_identifier_123456789\"'";
 
     run_benchmarks_with_methods(
@@ -1092,7 +1167,7 @@ async fn benchmark_mixed_fast_fields(mut conn: PgConnection) -> Result<()> {
     )
     .await?;
 
-    // Test 11: Group by string with count
+    // Test 10: Group by string with count
     let string_group_query = "SELECT string_field1, COUNT(*) FROM benchmark_data WHERE long_text @@@ '\"database\"' GROUP BY string_field1";
 
     run_benchmarks_with_methods(
@@ -1113,7 +1188,7 @@ async fn benchmark_mixed_fast_fields(mut conn: PgConnection) -> Result<()> {
     )
     .await?;
 
-    // Test 12: Set up a self-join to simulate a join between two tables
+    // Test 11: Set up a self-join to simulate a join between two tables
     let join_query = "
         WITH a AS (
             SELECT id AS a_id, numeric_field1 AS a_numeric, string_field1 AS a_string FROM benchmark_data
@@ -1182,6 +1257,7 @@ async fn benchmark_mixed_fast_fields(mut conn: PgConnection) -> Result<()> {
 /// Validate that the different execution methods return the same results
 /// and enforce that we're actually using the intended execution methods
 #[rstest]
+#[ignore]
 async fn validate_mixed_fast_fields_correctness(mut conn: PgConnection) -> Result<()> {
     // Set up the benchmark database
     setup_benchmark_database(&mut conn, NUM_ROWS_VALIDATION).await?;

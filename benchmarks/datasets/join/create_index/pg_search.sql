@@ -10,17 +10,17 @@ USING bm25 ("id",
 WITH (
     key_field = 'id',
     text_fields = '{
-    	"fileId": {
-    		"tokenizer": { "type": "keyword" }, "fast": true
-    	},
+        "fileId": {
+            "tokenizer": {"type": "keyword"}, "fast": true
+        },
         "content": {
-            "tokenizer": { "type": "icu" }
+            "tokenizer": {"type": "icu"}, "fast": true
         },
         "title": {
-            "tokenizer": { "type": "icu" }
+            "tokenizer": {"type": "icu"}, "fast": true
         },
         "parents": {
-            "tokenizer": { "type": "icu" }
+            "tokenizer": {"type": "icu"}, "fast": true
         }
     }'
 );
@@ -37,17 +37,17 @@ USING bm25 ("id",
 WITH (
     key_field = 'id',
     text_fields = '{
-    	"documentId": {
-    		"tokenizer": { "type": "keyword" }, "fast": true
-    	},
+        "documentId": {
+            "tokenizer": {"type": "keyword"}, "fast": true
+        },
         "content": {
-            "tokenizer": {"type": "icu"}
+            "tokenizer": {"type": "icu"}, "fast": true
         },
         "title": {
-            "tokenizer": {"type": "icu"}
+            "tokenizer": {"type": "icu"}, "fast": true
         },
         "parents": {
-            "tokenizer": {"type": "icu"}
+            "tokenizer": {"type": "icu"}, "fast": true
         }
     }'
 );
@@ -63,13 +63,13 @@ WITH (
     key_field = 'id',
     text_fields = '{
         "content": {
-            "tokenizer": {"type": "icu"}
+            "tokenizer": {"type": "icu"}, "fast": true
         },
         "title": {
-            "tokenizer": {"type": "icu"}
+            "tokenizer": {"type": "icu"}, "fast": true
         },
         "parents": {
-            "tokenizer": {"type": "icu"}
+            "tokenizer": {"type": "icu"}, "fast": true
         }
     }'
 );

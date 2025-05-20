@@ -613,6 +613,9 @@ async fn create_bm25_index(conn: &mut PgConnection) -> Result<()> {
     sqlx::query("SET enable_indexscan = off")
         .execute(&mut *conn)
         .await?;
+    sqlx::query("SET max_parallel_workers_per_gather = 0")
+        .execute(&mut *conn)
+        .await?;
 
     // Verify the index was created
     let verify_index =

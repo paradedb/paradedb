@@ -224,7 +224,7 @@ impl ExecMethod for MixedFastFieldExecState {
                     // Check visibility of the current block
                     let blockno = item_pointer_get_block_number(&(*slot).tts_tid);
                     let is_visible = if blockno == self.inner.blockvis.0 {
-                        // Already checked this block's visibility
+                        // We already know the visibility of this block because we just checked it last time
                         self.inner.blockvis.1
                     } else {
                         // New block, check visibility
@@ -523,7 +523,13 @@ enum MixedAggResults {
     },
 
     /// Results from a single segment in parallel execution
-    SingleSegment(crossbeam::channel::IntoIter<(SearchIndexScore, DocAddress, FieldValues)>),
+    SingleMixedSegment(crossbeam::channel::IntoIter<(SearchIndexScore, DocAddress, FieldValues)>),
+
+    /// SingleNumericSegment search results for numeric-only queries with numeric field data
+    SingleNumericSegment {
+        /// SingleNumericSegment search results from tantivy
+        results: SearchResults,
+    },
 }
 
 impl Iterator for MixedAggResults {
@@ -544,7 +550,16 @@ impl Iterator for MixedAggResults {
                     return None;
                 }
             },
-            MixedAggResults::SingleSegment(iter) => iter.next(),
+            MixedAggResults::SingleMixedSegment(iter) => iter.next(),
+            MixedAggResults::SingleNumericSegment { results } => {
+                // Extract the next result from the SingleNumericSegment search results
+                results.next().map(|(score, doc_address)| {
+                    // For numeric-only queries just return empty field values
+                    // The actual field values will be extracted in ff_to_datum during internal_next
+                    // which will access the fast fields as part of the normal processing pipeline
+                    (score, doc_address, FieldValues::new())
+                })
+            }
         }
     }
 }
@@ -580,6 +595,17 @@ impl MixedAggSearcher<'_> {
         string_fields: &[String],
         numeric_fields: &[String],
     ) -> MixedAggResults {
+        // If we have a numeric-only query, use the SingleNumericSegment search mechanism instead
+        if string_fields.is_empty() && !numeric_fields.is_empty() {
+            // Use the SingleNumericSegment search results from SearchIndexReader
+            let search_results = self.0.search(need_scores, false, query, None);
+
+            // Convert to our format, keeping track of the numeric fields for documentation
+            return MixedAggResults::SingleNumericSegment {
+                results: search_results,
+            };
+        }
+
         // Create collector that handles both string and numeric fields
         let collector = multi_field_collector::MultiFieldCollector {
             need_scores,
@@ -775,6 +801,17 @@ impl MixedAggSearcher<'_> {
         numeric_fields: &[String],
         segment_id: SegmentId,
     ) -> MixedAggResults {
+        // If we have a numeric-only query, use the SingleNumericSegment search mechanism instead
+        if string_fields.is_empty() && !numeric_fields.is_empty() {
+            // Use the SingleNumericSegment search segment results from SearchIndexReader
+            let search_results = self.0.search_segment(need_scores, segment_id, query);
+
+            // Convert to our format, keeping track of the numeric fields for documentation
+            return MixedAggResults::SingleNumericSegment {
+                results: search_results,
+            };
+        }
+
         // Find the segment reader for the specified segment ID
         let (segment_ord, segment_reader) = self
             .0
@@ -917,7 +954,7 @@ impl MixedAggSearcher<'_> {
         }
 
         // Return as single segment results for processing
-        MixedAggResults::SingleSegment(receiver.into_iter())
+        MixedAggResults::SingleMixedSegment(receiver.into_iter())
     }
 }
 

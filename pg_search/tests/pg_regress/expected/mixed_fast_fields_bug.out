@@ -1,4 +1,6 @@
 -- Test file to reproduce the bug where MixedFastFieldExec doesn't produce expected data
+-- The bug was that MixedFastFieldExec wouldn't return any results when only numeric fields
+-- were used in the query (no string fields). 
 CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Create test table
 DROP TABLE IF EXISTS benchmark_data CASCADE;
@@ -53,7 +55,7 @@ SET enable_indexscan = off;
 SET paradedb.enable_fast_field_exec = false;
 SET paradedb.enable_mixed_fast_field_exec = false;
 -- Get query plan to verify we're using NormalScanExecState
-EXPLAIN (VERBOSE, ANALYZE, FORMAT TEXT, COSTS OFF, TIMING OFF)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT
     numeric_field1, numeric_field2, numeric_field3
 FROM benchmark_data
@@ -63,31 +65,17 @@ WHERE
 ORDER BY numeric_field1;
                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Gather Merge (actual rows=7 loops=1)
-   Output: numeric_field1, numeric_field2, numeric_field3
+ Gather Merge
    Workers Planned: 1
-   Workers Launched: 1
-   ->  Sort (actual rows=4 loops=2)
-         Output: numeric_field1, numeric_field2, numeric_field3
-         Sort Key: benchmark_data.numeric_field1
-         Sort Method: quicksort  Memory: 25kB
-         Worker 0:  actual rows=0 loops=1
-           Sort Method: quicksort  Memory: 25kB
-         ->  Parallel Custom Scan (ParadeDB Scan) on public.benchmark_data (actual rows=4 loops=2)
-               Output: numeric_field1, numeric_field2, numeric_field3
+   ->  Sort
+         Sort Key: numeric_field1
+         ->  Parallel Custom Scan (ParadeDB Scan) on benchmark_data
                Table: benchmark_data
                Index: benchmark_data_idx
-               Heap Fetches: 7
-               Virtual Tuples: 0
-               Invisible Tuples: 0
                Exec Method: NormalScanExecState
                Scores: false
                Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"string_field1","query_string":"IN [alpha beta gamma delta epsilon]","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"string_field2","query_string":"IN [red blue green]","lenient":null,"conjunction_mode":null}}}}]}}
-               Human Readable Query: (string_field1:(IN [alpha beta gamma delta epsilon]) AND string_field2:(IN [red blue green]))
-               Worker 0:  actual rows=0 loops=1
- Planning Time: 10.500 ms
- Execution Time: 15.366 ms
-(24 rows)
+(10 rows)
 
 -- Run the query with normal execution
 SELECT
@@ -112,7 +100,7 @@ ORDER BY numeric_field1;
 SET paradedb.enable_fast_field_exec = true;
 SET paradedb.enable_mixed_fast_field_exec = false;
 -- Get query plan to verify we're using NumericFastFieldExec
-EXPLAIN (VERBOSE, ANALYZE, FORMAT TEXT, COSTS OFF, TIMING OFF)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT
     numeric_field1, numeric_field2, numeric_field3
 FROM benchmark_data
@@ -122,32 +110,18 @@ WHERE
 ORDER BY numeric_field1;
                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Gather Merge (actual rows=7 loops=1)
-   Output: numeric_field1, numeric_field2, numeric_field3
+ Gather Merge
    Workers Planned: 1
-   Workers Launched: 1
-   ->  Sort (actual rows=4 loops=2)
-         Output: numeric_field1, numeric_field2, numeric_field3
-         Sort Key: benchmark_data.numeric_field1
-         Sort Method: quicksort  Memory: 25kB
-         Worker 0:  actual rows=0 loops=1
-           Sort Method: quicksort  Memory: 25kB
-         ->  Parallel Custom Scan (ParadeDB Scan) on public.benchmark_data (actual rows=4 loops=2)
-               Output: numeric_field1, numeric_field2, numeric_field3
+   ->  Sort
+         Sort Key: numeric_field1
+         ->  Parallel Custom Scan (ParadeDB Scan) on benchmark_data
                Table: benchmark_data
                Index: benchmark_data_idx
-               Heap Fetches: 7
-               Virtual Tuples: 0
-               Invisible Tuples: 0
                Exec Method: NumericFastFieldExecState
                Fast Fields: numeric_field1, numeric_field2, numeric_field3
                Scores: false
                Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"string_field1","query_string":"IN [alpha beta gamma delta epsilon]","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"string_field2","query_string":"IN [red blue green]","lenient":null,"conjunction_mode":null}}}}]}}
-               Human Readable Query: (string_field1:(IN [alpha beta gamma delta epsilon]) AND string_field2:(IN [red blue green]))
-               Worker 0:  actual rows=0 loops=1
- Planning Time: 9.466 ms
- Execution Time: 17.737 ms
-(25 rows)
+(11 rows)
 
 -- Run the query with NumericFastFieldExec (should return same data)
 SELECT
@@ -172,7 +146,7 @@ ORDER BY numeric_field1;
 SET paradedb.enable_fast_field_exec = false;
 SET paradedb.enable_mixed_fast_field_exec = true;
 -- Get query plan to verify we're using MixedFastFieldExec
-EXPLAIN (VERBOSE, ANALYZE, FORMAT TEXT, COSTS OFF, TIMING OFF)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT
     numeric_field1, numeric_field2, numeric_field3
 FROM benchmark_data
@@ -182,33 +156,19 @@ WHERE
 ORDER BY numeric_field1;
                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Gather Merge (actual rows=0 loops=1)
-   Output: numeric_field1, numeric_field2, numeric_field3
+ Gather Merge
    Workers Planned: 1
-   Workers Launched: 1
-   ->  Sort (actual rows=0 loops=2)
-         Output: numeric_field1, numeric_field2, numeric_field3
-         Sort Key: benchmark_data.numeric_field1
-         Sort Method: quicksort  Memory: 25kB
-         Worker 0:  actual rows=0 loops=1
-           Sort Method: quicksort  Memory: 25kB
-         ->  Parallel Custom Scan (ParadeDB Scan) on public.benchmark_data (actual rows=0 loops=2)
-               Output: numeric_field1, numeric_field2, numeric_field3
+   ->  Sort
+         Sort Key: numeric_field1
+         ->  Parallel Custom Scan (ParadeDB Scan) on benchmark_data
                Table: benchmark_data
                Index: benchmark_data_idx
-               Heap Fetches: 0
-               Virtual Tuples: 0
-               Invisible Tuples: 0
                Exec Method: MixedFastFieldExecState
                Fast Fields: numeric_field1, numeric_field2, numeric_field3
                Numeric Fast Fields: numeric_field1, numeric_field2, numeric_field3
                Scores: false
                Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"string_field1","query_string":"IN [alpha beta gamma delta epsilon]","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"string_field2","query_string":"IN [red blue green]","lenient":null,"conjunction_mode":null}}}}]}}
-               Human Readable Query: (string_field1:(IN [alpha beta gamma delta epsilon]) AND string_field2:(IN [red blue green]))
-               Worker 0:  actual rows=0 loops=1
- Planning Time: 9.868 ms
- Execution Time: 16.430 ms
-(26 rows)
+(12 rows)
 
 -- Run the query with MixedFastFieldExec (should return same data)
 SELECT
@@ -217,10 +177,17 @@ FROM benchmark_data
 WHERE
     string_field1 @@@ 'IN [alpha beta gamma delta epsilon]' AND
     string_field2 @@@ 'IN [red blue green]'
-ORDER BY numeric_field1; 
+ORDER BY numeric_field1;
  numeric_field1 | numeric_field2 | numeric_field3 
 ----------------+----------------+----------------
-(0 rows)
+              3 |              3 |           3.00
+              4 |              4 |           4.00
+             24 |             24 |          24.00
+             50 |             50 |          50.00
+             73 |             73 |          73.00
+             74 |             74 |          74.00
+            100 |              0 |         100.00
+(7 rows)
 
 RESET paradedb.enable_fast_field_exec;
 RESET paradedb.enable_mixed_fast_field_exec;

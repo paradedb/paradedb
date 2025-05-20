@@ -1,5 +1,7 @@
 -- Test file to reproduce the bug where MixedFastFieldExec doesn't produce expected data
 
+-- The bug was that MixedFastFieldExec wouldn't return any results when only numeric fields
+-- were used in the query (no string fields). 
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
 -- Create test table
@@ -60,7 +62,7 @@ SET paradedb.enable_fast_field_exec = false;
 SET paradedb.enable_mixed_fast_field_exec = false;
 
 -- Get query plan to verify we're using NormalScanExecState
-EXPLAIN (VERBOSE, ANALYZE, FORMAT TEXT, COSTS OFF, TIMING OFF)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT
     numeric_field1, numeric_field2, numeric_field3
 FROM benchmark_data
@@ -83,7 +85,7 @@ SET paradedb.enable_fast_field_exec = true;
 SET paradedb.enable_mixed_fast_field_exec = false;
 
 -- Get query plan to verify we're using NumericFastFieldExec
-EXPLAIN (VERBOSE, ANALYZE, FORMAT TEXT, COSTS OFF, TIMING OFF)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT
     numeric_field1, numeric_field2, numeric_field3
 FROM benchmark_data
@@ -106,7 +108,7 @@ SET paradedb.enable_fast_field_exec = false;
 SET paradedb.enable_mixed_fast_field_exec = true;
 
 -- Get query plan to verify we're using MixedFastFieldExec
-EXPLAIN (VERBOSE, ANALYZE, FORMAT TEXT, COSTS OFF, TIMING OFF)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT
     numeric_field1, numeric_field2, numeric_field3
 FROM benchmark_data
@@ -122,7 +124,7 @@ FROM benchmark_data
 WHERE
     string_field1 @@@ 'IN [alpha beta gamma delta epsilon]' AND
     string_field2 @@@ 'IN [red blue green]'
-ORDER BY numeric_field1; 
+ORDER BY numeric_field1;
 
 RESET paradedb.enable_fast_field_exec;
 RESET paradedb.enable_mixed_fast_field_exec;

@@ -57,3 +57,43 @@ WITH (
     }'
 );
 ```
+
+## Stopwords Language
+
+<Note>This filter is not supported for the ngram tokenizer.</Note>
+
+`stopwords_language` removes common "stop words" for a specific language from the original text before tokenization.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description)
+WITH (
+    key_field='id',
+    text_fields='{
+        "description": {"tokenizer": {"type": "default", "stopwords_language": "English"}}
+    }'
+);
+```
+
+<ParamField body="stopwords_language">
+  Available languages are `Danish`, `Dutch`, `English`, `Finnish`, `French`,
+  `German`, `Hungarian`, `Italian`, `Norwegian`, `Portuguese`, `Russian`,
+  `Spanish`, and `Swedish`.
+</ParamField>
+
+## Custom Stopwords
+
+<Note>This filter is not supported for the ngram tokenizer.</Note>
+
+`stopwords` removes custom words from the original text before tokenization.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description)
+WITH (
+    key_field='id',
+    text_fields='{
+        "description": {"tokenizer": {"type": "default", "stopwords": ["shoes", "boots"]}}
+    }'
+);
+```

@@ -3,6 +3,15 @@ use crate::query::{PostgresExpression, SearchQueryInput};
 use pgrx::{pg_sys, FromDatum, PgMemoryContexts};
 
 impl SearchQueryInput {
+    pub fn has_postgres_expressions(&mut self) -> bool {
+        for sqi in self {
+            if matches!(sqi, SearchQueryInput::PostgresExpression { .. }) {
+                return true;
+            }
+        }
+        false
+    }
+
     pub fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) -> usize {
         let mut cnt = 0;
         for sqi in self {

@@ -28,11 +28,17 @@ pub mod gucs;
 use self::postgres::customscan;
 use pgrx::*;
 
+/// Postgres' value for a `norm_selec` that hasn't been assigned
+const UNASSIGNED_SELECTIVITY: f64 = -1.0;
+
 /// A hardcoded value when we can't figure out a good selectivity value
 const UNKNOWN_SELECTIVITY: f64 = 0.00001;
 
 /// A hardcoded value for parameterized plan queries
 const PARAMETERIZED_SELECTIVITY: f64 = 0.10;
+
+/// The selectivity value indicating the entire relation will be returned
+const FULL_RELATION_SELECTIVITY: f64 = 1.0;
 
 /// An arbitrary value for what it costs for a plan with one of our operators (@@@) to do whatever
 /// initial work it needs to do (open tantivy index, start the query, etc).  The value is largely

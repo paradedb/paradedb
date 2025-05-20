@@ -19,6 +19,7 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 
 # Extract --release flag if present
 COMMON_ARGS=()
+OTHER_ARGS=()
 i=1
 while [ $i -le $# ]; do
   arg="${!i}"
@@ -30,6 +31,8 @@ while [ $i -le $# ]; do
     if [ $i -le $# ]; then
       COMMON_ARGS+=("${!i}")
     fi
+  else
+    OTHER_ARGS+=("$arg")
   fi
   i=$((i+1))
 done
@@ -41,4 +44,4 @@ source "${SCRIPT_DIR}/pg_search_common.sh" "${COMMON_ARGS[@]+"${COMMON_ARGS[@]}"
 cd "${CURRENT_DIR}"
 
 # Connect to the database with psql and pass any additional arguments
-psql "${DATABASE_URL}" "$@"
+psql "${DATABASE_URL}" "${OTHER_ARGS[@]+"${OTHER_ARGS[@]}"}"

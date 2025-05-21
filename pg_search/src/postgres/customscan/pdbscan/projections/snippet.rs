@@ -68,7 +68,7 @@ impl SnippetType {
 }
 
 struct Context<'a> {
-planning_rti: pg_sys::Index,
+    planning_rti: pg_sys::Index,
     attname_lookup: &'a HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
     snippet_funcoid: pg_sys::Oid,
     snippet_positions_funcoid: pg_sys::Oid,
@@ -127,7 +127,7 @@ pub fn snippet_positions_funcoid() -> pg_sys::Oid {
 }
 
 pub unsafe fn uses_snippets(
-    rti: pg_sys::Index,
+    planning_rti: pg_sys::Index,
     attname_lookup: &HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
     node: *mut pg_sys::Node,
     snippet_funcoid: pg_sys::Oid,

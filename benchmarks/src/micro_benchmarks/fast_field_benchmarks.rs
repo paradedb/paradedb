@@ -439,16 +439,17 @@ pub async fn benchmark_mixed_fast_fields(
     )
     .await?;
 
-    // Test 2: Count query with long text
-    let count_query = "SELECT numeric_field1, string_field1
+    // Test 2: Agg query with long text
+    let agg_query = "SELECT sum(numeric_field1), count(numeric_field2)
                       FROM benchmark_data 
-                      WHERE long_text @@@ '\"database\"' AND numeric_field1 < 500";
+                      WHERE long_text @@@ '\"database\"' AND numeric_field1 < 500
+                      GROUP BY string_field1";
 
     // Run the benchmarks with different execution methods
     run_benchmarks_with_methods(
         conn,
-        count_query,
-        "Count Query - MixedFF",
+        agg_query,
+        "Agg Query - MixedFF",
         &["MixedFastFieldExec", "NormalScanExecState"],
         &mut results,
         &config,

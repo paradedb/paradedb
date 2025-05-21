@@ -323,6 +323,9 @@ pub async fn run_benchmarks_with_methods(
             result.exec_method
         );
 
+        // Print the result
+        println!("{:?}", result);
+
         results.push(result);
     }
 

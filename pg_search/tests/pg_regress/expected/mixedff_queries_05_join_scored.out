@@ -104,6 +104,57 @@ INSERT INTO pages (id, fileId, page_number, content) VALUES
 \echo 'Test: join with mixed fast fields and scores'
 Test: join with mixed fast fields and scores
 SET paradedb.enable_mixed_fast_field_exec = true;
+-- Test ordering by only a single score.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT
+    documents.id,
+    paradedb.score(files.id) AS score
+FROM
+    documents JOIN files ON documents.id = files.documentId
+WHERE
+    documents.content @@@ '2023' AND files.title @@@ 'Receipt'
+ORDER BY score DESC
+LIMIT 10;
+                                                                             QUERY PLAN                                                                             
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: (paradedb.score(files.id)) DESC
+         ->  Nested Loop
+               Join Filter: (documents.id = files.documentid)
+               ->  Custom Scan (ParadeDB Scan) on documents
+                     Table: documents
+                     Index: documents_search
+                     -- TODO: This should be a `MixedFastFieldExecState`
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"2023","lenient":null,"conjunction_mode":null}}}}
+               ->  Custom Scan (ParadeDB Scan) on files
+                     Table: files
+                     Index: files_search
+                     Exec Method: StringFastFieldExecState
+                     Fast Fields: documentid
+                     String Agg Field: documentid
+                     Scores: true
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Receipt","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
+
+SELECT
+    documents.id,
+    paradedb.score(files.id) AS score
+FROM
+    documents JOIN files ON documents.id = files.documentId
+WHERE
+    documents.content @@@ '2023' AND files.title @@@ 'Receipt'
+ORDER BY score DESC
+LIMIT 10;
+  id  |   score   
+------+-----------
+ doc2 | 1.5683776
+ doc1 | 1.3034773
+(2 rows)
+
+-- Test ordering by a summed score.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT
     documents.id,

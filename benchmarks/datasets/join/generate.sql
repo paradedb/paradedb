@@ -302,6 +302,11 @@ FROM file_generation_series fgs
 JOIN document_id_list dil ON fgs.random_doc_rn = dil.rn;
 
 
+-- TODO: This is a terrible generation script for the `pages` table.
+-- Rather than joining, we should probably make the ids in documents and files
+-- effectively-monotonic (but still large strings), and then choose randomly in
+-- the range that we know is populated.
+
 WITH file_id_list AS (
     -- Select all file IDs and assign a unique row number after randomizing their order
     SELECT "id", row_number() OVER (ORDER BY random()) AS rn

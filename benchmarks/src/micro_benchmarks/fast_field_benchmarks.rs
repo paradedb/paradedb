@@ -358,6 +358,17 @@ pub async fn set_execution_method(conn: &mut PgConnection, execution_method: &st
             .await?;
     }
 
+    // Ensure index scan is used
+    sqlx::query("SET enable_seqscan = off")
+        .execute(&mut *conn)
+        .await?;
+    sqlx::query("SET enable_bitmapscan = off")
+        .execute(&mut *conn)
+        .await?;
+    sqlx::query("SET enable_indexscan = off")
+        .execute(&mut *conn)
+        .await?;
+
     let _count: i64 =
         sqlx::query("SELECT COUNT(*) FROM benchmark_data WHERE id @@@ paradedb.all()")
             .fetch_one(&mut *conn)

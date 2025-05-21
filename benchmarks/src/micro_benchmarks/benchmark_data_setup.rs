@@ -82,6 +82,11 @@ pub async fn setup_benchmark_database(
     );
 
     if current_rows == num_rows {
+        // Run a full VACUUM ANALYZE to update statistics after index creation
+        println!("Running VACUUM ANALYZE after index creation...");
+        sqlx::query("VACUUM ANALYZE benchmark_data")
+            .execute(&mut *conn)
+            .await?;
         return Ok(());
     }
 
@@ -376,6 +381,12 @@ pub async fn setup_benchmark_database(
 
     create_bm25_index(conn, table_name).await?;
 
+    // Run a full VACUUM ANALYZE to update statistics
+    println!("Running VACUUM ANALYZE after index creation...");
+    sqlx::query("VACUUM ANALYZE benchmark_data")
+        .execute(&mut *conn)
+        .await?;
+
     Ok(())
 }
 
@@ -446,17 +457,6 @@ pub async fn create_bm25_index(conn: &mut PgConnection, table_name: &str) -> Res
 
     // Wait a moment for the index to be fully ready
     sqlx::query("SELECT pg_sleep(0.5)")
-        .execute(&mut *conn)
-        .await?;
-
-    // Ensure index scan is used
-    sqlx::query("SET enable_seqscan = off")
-        .execute(&mut *conn)
-        .await?;
-    sqlx::query("SET enable_bitmapscan = off")
-        .execute(&mut *conn)
-        .await?;
-    sqlx::query("SET enable_indexscan = off")
         .execute(&mut *conn)
         .await?;
 

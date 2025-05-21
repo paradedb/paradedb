@@ -48,12 +48,10 @@ const COMMON_WORDS: &[&str] = &[
     "information",
 ];
 
-// Helper function to generate text using common words
 fn arb_text_with_common_words() -> impl Strategy<Value = String> {
     Just(COMMON_WORDS.join(" "))
 }
 
-// Helper function to generate JSON data with fixed content
 fn arb_json_data() -> impl Strategy<Value = (String, String)> {
     let text = arb_text_with_common_words();
     let words_array = COMMON_WORDS.to_vec();
@@ -76,7 +74,6 @@ fn arb_json_data() -> impl Strategy<Value = (String, String)> {
     })
 }
 
-// Helper function to generate random JSON operators
 fn arb_json_operator() -> impl Strategy<Value = String> {
     prop::sample::select(vec![
         "->".to_string(),
@@ -86,7 +83,6 @@ fn arb_json_operator() -> impl Strategy<Value = String> {
     ])
 }
 
-// Helper function to generate random JSON paths
 fn arb_json_path() -> impl Strategy<Value = (String, String)> {
     prop::sample::select(vec![
         (
@@ -108,12 +104,10 @@ fn arb_json_path() -> impl Strategy<Value = (String, String)> {
     ])
 }
 
-// Helper function to generate random search terms from common words
 fn arb_search_term() -> impl Strategy<Value = String> {
     prop::sample::select(COMMON_WORDS.to_vec()).prop_map(|word| word.to_string())
 }
 
-// Helper function to format the path based on the operator
 fn format_path(operator: &str, path: &str) -> String {
     match operator {
         "#>" | "#>>" => format!("'{{{}}}'", path.replace("->", ",").replace("'", "")),
@@ -121,12 +115,10 @@ fn format_path(operator: &str, path: &str) -> String {
     }
 }
 
-// Helper function to format error messages with SQL context
 fn format_error(message: &str, insert_sql: &str, query: &str) -> String {
     format!("\n{}\n{}\n{}\n", message, insert_sql, query)
 }
 
-// Helper function to verify snippet results
 fn verify_snippet_results(
     results: &[(Option<String>,)],
     search_term: &str,
@@ -138,18 +130,15 @@ fn verify_snippet_results(
     }
 
     for (snippet,) in results {
-        // Skip if snippet is None
         let snippet = match snippet {
             Some(s) => s,
             None => continue,
         };
 
-        // Skip empty snippets
         if snippet.is_empty() {
             continue;
         }
 
-        // Check that the snippet contains the search term
         if !snippet.to_lowercase().contains(&search_term.to_lowercase()) {
             return Err(format_error(
                 &format!(
@@ -172,7 +161,6 @@ async fn json_snippet_highlighting(database: Db) {
         |_| {},
     );
 
-    // Setup test table
     let setup_sql = r#"
     CREATE EXTENSION IF NOT EXISTS pg_search;
 
@@ -208,7 +196,6 @@ async fn json_snippet_highlighting(database: Db) {
 
         let formatted_path = format_path(&operator, &path);
 
-        // Test both JSON and JSONB types
         for field_type in &["content_json", "content_jsonb"] {
             let query = format!(
                 "SELECT paradedb.snippet({}{}{}) FROM json_snippet_test WHERE id @@@ paradedb.parse('{}.{}:{}')",

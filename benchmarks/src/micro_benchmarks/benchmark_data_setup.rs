@@ -84,7 +84,7 @@ pub async fn setup_benchmark_database(
     if current_rows == num_rows {
         // Run a full VACUUM ANALYZE to update statistics after index creation
         println!("Running VACUUM ANALYZE after index creation...");
-        sqlx::query("VACUUM ANALYZE benchmark_data")
+        sqlx::query(&format!("VACUUM ANALYZE {}", table_name))
             .execute(&mut *conn)
             .await?;
         return Ok(());
@@ -383,7 +383,7 @@ pub async fn setup_benchmark_database(
 
     // Run a full VACUUM ANALYZE to update statistics
     println!("Running VACUUM ANALYZE after index creation...");
-    sqlx::query("VACUUM ANALYZE benchmark_data")
+    sqlx::query(&format!("VACUUM ANALYZE {}", table_name))
         .execute(&mut *conn)
         .await?;
 

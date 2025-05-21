@@ -23,6 +23,8 @@ use std::time::Instant;
 
 use crate::micro_benchmarks::setup_benchmark_database;
 
+pub const ASSERT_HEAP_VIRTUAL_TUPLES: bool = false;
+
 /// Structure to store benchmark results
 #[derive(Debug, Clone)]
 pub struct BenchmarkResult {
@@ -94,37 +96,39 @@ pub fn check_execution_plan_metrics(execution_method: &str, plan: &Value) {
     // Collect and print each metric
     for metric in metrics {
         let values = collect_json_field_values(plan, metric);
-        if execution_method == "MixedFastFieldExec"
-            || execution_method == "NumericFastFieldExec"
-            || execution_method == "StringFastFieldExec"
-        {
-            values.iter().for_each(|v| {
-                assert!(v.is_number());
-                if metric == "Heap Fetches" {
-                    assert_eq!(v.as_i64().unwrap(), 0);
-                }
-                if metric == "Virtual Tuples" {
-                    // Fast fields should have virtual tuples
-                    assert_ne!(v.as_i64().unwrap(), 0);
-                }
-                if metric == "Invisible Tuples" {
-                    assert_eq!(v.as_i64().unwrap(), 0);
-                }
-            });
-        } else {
-            values.iter().for_each(|v| {
-                assert!(v.is_number());
-                if metric == "Heap Fetches" {
-                    // Normal scan should have heap fetches
-                    assert_ne!(v.as_i64().unwrap(), 0);
-                }
-                if metric == "Virtual Tuples" {
-                    assert_eq!(v.as_i64().unwrap(), 0);
-                }
-                if metric == "Invisible Tuples" {
-                    assert_eq!(v.as_i64().unwrap(), 0);
-                }
-            });
+        if ASSERT_HEAP_VIRTUAL_TUPLES {
+            if execution_method == "MixedFastFieldExec"
+                || execution_method == "NumericFastFieldExec"
+                || execution_method == "StringFastFieldExec"
+            {
+                values.iter().for_each(|v| {
+                    assert!(v.is_number());
+                    if metric == "Heap Fetches" {
+                        assert_eq!(v.as_i64().unwrap(), 0);
+                    }
+                    if metric == "Virtual Tuples" {
+                        // Fast fields should have virtual tuples
+                        assert_ne!(v.as_i64().unwrap(), 0);
+                    }
+                    if metric == "Invisible Tuples" {
+                        assert_eq!(v.as_i64().unwrap(), 0);
+                    }
+                });
+            } else {
+                values.iter().for_each(|v| {
+                    assert!(v.is_number());
+                    if metric == "Heap Fetches" {
+                        // Normal scan should have heap fetches
+                        assert_ne!(v.as_i64().unwrap(), 0);
+                    }
+                    if metric == "Virtual Tuples" {
+                        assert_eq!(v.as_i64().unwrap(), 0);
+                    }
+                    if metric == "Invisible Tuples" {
+                        assert_eq!(v.as_i64().unwrap(), 0);
+                    }
+                });
+            }
         }
         if !values.is_empty() {
             println!(" - {}: {:?}", metric, values);

@@ -17,6 +17,7 @@ icu = ["tokenizers/icu"]
 approx = "0.5.1"
 anyhow = "1.0.98"
 async-std = { version = "1.13.1", features = ["attributes"] }
+benchmarks = { path = "../benchmarks" }
 bigdecimal = { version = "0.4.8", features = ["serde"] }
 bytes = "1.10.1"
 chrono = { version = "0.4.41", features = ["clock", "alloc"] }

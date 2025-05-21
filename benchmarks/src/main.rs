@@ -1,4 +1,6 @@
 use clap::Parser;
+use paradedb::micro_benchmarks::benchmark_mixed_fast_fields;
+use sqlx::{Connection, PgConnection};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::process::Command;
@@ -26,16 +28,46 @@ struct Args {
 
     #[arg(long, value_parser = ["md", "csv"], default_value = "md")]
     output: String,
+
+    #[arg(long, value_parser = ["fastfields", "sql"], default_value = "sql")]
+    benchmark: String,
+
+    #[arg(long, default_value = "2")]
+    warmups: usize,
+
+    #[arg(long, default_value = "5")]
+    iterations: usize,
+
+    #[arg(long, default_value = "100000")]
+    batch_size: usize,
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let args = Args::parse();
-    generate_test_data(&args.url, args.rows);
 
-    match args.output.as_str() {
-        "md" => generate_markdown_output(&args),
-        "csv" => generate_csv_output(&args),
-        _ => unreachable!("Clap ensures only md or csv are valid"),
+    if args.benchmark == "fastfields" {
+        let mut conn = PgConnection::connect(&args.url).await.unwrap();
+        let res = benchmark_mixed_fast_fields(
+            &mut conn,
+            args.runs,
+            args.warmups,
+            args.rows as usize,
+            args.batch_size,
+        )
+        .await;
+        println!("Mixed Fast Fields Benchmark Completed: {:?}", res);
+    } else if args.benchmark == "sql" {
+        generate_test_data(&args.url, args.rows);
+
+        match args.output.as_str() {
+            "md" => generate_markdown_output(&args),
+            "csv" => generate_csv_output(&args),
+            _ => unreachable!("Clap ensures only md or csv are valid"),
+        }
+    } else {
+        eprintln!("Invalid benchmark type");
+        std::process::exit(1);
     }
 }
 

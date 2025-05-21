@@ -131,7 +131,7 @@ impl PdbScan {
                     .unwrap()
                     .snippet_generator(
                         snippet_type.field(),
-                        &state.custom_state().search_query_input,
+                        state.custom_state().search_query_input(),
                     );
 
                 // If SnippetType::Positions, set max_num_chars to u32::MAX because the entire doc must be considered

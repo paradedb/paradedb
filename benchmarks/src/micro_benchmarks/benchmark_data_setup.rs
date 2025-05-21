@@ -439,8 +439,8 @@ pub async fn create_bm25_index(conn: &mut PgConnection, table_name: &str) -> Res
             text_fields = '{{
                 \"string_field1\": {{\"fast\": true, \"tokenizer\": {{\"type\": \"keyword\"}}}}, 
                 \"string_field2\": {{\"fast\": true, \"tokenizer\": {{\"type\": \"keyword\"}}}},
-                \"long_text\": {{\"fast\": true, \"tokenizer\": {{\"type\": \"default\"}}}},
-                \"json_data\": {{\"fast\": true, \"tokenizer\": {{\"type\": \"default\"}}}}
+                \"long_text\": {{\"tokenizer\": {{\"type\": \"default\"}}}},
+                \"json_data\": {{\"tokenizer\": {{\"type\": \"default\"}}}}
             }}',
             numeric_fields = '{{
                 \"numeric_field1\": {{\"fast\": true}}, 

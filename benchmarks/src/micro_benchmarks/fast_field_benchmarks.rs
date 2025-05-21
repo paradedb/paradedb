@@ -417,7 +417,7 @@ pub async fn benchmark_mixed_fast_fields(
     // Test 1: Basic query with mixed fields - use @@@ operator for string comparisons
     // Updated to use the new fields
     let basic_query =
-        "SELECT id, string_field1, string_field2, json_data, numeric_field1, numeric_field2, numeric_field3 
+        "SELECT id, string_field1, string_field2, numeric_field1, numeric_field2, numeric_field3 
          FROM benchmark_data 
          WHERE numeric_field1 < 500 AND string_field1 @@@ '\"alpha_complex_identifier_123456789\"' AND string_field2 @@@ '\"red_velvet_cupcake_with_cream_cheese_frosting\"'
          ORDER BY id";
@@ -455,8 +455,6 @@ pub async fn benchmark_mixed_fast_fields(
             SELECT 
                 string_field1, 
                 string_field2, 
-                long_text,
-                json_data,
                 numeric_field1, 
                 numeric_field2, 
                 numeric_field3
@@ -522,11 +520,11 @@ pub async fn benchmark_mixed_fast_fields(
     // Test 4: JSON query - should be much faster with fast fields
     let json_query = "
         SELECT 
-            json_data
+            string_field1
         FROM benchmark_data 
         WHERE 
             json_data @@@ '\"Sports\"'
-        ORDER BY json_data";
+        ORDER BY string_field1";
 
     // Run the benchmarks with different execution methods
     run_benchmarks_with_methods(
@@ -553,11 +551,11 @@ pub async fn benchmark_mixed_fast_fields(
     // Test 5: Long text search - should show big difference with fast fields
     let long_text_query = "
         SELECT 
-            long_text
+            string_field1
         FROM benchmark_data 
         WHERE 
             long_text @@@ '\"database\" AND \"performance\"'
-        ORDER BY long_text";
+        ORDER BY string_field1";
 
     // Run the benchmarks with different execution methods
     run_benchmarks_with_methods(

@@ -68,7 +68,7 @@ async fn validate_mixed_fast_fields_correctness(mut conn: PgConnection) -> Resul
 
     // Define a test query that will use both string and numeric fast fields
     let test_query =
-        "SELECT id, string_field1, string_field2, long_text, json_data, numeric_field1, numeric_field2, numeric_field3 
+        "SELECT id, string_field1, string_field2, numeric_field1, numeric_field2, numeric_field3 
          FROM benchmark_data 
          WHERE numeric_field1 < 500 AND string_field1 @@@ '\"alpha_complex_identifier_123456789\"' AND string_field2 @@@ '\"red_velvet_cupcake_with_cream_cheese_frosting\"'
          ORDER BY id";

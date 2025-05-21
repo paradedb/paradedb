@@ -30,7 +30,6 @@ use crate::api::operator::{
 };
 use crate::api::Cardinality;
 use crate::api::{HashMap, HashSet};
-use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::reader::index::SearchIndexReader;
@@ -64,6 +63,7 @@ use crate::postgres::rel_get_bm25_index;
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
+use crate::{gucs, FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
 use pgrx::pg_sys::CustomExecMethods;
 use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts, PgRelation};
@@ -320,7 +320,12 @@ impl CustomScan for PdbScan {
                 return None;
             };
             let query = SearchQueryInput::from(&quals);
+            let is_join = is_join || quals.contains_external_var();
+            let norm_selec = (restrict_info.len() == 1)
+                .then(|| (*restrict_info.get_ptr(0).unwrap()).norm_selec)
+                .unwrap_or(UNASSIGNED_SELECTIVITY);
 
+            pgrx::warning!("query={query:?}");
             let has_expressions = quals.contains_exprs();
             let selectivity = if let Some(limit) = limit {
                 // use the limit
@@ -329,23 +334,23 @@ impl CustomScan for PdbScan {
                         .reltuples()
                         .map(|n| n as Cardinality)
                         .unwrap_or(UNKNOWN_SELECTIVITY)
-            } else if restrict_info.len() == 1 {
+            } else if norm_selec != UNASSIGNED_SELECTIVITY {
                 // we can use the norm_selec that already happened
-                let norm_select = (*restrict_info.get_ptr(0).unwrap()).norm_selec;
-                if norm_select != UNKNOWN_SELECTIVITY {
-                    norm_select
-                } else {
-                    // assume PARAMETERIZED_SELECTIVITY
-                    PARAMETERIZED_SELECTIVITY
-                }
+                norm_selec
+            } else if quals.contains_external_var() {
+                // if the query has external vars (references to another relation) then we end up
+                // returning *everything* from _this_ relation
+                // FULL_RELATION_SELECTIVITY
+
+                // TODO:  make this a little smarter if we can -- we're mostly concerned about "<ALL>" nodes
+                // in the plan and if they'd end up selecting the entire set
+                estimate_selectivity(&bm25_index, &query).unwrap_or(UNKNOWN_SELECTIVITY)
+            } else if has_expressions {
+                // if the query has expressions then it's parameterized and we have to guess something
+                PARAMETERIZED_SELECTIVITY
             } else {
                 // ask the index
-                if has_expressions {
-                    // we have no idea, so assume PARAMETERIZED_SELECTIVITY
-                    PARAMETERIZED_SELECTIVITY
-                } else {
-                    estimate_selectivity(&bm25_index, &query).unwrap_or(UNKNOWN_SELECTIVITY)
-                }
+                estimate_selectivity(&bm25_index, &query).unwrap_or(UNKNOWN_SELECTIVITY)
             };
 
             // we must use this path if we need to do const projections for scores or snippets
@@ -469,7 +474,7 @@ impl CustomScan for PdbScan {
                     // otherwise we'll do a regular scan
                     builder.custom_private().set_sort_info(pathkey);
                 }
-            } else if nworkers > 0 {
+            } else if !quals.contains_external_var() && nworkers > 0 {
                 builder = builder.set_parallel(nworkers);
             }
 

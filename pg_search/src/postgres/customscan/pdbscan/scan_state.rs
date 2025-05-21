@@ -396,8 +396,10 @@ impl PdbScanState {
 
                     match field {
                         Value::String(val) => Some(val.to_string()),
+                        Value::Array(array) => Some(array.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(" ")),
                         val => unimplemented!(
-                            "only text fields for json/jsonb are supported for snippets"
+                            "only text fields for json/jsonb are supported for snippets, found {:?}",
+                            val
                         ),
                     }
                 }

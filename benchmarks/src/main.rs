@@ -1,6 +1,7 @@
 use clap::Parser;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Write};
+use std::io::Write;
+use std::path::Path;
 use std::process::Command;
 
 #[derive(Parser)]
@@ -9,28 +10,44 @@ struct Args {
     #[arg(long, value_parser = ["pg_search", "tuned_postgres"], default_value = "pg_search")]
     r#type: String,
 
+    /// Postgres URL.
     #[arg(long)]
     url: String,
 
+    /// Dataset to use.
+    #[arg(long, default_value = "single")]
+    dataset: String,
+
+    /// Whether to pre-warm the dataset using `pg_prewarm`.
     #[arg(long, default_value = "true")]
     prewarm: bool,
 
+    /// Whether to run `VACUUM ANALYZE` before executing queries.
     #[arg(long, default_value = "true")]
     vacuum: bool,
 
+    /// True to skip creating the dataset, and only run queries.
+    #[arg(long, default_value = "false")]
+    existing: bool,
+
+    /// Number of rows to insert (in the largest generated table for the dataset).
     #[arg(long, default_value = "10000000")]
     rows: u32,
 
+    /// Number of runs to execute for each query.
     #[arg(long, default_value = "3")]
     runs: usize,
 
+    /// Output format.
     #[arg(long, value_parser = ["md", "csv"], default_value = "md")]
     output: String,
 }
 
 fn main() {
     let args = Args::parse();
-    generate_test_data(&args.url, args.rows);
+    if !args.existing {
+        generate_test_data(&args.url, &args.dataset, args.rows);
+    }
 
     match args.output.as_str() {
         "md" => generate_markdown_output(&args),
@@ -46,14 +63,18 @@ fn generate_markdown_output(args: &Args) {
     write_benchmark_header(&mut file);
     write_test_info(&mut file, args);
     write_postgres_settings(&mut file, &args.url);
-    process_index_creation(&mut file, &args.url, &args.r#type);
+    if !args.existing {
+        process_index_creation(&mut file, &args.url, &args.dataset, &args.r#type);
+    }
     run_benchmarks_md(&mut file, args);
 }
 
 fn generate_csv_output(args: &Args) {
     write_test_info_csv(args);
     write_postgres_settings_csv(&args.url, &args.r#type);
-    process_index_creation_csv(&args.url, &args.r#type);
+    if !args.existing {
+        process_index_creation_csv(&args.url, &args.dataset, &args.r#type);
+    }
     run_benchmarks_csv(args);
 }
 
@@ -105,8 +126,8 @@ fn write_postgres_settings_csv(url: &str, test_type: &str) {
     }
 }
 
-fn process_index_creation_csv(url: &str, test_type: &str) {
-    let filename = format!("results_{}_index_creation.csv", test_type);
+fn process_index_creation_csv(url: &str, dataset: &str, test_type: &str) {
+    let filename = format!("results_{test_type}_index_creation.csv");
     let mut file = File::create(&filename).expect("Failed to create index creation CSV");
 
     writeln!(
@@ -115,16 +136,8 @@ fn process_index_creation_csv(url: &str, test_type: &str) {
     )
     .unwrap();
 
-    let index_sql = format!("create_index/{}.sql", test_type);
-    let index_file = File::open(&index_sql).expect("Failed to open index file");
-    let reader = BufReader::new(index_file);
-
-    for line in reader.lines() {
-        let statement = line.unwrap();
-        if statement.trim().is_empty() {
-            continue;
-        }
-
+    let index_sql = format!("datasets/{dataset}/create_index/{test_type}.sql");
+    for statement in queries(Path::new(&index_sql)) {
         println!("{}", statement);
 
         let duration_min = execute_sql_with_timing(url, &statement);
@@ -154,15 +167,14 @@ fn run_benchmarks_csv(args: &Args) {
     writeln!(file, "{}", header).unwrap();
 
     if args.vacuum {
-        execute_psql_command(&args.url, "VACUUM ANALYZE benchmark_logs;")
-            .expect("Failed to vacuum");
+        execute_psql_command(&args.url, "VACUUM ANALYZE;").expect("Failed to vacuum");
     }
 
     if args.prewarm {
-        prewarm_indexes(&args.url, &args.r#type);
+        prewarm_indexes(&args.url, &args.dataset, &args.r#type);
     }
 
-    let queries_dir = format!("queries/{}", args.r#type);
+    let queries_dir = format!("datasets/{}/queries/{}", args.dataset, args.r#type);
     for entry in std::fs::read_dir(queries_dir).expect("Failed to read queries directory") {
         let entry = entry.expect("Failed to read directory entry");
         let path = entry.path();
@@ -172,17 +184,10 @@ fn run_benchmarks_csv(args: &Args) {
         }
 
         let query_type = path.file_stem().unwrap().to_string_lossy();
-        let query_content = std::fs::read_to_string(&path).expect("Failed to read query file");
-
-        for query in query_content.split(';') {
-            let query = query.trim();
-            if query.is_empty() {
-                continue;
-            }
-
+        for query in queries(&path) {
             println!("Query Type: {}\nQuery: {}", query_type, query);
 
-            let (results, num_results) = execute_query_multiple_times(&args.url, query, args.runs);
+            let (results, num_results) = execute_query_multiple_times(&args.url, &query, args.runs);
 
             let mut result_line = format!("{}", query_type);
             for &result in &results {
@@ -250,13 +255,13 @@ fn write_postgres_settings(file: &mut File, url: &str) {
     }
 }
 
-fn generate_test_data(url: &str, rows: u32) {
+fn generate_test_data(url: &str, dataset: &str, rows: u32) {
     let status = Command::new("psql")
         .arg(url)
         .arg("-v")
-        .arg(format!("rows={}", rows))
+        .arg(format!("rows={rows}"))
         .arg("-f")
-        .arg("generate.sql")
+        .arg(format!("datasets/{dataset}/generate.sql"))
         .status()
         .expect("Failed to create table");
 
@@ -266,7 +271,7 @@ fn generate_test_data(url: &str, rows: u32) {
     }
 }
 
-fn process_index_creation(file: &mut File, url: &str, r#type: &str) {
+fn process_index_creation(file: &mut File, url: &str, dataset: &str, r#type: &str) {
     writeln!(file, "\n## Index Creation Results").unwrap();
     writeln!(
         file,
@@ -279,16 +284,8 @@ fn process_index_creation(file: &mut File, url: &str, r#type: &str) {
     )
     .unwrap();
 
-    let index_sql = format!("create_index/{}.sql", r#type);
-    let index_file = File::open(&index_sql).expect("Failed to open index file");
-    let reader = BufReader::new(index_file);
-
-    for line in reader.lines() {
-        let statement = line.unwrap();
-        if statement.trim().is_empty() {
-            continue;
-        }
-
+    let index_sql = format!("datasets/{dataset}/create_index/{}.sql", r#type);
+    for statement in queries(Path::new(&index_sql)) {
         println!("{}", statement);
 
         let duration_min = execute_sql_with_timing(url, &statement);
@@ -316,10 +313,10 @@ fn run_benchmarks_md(file: &mut File, args: &Args) {
     }
 
     if args.prewarm {
-        prewarm_indexes(&args.url, &args.r#type);
+        prewarm_indexes(&args.url, &args.dataset, &args.r#type);
     }
 
-    let queries_dir = format!("queries/{}", args.r#type);
+    let queries_dir = format!("datasets/{}/queries/{}", args.dataset, args.r#type);
     for entry in std::fs::read_dir(queries_dir).expect("Failed to read queries directory") {
         let entry = entry.expect("Failed to read directory entry");
         let path = entry.path();
@@ -329,17 +326,10 @@ fn run_benchmarks_md(file: &mut File, args: &Args) {
         }
 
         let query_type = path.file_stem().unwrap().to_string_lossy();
-        let query_content = std::fs::read_to_string(&path).expect("Failed to read query file");
-
-        for query in query_content.split(';') {
-            let query = query.trim();
-            if query.is_empty() {
-                continue;
-            }
-
+        for query in queries(&path) {
             println!("Query Type: {}\nQuery: {}", query_type, query);
 
-            let (results, num_results) = execute_query_multiple_times(&args.url, query, args.runs);
+            let (results, num_results) = execute_query_multiple_times(&args.url, &query, args.runs);
 
             let md_query = query.replace("|", "\\|");
             write_benchmark_results(file, &query_type, &results, num_results, &md_query);
@@ -380,6 +370,33 @@ fn write_benchmark_results(
 
     result_line.push_str(&format!("| {} | `{}` |", num_results, md_query));
     writeln!(file, "{}", result_line).unwrap();
+}
+
+///
+/// Return an iterator over the query strings contained in the given file path.
+///
+/// Strips comments and flattens each query onto a single line.
+///
+fn queries(file: &Path) -> Vec<String> {
+    let content = std::fs::read_to_string(file)
+        .unwrap_or_else(|e| panic!("Failed to read file `{file:?}`: {e}"));
+
+    content
+        .split(";\n")
+        .filter_map(|query| {
+            let query = query
+                .trim()
+                .split("\n")
+                .map(|line| line.split("--").next().unwrap().trim())
+                .collect::<Vec<_>>()
+                .join(" ");
+            if query.is_empty() {
+                None
+            } else {
+                Some(query)
+            }
+        })
+        .collect()
 }
 
 fn execute_psql_command(url: &str, command: &str) -> Result<String, std::io::Error> {
@@ -463,8 +480,8 @@ fn get_segment_count(url: &str, index_name: &str) -> i64 {
         .expect("Failed to parse segment count")
 }
 
-fn prewarm_indexes(url: &str, r#type: &str) {
-    let prewarm_sql = format!("prewarm/{}.sql", r#type);
+fn prewarm_indexes(url: &str, dataset: &str, r#type: &str) {
+    let prewarm_sql = format!("datasets/{dataset}/prewarm/{}.sql", r#type);
     let status = Command::new("psql")
         .arg(url)
         .arg("-f")

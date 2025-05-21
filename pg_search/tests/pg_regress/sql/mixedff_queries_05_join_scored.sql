@@ -12,9 +12,9 @@ SELECT
     files.id,
     paradedb.score(documents.id) + paradedb.score(files.id) AS score
 FROM
-    documents JOIN files ON documents.id = files."documentId"
+    documents JOIN files ON documents.id = files.documentId
 WHERE
-    documents.parents @@@ 'SFR' AND files.title @@@ 'collab12'
+    documents.content @@@ '2023' AND files.title @@@ 'Receipt'
 ORDER BY score DESC
 LIMIT 10;
 
@@ -23,9 +23,9 @@ SELECT
     files.id,
     paradedb.score(documents.id) + paradedb.score(files.id) AS score
 FROM
-    documents JOIN files ON documents.id = files."documentId"
+    documents JOIN files ON documents.id = files.documentId
 WHERE
-    documents.parents @@@ 'SFR' AND files.title @@@ 'collab12'
+    documents.content @@@ '2023' AND files.title @@@ 'Receipt'
 ORDER BY score DESC
 LIMIT 10;
 

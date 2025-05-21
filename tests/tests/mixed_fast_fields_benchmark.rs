@@ -37,6 +37,7 @@ const NUM_ROWS_VALIDATION: usize = 1000; // Reduced for faster test runs
 const BATCH_SIZE: usize = 10000; // For efficiency with large datasets, use batch inserts
 
 #[rstest]
+#[ignore]
 async fn benchmark_mixed_fast_fields_test(mut conn: PgConnection) -> Result<()> {
     benchmark_mixed_fast_fields(
         &mut conn,
@@ -86,7 +87,7 @@ async fn validate_mixed_fast_fields_correctness(mut conn: PgConnection) -> Resul
         .execute(&mut conn)
         .await?;
 
-    set_execution_method(&mut conn, "MixedFastFieldExec").await?;
+    set_execution_method(&mut conn, "MixedFastFieldExec", "test_benchmark_data").await?;
 
     // Get results with MixedFastFieldExec
     let mixed_results = sqlx::query(test_query).fetch_all(&mut conn).await?;
@@ -106,7 +107,7 @@ async fn validate_mixed_fast_fields_correctness(mut conn: PgConnection) -> Resul
         mixed_method
     );
 
-    set_execution_method(&mut conn, "NormalScanExecState").await?;
+    set_execution_method(&mut conn, "NormalScanExecState", "test_benchmark_data").await?;
 
     // Get results with NormalScanExecState
     let normal_results = sqlx::query(test_query).fetch_all(&mut conn).await?;

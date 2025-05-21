@@ -173,7 +173,7 @@ pub async fn run_benchmark(
     let mut min_time_ms: f64 = f64::MAX;
     let mut max_time_ms: f64 = 0.0;
 
-    set_execution_method(conn, execution_method).await?;
+    set_execution_method(conn, execution_method, &config.table_name).await?;
 
     // The query to run, with no modification
     let query_to_run = query.to_string();
@@ -337,7 +337,11 @@ pub async fn run_benchmarks_with_methods(
 }
 
 /// Setup PostgreSQL settings for the specific execution method
-pub async fn set_execution_method(conn: &mut PgConnection, execution_method: &str) -> Result<()> {
+pub async fn set_execution_method(
+    conn: &mut PgConnection,
+    execution_method: &str,
+    table_name: &str,
+) -> Result<()> {
     // Create appropriate index if execution method is specified
     // This should be either "MixedFastFieldExec" or "StringFastFieldExec" or "NumericFastFieldExec"
     if execution_method == "MixedFastFieldExec" {
@@ -376,11 +380,13 @@ pub async fn set_execution_method(conn: &mut PgConnection, execution_method: &st
         .execute(&mut *conn)
         .await?;
 
-    let _count: i64 =
-        sqlx::query("SELECT COUNT(*) FROM benchmark_data WHERE id @@@ paradedb.all()")
-            .fetch_one(&mut *conn)
-            .await?
-            .get(0);
+    let _count: i64 = sqlx::query(&format!(
+        "SELECT COUNT(*) FROM {} WHERE id @@@ paradedb.all()",
+        table_name
+    ))
+    .fetch_one(&mut *conn)
+    .await?
+    .get(0);
 
     sqlx::query("SET max_parallel_workers_per_gather = 0")
         .execute(&mut *conn)

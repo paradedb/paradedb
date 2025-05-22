@@ -1036,10 +1036,12 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
                 field,
                 which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
             }
-        } else if fast_fields::is_mixed_fast_field_capable(privdata)
-            && gucs::is_mixed_fast_field_exec_enabled()
-        {
+        } else if gucs::is_mixed_fast_field_exec_enabled() {
             // Use MixedFastFieldExec if enabled
+            //
+            // We'd suggest using MixedFastFieldExec as the last resort (default) at the planning
+            // stage, but we will fall back to NormalExecState (in assign_exec_method) if we can't
+            // execute using MixedFastFieldExec with the given fields and possibly expressions.
             ExecMethodType::FastFieldMixed {
                 which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
             }

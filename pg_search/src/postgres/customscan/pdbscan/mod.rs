@@ -321,11 +321,12 @@ impl CustomScan for PdbScan {
             };
             let query = SearchQueryInput::from(&quals);
             let is_join = is_join || quals.contains_external_var();
-            let norm_selec = (restrict_info.len() == 1)
-                .then(|| (*restrict_info.get_ptr(0).unwrap()).norm_selec)
-                .unwrap_or(UNASSIGNED_SELECTIVITY);
+            let norm_selec = if restrict_info.len() == 1 {
+                (*restrict_info.get_ptr(0).unwrap()).norm_selec
+            } else {
+                UNASSIGNED_SELECTIVITY
+            };
 
-            let has_expressions = quals.contains_exprs();
             let mut selectivity = if let Some(limit) = limit {
                 // use the limit
                 limit
@@ -340,7 +341,7 @@ impl CustomScan for PdbScan {
                 // if the query has external vars (references to another relation) then we end up
                 // returning *everything* from _this_ relation
                 FULL_RELATION_SELECTIVITY
-            } else if has_expressions {
+            } else if quals.contains_exprs() {
                 // if the query has expressions then it's parameterized and we have to guess something
                 PARAMETERIZED_SELECTIVITY
             } else {
@@ -349,10 +350,8 @@ impl CustomScan for PdbScan {
             };
 
             // we must use this path if we need to do const projections for scores or snippets
-            builder = builder.set_force_path(
-                has_expressions
-                    && (maybe_needs_const_projections || is_topn || quals.contains_all()),
-            );
+            builder = builder
+                .set_force_path(maybe_needs_const_projections || is_topn || quals.contains_all());
 
             builder.custom_private().set_heaprelid(table.oid());
             builder.custom_private().set_indexrelid(bm25_index.oid());
@@ -473,9 +472,11 @@ impl CustomScan for PdbScan {
                 // workers we're likely to use.  this lets Postgres make better decisions based on what
                 // an individual parallel scan is actually going to return
                 selectivity /= (nworkers
-                    + pg_sys::parallel_leader_participation
-                        .then_some(1)
-                        .unwrap_or(0)) as f64;
+                    + if pg_sys::parallel_leader_participation {
+                        1
+                    } else {
+                        0
+                    }) as f64;
             }
 
             let reltuples = table.reltuples().unwrap_or(1.0) as f64;

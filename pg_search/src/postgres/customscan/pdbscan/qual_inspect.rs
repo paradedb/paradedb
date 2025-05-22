@@ -144,7 +144,7 @@ impl Qual {
         match self {
             Qual::All => false,
             Qual::ExternalVar => false,
-            Qual::OpExpr { .. } => true,
+            Qual::OpExpr { .. } => false,
             Qual::Expr { .. } => true,
             Qual::PushdownExpr { .. } => false,
             Qual::PushdownVarEqTrue { .. } => true,

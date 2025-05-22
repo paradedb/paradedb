@@ -349,7 +349,14 @@ impl SearchFieldConfig {
             None => Ok(None),
         }?;
 
-        Ok(SearchFieldConfig::Range { fast: true, column })
+        let fast = match obj.get("fast") {
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("'fast' field should be a boolean")),
+            None => Ok(true),
+        }?;
+
+        Ok(SearchFieldConfig::Range { fast, column })
     }
 
     pub fn numeric_from_json(value: serde_json::Value) -> Result<Self> {

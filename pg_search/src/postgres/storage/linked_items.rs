@@ -351,6 +351,17 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         )))
     }
 
+    pub unsafe fn pop(&mut self) -> Result<Option<(T, pg_sys::Size)>> {
+        let (mut blockno, mut buffer) = self.get_start_blockno_mut();
+        let mut page = buffer.page_mut();
+        let mut max_offset = page.max_offset_number();
+
+        // TODO: Handle the case where the page is empty
+        let item = page.deserialize_item::<T>(max_offset);
+        page.delete_item(max_offset);
+        Ok(item)
+    }
+
     ///
     /// Make a temporary copy of this list and all its backing buffers to allow for atomic
     /// mutation. When the given guard is `commit()`ed, all changes will become visible atomically

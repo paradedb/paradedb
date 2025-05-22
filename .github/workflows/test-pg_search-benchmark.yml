@@ -107,14 +107,11 @@ jobs:
           export TANTIVY_COMPRESSION_LEVEL="${{ matrix.compression_level }}"
           cargo run -- --url postgresql://localhost:288${{ matrix.pg_version }}/postgres --rows ${{ matrix.num_rows }} --type pg_search --output csv
 
-      - name: cat Results
-        working-directory: benchmarks/
-        run: |
-          set -x
-          echo "${{ matrix.block_length }}, ${{ matrix.block_length_triggering_compression }}, ${{ matrix.compression_level }}"
-          for file in results_pg_search_{test_info,index_creation,benchmark_results,postgres_settings}.csv; do
-            cat $file
-          done
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: results-${{ matrix.block_length }}-${{ matrix.block_length_triggering_compression }}-${{ matrix.compression_level }}
+          path: benchmarks/results_pg_search_*.csv
 
       - name: Print the Postgres Logs
         if: always()

@@ -197,7 +197,9 @@ impl CustomScan for PdbScan {
     type State = PdbScanState;
     type PrivateData = PrivateData;
 
-    fn callback(mut builder: CustomPathBuilder<Self::PrivateData>) -> Option<pg_sys::CustomPath> {
+    fn rel_pathlist_callback(
+        mut builder: CustomPathBuilder<Self::PrivateData>,
+    ) -> Option<pg_sys::CustomPath> {
         unsafe {
             let (restrict_info, ri_type) = builder.restrict_info();
             if matches!(ri_type, RestrictInfoType::None) {

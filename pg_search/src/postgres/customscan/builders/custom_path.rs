@@ -359,6 +359,10 @@ impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
         self
     }
 
+    pub fn is_parallel(&self) -> bool {
+        self.custom_path_node.path.parallel_workers > 0
+    }
+
     pub fn build(mut self) -> pg_sys::CustomPath {
         self.custom_path_node.custom_paths = self.custom_paths.into_pg();
         self.custom_path_node.custom_private = self.custom_private.into();

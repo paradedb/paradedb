@@ -98,7 +98,8 @@ async fn generated_joins_small(database: Db) {
         .iter()
         .map(|(table, _)| table)
         .collect::<Vec<_>>();
-    generated_queries_setup(&mut pool.pull(), &tables_and_sizes);
+    let setup_sql = generated_queries_setup(&mut pool.pull(), &tables_and_sizes);
+    eprintln!("{setup_sql}");
 
     proptest!(|(
         (join, where_expr) in arb_joins_and_wheres(
@@ -143,7 +144,8 @@ async fn generated_joins_large_limit(database: Db) {
         .iter()
         .map(|(table, _)| table)
         .collect::<Vec<_>>();
-    generated_queries_setup(&mut pool.pull(), &tables_and_sizes);
+    let setup_sql = generated_queries_setup(&mut pool.pull(), &tables_and_sizes);
+    eprintln!("{setup_sql}");
 
     proptest!(|(
         (join, where_expr) in arb_joins_and_wheres(

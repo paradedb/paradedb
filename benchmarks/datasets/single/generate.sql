@@ -1,5 +1,10 @@
-DROP TABLE IF EXISTS benchmark_logs CASCADE;
+\set rows :rows
+\echo 'Generating' :rows 'rows'
 
+
+-- Create tables
+
+DROP TABLE IF EXISTS benchmark_logs CASCADE;
 CREATE TABLE benchmark_logs (
     id SERIAL PRIMARY KEY,
     message TEXT,
@@ -9,8 +14,8 @@ CREATE TABLE benchmark_logs (
     metadata JSONB
 );
 
-\set rows :rows
-\echo 'Generating' :rows 'rows'
+
+-- Insert data
 
 INSERT INTO benchmark_logs (message, country, severity, timestamp, metadata)
 SELECT

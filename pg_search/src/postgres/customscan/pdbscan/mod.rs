@@ -207,7 +207,7 @@ impl CustomScan for PdbScan {
             }
 
             let rti = builder.args().rti;
-            let (table, bm25_index, is_join) = {
+            let (table, bm25_index) = {
                 let rte = builder.args().rte();
 
                 // we only support plain relation and join rte's
@@ -226,7 +226,7 @@ impl CustomScan for PdbScan {
                 // and that relation must have a `USING bm25` index
                 let (table, bm25_index) = rel_get_bm25_index(rte.relid)?;
 
-                (table, bm25_index, rte.rtekind == pg_sys::RTEKind::RTE_JOIN)
+                (table, bm25_index)
             };
 
             let root = builder.args().root;
@@ -320,7 +320,6 @@ impl CustomScan for PdbScan {
                 return None;
             };
             let query = SearchQueryInput::from(&quals);
-            let is_join = is_join || quals.contains_external_var();
             let norm_selec = if restrict_info.len() == 1 {
                 (*restrict_info.get_ptr(0).unwrap()).norm_selec
             } else {

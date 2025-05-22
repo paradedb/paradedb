@@ -40,6 +40,7 @@ const BATCH_SIZE: usize = 10000; // For efficiency with large datasets, use batc
 async fn benchmark_mixed_fast_fields_test(mut conn: PgConnection) -> Result<()> {
     benchmark_mixed_fast_fields(
         &mut conn,
+        false,
         ITERATIONS,
         WARMUP_ITERATIONS,
         NUM_ROWS_BENCHMARK,

@@ -64,6 +64,7 @@ async fn main() {
         let mut conn = PgConnection::connect(&args.url).await.unwrap();
         let res = benchmark_mixed_fast_fields(
             &mut conn,
+            args.existing,
             args.runs,
             args.warmups,
             args.rows as usize,
@@ -72,7 +73,6 @@ async fn main() {
         .await;
         println!("Mixed Fast Fields Benchmark Completed: {:?}", res);
     } else if args.benchmark == "sql" {
-
         if !args.existing {
             generate_test_data(&args.url, &args.dataset, args.rows);
         }

@@ -397,6 +397,7 @@ pub async fn set_execution_method(
 
 pub async fn benchmark_mixed_fast_fields(
     conn: &mut PgConnection,
+    is_existing: bool,
     iterations: usize,
     warmup_iterations: usize,
     num_rows: usize,
@@ -411,8 +412,11 @@ pub async fn benchmark_mixed_fast_fields(
         table_name: "benchmark_data".to_string(),
     };
 
-    // Set up the benchmark database
-    setup_benchmark_database(conn, config.num_rows, &config.table_name, config.batch_size).await?;
+    if !is_existing {
+        // Set up the benchmark database
+        setup_benchmark_database(conn, config.num_rows, &config.table_name, config.batch_size)
+            .await?;
+    }
 
     println!("========================================");
     println!("Starting mixed fast fields benchmark");

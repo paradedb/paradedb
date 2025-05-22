@@ -338,8 +338,8 @@ impl CustomScan for PdbScan {
                 // we can use the norm_selec that already happened
                 norm_selec
             } else if quals.contains_external_var() {
-                // if the query has external vars (references to another relation) then we end up
-                // returning *everything* from _this_ relation
+                // if the query has external vars (references to other relations which decide whether the rows in this
+                // relation are visible) then we end up returning *everything* from _this_ relation
                 FULL_RELATION_SELECTIVITY
             } else if quals.contains_exprs() {
                 // if the query has expressions then it's parameterized and we have to guess something

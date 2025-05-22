@@ -436,18 +436,18 @@ WHERE organization_id = 'org-1'
   AND (id @@@ paradedb.all())
 ORDER BY date_range DESC
 LIMIT 25;
-                                                                                                                                                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                          
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: date_range DESC
-         ->  Custom Scan (ParadeDB Scan) on payments
-               Table: payments
-               Index: payments_search_idx
-               Exec Method: NormalScanExecState
-               Scores: false
-                  Top N Limit: 25
-               Tantivy Query: {"boolean":{"must":[{"term":{"field":"live_mode","value":true,"is_datetime":false}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"internal_account_id","query_string":"IN [account-1 account-2 account-3]","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"match":{"field":"description","value":"check","tokenizer":{"type":"ngram","max_gram":3,"min_gram":3,"lowercase":true,"prefix_only":false,"remove_long":255},"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"exists":{"field":"discarded_at"}}}}]}},{"with_index":{"query":"all"}},{"term":{"field":"organization_id","value":"org-1","is_datetime":false}}]}}
+   ->  Custom Scan (ParadeDB Scan) on payments
+         Table: payments
+         Index: payments_search_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            Sort Field: date_range
+            Sort Direction: desc
+            Top N Limit: 25
+         Tantivy Query: {"boolean":{"must":[{"term":{"field":"live_mode","value":true,"is_datetime":false}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"internal_account_id","query_string":"IN [account-1 account-2 account-3]","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"match":{"field":"description","value":"check","tokenizer":{"type":"ngram","max_gram":3,"min_gram":3,"lowercase":true,"prefix_only":false,"remove_long":255},"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"exists":{"field":"discarded_at"}}}}]}},{"with_index":{"query":"all"}},{"term":{"field":"organization_id","value":"org-1","is_datetime":false}}]}}
 (10 rows)
 
 -- Test 3: Same query without paradedb.all() operator
@@ -464,18 +464,18 @@ WHERE organization_id = 'org-1'
   AND (NOT id @@@ paradedb.exists('discarded_at'))
 ORDER BY date_range DESC
 LIMIT 25;
-                                                                                                                                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                              
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: date_range DESC
-         ->  Custom Scan (ParadeDB Scan) on payments
-               Table: payments
-               Index: payments_search_idx
-               Exec Method: NormalScanExecState
-               Scores: false
-                  Top N Limit: 25
-               Tantivy Query: {"boolean":{"must":[{"term":{"field":"live_mode","value":true,"is_datetime":false}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"internal_account_id","query_string":"IN [account-1 account-2 account-3]","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"match":{"field":"description","value":"check","tokenizer":{"type":"ngram","max_gram":3,"min_gram":3,"lowercase":true,"prefix_only":false,"remove_long":255},"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"exists":{"field":"discarded_at"}}}}]}},{"term":{"field":"organization_id","value":"org-1","is_datetime":false}}]}}
+   ->  Custom Scan (ParadeDB Scan) on payments
+         Table: payments
+         Index: payments_search_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            Sort Field: date_range
+            Sort Direction: desc
+            Top N Limit: 25
+         Tantivy Query: {"boolean":{"must":[{"term":{"field":"live_mode","value":true,"is_datetime":false}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"internal_account_id","query_string":"IN [account-1 account-2 account-3]","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"match":{"field":"description","value":"check","tokenizer":{"type":"ngram","max_gram":3,"min_gram":3,"lowercase":true,"prefix_only":false,"remove_long":255},"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"exists":{"field":"discarded_at"}}}}]}},{"term":{"field":"organization_id","value":"org-1","is_datetime":false}}]}}
 (10 rows)
 
 -- Test 4: Testing the impact of paradedb.all() alone
@@ -558,18 +558,18 @@ WHERE organization_id = 'org-1'
   AND id @@@ paradedb.match('description', 'check')
 ORDER BY date_range DESC
 LIMIT 25;
-                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                  
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                               QUERY PLAN                                                                                                                                                                               
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: date_range DESC
-         ->  Custom Scan (ParadeDB Scan) on payments
-               Table: payments
-               Index: payments_search_idx
-               Exec Method: NormalScanExecState
-               Scores: false
-                  Top N Limit: 25
-               Tantivy Query: {"boolean":{"must":[{"term":{"field":"live_mode","value":true,"is_datetime":false}},{"with_index":{"query":{"match":{"field":"description","value":"check","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}},{"term":{"field":"organization_id","value":"org-1","is_datetime":false}}]}}
+   ->  Custom Scan (ParadeDB Scan) on payments
+         Table: payments
+         Index: payments_search_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            Sort Field: date_range
+            Sort Direction: desc
+            Top N Limit: 25
+         Tantivy Query: {"boolean":{"must":[{"term":{"field":"live_mode","value":true,"is_datetime":false}},{"with_index":{"query":{"match":{"field":"description","value":"check","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}},{"term":{"field":"organization_id","value":"org-1","is_datetime":false}}]}}
 (10 rows)
 
 -- Test 8: Testing the original customer query with each complex component isolated
@@ -615,18 +615,18 @@ WHERE organization_id = 'org-1'
   AND (id @@@ paradedb.all())
 ORDER BY date_range DESC
 LIMIT 25;
-                                                                                                                                                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                          
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: date_range DESC
-         ->  Custom Scan (ParadeDB Scan) on payments
-               Table: payments
-               Index: payments_search_idx
-               Exec Method: NormalScanExecState
-               Scores: false
-                  Top N Limit: 25
-               Tantivy Query: {"boolean":{"must":[{"term":{"field":"live_mode","value":true,"is_datetime":false}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"internal_account_id","query_string":"IN [account-1 account-2 account-3]","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"match":{"field":"description","value":"check","tokenizer":{"type":"ngram","max_gram":3,"min_gram":3,"lowercase":true,"prefix_only":false,"remove_long":255},"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"exists":{"field":"discarded_at"}}}}]}},{"with_index":{"query":"all"}},{"term":{"field":"organization_id","value":"org-1","is_datetime":false}}]}}
+   ->  Custom Scan (ParadeDB Scan) on payments
+         Table: payments
+         Index: payments_search_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            Sort Field: date_range
+            Sort Direction: desc
+            Top N Limit: 25
+         Tantivy Query: {"boolean":{"must":[{"term":{"field":"live_mode","value":true,"is_datetime":false}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"internal_account_id","query_string":"IN [account-1 account-2 account-3]","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"match":{"field":"description","value":"check","tokenizer":{"type":"ngram","max_gram":3,"min_gram":3,"lowercase":true,"prefix_only":false,"remove_long":255},"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"exists":{"field":"discarded_at"}}}}]}},{"with_index":{"query":"all"}},{"term":{"field":"organization_id","value":"org-1","is_datetime":false}}]}}
 (10 rows)
 
 -- Test 10: Fast-field only solution - selecting only indexed fast fields
@@ -640,18 +640,18 @@ WHERE organization_id = 'org-1'
   AND (id @@@ paradedb.match('description', 'check'))
 ORDER BY date_range DESC
 LIMIT 25;
-                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                  
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                               QUERY PLAN                                                                                                                                                                               
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: date_range DESC
-         ->  Custom Scan (ParadeDB Scan) on payments
-               Table: payments
-               Index: payments_search_idx
-               Exec Method: NormalScanExecState
-               Scores: false
-                  Top N Limit: 25
-               Tantivy Query: {"boolean":{"must":[{"term":{"field":"live_mode","value":true,"is_datetime":false}},{"with_index":{"query":{"match":{"field":"description","value":"check","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}},{"term":{"field":"organization_id","value":"org-1","is_datetime":false}}]}}
+   ->  Custom Scan (ParadeDB Scan) on payments
+         Table: payments
+         Index: payments_search_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            Sort Field: date_range
+            Sort Direction: desc
+            Top N Limit: 25
+         Tantivy Query: {"boolean":{"must":[{"term":{"field":"live_mode","value":true,"is_datetime":false}},{"with_index":{"query":{"match":{"field":"description","value":"check","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}},{"term":{"field":"organization_id","value":"org-1","is_datetime":false}}]}}
 (10 rows)
 
 -- Cleanup

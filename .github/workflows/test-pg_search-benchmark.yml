@@ -107,16 +107,13 @@ jobs:
           export TANTIVY_COMPRESSION_LEVEL="${{ matrix.compression_level }}"
           cargo run -- --url postgresql://localhost:288${{ matrix.pg_version }}/postgres --rows ${{ matrix.num_rows }} --type pg_search --output csv
 
-      - name: Upload Benchmark Results to Slack
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
+      - name: cat Results
         working-directory: benchmarks/
         run: |
+          set -x
+          echo "${{ matrix.block_length }}, ${{ matrix.block_length_triggering_compression }}, ${{ matrix.compression_level }}"
           for file in results_pg_search_{test_info,index_creation,benchmark_results,postgres_settings}.csv; do
-            curl -F "file=@$file" \
-              -F "channels=${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}" \
-              -H "Authorization: Bearer ${{ secrets.SLACK_OAUTH_TOKEN }}" \
-              https://slack.com/api/files.upload
+            cat $file
           done
 
       - name: Print the Postgres Logs

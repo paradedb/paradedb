@@ -12,9 +12,7 @@
 
 `pg_search` is supported on official PostgreSQL Global Development Group Postgres versions, starting at v14.
 
-Check out the `pg_search` benchmarks [here](../benchmarks/README.md).
-
-`pg_search` uses Tantivy version 0.23.
+Benchmarks can be found in the [`/benchmarks` directory](../benchmarks/README.md).
 
 ## Installation
 

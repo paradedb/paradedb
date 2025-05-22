@@ -36,7 +36,10 @@ jobs:
     strategy:
       matrix:
         pg_version: [17]
-        num_rows: [100000000]
+        num_rows: [10000000]
+        block_length: [1000, 4000]
+        block_length_triggering_compression: [2000, 8000]
+        compression_level: [1, 2, 3]
 
     steps:
       - name: Checkout Git Repository
@@ -98,7 +101,11 @@ jobs:
 
       - name: Run Benchmark
         working-directory: benchmarks/
-        run: cargo run -- --url postgresql://localhost:288${{ matrix.pg_version }}/postgres --rows ${{ matrix.num_rows }} --type pg_search --output csv
+        run: |
+          export TANTIVY_BLOCK_LEN="${{ matrix.block_length }}"
+          export TANTIVY_BLOCK_LEN_TRIGGERING_COMPRESSION="${{ matrix.block_length_triggering_compression }}"
+          export TANTIVY_COMPRESSION_LEVEL="${{ matrix.compression_level }}"
+          cargo run -- --url postgresql://localhost:288${{ matrix.pg_version }}/postgres --rows ${{ matrix.num_rows }} --type pg_search --output csv
 
       - name: Upload Benchmark Results to Slack
         env:
@@ -111,3 +118,7 @@ jobs:
               -H "Authorization: Bearer ${{ secrets.SLACK_OAUTH_TOKEN }}" \
               https://slack.com/api/files.upload
           done
+
+      - name: Print the Postgres Logs
+        if: always()
+        run: cat ~/.pgrx/${{ matrix.pg_version}}.log

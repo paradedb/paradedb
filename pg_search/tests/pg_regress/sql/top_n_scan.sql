@@ -89,14 +89,10 @@ USING bm25 (
         "currency_code": { "tokenizer": {"type": "keyword"} },
         "process_method": { "fast": true, "tokenizer": {"type": "keyword"} }
     }',
-    numeric_fields = '{"link_count2":{}, "amount_value":{}}',
-    boolean_fields = '{"is_active":{}}',
     json_fields = '{ 
         "metadata": { "fast": true, "normalizer": "lowercase", "tokenizer": { "type": "raw" } }, 
         "metadata_words": { "fast": true, "normalizer": "lowercase", "tokenizer": { "type": "default" }, "column": "metadata" } 
-    }',
-    range_fields = '{"value_range":{"fast":true},"time_period":{"fast":true}}',
-    datetime_fields = '{"created_at":{}, "removed_at":{}, "updated_at":{}}'
+    }'
 );
 
 \echo '======== EXECUTION METHOD TESTS ========'

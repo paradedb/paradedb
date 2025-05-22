@@ -235,7 +235,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
 
                 // return it to the FSM. Doing so will also drop the lock, but we are still
                 // holding the lock on the previous page, so hand-over-hand is ensured.
-                buffer.return_to_fsm(&mut self.bman);
+                // buffer.return_to_fsm(&mut self.bman);
             } else {
                 // this is either the start page, or a page containing valid data. move its buffer
                 // into previous_buffer to ensure that it is held hand-over-hand until we decide
@@ -477,7 +477,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> AtomicGuard<'_,
             *original_metadata = *cloned_header_page.contents_mut::<LinkedListData>();
 
             // Finally, garbage collect the cloned header block.
-            cloned_header_buffer.return_to_fsm(&mut self.cloned.bman);
+            // cloned_header_buffer.return_to_fsm(&mut self.cloned.bman);
 
             old_start_blockno
         };
@@ -490,7 +490,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> AtomicGuard<'_,
         while blockno != pg_sys::InvalidBlockNumber {
             let buffer = original.bman_mut().get_buffer_mut(blockno);
             blockno = buffer.page().next_blockno();
-            buffer.return_to_fsm(&mut original.bman);
+            // buffer.return_to_fsm(&mut original.bman);
         }
     }
 }
@@ -517,11 +517,11 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> Drop for Atomic
             .page()
             .contents::<LinkedListData>()
             .start_blockno;
-        header_buffer.return_to_fsm(bman);
+        // header_buffer.return_to_fsm(bman);
         while blockno != pg_sys::InvalidBlockNumber {
             let buffer = bman.get_buffer_mut(blockno);
             blockno = buffer.page().next_blockno();
-            buffer.return_to_fsm(bman);
+            // buffer.return_to_fsm(bman);
         }
     }
 }

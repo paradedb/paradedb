@@ -400,7 +400,6 @@ impl CustomScan for PdbScan {
                 0
             };
 
-            let mut set_parallel = false;
             if pathkey.is_some()
                 && !is_topn
                 && fast_fields::is_string_agg_capable_with_prereqs(builder.custom_private())
@@ -436,14 +435,12 @@ impl CustomScan for PdbScan {
                     // See the TODO below about being able to claim sorting for parallel
                     // workers.
                     builder = builder.set_parallel(nworkers);
-                    set_parallel = true;
                 } else {
                     // otherwise we'll do a regular scan
                     builder.custom_private().set_sort_info(pathkey);
                 }
             } else if !quals.contains_external_var() && nworkers > 0 {
                 builder = builder.set_parallel(nworkers);
-                set_parallel = true;
             }
 
             let exec_method_type = choose_exec_method(builder.custom_private());
@@ -467,7 +464,7 @@ impl CustomScan for PdbScan {
             // finally, we have enough information to set the cost and estimation information
             //
 
-            if set_parallel {
+            if builder.is_parallel() {
                 // if we're likely to do a parallel scan, divide the selectivity up by the number of
                 // workers we're likely to use.  this lets Postgres make better decisions based on what
                 // an individual parallel scan is actually going to return

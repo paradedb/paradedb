@@ -30,7 +30,6 @@ use crate::api::operator::{
 };
 use crate::api::Cardinality;
 use crate::api::{HashMap, HashSet};
-use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::reader::index::SearchIndexReader;
@@ -64,6 +63,7 @@ use crate::postgres::rel_get_bm25_index;
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
+use crate::{gucs, FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
 use pgrx::pg_sys::CustomExecMethods;
 use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts, PgRelation};
@@ -207,7 +207,7 @@ impl CustomScan for PdbScan {
             }
 
             let rti = builder.args().rti;
-            let (table, bm25_index, is_join) = {
+            let (table, bm25_index) = {
                 let rte = builder.args().rte();
 
                 // we only support plain relation and join rte's
@@ -226,7 +226,7 @@ impl CustomScan for PdbScan {
                 // and that relation must have a `USING bm25` index
                 let (table, bm25_index) = rel_get_bm25_index(rte.relid)?;
 
-                (table, bm25_index, rte.rtekind == pg_sys::RTEKind::RTE_JOIN)
+                (table, bm25_index)
             };
 
             let root = builder.args().root;
@@ -320,45 +320,49 @@ impl CustomScan for PdbScan {
                 return None;
             };
             let query = SearchQueryInput::from(&quals);
+            let norm_selec = if restrict_info.len() == 1 {
+                (*restrict_info.get_ptr(0).unwrap()).norm_selec
+            } else {
+                UNASSIGNED_SELECTIVITY
+            };
 
-            let has_expressions = quals.contains_exprs();
-            let selectivity = if let Some(limit) = limit {
+            let mut selectivity = if let Some(limit) = limit {
                 // use the limit
                 limit
                     / table
                         .reltuples()
                         .map(|n| n as Cardinality)
                         .unwrap_or(UNKNOWN_SELECTIVITY)
-            } else if restrict_info.len() == 1 {
+            } else if norm_selec != UNASSIGNED_SELECTIVITY {
                 // we can use the norm_selec that already happened
-                let norm_select = (*restrict_info.get_ptr(0).unwrap()).norm_selec;
-                if norm_select != UNKNOWN_SELECTIVITY {
-                    norm_select
-                } else {
-                    // assume PARAMETERIZED_SELECTIVITY
-                    PARAMETERIZED_SELECTIVITY
-                }
+                norm_selec
+            } else if quals.contains_external_var() {
+                // if the query has external vars (references to other relations which decide whether the rows in this
+                // relation are visible) then we end up returning *everything* from _this_ relation
+                FULL_RELATION_SELECTIVITY
+            } else if quals.contains_exprs() {
+                // if the query has expressions then it's parameterized and we have to guess something
+                PARAMETERIZED_SELECTIVITY
             } else {
                 // ask the index
-                if has_expressions {
-                    // we have no idea, so assume PARAMETERIZED_SELECTIVITY
-                    PARAMETERIZED_SELECTIVITY
-                } else {
-                    estimate_selectivity(&bm25_index, &query).unwrap_or(UNKNOWN_SELECTIVITY)
-                }
+                estimate_selectivity(&bm25_index, &query).unwrap_or(UNKNOWN_SELECTIVITY)
             };
 
             // we must use this path if we need to do const projections for scores or snippets
-            builder = builder.set_force_path(
-                has_expressions
-                    && (maybe_needs_const_projections || is_topn || quals.contains_all()),
-            );
+            builder = builder
+                .set_force_path(maybe_needs_const_projections || is_topn || quals.contains_all());
 
             builder.custom_private().set_heaprelid(table.oid());
             builder.custom_private().set_indexrelid(bm25_index.oid());
             builder.custom_private().set_range_table_index(rti);
             builder.custom_private().set_query(query);
             builder.custom_private().set_limit(limit);
+            builder.custom_private().set_segment_count(
+                index
+                    .searchable_segments()
+                    .map(|segments| segments.len())
+                    .unwrap_or(0),
+            );
 
             if is_topn && pathkey.is_some() {
                 let pathkey = pathkey.as_ref().unwrap();
@@ -388,47 +392,12 @@ impl CustomScan for PdbScan {
                     .set_sort_direction(Some(SortDirection::None));
             }
 
-            let reltuples = table.reltuples().unwrap_or(1.0) as f64;
-            let rows = (reltuples * selectivity).max(1.0);
-
-            let per_tuple_cost = {
-                // if we think we need scores, we need a much cheaper plan so that Postgres will
-                // prefer it over all the others.
-                if is_join || maybe_needs_const_projections {
-                    0.0
-                } else if maybe_ff {
-                    // returns fields from fast fields
-                    pg_sys::cpu_index_tuple_cost / 100.0
-                } else {
-                    // requires heap access to return fields
-                    pg_sys::cpu_tuple_cost * 200.0
-                }
-            };
-
-            let startup_cost = if is_join || maybe_needs_const_projections {
-                0.0
-            } else {
-                DEFAULT_STARTUP_COST
-            };
-
-            let total_cost = startup_cost + (rows * per_tuple_cost);
-            let segment_count = index.searchable_segments().unwrap_or_default().len();
             let nworkers = if (*builder.args().rel).consider_parallel {
+                let segment_count = index.searchable_segments().unwrap_or_default().len();
                 compute_nworkers(limit, segment_count, builder.custom_private().is_sorted())
             } else {
                 0
             };
-
-            builder.custom_private().set_segment_count(
-                index
-                    .searchable_segments()
-                    .map(|segments| segments.len())
-                    .unwrap_or(0),
-            );
-            builder = builder.set_rows(rows);
-            builder = builder.set_startup_cost(startup_cost);
-            builder = builder.set_total_cost(total_cost);
-            builder = builder.set_flag(Flags::Projection);
 
             if pathkey.is_some()
                 && !is_topn
@@ -469,7 +438,7 @@ impl CustomScan for PdbScan {
                     // otherwise we'll do a regular scan
                     builder.custom_private().set_sort_info(pathkey);
                 }
-            } else if nworkers > 0 {
+            } else if !quals.contains_external_var() && nworkers > 0 {
                 builder = builder.set_parallel(nworkers);
             }
 
@@ -489,6 +458,44 @@ impl CustomScan for PdbScan {
                     builder = builder.add_path_key(pathkey);
                 }
             }
+
+            //
+            // finally, we have enough information to set the cost and estimation information
+            //
+
+            if builder.is_parallel() {
+                // if we're likely to do a parallel scan, divide the selectivity up by the number of
+                // workers we're likely to use.  this lets Postgres make better decisions based on what
+                // an individual parallel scan is actually going to return
+                selectivity /= (nworkers
+                    + if pg_sys::parallel_leader_participation {
+                        1
+                    } else {
+                        0
+                    }) as f64;
+            }
+
+            let reltuples = table.reltuples().unwrap_or(1.0) as f64;
+            let rows = (reltuples * selectivity).max(1.0);
+            let per_tuple_cost = {
+                if maybe_ff {
+                    // returning fields from fast fields
+                    pg_sys::cpu_index_tuple_cost
+                } else {
+                    // requires heap access to return fields
+                    pg_sys::cpu_tuple_cost
+                }
+            };
+
+            let startup_cost = DEFAULT_STARTUP_COST;
+            let total_cost = startup_cost + (rows * per_tuple_cost);
+
+            builder = builder.set_rows(rows);
+            builder = builder.set_startup_cost(startup_cost);
+            builder = builder.set_total_cost(total_cost);
+
+            // indicate that we'll be doing projection ourselves
+            builder = builder.set_flag(Flags::Projection);
 
             Some(builder.build())
         }

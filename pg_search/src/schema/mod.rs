@@ -176,6 +176,8 @@ pub enum SearchFieldConfig {
         column: Option<String>,
     },
     Range {
+        #[serde(default = "default_as_true")]
+        fast: bool,
         #[serde(default)]
         column: Option<String>,
     },
@@ -347,7 +349,14 @@ impl SearchFieldConfig {
             None => Ok(None),
         }?;
 
-        Ok(SearchFieldConfig::Range { column })
+        let fast = match obj.get("fast") {
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("'fast' field should be a boolean")),
+            None => Ok(true),
+        }?;
+
+        Ok(SearchFieldConfig::Range { fast, column })
     }
 
     pub fn numeric_from_json(value: serde_json::Value) -> Result<Self> {
@@ -826,6 +835,7 @@ impl SearchIndexSchema {
             SearchFieldConfig::Numeric { fast: true, .. } => Some(()),
             SearchFieldConfig::Boolean { fast: true, .. } => Some(()),
             SearchFieldConfig::Date { fast: true, .. } => Some(()),
+            SearchFieldConfig::Range { fast: true, .. } => Some(()),
             _ => None,
         }
     }

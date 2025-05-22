@@ -102,6 +102,25 @@ impl Qual {
         }
     }
 
+    pub fn contains_external_var(&self) -> bool {
+        match self {
+            Qual::All => false,
+            Qual::ExternalVar => true,
+            Qual::OpExpr { .. } => false,
+            Qual::Expr { .. } => false,
+            Qual::PushdownExpr { .. } => false,
+            Qual::PushdownVarEqTrue { .. } => false,
+            Qual::PushdownVarEqFalse { .. } => false,
+            Qual::PushdownVarIsTrue { .. } => false,
+            Qual::PushdownVarIsFalse { .. } => false,
+            Qual::PushdownIsNotNull { .. } => false,
+            Qual::ScoreExpr { .. } => false,
+            Qual::And(quals) => quals.iter().any(|q| q.contains_external_var()),
+            Qual::Or(quals) => quals.iter().any(|q| q.contains_external_var()),
+            Qual::Not(qual) => qual.contains_external_var(),
+        }
+    }
+
     pub unsafe fn contains_exec_param(&self) -> bool {
         match self {
             Qual::All => false,

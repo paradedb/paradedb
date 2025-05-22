@@ -448,7 +448,10 @@ impl SearchIndexCreateOptions {
                 normalizer: SearchNormalizer::Raw,
                 column: None,
             },
-            SearchFieldType::Range => SearchFieldConfig::Range { column: None },
+            SearchFieldType::Range => SearchFieldConfig::Range {
+                fast: true,
+                column: None,
+            },
             SearchFieldType::Bool => SearchFieldConfig::Boolean {
                 indexed: true,
                 fast: true,

@@ -325,9 +325,8 @@ impl CustomScan for PdbScan {
                 .then(|| (*restrict_info.get_ptr(0).unwrap()).norm_selec)
                 .unwrap_or(UNASSIGNED_SELECTIVITY);
 
-            pgrx::warning!("query={query:?}");
             let has_expressions = quals.contains_exprs();
-            let selectivity = if let Some(limit) = limit {
+            let mut selectivity = if let Some(limit) = limit {
                 // use the limit
                 limit
                     / table
@@ -340,11 +339,7 @@ impl CustomScan for PdbScan {
             } else if quals.contains_external_var() {
                 // if the query has external vars (references to another relation) then we end up
                 // returning *everything* from _this_ relation
-                // FULL_RELATION_SELECTIVITY
-
-                // TODO:  make this a little smarter if we can -- we're mostly concerned about "<ALL>" nodes
-                // in the plan and if they'd end up selecting the entire set
-                estimate_selectivity(&bm25_index, &query).unwrap_or(UNKNOWN_SELECTIVITY)
+                FULL_RELATION_SELECTIVITY
             } else if has_expressions {
                 // if the query has expressions then it's parameterized and we have to guess something
                 PARAMETERIZED_SELECTIVITY
@@ -364,6 +359,12 @@ impl CustomScan for PdbScan {
             builder.custom_private().set_range_table_index(rti);
             builder.custom_private().set_query(query);
             builder.custom_private().set_limit(limit);
+            builder.custom_private().set_segment_count(
+                index
+                    .searchable_segments()
+                    .map(|segments| segments.len())
+                    .unwrap_or(0),
+            );
 
             if is_topn && pathkey.is_some() {
                 let pathkey = pathkey.as_ref().unwrap();
@@ -393,48 +394,14 @@ impl CustomScan for PdbScan {
                     .set_sort_direction(Some(SortDirection::None));
             }
 
-            let reltuples = table.reltuples().unwrap_or(1.0) as f64;
-            let rows = (reltuples * selectivity).max(1.0);
-
-            let per_tuple_cost = {
-                // if we think we need scores, we need a much cheaper plan so that Postgres will
-                // prefer it over all the others.
-                if is_join || maybe_needs_const_projections {
-                    0.0
-                } else if maybe_ff {
-                    // returns fields from fast fields
-                    pg_sys::cpu_index_tuple_cost / 100.0
-                } else {
-                    // requires heap access to return fields
-                    pg_sys::cpu_tuple_cost * 200.0
-                }
-            };
-
-            let startup_cost = if is_join || maybe_needs_const_projections {
-                0.0
-            } else {
-                DEFAULT_STARTUP_COST
-            };
-
-            let total_cost = startup_cost + (rows * per_tuple_cost);
-            let segment_count = index.searchable_segments().unwrap_or_default().len();
             let nworkers = if (*builder.args().rel).consider_parallel {
+                let segment_count = index.searchable_segments().unwrap_or_default().len();
                 compute_nworkers(limit, segment_count, builder.custom_private().is_sorted())
             } else {
                 0
             };
 
-            builder.custom_private().set_segment_count(
-                index
-                    .searchable_segments()
-                    .map(|segments| segments.len())
-                    .unwrap_or(0),
-            );
-            builder = builder.set_rows(rows);
-            builder = builder.set_startup_cost(startup_cost);
-            builder = builder.set_total_cost(total_cost);
-            builder = builder.set_flag(Flags::Projection);
-
+            let mut set_parallel = false;
             if pathkey.is_some()
                 && !is_topn
                 && fast_fields::is_string_agg_capable_with_prereqs(builder.custom_private())
@@ -470,12 +437,14 @@ impl CustomScan for PdbScan {
                     // See the TODO below about being able to claim sorting for parallel
                     // workers.
                     builder = builder.set_parallel(nworkers);
+                    set_parallel = true;
                 } else {
                     // otherwise we'll do a regular scan
                     builder.custom_private().set_sort_info(pathkey);
                 }
             } else if !quals.contains_external_var() && nworkers > 0 {
                 builder = builder.set_parallel(nworkers);
+                set_parallel = true;
             }
 
             let exec_method_type = choose_exec_method(builder.custom_private());
@@ -494,6 +463,42 @@ impl CustomScan for PdbScan {
                     builder = builder.add_path_key(pathkey);
                 }
             }
+
+            //
+            // finally, we have enough information to set the cost and estimation information
+            //
+
+            if set_parallel {
+                // if we're likely to do a parallel scan, divide the selectivity up by the number of
+                // workers we're likely to use.  this lets Postgres make better decisions based on what
+                // an individual parallel scan is actually going to return
+                selectivity /= (nworkers
+                    + pg_sys::parallel_leader_participation
+                        .then_some(1)
+                        .unwrap_or(0)) as f64;
+            }
+
+            let reltuples = table.reltuples().unwrap_or(1.0) as f64;
+            let rows = (reltuples * selectivity).max(1.0);
+            let per_tuple_cost = {
+                if maybe_ff {
+                    // returning fields from fast fields
+                    pg_sys::cpu_index_tuple_cost
+                } else {
+                    // requires heap access to return fields
+                    pg_sys::cpu_tuple_cost
+                }
+            };
+
+            let startup_cost = DEFAULT_STARTUP_COST;
+            let total_cost = startup_cost + (rows * per_tuple_cost);
+
+            builder = builder.set_rows(rows);
+            builder = builder.set_startup_cost(startup_cost);
+            builder = builder.set_total_cost(total_cost);
+
+            // indicate that we'll be doing projection ourselves
+            builder = builder.set_flag(Flags::Projection);
 
             Some(builder.build())
         }

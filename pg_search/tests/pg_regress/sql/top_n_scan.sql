@@ -2,7 +2,7 @@
 -- This test specifically examines why a query with LIMIT is not using TopNScanExecState
 
 -- Setup
-\i common/mixedff_advanced_setup.sql
+\i common/common_setup.sql
 
 -- Create test table with a structure containing various field types
 DROP TABLE IF EXISTS records;
@@ -220,4 +220,4 @@ LIMIT 25;
 DROP INDEX IF EXISTS records_search_idx;
 DROP TABLE IF EXISTS records;
 
-\i common/mixedff_advanced_cleanup.sql 
+\i common/common_cleanup.sql 

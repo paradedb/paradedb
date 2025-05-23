@@ -22,7 +22,7 @@ use crate::postgres::storage::block::{
     SegmentMetaEntry, CLEANUP_LOCK, METADATA, SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
 };
 use crate::postgres::storage::buffer::BufferManager;
-use crate::postgres::storage::merge::MergeLock;
+use crate::postgres::storage::metadata::MetaPageMut;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use crate::postgres::utils::{
     categorize_fields, item_pointer_to_u64, row_to_search_document, CategorizedFieldData,
@@ -158,8 +158,8 @@ fn do_heap_scan<'a>(
             .expect("do_heap_scan: should be able to open a SearchIndexReader");
 
         // record the segment ids created in the merge lock
-        let merge_lock = MergeLock::init(index_relation.oid());
-        merge_lock
+        let metadata = MetaPageMut::new(index_relation.oid());
+        metadata
             .record_create_index_segment_ids(reader.segment_ids().iter())
             .expect("do_heap_scan: should be able to record segment ids in merge lock");
 

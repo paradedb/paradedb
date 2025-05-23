@@ -182,7 +182,7 @@ unsafe fn vacuum_info(
     let mut result = Vec::new();
     for index in index_kind.partitions() {
         let mut metadata = MetaPage::open(index.oid());
-        let vacuum_list = metadata.vacuum_list(None).read_list();
+        let vacuum_list = metadata.vacuum_list().read_list();
         result.extend(
             vacuum_list
                 .iter()
@@ -474,29 +474,29 @@ fn force_merge_raw_bytes(
 
 #[pg_extern]
 fn merge_lock_garbage_collect(index: PgRelation) -> SetOfIterator<'static, i32> {
-    todo!()
-    // unsafe {
-    //     let mut merge_lock = MergeLock::acquire(index.oid());
-    //     let before = merge_lock.in_progress_merge_entries();
-    //     merge_lock.garbage_collect();
-    //     let after = merge_lock.in_progress_merge_entries();
-    //     drop(merge_lock);
+    unsafe {
+        let mut metadata = MetaPage::open(index.oid());
+        let mut merge_lock = metadata.acquire_merge_lock();
+        let before = metadata.merge_list().list();
+        metadata.garbage_collect();
+        let after = metadata.merge_list().list();
+        drop(merge_lock);
 
-    //     let before_pids = before
-    //         .into_iter()
-    //         .map(|entry| entry.pid)
-    //         .collect::<HashSet<_>>();
-    //     let after_pids = after
-    //         .into_iter()
-    //         .map(|entry| entry.pid)
-    //         .collect::<HashSet<_>>();
-    //     let mut garbage_collected_pids = before_pids
-    //         .difference(&after_pids)
-    //         .copied()
-    //         .collect::<Vec<_>>();
-    //     garbage_collected_pids.sort_unstable();
-    //     SetOfIterator::new(garbage_collected_pids)
-    // }
+        let before_pids = before
+            .into_iter()
+            .map(|entry| entry.pid)
+            .collect::<HashSet<_>>();
+        let after_pids = after
+            .into_iter()
+            .map(|entry| entry.pid)
+            .collect::<HashSet<_>>();
+        let mut garbage_collected_pids = before_pids
+            .difference(&after_pids)
+            .copied()
+            .collect::<Vec<_>>();
+        garbage_collected_pids.sort_unstable();
+        SetOfIterator::new(garbage_collected_pids)
+    }
 }
 
 extension_sql!(

@@ -107,6 +107,10 @@ impl MetaPage {
                 sentinal_buffer.init_page();
                 metadata.ambulkdelete_sentinel = sentinal_buffer.number();
             }
+
+            if !block_number_is_initialized(metadata.merge_lock) {
+                metadata.merge_lock = MergeLock::create(relation_oid);
+            }
         }
 
         Self {
@@ -115,9 +119,10 @@ impl MetaPage {
         }
     }
 
-    // pub fn acquire_merge_lock(&self) -> MergeLock {
-    //     MergeLock::acquire(self.bman.relation_oid(), self.data.merge_lock)
-    // }
+    pub unsafe fn acquire_merge_lock(&self) -> MergeLock {
+        let metadata = self.get_metadata();
+        MergeLock::acquire(self.bman.relation_oid(), metadata.merge_lock)
+    }
 
     ///
     /// A LinkedItemList<SegmentMetaEntry> containing segments which are no longer visible from the
@@ -136,13 +141,9 @@ impl MetaPage {
         )
     }
 
-    pub fn vacuum_list(&self, merge_lock: Option<MergeLock>) -> VacuumList {
+    pub fn vacuum_list(&self) -> VacuumList {
         let metadata = self.get_metadata();
-        VacuumList::open(
-            merge_lock,
-            self.bman.relation_oid(),
-            metadata.active_vacuum_list,
-        )
+        VacuumList::open(self.bman.relation_oid(), metadata.active_vacuum_list)
     }
 
     // TODO: Make this its own struct
@@ -211,6 +212,37 @@ impl MetaPage {
             })
             .collect()
     }
+
+    pub unsafe fn record_in_progress_segment_ids<'a>(
+        &mut self,
+        segment_ids: impl IntoIterator<Item = &'a SegmentId>,
+    ) -> anyhow::Result<MergeEntry> {
+        assert!(pg_sys::IsTransactionState());
+
+        // write the SegmentIds to disk
+        let segment_id_bytes = segment_ids
+            .into_iter()
+            .flat_map(|segment_id| segment_id.uuid_bytes().iter().copied())
+            .collect::<Vec<_>>();
+        let segment_ids_list = LinkedBytesList::create(self.bman.relation_oid());
+        let segment_ids_start_blockno = segment_ids_list.get_header_blockno();
+        segment_ids_list.writer().write(&segment_id_bytes)?;
+
+        // fabricate and write the [`MergeEntry`] itself
+        let xid = pg_sys::GetCurrentTransactionId();
+        let merge_entry = MergeEntry {
+            pid: pg_sys::MyProcPid,
+            xmin: xid,
+            _unused: pg_sys::InvalidTransactionId,
+            segment_ids_start_blockno,
+        };
+
+        let metadata = self.get_metadata();
+        let mut entries_list =
+            LinkedItemList::<MergeEntry>::open(self.bman.relation_oid(), metadata.merge_list);
+        entries_list.add_items(&[merge_entry], None);
+        Ok(merge_entry)
+    }
 }
 
 pub struct MetaPageMut {
@@ -231,50 +263,8 @@ impl MetaPageMut {
         }
     }
 
-    pub unsafe fn record_in_progress_segment_ids<'a>(
-        &mut self,
-        segment_ids: impl IntoIterator<Item = &'a SegmentId>,
-    ) -> anyhow::Result<MergeEntry> {
-        assert!(pg_sys::IsTransactionState());
-
-        let merge_list_blockno = {
-            let mut page = self.buffer.page_mut();
-            let metadata = page.contents_mut::<MetaPageData>();
-
-            if !block_number_is_initialized(metadata.merge_list) {
-                let merge_list = LinkedItemList::<MergeEntry>::create(self.relation_oid);
-                metadata.merge_list = merge_list.get_header_blockno();
-            }
-
-            metadata.merge_list
-        };
-
-        // write the SegmentIds to disk
-        let segment_id_bytes = segment_ids
-            .into_iter()
-            .flat_map(|segment_id| segment_id.uuid_bytes().iter().copied())
-            .collect::<Vec<_>>();
-        let segment_ids_list = LinkedBytesList::create(self.relation_oid);
-        let segment_ids_start_blockno = segment_ids_list.get_header_blockno();
-        segment_ids_list.writer().write(&segment_id_bytes)?;
-
-        // fabricate and write the [`MergeEntry`] itself
-        let xid = pg_sys::GetCurrentTransactionId();
-        let merge_entry = MergeEntry {
-            pid: pg_sys::MyProcPid,
-            xmin: xid,
-            _unused: pg_sys::InvalidTransactionId,
-            segment_ids_start_blockno,
-        };
-
-        let mut entries_list =
-            LinkedItemList::<MergeEntry>::open(self.relation_oid, merge_list_blockno);
-        entries_list.add_items(&[merge_entry], None);
-        Ok(merge_entry)
-    }
-
     pub unsafe fn record_create_index_segment_ids<'a>(
-        &mut self,
+        mut self,
         segment_ids: impl IntoIterator<Item = &'a SegmentId>,
     ) -> anyhow::Result<()> {
         let segment_id_bytes = segment_ids

@@ -38,8 +38,8 @@ use tantivy::schema::FieldType;
 use tantivy::snippet::SnippetGenerator;
 use tantivy::termdict::TermOrdinal;
 use tantivy::{
-    query::Query, DocAddress, DocId, DocSet, IndexReader, Order, ReloadPolicy, Score, Searcher,
-    SegmentOrdinal, SegmentReader, TantivyDocument,
+    query::Query, DocAddress, DocId, DocSet, Executor, IndexReader, Order, ReloadPolicy, Score,
+    Searcher, SegmentOrdinal, SegmentReader, TantivyDocument,
 };
 
 /// Represents a matching document from a tantivy search.  Typically, it is returned as an Iterator
@@ -623,6 +623,23 @@ impl SearchIndexReader {
             largest_reader.num_docs() as f64 / self.searcher.num_docs() as f64;
 
         Some((count as f64 / segment_doc_proportion).ceil() as usize)
+    }
+
+    pub fn collect<C: Collector>(
+        &self,
+        query: &SearchQueryInput,
+        collector: C,
+        need_scores: bool,
+    ) -> C::Fruit {
+        let owned_query = self.query(query);
+        self.searcher
+            .search_with_executor(
+                &owned_query,
+                &collector,
+                &Executor::SingleThread,
+                enable_scoring(need_scores, &self.searcher),
+            )
+            .expect("search should not fail")
     }
 
     fn collect_segments<T>(

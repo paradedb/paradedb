@@ -133,11 +133,13 @@ impl PdbScanState {
     pub fn assign_exec_method<T: ExecMethod + 'static>(
         &mut self,
         method: T,
-        exec_method_type: ExecMethodType,
+        updated_exec_method_type: Option<ExecMethodType>,
     ) {
         self.exec_method = UnsafeCell::new(Box::new(method));
         self.exec_method_name = std::any::type_name::<T>().to_string();
-        self.exec_method_type = exec_method_type;
+        if let Some(exec_method_type) = updated_exec_method_type {
+            self.exec_method_type = exec_method_type;
+        }
     }
 
     #[inline(always)]

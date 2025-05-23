@@ -15,10 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::HashMap;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::reader::index::{SearchIndexReader, SearchIndexScore, SearchResults};
-use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::FastFieldExecState;
+use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::{
+    sorted_ords_to_terms, FastFieldExecState,
+};
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::is_block_all_visible;
 use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
@@ -164,7 +165,7 @@ enum StringAggResults {
         current: (Option<String>, SearchResultsIter),
         set: BatchedResultsIter,
     },
-    SingleSegment(crossbeam::channel::IntoIter<(SearchIndexScore, DocAddress, Option<String>)>),
+    SingleSegment(std::vec::IntoIter<(SearchIndexScore, DocAddress, Option<String>)>),
 }
 
 impl Iterator for StringAggResults {
@@ -230,41 +231,20 @@ impl StringAggSearcher<'_> {
 
         results
             .into_iter()
-            .for_each(|(str_ff, segment_results)| {
-                let keys = segment_results.keys().cloned().collect::<Vec<_>>();
-                let segment_values: Vec<_> = segment_results.into_iter().collect();
-                let mut values_iter = segment_values.into_iter();
-                let mut resolved = HashMap::default();
-                str_ff
-                    .dictionary()
-                    .sorted_ords_to_term_cb(keys.into_iter(), |bytes| {
-                        let term = std::str::from_utf8(bytes)
-                            .expect("term should be valid utf8")
-                            .to_string();
-
-                        resolved.insert(
-                            term,
-                            values_iter.next().unwrap_or_else(|| panic!("internal error: don't have the same number of TermOrd keys and values")).1,
-                        );
-
-                        Ok(())
-                    })
-                    .expect("term ord resolution should succeed");
-
-                let mut null_results = Vec::new();
-                if str_ff.num_terms() == 0 {
-                    if let Some(next_value) = values_iter.next() {
-                        null_results.push(next_value);
-                        // Collect any additional remaining values
-                        null_results.extend(values_iter);
-                    }
-                }
-                for (term, mut results) in resolved {
-                    merged.entry(Some(term)).or_default().append(&mut results);
-                }
-
-                for (_, mut results) in null_results {
-                    merged.entry(None).or_default().append(&mut results);
+            .for_each(|(str_ff, mut segment_results)| {
+                // Resolve all term ordinals to their string values.
+                segment_results.sort_unstable_by_key(|(term_ordinal, _, _)| *term_ordinal);
+                let terms = sorted_ords_to_terms(
+                    &str_ff,
+                    segment_results
+                        .iter()
+                        .map(|(term_ordinal, _, _)| *term_ordinal),
+                );
+                for (term, (_, score, doc_addr)) in terms.into_iter().zip(segment_results) {
+                    merged
+                        .entry(Some(term))
+                        .or_default()
+                        .push((score, doc_addr));
                 }
             });
 
@@ -314,7 +294,7 @@ impl StringAggSearcher<'_> {
             })
             .expect("weight should be constructable");
 
-        let (str_ff, results) = collector
+        let (str_ff, mut results) = collector
             .collect_segment(
                 weight.as_ref(),
                 segment_ord as SegmentOrdinal,
@@ -322,51 +302,25 @@ impl StringAggSearcher<'_> {
             )
             .expect("single segment collection should succeed");
 
-        let field = field.to_string();
         let searcher = self.0.searcher().clone();
-        let dictionary = str_ff.dictionary();
-        let term_ords = results.keys().cloned().collect::<Vec<_>>();
-        let mut results = results.into_iter();
-        let (sender, receiver) = crossbeam::channel::unbounded();
-        dictionary
-            .sorted_ords_to_term_cb(term_ords.into_iter(), |bytes| {
-                let term = std::str::from_utf8(bytes)
-                    .expect("term should be valid utf8")
-                    .to_string();
-
-                let (_, values) = results.next().unwrap_or_else(|| {
-                    panic!("internal error: don't have the same number of TermOrd keys and values")
-                });
-                for (scored, doc_address) in values {
-                    sender
-                        .send((scored, doc_address, Some(term.clone())))
-                        .map_err(|_| {
-                            std::io::Error::new(std::io::ErrorKind::Other, "failed to send term")
-                        })?;
-                }
-
-                Ok(())
-            })
-            .expect("term ord lookup should succeed");
-
-        if dictionary.num_terms() == 0 && results.len() > 0 {
-            let (_, values) = results.next().unwrap_or_else(|| {
-                panic!("internal error: don't have the same number of TermOrd keys and values")
-            });
-            for (scored, doc_address) in values {
-                let _ = sender.send((scored, doc_address, None)).map_err(|_| {
-                    std::io::Error::new(std::io::ErrorKind::Other, "failed to send term")
-                });
-            }
-        }
-
-        StringAggResults::SingleSegment(receiver.into_iter())
+        results.sort_unstable_by_key(|(term_ordinal, _, _)| *term_ordinal);
+        let terms = sorted_ords_to_terms(
+            &str_ff,
+            results.iter().map(|(term_ordinal, _, _)| *term_ordinal),
+        );
+        StringAggResults::SingleSegment(
+            terms
+                .into_iter()
+                .zip(results)
+                .map(|(term, (_, scored, doc_address))| (scored, doc_address, Some(term)))
+                .collect::<Vec<_>>()
+                .into_iter(),
+        )
     }
 }
 
 mod term_ord_collector {
     use crate::index::reader::index::SearchIndexScore;
-    use std::collections::BTreeMap;
     use tantivy::collector::{Collector, SegmentCollector};
     use tantivy::columnar::StrColumn;
 
@@ -380,10 +334,7 @@ mod term_ord_collector {
     }
 
     impl Collector for TermOrdCollector {
-        type Fruit = Vec<(
-            StrColumn,
-            BTreeMap<TermOrdinal, Vec<(SearchIndexScore, DocAddress)>>,
-        )>;
+        type Fruit = Vec<(StrColumn, Vec<(TermOrdinal, SearchIndexScore, DocAddress)>)>;
         type Child = TermOrdSegmentCollector;
 
         fn for_segment(
@@ -414,31 +365,23 @@ mod term_ord_collector {
 
     pub struct TermOrdSegmentCollector {
         pub ff: StrColumn,
-        pub results: BTreeMap<TermOrdinal, Vec<(SearchIndexScore, DocAddress)>>,
+        pub results: Vec<(TermOrdinal, SearchIndexScore, DocAddress)>,
         pub segment_ord: SegmentOrdinal,
         ctid_ff: FFType,
     }
 
     impl SegmentCollector for TermOrdSegmentCollector {
-        type Fruit = (
-            StrColumn,
-            BTreeMap<TermOrdinal, Vec<(SearchIndexScore, DocAddress)>>,
-        );
+        type Fruit = (StrColumn, Vec<(TermOrdinal, SearchIndexScore, DocAddress)>);
 
         fn collect(&mut self, doc: DocId, score: Score) {
             let doc_address = DocAddress::new(self.segment_ord, doc);
             let ctid = self.ctid_ff.as_u64(doc).expect("ctid should be present");
             let scored = SearchIndexScore::new(ctid, score);
             if let Some(term_ord) = self.ff.term_ords(doc).next() {
-                self.results
-                    .entry(term_ord)
-                    .or_default()
-                    .push((scored, doc_address));
+                self.results.push((term_ord, scored, doc_address));
             } else {
-                self.results
-                    .entry(0)
-                    .or_default()
-                    .push((scored, doc_address));
+                // TODO: This converts a null to the empty string.
+                self.results.push((0, scored, doc_address));
             }
         }
 

@@ -26,7 +26,7 @@ use crate::api::HashMap;
 use crate::index::fast_fields_helper::{FastFieldType, WhichFastField};
 use crate::index::reader::index::{SearchIndexReader, SearchIndexScore, SearchResults};
 use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::{
-    ff_to_datum, FastFieldExecState,
+    ff_to_datum, sorted_ords_to_terms, FastFieldExecState,
 };
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::is_block_all_visible;
@@ -520,8 +520,8 @@ enum MixedAggResults {
         set: BatchedResultsIter,
     },
 
-    /// Results from a single segment in parallel execution
-    SingleMixedSegment(crossbeam::channel::IntoIter<(SearchIndexScore, DocAddress, FieldValues)>),
+    /// Results from a single segment
+    SingleMixedSegment(std::vec::IntoIter<(SearchIndexScore, DocAddress, FieldValues)>),
 
     /// SingleNumericSegment search results for numeric-only queries with numeric field data
     SingleNumericSegment {
@@ -641,76 +641,36 @@ impl MixedAggSearcher<'_> {
         results.into_iter().for_each(
             |(string_columns, string_results, numeric_columns, numeric_values)| {
                 // Process string fields
-                for field_idx in 0..string_columns.len() {
-                    if field_idx >= string_results.len() {
-                        continue; // Skip if no results for this field
-                    }
+                for ((field_name, str_ff), mut field_result) in
+                    string_columns.into_iter().zip(string_results)
+                {
+                    // Resolve all term ordinals to their string values.
+                    field_result.sort_unstable_by_key(|(term_ordinal, _, _)| *term_ordinal);
+                    let terms = sorted_ords_to_terms(
+                        &str_ff,
+                        field_result
+                            .iter()
+                            .map(|(term_ordinal, _, _)| *term_ordinal),
+                    );
 
-                    let (field_name, str_ff) = &string_columns[field_idx];
-                    let field_result = &string_results[field_idx];
-
-                    // Process each term ordinate and its documents
-                    for (term_ord, docs) in field_result.iter() {
-                        // Resolve the term ordinal to an actual string value
-                        let term_value = {
-                            // Try to get a value from the term ordinal
-                            let mut term_str = String::new();
-
-                            // Track if we got a successful resolution
-                            let got_term = if str_ff.num_terms() > 0 {
-                                // Try to resolve the term ordinal to a string
-                                str_ff.ord_to_str(*term_ord, &mut term_str).is_ok()
-                            } else {
-                                false
-                            };
-
-                            if got_term && !term_str.is_empty() {
-                                Some(term_str)
-                            } else {
-                                // Special handling for term_ord = 0 (empty terms)
-                                if *term_ord == 0 && !docs.is_empty() {
-                                    // Use the dictionary directly to look up the term
-                                    let mut bytes_buffer = Vec::new();
-                                    if str_ff.dictionary().ord_to_term(0, &mut bytes_buffer).ok()
-                                        == Some(true)
-                                    {
-                                        if let Ok(s) = std::str::from_utf8(&bytes_buffer) {
-                                            Some(s.to_string())
-                                        } else {
-                                            None
-                                        }
-                                    } else {
-                                        None
-                                    }
-                                } else {
-                                    None
-                                }
-                            }
-                        };
-
-                        // Add this term to all matching documents
-                        for (score, doc_addr) in docs {
-                            let entry = merged
-                                .entry(*doc_addr)
-                                .or_insert_with(|| (FieldValues::new(), *score));
-                            entry.0.set_string(field_name.clone(), term_value.clone());
-                        }
+                    // Process each term and its documents
+                    for (term_value, (_, score, doc_addr)) in terms.into_iter().zip(field_result) {
+                        merged
+                            .entry(doc_addr)
+                            .or_insert_with(|| (FieldValues::new(), score))
+                            .0
+                            .set_string(field_name.clone(), Some(term_value));
                     }
                 }
 
                 // Process numeric fields
-                for field_idx in 0..numeric_columns.len() {
-                    if field_idx >= numeric_values.len() {
-                        continue; // Skip if no results for this field
-                    }
-
-                    let (field_name, _) = &numeric_columns[field_idx];
-                    let field_values = &numeric_values[field_idx];
-
+                for ((field_name, _), field_values) in
+                    numeric_columns.into_iter().zip(numeric_values)
+                {
                     // Add numeric values to all matching documents
-                    for (doc_id, value) in field_values.iter() {
-                        if let Some((field_values, _)) = merged.get_mut(doc_id) {
-                            field_values.set_numeric(field_name.clone(), value.clone());
+                    for (doc_id, value) in field_values.into_iter() {
+                        if let Some((field_values, _)) = merged.get_mut(&doc_id) {
+                            field_values.set_numeric(field_name.clone(), value);
                         }
                     }
                 }
@@ -747,10 +707,11 @@ impl MixedAggSearcher<'_> {
             );
 
             // Group by field values to avoid duplicate value copies
-            let entry = field_groups
+            field_groups
                 .entry(fields_key)
-                .or_insert_with(|| (field_values.clone(), Vec::new()));
-            entry.1.push((score, doc_addr));
+                .or_insert_with(|| (field_values, Vec::new()))
+                .1
+                .push((score, doc_addr));
         }
 
         // Convert the grouped results to iterator format
@@ -839,7 +800,7 @@ impl MixedAggSearcher<'_> {
             .expect("weight should be constructable");
 
         // Execute search on this specific segment
-        let segment_result = collector
+        let (string_columns, string_results, numeric_columns, numeric_values) = collector
             .collect_segment(
                 weight.as_ref(),
                 segment_ord as SegmentOrdinal,
@@ -847,107 +808,56 @@ impl MixedAggSearcher<'_> {
             )
             .expect("single segment collection should succeed");
 
-        // Create a channel to stream results
-        let (sender, receiver) = crossbeam::channel::unbounded();
-
         // Track documents and their field values
         let mut doc_fields = HashMap::default();
 
         // Process string fields from this segment
-        let string_columns = &segment_result.0;
-        let string_results = &segment_result.1;
+        for ((field_name, str_ff), mut field_result) in string_columns.into_iter().zip(string_results) {
+            // Resolve all term ordinals to their string values.
+            field_result.sort_unstable_by_key(|(term_ordinal, _, _)| *term_ordinal);
+            let terms = sorted_ords_to_terms(
+                &str_ff,
+                field_result
+                    .iter()
+                    .map(|(term_ordinal, _, _)| *term_ordinal),
+            );
 
-        for field_idx in 0..string_columns.len() {
-            if field_idx >= string_results.len() {
-                continue;
-            }
-
-            let (field_name, str_ff) = &string_columns[field_idx];
-            let field_result = &string_results[field_idx];
-
-            // Process each term ordinate
-            for (term_ord, docs) in field_result {
-                // Resolve the term to a string value
-                let term_value = {
-                    // Try to get a value from the term ordinal
-                    let mut term_str = String::new();
-
-                    // Try to resolve the term ordinal to a string
-                    let got_term = if str_ff.num_terms() > 0 {
-                        str_ff.ord_to_str(*term_ord, &mut term_str).is_ok()
-                    } else {
-                        false
-                    };
-
-                    if got_term && !term_str.is_empty() {
-                        Some(term_str)
-                    } else {
-                        // Special handling for term_ord = 0 (empty terms)
-                        if *term_ord == 0 && !docs.is_empty() {
-                            // Use the dictionary directly to look up the term
-                            let mut bytes_buffer = Vec::new();
-                            if str_ff.dictionary().ord_to_term(0, &mut bytes_buffer).ok()
-                                == Some(true)
-                            {
-                                if let Ok(s) = std::str::from_utf8(&bytes_buffer) {
-                                    Some(s.to_string())
-                                } else {
-                                    None
-                                }
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    }
-                };
-
-                // Add term to each document
-                for (score, doc_addr) in docs {
-                    let entry = doc_fields
-                        .entry(*doc_addr)
-                        .or_insert_with(|| (FieldValues::new(), *score));
-                    entry.0.set_string(field_name.clone(), term_value.clone());
-                }
+            // Add term to each document
+            for (term_value, (term_ord, score, doc_addr)) in terms.into_iter().zip(field_result) {
+                doc_fields
+                    .entry(doc_addr)
+                    .or_insert_with(|| (FieldValues::new(), score))
+                    .0
+                    .set_string(field_name.clone(), Some(term_value));
             }
         }
 
         // Process numeric fields from this segment
-        let numeric_columns = &segment_result.2;
-        let numeric_values = &segment_result.3;
-
-        for field_idx in 0..numeric_columns.len() {
-            if field_idx >= numeric_values.len() {
-                continue;
-            }
-
-            let (field_name, _) = &numeric_columns[field_idx];
-            let field_values = &numeric_values[field_idx];
-
+        for ((field_name, _), field_values) in numeric_columns.into_iter().zip(numeric_values) {
             // Add numeric values to all matching documents
             for (doc_id, value) in field_values {
-                if let Some(entry) = doc_fields.get_mut(doc_id) {
-                    entry.0.set_numeric(field_name.clone(), value.clone());
+                if let Some(entry) = doc_fields.get_mut(&doc_id) {
+                    entry.0.set_numeric(field_name.clone(), value);
                 }
             }
         }
 
-        // Send all results through the channel
-        for (doc_addr, (mut field_values, score)) in doc_fields {
-            // Ensure all requested fields have entries (even if null)
-            for field in string_fields {
-                if !field_values.string_values.contains_key(field) {
-                    field_values.set_string(field.clone(), None);
-                }
-            }
+        MixedAggResults::SingleMixedSegment(
+            doc_fields
+                .into_iter()
+                .map(|(doc_addr, (mut field_values, score))| {
+                    // Ensure all requested fields have entries (even if null)
+                    for field in string_fields {
+                        if !field_values.string_values.contains_key(field) {
+                            field_values.set_string(field.clone(), None);
+                        }
+                    }
 
-            // Send the result
-            sender.send((score, doc_addr, field_values)).ok();
-        }
-
-        // Return as single segment results for processing
-        MixedAggResults::SingleMixedSegment(receiver.into_iter())
+                    (score, doc_addr, field_values)
+                })
+                .collect::<Vec<_>>()
+                .into_iter(),
+        )
     }
 }
 
@@ -958,7 +868,6 @@ impl MixedAggSearcher<'_> {
 mod multi_field_collector {
     use crate::api::HashMap;
     use crate::index::reader::index::SearchIndexScore;
-    use std::collections::BTreeMap;
     use tantivy::collector::{Collector, SegmentCollector};
     use tantivy::columnar::StrColumn;
     use tantivy::schema::document::OwnedValue;
@@ -987,7 +896,7 @@ mod multi_field_collector {
         // Each fruit contains the columns, results, and values for both string and numeric fields
         type Fruit = Vec<(
             Vec<(String, StrColumn)>,
-            Vec<BTreeMap<TermOrdinal, Vec<(SearchIndexScore, DocAddress)>>>,
+            Vec<Vec<(TermOrdinal, SearchIndexScore, DocAddress)>>,
             Vec<(String, FFType)>,
             Vec<HashMap<DocAddress, OwnedValue>>,
         )>;
@@ -1046,7 +955,7 @@ mod multi_field_collector {
             }
 
             // Initialize result containers for each string field
-            let string_results = string_columns.iter().map(|_| BTreeMap::default()).collect();
+            let string_results = string_columns.iter().map(|_| Vec::default()).collect();
 
             Ok(MultiFieldSegmentCollector {
                 segment_ord: segment_local_id,
@@ -1088,8 +997,8 @@ mod multi_field_collector {
         /// String columns to collect from
         pub string_columns: Vec<(String, StrColumn)>,
 
-        /// Results for string fields, organized by term ordinal
-        pub string_results: Vec<BTreeMap<TermOrdinal, Vec<(SearchIndexScore, DocAddress)>>>,
+        /// Results for string fields
+        pub string_results: Vec<Vec<(TermOrdinal, SearchIndexScore, DocAddress)>>,
 
         /// Numeric columns to collect from
         pub numeric_columns: Vec<(String, FFType)>,
@@ -1104,7 +1013,7 @@ mod multi_field_collector {
     impl SegmentCollector for MultiFieldSegmentCollector {
         type Fruit = (
             Vec<(String, StrColumn)>,
-            Vec<BTreeMap<TermOrdinal, Vec<(SearchIndexScore, DocAddress)>>>,
+            Vec<Vec<(TermOrdinal, SearchIndexScore, DocAddress)>>,
             Vec<(String, FFType)>,
             Vec<HashMap<DocAddress, OwnedValue>>,
         );
@@ -1123,13 +1032,10 @@ mod multi_field_collector {
             let ctid = self.ctid_ff.as_u64(doc).expect("ctid should be present");
             let scored = SearchIndexScore::new(ctid, score);
 
-            // Collect string fields - group by term ordinal for efficiency
+            // Collect string fields
             for (field_idx, (_, str_column)) in self.string_columns.iter().enumerate() {
                 let term_ord = str_column.term_ords(doc).next().unwrap_or(0);
-                self.string_results[field_idx]
-                    .entry(term_ord)
-                    .or_default()
-                    .push((scored, doc_address));
+                self.string_results[field_idx].push((term_ord, scored, doc_address));
             }
 
             // Collect numeric fields - store in document-keyed maps

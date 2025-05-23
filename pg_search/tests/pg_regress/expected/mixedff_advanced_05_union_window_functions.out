@@ -642,21 +642,15 @@ ORDER BY title, author, author_rank;
                                        Table: union_test_a
                                        Index: union_test_a_idx
                                        Exec Method: NormalScanExecState
-                                       Fast Fields: author, title, rating
-                                       String Fast Fields: author, title
-                                       Numeric Fast Fields: rating
                                        Scores: false
                                        Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"excluded":3.5},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}]}}
                                  ->  Custom Scan (ParadeDB Scan) on union_test_b
                                        Table: union_test_b
                                        Index: union_test_b_idx
                                        Exec Method: NormalScanExecState
-                                       Fast Fields: author, title, rating
-                                       String Fast Fields: author, title
-                                       Numeric Fast Fields: rating
                                        Scores: false
                                        Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"excluded":2.5},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}]}}
-(27 rows)
+(21 rows)
 
 WITH combined_books AS (
     SELECT title, author, rating, 'A' as source

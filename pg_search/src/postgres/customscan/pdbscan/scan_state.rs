@@ -57,7 +57,6 @@ pub struct PdbScanState {
     pub sort_field: Option<String>,
     pub sort_direction: Option<SortDirection>,
 
-    pub exec_method_type: ExecMethodType,
     pub retry_count: usize,
     pub heap_tuple_check_count: usize,
     pub virtual_tuple_count: usize,
@@ -91,6 +90,7 @@ pub struct PdbScanState {
     pub var_attname_lookup: HashMap<(Varno, pg_sys::AttrNumber), String>,
     pub placeholder_targetlist: Option<*mut pg_sys::List>,
 
+    pub exec_method_type: ExecMethodType,
     exec_method: UnsafeCell<Box<dyn ExecMethod>>,
     exec_method_name: String,
 }
@@ -130,9 +130,14 @@ impl PdbScanState {
     }
 
     #[inline(always)]
-    pub fn assign_exec_method<T: ExecMethod + 'static>(&mut self, method: T) {
+    pub fn assign_exec_method<T: ExecMethod + 'static>(
+        &mut self,
+        method: T,
+        exec_method_type: ExecMethodType,
+    ) {
         self.exec_method = UnsafeCell::new(Box::new(method));
         self.exec_method_name = std::any::type_name::<T>().to_string();
+        self.exec_method_type = exec_method_type;
     }
 
     #[inline(always)]

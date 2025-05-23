@@ -1019,38 +1019,33 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
             sort_direction,
             need_scores: privdata.need_scores(),
         }
+    } else if fast_fields::is_numeric_fast_field_capable(privdata)
+        && gucs::is_fast_field_exec_enabled()
+    {
+        // Check for numeric-only fast fields first because they're more selective
+        ExecMethodType::FastFieldNumeric {
+            which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
+        }
+    } else if fast_fields::is_string_agg_capable(privdata).is_some()
+        && gucs::is_fast_field_exec_enabled()
+    {
+        let field = fast_fields::is_string_agg_capable(privdata).unwrap();
+        ExecMethodType::FastFieldString {
+            field,
+            which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
+        }
+    } else if gucs::is_mixed_fast_field_exec_enabled() {
+        // Use MixedFastFieldExec if enabled
+        //
+        // We'd suggest using MixedFastFieldExec as the last resort (default) at the planning
+        // stage, but we will fall back to NormalExecState (in assign_exec_method) if we can't
+        // execute using MixedFastFieldExec with the given fields and possibly expressions.
+        ExecMethodType::FastFieldMixed {
+            which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
+        }
     } else {
-        if !fast_fields::fast_field_capable_prereqs(privdata) {
-            return ExecMethodType::Normal;
-        }
-        if fast_fields::is_numeric_fast_field_capable(privdata)
-            && gucs::is_fast_field_exec_enabled()
-        {
-            // Check for numeric-only fast fields first because they're more selective
-            ExecMethodType::FastFieldNumeric {
-                which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
-            }
-        } else if fast_fields::is_string_agg_capable(privdata).is_some()
-            && gucs::is_fast_field_exec_enabled()
-        {
-            let field = fast_fields::is_string_agg_capable(privdata).unwrap();
-            ExecMethodType::FastFieldString {
-                field,
-                which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
-            }
-        } else if gucs::is_mixed_fast_field_exec_enabled() {
-            // Use MixedFastFieldExec if enabled
-            //
-            // We'd suggest using MixedFastFieldExec as the last resort (default) at the planning
-            // stage, but we will fall back to NormalExecState (in assign_exec_method) if we can't
-            // execute using MixedFastFieldExec with the given fields and possibly expressions.
-            ExecMethodType::FastFieldMixed {
-                which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
-            }
-        } else {
-            // Fall back to normal execution
-            ExecMethodType::Normal
-        }
+        // Fall back to normal execution
+        ExecMethodType::Normal
     }
 }
 
@@ -1065,25 +1060,25 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
 ///    execution time.
 ///
 fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>) {
-    match builder.custom_state_ref().exec_method_type.clone() {
+    let exec_method_type = builder.custom_state_ref().exec_method_type.clone();
+    match exec_method_type.clone() {
         ExecMethodType::Normal => builder
             .custom_state()
-            .assign_exec_method(NormalScanExecState::default()),
+            .assign_exec_method(NormalScanExecState::default(), ExecMethodType::Normal),
         ExecMethodType::TopN {
             heaprelid,
             limit,
             sort_direction,
             need_scores,
-        } => {
-            builder
-                .custom_state()
-                .assign_exec_method(exec_methods::top_n::TopNScanExecState::new(
-                    heaprelid,
-                    limit,
-                    sort_direction,
-                    need_scores,
-                ))
-        }
+        } => builder.custom_state().assign_exec_method(
+            exec_methods::top_n::TopNScanExecState::new(
+                heaprelid,
+                limit,
+                sort_direction,
+                need_scores,
+            ),
+            exec_method_type,
+        ),
         ExecMethodType::FastFieldString {
             field,
             which_fast_fields,
@@ -1096,11 +1091,12 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>
                         field,
                         which_fast_fields,
                     ),
+                    exec_method_type,
                 )
             } else {
                 builder
                     .custom_state()
-                    .assign_exec_method(NormalScanExecState::default())
+                    .assign_exec_method(NormalScanExecState::default(), ExecMethodType::Normal)
             }
         }
         ExecMethodType::FastFieldNumeric { which_fast_fields } => {
@@ -1111,11 +1107,12 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>
                     exec_methods::fast_fields::numeric::NumericFastFieldExecState::new(
                         which_fast_fields,
                     ),
+                    exec_method_type,
                 )
             } else {
                 builder
                     .custom_state()
-                    .assign_exec_method(NormalScanExecState::default())
+                    .assign_exec_method(NormalScanExecState::default(), ExecMethodType::Normal)
             }
         }
         ExecMethodType::FastFieldMixed { which_fast_fields } => {
@@ -1126,11 +1123,12 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>
                     exec_methods::fast_fields::mixed::MixedFastFieldExecState::new(
                         which_fast_fields,
                     ),
+                    exec_method_type,
                 )
             } else {
                 builder
                     .custom_state()
-                    .assign_exec_method(NormalScanExecState::default())
+                    .assign_exec_method(NormalScanExecState::default(), ExecMethodType::Normal)
             }
         }
     }
@@ -1174,35 +1172,15 @@ fn compute_exec_which_fast_fields(
         )
     };
 
-    // Iff we have chosen a FastField execution method, then it is because we determined at planning
-    // time that we can provide all possible target list values. Thus, we should
-    // always be able to extract fast fields for the entire execution time target list.
-    //
-    // Note: based on the PG docs:
-    // >  (If CUSTOMPATH_SUPPORT_PROJECTION is not set, the scan node will only be asked to produce
-    // >  Vars of the scanned relation; while if that flag is set, the scan node must be able to
-    // >  evaluate scalar expressions over these Vars.)
-    //
-    // Then, we if we extracted the same number of fast fields at execution time for all Vars in the
-    // target list, we can be sure that we didn't miss any fast fields.
-    debug_assert!(
-        exec_which_fast_fields.len() == builder.target_list().len(),
-        "Expected to extract {} fast fields, but only found: {exec_which_fast_fields:?}. \
-         Falling back to Normal execution.",
-        builder.target_list().len()
-    );
+    let is_missing_fast_fields = exec_which_fast_fields.is_empty()
+        || exec_which_fast_fields
+            .iter()
+            .filter(|ff| !planned_which_fast_fields.contains(ff))
+            .peekable()
+            .peek()
+            .is_some();
 
-    let missing_fast_fields = exec_which_fast_fields
-        .iter()
-        .filter(|ff| !planned_which_fast_fields.contains(ff))
-        .collect::<Vec<_>>();
-
-    if !missing_fast_fields.is_empty() {
-        pgrx::log!(
-            "Failed to extract all fast fields at planning time: \
-             was missing {missing_fast_fields:?} from {planned_which_fast_fields:?} \
-             Falling back to Normal execution.",
-        );
+    if is_missing_fast_fields {
         return None;
     }
 

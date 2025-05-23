@@ -665,8 +665,6 @@ ORDER BY type, item_name;
                Table: categories
                Index: categories_idx
                Exec Method: NormalScanExecState
-               Fast Fields: description, name
-               String Fast Fields: description, name
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"e","lenient":null,"conjunction_mode":null}}}}
          ->  Custom Scan (ParadeDB Scan) on reviews
@@ -675,7 +673,7 @@ ORDER BY type, item_name;
                Exec Method: NormalScanExecState
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"great","lenient":null,"conjunction_mode":null}}}}
-(23 rows)
+(21 rows)
 
 SELECT 'Product' as type, name as item_name, description as content
 FROM products

@@ -475,11 +475,12 @@ fn force_merge_raw_bytes(
 #[pg_extern]
 fn merge_lock_garbage_collect(index: PgRelation) -> SetOfIterator<'static, i32> {
     unsafe {
-        let mut metadata = MetaPage::open(index.oid());
+        let metadata = MetaPage::open(index.oid());
         let merge_lock = metadata.acquire_merge_lock();
-        let before = metadata.merge_list().list();
-        metadata.garbage_collect();
-        let after = metadata.merge_list().list();
+        let mut merge_list = metadata.merge_list();
+        let before = merge_list.list();
+        merge_list.garbage_collect();
+        let after = merge_list.list();
         drop(merge_lock);
 
         let before_pids = before

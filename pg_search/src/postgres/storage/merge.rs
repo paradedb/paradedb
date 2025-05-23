@@ -17,10 +17,10 @@
 
 use crate::api::HashSet;
 use crate::postgres::storage::block::{
-    bm25_max_free_space, BM25PageSpecialData, MVCCEntry, PgItem,
+    bm25_max_free_space, BM25PageSpecialData, LinkedList, MVCCEntry, PgItem,
 };
 use crate::postgres::storage::buffer::{BufferManager, BufferMut, PinnedBuffer};
-use crate::postgres::storage::LinkedBytesList;
+use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use pgrx::{pg_sys, StringInfo};
 use serde::{Deserialize, Serialize};
 use std::slice::from_raw_parts;
@@ -36,17 +36,6 @@ pub struct MergeLock {
 }
 
 impl MergeLock {
-    pub fn create(relation_oid: pg_sys::Oid) -> pg_sys::BlockNumber {
-        let mut bman = BufferManager::new(relation_oid);
-        let mut start_buffer = bman.new_buffer();
-        let mut start_page = start_buffer.init_page();
-
-        let special = start_page.special_mut::<BM25PageSpecialData>();
-        special.next_blockno = pg_sys::InvalidBlockNumber;
-
-        start_buffer.number()
-    }
-
     /// This is a blocking operation to acquire the METADATA.
     pub unsafe fn acquire(relation_oid: pg_sys::Oid, block_number: pg_sys::BlockNumber) -> Self {
         let mut bman = BufferManager::new(relation_oid);
@@ -73,17 +62,6 @@ pub struct VacuumList {
 }
 
 impl VacuumList {
-    pub fn create(relation_oid: pg_sys::Oid) -> pg_sys::BlockNumber {
-        let mut bman = BufferManager::new(relation_oid);
-        let mut start_buffer = bman.new_buffer();
-        let mut start_page = start_buffer.init_page();
-
-        let special = start_page.special_mut::<BM25PageSpecialData>();
-        special.next_blockno = pg_sys::InvalidBlockNumber;
-
-        start_buffer.number()
-    }
-
     ///
     /// Open a new vacuum list.
     ///
@@ -261,5 +239,90 @@ impl MergeEntry {
                 SegmentId::from_bytes(entry.try_into().expect("malformed SegmentId entry"))
             })
             .collect()
+    }
+}
+
+pub struct MergeList {
+    entries: LinkedItemList<MergeEntry>,
+    bman: BufferManager,
+}
+
+impl MergeList {
+    pub fn open(entries: LinkedItemList<MergeEntry>, relation_oid: pg_sys::Oid) -> Self {
+        let bman = BufferManager::new(relation_oid);
+        Self { entries, bman }
+    }
+
+    pub unsafe fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    pub unsafe fn list(&self) -> Vec<MergeEntry> {
+        self.entries.list()
+    }
+
+    pub unsafe fn garbage_collect(&mut self) {
+        let recycled_entries = self.entries.garbage_collect();
+        for recycled_entry in recycled_entries {
+            LinkedBytesList::open(
+                self.bman.relation_oid(),
+                recycled_entry.segment_ids_start_blockno,
+            )
+            .return_to_fsm();
+            pg_sys::IndexFreeSpaceMapVacuum(self.bman.bm25cache().indexrel());
+        }
+    }
+
+    pub unsafe fn add_segment_ids<'a>(
+        &mut self,
+        segment_ids: impl IntoIterator<Item = &'a SegmentId>,
+    ) -> anyhow::Result<MergeEntry> {
+        assert!(pg_sys::IsTransactionState());
+
+        // write the SegmentIds to disk
+        let segment_id_bytes = segment_ids
+            .into_iter()
+            .flat_map(|segment_id| segment_id.uuid_bytes().iter().copied())
+            .collect::<Vec<_>>();
+        let segment_ids_list = LinkedBytesList::create(self.bman.relation_oid());
+        let segment_ids_start_blockno = segment_ids_list.get_header_blockno();
+        segment_ids_list.writer().write(&segment_id_bytes)?;
+
+        // fabricate and write the [`MergeEntry`] itself
+        let xid = pg_sys::GetCurrentTransactionId();
+        let merge_entry = MergeEntry {
+            pid: pg_sys::MyProcPid,
+            xmin: xid,
+            _unused: pg_sys::InvalidTransactionId,
+            segment_ids_start_blockno,
+        };
+
+        self.entries.add_items(&[merge_entry], None);
+        Ok(merge_entry)
+    }
+
+    pub unsafe fn list_segment_ids(&self) -> impl Iterator<Item = SegmentId> + use<'_> {
+        Box::new(
+            self.entries
+                .list()
+                .into_iter()
+                .flat_map(move |merge_entry| {
+                    merge_entry
+                        .segment_ids(self.bman.relation_oid())
+                        .into_iter()
+                }),
+        )
+    }
+
+    pub unsafe fn remove_entry(&mut self, merge_entry: MergeEntry) -> anyhow::Result<MergeEntry> {
+        let removed_entry = self.entries.remove_item(|entry| entry == &merge_entry)?;
+
+        LinkedBytesList::open(
+            self.bman.relation_oid(),
+            removed_entry.segment_ids_start_blockno,
+        )
+        .return_to_fsm();
+        pg_sys::IndexFreeSpaceMapVacuum(self.bman.bm25cache().indexrel());
+        Ok(removed_entry)
     }
 }

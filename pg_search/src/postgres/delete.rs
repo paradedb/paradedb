@@ -52,9 +52,9 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     // take the MergeLock
     let merge_lock = metadata.acquire_merge_lock();
 
-    // garbage collecting the MergeLock is necessary to remove any stale entries that may have
+    // garbage collecting the MergeList is necessary to remove any stale entries that may have
     // been leftover from a cancelled merge or crash during merge
-    metadata.garbage_collect();
+    metadata.merge_list().garbage_collect();
     pg_sys::IndexFreeSpaceMapVacuum(index_relation.as_ptr());
 
     // and now we should not have any merges happening, and cannot

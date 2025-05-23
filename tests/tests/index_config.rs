@@ -1010,10 +1010,10 @@ fn non_partitioned_no_order_by_limit_pushdown(mut conn: PgConnection) {
     .collect::<Vec<String>>()
     .join("\n");
 
-    // Verify NormalScanExecState is used (not TopNScanExecState)
+    // Verify NumericFastFieldExecState is used (not TopNScanExecState)
     assert!(
-        explain_output.contains("NormalScanExecState"),
-        "Expected NormalScanExecState in the execution plan"
+        explain_output.contains("NumericFastFieldExecState"),
+        "Expected NumericFastFieldExecState in the execution plan"
     );
 
     assert!(

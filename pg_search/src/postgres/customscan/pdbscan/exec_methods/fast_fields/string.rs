@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::HashMap;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::reader::index::{SearchIndexReader, SearchIndexScore, SearchResults};
 use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::{
@@ -28,7 +29,6 @@ use crate::query::SearchQueryInput;
 use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::pg_sys;
 use pgrx::pg_sys::CustomScanState;
-use std::collections::BTreeMap;
 use tantivy::collector::Collector;
 use tantivy::index::SegmentId;
 use tantivy::query::Query;
@@ -156,7 +156,7 @@ impl ExecMethod for StringFastFieldExecState {
 
 type SearchResultsIter = std::vec::IntoIter<(SearchIndexScore, DocAddress)>;
 type BatchedResultsIter = std::vec::IntoIter<(Option<String>, SearchResultsIter)>;
-type MergedResultsMap = BTreeMap<Option<String>, Vec<(SearchIndexScore, DocAddress)>>;
+type MergedResultsMap = HashMap<Option<String>, Vec<(SearchIndexScore, DocAddress)>>;
 #[derive(Default)]
 enum StringAggResults {
     #[default]
@@ -227,7 +227,7 @@ impl StringAggSearcher<'_> {
         let field = field.to_string();
         let searcher = self.0.searcher().clone();
 
-        let mut merged: MergedResultsMap = BTreeMap::new();
+        let mut merged: MergedResultsMap = HashMap::default();
 
         results
             .into_iter()

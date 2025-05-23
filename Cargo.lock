@@ -3034,7 +3034,6 @@ dependencies = [
  "pgrx-tests",
  "proptest",
  "rand 0.9.1",
- "rayon",
  "rstest",
  "rustc-hash 2.1.1",
  "serde",

@@ -24,11 +24,9 @@ use crate::postgres::customscan::pdbscan::is_block_all_visible;
 use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::query::SearchQueryInput;
-use parking_lot::Mutex;
 use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::pg_sys;
 use pgrx::pg_sys::CustomScanState;
-use rayon::prelude::*;
 use std::collections::BTreeMap;
 use tantivy::collector::Collector;
 use tantivy::index::SegmentId;
@@ -228,10 +226,10 @@ impl StringAggSearcher<'_> {
         let field = field.to_string();
         let searcher = self.0.searcher().clone();
 
-        let merged: Mutex<MergedResultsMap> = Mutex::new(BTreeMap::new());
+        let mut merged: MergedResultsMap = BTreeMap::new();
 
         results
-            .into_par_iter()
+            .into_iter()
             .for_each(|(str_ff, segment_results)| {
                 let keys = segment_results.keys().cloned().collect::<Vec<_>>();
                 let segment_values: Vec<_> = segment_results.into_iter().collect();
@@ -261,18 +259,16 @@ impl StringAggSearcher<'_> {
                         null_results.extend(values_iter);
                     }
                 }
-                let mut guard = merged.lock();
                 for (term, mut results) in resolved {
-                    guard.entry(Some(term)).or_default().append(&mut results);
+                    merged.entry(Some(term)).or_default().append(&mut results);
                 }
 
                 for (_, mut results) in null_results {
-                    guard.entry(None).or_default().append(&mut results);
+                    merged.entry(None).or_default().append(&mut results);
                 }
             });
 
         let set = merged
-            .into_inner()
             .into_iter()
             .map(|(term, docs)| (term, docs.into_iter()))
             .collect::<Vec<_>>()

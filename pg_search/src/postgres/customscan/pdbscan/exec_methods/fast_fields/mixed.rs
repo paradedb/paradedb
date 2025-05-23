@@ -34,11 +34,9 @@ use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::types::TantivyValue;
 use crate::query::SearchQueryInput;
-use parking_lot::Mutex;
 use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::pg_sys;
 use pgrx::PgOid;
-use rayon::prelude::*;
 use std::collections::BTreeMap;
 use tantivy::collector::Collector;
 use tantivy::index::SegmentId;
@@ -637,10 +635,10 @@ impl MixedAggSearcher<'_> {
             .expect("failed to search");
 
         // Use thread-safe map to combine results from all segments
-        let merged: Mutex<MergedResultsMap> = Mutex::new(BTreeMap::new());
+        let mut merged: MergedResultsMap = BTreeMap::new();
 
         // Process all segment results in parallel
-        results.into_par_iter().for_each(
+        results.into_iter().for_each(
             |(string_columns, string_results, numeric_columns, numeric_values)| {
                 // Process string fields
                 for field_idx in 0..string_columns.len() {
@@ -692,8 +690,7 @@ impl MixedAggSearcher<'_> {
 
                         // Add this term to all matching documents
                         for (score, doc_addr) in docs {
-                            let mut guard = merged.lock();
-                            let entry = guard
+                            let entry = merged
                                 .entry(*doc_addr)
                                 .or_insert_with(|| (FieldValues::new(), *score));
                             entry.0.set_string(field_name.clone(), term_value.clone());
@@ -712,8 +709,7 @@ impl MixedAggSearcher<'_> {
 
                     // Add numeric values to all matching documents
                     for (doc_id, value) in field_values.iter() {
-                        let mut guard = merged.lock();
-                        if let Some((field_values, _)) = guard.get_mut(doc_id) {
+                        if let Some((field_values, _)) = merged.get_mut(doc_id) {
                             field_values.set_numeric(field_name.clone(), value.clone());
                         }
                     }
@@ -721,14 +717,11 @@ impl MixedAggSearcher<'_> {
             },
         );
 
-        // Get the final merged results map
-        let processed_docs = merged.into_inner();
-
         // Group results by field value patterns for more efficient processing
         let mut field_groups: FieldGroups = HashMap::default();
 
         // Group documents with the same field values
-        for (doc_addr, (field_values, score)) in processed_docs {
+        for (doc_addr, (field_values, score)) in merged {
             // Create a stable string representation of the field values for grouping
             let mut term_keys: Vec<(&String, &Option<String>)> =
                 field_values.string_values.iter().collect();

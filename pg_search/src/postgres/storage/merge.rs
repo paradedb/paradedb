@@ -17,7 +17,7 @@
 
 use crate::api::HashSet;
 use crate::postgres::storage::block::{
-    bm25_max_free_space, BM25PageSpecialData, LinkedList, MVCCEntry, PgItem,
+    block_number_is_valid, bm25_max_free_space, BM25PageSpecialData, LinkedList, MVCCEntry, PgItem,
 };
 use crate::postgres::storage::buffer::{BufferManager, BufferMut, PinnedBuffer};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
@@ -29,20 +29,46 @@ use tantivy::index::SegmentId;
 #[repr(transparent)]
 pub struct VacuumSentinel(pub PinnedBuffer);
 
+/// The metadata stored on the [`Metadata`] page
+#[derive(Debug, Copy, Clone)]
+#[repr(C, packed)]
+pub struct MergeLockData {
+    merge_list: pg_sys::BlockNumber,
+}
+
 /// Lock the merge process by holding onto an exclusively-locked buffer
 #[derive(Debug)]
 pub struct MergeLock {
+    data: MergeLockData,
     _buffer: BufferMut,
+    bman: BufferManager,
 }
 
 impl MergeLock {
-    /// This is a blocking operation to acquire the METADATA.
+    /// This is a blocking operation to acquire an exclusive lock on the merge lock buffer
     pub unsafe fn acquire(relation_oid: pg_sys::Oid, block_number: pg_sys::BlockNumber) -> Self {
         let mut bman = BufferManager::new(relation_oid);
-        let merge_lock = bman.get_buffer_mut(block_number);
-        MergeLock {
-            _buffer: merge_lock,
+        let mut buffer = bman.get_buffer_mut(block_number);
+        let mut page = buffer.page_mut();
+        let metadata = page.contents_mut::<MergeLockData>();
+
+        if !block_number_is_valid(metadata.merge_list) {
+            metadata.merge_list =
+                LinkedItemList::<MergeEntry>::create(relation_oid).get_header_blockno();
         }
+
+        MergeLock {
+            data: *metadata,
+            _buffer: buffer,
+            bman,
+        }
+    }
+
+    pub fn merge_list(&self) -> MergeList {
+        MergeList::open(
+            LinkedItemList::<MergeEntry>::open(self.bman.relation_oid(), self.data.merge_list),
+            self.bman.relation_oid(),
+        )
     }
 }
 

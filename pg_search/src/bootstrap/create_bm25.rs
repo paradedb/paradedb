@@ -148,7 +148,8 @@ unsafe fn merge_info(
     let mut result = Vec::new();
     for index in index_kind.partitions() {
         let metadata = MetaPage::open(index.oid());
-        let merge_entries = metadata.merge_list().list();
+        let merge_lock = metadata.acquire_merge_lock();
+        let merge_entries = merge_lock.merge_list().list();
         result.extend(merge_entries.into_iter().flat_map(move |merge_entry| {
             let index_name = index.name().to_owned();
             merge_entry
@@ -477,7 +478,7 @@ fn merge_lock_garbage_collect(index: PgRelation) -> SetOfIterator<'static, i32> 
     unsafe {
         let metadata = MetaPage::open(index.oid());
         let merge_lock = metadata.acquire_merge_lock();
-        let mut merge_list = metadata.merge_list();
+        let mut merge_list = merge_lock.merge_list();
         let before = merge_list.list();
         merge_list.garbage_collect();
         let after = merge_list.list();

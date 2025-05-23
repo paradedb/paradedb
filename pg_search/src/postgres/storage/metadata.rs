@@ -15,12 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::storage::block::{BM25PageSpecialData, SegmentMetaEntry};
-use crate::postgres::storage::block::{LinkedList, METADATA};
-use crate::postgres::storage::buffer::{BufferManager, BufferMut};
-use crate::postgres::storage::merge::{
-    MergeEntry, MergeList, MergeLock, SegmentIdBytes, VacuumList, VacuumSentinel,
+use crate::postgres::storage::block::{
+    block_number_is_valid, BM25PageSpecialData, LinkedList, SegmentMetaEntry, METADATA,
 };
+use crate::postgres::storage::buffer::{BufferManager, BufferMut};
+use crate::postgres::storage::merge::{MergeLock, SegmentIdBytes, VacuumList, VacuumSentinel};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use pgrx::pg_sys;
 use tantivy::index::SegmentId;
@@ -31,7 +30,7 @@ use tantivy::index::SegmentId;
 pub struct MetaPageData {
     /// This space was once used but no longer is.  As such, it needs to remain dead forever
     #[allow(dead_code)]
-    _dead_space: [u32; 2],
+    _dead_space_1: [u32; 2],
 
     /// Contains the [`pg_sys::BlockNumber`] of the active merge list
     active_vacuum_list: pg_sys::BlockNumber,
@@ -39,8 +38,8 @@ pub struct MetaPageData {
     /// A block for which is pin is held during `ambulkdelete()`
     ambulkdelete_sentinel: pg_sys::BlockNumber,
 
-    /// The header block for a [`LinkedItemsList<MergeEntry>]`
-    merge_list: pg_sys::BlockNumber,
+    #[allow(dead_code)]
+    _dead_space_2: [u32; 1],
 
     /// The header block for a [`LinkedBytesList<SegmentIdBytes>]`, which are the segment ids created by `CREATE INDEX`
     create_index_list: pg_sys::BlockNumber,
@@ -68,11 +67,10 @@ impl MetaPage {
         let metadata = page.contents::<MetaPageData>();
 
         // Skip create_index_list because it doesn't need to be initialized yet
-        let may_need_init = !block_number_is_initialized(metadata.active_vacuum_list)
-            || !block_number_is_initialized(metadata.ambulkdelete_sentinel)
-            || !block_number_is_initialized(metadata.merge_list)
-            || !block_number_is_initialized(metadata.segment_meta_garbage)
-            || !block_number_is_initialized(metadata.merge_lock);
+        let may_need_init = !block_number_is_valid(metadata.active_vacuum_list)
+            || !block_number_is_valid(metadata.ambulkdelete_sentinel)
+            || !block_number_is_valid(metadata.segment_meta_garbage)
+            || !block_number_is_valid(metadata.merge_lock);
 
         drop(buffer);
 
@@ -83,25 +81,20 @@ impl MetaPage {
             let mut page = buffer.page_mut();
             let metadata = page.contents_mut::<MetaPageData>();
 
-            if !block_number_is_initialized(metadata.active_vacuum_list) {
+            if !block_number_is_valid(metadata.active_vacuum_list) {
                 metadata.active_vacuum_list = new_buffer_and_init_page(relation_oid);
             }
 
-            if !block_number_is_initialized(metadata.ambulkdelete_sentinel) {
+            if !block_number_is_valid(metadata.ambulkdelete_sentinel) {
                 metadata.ambulkdelete_sentinel = new_buffer_and_init_page(relation_oid);
             }
 
-            if !block_number_is_initialized(metadata.merge_list) {
-                metadata.merge_list =
-                    LinkedItemList::<MergeEntry>::create(relation_oid).get_header_blockno();
-            }
-
-            if !block_number_is_initialized(metadata.segment_meta_garbage) {
+            if !block_number_is_valid(metadata.segment_meta_garbage) {
                 metadata.segment_meta_garbage =
                     LinkedItemList::<SegmentMetaEntry>::create(relation_oid).get_header_blockno();
             }
 
-            if !block_number_is_initialized(metadata.merge_lock) {
+            if !block_number_is_valid(metadata.merge_lock) {
                 metadata.merge_lock = new_buffer_and_init_page(relation_oid);
             }
         }
@@ -141,20 +134,13 @@ impl MetaPage {
         )
     }
 
-    pub fn merge_list(&self) -> MergeList {
-        MergeList::open(
-            LinkedItemList::<MergeEntry>::open(self.bman.relation_oid(), self.data.merge_list),
-            self.bman.relation_oid(),
-        )
-    }
-
     pub fn pin_ambulkdelete_sentinel(&mut self) -> VacuumSentinel {
         let sentinel = self.bman.pinned_buffer(self.data.ambulkdelete_sentinel);
         VacuumSentinel(sentinel)
     }
 
     pub unsafe fn create_index_segment_ids(&self) -> Vec<SegmentId> {
-        if !block_number_is_initialized(self.data.create_index_list) {
+        if !block_number_is_valid(self.data.create_index_list) {
             return Vec::new();
         }
 
@@ -202,11 +188,6 @@ impl MetaPageMut {
 
         Ok(())
     }
-}
-
-#[inline(always)]
-fn block_number_is_initialized(block_number: pg_sys::BlockNumber) -> bool {
-    block_number != 0 && block_number != pg_sys::InvalidBlockNumber
 }
 
 #[inline(always)]

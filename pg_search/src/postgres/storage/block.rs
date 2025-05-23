@@ -434,3 +434,7 @@ pub const fn bm25_max_free_space() -> usize {
             - pg_sys::MAXALIGN(offset_of!(pg_sys::PageHeaderData, pd_linp))
     }
 }
+
+pub fn block_number_is_valid(block_number: pg_sys::BlockNumber) -> bool {
+    block_number != 0 && block_number != pg_sys::InvalidBlockNumber
+}

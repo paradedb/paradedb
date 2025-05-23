@@ -17,7 +17,7 @@
 
 use crate::postgres::storage::block::{BM25PageSpecialData, SegmentMetaEntry};
 use crate::postgres::storage::block::{LinkedList, METADATA};
-use crate::postgres::storage::buffer::{Buffer, BufferManager, BufferMut};
+use crate::postgres::storage::buffer::{BufferManager, BufferMut};
 use crate::postgres::storage::merge::{
     MergeEntry, MergeList, MergeLock, SegmentIdBytes, VacuumList, VacuumSentinel,
 };
@@ -31,18 +31,18 @@ use tantivy::index::SegmentId;
 pub struct MetaPageData {
     /// This space was once used but no longer is.  As such, it needs to remain dead forever
     #[allow(dead_code)]
-    pub _dead_space: [u32; 2],
+    _dead_space: [u32; 2],
 
     /// Contains the [`pg_sys::BlockNumber`] of the active merge list
     active_vacuum_list: pg_sys::BlockNumber,
 
     /// A block for which is pin is held during `ambulkdelete()`
-    pub ambulkdelete_sentinel: pg_sys::BlockNumber,
+    ambulkdelete_sentinel: pg_sys::BlockNumber,
 
     /// The header block for a [`LinkedItemsList<MergeEntry>]`
-    pub merge_list: pg_sys::BlockNumber,
+    merge_list: pg_sys::BlockNumber,
 
-    pub create_index_list: pg_sys::BlockNumber,
+    create_index_list: pg_sys::BlockNumber,
 
     /// The header block for a [`LinkedItemsList<SegmentMergeEntry>]`
     segment_meta_garbage: pg_sys::BlockNumber,
@@ -51,10 +51,11 @@ pub struct MetaPageData {
     merge_lock: pg_sys::BlockNumber,
 }
 
-/// For reading the metadata page -- takes a share lock on the metadata page
-/// and holds it until `MetaPageMut` is dropped.
+/// Provides read access to the metadata page
+/// Because the metadata page does not change after it's initialized in MetaPage::open(),
+/// we do not need to hold a share lock for the lifetime of this struct.
 pub struct MetaPage {
-    buffer: Buffer,
+    data: MetaPageData,
     bman: BufferManager,
 }
 
@@ -72,11 +73,11 @@ impl MetaPage {
             || !block_number_is_initialized(metadata.segment_meta_garbage)
             || !block_number_is_initialized(metadata.merge_lock);
 
+        drop(buffer);
+
         // If any of the fields are not initialized, we need to initialize them
         // We swap our share lock for an exclusive lock
         if may_need_init {
-            drop(buffer);
-
             let mut buffer = bman.get_buffer_mut(METADATA);
             let mut page = buffer.page_mut();
             let metadata = page.contents_mut::<MetaPageData>();
@@ -105,15 +106,14 @@ impl MetaPage {
         }
 
         Self {
-            buffer: bman.get_buffer(METADATA),
+            data: bman.get_buffer(METADATA).page().contents::<MetaPageData>(),
             bman,
         }
     }
 
     /// Acquires the merge lock.
     pub unsafe fn acquire_merge_lock(&self) -> MergeLock {
-        let metadata = self.get_metadata();
-        MergeLock::acquire(self.bman.relation_oid(), metadata.merge_lock)
+        MergeLock::acquire(self.bman.relation_oid(), self.data.merge_lock)
     }
 
     ///
@@ -126,43 +126,38 @@ impl MetaPage {
     /// for the segments it references.
     ///
     pub fn segment_metas_garbage(&self) -> LinkedItemList<SegmentMetaEntry> {
-        let metadata = self.get_metadata();
         LinkedItemList::<SegmentMetaEntry>::open(
             self.bman.relation_oid(),
-            metadata.segment_meta_garbage,
+            self.data.segment_meta_garbage,
         )
     }
 
     pub fn vacuum_list(&self) -> VacuumList {
-        let metadata = self.get_metadata();
         VacuumList::open(
             self.bman.relation_oid(),
-            metadata.active_vacuum_list,
-            metadata.ambulkdelete_sentinel,
+            self.data.active_vacuum_list,
+            self.data.ambulkdelete_sentinel,
         )
     }
 
     pub fn merge_list(&self) -> MergeList {
-        let metadata = self.get_metadata();
         MergeList::open(
-            LinkedItemList::<MergeEntry>::open(self.bman.relation_oid(), metadata.merge_list),
+            LinkedItemList::<MergeEntry>::open(self.bman.relation_oid(), self.data.merge_list),
             self.bman.relation_oid(),
         )
     }
 
     pub fn pin_ambulkdelete_sentinel(&mut self) -> VacuumSentinel {
-        let metadata = self.get_metadata();
-        let sentinel = self.bman.pinned_buffer(metadata.ambulkdelete_sentinel);
+        let sentinel = self.bman.pinned_buffer(self.data.ambulkdelete_sentinel);
         VacuumSentinel(sentinel)
     }
 
     pub unsafe fn create_index_segment_ids(&self) -> Vec<SegmentId> {
-        let metadata = self.get_metadata();
-        if !block_number_is_initialized(metadata.create_index_list) {
+        if !block_number_is_initialized(self.data.create_index_list) {
             return Vec::new();
         }
 
-        let entries = LinkedBytesList::open(self.bman.relation_oid(), metadata.create_index_list);
+        let entries = LinkedBytesList::open(self.bman.relation_oid(), self.data.create_index_list);
         let bytes = entries.read_all();
         bytes
             .chunks(size_of::<SegmentIdBytes>())
@@ -170,10 +165,6 @@ impl MetaPage {
                 SegmentId::from_bytes(entry.try_into().expect("malformed SegmentId entry"))
             })
             .collect()
-    }
-
-    fn get_metadata(&self) -> MetaPageData {
-        self.buffer.page().contents::<MetaPageData>()
     }
 }
 

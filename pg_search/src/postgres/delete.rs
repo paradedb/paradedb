@@ -75,11 +75,12 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
 
     let writer_segment_ids = index_writer.segment_ids();
 
-    // write out the list of segment ids we're about to operate on.  Doing so returns the `vacuum_sentinel`.
+    // Write out the list of segment ids we're about to operate on
+    // Then acquire a `vacuum_sentinel` to notify concurrent backends that a vacuum is happening
     // The segment ids written here will be excluded from possible future concurrent merges, until `vacuum_sentinel` is dropped
     metadata.vacuum_list().write_list(writer_segment_ids.iter());
-
     let vacuum_sentinel = metadata.pin_ambulkdelete_sentinel();
+    // It's important to drop the merge lock after the `vacuum_sentinel` is pinned
     drop(merge_lock);
 
     let mut did_delete = false;

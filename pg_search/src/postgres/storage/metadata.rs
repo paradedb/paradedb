@@ -42,6 +42,7 @@ pub struct MetaPageData {
     /// The header block for a [`LinkedItemsList<MergeEntry>]`
     merge_list: pg_sys::BlockNumber,
 
+    /// The header block for a [`LinkedBytesList<SegmentIdBytes>]`, which are the segment ids created by `CREATE INDEX`
     create_index_list: pg_sys::BlockNumber,
 
     /// The header block for a [`LinkedItemsList<SegmentMergeEntry>]`

@@ -92,6 +92,9 @@ jobs:
         working-directory: pg_search/
         run: |
           cargo pgrx stop pg${{ matrix.pg_version }}
+          export TANTIVY_BLOCK_LEN="${{ matrix.block_length }}"
+          export TANTIVY_BLOCK_LEN_TRIGGERING_COMPRESSION="${{ matrix.block_length_triggering_compression }}"
+          export TANTIVY_COMPRESSION_LEVEL="${{ matrix.compression_level }}"
           cargo pgrx start pg${{ matrix.pg_version }}
 
       - name: Install pg_search
@@ -102,9 +105,6 @@ jobs:
       - name: Run Benchmark
         working-directory: benchmarks/
         run: |
-          export TANTIVY_BLOCK_LEN="${{ matrix.block_length }}"
-          export TANTIVY_BLOCK_LEN_TRIGGERING_COMPRESSION="${{ matrix.block_length_triggering_compression }}"
-          export TANTIVY_COMPRESSION_LEVEL="${{ matrix.compression_level }}"
           cargo run -- --url postgresql://localhost:288${{ matrix.pg_version }}/postgres --rows ${{ matrix.num_rows }} --type pg_search --output csv
 
       - name: Upload results

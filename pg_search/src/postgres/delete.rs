@@ -50,7 +50,7 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     let mut metadata = MetaPage::open(index_relation.oid());
 
     // take the MergeLock
-    let mut merge_lock = metadata.acquire_merge_lock();
+    let merge_lock = metadata.acquire_merge_lock();
 
     // garbage collecting the MergeLock is necessary to remove any stale entries that may have
     // been leftover from a cancelled merge or crash during merge

@@ -16,12 +16,11 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::HashSet;
-use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::postgres::storage::block::{
-    bm25_max_free_space, BM25PageSpecialData, LinkedList, MVCCEntry, PgItem, METADATA,
+    bm25_max_free_space, BM25PageSpecialData, MVCCEntry, PgItem,
 };
 use crate::postgres::storage::buffer::{BufferManager, BufferMut, PinnedBuffer};
-use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
+use crate::postgres::storage::LinkedBytesList;
 use pgrx::{pg_sys, StringInfo};
 use serde::{Deserialize, Serialize};
 use std::slice::from_raw_parts;
@@ -30,14 +29,10 @@ use tantivy::index::SegmentId;
 #[repr(transparent)]
 pub struct VacuumSentinel(pub PinnedBuffer);
 
-/// Only one merge can happen at a time, so we need to lock the merge process
+/// Lock the merge process by holding onto an exclusively-locked buffer
 #[derive(Debug)]
 pub struct MergeLock {
-    // NB:  Rust's struct drop order is how the fields are defined in the source code
-    // and while it _probably_ doesn't matter, we'd prefer to have `buffer`'s drop impl
-    // run before the `bman` from which it originated
-    buffer: BufferMut,
-    bman: BufferManager,
+    _buffer: BufferMut,
 }
 
 impl MergeLock {
@@ -57,8 +52,7 @@ impl MergeLock {
         let mut bman = BufferManager::new(relation_oid);
         let merge_lock = bman.get_buffer_mut(block_number);
         MergeLock {
-            buffer: merge_lock,
-            bman,
+            _buffer: merge_lock,
         }
     }
 }
@@ -96,7 +90,7 @@ impl VacuumList {
         }
     }
 
-    pub fn write_list<'s>(mut self, segment_ids: impl Iterator<Item = &'s SegmentId>) {
+    pub fn write_list<'s>(self, segment_ids: impl Iterator<Item = &'s SegmentId>) {
         let mut segment_ids = segment_ids.collect::<Vec<_>>();
         segment_ids.sort();
 

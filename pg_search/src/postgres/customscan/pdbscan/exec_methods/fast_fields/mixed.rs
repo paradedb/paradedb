@@ -37,7 +37,6 @@ use crate::query::SearchQueryInput;
 use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::pg_sys;
 use pgrx::PgOid;
-use std::collections::BTreeMap;
 use tantivy::collector::Collector;
 use tantivy::index::SegmentId;
 use tantivy::query::Query;
@@ -496,7 +495,7 @@ type SearchResultsIter = std::vec::IntoIter<(SearchIndexScore, DocAddress)>;
 /// Iterator for batched results with field values
 type BatchedResultsIter = std::vec::IntoIter<(FieldValues, SearchResultsIter)>;
 /// Map of document addresses to field values and scores
-type MergedResultsMap = BTreeMap<DocAddress, (FieldValues, SearchIndexScore)>;
+type MergedResultsMap = HashMap<DocAddress, (FieldValues, SearchIndexScore)>;
 /// Group of field values and document addresses/scores
 type FieldGroupValue = (FieldValues, Vec<(SearchIndexScore, DocAddress)>);
 /// Map of field value representations to groups of documents
@@ -634,10 +633,10 @@ impl MixedAggSearcher<'_> {
             )
             .expect("failed to search");
 
-        // Use thread-safe map to combine results from all segments
-        let mut merged: MergedResultsMap = BTreeMap::new();
+        // Combine results from all segments
+        let mut merged: MergedResultsMap = HashMap::default();
 
-        // Process all segment results in parallel
+        // Process all segment results
         results.into_iter().for_each(
             |(string_columns, string_results, numeric_columns, numeric_values)| {
                 // Process string fields

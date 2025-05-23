@@ -292,7 +292,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
                     buffer = self.bman.get_buffer_mut(next_blockno);
                 } else {
                     // need to create new block and link it to this one
-                    let mut new_page = self.bman.new_buffer();
+                    let mut new_page = self.bman.extend_relation();
                     let new_blockno = new_page.number();
                     new_page.init_page();
 

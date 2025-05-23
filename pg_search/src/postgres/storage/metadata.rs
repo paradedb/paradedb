@@ -19,6 +19,7 @@ use crate::postgres::storage::block::{
     block_number_is_valid, BM25PageSpecialData, LinkedList, SegmentMetaEntry, METADATA,
 };
 use crate::postgres::storage::buffer::{BufferManager, BufferMut};
+use crate::postgres::storage::fsm::FreeBlockList;
 use crate::postgres::storage::merge::{MergeLock, SegmentIdBytes, VacuumList, VacuumSentinel};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use pgrx::pg_sys;
@@ -49,10 +50,13 @@ pub struct MetaPageData {
 
     /// Merge lock block number
     merge_lock: pg_sys::BlockNumber,
+
+    /// The header block for a [`LinkedItemsList<FreeBlockNumber>]`
+    fsm: pg_sys::BlockNumber,
 }
 
 /// Provides read access to the metadata page
-/// Because the metadata page does not change after it's initialized in MetaPage::open(),
+/// Because the metadata page does not change after it's initialized in MetaPage::open_or_init(),
 /// we do not need to hold a share lock for the lifetime of this struct.
 pub struct MetaPage {
     data: MetaPageData,
@@ -67,35 +71,60 @@ impl MetaPage {
         let metadata = page.contents::<MetaPageData>();
 
         // Skip create_index_list because it doesn't need to be initialized yet
-        let may_need_init = !block_number_is_valid(metadata.active_vacuum_list)
-            || !block_number_is_valid(metadata.ambulkdelete_sentinel)
-            || !block_number_is_valid(metadata.segment_meta_garbage)
-            || !block_number_is_valid(metadata.merge_lock);
+        let needs_vacuum_list = !block_number_is_valid(metadata.active_vacuum_list);
+        let needs_ambulkdelete_sentinel = !block_number_is_valid(metadata.ambulkdelete_sentinel);
+        let needs_segment_meta_garbage = !block_number_is_valid(metadata.segment_meta_garbage);
+        let needs_merge_lock = !block_number_is_valid(metadata.merge_lock);
+        let needs_fsm = !block_number_is_valid(metadata.fsm);
+
+        let may_need_init = needs_vacuum_list
+            || needs_ambulkdelete_sentinel
+            || needs_segment_meta_garbage
+            || needs_merge_lock
+            || needs_fsm;
 
         drop(buffer);
 
         // If any of the fields are not initialized, we need to initialize them
         // We swap our share lock for an exclusive lock
         if may_need_init {
+            let vacuum_list = needs_vacuum_list.then(|| new_buffer_and_init_page(relation_oid));
+            let ambulkdelete_sentinel =
+                needs_ambulkdelete_sentinel.then(|| new_buffer_and_init_page(relation_oid));
+            let segment_meta_garbage = needs_segment_meta_garbage
+                .then(|| LinkedItemList::<SegmentMetaEntry>::create(relation_oid));
+            let merge_lock = needs_merge_lock.then(|| new_buffer_and_init_page(relation_oid));
+            let fsm = needs_fsm.then(|| new_buffer_and_init_page(relation_oid));
+
+            // It's important to acquire the exclusive lock after the above structures have been created,
+            // because those structures call new_buffer(), which opens the MetaPage to read the FSM,
+            // which causes a circular dependency.
             let mut buffer = bman.get_buffer_mut(METADATA);
             let mut page = buffer.page_mut();
             let metadata = page.contents_mut::<MetaPageData>();
 
             if !block_number_is_valid(metadata.active_vacuum_list) {
-                metadata.active_vacuum_list = new_buffer_and_init_page(relation_oid);
+                metadata.active_vacuum_list = vacuum_list.unwrap();
             }
 
             if !block_number_is_valid(metadata.ambulkdelete_sentinel) {
-                metadata.ambulkdelete_sentinel = new_buffer_and_init_page(relation_oid);
-            }
-
-            if !block_number_is_valid(metadata.segment_meta_garbage) {
-                metadata.segment_meta_garbage =
-                    LinkedItemList::<SegmentMetaEntry>::create(relation_oid).get_header_blockno();
+                metadata.ambulkdelete_sentinel = ambulkdelete_sentinel.unwrap();
             }
 
             if !block_number_is_valid(metadata.merge_lock) {
-                metadata.merge_lock = new_buffer_and_init_page(relation_oid);
+                metadata.merge_lock = merge_lock.unwrap();
+            }
+
+            if !block_number_is_valid(metadata.fsm) {
+                metadata.fsm = fsm.unwrap();
+            } else {
+                // TODO: GC the FSM list
+            }
+
+            if !block_number_is_valid(metadata.segment_meta_garbage) {
+                metadata.segment_meta_garbage = segment_meta_garbage.unwrap().get_header_blockno();
+            } else {
+                segment_meta_garbage.map(|mut list| list.garbage_collect());
             }
         }
 
@@ -159,6 +188,19 @@ impl MetaPage {
                 SegmentId::from_bytes(entry.try_into().expect("malformed SegmentId entry"))
             })
             .collect()
+    }
+
+    pub fn fsm(&self) -> FreeBlockList {
+        assert!(block_number_is_valid(self.data.fsm));
+        FreeBlockList::open(self.bman.relation_oid(), self.data.fsm)
+    }
+
+    pub fn fsm_opt(&self) -> Option<FreeBlockList> {
+        if !block_number_is_valid(self.data.fsm) {
+            return None;
+        }
+
+        Some(FreeBlockList::open(self.bman.relation_oid(), self.data.fsm))
     }
 }
 

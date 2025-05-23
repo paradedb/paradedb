@@ -441,8 +441,4 @@ pub fn free_entries(indexrel: &PgRelation, freeable_entries: Vec<SegmentMetaEntr
             }
         }
     }
-
-    unsafe {
-        pg_sys::IndexFreeSpaceMapVacuum(indexrel.as_ptr());
-    }
 }

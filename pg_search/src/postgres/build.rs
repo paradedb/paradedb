@@ -139,10 +139,11 @@ unsafe fn init_fixed_buffers(index_relation: &PgRelation) {
     let relation_oid = index_relation.oid();
     let mut bman = BufferManager::new(relation_oid);
 
-    // Init merge lock buffer
-    let mut merge_lock = bman.new_buffer();
-    assert_eq!(merge_lock.number(), METADATA);
-    merge_lock.init_page();
+    // Init metadata buffer
+    let mut metadata = bman.extend_relation();
+    assert_eq!(metadata.number(), METADATA);
+    metadata.init_page();
+    drop(metadata);
 
     // Init cleanup lock buffer
     let mut cleanup_lock = bman.new_buffer();

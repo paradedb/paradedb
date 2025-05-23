@@ -105,7 +105,7 @@ jobs:
       - name: Run Benchmark
         working-directory: benchmarks/
         run: |
-          cargo run -- --url postgresql://localhost:288${{ matrix.pg_version }}/postgres --rows ${{ matrix.num_rows }} --type pg_search --output csv
+          cargo run -- --url postgresql://localhost:288${{ matrix.pg_version }}/postgres --rows ${{ matrix.num_rows }} --type pg_search --dataset join --output csv
 
       - name: Upload results
         uses: actions/upload-artifact@v4

@@ -54,7 +54,7 @@ pub struct MetaPageData {
 /// For reading the metadata page -- takes a share lock on the metadata page
 /// and holds it until `MetaPageMut` is dropped.
 pub struct MetaPage {
-    buffer: Option<Buffer>,
+    buffer: Buffer,
     bman: BufferManager,
 }
 
@@ -106,7 +106,7 @@ impl MetaPage {
         }
 
         Self {
-            buffer: Some(bman.get_buffer(METADATA)),
+            buffer: bman.get_buffer(METADATA),
             bman,
         }
     }
@@ -174,11 +174,7 @@ impl MetaPage {
     }
 
     fn get_metadata(&self) -> MetaPageData {
-        self.buffer
-            .as_ref()
-            .expect("must hold a share lock on the metadata page to read it")
-            .page()
-            .contents::<MetaPageData>()
+        self.buffer.page().contents::<MetaPageData>()
     }
 }
 

@@ -65,7 +65,6 @@ impl MetaPage {
         let page = buffer.page();
         let metadata = page.contents::<MetaPageData>();
 
-        // If any of the fields are not initialized, we need to initialize them
         // Skip create_index_list because it doesn't need to be initialized yet
         let may_need_init = !block_number_is_initialized(metadata.active_vacuum_list)
             || !block_number_is_initialized(metadata.ambulkdelete_sentinel)

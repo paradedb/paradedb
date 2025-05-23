@@ -96,6 +96,7 @@ pub mod buffer;
 pub mod linked_bytes;
 pub mod linked_items;
 pub mod merge;
+pub mod metadata;
 pub mod utils;
 
 pub use self::linked_bytes::{LinkedBytesList, LinkedBytesListWriter};

@@ -508,7 +508,7 @@ pub struct MergeEntry {
     /// used space where we once stored an `xmax` value
     #[doc(hidden)]
     #[serde(alias = "xmax")]
-    _unused: pg_sys::TransactionId,
+    pub _unused: pg_sys::TransactionId,
 
     pub segment_ids_start_blockno: pg_sys::BlockNumber,
 }

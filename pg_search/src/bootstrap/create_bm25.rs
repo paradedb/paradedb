@@ -25,7 +25,7 @@ use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::storage::block::{
     LinkedList, MVCCEntry, SegmentMetaEntry, SEGMENT_METAS_START,
 };
-use crate::postgres::storage::merge::MergeLock;
+use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::storage::LinkedItemList;
 use crate::postgres::utils::item_pointer_to_u64;
 use crate::query::SearchQueryInput;
@@ -147,8 +147,8 @@ unsafe fn merge_info(
 
     let mut result = Vec::new();
     for index in index_kind.partitions() {
-        let merge_lock = MergeLock::acquire(index.oid());
-        let merge_entries = merge_lock.in_progress_merge_entries();
+        let metadata = MetaPage::open(index.oid());
+        let merge_entries = metadata.in_progress_merge_entries();
         result.extend(merge_entries.into_iter().flat_map(move |merge_entry| {
             let index_name = index.name().to_owned();
             merge_entry
@@ -181,8 +181,8 @@ unsafe fn vacuum_info(
 
     let mut result = Vec::new();
     for index in index_kind.partitions() {
-        let mut merge_lock = MergeLock::acquire(index.oid());
-        let vacuum_list = merge_lock.list_vacuuming_segments();
+        let mut metadata = MetaPage::open(index.oid());
+        let vacuum_list = metadata.vacuum_list(None).read_list();
         result.extend(
             vacuum_list
                 .iter()
@@ -474,28 +474,29 @@ fn force_merge_raw_bytes(
 
 #[pg_extern]
 fn merge_lock_garbage_collect(index: PgRelation) -> SetOfIterator<'static, i32> {
-    unsafe {
-        let mut merge_lock = MergeLock::acquire(index.oid());
-        let before = merge_lock.in_progress_merge_entries();
-        merge_lock.garbage_collect();
-        let after = merge_lock.in_progress_merge_entries();
-        drop(merge_lock);
+    todo!()
+    // unsafe {
+    //     let mut merge_lock = MergeLock::acquire(index.oid());
+    //     let before = merge_lock.in_progress_merge_entries();
+    //     merge_lock.garbage_collect();
+    //     let after = merge_lock.in_progress_merge_entries();
+    //     drop(merge_lock);
 
-        let before_pids = before
-            .into_iter()
-            .map(|entry| entry.pid)
-            .collect::<HashSet<_>>();
-        let after_pids = after
-            .into_iter()
-            .map(|entry| entry.pid)
-            .collect::<HashSet<_>>();
-        let mut garbage_collected_pids = before_pids
-            .difference(&after_pids)
-            .copied()
-            .collect::<Vec<_>>();
-        garbage_collected_pids.sort_unstable();
-        SetOfIterator::new(garbage_collected_pids)
-    }
+    //     let before_pids = before
+    //         .into_iter()
+    //         .map(|entry| entry.pid)
+    //         .collect::<HashSet<_>>();
+    //     let after_pids = after
+    //         .into_iter()
+    //         .map(|entry| entry.pid)
+    //         .collect::<HashSet<_>>();
+    //     let mut garbage_collected_pids = before_pids
+    //         .difference(&after_pids)
+    //         .copied()
+    //         .collect::<Vec<_>>();
+    //     garbage_collected_pids.sort_unstable();
+    //     SetOfIterator::new(garbage_collected_pids)
+    // }
 }
 
 extension_sql!(

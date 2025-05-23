@@ -167,7 +167,7 @@ impl MetaPage {
     }
 
     pub unsafe fn in_progress_segment_ids(&self) -> impl Iterator<Item = SegmentId> + use<'_> {
-        if self.data.merge_list == 0 || self.data.merge_list == pg_sys::InvalidBlockNumber {
+        if !block_number_is_initialized(self.data.merge_list) {
             // our merge_list has never been initialized
             let iter: Box<dyn Iterator<Item = SegmentId>> = Box::new(std::iter::empty());
             return iter;
@@ -207,6 +207,114 @@ impl MetaPage {
     pub unsafe fn is_merge_in_progress(&self) -> bool {
         assert!(block_number_is_initialized(self.data.merge_list));
         !LinkedItemList::<MergeEntry>::open(self.relation_oid, self.data.merge_list).is_empty()
+    }
+
+    pub unsafe fn remove_entry(&mut self, merge_entry: MergeEntry) -> anyhow::Result<MergeEntry> {
+        if !block_number_is_initialized(self.data.merge_list) {
+            panic!("merge_list should have been initialized by now");
+        }
+
+        let mut entries_list = LinkedItemList::<MergeEntry>::open(self.relation_oid, self.data.merge_list);
+        let removed_entry = entries_list.remove_item(|entry| entry == &merge_entry)?;
+
+        LinkedBytesList::open(self.relation_oid, removed_entry.segment_ids_start_blockno).return_to_fsm();
+        pg_sys::IndexFreeSpaceMapVacuum(self.bman.bm25cache().indexrel());
+        Ok(removed_entry)
+    }
+
+    pub unsafe fn garbage_collect(&mut self) {
+        if !block_number_is_initialized(self.data.merge_list) {
+            return;
+        }
+
+        let mut entries_list = LinkedItemList::<MergeEntry>::open(self.relation_oid, self.data.merge_list);
+        let recycled_entries = entries_list.garbage_collect();
+        for recycled_entry in recycled_entries {
+            LinkedBytesList::open(self.relation_oid, recycled_entry.segment_ids_start_blockno)
+                .return_to_fsm();
+            pg_sys::IndexFreeSpaceMapVacuum(self.bman.bm25cache().indexrel());
+        }
+    }
+}
+
+pub struct MetaPageMut {
+    buffer: BufferMut,
+    bman: BufferManager,
+    relation_oid: pg_sys::Oid,
+}
+
+impl MetaPageMut {
+    pub fn new(relation_oid: pg_sys::Oid) -> Self {
+        let mut bman = BufferManager::new(relation_oid);
+        let mut buffer = bman.get_buffer_mut(METADATA);
+        let page = buffer.page_mut();
+        Self {
+            buffer,
+            bman,
+            relation_oid,
+        }
+    }
+
+
+    pub unsafe fn record_in_progress_segment_ids<'a>(
+        mut self,
+        segment_ids: impl IntoIterator<Item = &'a SegmentId>,
+    ) -> anyhow::Result<MergeEntry> {
+        assert!(pg_sys::IsTransactionState());
+
+        let merge_list_blockno = {
+            let mut page = self.buffer.page_mut();
+            let metadata = page.contents_mut::<MetaPageData>();
+
+            if !block_number_is_initialized(metadata.merge_list) {
+                let merge_list = LinkedItemList::<MergeEntry>::create(self.relation_oid);
+                metadata.merge_list = merge_list.get_header_blockno();
+            }
+
+            metadata.merge_list
+        };
+
+        // write the SegmentIds to disk
+        let segment_id_bytes = segment_ids
+            .into_iter()
+            .flat_map(|segment_id| segment_id.uuid_bytes().iter().copied())
+            .collect::<Vec<_>>();
+        let segment_ids_list = LinkedBytesList::create(self.relation_oid);
+        let segment_ids_start_blockno = segment_ids_list.get_header_blockno();
+        segment_ids_list.writer().write(&segment_id_bytes)?;
+
+        // fabricate and write the [`MergeEntry`] itself
+        let xid = pg_sys::GetCurrentTransactionId();
+        let merge_entry = MergeEntry {
+            pid: pg_sys::MyProcPid,
+            xmin: xid,
+            _unused: pg_sys::InvalidTransactionId,
+            segment_ids_start_blockno,
+        };
+
+        let mut entries_list = LinkedItemList::<MergeEntry>::open(self.relation_oid, merge_list_blockno);
+        entries_list.add_items(&[merge_entry], None);
+        Ok(merge_entry)
+    }
+
+    pub unsafe fn record_create_index_segment_ids<'a>(
+        mut self,
+        segment_ids: impl IntoIterator<Item = &'a SegmentId>,
+    ) -> anyhow::Result<()> {
+        let segment_id_bytes = segment_ids
+            .into_iter()
+            .flat_map(|segment_id| segment_id.uuid_bytes().iter().copied())
+            .collect::<Vec<_>>();
+        let segment_ids_list = LinkedBytesList::create(self.relation_oid);
+        let mut writer = segment_ids_list.writer();
+        writer.write(&segment_id_bytes)?;
+        let segment_ids_list = writer.into_inner()?;
+
+        let mut page = self.buffer.page_mut();
+        let metadata = page.contents_mut::<MetaPageData>();
+        metadata.create_index_list = segment_ids_list.get_header_blockno();
+
+        Ok(())
     }
 }
 

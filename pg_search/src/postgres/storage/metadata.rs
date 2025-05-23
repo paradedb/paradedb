@@ -15,19 +15,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::HashSet;
 use crate::postgres::storage::block::SegmentMetaEntry;
-use crate::postgres::storage::block::{
-    bm25_max_free_space, BM25PageSpecialData, LinkedList, MVCCEntry, PgItem, METADATA,
-};
-use crate::postgres::storage::buffer::{Buffer, BufferManager, BufferMut, PinnedBuffer};
+use crate::postgres::storage::block::{LinkedList, METADATA};
+use crate::postgres::storage::buffer::{Buffer, BufferManager, BufferMut};
 use crate::postgres::storage::merge::{
     MergeEntry, MergeLock, SegmentIdBytes, VacuumList, VacuumSentinel,
 };
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
-use pgrx::{pg_sys, StringInfo};
-use serde::{Deserialize, Serialize};
-use std::slice::from_raw_parts;
+use pgrx::pg_sys;
 use tantivy::index::SegmentId;
 
 /// The metadata stored on the [`Metadata`] page
@@ -56,47 +51,36 @@ pub struct MetaPageData {
     merge_lock: pg_sys::BlockNumber,
 }
 
+/// For dirtying the metadata page -- takes a share lock on the metadata page
+/// and holds it until `MetaPageMut` is dropped.
 pub struct MetaPage {
     buffer: Option<Buffer>,
     bman: BufferManager,
 }
 
 impl MetaPage {
-    fn get_metadata(&self) -> MetaPageData {
-        self.buffer
-            .as_ref()
-            .expect("metapage buffer should have been initialized by now")
-            .page()
-            .contents::<MetaPageData>()
-    }
-
     pub unsafe fn open(relation_oid: pg_sys::Oid) -> Self {
         let mut bman = BufferManager::new(relation_oid);
         let buffer = bman.get_buffer(METADATA);
         let page = buffer.page();
         let metadata = page.contents::<MetaPageData>();
 
-        let needs_initialization = !block_number_is_initialized(metadata.segment_meta_garbage)
+        // If any of the fields are not initialized, we need to initialize them
+        // Skip create_index_list because it doesn't need to be initialized yet
+        let needs_initialization = !block_number_is_initialized(metadata.active_vacuum_list)
+            || !block_number_is_initialized(metadata.ambulkdelete_sentinel)
             || !block_number_is_initialized(metadata.merge_list)
-            || !block_number_is_initialized(metadata.active_vacuum_list)
-            || !block_number_is_initialized(metadata.ambulkdelete_sentinel);
+            || !block_number_is_initialized(metadata.segment_meta_garbage)
+            || !block_number_is_initialized(metadata.merge_lock);
 
+        // If any of the fields are not initialized, we need to initialize them
+        // We swap our share lock for an exclusive lock
         if needs_initialization {
             drop(buffer);
 
             let mut buffer = bman.get_buffer_mut(METADATA);
             let mut page = buffer.page_mut();
-            let mut metadata = page.contents_mut::<MetaPageData>();
-
-            if !block_number_is_initialized(metadata.segment_meta_garbage) {
-                metadata.segment_meta_garbage =
-                    LinkedItemList::<SegmentMetaEntry>::create(relation_oid).get_header_blockno();
-            }
-
-            if !block_number_is_initialized(metadata.merge_list) {
-                metadata.merge_list =
-                    LinkedItemList::<MergeEntry>::create(relation_oid).get_header_blockno();
-            }
+            let metadata = page.contents_mut::<MetaPageData>();
 
             if !block_number_is_initialized(metadata.active_vacuum_list) {
                 metadata.active_vacuum_list = VacuumList::create(relation_oid);
@@ -106,6 +90,16 @@ impl MetaPage {
                 let mut sentinal_buffer = bman.new_buffer();
                 sentinal_buffer.init_page();
                 metadata.ambulkdelete_sentinel = sentinal_buffer.number();
+            }
+
+            if !block_number_is_initialized(metadata.merge_list) {
+                metadata.merge_list =
+                    LinkedItemList::<MergeEntry>::create(relation_oid).get_header_blockno();
+            }
+
+            if !block_number_is_initialized(metadata.segment_meta_garbage) {
+                metadata.segment_meta_garbage =
+                    LinkedItemList::<SegmentMetaEntry>::create(relation_oid).get_header_blockno();
             }
 
             if !block_number_is_initialized(metadata.merge_lock) {
@@ -165,7 +159,7 @@ impl MetaPage {
         )
     }
 
-    pub unsafe fn remove_entry(&mut self, merge_entry: MergeEntry) -> anyhow::Result<MergeEntry> {
+    pub unsafe fn remove_entry(&self, merge_entry: MergeEntry) -> anyhow::Result<MergeEntry> {
         let mut entries = self.merge_list();
         let removed_entry = entries.remove_item(|entry| entry == &merge_entry)?;
 
@@ -243,24 +237,28 @@ impl MetaPage {
         entries_list.add_items(&[merge_entry], None);
         Ok(merge_entry)
     }
+
+    fn get_metadata(&self) -> MetaPageData {
+        self.buffer
+            .as_ref()
+            .expect("metapage buffer should have been initialized by now")
+            .page()
+            .contents::<MetaPageData>()
+    }
 }
 
+/// For dirtying the metadata page -- takes an exclusive lock on the metadata page
+/// and holds it until `MetaPageMut` is dropped.
 pub struct MetaPageMut {
     buffer: BufferMut,
     bman: BufferManager,
-    relation_oid: pg_sys::Oid,
 }
 
 impl MetaPageMut {
     pub fn new(relation_oid: pg_sys::Oid) -> Self {
         let mut bman = BufferManager::new(relation_oid);
-        let mut buffer = bman.get_buffer_mut(METADATA);
-        let page = buffer.page_mut();
-        Self {
-            buffer,
-            bman,
-            relation_oid,
-        }
+        let buffer = bman.get_buffer_mut(METADATA);
+        Self { buffer, bman }
     }
 
     pub unsafe fn record_create_index_segment_ids<'a>(
@@ -271,7 +269,7 @@ impl MetaPageMut {
             .into_iter()
             .flat_map(|segment_id| segment_id.uuid_bytes().iter().copied())
             .collect::<Vec<_>>();
-        let segment_ids_list = LinkedBytesList::create(self.relation_oid);
+        let segment_ids_list = LinkedBytesList::create(self.bman.relation_oid());
         let mut writer = segment_ids_list.writer();
         writer.write(&segment_id_bytes)?;
         let segment_ids_list = writer.into_inner()?;

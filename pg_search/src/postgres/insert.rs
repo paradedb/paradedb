@@ -264,7 +264,7 @@ pub unsafe fn merge_index_with_policy(
     // the final merged segment, not the original segments that will be deleted
     let cleanup_lock = BufferManager::new(indexrelid).get_buffer(CLEANUP_LOCK);
     let mut metadata = MetaPage::open(indexrelid);
-    let mut merge_lock = metadata.acquire_merge_lock();
+    let merge_lock = metadata.acquire_merge_lock();
     let mut merger =
         SearchIndexMerger::open(indexrelid).expect("should be able to open a SearchIndexMerger");
     let merger_segment_ids = merger
@@ -390,7 +390,7 @@ pub unsafe fn merge_index_with_policy(
         }
 
         // re-acquire the MergeLock to remove the entry we made above
-        let mut merge_lock = metadata.acquire_merge_lock();
+        let merge_lock = metadata.acquire_merge_lock();
         metadata
             .remove_entry(merge_entry)
             .expect("should be able to remove MergeEntry");

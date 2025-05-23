@@ -181,7 +181,7 @@ unsafe fn vacuum_info(
 
     let mut result = Vec::new();
     for index in index_kind.partitions() {
-        let mut metadata = MetaPage::open(index.oid());
+        let metadata = MetaPage::open(index.oid());
         let vacuum_list = metadata.vacuum_list().read_list();
         result.extend(
             vacuum_list
@@ -476,7 +476,7 @@ fn force_merge_raw_bytes(
 fn merge_lock_garbage_collect(index: PgRelation) -> SetOfIterator<'static, i32> {
     unsafe {
         let mut metadata = MetaPage::open(index.oid());
-        let mut merge_lock = metadata.acquire_merge_lock();
+        let merge_lock = metadata.acquire_merge_lock();
         let before = metadata.merge_list().list();
         metadata.garbage_collect();
         let after = metadata.merge_list().list();

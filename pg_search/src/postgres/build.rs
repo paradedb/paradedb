@@ -71,8 +71,7 @@ pub extern "C-unwind" fn ambuild(
     let index_relation = unsafe { PgRelation::from_pg(indexrel) };
     let index_oid = index_relation.oid();
 
-    // Create the metadata blocks for the index
-    unsafe { create_metadata(&index_relation) };
+    unsafe { init_fixed_buffers(&index_relation) };
 
     // ensure we only allow one `USING bm25` index on this relation, accounting for a REINDEX
     // and accounting for CONCURRENTLY.
@@ -258,7 +257,7 @@ fn bm25_amhandler_oid() -> Option<pg_sys::Oid> {
     }
 }
 
-unsafe fn create_metadata(index_relation: &PgRelation) {
+unsafe fn init_fixed_buffers(index_relation: &PgRelation) {
     let relation_oid = index_relation.oid();
     let mut bman = BufferManager::new(relation_oid);
 

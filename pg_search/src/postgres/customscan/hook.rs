@@ -73,7 +73,9 @@ pub extern "C-unwind" fn paradedb_rel_pathlist_callback<CS: CustomScan>(
             return;
         }
 
-        if let Some(mut path) = CS::callback(CustomPathBuilder::new::<CS>(root, rel, rti, rte)) {
+        if let Some(mut path) =
+            CS::rel_pathlist_callback(CustomPathBuilder::new::<CS>(root, rel, rti, rte))
+        {
             let forced = path.flags & Flags::Force as u32 != 0;
             path.flags ^= Flags::Force as u32; // make sure to clear this flag because it's special to us
 

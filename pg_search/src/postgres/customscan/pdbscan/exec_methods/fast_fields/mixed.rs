@@ -306,7 +306,8 @@ impl ExecMethod for MixedFastFieldExecState {
                                             field_values.get_numeric(field_name)
                                         {
                                             // Convert the numeric value to the right Datum type
-                                            if let Ok(Some(datum)) = TantivyValue(num_value.clone())
+                                            if let Ok(Some(datum)) = num_value
+                                                .clone()
                                                 .try_into_datum(PgOid::from(att_typid))
                                             {
                                                 datums[i] = datum;
@@ -421,25 +422,31 @@ fn term_to_datum(
 
 /// Container for storing mixed field values from fast fields.
 ///
-/// This struct optimizes storage and retrieval of both string and numeric field values
-/// retrieved from the index. Each field value is stored in a type-specific hashmap
-/// to avoid unnecessary conversions and enable efficient lookups by field name.
-#[derive(Debug, Clone, Default)]
+/// TODO: Remove field-name clones, and use fast field definition order.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct FieldValues {
     /// String field values, with None representing a field with no value
-    string_values: HashMap<String, Option<String>>,
+    string_values: Vec<(String, Option<String>)>,
 
-    /// Numeric field values using Tantivy's OwnedValue type for type flexibility
-    numeric_values: HashMap<String, OwnedValue>,
+    /// Numeric field values using TantivyValue for type flexibility
+    numeric_values: Vec<(String, TantivyValue)>,
 }
 
 impl FieldValues {
     /// Creates a new empty FieldValues container.
     fn new() -> Self {
         Self {
-            string_values: HashMap::default(),
-            numeric_values: HashMap::default(),
+            string_values: Vec::default(),
+            numeric_values: Vec::default(),
         }
+    }
+
+    /// Sort string and numeric fields by key.
+    ///
+    /// TODO: See struct doc: we shouldn't need field names, because can just use indexes.
+    fn sort(&mut self) {
+        self.string_values.sort_by(|a, b| a.0.cmp(&b.0));
+        self.numeric_values.sort_by(|a, b| a.0.cmp(&b.0));
     }
 
     /// Sets a string field value.
@@ -449,7 +456,7 @@ impl FieldValues {
     /// * `field` - The field name
     /// * `value` - The string value or None if no value
     fn set_string(&mut self, field: String, value: Option<String>) {
-        self.string_values.insert(field, value);
+        self.string_values.push((field, value));
     }
 
     /// Sets a numeric field value.
@@ -459,7 +466,7 @@ impl FieldValues {
     /// * `field` - The field name
     /// * `value` - The numeric value as an OwnedValue
     fn set_numeric(&mut self, field: String, value: OwnedValue) {
-        self.numeric_values.insert(field, value);
+        self.numeric_values.push((field, TantivyValue(value)));
     }
 
     /// Gets a string field value.
@@ -472,7 +479,9 @@ impl FieldValues {
     ///
     /// A reference to the Option<String> value, or None if field doesn't exist
     fn get_string(&self, field: &str) -> Option<&Option<String>> {
-        self.string_values.get(field)
+        self.string_values
+            .iter()
+            .find_map(|(key, value)| if key == field { Some(value) } else { None })
     }
 
     /// Gets a numeric field value.
@@ -484,8 +493,10 @@ impl FieldValues {
     /// # Returns
     ///
     /// A reference to the OwnedValue, or None if field doesn't exist
-    fn get_numeric(&self, field: &str) -> Option<&OwnedValue> {
-        self.numeric_values.get(field)
+    fn get_numeric(&self, field: &str) -> Option<&TantivyValue> {
+        self.numeric_values
+            .iter()
+            .find_map(|(key, value)| if key == field { Some(value) } else { None })
     }
 }
 
@@ -496,10 +507,8 @@ type SearchResultsIter = std::vec::IntoIter<(SearchIndexScore, DocAddress)>;
 type BatchedResultsIter = std::vec::IntoIter<(FieldValues, SearchResultsIter)>;
 /// Map of document addresses to field values and scores
 type MergedResultsMap = HashMap<DocAddress, (FieldValues, SearchIndexScore)>;
-/// Group of field values and document addresses/scores
-type FieldGroupValue = (FieldValues, Vec<(SearchIndexScore, DocAddress)>);
-/// Map of field value representations to groups of documents
-type FieldGroups = HashMap<String, FieldGroupValue>;
+/// Map of field values to groups of documents
+type FieldGroups = HashMap<FieldValues, Vec<(SearchIndexScore, DocAddress)>>;
 
 /// Enum representing different states of mixed aggregation results.
 ///
@@ -680,43 +689,18 @@ impl MixedAggSearcher<'_> {
         let mut field_groups: FieldGroups = HashMap::default();
 
         // Group documents with the same field values
-        for (doc_addr, (field_values, score)) in merged {
-            // Create a stable string representation of the field values for grouping
-            let mut term_keys: Vec<(&String, &Option<String>)> =
-                field_values.string_values.iter().collect();
-            term_keys.sort_by(|a, b| a.0.cmp(b.0));
-
-            let mut num_keys: Vec<(&String, &OwnedValue)> =
-                field_values.numeric_values.iter().collect();
-            num_keys.sort_by(|a, b| a.0.cmp(b.0));
-
-            // Create a key that represents all field values
-            let fields_key = format!(
-                "S:{}|N:{}",
-                term_keys
-                    .iter()
-                    .map(|(k, v)| format!("{}:{:?}", k, v))
-                    .collect::<Vec<_>>()
-                    .join(","),
-                num_keys
-                    .iter()
-                    .map(|(k, v)| format!("{}:{:?}", k, v))
-                    .collect::<Vec<_>>()
-                    .join(",")
-            );
-
-            // Group by field values to avoid duplicate value copies
+        for (doc_addr, (mut field_values, score)) in merged {
+            // Sort the field values to align Eq and Hash.
+            field_values.sort();
+            // And then group.
             field_groups
-                .entry(fields_key)
-                .or_insert_with(|| (field_values, Vec::new()))
-                .1
+                .entry(field_values)
+                .or_default()
                 .push((score, doc_addr));
         }
 
-        // Convert the grouped results to iterator format
-        let result_vec: Vec<FieldGroupValue> = field_groups.into_values().collect();
-
-        let set = result_vec
+        // Convert the grouped results to an iterator
+        let set = field_groups
             .into_iter()
             .map(|(terms, docs)| (terms, docs.into_iter()))
             .collect::<Vec<_>>()
@@ -847,7 +831,7 @@ impl MixedAggSearcher<'_> {
                 .map(|(doc_addr, (mut field_values, score))| {
                     // Ensure all requested fields have entries (even if null)
                     for field in string_fields {
-                        if !field_values.string_values.contains_key(field) {
+                        if field_values.get_string(field).is_none() {
                             field_values.set_string(field.clone(), None);
                         }
                     }

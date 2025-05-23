@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::index::FieldName;
 use crate::api::HashMap;
 use crate::api::Varno;
 use crate::index::reader::index::{SearchIndexReader, SearchResults};
@@ -30,6 +31,7 @@ use crate::postgres::ParallelScanState;
 use crate::query::{AsHumanReadable, SearchQueryInput};
 use pgrx::heap_tuple::PgHeapTuple;
 use pgrx::{name_data_to_str, pg_sys, PgRelation, PgTupleDesc};
+use serde_json::Value;
 use std::cell::UnsafeCell;
 use tantivy::snippet::SnippetGenerator;
 use tantivy::SegmentReader;
@@ -88,7 +90,7 @@ pub struct PdbScanState {
     pub snippet_generators:
         HashMap<SnippetType, Option<(tantivy::schema::Field, SnippetGenerator)>>,
 
-    pub var_attname_lookup: HashMap<(Varno, pg_sys::AttrNumber), String>,
+    pub var_attname_lookup: HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
     pub placeholder_targetlist: Option<*mut pg_sys::List>,
 
     exec_method: UnsafeCell<Box<dyn ExecMethod>>,
@@ -246,7 +248,6 @@ impl PdbScanState {
         let text = unsafe { self.doc_from_heap(ctid, snippet_type.field())? };
         let (field, generator) = self.snippet_generators.get(snippet_type)?.as_ref()?;
         let mut snippet = generator.snippet(&text);
-
         if let SnippetType::Text(_, _, config) = snippet_type {
             snippet.set_snippet_prefix_postfix(&config.start_tag, &config.end_tag);
         }
@@ -310,7 +311,7 @@ impl PdbScanState {
     /// Given a ctid and field name, get the corresponding value from the heap
     ///
     /// This function supports text and text[] fields
-    unsafe fn doc_from_heap(&self, ctid: u64, field: &str) -> Option<String> {
+    unsafe fn doc_from_heap(&self, ctid: u64, field: &FieldName) -> Option<String> {
         let heaprel = self
             .heaprel
             .expect("make_snippet: heaprel should be initialized");
@@ -347,7 +348,7 @@ impl PdbScanState {
 
         let tuple_desc = PgTupleDesc::from_pg_unchecked((*heaprel).rd_att);
         let heap_tuple = PgHeapTuple::from_heap_tuple(tuple_desc.clone(), &mut htup);
-        let (index, attribute) = heap_tuple.get_attribute_by_name(field).unwrap();
+        let (index, attribute) = heap_tuple.get_attribute_by_name(&field.root()).unwrap();
 
         if pg_sys::type_is_array(attribute.type_oid().value()) {
             // varchar[] and text[] are flattened into a single string
@@ -365,9 +366,55 @@ impl PdbScanState {
                 .join(" "),
             )
         } else {
-            heap_tuple
-                .get_by_name(field)
-                .unwrap_or_else(|_| panic!("{} should exist in the heap tuple", field))
+            match (field.root(), field.path()) {
+                (root, Some(path)) => {
+                    let pointer = format!("/{}", path.replace('.', "/"));
+                    let field = match attribute.type_oid().value() {
+                        pg_sys::JSONOID => {
+                            let json_value = heap_tuple
+                                .get_by_name::<pgrx::datum::Json>(&root)
+                                .unwrap_or_else(|_| {
+                                    panic!(
+                                        "doc_from_heap: should be able to read json field {}",
+                                        root
+                                    )
+                                })?
+                                .0;
+                            json_value.pointer(&pointer).cloned()?
+                        }
+                        pg_sys::JSONBOID => {
+                            let json_value = heap_tuple
+                                .get_by_name::<pgrx::datum::JsonB>(&root)
+                                .unwrap_or_else(|_| {
+                                    panic!(
+                                        "doc_from_heap: should be able to read jsonb field {}",
+                                        root
+                                    )
+                                })?
+                                .0;
+                            json_value.pointer(&pointer).cloned()?
+                        }
+                        unsupported => {
+                            return None;
+                        }
+                    };
+
+                    match field {
+                        Value::String(val) => Some(val.to_string()),
+                        Value::Array(array) => Some(array.iter().filter_map(|v| match v {
+                            Value::String(s) => Some(s.to_string()),
+                            _ => None
+                        }).collect::<Vec<_>>().join(" ")),
+                        val => unimplemented!(
+                            "only text fields for json/jsonb are supported for snippets, found {:?}",
+                            val
+                        ),
+                    }
+                }
+                (root, None) => heap_tuple
+                    .get_by_name(&root)
+                    .unwrap_or_else(|_| panic!("doc_from_heap: should be able to read {}", root)),
+            }
         }
     }
 }

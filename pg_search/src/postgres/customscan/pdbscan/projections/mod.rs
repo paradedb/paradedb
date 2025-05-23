@@ -18,7 +18,8 @@
 pub mod score;
 pub mod snippet;
 
-use crate::api::operator::{find_vars, ReturnedNodePointer};
+use crate::api::index::FieldName;
+use crate::api::operator::ReturnedNodePointer;
 use crate::api::HashMap;
 use crate::api::Varno;
 use crate::nodecast;
@@ -26,6 +27,7 @@ use crate::postgres::customscan::pdbscan::projections::score::score_funcoid;
 use crate::postgres::customscan::pdbscan::projections::snippet::{
     snippet_funcoid, snippet_positions_funcoid, SnippetType,
 };
+use crate::postgres::var::{find_one_var, find_one_var_and_fieldname, find_vars};
 use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{pg_extern, pg_guard, pg_sys, Internal, PgList};
 use std::ptr::{addr_of_mut, NonNull};
@@ -131,7 +133,8 @@ pub unsafe fn pullout_funcexprs(
     node: *mut pg_sys::Node,
     funcids: &[pg_sys::Oid],
     rti: i32,
-) -> Vec<(*mut pg_sys::FuncExpr, *mut pg_sys::Var)> {
+    root: *mut pg_sys::PlannerInfo,
+) -> Vec<(*mut pg_sys::FuncExpr, *mut pg_sys::Var, FieldName)> {
     #[pg_guard]
     unsafe extern "C-unwind" fn walker(
         node: *mut pg_sys::Node,
@@ -146,9 +149,9 @@ pub unsafe fn pullout_funcexprs(
             if data.funcids.contains(&(*funcexpr).funcid) {
                 let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
                 for arg in args.iter_ptr() {
-                    if let Some(var) = nodecast!(Var, T_Var, arg) {
+                    if let Some((var, fieldname)) = find_one_var_and_fieldname(data.root, arg) {
                         if (*var).varno as i32 == data.rti as i32 {
-                            data.matches.push((funcexpr, var));
+                            data.matches.push((funcexpr, var, fieldname));
                         }
                     }
                 }
@@ -163,12 +166,14 @@ pub unsafe fn pullout_funcexprs(
     struct Data<'a> {
         funcids: &'a [pg_sys::Oid],
         rti: i32,
-        matches: Vec<(*mut pg_sys::FuncExpr, *mut pg_sys::Var)>,
+        root: *mut pg_sys::PlannerInfo,
+        matches: Vec<(*mut pg_sys::FuncExpr, *mut pg_sys::Var, FieldName)>,
     }
 
     let mut data = Data {
         funcids,
         rti,
+        root,
         matches: vec![],
     };
 
@@ -184,7 +189,7 @@ pub unsafe fn inject_placeholders(
     score_funcoid: pg_sys::Oid,
     snippet_funcoid: pg_sys::Oid,
     snippet_positions_funcoid: pg_sys::Oid,
-    attname_lookup: &HashMap<(Varno, pg_sys::AttrNumber), String>,
+    attname_lookup: &HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
     snippet_generators: &HashMap<SnippetType, Option<(tantivy::schema::Field, SnippetGenerator)>>,
 ) -> (
     *mut pg_sys::List,
@@ -212,7 +217,7 @@ pub unsafe fn inject_placeholders(
             if (*funcexpr).funcid == data.snippet_funcoid
                 || (*funcexpr).funcid == data.snippet_positions_funcoid
             {
-                let var = nodecast!(Var, T_Var, args.get_ptr(0)?)?;
+                let var = find_one_var(args.get_ptr(0)?)?;
                 let key = (data.rti as Varno, (*var).varattno);
 
                 if let Some(attname) = data.attname_lookup.get(&key) {
@@ -271,7 +276,7 @@ pub unsafe fn inject_placeholders(
 
         snippet_funcoid: pg_sys::Oid,
         snippet_positions_funcoid: pg_sys::Oid,
-        attname_lookup: &'a HashMap<(Varno, pg_sys::AttrNumber), String>,
+        attname_lookup: &'a HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
 
         snippet_generators:
             &'a HashMap<SnippetType, Option<(tantivy::schema::Field, SnippetGenerator)>>,

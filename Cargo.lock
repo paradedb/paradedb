@@ -3042,6 +3042,7 @@ dependencies = [
  "strum",
  "tantivy",
  "thiserror 2.0.12",
+ "tinyvec",
  "tokenizers",
  "uuid",
  "vergen",

@@ -4,8 +4,8 @@ use crate::postgres::storage::block::{
     DeleteEntry, FileEntry, LinkedList, MVCCEntry, PgItem, SegmentFileDetails, SegmentMetaEntry,
     SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
 };
-use crate::postgres::storage::merge::MergeLock;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
+use crate::postgres::storage::metadata::MetaPage;
 use anyhow::Result;
 use pgrx::pg_sys;
 use std::path::PathBuf;
@@ -369,9 +369,8 @@ pub unsafe fn load_metas(
             {
                 // If we haven't tried the `segment_metas_garbage` list, try that next.
                 if !exhausted_metas_lists {
-                    if let Some(garbage) =
-                        MergeLock::acquire(relation_oid).segment_metas_garbage_opt()
-                    {
+                    let garbage = MetaPage::open(relation_oid).segment_metas_garbage();
+                    if !garbage.is_empty() {
                         segment_metas = garbage;
                         exhausted_metas_lists = true;
                         continue;

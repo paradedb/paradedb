@@ -69,6 +69,7 @@ struct VacuumListData {
 pub struct VacuumList {
     relation_oid: pg_sys::Oid,
     start_block_number: pg_sys::BlockNumber,
+    ambulkdelete_sentinel: pg_sys::BlockNumber,
 }
 
 impl VacuumList {
@@ -83,10 +84,23 @@ impl VacuumList {
         start_buffer.number()
     }
 
-    pub fn open(relation_oid: pg_sys::Oid, start_block_number: pg_sys::BlockNumber) -> VacuumList {
+    ///
+    /// Open a new vacuum list.
+    ///
+    /// # Arguments
+    ///
+    /// * `relation_oid` - The OID of the relation to vacuum.
+    /// * `start_block_number` - The block number of the first block in the list.
+    /// * `ambulkdelete_sentinel` - The block number of the sentinel block. It is the caller's responsibility to ensure this is a valid block number.
+    pub fn open(
+        relation_oid: pg_sys::Oid,
+        start_block_number: pg_sys::BlockNumber,
+        ambulkdelete_sentinel: pg_sys::BlockNumber,
+    ) -> VacuumList {
         Self {
             relation_oid,
             start_block_number,
+            ambulkdelete_sentinel,
         }
     }
 
@@ -130,6 +144,10 @@ impl VacuumList {
     }
 
     pub fn read_list(&self) -> HashSet<SegmentId> {
+        if !self.is_ambulkdelete_running() {
+            return Default::default();
+        }
+
         let mut segment_ids = HashSet::default();
 
         let bman = BufferManager::new(self.relation_oid);
@@ -158,6 +176,14 @@ impl VacuumList {
         }
 
         segment_ids
+    }
+
+    pub fn is_ambulkdelete_running(&self) -> bool {
+        // an `ambulkdelete()` is running if we can't acquire the sentinel block for cleanup
+        // it means ambulkdelete() is holding a pin on that buffer
+        let mut bman = BufferManager::new(self.relation_oid);
+        bman.get_buffer_for_cleanup_conditional(self.ambulkdelete_sentinel)
+            .is_none()
     }
 }
 

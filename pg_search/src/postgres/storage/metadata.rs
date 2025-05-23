@@ -20,8 +20,10 @@ use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::postgres::storage::block::{
     bm25_max_free_space, BM25PageSpecialData, LinkedList, MVCCEntry, PgItem, METADATA,
 };
-use crate::postgres::storage::merge::{MergeEntry, MergeLock, VacuumList, VacuumSentinel, SegmentIdBytes};
-use crate::postgres::storage::buffer::{BufferManager, BufferMut, PinnedBuffer};
+use crate::postgres::storage::buffer::{Buffer, BufferManager, BufferMut, PinnedBuffer};
+use crate::postgres::storage::merge::{
+    MergeEntry, MergeLock, SegmentIdBytes, VacuumList, VacuumSentinel,
+};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use pgrx::{pg_sys, StringInfo};
 use serde::{Deserialize, Serialize};
@@ -54,34 +56,18 @@ pub struct MetaPageData {
     merge_lock: pg_sys::BlockNumber,
 }
 
-impl MetaPageData {
-    pub fn has_been_initialized(&self) -> bool {
-        block_number_is_initialized(self.active_vacuum_list)
-            && block_number_is_initialized(self.ambulkdelete_sentinel)
-            && block_number_is_initialized(self.segment_meta_garbage)
-            && block_number_is_initialized(self.merge_lock)
-            && block_number_is_initialized(self.merge_list)
-    }
-}
-
 pub struct MetaPage {
-    data: MetaPageData,
-    relation_oid: pg_sys::Oid,
+    buffer: Option<Buffer>,
     bman: BufferManager,
 }
 
 impl MetaPage {
-    pub unsafe fn init(relation_oid: pg_sys::Oid) {
-        let mut bman = BufferManager::new(relation_oid);
-        let mut buffer = bman.get_buffer_mut(METADATA);
-        let mut page = buffer.page_mut();
-        let metadata = page.contents_mut::<MetaPageData>();
-
-        metadata.active_vacuum_list = pg_sys::InvalidBlockNumber;
-        metadata.ambulkdelete_sentinel = pg_sys::InvalidBlockNumber;
-        metadata.create_index_list = pg_sys::InvalidBlockNumber;
-        metadata.segment_meta_garbage = pg_sys::InvalidBlockNumber;
-        metadata.merge_lock = pg_sys::InvalidBlockNumber;
+    fn get_metadata(&self) -> MetaPageData {
+        self.buffer
+            .as_ref()
+            .expect("metapage buffer should have been initialized by now")
+            .page()
+            .contents::<MetaPageData>()
     }
 
     pub unsafe fn open(relation_oid: pg_sys::Oid) -> Self {
@@ -90,11 +76,27 @@ impl MetaPage {
         let page = buffer.page();
         let metadata = page.contents::<MetaPageData>();
 
-        if !metadata.has_been_initialized() {
-            std::mem::drop(buffer);
+        let needs_initialization = !block_number_is_initialized(metadata.segment_meta_garbage)
+            || !block_number_is_initialized(metadata.merge_list)
+            || !block_number_is_initialized(metadata.active_vacuum_list)
+            || !block_number_is_initialized(metadata.ambulkdelete_sentinel);
+
+        if needs_initialization {
+            drop(buffer);
+
             let mut buffer = bman.get_buffer_mut(METADATA);
             let mut page = buffer.page_mut();
-            let metadata = page.contents_mut::<MetaPageData>();
+            let mut metadata = page.contents_mut::<MetaPageData>();
+
+            if !block_number_is_initialized(metadata.segment_meta_garbage) {
+                metadata.segment_meta_garbage =
+                    LinkedItemList::<SegmentMetaEntry>::create(relation_oid).get_header_blockno();
+            }
+
+            if !block_number_is_initialized(metadata.merge_list) {
+                metadata.merge_list =
+                    LinkedItemList::<MergeEntry>::create(relation_oid).get_header_blockno();
+            }
 
             if !block_number_is_initialized(metadata.active_vacuum_list) {
                 metadata.active_vacuum_list = VacuumList::create(relation_oid);
@@ -105,32 +107,11 @@ impl MetaPage {
                 sentinal_buffer.init_page();
                 metadata.ambulkdelete_sentinel = sentinal_buffer.number();
             }
+        }
 
-            if !block_number_is_initialized(metadata.segment_meta_garbage) {
-                let list = LinkedItemList::<SegmentMetaEntry>::create(relation_oid);
-                metadata.segment_meta_garbage = list.get_header_blockno();
-            }
-
-            // if !block_number_is_initialized(metadata.merge_lock) {
-            //     metadata.merge_lock = MergeLock::create(relation_oid);
-            // }
-
-            if !block_number_is_initialized(metadata.merge_list) {
-                let merge_list = LinkedItemList::<MergeEntry>::create(relation_oid);
-                metadata.merge_list = merge_list.get_header_blockno();
-            }
-
-            Self {
-                data: *metadata,
-                relation_oid,
-                bman,
-            }
-        } else {
-            Self {
-                data: metadata,
-                relation_oid,
-                bman,
-            }
+        Self {
+            buffer: Some(bman.get_buffer(METADATA)),
+            bman,
         }
     }
 
@@ -147,49 +128,81 @@ impl MetaPage {
     /// `SEGMENT_METAS_START` is first opened for reading until when they finish consuming the files
     /// for the segments it references.
     ///
-    pub fn segment_metas_garbage(mut self) -> LinkedItemList<SegmentMetaEntry> {
-        assert!(block_number_is_initialized(self.data.segment_meta_garbage));
+    pub fn segment_metas_garbage(&self) -> LinkedItemList<SegmentMetaEntry> {
+        let metadata = self.get_metadata();
         LinkedItemList::<SegmentMetaEntry>::open(
-            self.relation_oid,
-            self.data.segment_meta_garbage,
+            self.bman.relation_oid(),
+            metadata.segment_meta_garbage,
         )
     }
 
     pub fn vacuum_list(&self, merge_lock: Option<MergeLock>) -> VacuumList {
-        VacuumList::open(merge_lock, self.relation_oid, self.data.active_vacuum_list)
-    }
-
-    pub fn pin_ambulkdelete_sentinel(&mut self) -> VacuumSentinel {
-        assert!(block_number_is_initialized(self.data.ambulkdelete_sentinel));
-
-        let sentinel = self.bman.pinned_buffer(self.data.ambulkdelete_sentinel);
-        VacuumSentinel(sentinel)
-    }
-
-    pub unsafe fn in_progress_segment_ids(&self) -> impl Iterator<Item = SegmentId> + use<'_> {
-        if !block_number_is_initialized(self.data.merge_list) {
-            // our merge_list has never been initialized
-            let iter: Box<dyn Iterator<Item = SegmentId>> = Box::new(std::iter::empty());
-            return iter;
-        }
-
-        let entries = LinkedItemList::<MergeEntry>::open(self.relation_oid, self.data.merge_list);
-        Box::new(
-            entries
-                .list()
-                .into_iter()
-                .flat_map(move |merge_entry| merge_entry.segment_ids(self.relation_oid).into_iter()),
+        let metadata = self.get_metadata();
+        VacuumList::open(
+            merge_lock,
+            self.bman.relation_oid(),
+            metadata.active_vacuum_list,
         )
     }
 
+    // TODO: Make this its own struct
+    pub fn merge_list(&self) -> LinkedItemList<MergeEntry> {
+        let metadata = self.get_metadata();
+        LinkedItemList::<MergeEntry>::open(self.bman.relation_oid(), metadata.merge_list)
+    }
+
+    pub unsafe fn in_progress_segment_ids(&self) -> impl Iterator<Item = SegmentId> + use<'_> {
+        Box::new(
+            self.merge_list()
+                .list()
+                .into_iter()
+                .flat_map(move |merge_entry| {
+                    merge_entry
+                        .segment_ids(self.bman.relation_oid())
+                        .into_iter()
+                }),
+        )
+    }
+
+    pub unsafe fn remove_entry(&mut self, merge_entry: MergeEntry) -> anyhow::Result<MergeEntry> {
+        let mut entries = self.merge_list();
+        let removed_entry = entries.remove_item(|entry| entry == &merge_entry)?;
+
+        LinkedBytesList::open(
+            self.bman.relation_oid(),
+            removed_entry.segment_ids_start_blockno,
+        )
+        .return_to_fsm();
+        pg_sys::IndexFreeSpaceMapVacuum(self.bman.bm25cache().indexrel());
+        Ok(removed_entry)
+    }
+
+    pub unsafe fn garbage_collect(&mut self) {
+        let mut entries = self.merge_list();
+        let recycled_entries = entries.garbage_collect();
+        for recycled_entry in recycled_entries {
+            LinkedBytesList::open(
+                self.bman.relation_oid(),
+                recycled_entry.segment_ids_start_blockno,
+            )
+            .return_to_fsm();
+            pg_sys::IndexFreeSpaceMapVacuum(self.bman.bm25cache().indexrel());
+        }
+    }
+
+    pub fn pin_ambulkdelete_sentinel(&mut self) -> VacuumSentinel {
+        let metadata = self.get_metadata();
+        let sentinel = self.bman.pinned_buffer(metadata.ambulkdelete_sentinel);
+        VacuumSentinel(sentinel)
+    }
+
     pub unsafe fn create_index_segment_ids(&self) -> Vec<SegmentId> {
-        if self.data.create_index_list == 0
-            || self.data.create_index_list == pg_sys::InvalidBlockNumber
-        {
+        let metadata = self.get_metadata();
+        if !block_number_is_initialized(metadata.create_index_list) {
             return Vec::new();
         }
 
-        let entries = LinkedBytesList::open(self.relation_oid, self.data.create_index_list);
+        let entries = LinkedBytesList::open(self.bman.relation_oid(), metadata.create_index_list);
         let bytes = entries.read_all();
         bytes
             .chunks(size_of::<SegmentIdBytes>())
@@ -197,43 +210,6 @@ impl MetaPage {
                 SegmentId::from_bytes(entry.try_into().expect("malformed SegmentId entry"))
             })
             .collect()
-    }
-
-    pub unsafe fn in_progress_merge_entries(&self) -> Vec<MergeEntry> {
-        assert!(block_number_is_initialized(self.data.merge_list));
-        LinkedItemList::<MergeEntry>::open(self.relation_oid, self.data.merge_list).list()
-    }
-
-    pub unsafe fn is_merge_in_progress(&self) -> bool {
-        assert!(block_number_is_initialized(self.data.merge_list));
-        !LinkedItemList::<MergeEntry>::open(self.relation_oid, self.data.merge_list).is_empty()
-    }
-
-    pub unsafe fn remove_entry(&mut self, merge_entry: MergeEntry) -> anyhow::Result<MergeEntry> {
-        if !block_number_is_initialized(self.data.merge_list) {
-            panic!("merge_list should have been initialized by now");
-        }
-
-        let mut entries_list = LinkedItemList::<MergeEntry>::open(self.relation_oid, self.data.merge_list);
-        let removed_entry = entries_list.remove_item(|entry| entry == &merge_entry)?;
-
-        LinkedBytesList::open(self.relation_oid, removed_entry.segment_ids_start_blockno).return_to_fsm();
-        pg_sys::IndexFreeSpaceMapVacuum(self.bman.bm25cache().indexrel());
-        Ok(removed_entry)
-    }
-
-    pub unsafe fn garbage_collect(&mut self) {
-        if !block_number_is_initialized(self.data.merge_list) {
-            return;
-        }
-
-        let mut entries_list = LinkedItemList::<MergeEntry>::open(self.relation_oid, self.data.merge_list);
-        let recycled_entries = entries_list.garbage_collect();
-        for recycled_entry in recycled_entries {
-            LinkedBytesList::open(self.relation_oid, recycled_entry.segment_ids_start_blockno)
-                .return_to_fsm();
-            pg_sys::IndexFreeSpaceMapVacuum(self.bman.bm25cache().indexrel());
-        }
     }
 }
 
@@ -255,9 +231,8 @@ impl MetaPageMut {
         }
     }
 
-
     pub unsafe fn record_in_progress_segment_ids<'a>(
-        mut self,
+        &mut self,
         segment_ids: impl IntoIterator<Item = &'a SegmentId>,
     ) -> anyhow::Result<MergeEntry> {
         assert!(pg_sys::IsTransactionState());
@@ -292,13 +267,14 @@ impl MetaPageMut {
             segment_ids_start_blockno,
         };
 
-        let mut entries_list = LinkedItemList::<MergeEntry>::open(self.relation_oid, merge_list_blockno);
+        let mut entries_list =
+            LinkedItemList::<MergeEntry>::open(self.relation_oid, merge_list_blockno);
         entries_list.add_items(&[merge_entry], None);
         Ok(merge_entry)
     }
 
     pub unsafe fn record_create_index_segment_ids<'a>(
-        mut self,
+        &mut self,
         segment_ids: impl IntoIterator<Item = &'a SegmentId>,
     ) -> anyhow::Result<()> {
         let segment_id_bytes = segment_ids

@@ -148,7 +148,7 @@ unsafe fn merge_info(
     let mut result = Vec::new();
     for index in index_kind.partitions() {
         let metadata = MetaPage::open(index.oid());
-        let merge_entries = metadata.in_progress_merge_entries();
+        let merge_entries = metadata.merge_list().list();
         result.extend(merge_entries.into_iter().flat_map(move |merge_entry| {
             let index_name = index.name().to_owned();
             merge_entry

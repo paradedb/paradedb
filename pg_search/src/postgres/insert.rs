@@ -273,7 +273,7 @@ pub unsafe fn merge_index_with_policy(
 
     // the non_mergeable_segments are those that are concurrently being vacuumed *and* merged
     let mut non_mergeable_segments = metadata.vacuum_list().read_list();
-    non_mergeable_segments.extend(metadata.merge_list().list_segment_ids());
+    non_mergeable_segments.extend(merge_lock.merge_list().list_segment_ids());
     let create_index_segment_ids = metadata.create_index_segment_ids();
 
     if pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) {
@@ -319,7 +319,7 @@ pub unsafe fn merge_index_with_policy(
     if ncandidates > 0 {
         // record all the segments the SearchIndexMerger can see, as those are the ones that
         // could be merged
-        let merge_entry = metadata
+        let merge_entry = merge_lock
             .merge_list()
             .add_segment_ids(merge_policy.mergeable_segments())
             .expect("should be able to write current merge segment_id list");
@@ -392,7 +392,7 @@ pub unsafe fn merge_index_with_policy(
 
         // re-acquire the MergeLock to remove the entry we made above
         let merge_lock = metadata.acquire_merge_lock();
-        metadata
+        merge_lock
             .merge_list()
             .remove_entry(merge_entry)
             .expect("should be able to remove MergeEntry");

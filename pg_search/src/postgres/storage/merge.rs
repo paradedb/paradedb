@@ -83,7 +83,7 @@ impl VacuumList {
     }
 
     ///
-    /// Write a list of segment ids to the vacuum list. This overwrites any existing content in the list..
+    /// Write a list of segment ids to the vacuum list. This overwrites any existing content in the list.
     ///
     /// # Arguments
     ///

@@ -18,7 +18,7 @@
 use crate::api::HashSet;
 use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::postgres::storage::block::{
-    bm25_max_free_space, BM25PageSpecialData, LinkedList, MVCCEntry, PgItem, MERGE_LOCK,
+    bm25_max_free_space, BM25PageSpecialData, LinkedList, MVCCEntry, PgItem, METADATA,
 };
 use crate::postgres::storage::buffer::{BufferManager, BufferMut, PinnedBuffer};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
@@ -51,7 +51,7 @@ pub struct MergeLockData {
 }
 
 #[repr(transparent)]
-pub struct VacuumSentinel(PinnedBuffer);
+pub struct VacuumSentinel(pub PinnedBuffer);
 
 /// Only one merge can happen at a time, so we need to lock the merge process
 #[derive(Debug)]
@@ -64,10 +64,10 @@ pub struct MergeLock {
 }
 
 impl MergeLock {
-    /// This is a blocking operation to acquire the MERGE_LOCK.
+    /// This is a blocking operation to acquire the METADATA.
     pub unsafe fn acquire(relation_oid: pg_sys::Oid) -> Self {
         let mut bman = BufferManager::new(relation_oid);
-        let merge_lock = bman.get_buffer_mut(MERGE_LOCK);
+        let merge_lock = bman.get_buffer_mut(METADATA);
         MergeLock {
             buffer: merge_lock,
             bman,
@@ -76,7 +76,7 @@ impl MergeLock {
 
     pub unsafe fn init(relation_id: pg_sys::Oid) -> Self {
         let mut bman = BufferManager::new(relation_id);
-        let mut merge_lock = bman.get_buffer_mut(MERGE_LOCK);
+        let mut merge_lock = bman.get_buffer_mut(METADATA);
         let mut page = merge_lock.page_mut();
         let metadata = page.contents_mut::<MergeLockData>();
 
@@ -374,7 +374,7 @@ impl MergeLock {
     }
 }
 
-type SegmentIdBytes = [u8; 16];
+pub type SegmentIdBytes = [u8; 16];
 #[derive(Debug, Copy, Clone)]
 #[repr(C, packed)]
 struct VacuumListData {
@@ -390,7 +390,7 @@ pub struct VacuumList {
 }
 
 impl VacuumList {
-    fn create(relation_oid: pg_sys::Oid) -> pg_sys::BlockNumber {
+    pub fn create(relation_oid: pg_sys::Oid) -> pg_sys::BlockNumber {
         let mut bman = BufferManager::new(relation_oid);
         let mut start_buffer = bman.new_buffer();
         let mut start_page = start_buffer.init_page();
@@ -401,7 +401,7 @@ impl VacuumList {
         start_buffer.number()
     }
 
-    fn open(
+    pub fn open(
         merge_lock: Option<MergeLock>,
         relation_oid: pg_sys::Oid,
         start_block_number: pg_sys::BlockNumber,

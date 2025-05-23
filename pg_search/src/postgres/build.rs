@@ -19,7 +19,7 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::index::writer::index::SearchIndexWriter;
 use crate::postgres::storage::block::{
-    SegmentMetaEntry, CLEANUP_LOCK, MERGE_LOCK, SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
+    SegmentMetaEntry, CLEANUP_LOCK, METADATA, SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
 };
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::merge::MergeLock;
@@ -264,7 +264,7 @@ unsafe fn create_metadata(index_relation: &PgRelation) {
 
     // Init merge lock buffer
     let mut merge_lock = bman.new_buffer();
-    assert_eq!(merge_lock.number(), MERGE_LOCK);
+    assert_eq!(merge_lock.number(), METADATA);
     merge_lock.init_page();
 
     // Init cleanup lock buffer

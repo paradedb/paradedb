@@ -104,6 +104,12 @@ impl VacuumList {
         }
     }
 
+    ///
+    /// Write a list of segment ids to the vacuum list. This overwrites any existing content in the list..
+    ///
+    /// # Arguments
+    ///
+    /// * `segment_ids` - An iterator of segment ids to write to the list.
     pub fn write_list<'s>(self, segment_ids: impl Iterator<Item = &'s SegmentId>) {
         let mut segment_ids = segment_ids.collect::<Vec<_>>();
         segment_ids.sort();
@@ -144,6 +150,7 @@ impl VacuumList {
     }
 
     pub fn read_list(&self) -> HashSet<SegmentId> {
+        // Instead of clearing the list, we just return an empty list if ambulkdelete is no longer running.
         if !self.is_ambulkdelete_running() {
             return Default::default();
         }

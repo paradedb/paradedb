@@ -384,31 +384,6 @@ pub fn fast_field_capable_prereqs(privdata: &PrivateData) -> bool {
     true
 }
 
-// Check if we can use the mixed fast field execution method
-pub fn is_mixed_fast_field_capable(privdata: &PrivateData) -> bool {
-    if !fast_field_capable_prereqs(privdata) {
-        return false;
-    }
-
-    // Normal mixed fast field detection logic
-    let which_fast_fields = privdata.planned_which_fast_fields().as_ref().unwrap();
-
-    // Filter out junk and system fields for our analysis - we only care about real column fast fields
-    let field_types = which_fast_fields
-        .iter()
-        .filter_map(|ff| match ff {
-            WhichFastField::Named(name, ff_type) => Some((name.clone(), ff_type.clone())),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-
-    if field_types.is_empty() {
-        return false; // No named fast fields
-    }
-
-    true
-}
-
 // Update is_string_agg_capable to consider test requirements
 pub fn is_string_agg_capable_with_prereqs(privdata: &PrivateData) -> Option<String> {
     if !fast_field_capable_prereqs(privdata) {

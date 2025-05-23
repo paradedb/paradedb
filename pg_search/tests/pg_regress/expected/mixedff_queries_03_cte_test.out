@@ -150,7 +150,9 @@ ORDER BY document_title, file_title, page_number;
            ->  Custom Scan (ParadeDB Scan) on files f
                  Table: files
                  Index: files_search
-                 Exec Method: NormalScanExecState
+                 Exec Method: MixedFastFieldExecState
+                 Fast Fields: documentid, file_path, id, title
+                 String Fast Fields: documentid, file_path, id, title
                  Scores: false
                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"CTE Test","lenient":null,"conjunction_mode":null}}}}
            ->  CTE Scan on searchable_docs sd_1
@@ -172,7 +174,7 @@ ORDER BY document_title, file_title, page_number;
                Numeric Fast Fields: page_number
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable OR testing","lenient":null,"conjunction_mode":null}}}}
-(39 rows)
+(41 rows)
 
 -- Test with CTE
 WITH searchable_docs AS (

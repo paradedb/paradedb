@@ -78,11 +78,14 @@ LIMIT 10;
          ->  Custom Scan (ParadeDB Scan) on data_records
                Table: data_records
                Index: records_no_fast_idx
-               Exec Method: NormalScanExecState
+               Exec Method: MixedFastFieldExecState
+               Fast Fields: category, id
+               String Fast Fields: category
+               Numeric Fast Fields: id
                Scores: false
                   Top N Limit: 10
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+(13 rows)
 
 -- 'Test 2: ORDER BY with LIMIT (should use TopNScanExecState)'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -381,11 +384,14 @@ LIMIT 10;
          ->  Custom Scan (ParadeDB Scan) on data_records
                Table: data_records
                Index: records_with_fast_idx
-               Exec Method: NormalScanExecState
+               Exec Method: MixedFastFieldExecState
+               Fast Fields: category, id
+               String Fast Fields: category
+               Numeric Fast Fields: id
                Scores: false
                   Top N Limit: 10
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+(13 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, title, category
@@ -401,11 +407,14 @@ LIMIT 10;
          ->  Custom Scan (ParadeDB Scan) on data_records
                Table: data_records
                Index: records_with_fast_idx
-               Exec Method: NormalScanExecState
+               Exec Method: MixedFastFieldExecState
+               Fast Fields: category, id
+               String Fast Fields: category
+               Numeric Fast Fields: id
                Scores: false
                   Top N Limit: 10
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+(13 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, title, category
@@ -421,11 +430,14 @@ LIMIT 10;
          ->  Custom Scan (ParadeDB Scan) on data_records
                Table: data_records
                Index: records_with_fast_idx
-               Exec Method: NormalScanExecState
+               Exec Method: MixedFastFieldExecState
+               Fast Fields: category, id
+               String Fast Fields: category
+               Numeric Fast Fields: id
                Scores: false
                   Top N Limit: 10
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+(13 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, title, category
@@ -441,11 +453,14 @@ LIMIT 10;
          ->  Custom Scan (ParadeDB Scan) on data_records
                Table: data_records
                Index: records_with_fast_idx
-               Exec Method: NormalScanExecState
+               Exec Method: MixedFastFieldExecState
+               Fast Fields: category, id
+               String Fast Fields: category
+               Numeric Fast Fields: id
                Scores: false
                   Top N Limit: 10
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+(13 rows)
 
 -- 'Test 7: ORDER BY with no LIMIT (should use MixedFastFieldExecState)'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -460,10 +475,13 @@ ORDER BY id;
    ->  Custom Scan (ParadeDB Scan) on data_records
          Table: data_records
          Index: records_with_fast_idx
-         Exec Method: NormalScanExecState
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: category, id, tags
+         String Fast Fields: category
+         Numeric Fast Fields: id, tags
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
-(8 rows)
+(11 rows)
 
 -- Cleanup
 DROP INDEX IF EXISTS records_no_fast_idx;

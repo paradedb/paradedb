@@ -65,28 +65,16 @@ pub fn with_index(index: PgRelation, query: SearchQueryInput) -> SearchQueryInpu
 
 #[derive(Default)]
 struct Cache {
-    by_query: HashMap<usize, (PgOid, HashSet<TantivyValue>)>,
+    by_query: HashMap<Vec<u8>, (PgOid, HashSet<TantivyValue>)>,
 }
 
-pub struct FakeSearchQueryInput;
-
-unsafe impl<'fcx> ArgAbi<'fcx> for FakeSearchQueryInput {
-    unsafe fn unbox_arg_unchecked(_arg: Arg<'_, 'fcx>) -> Self {
-        Self
-    }
-}
-
-unsafe impl SqlTranslatable for FakeSearchQueryInput {
-    fn argument_sql() -> Result<SqlMapping, ArgumentError> {
-        Ok(SqlMapping::As("SearchQueryInput".into()))
-    }
-
-    fn return_sql() -> Result<Returns, ReturnsError> {
-        Err(ReturnsError::Datum)
-    }
-}
-
+/// Allows us to have a UDF with an argument of type `anyelement` but not do any pgrx-related
+/// datum conversion
 pub struct FakeAnyElement;
+
+/// Allows us to have a UDF with an argument of type `SearchQueryInput` but not do any pgrx-related
+/// datum conversion
+pub struct FakeSearchQueryInput;
 
 unsafe impl<'fcx> ArgAbi<'fcx> for FakeAnyElement {
     unsafe fn unbox_arg_unchecked(_arg: Arg<'_, 'fcx>) -> Self {
@@ -104,6 +92,22 @@ unsafe impl SqlTranslatable for FakeAnyElement {
     }
 }
 
+unsafe impl<'fcx> ArgAbi<'fcx> for FakeSearchQueryInput {
+    unsafe fn unbox_arg_unchecked(_arg: Arg<'_, 'fcx>) -> Self {
+        Self
+    }
+}
+
+unsafe impl SqlTranslatable for FakeSearchQueryInput {
+    fn argument_sql() -> Result<SqlMapping, ArgumentError> {
+        Ok(SqlMapping::As("SearchQueryInput".into()))
+    }
+
+    fn return_sql() -> Result<Returns, ReturnsError> {
+        Err(ReturnsError::Datum)
+    }
+}
+
 #[allow(unused_variables)]
 #[pg_extern(immutable, parallel_safe, cost = 1000000000)]
 pub fn search_with_query_input(
@@ -111,42 +115,31 @@ pub fn search_with_query_input(
     query: FakeSearchQueryInput,
     fcinfo: pg_sys::FunctionCallInfo,
 ) -> bool {
-    unsafe {
-        assert!(
-            (*(*fcinfo).flinfo).fn_strict,
-            "paradedb.search_with_query_input must be STRICT"
-        );
-    }
+    assert!(
+        unsafe { (*(*fcinfo).flinfo).fn_strict },
+        "paradedb.search_with_query_input must be STRICT"
+    );
+
     // get the Cache attached to this instance of the function
     let mut cache = unsafe { pg_func_extra(fcinfo, Cache::default) };
 
-    // we get the raw query datum from fcinfo.  Because this function is declared STRICT we're guaranteed
-    // that it won't be a SQL NULL
+    // get the raw query datum from fcinfo.  because this function is declared STRICT we're guaranteed
+    // that it won't be SQL NULL
     let query_datum = unsafe { pg_getarg_datum_raw(fcinfo, 1) };
 
-    // and we use the datum's "value" (its memory address) as our top-level cache key.  Different
-    // values for this argument will be at different memory addresses.  This avoids needing to convert
-    // the datum into an actual SearchQueryInput on every call and somehow using that (or some string-like form of it)
-    // as our cache key -- doing so introduces a significant amount of overhead.
-    let query_address = query_datum.value();
-
-    let search_query_input = unsafe {
-        SearchQueryInput::from_datum(query_datum, query_datum.is_null())
-            .expect("the query argument cannot be NULL")
+    // we build a cache of query results, where the key is the Vec<u8> representation of the raw query datum.
+    // this form is chosen as it's the most efficient way to uniquely identify the input query with as
+    // minimal overhead as possible.
+    let key = unsafe {
+        let varlena = query_datum.cast_mut_ptr::<pg_sys::varlena>();
+        pgrx::varlena_to_byte_slice(varlena).to_vec()
     };
 
-    pgrx::warning!(
-        "received query at address={}, query={search_query_input:?}",
-        query_address
-    );
-
-    let (element_oid, matches) = cache.by_query.entry(query_address).or_insert_with(|| {
+    let (element_oid, matches) = cache.by_query.entry(key).or_insert_with(|| {
         let search_query_input = unsafe {
             SearchQueryInput::from_datum(query_datum, query_datum.is_null())
                 .expect("the query argument cannot be NULL")
         };
-
-        pgrx::warning!("decoded query at address={}, query={search_query_input:?}", query_address);
 
         let index_oid = search_query_input
             .index_oid()
@@ -191,7 +184,6 @@ pub fn search_with_query_input(
         let element = pg_getarg_datum_raw(fcinfo, 0);
         let user_value =
             TantivyValue::try_from_datum(element, *element_oid).expect("no value present");
-        pgrx::warning!("user value={user_value:?}");
         matches.contains(&user_value)
     }
 }

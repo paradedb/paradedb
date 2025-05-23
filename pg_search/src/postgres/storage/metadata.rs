@@ -137,7 +137,11 @@ impl MetaPage {
 
     pub fn vacuum_list(&self) -> VacuumList {
         let metadata = self.get_metadata();
-        VacuumList::open(self.bman.relation_oid(), metadata.active_vacuum_list)
+        VacuumList::open(
+            self.bman.relation_oid(),
+            metadata.active_vacuum_list,
+            metadata.ambulkdelete_sentinel,
+        )
     }
 
     // TODO: Make this its own struct

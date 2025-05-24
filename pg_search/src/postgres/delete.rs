@@ -24,7 +24,7 @@ use crate::index::reader::index::SearchIndexReader;
 use crate::index::writer::index::SearchIndexWriter;
 use crate::index::WriterResources;
 use crate::postgres::storage::buffer::BufferManager;
-use crate::postgres::storage::merge::MergeLock;
+use crate::postgres::storage::metadata::MetaPage;
 
 #[pg_guard]
 pub unsafe extern "C-unwind" fn ambulkdelete(
@@ -47,25 +47,21 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     // first, we need an exclusive lock on the CLEANUP_LOCK.  Once we get it, we know that there
     // are no concurrent merges happening
     let cleanup_lock = BufferManager::new(index_relation.oid()).get_buffer_mut(CLEANUP_LOCK);
+    let mut metadata = MetaPage::open(index_relation.oid());
 
     // take the MergeLock
-    let merge_lock = {
-        // this should acquire instantly as at this point, because of our exclusive lock on CLEANUP_LOCK
-        // we know there's nobody else that might also be holding the merge lock
-        let mut merge_lock = MergeLock::acquire(index_relation.oid());
+    let merge_lock = metadata.acquire_merge_lock();
 
-        // garbage collecting the MergeLock is necessary to remove any stale entries that may have
-        // been leftover from a cancelled merge or crash during merge
-        merge_lock.garbage_collect();
-        pg_sys::IndexFreeSpaceMapVacuum(index_relation.as_ptr());
+    // garbage collecting the MergeList is necessary to remove any stale entries that may have
+    // been leftover from a cancelled merge or crash during merge
+    merge_lock.merge_list().garbage_collect();
+    pg_sys::IndexFreeSpaceMapVacuum(index_relation.as_ptr());
 
-        // and now we should not have any merges happening, and cannot
-        assert!(
-            !merge_lock.is_merge_in_progress(),
-            "ambulkdelete cannot run concurrently with an active merge operation"
-        );
-        merge_lock
-    };
+    // and now we should not have any merges happening, and cannot
+    assert!(
+        merge_lock.merge_list().is_empty(),
+        "ambulkdelete cannot run concurrently with an active merge operation"
+    );
     drop(cleanup_lock);
 
     let mut index_writer = SearchIndexWriter::open(
@@ -79,12 +75,13 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
 
     let writer_segment_ids = index_writer.segment_ids();
 
-    // write out the list of segment ids we're about to operate on.  Doing so drops the MergeLock
-    // and returns the `vacuum_sentinel`.  The segment ids written here will be excluded from possible
-    // future concurrent merges, until `vacuum_sentinel` is dropped
-    let vacuum_sentinel = merge_lock
-        .vacuum_list()
-        .write_list(writer_segment_ids.iter());
+    // Write out the list of segment ids we're about to operate on
+    // Then acquire a `vacuum_sentinel` to notify concurrent backends that a vacuum is happening
+    // The segment ids written here will be excluded from possible future concurrent merges, until `vacuum_sentinel` is dropped
+    metadata.vacuum_list().write_list(writer_segment_ids.iter());
+    let vacuum_sentinel = metadata.pin_ambulkdelete_sentinel();
+    // It's important to drop the merge lock after the `vacuum_sentinel` is pinned
+    drop(merge_lock);
 
     let mut did_delete = false;
     for segment_reader in reader.segment_readers() {

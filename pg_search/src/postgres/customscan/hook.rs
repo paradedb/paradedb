@@ -73,11 +73,11 @@ pub extern "C-unwind" fn paradedb_rel_pathlist_callback<CS: CustomScan>(
             return;
         }
 
-        if let Some(mut path) =
-            CS::rel_pathlist_callback(CustomPathBuilder::new::<CS>(root, rel, rti, rte))
-        {
-            let forced = path.flags & Flags::Force as u32 != 0;
-            path.flags ^= Flags::Force as u32; // make sure to clear this flag because it's special to us
+        let paths = CS::rel_pathlist_callback(CustomPathBuilder::new::<CS>(root, rel, rti, rte));
+
+        for mut path in paths {
+            let is_forced = path.flags & Flags::Force as u32 != 0;
+            path.flags ^= Flags::Force as u32; // clear the force flag
 
             let mut custom_path = PgMemoryContexts::CurrentMemoryContext
                 .copy_ptr_into(&mut path, std::mem::size_of_val(&path));
@@ -103,13 +103,18 @@ pub extern "C-unwind" fn paradedb_rel_pathlist_callback<CS: CustomScan>(
 
                 // will be added down below
                 custom_path = copy.cast();
-            } else if forced {
+            } else if is_forced {
                 // remove all the existing possible paths
                 (*rel).pathlist = std::ptr::null_mut();
             }
 
             // add this path for consideration
             pg_sys::add_path(rel, custom_path.cast());
+
+            // if the path was forced, we're done
+            if is_forced {
+                break;
+            }
         }
     }
 }

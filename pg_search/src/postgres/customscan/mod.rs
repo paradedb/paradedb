@@ -103,7 +103,7 @@ pub trait CustomScan: ExecMethod + Default + Sized {
 
     fn rel_pathlist_callback(
         builder: CustomPathBuilder<Self::PrivateData>,
-    ) -> Option<pg_sys::CustomPath>;
+    ) -> Vec<pg_sys::CustomPath>;
 
     fn plan_custom_path(builder: CustomScanBuilder<Self::PrivateData>) -> pg_sys::CustomScan;
 

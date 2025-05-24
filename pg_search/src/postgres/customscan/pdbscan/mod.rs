@@ -199,13 +199,13 @@ impl CustomScan for PdbScan {
 
     fn rel_pathlist_callback(
         mut builder: CustomPathBuilder<Self::PrivateData>,
-    ) -> Option<pg_sys::CustomPath> {
+    ) -> Vec<pg_sys::CustomPath> {
         unsafe {
             let (restrict_info, ri_type) = builder.restrict_info();
             if matches!(ri_type, RestrictInfoType::None) {
                 // this relation has no restrictions (WHERE clause predicates), so there's no need
                 // for us to do anything
-                return None;
+                return vec![];
             }
 
             let rti = builder.args().rti;
@@ -216,17 +216,20 @@ impl CustomScan for PdbScan {
                 if rte.rtekind != pg_sys::RTEKind::RTE_RELATION
                     && rte.rtekind != pg_sys::RTEKind::RTE_JOIN
                 {
-                    return None;
+                    return vec![];
                 }
 
                 // and we only work on plain relations
                 let relkind = pg_sys::get_rel_relkind(rte.relid) as u8;
                 if relkind != pg_sys::RELKIND_RELATION && relkind != pg_sys::RELKIND_MATVIEW {
-                    return None;
+                    return vec![];
                 }
 
                 // and that relation must have a `USING bm25` index
-                let (table, bm25_index) = rel_get_bm25_index(rte.relid)?;
+                let (table, bm25_index) = match rel_get_bm25_index(rte.relid) {
+                    Some(result) => result,
+                    None => return vec![],
+                };
 
                 (table, bm25_index)
             };
@@ -312,14 +315,14 @@ impl CustomScan for PdbScan {
                 // use our `@@@` operator.  Perhaps in the future we can do this, but we don't want to
                 // circumvent Postgres' other possible plans that might do index scans over a btree
                 // index or something
-                return None;
+                return vec![];
             }
 
             let Some(quals) = quals else {
                 // if we are not able to push down all of the quals, then do not propose the custom
                 // scan, as that would mean executing filtering against heap tuples (which amounts
                 // to a join, and would require more planning).
-                return None;
+                return vec![];
             };
             let query = SearchQueryInput::from(&quals);
             let norm_selec = if restrict_info.len() == 1 {
@@ -499,7 +502,7 @@ impl CustomScan for PdbScan {
             // indicate that we'll be doing projection ourselves
             builder = builder.set_flag(Flags::Projection);
 
-            Some(builder.build())
+            vec![builder.build()]
         }
     }
 

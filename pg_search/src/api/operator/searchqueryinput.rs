@@ -28,10 +28,13 @@ use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
 use crate::{nodecast, UNKNOWN_SELECTIVITY};
-use parking_lot::Mutex;
+use pgrx::callconv::{Arg, ArgAbi};
+use pgrx::pgrx_sql_entity_graph::metadata::{
+    ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
+};
 use pgrx::{
-    check_for_interrupts, pg_extern, pg_func_extra, pg_sys, AnyElement, FromDatum, Internal,
-    PgList, PgOid, PgRelation,
+    check_for_interrupts, pg_extern, pg_func_extra, pg_getarg_datum_raw, pg_getarg_type, pg_sys,
+    FromDatum, Internal, PgList, PgOid, PgRelation,
 };
 use std::ptr::NonNull;
 
@@ -62,26 +65,86 @@ pub fn with_index(index: PgRelation, query: SearchQueryInput) -> SearchQueryInpu
 
 #[derive(Default)]
 struct Cache {
-    search_readers: Mutex<HashMap<pg_sys::Oid, (SearchIndexReader, FFHelper)>>,
-    matches: Mutex<HashMap<(pg_sys::Oid, String), HashSet<TantivyValue>>>,
+    by_query: HashMap<Vec<u8>, (PgOid, HashSet<TantivyValue>)>,
 }
 
+/// Allows us to have a UDF with an argument of type `anyelement` but not do any pgrx-related
+/// datum conversion
+pub struct FakeAnyElement;
+
+/// Allows us to have a UDF with an argument of type `SearchQueryInput` but not do any pgrx-related
+/// datum conversion
+pub struct FakeSearchQueryInput;
+
+unsafe impl<'fcx> ArgAbi<'fcx> for FakeAnyElement {
+    unsafe fn unbox_arg_unchecked(_arg: Arg<'_, 'fcx>) -> Self {
+        Self
+    }
+}
+
+unsafe impl SqlTranslatable for FakeAnyElement {
+    fn argument_sql() -> Result<SqlMapping, ArgumentError> {
+        Ok(SqlMapping::As("anyelement".into()))
+    }
+
+    fn return_sql() -> Result<Returns, ReturnsError> {
+        Err(ReturnsError::Datum)
+    }
+}
+
+unsafe impl<'fcx> ArgAbi<'fcx> for FakeSearchQueryInput {
+    unsafe fn unbox_arg_unchecked(_arg: Arg<'_, 'fcx>) -> Self {
+        Self
+    }
+}
+
+unsafe impl SqlTranslatable for FakeSearchQueryInput {
+    fn argument_sql() -> Result<SqlMapping, ArgumentError> {
+        Ok(SqlMapping::As("SearchQueryInput".into()))
+    }
+
+    fn return_sql() -> Result<Returns, ReturnsError> {
+        Err(ReturnsError::Datum)
+    }
+}
+
+#[allow(unused_variables)]
 #[pg_extern(immutable, parallel_safe, cost = 1000000000)]
 pub fn search_with_query_input(
-    element: AnyElement,
-    query: SearchQueryInput,
+    element: FakeAnyElement,
+    query: FakeSearchQueryInput,
     fcinfo: pg_sys::FunctionCallInfo,
 ) -> bool {
-    let index_oid = query
-        .index_oid()
-        .unwrap_or_else(|| panic!("the query argument must be wrapped in a `SearchQueryInput::WithIndex` variant.  Try using `paradedb.with_index('<index name>', <original expression>)`"));
+    assert!(
+        unsafe { (*(*fcinfo).flinfo).fn_strict },
+        "paradedb.search_with_query_input must be STRICT"
+    );
 
     // get the Cache attached to this instance of the function
-    let cache = unsafe { pg_func_extra(fcinfo, Cache::default) };
+    let mut cache = unsafe { pg_func_extra(fcinfo, Cache::default) };
 
-    // and get/initialize the SearchReader and FFHelper for this index_oid
-    let mut search_readers = cache.search_readers.lock();
-    let (search_reader, ff_helper) = search_readers.entry(index_oid).or_insert_with(|| {
+    // get the raw query datum from fcinfo.  because this function is declared STRICT we're guaranteed
+    // that it won't be SQL NULL
+    let query_datum = unsafe { pg_getarg_datum_raw(fcinfo, 1) };
+
+    // we build a cache of query results, where the key is the Vec<u8> representation of the raw query datum.
+    // this form is chosen as it's the most efficient way to uniquely identify the input query with as
+    // minimal overhead as possible.
+    let key = unsafe {
+        let varlena = query_datum.cast_mut_ptr::<pg_sys::varlena>();
+        pgrx::varlena_to_byte_slice(varlena).to_vec()
+    };
+
+    let (element_oid, matches) = cache.by_query.entry(key).or_insert_with(|| {
+        let search_query_input = unsafe {
+            SearchQueryInput::from_datum(query_datum, query_datum.is_null())
+                .expect("the query argument cannot be NULL")
+        };
+
+        let index_oid = search_query_input
+            .index_oid()
+            .unwrap_or_else(|| panic!("the query argument must be wrapped in a `SearchQueryInput::WithIndex` variant.  Try using `paradedb.with_index('<index name>', <original expression>)`"));
+
         let index_relation = unsafe {
             PgRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE)
         };
@@ -93,33 +156,34 @@ pub fn search_with_query_input(
         let ff_helper =
             FFHelper::with_fields(&search_reader, &[(key_field_name, key_field_type).into()]);
 
-        (search_reader, ff_helper)
-    });
-
-    // now, query the SearchReader and collect up the docs that match our query.
-    // the matches are cached so that the same input query will return the same results
-    // throughout the duration of the scan
-    let mut matches = cache.matches.lock();
-    let matches_key = (index_oid, format!("{query:?}")); // NB:  ideally, `SearchQueryInput` would `#[derive(Hash)]`, but it can't (easily)
-    let matches = matches.entry(matches_key).or_insert_with(|| {
-        search_reader
-            .search(query.need_scores(), false, &query, None)
+        // now, query the SearchReader and collect up the docs that match our query.
+        // the matches are cached so that the same input query will return the same results
+        // throughout the duration of the scan
+        let matches = search_reader
+            .search(
+                search_query_input.need_scores(),
+                false,
+                &search_query_input,
+                None,
+            )
             .map(|(_, doc_address)| {
                 check_for_interrupts!();
                 ff_helper
                     .value(0, doc_address)
                     .expect("key_field value should not be null")
             })
-            .collect()
+            .collect();
+        let element_oid = unsafe { pg_getarg_type(fcinfo, 0) };
+
+        (PgOid::from_untagged(element_oid), matches)
     });
 
     // finally, see if the value on the lhs of the @@@ operator (which should always be our "key_field")
     // is contained in the matches set
     unsafe {
+        let element = pg_getarg_datum_raw(fcinfo, 0);
         let user_value =
-            TantivyValue::try_from_datum(element.datum(), PgOid::from_untagged(element.oid()))
-                .expect("no value present");
-
+            TantivyValue::try_from_datum(element, *element_oid).expect("no value present");
         matches.contains(&user_value)
     }
 }

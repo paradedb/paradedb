@@ -297,6 +297,7 @@ impl fmt::Display for TantivyValue {
                 )
             }
             tantivy::schema::OwnedValue::Object(_) => write!(f, "json object"),
+            tantivy::schema::OwnedValue::Null => write!(f, "<null>"),
             _ => panic!("tantivy owned value not supported"),
         }
     }
@@ -312,6 +313,7 @@ impl Hash for TantivyValue {
             tantivy::schema::OwnedValue::Bool(bool) => bool.hash(state),
             tantivy::schema::OwnedValue::Date(datetime) => datetime.hash(state),
             tantivy::schema::OwnedValue::Bytes(bytes) => bytes.hash(state),
+            tantivy::schema::OwnedValue::Null => 0_u8.hash(state),
             _ => panic!("tantivy owned value not supported"),
         }
     }

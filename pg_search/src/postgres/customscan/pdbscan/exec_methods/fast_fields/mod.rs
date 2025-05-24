@@ -33,6 +33,8 @@ use crate::schema::SearchIndexSchema;
 use itertools::Itertools;
 use pgrx::pg_sys::CustomScanState;
 use pgrx::{pg_sys, IntoDatum, PgList, PgOid, PgRelation, PgTupleDesc};
+use tantivy::columnar::StrColumn;
+use tantivy::termdict::TermOrdinal;
 use tantivy::DocAddress;
 
 pub struct FastFieldExecState {
@@ -521,6 +523,28 @@ pub fn estimate_cardinality(indexrel: &PgRelation, field: &str) -> Option<usize>
             .flatten()?
             .num_terms(),
     )
+}
+
+/// Given a _sorted_ iterator over TermOrdinals, return a Vec of term values of the same length.
+pub fn sorted_ords_to_terms(
+    str_ff: &StrColumn,
+    term_ordinals: impl IntoIterator<Item = TermOrdinal>,
+) -> Vec<String> {
+    let mut terms = Vec::new();
+    let all_terms_found = str_ff
+        .dictionary()
+        .sorted_ords_to_term_cb(term_ordinals.into_iter(), |bytes| {
+            terms.push(
+                std::str::from_utf8(bytes)
+                    .expect("term should be valid utf8")
+                    .to_owned(),
+            );
+
+            Ok(())
+        })
+        .expect("term ord resolution should succeed");
+    assert!(all_terms_found, "Did not locate all terms.");
+    terms
 }
 
 /// Process attributes using fast fields, creating a mapping and populating the datum array.

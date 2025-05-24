@@ -211,7 +211,10 @@ LIMIT 10;
                            ->  Custom Scan (ParadeDB Scan) on pages
                                  Table: pages
                                  Index: pages_search
-                                 Exec Method: NormalScanExecState
+                                 Exec Method: MixedFastFieldExecState
+                                 Fast Fields: fileid, page_number
+                                 String Fast Fields: fileid
+                                 Numeric Fast Fields: page_number
                                  Scores: false
                                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
                ->  Custom Scan (ParadeDB Scan) on documents
@@ -224,7 +227,7 @@ LIMIT 10;
                         Sort Field: id
                         Sort Direction: asc
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Factures","lenient":null,"conjunction_mode":null}}}}
-(36 rows)
+(39 rows)
 
 DROP TABLE IF EXISTS pages CASCADE;
 CREATE TABLE pages (

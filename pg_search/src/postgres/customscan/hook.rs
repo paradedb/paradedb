@@ -169,6 +169,11 @@ pub extern "C-unwind" fn paradedb_join_pathlist_callback<CS: CustomScan>(
             return;
         }
 
+        // Check if custom join feature is enabled
+        if !gucs::is_custom_join_enabled() {
+            return;
+        }
+
         warning!(
             "ParadeDB: Join pathlist callback called - jointype: {:?}, outer relids: {:?}, inner relids: {:?}",
             jointype,

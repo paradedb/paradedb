@@ -10,7 +10,6 @@ on:
     branches: # On the `staging` and `main` branches, we run Stressgres in PRs to test thoroughly
       - main
       - staging
-      - dev # Remove once done testing
   push:
     branches: # On the `dev` branch, we run Stressgres post pushes to speed up CI
       - dev
@@ -53,9 +52,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: paradedb
-
-      - name: Force failure
-        run: exit 1
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1

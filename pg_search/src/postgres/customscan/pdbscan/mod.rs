@@ -519,9 +519,12 @@ impl CustomScan for PdbScan {
                 // This is a join node - handle differently
                 pgrx::warning!("ParadeDB: Planning custom join path with scanrelid = 0");
 
-                // For join nodes, we don't have a specific relation to scan
-                // Instead, we need to handle the join logic
-                // For now, we'll create a minimal plan that can be executed
+                // For join nodes, we need to ensure the target list is properly set up
+                // The target list should contain all the columns that the upper plan nodes expect
+
+                // For now, we'll use the target list as-is since it should already contain
+                // the correct entries for the join result
+                pgrx::warning!("ParadeDB: Join target list has {} entries", tlist.len());
 
                 // Set up basic join metadata in private data
                 // This will be expanded in later milestones
@@ -794,7 +797,17 @@ impl CustomScan for PdbScan {
                 // For now, just set up minimal state for EXPLAIN
 
                 if eflags & (pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) != 0 {
-                    // For EXPLAIN, just return without setting up execution state
+                    // For EXPLAIN, we still need to set up basic tuple slot infrastructure
+                    // Use a generic tuple descriptor for the result
+                    let tupdesc =
+                        pg_sys::CreateTemplateTupleDesc(state.custom_state().targetlist_len as _);
+                    pg_sys::ExecInitScanTupleSlot(
+                        estate,
+                        addr_of_mut!(state.csstate.ss),
+                        tupdesc,
+                        pg_sys::table_slot_callbacks(std::ptr::null_mut()),
+                    );
+                    pg_sys::ExecInitResultTypeTL(addr_of_mut!(state.csstate.ss.ps));
                     return;
                 }
 
@@ -1414,6 +1427,35 @@ pub unsafe fn bms_iter(bms: *mut pg_sys::Bitmapset) -> impl Iterator<Item = pg_s
 // Helper function to check if a Bitmapset is empty
 pub unsafe fn bms_is_empty(bms: *mut pg_sys::Bitmapset) -> bool {
     bms_iter(bms).next().is_none()
+}
+
+pub unsafe fn get_rel_name_from_rti_list(
+    rtis: *mut pg_sys::Bitmapset,
+    root: *mut pg_sys::PlannerInfo,
+) -> Vec<String> {
+    bms_iter(rtis)
+        .map(|rti| get_rel_name_from_rti(rti, root))
+        .collect()
+}
+
+pub unsafe fn get_rel_name_from_rti(rti: pg_sys::Index, root: *mut pg_sys::PlannerInfo) -> String {
+    let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
+    if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
+        get_rel_name((*rte).relid)
+    } else {
+        format!("rti_{}_non_rel", rti)
+    }
+}
+
+pub unsafe fn get_rel_name(relid: pg_sys::Oid) -> String {
+    let relname = pg_sys::get_rel_name(relid);
+    if relname.is_null() {
+        format!("rti_{}", relid)
+    } else {
+        std::ffi::CStr::from_ptr(relname)
+            .to_string_lossy()
+            .to_string()
+    }
 }
 
 // Helper function to determine if we're dealing with a partitioned table setup

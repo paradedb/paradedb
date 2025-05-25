@@ -18,7 +18,7 @@
 use crate::api::HashMap;
 use crate::gucs;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
-use crate::postgres::customscan::pdbscan::bms_iter;
+use crate::postgres::customscan::pdbscan::{bms_iter, get_rel_name, get_rel_name_from_rti_list};
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::rel_get_bm25_index;
 use once_cell::sync::Lazy;
@@ -179,32 +179,8 @@ pub extern "C-unwind" fn paradedb_join_pathlist_callback<CS: CustomScan>(
         warning!(
             "ParadeDB: Join pathlist callback called - jointype: {:?}, outer relids: {:?}, inner relids: {:?}",
             jointype,
-            bms_iter((*outerrel).relids).map(|rti| {
-                let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
-                if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
-                    let relname = pg_sys::get_rel_name((*rte).relid);
-                    if relname.is_null() {
-                        format!("rti_{}", rti)
-                    } else {
-                        std::ffi::CStr::from_ptr(relname).to_string_lossy().to_string()
-                    }
-                } else {
-                    format!("rti_{}_non_rel", rti)
-                }
-            }).collect::<Vec<_>>(),
-            bms_iter((*innerrel).relids).map(|rti| {
-                let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
-                if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
-                    let relname = pg_sys::get_rel_name((*rte).relid);
-                    if relname.is_null() {
-                        format!("rti_{}", rti)
-                    } else {
-                        std::ffi::CStr::from_ptr(relname).to_string_lossy().to_string()
-                    }
-                } else {
-                    format!("rti_{}_non_rel", rti)
-                }
-            }).collect::<Vec<_>>()
+            get_rel_name_from_rti_list((*outerrel).relids, root),
+            get_rel_name_from_rti_list((*innerrel).relids, root),
         );
 
         // Basic feasibility check - both relations must be base relations for now
@@ -256,17 +232,23 @@ unsafe fn has_bm25_index(root: *mut pg_sys::PlannerInfo, rel: *mut pg_sys::RelOp
         if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
             let relid = (*rte).relid;
             warning!(
-                "ParadeDB: Checking relation OID {} (rti {}) for BM25 index",
-                relid,
+                "ParadeDB: Checking relation {} (rti {}) for BM25 index",
+                get_rel_name(relid),
                 rti
             );
 
             // Use the existing function to check for BM25 index
             if let Some((_, _)) = rel_get_bm25_index(relid) {
-                warning!("ParadeDB: Found BM25 index for relation OID {}", relid);
+                warning!(
+                    "ParadeDB: Found BM25 index for relation {}",
+                    get_rel_name(relid)
+                );
                 return true;
             } else {
-                warning!("ParadeDB: No BM25 index found for relation OID {}", relid);
+                warning!(
+                    "ParadeDB: No BM25 index found for relation {}",
+                    get_rel_name(relid)
+                );
             }
         } else {
             warning!(
@@ -330,6 +312,10 @@ unsafe fn create_search_join_path<CS: CustomScan>(
     );
 
     let mut custom_path = builder.build();
+
+    // CRITICAL: For join nodes, we need to ensure the path target is set correctly
+    // The joinrel should already have the correct reltarget that includes columns from both relations
+    custom_path.path.pathtarget = (*joinrel).reltarget;
 
     // Allocate the path in the current memory context
     let path_ptr = PgMemoryContexts::CurrentMemoryContext

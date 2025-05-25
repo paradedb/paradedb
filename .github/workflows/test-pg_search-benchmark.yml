@@ -37,9 +37,9 @@ jobs:
       matrix:
         pg_version: [17]
         num_rows: [10000000]
-        block_length: [1000, 4000]
-        block_length_triggering_compression: [2000, 10000000]
-        compression_level: [1, 2, 3]
+        block_length: [4000]
+        block_length_triggering_compression: [2000]
+        compression_level: [1, 2, 3, 4]
 
     steps:
       - name: Checkout Git Repository

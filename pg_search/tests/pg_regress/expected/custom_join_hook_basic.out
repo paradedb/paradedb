@@ -56,6 +56,19 @@ WARNING:  ParadeDB: Found BM25 index for relation documents_join_test
 WARNING:  ParadeDB: Checking relation files_join_test (rti 2) for BM25 index
 WARNING:  ParadeDB: Found BM25 index for relation files_join_test
 WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation documents_join_test (rti 1)
+WARNING:  ParadeDB: Extracted search query for documents_join_test: uses_search_operator=true
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation files_join_test (rti 2)
+WARNING:  ParadeDB: Extracted search query for files_join_test: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Outer predicate for documents_join_test - uses_search: true
+WARNING:  ParadeDB: Inner predicate for files_join_test - uses_search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["files_join_test"], inner relids: ["documents_join_test"]
@@ -64,6 +77,19 @@ WARNING:  ParadeDB: Found BM25 index for relation files_join_test
 WARNING:  ParadeDB: Checking relation documents_join_test (rti 1) for BM25 index
 WARNING:  ParadeDB: Found BM25 index for relation documents_join_test
 WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation files_join_test (rti 2)
+WARNING:  ParadeDB: Extracted search query for files_join_test: uses_search_operator=true
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation documents_join_test (rti 1)
+WARNING:  ParadeDB: Extracted search query for documents_join_test: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Outer predicate for files_join_test - uses_search: true
+WARNING:  ParadeDB: Inner predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
@@ -80,6 +106,17 @@ WARNING:  ParadeDB: Found BM25 index for relation documents_join_test
 WARNING:  ParadeDB: Checking relation files_join_test (rti 2) for BM25 index
 WARNING:  ParadeDB: Found BM25 index for relation files_join_test
 WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation documents_join_test (rti 1)
+WARNING:  ParadeDB: Extracted search query for documents_join_test: uses_search_operator=false
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation files_join_test (rti 2)
+WARNING:  ParadeDB: Extracted search query for files_join_test: uses_search_operator=false
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Outer predicate for documents_join_test - uses_search: false
+WARNING:  ParadeDB: Inner predicate for files_join_test - uses_search: false
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["files_join_test"], inner relids: ["documents_join_test"]
@@ -88,6 +125,17 @@ WARNING:  ParadeDB: Found BM25 index for relation files_join_test
 WARNING:  ParadeDB: Checking relation documents_join_test (rti 1) for BM25 index
 WARNING:  ParadeDB: Found BM25 index for relation documents_join_test
 WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation files_join_test (rti 2)
+WARNING:  ParadeDB: Extracted search query for files_join_test: uses_search_operator=false
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation documents_join_test (rti 1)
+WARNING:  ParadeDB: Extracted search query for documents_join_test: uses_search_operator=false
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Outer predicate for files_join_test - uses_search: false
+WARNING:  ParadeDB: Inner predicate for documents_join_test - uses_search: false
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
  id |   title    | filename  
@@ -106,6 +154,15 @@ WARNING:  ParadeDB: Found BM25 index for relation documents_join_test
 WARNING:  ParadeDB: Checking relation files_join_test (rti 2) for BM25 index
 WARNING:  ParadeDB: Found BM25 index for relation files_join_test
 WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation documents_join_test (rti 1)
+WARNING:  ParadeDB: Extracted search query for documents_join_test: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 0 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 0, bilateral: false
+WARNING:  ParadeDB: Outer predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["files_join_test"], inner relids: ["documents_join_test"]
@@ -114,6 +171,15 @@ WARNING:  ParadeDB: Found BM25 index for relation files_join_test
 WARNING:  ParadeDB: Checking relation documents_join_test (rti 1) for BM25 index
 WARNING:  ParadeDB: Found BM25 index for relation documents_join_test
 WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation documents_join_test (rti 1)
+WARNING:  ParadeDB: Extracted search query for documents_join_test: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 0 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 0, inner: 1, bilateral: false
+WARNING:  ParadeDB: Inner predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0

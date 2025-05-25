@@ -18,6 +18,7 @@
 use crate::api::HashMap;
 use crate::gucs;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
+use crate::postgres::customscan::pdbscan::join_qual_inspect::extract_join_search_predicates;
 use crate::postgres::customscan::pdbscan::{bms_iter, get_rel_name, get_rel_name_from_rti_list};
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::rel_get_bm25_index;
@@ -205,6 +206,37 @@ pub extern "C-unwind" fn paradedb_join_pathlist_callback<CS: CustomScan>(
         }
 
         warning!("ParadeDB: Join is feasible - would create custom join path here");
+
+        // Analyze search predicates in the join
+        let search_predicates =
+            extract_join_search_predicates(root, joinrel, outerrel, innerrel, extra);
+
+        if let Some(predicates) = search_predicates {
+            warning!(
+                "ParadeDB: Found search predicates - outer: {}, inner: {}, bilateral: {}",
+                predicates.outer_predicates.len(),
+                predicates.inner_predicates.len(),
+                predicates.has_bilateral_search()
+            );
+
+            // Log details about the search predicates
+            for pred in &predicates.outer_predicates {
+                warning!(
+                    "ParadeDB: Outer predicate for {} - uses_search: {}",
+                    pred.relname,
+                    pred.uses_search_operator
+                );
+            }
+            for pred in &predicates.inner_predicates {
+                warning!(
+                    "ParadeDB: Inner predicate for {} - uses_search: {}",
+                    pred.relname,
+                    pred.uses_search_operator
+                );
+            }
+        } else {
+            warning!("ParadeDB: No search predicates found in join");
+        }
 
         // Create custom join path
         let custom_path =

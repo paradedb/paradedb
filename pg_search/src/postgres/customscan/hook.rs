@@ -18,6 +18,7 @@
 use crate::api::HashMap;
 use crate::gucs;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
+use crate::postgres::customscan::pdbscan::bms_iter;
 use crate::postgres::customscan::CustomScan;
 use once_cell::sync::Lazy;
 use pgrx::{pg_guard, pg_sys, warning, PgList, PgMemoryContexts};
@@ -177,8 +178,32 @@ pub extern "C-unwind" fn paradedb_join_pathlist_callback<CS: CustomScan>(
         warning!(
             "ParadeDB: Join pathlist callback called - jointype: {:?}, outer relids: {:?}, inner relids: {:?}",
             jointype,
-            (*outerrel).relids,
-            (*innerrel).relids
+            bms_iter((*outerrel).relids).map(|rti| {
+                let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
+                if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
+                    let relname = pg_sys::get_rel_name((*rte).relid);
+                    if relname.is_null() {
+                        format!("rti_{}", rti)
+                    } else {
+                        std::ffi::CStr::from_ptr(relname).to_string_lossy().to_string()
+                    }
+                } else {
+                    format!("rti_{}_non_rel", rti)
+                }
+            }).collect::<Vec<_>>(),
+            bms_iter((*innerrel).relids).map(|rti| {
+                let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
+                if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
+                    let relname = pg_sys::get_rel_name((*rte).relid);
+                    if relname.is_null() {
+                        format!("rti_{}", rti)
+                    } else {
+                        std::ffi::CStr::from_ptr(relname).to_string_lossy().to_string()
+                    }
+                } else {
+                    format!("rti_{}_non_rel", rti)
+                }
+            }).collect::<Vec<_>>()
         );
 
         // Basic feasibility check - both relations must be base relations for now

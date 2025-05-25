@@ -1329,7 +1329,7 @@ pub fn is_block_all_visible(
 }
 
 // Helper function to create an iterator over Bitmapset members
-unsafe fn bms_iter(bms: *mut pg_sys::Bitmapset) -> impl Iterator<Item = pg_sys::Index> {
+pub unsafe fn bms_iter(bms: *mut pg_sys::Bitmapset) -> impl Iterator<Item = pg_sys::Index> {
     let mut set_bit: i32 = -1;
     std::iter::from_fn(move || {
         set_bit = pg_sys::bms_next_member(bms, set_bit);
@@ -1342,7 +1342,7 @@ unsafe fn bms_iter(bms: *mut pg_sys::Bitmapset) -> impl Iterator<Item = pg_sys::
 }
 
 // Helper function to check if a Bitmapset is empty
-unsafe fn bms_is_empty(bms: *mut pg_sys::Bitmapset) -> bool {
+pub unsafe fn bms_is_empty(bms: *mut pg_sys::Bitmapset) -> bool {
     bms_iter(bms).next().is_none()
 }
 

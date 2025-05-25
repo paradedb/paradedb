@@ -154,21 +154,21 @@ jobs:
           payload-templated: false
           retries: 5
 
-      - name: Notify Slack on Failure
-        if: failure() && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
-        run: |
-          GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          ARTIFACT_URL="${{ steps.artifact-logs.outputs.artifact-url }}"
-          MESSAGE="Stressgres pg_search Workflow (${{ matrix.test_file }}) failed in \`paradedb/paradedb-enterprise\` -- investigate immediately! • GitHub Action Logs: ${GITHUB_RUN_URL} • Stressgres Log: ${ARTIFACT_URL}" echo "Sending failure notification to Slack..."
-          curl -X POST -H 'Content-type: application/json' \
-          --data "{\"text\": \"${MESSAGE}\"}" \
-          ${SLACK_WEBHOOK_URL}
-
       - name: Print Postgres Logs
         run: |
           for f in `ls /tmp/stressgres/*.log`; do
             echo $f
             cat $f
           done
+
+      - name: Notify Slack on Failure
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
+        run: |
+          GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          ARTIFACT_URL="${{ steps.artifact-logs.outputs.artifact-url }}"
+          MESSAGE="<!here> \`test-pg_search-stressgres\` workflow (${{ matrix.test_file }}) failed in \`paradedb/paradedb\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL} | Stressgres Log: ${ARTIFACT_URL}"
+          curl -X POST -H 'Content-type: application/json' \
+          --data "{\"text\": \"${MESSAGE}\"}" \
+          ${SLACK_WEBHOOK_URL}

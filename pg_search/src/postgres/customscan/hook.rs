@@ -20,7 +20,7 @@ use crate::gucs;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::postgres::customscan::CustomScan;
 use once_cell::sync::Lazy;
-use pgrx::{pg_guard, pg_sys, PgMemoryContexts};
+use pgrx::{pg_guard, pg_sys, warning, PgList, PgMemoryContexts};
 use std::collections::hash_map::Entry;
 
 pub fn register_rel_pathlist<CS: CustomScan + 'static>(_: CS) {
@@ -54,6 +54,46 @@ pub fn register_rel_pathlist<CS: CustomScan + 'static>(_: CS) {
         pg_sys::set_rel_pathlist_hook = Some(__priv_callback::<CS>);
 
         pg_sys::RegisterCustomScanMethods(CS::custom_scan_methods())
+    }
+}
+
+pub fn register_join_pathlist<CS: CustomScan + 'static>(_: CS) {
+    unsafe {
+        static mut PREV_JOIN_HOOKS: Lazy<
+            HashMap<std::any::TypeId, pg_sys::set_join_pathlist_hook_type>,
+        > = Lazy::new(Default::default);
+
+        #[pg_guard]
+        extern "C-unwind" fn __priv_join_callback<CS: CustomScan + 'static>(
+            root: *mut pg_sys::PlannerInfo,
+            joinrel: *mut pg_sys::RelOptInfo,
+            outerrel: *mut pg_sys::RelOptInfo,
+            innerrel: *mut pg_sys::RelOptInfo,
+            jointype: pg_sys::JoinType::Type,
+            extra: *mut pg_sys::JoinPathExtraData,
+        ) {
+            unsafe {
+                #[allow(static_mut_refs)]
+                if let Some(Some(prev_hook)) = PREV_JOIN_HOOKS.get(&std::any::TypeId::of::<CS>()) {
+                    (*prev_hook)(root, joinrel, outerrel, innerrel, jointype, extra);
+                }
+
+                paradedb_join_pathlist_callback::<CS>(
+                    root, joinrel, outerrel, innerrel, jointype, extra,
+                );
+            }
+        }
+
+        #[allow(static_mut_refs)]
+        match PREV_JOIN_HOOKS.entry(std::any::TypeId::of::<CS>()) {
+            Entry::Occupied(_) => panic!(
+                "{} join hook is already registered",
+                std::any::type_name::<CS>()
+            ),
+            Entry::Vacant(entry) => entry.insert(pg_sys::set_join_pathlist_hook),
+        };
+
+        pg_sys::set_join_pathlist_hook = Some(__priv_join_callback::<CS>);
     }
 }
 
@@ -112,4 +152,80 @@ pub extern "C-unwind" fn paradedb_rel_pathlist_callback<CS: CustomScan>(
             pg_sys::add_path(rel, custom_path.cast());
         }
     }
+}
+
+/// Join pathlist callback for custom join optimization
+#[pg_guard]
+pub extern "C-unwind" fn paradedb_join_pathlist_callback<CS: CustomScan>(
+    root: *mut pg_sys::PlannerInfo,
+    joinrel: *mut pg_sys::RelOptInfo,
+    outerrel: *mut pg_sys::RelOptInfo,
+    innerrel: *mut pg_sys::RelOptInfo,
+    jointype: pg_sys::JoinType::Type,
+    extra: *mut pg_sys::JoinPathExtraData,
+) {
+    unsafe {
+        if !gucs::enable_custom_scan() {
+            return;
+        }
+
+        warning!(
+            "ParadeDB: Join pathlist callback called - jointype: {:?}, outer relids: {:?}, inner relids: {:?}",
+            jointype,
+            (*outerrel).relids,
+            (*innerrel).relids
+        );
+
+        // Basic feasibility check - both relations must be base relations for now
+        if !is_base_relation(outerrel) || !is_base_relation(innerrel) {
+            warning!("ParadeDB: Skipping join - not base relations");
+            return;
+        }
+
+        // Check if both relations have BM25 indexes
+        if !has_bm25_index(outerrel) || !has_bm25_index(innerrel) {
+            warning!("ParadeDB: Skipping join - missing BM25 indexes");
+            return;
+        }
+
+        // Check join type - only support INNER joins for now
+        if jointype != pg_sys::JoinType::JOIN_INNER {
+            warning!(
+                "ParadeDB: Skipping join - only INNER joins supported currently, got: {:?}",
+                jointype
+            );
+            return;
+        }
+
+        warning!("ParadeDB: Join is feasible - would create custom join path here");
+
+        // TODO: Create custom join path in next milestone
+        // let custom_path = create_search_join_path(root, joinrel, outerrel, innerrel, jointype, extra);
+        // pg_sys::add_path(joinrel, custom_path);
+    }
+}
+
+/// Check if a RelOptInfo represents a base relation (not a join)
+unsafe fn is_base_relation(rel: *mut pg_sys::RelOptInfo) -> bool {
+    (*rel).reloptkind == pg_sys::RelOptKind::RELOPT_BASEREL
+}
+
+/// Check if a base relation has a BM25 index
+unsafe fn has_bm25_index(rel: *mut pg_sys::RelOptInfo) -> bool {
+    // For now, we'll use a simple heuristic - check if there are any custom paths
+    // In a real implementation, we'd check for actual BM25 indexes
+    if (*rel).pathlist.is_null() {
+        return false;
+    }
+
+    // Check if any existing paths are custom paths (indicating BM25 index)
+    let pathlist = PgList::<pg_sys::Path>::from_pg((*rel).pathlist);
+    for path in pathlist.iter_ptr() {
+        if !path.is_null() && (*path).pathtype == pg_sys::NodeTag::T_CustomPath {
+            warning!("ParadeDB: Found BM25 index for relation");
+            return true;
+        }
+    }
+
+    false
 }

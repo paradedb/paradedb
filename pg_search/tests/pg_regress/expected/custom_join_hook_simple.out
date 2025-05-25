@@ -24,6 +24,14 @@ SELECT a.id, a.name, b.value
 FROM test_table_a a
 JOIN test_table_b b ON a.id = b.a_id
 WHERE a.id = 1;
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["test_table_a"], inner relids: ["test_table_b"]
+WARNING:  ParadeDB: Checking relation test_table_a (rti 1) for BM25 index
+WARNING:  ParadeDB: No BM25 index found for relation test_table_a
+WARNING:  ParadeDB: Skipping join - missing BM25 indexes
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["test_table_b"], inner relids: ["test_table_a"]
+WARNING:  ParadeDB: Checking relation test_table_b (rti 2) for BM25 index
+WARNING:  ParadeDB: No BM25 index found for relation test_table_b
+WARNING:  ParadeDB: Skipping join - missing BM25 indexes
  id | name | value 
 ----+------+-------
   1 | A1   | B1

@@ -17,6 +17,7 @@
 
 #![allow(clippy::unnecessary_cast)] // helps with integer casting differences between postgres versions
 mod exec_methods;
+mod join_exec_methods;
 pub mod join_qual_inspect;
 pub mod parallel;
 mod privdat;
@@ -45,6 +46,9 @@ use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::pdbscan::exec_methods::{
     fast_fields, normal::NormalScanExecState, ExecState,
+};
+use crate::postgres::customscan::pdbscan::join_exec_methods::{
+    cleanup_join_execution, exec_join_step, init_join_execution,
 };
 use crate::postgres::customscan::pdbscan::parallel::{compute_nworkers, list_segment_ids};
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
@@ -793,28 +797,15 @@ impl CustomScan for PdbScan {
             if state.custom_state().execution_rti == 0 {
                 pgrx::warning!("ParadeDB: Beginning custom scan for join node");
 
-                // For join nodes, we don't open specific relations
-                // Instead, we'll need to handle the join execution differently
-                // For now, just set up minimal state for EXPLAIN
-
+                // For join nodes, use the new join execution framework
                 if eflags & (pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) != 0 {
-                    // For EXPLAIN, we still need to set up basic tuple slot infrastructure
-                    // Use a generic tuple descriptor for the result
-                    let tupdesc =
-                        pg_sys::CreateTemplateTupleDesc(state.custom_state().targetlist_len as _);
-                    pg_sys::ExecInitScanTupleSlot(
-                        estate,
-                        addr_of_mut!(state.csstate.ss),
-                        tupdesc,
-                        pg_sys::table_slot_callbacks(std::ptr::null_mut()),
-                    );
-                    pg_sys::ExecInitResultTypeTL(addr_of_mut!(state.csstate.ss.ps));
+                    // For EXPLAIN, still set up basic infrastructure
+                    init_join_execution(state, estate);
                     return;
                 }
 
-                // For actual execution, we'll need to implement join logic
-                // This will be expanded in later milestones
-                pgrx::warning!("ParadeDB: Join execution not yet implemented - returning early");
+                // Initialize join execution
+                init_join_execution(state, estate);
                 return;
             }
 
@@ -901,8 +892,8 @@ impl CustomScan for PdbScan {
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
         // Check if this is a join node
         if state.custom_state().execution_rti == 0 {
-            // Join execution not yet implemented - return EOF
-            return std::ptr::null_mut();
+            // Use the new join execution framework
+            return unsafe { exec_join_step(state) };
         }
 
         if state.custom_state().search_reader.is_none() {
@@ -1058,6 +1049,14 @@ impl CustomScan for PdbScan {
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {}
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
+        // Check if this is a join node and clean up join resources
+        if state.custom_state().execution_rti == 0 {
+            unsafe {
+                cleanup_join_execution(state);
+            }
+            return;
+        }
+
         // get some things dropped now
         drop(state.custom_state_mut().visibility_checker.take());
         drop(state.custom_state_mut().search_reader.take());

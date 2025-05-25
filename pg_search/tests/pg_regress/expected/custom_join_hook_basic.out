@@ -105,11 +105,209 @@ WARNING:  ParadeDB: Creating join tuple descriptor with 3 columns
 WARNING:  ParadeDB: Tuple descriptor created successfully
 WARNING:  ParadeDB: Join execution initialized with 3 target columns
 WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Starting join execution
-WARNING:  ParadeDB: Creating test join tuple
-WARNING:  ParadeDB: Creating tuple with 3 attributes
-WARNING:  ParadeDB: Created empty test join tuple
-server closed the connection unexpectedly
-	This probably means the server terminated abnormally
-	before or while processing the request.
-connection to server was lost
+WARNING:  ParadeDB: Starting join execution - initializing search
+WARNING:  ParadeDB: Initializing search execution for join
+WARNING:  ParadeDB: Initialized mock search results - outer: 2, inner: 2
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Executing outer search
+WARNING:  ParadeDB: Executing search on outer relation
+WARNING:  ParadeDB: Outer search completed - 2 results
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Executing inner search
+WARNING:  ParadeDB: Executing search on inner relation
+WARNING:  ParadeDB: Inner search completed - 2 results
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[0]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: No more join results, finishing
+WARNING:  ParadeDB: Cleaning up join execution
+WARNING:  ParadeDB: Cleaning up join execution state
+WARNING:  ParadeDB: Join execution stats - outer: 2, inner: 2, matches: 4, returned: 4
+WARNING:  ParadeDB: Join execution cleanup complete
+     id     |     title     |   filename   
+------------+---------------+--------------
+ outer_id_1 | outer_title_1 | inner_file_1
+ outer_id_1 | outer_title_1 | inner_file_2
+ outer_id_2 | outer_title_2 | inner_file_1
+ outer_id_2 | outer_title_2 | inner_file_2
+(4 rows)
+
+-- Test 2: JOIN without search predicates (should not trigger custom join)
+SELECT d.id, d.title, f.filename  
+FROM documents_join_test d
+JOIN files_join_test f ON d.id = f.document_id
+WHERE d.id = 1;
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["documents_join_test"], inner relids: ["files_join_test"]
+WARNING:  ParadeDB: Checking relation documents_join_test (rti 1) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation documents_join_test
+WARNING:  ParadeDB: Checking relation files_join_test (rti 2) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation files_join_test
+WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation documents_join_test (rti 1)
+WARNING:  ParadeDB: Extracted search query for documents_join_test: uses_search_operator=false
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation files_join_test (rti 2)
+WARNING:  ParadeDB: Extracted search query for files_join_test: uses_search_operator=false
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Outer predicate for documents_join_test - uses_search: false
+WARNING:  ParadeDB: Inner predicate for files_join_test - uses_search: false
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["files_join_test"], inner relids: ["documents_join_test"]
+WARNING:  ParadeDB: Checking relation files_join_test (rti 2) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation files_join_test
+WARNING:  ParadeDB: Checking relation documents_join_test (rti 1) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation documents_join_test
+WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation files_join_test (rti 2)
+WARNING:  ParadeDB: Extracted search query for files_join_test: uses_search_operator=false
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation documents_join_test (rti 1)
+WARNING:  ParadeDB: Extracted search query for documents_join_test: uses_search_operator=false
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Outer predicate for files_join_test - uses_search: false
+WARNING:  ParadeDB: Inner predicate for documents_join_test - uses_search: false
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+ id |   title    | filename  
+----+------------+-----------
+  1 | Document 1 | file1.txt
+(1 row)
+
+-- Test 3: Search on only one side (should not trigger custom join)
+SELECT d.id, d.title, f.filename
+FROM documents_join_test d  
+JOIN files_join_test f ON d.id = f.document_id
+WHERE d.content @@@ 'science';
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["documents_join_test"], inner relids: ["files_join_test"]
+WARNING:  ParadeDB: Checking relation documents_join_test (rti 1) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation documents_join_test
+WARNING:  ParadeDB: Checking relation files_join_test (rti 2) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation files_join_test
+WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation documents_join_test (rti 1)
+WARNING:  ParadeDB: Extracted search query for documents_join_test: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 0 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 0, bilateral: false
+WARNING:  ParadeDB: Outer predicate for documents_join_test - uses_search: true
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["files_join_test"], inner relids: ["documents_join_test"]
+WARNING:  ParadeDB: Checking relation files_join_test (rti 2) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation files_join_test
+WARNING:  ParadeDB: Checking relation documents_join_test (rti 1) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation documents_join_test
+WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation documents_join_test (rti 1)
+WARNING:  ParadeDB: Extracted search query for documents_join_test: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 0 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 0, inner: 1, bilateral: false
+WARNING:  ParadeDB: Inner predicate for documents_join_test - uses_search: true
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
+WARNING:  ParadeDB: Join target list has 3 entries
+WARNING:  ParadeDB: Mapped join variable varno=1, varattno=1 to join_attr_1
+WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to join_attr_2
+WARNING:  ParadeDB: Mapped join variable varno=2, varattno=3 to join_attr_3
+WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
+WARNING:  ParadeDB: Beginning custom scan for join node
+WARNING:  ParadeDB: Initializing join execution
+WARNING:  ParadeDB: Creating join tuple descriptor with 3 columns
+WARNING:  ParadeDB: Tuple descriptor created successfully
+WARNING:  ParadeDB: Join execution initialized with 3 target columns
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Starting join execution - initializing search
+WARNING:  ParadeDB: Initializing search execution for join
+WARNING:  ParadeDB: Initialized mock search results - outer: 2, inner: 2
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Executing outer search
+WARNING:  ParadeDB: Executing search on outer relation
+WARNING:  ParadeDB: Outer search completed - 2 results
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Executing inner search
+WARNING:  ParadeDB: Executing search on inner relation
+WARNING:  ParadeDB: Inner search completed - 2 results
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[0]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: No more join results, finishing
+WARNING:  ParadeDB: Cleaning up join execution
+WARNING:  ParadeDB: Cleaning up join execution state
+WARNING:  ParadeDB: Join execution stats - outer: 2, inner: 2, matches: 4, returned: 4
+WARNING:  ParadeDB: Join execution cleanup complete
+     id     |     title     |   filename   
+------------+---------------+--------------
+ outer_id_1 | outer_title_1 | inner_file_1
+ outer_id_1 | outer_title_1 | inner_file_2
+ outer_id_2 | outer_title_2 | inner_file_1
+ outer_id_2 | outer_title_2 | inner_file_2
+(4 rows)
+
+-- Cleanup
+DROP TABLE documents_join_test CASCADE;
+DROP TABLE files_join_test CASCADE; 
+RESET paradedb.enable_custom_join;

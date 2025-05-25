@@ -107,6 +107,7 @@ impl MetaPage {
 
     /// Acquires the merge lock.
     pub unsafe fn acquire_merge_lock(&self) -> MergeLock {
+        assert!(block_number_is_valid(self.data.merge_lock));
         MergeLock::acquire(self.bman.relation_oid(), self.data.merge_lock)
     }
 
@@ -119,14 +120,19 @@ impl MetaPage {
     /// `SEGMENT_METAS_START` is first opened for reading until when they finish consuming the files
     /// for the segments it references.
     ///
-    pub fn segment_metas_garbage(&self) -> LinkedItemList<SegmentMetaEntry> {
-        LinkedItemList::<SegmentMetaEntry>::open(
+    pub fn segment_metas_garbage(&self) -> Option<LinkedItemList<SegmentMetaEntry>> {
+        if !block_number_is_valid(self.data.segment_meta_garbage) {
+            return None;
+        }
+
+        Some(LinkedItemList::<SegmentMetaEntry>::open(
             self.bman.relation_oid(),
             self.data.segment_meta_garbage,
-        )
+        ))
     }
 
     pub fn vacuum_list(&self) -> VacuumList {
+        assert!(block_number_is_valid(self.data.active_vacuum_list));
         VacuumList::open(
             self.bman.relation_oid(),
             self.data.active_vacuum_list,
@@ -135,6 +141,7 @@ impl MetaPage {
     }
 
     pub fn pin_ambulkdelete_sentinel(&mut self) -> VacuumSentinel {
+        assert!(block_number_is_valid(self.data.ambulkdelete_sentinel));
         let sentinel = self.bman.pinned_buffer(self.data.ambulkdelete_sentinel);
         VacuumSentinel(sentinel)
     }

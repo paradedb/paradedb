@@ -20,6 +20,7 @@ use crate::api::Varno;
 use crate::index::reader::index::{SearchIndexReader, SearchResults};
 use crate::postgres::customscan::builders::custom_path::{ExecMethodType, SortDirection};
 use crate::postgres::customscan::pdbscan::exec_methods::ExecMethod;
+use crate::postgres::customscan::pdbscan::join_exec_methods::JoinExecState;
 use crate::postgres::customscan::pdbscan::projections::snippet::SnippetType;
 use crate::postgres::customscan::pdbscan::qual_inspect::Qual;
 use crate::postgres::customscan::CustomScanState;
@@ -93,6 +94,9 @@ pub struct PdbScanState {
     pub exec_method_type: ExecMethodType,
     exec_method: UnsafeCell<Box<dyn ExecMethod>>,
     exec_method_name: String,
+
+    /// Join execution state (only used for join nodes)
+    pub join_exec_state: Option<JoinExecState>,
 }
 
 impl CustomScanState for PdbScanState {

@@ -20,10 +20,12 @@
 //! This module implements the execution framework for join nodes, including
 //! variable mapping, tuple slot management, and join execution logic.
 
+use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::pdbscan::join_qual_inspect::JoinSearchPredicates;
 use crate::postgres::customscan::pdbscan::PdbScan;
-use pgrx::{pg_sys, warning, PgMemoryContexts};
+use pgrx::{pg_sys, warning};
+use std::collections::HashMap;
 
 /// Join execution state for custom join nodes
 pub struct JoinExecState {
@@ -35,6 +37,19 @@ pub struct JoinExecState {
     pub tuple_slots: JoinTupleSlots,
     /// Join execution statistics
     pub stats: JoinExecStats,
+    /// Search readers for each relation
+    pub search_readers: HashMap<pg_sys::Oid, SearchIndexReader>,
+    /// Current outer relation results
+    pub outer_results: Option<Vec<(u64, f32)>>, // (ctid, score)
+    /// Current inner relation results  
+    pub inner_results: Option<Vec<(u64, f32)>>, // (ctid, score)
+    /// Current position in outer results
+    pub outer_position: usize,
+    /// Current position in inner results
+    pub inner_position: usize,
+    /// Relations involved in the join
+    pub outer_relid: pg_sys::Oid,
+    pub inner_relid: pg_sys::Oid,
 }
 
 /// Execution phases for join processing
@@ -82,6 +97,13 @@ impl Default for JoinExecState {
             phase: JoinExecPhase::NotStarted,
             tuple_slots: JoinTupleSlots::default(),
             stats: JoinExecStats::default(),
+            search_readers: HashMap::new(),
+            outer_results: None,
+            inner_results: None,
+            outer_position: 0,
+            inner_position: 0,
+            outer_relid: pg_sys::InvalidOid,
+            inner_relid: pg_sys::InvalidOid,
         }
     }
 }
@@ -104,6 +126,13 @@ impl JoinExecState {
             phase: JoinExecPhase::NotStarted,
             tuple_slots: JoinTupleSlots::default(),
             stats: JoinExecStats::default(),
+            search_readers: HashMap::new(),
+            outer_results: None,
+            inner_results: None,
+            outer_position: 0,
+            inner_position: 0,
+            outer_relid: pg_sys::InvalidOid,
+            inner_relid: pg_sys::InvalidOid,
         }
     }
 
@@ -131,16 +160,69 @@ pub unsafe fn init_join_execution(
 ) {
     warning!("ParadeDB: Initializing join execution");
 
+    // Extract search predicates from the join path if available
+    // For now, we'll create a basic join execution state
+    let join_exec_state = JoinExecState::default();
+    state.custom_state_mut().join_exec_state = Some(join_exec_state);
+
     // For join nodes, we need to set up tuple slots differently
     // We'll create a composite tuple descriptor that includes columns from both relations
 
-    // For now, create a minimal tuple descriptor to avoid the "variable not found" error
-    // This will be expanded in the next milestone with proper variable mapping
+    // Get the target list to understand what columns we need to provide
     let target_list_len = state.custom_state().targetlist_len;
-    let tupdesc = pg_sys::CreateTemplateTupleDesc(target_list_len as _);
+
+    // Create a tuple descriptor based on the actual target list
+    // This is more sophisticated than the previous version
+    let tupdesc = create_join_tuple_descriptor(state, target_list_len);
+
+    // Set up the scan tuple slot with our custom tuple descriptor
+    // For join nodes, use virtual tuple slot callbacks instead of table callbacks
+    pg_sys::ExecInitScanTupleSlot(
+        estate,
+        std::ptr::addr_of_mut!(state.csstate.ss),
+        tupdesc,
+        &pg_sys::TTSOpsVirtual,
+    );
+
+    // Initialize result type and projection info
+    pg_sys::ExecInitResultTypeTL(std::ptr::addr_of_mut!(state.csstate.ss.ps));
+
+    // Set up projection info for the join result
+    pg_sys::ExecAssignProjectionInfo(
+        state.planstate(),
+        (*state.csstate.ss.ss_ScanTupleSlot).tts_tupleDescriptor,
+    );
+
+    warning!(
+        "ParadeDB: Join execution initialized with {} target columns",
+        target_list_len
+    );
+}
+
+/// Create a tuple descriptor for join results
+unsafe fn create_join_tuple_descriptor(
+    state: &mut CustomScanStateWrapper<PdbScan>,
+    target_list_len: usize,
+) -> pg_sys::TupleDesc {
+    warning!(
+        "ParadeDB: Creating join tuple descriptor with {} columns",
+        target_list_len
+    );
+
+    // Ensure we have at least one column to avoid issues
+    let actual_len = if target_list_len == 0 {
+        1
+    } else {
+        target_list_len
+    };
+
+    // For now, create a simple tuple descriptor
+    // In a more complete implementation, we would analyze the target list
+    // to determine the actual column types and names
+    let tupdesc = pg_sys::CreateTemplateTupleDesc(actual_len as _);
 
     // Set up basic attributes for the join result
-    for i in 0..target_list_len {
+    for i in 0..actual_len {
         let attnum = (i + 1) as pg_sys::AttrNumber;
         let attname = format!("join_col_{}", attnum);
         let attname_cstr = std::ffi::CString::new(attname).unwrap();
@@ -155,31 +237,8 @@ pub unsafe fn init_join_execution(
         );
     }
 
-    // Finalize the tuple descriptor
-    pg_sys::TupleDescInitEntryCollation(tupdesc, 1, pg_sys::DEFAULT_COLLATION_OID);
-
-    // Set up the scan tuple slot with our custom tuple descriptor
-    pg_sys::ExecInitScanTupleSlot(
-        estate,
-        std::ptr::addr_of_mut!(state.csstate.ss),
-        tupdesc,
-        pg_sys::table_slot_callbacks(std::ptr::null_mut()),
-    );
-
-    // Initialize result type and projection info
-    pg_sys::ExecInitResultTypeTL(std::ptr::addr_of_mut!(state.csstate.ss.ps));
-
-    // Set up projection info for the join result
-    // For now, use a simple identity projection
-    pg_sys::ExecAssignProjectionInfo(
-        state.planstate(),
-        (*state.csstate.ss.ss_ScanTupleSlot).tts_tupleDescriptor,
-    );
-
-    warning!(
-        "ParadeDB: Join execution initialized with {} target columns",
-        target_list_len
-    );
+    warning!("ParadeDB: Tuple descriptor created successfully");
+    tupdesc
 }
 
 /// Execute the next step of join processing
@@ -188,15 +247,103 @@ pub unsafe fn exec_join_step(
 ) -> *mut pg_sys::TupleTableSlot {
     warning!("ParadeDB: Executing join step");
 
-    // For now, return NULL to indicate end of results
-    // This will be expanded in Milestone 2.3 with actual join logic
-    std::ptr::null_mut()
+    // Get or initialize join execution state
+    if state.custom_state().join_exec_state.is_none() {
+        warning!("ParadeDB: Join execution state not initialized, returning EOF");
+        return std::ptr::null_mut();
+    }
+
+    // For now, implement a simple stub that returns a single test tuple
+    // This demonstrates the execution framework without implementing full join logic
+    let join_state = state.custom_state().join_exec_state.as_ref().unwrap();
+
+    match join_state.phase {
+        JoinExecPhase::NotStarted => {
+            warning!("ParadeDB: Starting join execution");
+
+            // Update phase to indicate we've started
+            if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
+                join_state.phase = JoinExecPhase::Finished; // Skip to finished for now
+            }
+
+            // Create a test tuple to demonstrate the framework works
+            create_test_join_tuple(state)
+        }
+        JoinExecPhase::Finished => {
+            warning!("ParadeDB: Join execution finished, returning EOF");
+            std::ptr::null_mut()
+        }
+        _ => {
+            warning!("ParadeDB: Join execution in progress, returning EOF for now");
+            std::ptr::null_mut()
+        }
+    }
+}
+
+/// Create a test join tuple to demonstrate the execution framework
+unsafe fn create_test_join_tuple(
+    state: &mut CustomScanStateWrapper<PdbScan>,
+) -> *mut pg_sys::TupleTableSlot {
+    warning!("ParadeDB: Creating test join tuple");
+
+    let slot = state.csstate.ss.ss_ScanTupleSlot;
+
+    // Validate slot and tuple descriptor
+    if slot.is_null() {
+        warning!("ParadeDB: Slot is null, returning null");
+        return std::ptr::null_mut();
+    }
+
+    let tupdesc = (*slot).tts_tupleDescriptor;
+    if tupdesc.is_null() {
+        warning!("ParadeDB: Tuple descriptor is null, returning null");
+        return std::ptr::null_mut();
+    }
+
+    let natts = (*tupdesc).natts as usize;
+    warning!("ParadeDB: Creating tuple with {} attributes", natts);
+
+    // Clear the slot first
+    pg_sys::ExecClearTuple(slot);
+
+    // For now, just return an empty tuple to avoid crashes
+    // In a real implementation, we would populate this with actual join data
+    pg_sys::ExecStoreVirtualTuple(slot);
+
+    warning!("ParadeDB: Created empty test join tuple");
+
+    // Update statistics
+    if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
+        join_state.stats.tuples_returned += 1;
+    }
+
+    slot
 }
 
 /// Clean up join execution resources
 pub unsafe fn cleanup_join_execution(state: &mut CustomScanStateWrapper<PdbScan>) {
     warning!("ParadeDB: Cleaning up join execution");
 
-    // Clean up any join-specific resources
-    // This will be expanded as we add more join execution state
+    // Clean up join execution state
+    if let Some(mut join_state) = state.custom_state_mut().join_exec_state.take() {
+        warning!("ParadeDB: Cleaning up join execution state");
+
+        // Clean up search readers
+        join_state.search_readers.clear();
+
+        // Clear result vectors
+        join_state.outer_results = None;
+        join_state.inner_results = None;
+
+        // Log final statistics
+        warning!(
+            "ParadeDB: Join execution stats - outer: {}, inner: {}, matches: {}, returned: {}",
+            join_state.stats.outer_tuples,
+            join_state.stats.inner_tuples,
+            join_state.stats.join_matches,
+            join_state.stats.tuples_returned
+        );
+    }
+
+    warning!("ParadeDB: Join execution cleanup complete");
 }

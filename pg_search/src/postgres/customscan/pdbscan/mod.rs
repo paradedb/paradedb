@@ -526,13 +526,42 @@ impl CustomScan for PdbScan {
 
                 // For join nodes, we need to ensure the target list is properly set up
                 // The target list should contain all the columns that the upper plan nodes expect
-
-                // For now, we'll use the target list as-is since it should already contain
-                // the correct entries for the join result
                 pgrx::warning!("ParadeDB: Join target list has {} entries", tlist.len());
 
-                // Set up basic join metadata in private data
-                // This will be expanded in later milestones
+                // For join nodes, we need to set up proper variable mappings
+                // The key insight is that join nodes need to provide variables from both relations
+
+                // Set up a minimal var_attname_lookup for join nodes
+                // This prevents the "variable not found" error by providing basic mappings
+                let mut attname_lookup = HashMap::default();
+
+                // For each target entry, create a basic mapping
+                for (i, te) in tlist.iter_ptr().enumerate() {
+                    if let Some(var) = nodecast!(Var, T_Var, (*te).expr) {
+                        let attname = format!("join_attr_{}", i + 1);
+                        attname_lookup.insert(((*var).varno, (*var).varattno), attname);
+                        pgrx::warning!(
+                            "ParadeDB: Mapped join variable varno={}, varattno={} to {}",
+                            (*var).varno,
+                            (*var).varattno,
+                            format!("join_attr_{}", i + 1)
+                        );
+                    }
+                }
+
+                builder
+                    .custom_private_mut()
+                    .set_var_attname_lookup(attname_lookup);
+
+                // CRITICAL: For join nodes, we need to ensure the custom scan's target list
+                // matches exactly what PostgreSQL expects. The issue is that PostgreSQL
+                // validates that our custom scan can provide all the variables in the target list.
+
+                // Set the custom scan's target list to match the join's target list
+                // This tells PostgreSQL exactly what variables our custom scan will provide
+                builder.set_custom_scan_tlist(tlist.as_ptr());
+
+                pgrx::warning!("ParadeDB: Set custom scan target list for join node");
 
                 return builder.build();
             }

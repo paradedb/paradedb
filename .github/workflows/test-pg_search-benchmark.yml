@@ -118,7 +118,7 @@ jobs:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
         run: |
           GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          MESSAGE="@here \`test-pg_search-benchmark\` workflow failed in \`paradedb/paradedb\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
+          MESSAGE="<!here> \`test-pg_search-benchmark\` workflow failed in \`paradedb/paradedb\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
           curl -X POST -H 'Content-type: application/json' \
           --data "{\"text\": \"${MESSAGE}\"}" \
           ${SLACK_WEBHOOK_URL}

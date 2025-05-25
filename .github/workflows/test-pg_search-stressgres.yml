@@ -172,7 +172,7 @@ jobs:
         run: |
           GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           ARTIFACT_URL="${{ steps.artifact-logs.outputs.artifact-url }}"
-          MESSAGE="@here \`test-pg_search-stressgres\` workflow (${{ matrix.test_file }}) failed in \`paradedb/paradedb\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL} | Stressgres Log: ${ARTIFACT_URL}"
+          MESSAGE="<!here> \`test-pg_search-stressgres\` workflow (${{ matrix.test_file }}) failed in \`paradedb/paradedb\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL} | Stressgres Log: ${ARTIFACT_URL}"
           curl -X POST -H 'Content-type: application/json' \
           --data "{\"text\": \"${MESSAGE}\"}" \
           ${SLACK_WEBHOOK_URL}

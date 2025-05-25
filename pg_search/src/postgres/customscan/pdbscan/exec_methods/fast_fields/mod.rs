@@ -19,11 +19,13 @@ pub mod mixed;
 pub mod numeric;
 pub mod string;
 
+use std::rc::Rc;
+
 use crate::api::HashSet;
 use crate::gucs;
 use crate::index::fast_fields_helper::{FFHelper, FastFieldType, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::{SearchIndexReader, SearchIndexScore, SearchResults};
+use crate::index::reader::index::{SearchIndexReader, SearchResults};
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::explainer::Explainer;
@@ -47,7 +49,6 @@ pub struct FastFieldExecState {
     ffhelper: FFHelper,
 
     slot: *mut pg_sys::TupleTableSlot,
-    strbuf: Option<String>,
     vmbuff: pg_sys::Buffer,
     search_results: SearchResults,
 
@@ -77,7 +78,6 @@ impl FastFieldExecState {
             which_fast_fields,
             ffhelper: Default::default(),
             slot: std::ptr::null_mut(),
-            strbuf: Some(String::with_capacity(256)),
             vmbuff: pg_sys::InvalidBuffer as pg_sys::Buffer,
             search_results: Default::default(),
             blockvis: (pg_sys::InvalidBlockNumber, false),
@@ -110,14 +110,16 @@ impl FastFieldExecState {
     }
 }
 
+/// Extracts a non-String fast field value to a Datum.
+///
+/// String fast fields are fetched separately using a batch dictionary-based lookup.
 #[inline(always)]
-unsafe fn ff_to_datum(
+pub unsafe fn non_string_ff_to_datum(
     which_fast_field: (&WhichFastField, usize),
     typid: pg_sys::Oid,
     score: f32,
     doc_address: DocAddress,
     ff_helper: &mut FFHelper,
-    strbuf: &mut Option<String>,
     slot: *const pg_sys::TupleTableSlot,
 ) -> Option<pg_sys::Datum> {
     let field_index = which_fast_field.1;
@@ -138,21 +140,7 @@ unsafe fn ff_to_datum(
         which_fast_field,
         WhichFastField::Named(_, FastFieldType::String)
     ) {
-        if let Some(s) = strbuf {
-            s.as_str().into_datum()
-        } else {
-            None
-        }
-    } else if typid == pg_sys::TEXTOID || typid == pg_sys::VARCHAROID {
-        // NB:  we don't actually support text-based fast fields... yet
-        // but if we did, we'd want to do it this way
-        if let Some(s) = strbuf {
-            ff_helper
-                .string(field_index, doc_address, s)
-                .and_then(|_| s.as_str().into_datum())
-        } else {
-            None
-        }
+        panic!("String fast field {which_fast_field:?} should already have been extracted.");
     } else {
         match ff_helper.value(field_index, doc_address) {
             None => None,
@@ -568,67 +556,75 @@ pub fn estimate_cardinality(indexrel: &PgRelation, field: &str) -> Option<usize>
     )
 }
 
-/// Given a _sorted_ iterator over TermOrdinals, return a Vec of term values of the same length.
-pub fn sorted_ords_to_terms(
-    str_ff: &StrColumn,
-    term_ordinals: impl IntoIterator<Item = TermOrdinal>,
-) -> Vec<String> {
-    let mut terms = Vec::new();
-    let all_terms_found = str_ff
+/// Given a collection of values containing TermOrdinals for the given StrColumn, return an iterator
+/// which zips each value with the term for the TermOrdinal in ascending sorted order.
+pub fn ords_to_sorted_terms<T>(
+    str_ff: StrColumn,
+    mut items: Vec<T>,
+    ordinal_fn: impl Fn(&T) -> TermOrdinal,
+) -> impl Iterator<Item = (T, Rc<str>)> {
+    items.sort_unstable_by_key(&ordinal_fn);
+
+    let mut bytes = Vec::new();
+    let mut current_block_addr = str_ff.dictionary().sstable_index.get_block_with_ord(0);
+    let mut current_sstable_delta_reader = str_ff
         .dictionary()
-        .sorted_ords_to_term_cb(term_ordinals.into_iter(), |bytes| {
-            terms.push(
-                std::str::from_utf8(bytes)
-                    .expect("term should be valid utf8")
-                    .to_owned(),
-            );
+        .sstable_delta_reader_block(current_block_addr.clone())
+        .expect("Failed to open term dictionary.");
+    let mut current_ordinal = 0;
+    let mut previous_term: Option<(TermOrdinal, Rc<str>)> = None;
+    let mut items = items.into_iter();
+    std::iter::from_fn(move || {
+        let item = items.next()?;
+        let ord = ordinal_fn(&item);
 
-            Ok(())
-        })
-        .expect("term ord resolution should succeed");
-    assert!(all_terms_found, "Did not locate all terms.");
-    terms
-}
-
-/// Process attributes using fast fields, creating a mapping and populating the datum array.
-/// This function is shared between the string and numeric fast field implementations.
-#[allow(clippy::too_many_arguments)]
-pub unsafe fn extract_data_from_fast_fields(
-    natts: usize,
-    tupdesc: &PgTupleDesc<'_>,
-    which_fast_fields: &[WhichFastField],
-    fast_fields: &mut FFHelper,
-    slot: *mut pg_sys::TupleTableSlot,
-    scored: SearchIndexScore,
-    doc_address: DocAddress,
-    string_buffer: &mut Option<String>,
-) {
-    let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
-    let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
-
-    #[rustfmt::skip]
-    debug_assert!(natts == which_fast_fields.len());
-
-    for (i, att) in tupdesc.iter().enumerate() {
-        let which_fast_field = &which_fast_fields[i];
-
-        match ff_to_datum(
-            (which_fast_field, i),
-            att.atttypid,
-            scored.bm25,
-            doc_address,
-            fast_fields,
-            string_buffer,
-            slot,
-        ) {
-            None => {
-                datums[i] = pg_sys::Datum::null();
-                isnull[i] = true;
+        // only advance forward if the new ord is different than the one we just processed
+        //
+        // this allows the input TermOrdinal iterator to contain and reuse duplicates, so long as
+        // it's still sorted
+        match &previous_term {
+            Some((previous_ord, term)) if *previous_ord == ord => {
+                // This is the same term ordinal: reuse the previous term value.
+                return Some((item, term.clone()));
             }
-            Some(datum) => {
-                datums[i] = datum;
-                isnull[i] = false;
-            }
+            // Fall through.
+            _ => {}
         }
-    }
+
+        // This is a new term ordinal: decode and allocate it.
+        assert!(ord >= current_ordinal);
+        // check if block changed for new term_ord
+        let new_block_addr = str_ff.dictionary().sstable_index.get_block_with_ord(ord);
+        if new_block_addr != current_block_addr {
+            current_block_addr = new_block_addr;
+            current_ordinal = current_block_addr.first_ordinal;
+            current_sstable_delta_reader = str_ff
+                .dictionary()
+                .sstable_delta_reader_block(current_block_addr.clone())
+                .unwrap_or_else(|e| panic!("Failed to fetch next dictionary block: {e}"));
+            bytes.clear();
+        }
+
+        // move to ord inside that block
+        for _ in current_ordinal..=ord {
+            match current_sstable_delta_reader.advance() {
+                Ok(true) => {}
+                Ok(false) => {
+                    panic!("Term ordinal {ord} did not exist in the dictionary.");
+                }
+                Err(e) => {
+                    panic!("Failed to decode dictionary block: {e}")
+                }
+            }
+            bytes.truncate(current_sstable_delta_reader.common_prefix_len());
+            bytes.extend_from_slice(current_sstable_delta_reader.suffix());
+        }
+        current_ordinal = ord + 1;
+
+        let term: Rc<str> = std::str::from_utf8(&bytes)
+            .expect("term should be valid utf8")
+            .into();
+        previous_term = Some((ord, term.clone()));
+        Some((item, term))
+    })
 }

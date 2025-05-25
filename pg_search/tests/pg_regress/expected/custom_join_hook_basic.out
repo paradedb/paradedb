@@ -119,15 +119,15 @@ WARNING:  ParadeDB: Opening search reader for inner relation files_join_test
 WARNING:  ParadeDB: Successfully opened search reader for files_join_test
 WARNING:  ParadeDB: Initialized 2 search readers
 WARNING:  ParadeDB: Executing real searches on join relations
-WARNING:  ParadeDB: Executing search on outer relation documents_join_test (70477)
+WARNING:  ParadeDB: Executing search on outer relation documents_join_test
 WARNING:  ParadeDB: Executing real BM25 search on relation documents_join_test
 WARNING:  ParadeDB: Real search on documents_join_test returned 1 results
-WARNING:  ParadeDB: Found 1 results for outer relation documents_join_test in 602μs
-WARNING:  ParadeDB: Executing search on inner relation files_join_test (70486)
+WARNING:  ParadeDB: Found 1 results for outer relation documents_join_test in 535μs
+WARNING:  ParadeDB: Executing search on inner relation files_join_test (72564)
 WARNING:  ParadeDB: Executing real BM25 search on relation files_join_test
 WARNING:  ParadeDB: Real search on files_join_test returned 3 results
-WARNING:  ParadeDB: Found 3 results for inner relation files_join_test in 414μs
-WARNING:  ParadeDB: Completed real search execution in 1144μs - outer: 1, inner: 3
+WARNING:  ParadeDB: Found 3 results for inner relation files_join_test in 427μs
+WARNING:  ParadeDB: Completed real search execution in 1083μs - outer: 1, inner: 3
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Executing outer search
 WARNING:  ParadeDB: Executing search on outer relation
@@ -142,79 +142,94 @@ WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Processing join match [1/1] × [1/3]
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 1
-WARNING:  ParadeDB: Fetching from relations documents_join_test (70477) and files_join_test (70486)
-WARNING:  ParadeDB: Attempting to fetch heap tuple for outer relation documents_join_test (70477) with CTID 1
-WARNING:  ParadeDB: CTID 1 -> block: 0, offset: 1 for relation documents_join_test
-WARNING:  ParadeDB: Generated 2 simulated values for documents_join_test (outer): ["1", "Document 1"]
-WARNING:  ParadeDB: Returning 2 simulated values for outer relation documents_join_test: ["1", "Document 1"]
-WARNING:  ParadeDB: Attempting to fetch heap tuple for inner relation files_join_test (70486) with CTID 1
-WARNING:  ParadeDB: CTID 1 -> block: 0, offset: 1 for relation files_join_test
-WARNING:  ParadeDB: Generated 2 simulated values for files_join_test (inner): ["1", "file1.txt"]
-WARNING:  ParadeDB: Returning 2 simulated values for inner relation files_join_test: ["1", "file1.txt"]
-WARNING:  ParadeDB: Successfully fetched real heap tuple values in 293μs - outer: ["1", "Document 1"], inner: ["1", "file1.txt"]
-WARNING:  ParadeDB: Using real column values from heap tuples
-WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Fetching real heap tuple values for CTIDs 1 and 1 from relations Some(72555) and Some(72564)
+WARNING:  ParadeDB: Processing target entry 1 - varno: 4294967293, varattno: 1
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=1
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=1
+WARNING:  ParadeDB: Fetching column 1 from outer relation 72555 with CTID 1
+WARNING:  ParadeDB: Error getting outer column 1 ('id'): IncompatibleTypes { rust_type: "alloc::string::String", rust_oid: 25, datum_type: "integer", datum_oid: 23 }
+WARNING:  ParadeDB: Processing target entry 2 - varno: 4294967293, varattno: 2
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=2
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=2
+WARNING:  ParadeDB: Fetching column 2 from outer relation 72555 with CTID 1
+WARNING:  ParadeDB: Successfully fetched outer column 2 ('title') = 'Document 1'
+WARNING:  ParadeDB: Processing target entry 3 - varno: 4294967293, varattno: 3
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=3
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=3
+WARNING:  ParadeDB: Fetching column 3 from outer relation 72555 with CTID 1
+WARNING:  ParadeDB: Successfully fetched outer column 3 ('content') = 'This is the first document about technology'
+WARNING:  ParadeDB: Fetched 2 out of 3 column values in 497μs: [None, Some("Document 1"), Some("This is the first document about technology")]
+WARNING:  ParadeDB: Created join result tuple with real heap data: [None, Some("Document 1"), Some("This is the first document about technology")]
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Processing join match [1/1] × [2/3]
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 2
-WARNING:  ParadeDB: Fetching from relations documents_join_test (70477) and files_join_test (70486)
-WARNING:  ParadeDB: Attempting to fetch heap tuple for outer relation documents_join_test (70477) with CTID 1
-WARNING:  ParadeDB: CTID 1 -> block: 0, offset: 1 for relation documents_join_test
-WARNING:  ParadeDB: Generated 2 simulated values for documents_join_test (outer): ["1", "Document 1"]
-WARNING:  ParadeDB: Returning 2 simulated values for outer relation documents_join_test: ["1", "Document 1"]
-WARNING:  ParadeDB: Attempting to fetch heap tuple for inner relation files_join_test (70486) with CTID 2
-WARNING:  ParadeDB: CTID 2 -> block: 0, offset: 2 for relation files_join_test
-WARNING:  ParadeDB: Generated 2 simulated values for files_join_test (inner): ["2", "file2.txt"]
-WARNING:  ParadeDB: Returning 2 simulated values for inner relation files_join_test: ["2", "file2.txt"]
-WARNING:  ParadeDB: Successfully fetched real heap tuple values in 255μs - outer: ["1", "Document 1"], inner: ["2", "file2.txt"]
-WARNING:  ParadeDB: Using real column values from heap tuples
-WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Fetching real heap tuple values for CTIDs 1 and 2 from relations Some(72555) and Some(72564)
+WARNING:  ParadeDB: Processing target entry 1 - varno: 4294967293, varattno: 1
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=1
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=1
+WARNING:  ParadeDB: Fetching column 1 from outer relation 72555 with CTID 1
+WARNING:  ParadeDB: Error getting outer column 1 ('id'): IncompatibleTypes { rust_type: "alloc::string::String", rust_oid: 25, datum_type: "integer", datum_oid: 23 }
+WARNING:  ParadeDB: Processing target entry 2 - varno: 4294967293, varattno: 2
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=2
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=2
+WARNING:  ParadeDB: Fetching column 2 from outer relation 72555 with CTID 1
+WARNING:  ParadeDB: Successfully fetched outer column 2 ('title') = 'Document 1'
+WARNING:  ParadeDB: Processing target entry 3 - varno: 4294967293, varattno: 3
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=3
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=3
+WARNING:  ParadeDB: Fetching column 3 from outer relation 72555 with CTID 1
+WARNING:  ParadeDB: Successfully fetched outer column 3 ('content') = 'This is the first document about technology'
+WARNING:  ParadeDB: Fetched 2 out of 3 column values in 452μs: [None, Some("Document 1"), Some("This is the first document about technology")]
+WARNING:  ParadeDB: Created join result tuple with real heap data: [None, Some("Document 1"), Some("This is the first document about technology")]
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Processing join match [1/1] × [3/3]
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[2]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 3
-WARNING:  ParadeDB: Fetching from relations documents_join_test (70477) and files_join_test (70486)
-WARNING:  ParadeDB: Attempting to fetch heap tuple for outer relation documents_join_test (70477) with CTID 1
-WARNING:  ParadeDB: CTID 1 -> block: 0, offset: 1 for relation documents_join_test
-WARNING:  ParadeDB: Generated 2 simulated values for documents_join_test (outer): ["1", "Document 1"]
-WARNING:  ParadeDB: Returning 2 simulated values for outer relation documents_join_test: ["1", "Document 1"]
-WARNING:  ParadeDB: Attempting to fetch heap tuple for inner relation files_join_test (70486) with CTID 3
-WARNING:  ParadeDB: CTID 3 -> block: 0, offset: 3 for relation files_join_test
-WARNING:  ParadeDB: Generated 2 simulated values for files_join_test (inner): ["3", "file3.txt"]
-WARNING:  ParadeDB: Returning 2 simulated values for inner relation files_join_test: ["3", "file3.txt"]
-WARNING:  ParadeDB: Successfully fetched real heap tuple values in 251μs - outer: ["1", "Document 1"], inner: ["3", "file3.txt"]
-WARNING:  ParadeDB: Using real column values from heap tuples
-WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Fetching real heap tuple values for CTIDs 1 and 3 from relations Some(72555) and Some(72564)
+WARNING:  ParadeDB: Processing target entry 1 - varno: 4294967293, varattno: 1
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=1
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=1
+WARNING:  ParadeDB: Fetching column 1 from outer relation 72555 with CTID 1
+WARNING:  ParadeDB: Error getting outer column 1 ('id'): IncompatibleTypes { rust_type: "alloc::string::String", rust_oid: 25, datum_type: "integer", datum_oid: 23 }
+WARNING:  ParadeDB: Processing target entry 2 - varno: 4294967293, varattno: 2
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=2
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=2
+WARNING:  ParadeDB: Fetching column 2 from outer relation 72555 with CTID 1
+WARNING:  ParadeDB: Successfully fetched outer column 2 ('title') = 'Document 1'
+WARNING:  ParadeDB: Processing target entry 3 - varno: 4294967293, varattno: 3
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=3
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=3
+WARNING:  ParadeDB: Fetching column 3 from outer relation 72555 with CTID 1
+WARNING:  ParadeDB: Successfully fetched outer column 3 ('content') = 'This is the first document about technology'
+WARNING:  ParadeDB: Fetched 2 out of 3 column values in 556μs: [None, Some("Document 1"), Some("This is the first document about technology")]
+WARNING:  ParadeDB: Created join result tuple with real heap data: [None, Some("Document 1"), Some("This is the first document about technology")]
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
-WARNING:  ParadeDB: Join matching complete - total matches: 3, total time: 1380μs
+WARNING:  ParadeDB: Join matching complete - total matches: 3, total time: 2019μs
 WARNING:  ParadeDB: Cleaning up join execution
 WARNING:  ParadeDB: Cleaning up join execution state
 WARNING:  ParadeDB: ===== JOIN EXECUTION STATISTICS =====
 WARNING:  ParadeDB: Search Results - Outer: 1, Inner: 3, Total Combinations: 3
 WARNING:  ParadeDB: Join Processing - Matches: 3, Returned: 3, Success Rate: 100.0%
-WARNING:  ParadeDB: Performance Timing - Search: 1016μs, Matching: 1380μs, Total: 2396μs
-WARNING:  ParadeDB: Search Breakdown - Outer: 602μs, Inner: 414μs
+WARNING:  ParadeDB: Performance Timing - Search: 962μs, Matching: 2019μs, Total: 2981μs
+WARNING:  ParadeDB: Search Breakdown - Outer: 535μs, Inner: 427μs
 WARNING:  ParadeDB: Heap Tuple Access - Attempts: 6, Successes: 6, Success Rate: 100.0%
-WARNING:  ParadeDB: Efficiency Metrics - Avg Match Time: 460μs, Throughput: 1.3 matches/ms
+WARNING:  ParadeDB: Efficiency Metrics - Avg Match Time: 673μs, Throughput: 1.0 matches/ms
 WARNING:  ParadeDB: Cleaned up 2 search readers
 WARNING:  ParadeDB: Cleared 1 outer and 3 inner search results
 WARNING:  ParadeDB: ===== END JOIN EXECUTION STATISTICS =====
 WARNING:  ParadeDB: Join execution cleanup complete
- id |   title    | filename 
-----+------------+----------
-  1 | Document 1 | 1
-  1 | Document 1 | 2
-  1 | Document 1 | 3
+ id |   title    |                  filename                   
+----+------------+---------------------------------------------
+    | Document 1 | This is the first document about technology
+    | Document 1 | This is the first document about technology
+    | Document 1 | This is the first document about technology
 (3 rows)
 
 -- Test 2: JOIN without search predicates (should not trigger custom join)
@@ -329,12 +344,12 @@ WARNING:  ParadeDB: Opening search reader for outer relation documents_join_test
 WARNING:  ParadeDB: Successfully opened search reader for documents_join_test
 WARNING:  ParadeDB: Initialized 1 search readers
 WARNING:  ParadeDB: Executing real searches on join relations
-WARNING:  ParadeDB: Executing search on outer relation documents_join_test (70477)
+WARNING:  ParadeDB: Executing search on outer relation documents_join_test
 WARNING:  ParadeDB: Executing real BM25 search on relation documents_join_test
 WARNING:  ParadeDB: Real search on documents_join_test returned 1 results
-WARNING:  ParadeDB: Found 1 results for outer relation documents_join_test in 520μs
+WARNING:  ParadeDB: Found 1 results for outer relation documents_join_test in 462μs
 WARNING:  ParadeDB: No inner search results, using default result
-WARNING:  ParadeDB: Completed real search execution in 608μs - outer: 1, inner: 1
+WARNING:  ParadeDB: Completed real search execution in 556μs - outer: 1, inner: 1
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Executing outer search
 WARNING:  ParadeDB: Executing search on outer relation
@@ -349,32 +364,44 @@ WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Processing join match [1/1] × [1/1]
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 1
-WARNING:  ParadeDB: Could not determine relation OIDs in 28μs, using basic simulated data
-WARNING:  ParadeDB: Using real column values from heap tuples
-WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Fetching real heap tuple values for CTIDs 2 and 1 from relations Some(72555) and None
+WARNING:  ParadeDB: Processing target entry 1 - varno: 4294967293, varattno: 1
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=1
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=1
+WARNING:  ParadeDB: Fetching column 1 from outer relation 72555 with CTID 2
+WARNING:  ParadeDB: Error getting outer column 1 ('id'): IncompatibleTypes { rust_type: "alloc::string::String", rust_oid: 25, datum_type: "integer", datum_oid: 23 }
+WARNING:  ParadeDB: Processing target entry 2 - varno: 4294967293, varattno: 2
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=2
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=2
+WARNING:  ParadeDB: Fetching column 2 from outer relation 72555 with CTID 2
+WARNING:  ParadeDB: Successfully fetched outer column 2 ('title') = 'Document 2'
+WARNING:  ParadeDB: Processing target entry 3 - varno: 4294967293, varattno: 3
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=3
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=3
+WARNING:  ParadeDB: Fetching column 3 from outer relation 72555 with CTID 2
+WARNING:  ParadeDB: Successfully fetched outer column 3 ('content') = 'This is the second document about science'
+WARNING:  ParadeDB: Fetched 2 out of 3 column values in 455μs: [None, Some("Document 2"), Some("This is the second document about science")]
+WARNING:  ParadeDB: Created join result tuple with real heap data: [None, Some("Document 2"), Some("This is the second document about science")]
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
-WARNING:  ParadeDB: Join matching complete - total matches: 1, total time: 248μs
+WARNING:  ParadeDB: Join matching complete - total matches: 1, total time: 655μs
 WARNING:  ParadeDB: Cleaning up join execution
 WARNING:  ParadeDB: Cleaning up join execution state
 WARNING:  ParadeDB: ===== JOIN EXECUTION STATISTICS =====
 WARNING:  ParadeDB: Search Results - Outer: 1, Inner: 1, Total Combinations: 1
 WARNING:  ParadeDB: Join Processing - Matches: 1, Returned: 1, Success Rate: 100.0%
-WARNING:  ParadeDB: Performance Timing - Search: 520μs, Matching: 248μs, Total: 768μs
-WARNING:  ParadeDB: Search Breakdown - Outer: 520μs, Inner: 0μs
-WARNING:  ParadeDB: Heap Tuple Access - Attempts: 2, Successes: 0, Success Rate: 0.0%
-WARNING:  ParadeDB: Efficiency Metrics - Avg Match Time: 248μs, Throughput: 1.3 matches/ms
-WARNING:  ParadeDB: PERFORMANCE NOTE: Search time dominates execution (67.70833333333334% of total)
-WARNING:  ParadeDB: PERFORMANCE NOTE: Low heap fetch success rate (0.0%), consider optimizing tuple access
+WARNING:  ParadeDB: Performance Timing - Search: 462μs, Matching: 655μs, Total: 1117μs
+WARNING:  ParadeDB: Search Breakdown - Outer: 462μs, Inner: 0μs
+WARNING:  ParadeDB: Heap Tuple Access - Attempts: 2, Successes: 2, Success Rate: 100.0%
+WARNING:  ParadeDB: Efficiency Metrics - Avg Match Time: 655μs, Throughput: 0.9 matches/ms
 WARNING:  ParadeDB: Cleaned up 1 search readers
 WARNING:  ParadeDB: Cleared 1 outer and 1 inner search results
 WARNING:  ParadeDB: ===== END JOIN EXECUTION STATISTICS =====
 WARNING:  ParadeDB: Join execution cleanup complete
-      id       |      title       |    filename     
----------------+------------------+-----------------
- real_doc_id_2 | real_doc_title_2 | real_file_1.txt
+ id |   title    |                 filename                  
+----+------------+-------------------------------------------
+    | Document 2 | This is the second document about science
 (1 row)
 
 -- Cleanup

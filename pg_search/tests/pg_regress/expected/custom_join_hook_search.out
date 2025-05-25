@@ -128,15 +128,15 @@ WARNING:  ParadeDB: Opening search reader for inner relation reviews
 WARNING:  ParadeDB: Successfully opened search reader for reviews
 WARNING:  ParadeDB: Initialized 2 search readers
 WARNING:  ParadeDB: Executing real searches on join relations
-WARNING:  ParadeDB: Executing search on outer relation products (70518)
+WARNING:  ParadeDB: Executing search on outer relation products
 WARNING:  ParadeDB: Executing real BM25 search on relation products
 WARNING:  ParadeDB: Real search on products returned 1 results
-WARNING:  ParadeDB: Found 1 results for outer relation products in 482μs
-WARNING:  ParadeDB: Executing search on inner relation reviews (70527)
+WARNING:  ParadeDB: Found 1 results for outer relation products in 766μs
+WARNING:  ParadeDB: Executing search on inner relation reviews (72605)
 WARNING:  ParadeDB: Executing real BM25 search on relation reviews
 WARNING:  ParadeDB: Real search on reviews returned 2 results
-WARNING:  ParadeDB: Found 2 results for inner relation reviews in 505μs
-WARNING:  ParadeDB: Completed real search execution in 1111μs - outer: 1, inner: 2
+WARNING:  ParadeDB: Found 2 results for inner relation reviews in 553μs
+WARNING:  ParadeDB: Completed real search execution in 1445μs - outer: 1, inner: 2
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Executing outer search
 WARNING:  ParadeDB: Executing search on outer relation
@@ -151,59 +151,69 @@ WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Processing join match [1/1] × [1/2]
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 1
-WARNING:  ParadeDB: Fetching from relations products (70518) and reviews (70527)
-WARNING:  ParadeDB: Attempting to fetch heap tuple for outer relation products (70518) with CTID 1
-WARNING:  ParadeDB: CTID 1 -> block: 0, offset: 1 for relation products
-WARNING:  ParadeDB: Generated 3 simulated values for products (outer): ["1", "Product 1", "Description for product 1"]
-WARNING:  ParadeDB: Returning 3 simulated values for outer relation products: ["1", "Product 1", "Description for product 1"]
-WARNING:  ParadeDB: Attempting to fetch heap tuple for inner relation reviews (70527) with CTID 1
-WARNING:  ParadeDB: CTID 1 -> block: 0, offset: 1 for relation reviews
-WARNING:  ParadeDB: Generated 3 simulated values for reviews (inner): ["1", "Review 1", "Review text for item 1"]
-WARNING:  ParadeDB: Returning 3 simulated values for inner relation reviews: ["1", "Review 1", "Review text for item 1"]
-WARNING:  ParadeDB: Successfully fetched real heap tuple values in 353μs - outer: ["1", "Product 1", "Description for product 1"], inner: ["1", "Review 1", "Review text for item 1"]
-WARNING:  ParadeDB: Using real column values from heap tuples
-WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Fetching real heap tuple values for CTIDs 1 and 1 from relations Some(72596) and Some(72605)
+WARNING:  ParadeDB: Processing target entry 1 - varno: 4294967293, varattno: 1
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=1
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=1
+WARNING:  ParadeDB: Fetching column 1 from outer relation 72596 with CTID 1
+WARNING:  ParadeDB: Error getting outer column 1 ('id'): IncompatibleTypes { rust_type: "alloc::string::String", rust_oid: 25, datum_type: "integer", datum_oid: 23 }
+WARNING:  ParadeDB: Processing target entry 2 - varno: 4294967293, varattno: 2
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=2
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=2
+WARNING:  ParadeDB: Fetching column 2 from outer relation 72596 with CTID 1
+WARNING:  ParadeDB: Successfully fetched outer column 2 ('name') = 'Laptop Pro'
+WARNING:  ParadeDB: Processing target entry 3 - varno: 4294967293, varattno: 3
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=3
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=3
+WARNING:  ParadeDB: Fetching column 3 from outer relation 72596 with CTID 1
+WARNING:  ParadeDB: Successfully fetched outer column 3 ('description') = 'High-performance laptop with advanced features for professionals'
+WARNING:  ParadeDB: Fetched 2 out of 3 column values in 515μs: [None, Some("Laptop Pro"), Some("High-performance laptop with advanced features for professionals")]
+WARNING:  ParadeDB: Created join result tuple with real heap data: [None, Some("Laptop Pro"), Some("High-performance laptop with advanced features for professionals")]
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Processing join match [1/1] × [2/2]
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 4
-WARNING:  ParadeDB: Fetching from relations products (70518) and reviews (70527)
-WARNING:  ParadeDB: Attempting to fetch heap tuple for outer relation products (70518) with CTID 1
-WARNING:  ParadeDB: CTID 1 -> block: 0, offset: 1 for relation products
-WARNING:  ParadeDB: Generated 3 simulated values for products (outer): ["1", "Product 1", "Description for product 1"]
-WARNING:  ParadeDB: Returning 3 simulated values for outer relation products: ["1", "Product 1", "Description for product 1"]
-WARNING:  ParadeDB: Attempting to fetch heap tuple for inner relation reviews (70527) with CTID 4
-WARNING:  ParadeDB: CTID 4 -> block: 0, offset: 4 for relation reviews
-WARNING:  ParadeDB: Generated 3 simulated values for reviews (inner): ["4", "Review 4", "Review text for item 4"]
-WARNING:  ParadeDB: Returning 3 simulated values for inner relation reviews: ["4", "Review 4", "Review text for item 4"]
-WARNING:  ParadeDB: Successfully fetched real heap tuple values in 182μs - outer: ["1", "Product 1", "Description for product 1"], inner: ["4", "Review 4", "Review text for item 4"]
-WARNING:  ParadeDB: Using real column values from heap tuples
-WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Fetching real heap tuple values for CTIDs 1 and 4 from relations Some(72596) and Some(72605)
+WARNING:  ParadeDB: Processing target entry 1 - varno: 4294967293, varattno: 1
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=1
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=1
+WARNING:  ParadeDB: Fetching column 1 from outer relation 72596 with CTID 1
+WARNING:  ParadeDB: Error getting outer column 1 ('id'): IncompatibleTypes { rust_type: "alloc::string::String", rust_oid: 25, datum_type: "integer", datum_oid: 23 }
+WARNING:  ParadeDB: Processing target entry 2 - varno: 4294967293, varattno: 2
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=2
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=2
+WARNING:  ParadeDB: Fetching column 2 from outer relation 72596 with CTID 1
+WARNING:  ParadeDB: Successfully fetched outer column 2 ('name') = 'Laptop Pro'
+WARNING:  ParadeDB: Processing target entry 3 - varno: 4294967293, varattno: 3
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=3
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=3
+WARNING:  ParadeDB: Fetching column 3 from outer relation 72596 with CTID 1
+WARNING:  ParadeDB: Successfully fetched outer column 3 ('description') = 'High-performance laptop with advanced features for professionals'
+WARNING:  ParadeDB: Fetched 2 out of 3 column values in 386μs: [None, Some("Laptop Pro"), Some("High-performance laptop with advanced features for professionals")]
+WARNING:  ParadeDB: Created join result tuple with real heap data: [None, Some("Laptop Pro"), Some("High-performance laptop with advanced features for professionals")]
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
-WARNING:  ParadeDB: Join matching complete - total matches: 2, total time: 828μs
+WARNING:  ParadeDB: Join matching complete - total matches: 2, total time: 1228μs
 WARNING:  ParadeDB: Cleaning up join execution
 WARNING:  ParadeDB: Cleaning up join execution state
 WARNING:  ParadeDB: ===== JOIN EXECUTION STATISTICS =====
 WARNING:  ParadeDB: Search Results - Outer: 1, Inner: 2, Total Combinations: 2
 WARNING:  ParadeDB: Join Processing - Matches: 2, Returned: 2, Success Rate: 100.0%
-WARNING:  ParadeDB: Performance Timing - Search: 987μs, Matching: 828μs, Total: 1815μs
-WARNING:  ParadeDB: Search Breakdown - Outer: 482μs, Inner: 505μs
+WARNING:  ParadeDB: Performance Timing - Search: 1319μs, Matching: 1228μs, Total: 2547μs
+WARNING:  ParadeDB: Search Breakdown - Outer: 766μs, Inner: 553μs
 WARNING:  ParadeDB: Heap Tuple Access - Attempts: 4, Successes: 4, Success Rate: 100.0%
-WARNING:  ParadeDB: Efficiency Metrics - Avg Match Time: 414μs, Throughput: 1.1 matches/ms
+WARNING:  ParadeDB: Efficiency Metrics - Avg Match Time: 614μs, Throughput: 0.8 matches/ms
 WARNING:  ParadeDB: Cleaned up 2 search readers
 WARNING:  ParadeDB: Cleared 1 outer and 2 inner search results
 WARNING:  ParadeDB: ===== END JOIN EXECUTION STATISTICS =====
 WARNING:  ParadeDB: Join execution cleanup complete
- name | reviewer_name | review_text 
-------+---------------+-------------
- 1    | Product 1     | 1
- 1    | Product 1     | 4
+ name | reviewer_name |                           review_text                            
+------+---------------+------------------------------------------------------------------
+      | Laptop Pro    | High-performance laptop with advanced features for professionals
+      | Laptop Pro    | High-performance laptop with advanced features for professionals
 (2 rows)
 
 -- Test 2: Single-sided search join (only one side has search predicate)
@@ -270,12 +280,12 @@ WARNING:  ParadeDB: Opening search reader for outer relation products
 WARNING:  ParadeDB: Successfully opened search reader for products
 WARNING:  ParadeDB: Initialized 1 search readers
 WARNING:  ParadeDB: Executing real searches on join relations
-WARNING:  ParadeDB: Executing search on outer relation products (70518)
+WARNING:  ParadeDB: Executing search on outer relation products
 WARNING:  ParadeDB: Executing real BM25 search on relation products
 WARNING:  ParadeDB: Real search on products returned 3 results
-WARNING:  ParadeDB: Found 3 results for outer relation products in 361μs
+WARNING:  ParadeDB: Found 3 results for outer relation products in 602μs
 WARNING:  ParadeDB: No inner search results, using default result
-WARNING:  ParadeDB: Completed real search execution in 423μs - outer: 3, inner: 1
+WARNING:  ParadeDB: Completed real search execution in 682μs - outer: 3, inner: 1
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Executing outer search
 WARNING:  ParadeDB: Executing search on outer relation
@@ -290,10 +300,24 @@ WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Processing join match [1/3] × [1/1]
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 1
-WARNING:  ParadeDB: Could not determine relation OIDs in 19μs, using basic simulated data
-WARNING:  ParadeDB: Using real column values from heap tuples
-WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Fetching real heap tuple values for CTIDs 1 and 1 from relations Some(72596) and None
+WARNING:  ParadeDB: Processing target entry 1 - varno: 4294967293, varattno: 1
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=1
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=1
+WARNING:  ParadeDB: Fetching column 1 from outer relation 72596 with CTID 1
+WARNING:  ParadeDB: Error getting outer column 1 ('id'): IncompatibleTypes { rust_type: "alloc::string::String", rust_oid: 25, datum_type: "integer", datum_oid: 23 }
+WARNING:  ParadeDB: Processing target entry 2 - varno: 4294967293, varattno: 2
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=2
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=2
+WARNING:  ParadeDB: Fetching column 2 from outer relation 72596 with CTID 1
+WARNING:  ParadeDB: Successfully fetched outer column 2 ('name') = 'Laptop Pro'
+WARNING:  ParadeDB: Processing target entry 3 - varno: 4294967293, varattno: 3
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=3
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=3
+WARNING:  ParadeDB: Fetching column 3 from outer relation 72596 with CTID 1
+WARNING:  ParadeDB: Successfully fetched outer column 3 ('description') = 'High-performance laptop with advanced features for professionals'
+WARNING:  ParadeDB: Fetched 2 out of 3 column values in 405μs: [None, Some("Laptop Pro"), Some("High-performance laptop with advanced features for professionals")]
+WARNING:  ParadeDB: Created join result tuple with real heap data: [None, Some("Laptop Pro"), Some("High-performance laptop with advanced features for professionals")]
 WARNING:  ParadeDB: Advanced to next outer tuple [2/3]
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
@@ -301,10 +325,24 @@ WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Processing join match [2/3] × [1/1]
 WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[0]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 1
-WARNING:  ParadeDB: Could not determine relation OIDs in 18μs, using basic simulated data
-WARNING:  ParadeDB: Using real column values from heap tuples
-WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Fetching real heap tuple values for CTIDs 2 and 1 from relations Some(72596) and None
+WARNING:  ParadeDB: Processing target entry 1 - varno: 4294967293, varattno: 1
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=1
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=1
+WARNING:  ParadeDB: Fetching column 1 from outer relation 72596 with CTID 2
+WARNING:  ParadeDB: Error getting outer column 1 ('id'): IncompatibleTypes { rust_type: "alloc::string::String", rust_oid: 25, datum_type: "integer", datum_oid: 23 }
+WARNING:  ParadeDB: Processing target entry 2 - varno: 4294967293, varattno: 2
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=2
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=2
+WARNING:  ParadeDB: Fetching column 2 from outer relation 72596 with CTID 2
+WARNING:  ParadeDB: Successfully fetched outer column 2 ('name') = 'Wireless Mouse'
+WARNING:  ParadeDB: Processing target entry 3 - varno: 4294967293, varattno: 3
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=3
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=3
+WARNING:  ParadeDB: Fetching column 3 from outer relation 72596 with CTID 2
+WARNING:  ParadeDB: Successfully fetched outer column 3 ('description') = 'Ergonomic wireless mouse with precision tracking'
+WARNING:  ParadeDB: Fetched 2 out of 3 column values in 402μs: [None, Some("Wireless Mouse"), Some("Ergonomic wireless mouse with precision tracking")]
+WARNING:  ParadeDB: Created join result tuple with real heap data: [None, Some("Wireless Mouse"), Some("Ergonomic wireless mouse with precision tracking")]
 WARNING:  ParadeDB: Advanced to next outer tuple [3/3]
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
@@ -312,33 +350,46 @@ WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Processing join match [3/3] × [1/1]
 WARNING:  ParadeDB: Creating join result tuple for outer[2], inner[0]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 5 and 1
-WARNING:  ParadeDB: Could not determine relation OIDs in 18μs, using basic simulated data
-WARNING:  ParadeDB: Using real column values from heap tuples
-WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Fetching real heap tuple values for CTIDs 5 and 1 from relations Some(72596) and None
+WARNING:  ParadeDB: Processing target entry 1 - varno: 4294967293, varattno: 1
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=1
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=1
+WARNING:  ParadeDB: Fetching column 1 from outer relation 72596 with CTID 5
+WARNING:  ParadeDB: Error getting outer column 1 ('id'): IncompatibleTypes { rust_type: "alloc::string::String", rust_oid: 25, datum_type: "integer", datum_oid: 23 }
+WARNING:  ParadeDB: Processing target entry 2 - varno: 4294967293, varattno: 2
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=2
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=2
+WARNING:  ParadeDB: Fetching column 2 from outer relation 72596 with CTID 5
+WARNING:  ParadeDB: Successfully fetched outer column 2 ('name') = 'Smartphone X'
+WARNING:  ParadeDB: Processing target entry 3 - varno: 4294967293, varattno: 3
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=3
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=3
+WARNING:  ParadeDB: Fetching column 3 from outer relation 72596 with CTID 5
+WARNING:  ParadeDB: Successfully fetched outer column 3 ('description') = 'Latest smartphone with cutting-edge technology'
+WARNING:  ParadeDB: Fetched 2 out of 3 column values in 429μs: [None, Some("Smartphone X"), Some("Latest smartphone with cutting-edge technology")]
+WARNING:  ParadeDB: Created join result tuple with real heap data: [None, Some("Smartphone X"), Some("Latest smartphone with cutting-edge technology")]
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
-WARNING:  ParadeDB: Join matching complete - total matches: 3, total time: 492μs
+WARNING:  ParadeDB: Join matching complete - total matches: 3, total time: 1754μs
 WARNING:  ParadeDB: Cleaning up join execution
 WARNING:  ParadeDB: Cleaning up join execution state
 WARNING:  ParadeDB: ===== JOIN EXECUTION STATISTICS =====
 WARNING:  ParadeDB: Search Results - Outer: 3, Inner: 1, Total Combinations: 3
 WARNING:  ParadeDB: Join Processing - Matches: 3, Returned: 3, Success Rate: 100.0%
-WARNING:  ParadeDB: Performance Timing - Search: 361μs, Matching: 492μs, Total: 853μs
-WARNING:  ParadeDB: Search Breakdown - Outer: 361μs, Inner: 0μs
-WARNING:  ParadeDB: Heap Tuple Access - Attempts: 6, Successes: 0, Success Rate: 0.0%
-WARNING:  ParadeDB: Efficiency Metrics - Avg Match Time: 164μs, Throughput: 3.5 matches/ms
-WARNING:  ParadeDB: PERFORMANCE NOTE: Low heap fetch success rate (0.0%), consider optimizing tuple access
+WARNING:  ParadeDB: Performance Timing - Search: 602μs, Matching: 1754μs, Total: 2356μs
+WARNING:  ParadeDB: Search Breakdown - Outer: 602μs, Inner: 0μs
+WARNING:  ParadeDB: Heap Tuple Access - Attempts: 6, Successes: 6, Success Rate: 100.0%
+WARNING:  ParadeDB: Efficiency Metrics - Avg Match Time: 584μs, Throughput: 1.3 matches/ms
 WARNING:  ParadeDB: Cleaned up 1 search readers
 WARNING:  ParadeDB: Cleared 3 outer and 1 inner search results
 WARNING:  ParadeDB: ===== END JOIN EXECUTION STATISTICS =====
 WARNING:  ParadeDB: Join execution cleanup complete
-     name      |  reviewer_name   |     rating      
----------------+------------------+-----------------
- real_doc_id_1 | real_doc_title_1 | real_file_1.txt
- real_doc_id_2 | real_doc_title_2 | real_file_1.txt
- real_doc_id_5 | real_doc_title_5 | real_file_1.txt
+ name | reviewer_name  |                              rating                              
+------+----------------+------------------------------------------------------------------
+      | Laptop Pro     | High-performance laptop with advanced features for professionals
+      | Wireless Mouse |                 Ergonomic wireless mouse with precision tracking
+      | Smartphone X   |                   Latest smartphone with cutting-edge technology
 (3 rows)
 
 -- Test 3: Complex search with multiple terms
@@ -415,15 +466,15 @@ WARNING:  ParadeDB: Opening search reader for inner relation reviews
 WARNING:  ParadeDB: Successfully opened search reader for reviews
 WARNING:  ParadeDB: Initialized 2 search readers
 WARNING:  ParadeDB: Executing real searches on join relations
-WARNING:  ParadeDB: Executing search on outer relation products (70518)
+WARNING:  ParadeDB: Executing search on outer relation products
 WARNING:  ParadeDB: Executing real BM25 search on relation products
 WARNING:  ParadeDB: Real search on products returned 2 results
-WARNING:  ParadeDB: Found 2 results for outer relation products in 528μs
-WARNING:  ParadeDB: Executing search on inner relation reviews (70527)
+WARNING:  ParadeDB: Found 2 results for outer relation products in 806μs
+WARNING:  ParadeDB: Executing search on inner relation reviews (72605)
 WARNING:  ParadeDB: Executing real BM25 search on relation reviews
 WARNING:  ParadeDB: Real search on reviews returned 3 results
-WARNING:  ParadeDB: Found 3 results for inner relation reviews in 548μs
-WARNING:  ParadeDB: Completed real search execution in 1160μs - outer: 2, inner: 3
+WARNING:  ParadeDB: Found 3 results for inner relation reviews in 652μs
+WARNING:  ParadeDB: Completed real search execution in 1565μs - outer: 2, inner: 3
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Executing outer search
 WARNING:  ParadeDB: Executing search on outer relation
@@ -438,57 +489,72 @@ WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Processing join match [1/2] × [1/3]
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 1
-WARNING:  ParadeDB: Fetching from relations products (70518) and reviews (70527)
-WARNING:  ParadeDB: Attempting to fetch heap tuple for outer relation products (70518) with CTID 2
-WARNING:  ParadeDB: CTID 2 -> block: 0, offset: 2 for relation products
-WARNING:  ParadeDB: Generated 3 simulated values for products (outer): ["2", "Product 2", "Description for product 2"]
-WARNING:  ParadeDB: Returning 3 simulated values for outer relation products: ["2", "Product 2", "Description for product 2"]
-WARNING:  ParadeDB: Attempting to fetch heap tuple for inner relation reviews (70527) with CTID 1
-WARNING:  ParadeDB: CTID 1 -> block: 0, offset: 1 for relation reviews
-WARNING:  ParadeDB: Generated 3 simulated values for reviews (inner): ["1", "Review 1", "Review text for item 1"]
-WARNING:  ParadeDB: Returning 3 simulated values for inner relation reviews: ["1", "Review 1", "Review text for item 1"]
-WARNING:  ParadeDB: Successfully fetched real heap tuple values in 181μs - outer: ["2", "Product 2", "Description for product 2"], inner: ["1", "Review 1", "Review text for item 1"]
-WARNING:  ParadeDB: Using real column values from heap tuples
-WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Fetching real heap tuple values for CTIDs 2 and 1 from relations Some(72596) and Some(72605)
+WARNING:  ParadeDB: Processing target entry 1 - varno: 4294967293, varattno: 1
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=1
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=1
+WARNING:  ParadeDB: Fetching column 1 from outer relation 72596 with CTID 2
+WARNING:  ParadeDB: Error getting outer column 1 ('id'): IncompatibleTypes { rust_type: "alloc::string::String", rust_oid: 25, datum_type: "integer", datum_oid: 23 }
+WARNING:  ParadeDB: Processing target entry 2 - varno: 4294967293, varattno: 2
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=2
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=2
+WARNING:  ParadeDB: Fetching column 2 from outer relation 72596 with CTID 2
+WARNING:  ParadeDB: Successfully fetched outer column 2 ('name') = 'Wireless Mouse'
+WARNING:  ParadeDB: Processing target entry 3 - varno: 4294967293, varattno: 3
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=3
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=3
+WARNING:  ParadeDB: Fetching column 3 from outer relation 72596 with CTID 2
+WARNING:  ParadeDB: Successfully fetched outer column 3 ('description') = 'Ergonomic wireless mouse with precision tracking'
+WARNING:  ParadeDB: Fetched 2 out of 3 column values in 413μs: [None, Some("Wireless Mouse"), Some("Ergonomic wireless mouse with precision tracking")]
+WARNING:  ParadeDB: Created join result tuple with real heap data: [None, Some("Wireless Mouse"), Some("Ergonomic wireless mouse with precision tracking")]
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Processing join match [1/2] × [2/3]
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 3
-WARNING:  ParadeDB: Fetching from relations products (70518) and reviews (70527)
-WARNING:  ParadeDB: Attempting to fetch heap tuple for outer relation products (70518) with CTID 2
-WARNING:  ParadeDB: CTID 2 -> block: 0, offset: 2 for relation products
-WARNING:  ParadeDB: Generated 3 simulated values for products (outer): ["2", "Product 2", "Description for product 2"]
-WARNING:  ParadeDB: Returning 3 simulated values for outer relation products: ["2", "Product 2", "Description for product 2"]
-WARNING:  ParadeDB: Attempting to fetch heap tuple for inner relation reviews (70527) with CTID 3
-WARNING:  ParadeDB: CTID 3 -> block: 0, offset: 3 for relation reviews
-WARNING:  ParadeDB: Generated 3 simulated values for reviews (inner): ["3", "Review 3", "Review text for item 3"]
-WARNING:  ParadeDB: Returning 3 simulated values for inner relation reviews: ["3", "Review 3", "Review text for item 3"]
-WARNING:  ParadeDB: Successfully fetched real heap tuple values in 175μs - outer: ["2", "Product 2", "Description for product 2"], inner: ["3", "Review 3", "Review text for item 3"]
-WARNING:  ParadeDB: Using real column values from heap tuples
-WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Fetching real heap tuple values for CTIDs 2 and 3 from relations Some(72596) and Some(72605)
+WARNING:  ParadeDB: Processing target entry 1 - varno: 4294967293, varattno: 1
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=1
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=1
+WARNING:  ParadeDB: Fetching column 1 from outer relation 72596 with CTID 2
+WARNING:  ParadeDB: Error getting outer column 1 ('id'): IncompatibleTypes { rust_type: "alloc::string::String", rust_oid: 25, datum_type: "integer", datum_oid: 23 }
+WARNING:  ParadeDB: Processing target entry 2 - varno: 4294967293, varattno: 2
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=2
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=2
+WARNING:  ParadeDB: Fetching column 2 from outer relation 72596 with CTID 2
+WARNING:  ParadeDB: Successfully fetched outer column 2 ('name') = 'Wireless Mouse'
+WARNING:  ParadeDB: Processing target entry 3 - varno: 4294967293, varattno: 3
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=3
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=3
+WARNING:  ParadeDB: Fetching column 3 from outer relation 72596 with CTID 2
+WARNING:  ParadeDB: Successfully fetched outer column 3 ('description') = 'Ergonomic wireless mouse with precision tracking'
+WARNING:  ParadeDB: Fetched 2 out of 3 column values in 417μs: [None, Some("Wireless Mouse"), Some("Ergonomic wireless mouse with precision tracking")]
+WARNING:  ParadeDB: Created join result tuple with real heap data: [None, Some("Wireless Mouse"), Some("Ergonomic wireless mouse with precision tracking")]
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Processing join match [1/2] × [3/3]
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[2]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 6
-WARNING:  ParadeDB: Fetching from relations products (70518) and reviews (70527)
-WARNING:  ParadeDB: Attempting to fetch heap tuple for outer relation products (70518) with CTID 2
-WARNING:  ParadeDB: CTID 2 -> block: 0, offset: 2 for relation products
-WARNING:  ParadeDB: Generated 3 simulated values for products (outer): ["2", "Product 2", "Description for product 2"]
-WARNING:  ParadeDB: Returning 3 simulated values for outer relation products: ["2", "Product 2", "Description for product 2"]
-WARNING:  ParadeDB: Attempting to fetch heap tuple for inner relation reviews (70527) with CTID 6
-WARNING:  ParadeDB: CTID 6 -> block: 0, offset: 6 for relation reviews
-WARNING:  ParadeDB: Generated 3 simulated values for reviews (inner): ["6", "Review 6", "Review text for item 6"]
-WARNING:  ParadeDB: Returning 3 simulated values for inner relation reviews: ["6", "Review 6", "Review text for item 6"]
-WARNING:  ParadeDB: Successfully fetched real heap tuple values in 175μs - outer: ["2", "Product 2", "Description for product 2"], inner: ["6", "Review 6", "Review text for item 6"]
-WARNING:  ParadeDB: Using real column values from heap tuples
-WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Fetching real heap tuple values for CTIDs 2 and 6 from relations Some(72596) and Some(72605)
+WARNING:  ParadeDB: Processing target entry 1 - varno: 4294967293, varattno: 1
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=1
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=1
+WARNING:  ParadeDB: Fetching column 1 from outer relation 72596 with CTID 2
+WARNING:  ParadeDB: Error getting outer column 1 ('id'): IncompatibleTypes { rust_type: "alloc::string::String", rust_oid: 25, datum_type: "integer", datum_oid: 23 }
+WARNING:  ParadeDB: Processing target entry 2 - varno: 4294967293, varattno: 2
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=2
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=2
+WARNING:  ParadeDB: Fetching column 2 from outer relation 72596 with CTID 2
+WARNING:  ParadeDB: Successfully fetched outer column 2 ('name') = 'Wireless Mouse'
+WARNING:  ParadeDB: Processing target entry 3 - varno: 4294967293, varattno: 3
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=3
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=3
+WARNING:  ParadeDB: Fetching column 3 from outer relation 72596 with CTID 2
+WARNING:  ParadeDB: Successfully fetched outer column 3 ('description') = 'Ergonomic wireless mouse with precision tracking'
+WARNING:  ParadeDB: Fetched 2 out of 3 column values in 397μs: [None, Some("Wireless Mouse"), Some("Ergonomic wireless mouse with precision tracking")]
+WARNING:  ParadeDB: Created join result tuple with real heap data: [None, Some("Wireless Mouse"), Some("Ergonomic wireless mouse with precision tracking")]
 WARNING:  ParadeDB: Advanced to next outer tuple [2/2]
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
@@ -496,82 +562,97 @@ WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Processing join match [2/2] × [1/3]
 WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[0]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 5 and 1
-WARNING:  ParadeDB: Fetching from relations products (70518) and reviews (70527)
-WARNING:  ParadeDB: Attempting to fetch heap tuple for outer relation products (70518) with CTID 5
-WARNING:  ParadeDB: CTID 5 -> block: 0, offset: 5 for relation products
-WARNING:  ParadeDB: Generated 3 simulated values for products (outer): ["5", "Product 5", "Description for product 5"]
-WARNING:  ParadeDB: Returning 3 simulated values for outer relation products: ["5", "Product 5", "Description for product 5"]
-WARNING:  ParadeDB: Attempting to fetch heap tuple for inner relation reviews (70527) with CTID 1
-WARNING:  ParadeDB: CTID 1 -> block: 0, offset: 1 for relation reviews
-WARNING:  ParadeDB: Generated 3 simulated values for reviews (inner): ["1", "Review 1", "Review text for item 1"]
-WARNING:  ParadeDB: Returning 3 simulated values for inner relation reviews: ["1", "Review 1", "Review text for item 1"]
-WARNING:  ParadeDB: Successfully fetched real heap tuple values in 173μs - outer: ["5", "Product 5", "Description for product 5"], inner: ["1", "Review 1", "Review text for item 1"]
-WARNING:  ParadeDB: Using real column values from heap tuples
-WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Fetching real heap tuple values for CTIDs 5 and 1 from relations Some(72596) and Some(72605)
+WARNING:  ParadeDB: Processing target entry 1 - varno: 4294967293, varattno: 1
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=1
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=1
+WARNING:  ParadeDB: Fetching column 1 from outer relation 72596 with CTID 5
+WARNING:  ParadeDB: Error getting outer column 1 ('id'): IncompatibleTypes { rust_type: "alloc::string::String", rust_oid: 25, datum_type: "integer", datum_oid: 23 }
+WARNING:  ParadeDB: Processing target entry 2 - varno: 4294967293, varattno: 2
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=2
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=2
+WARNING:  ParadeDB: Fetching column 2 from outer relation 72596 with CTID 5
+WARNING:  ParadeDB: Successfully fetched outer column 2 ('name') = 'Smartphone X'
+WARNING:  ParadeDB: Processing target entry 3 - varno: 4294967293, varattno: 3
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=3
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=3
+WARNING:  ParadeDB: Fetching column 3 from outer relation 72596 with CTID 5
+WARNING:  ParadeDB: Successfully fetched outer column 3 ('description') = 'Latest smartphone with cutting-edge technology'
+WARNING:  ParadeDB: Fetched 2 out of 3 column values in 416μs: [None, Some("Smartphone X"), Some("Latest smartphone with cutting-edge technology")]
+WARNING:  ParadeDB: Created join result tuple with real heap data: [None, Some("Smartphone X"), Some("Latest smartphone with cutting-edge technology")]
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Processing join match [2/2] × [2/3]
 WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 5 and 3
-WARNING:  ParadeDB: Fetching from relations products (70518) and reviews (70527)
-WARNING:  ParadeDB: Attempting to fetch heap tuple for outer relation products (70518) with CTID 5
-WARNING:  ParadeDB: CTID 5 -> block: 0, offset: 5 for relation products
-WARNING:  ParadeDB: Generated 3 simulated values for products (outer): ["5", "Product 5", "Description for product 5"]
-WARNING:  ParadeDB: Returning 3 simulated values for outer relation products: ["5", "Product 5", "Description for product 5"]
-WARNING:  ParadeDB: Attempting to fetch heap tuple for inner relation reviews (70527) with CTID 3
-WARNING:  ParadeDB: CTID 3 -> block: 0, offset: 3 for relation reviews
-WARNING:  ParadeDB: Generated 3 simulated values for reviews (inner): ["3", "Review 3", "Review text for item 3"]
-WARNING:  ParadeDB: Returning 3 simulated values for inner relation reviews: ["3", "Review 3", "Review text for item 3"]
-WARNING:  ParadeDB: Successfully fetched real heap tuple values in 346μs - outer: ["5", "Product 5", "Description for product 5"], inner: ["3", "Review 3", "Review text for item 3"]
-WARNING:  ParadeDB: Using real column values from heap tuples
-WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Fetching real heap tuple values for CTIDs 5 and 3 from relations Some(72596) and Some(72605)
+WARNING:  ParadeDB: Processing target entry 1 - varno: 4294967293, varattno: 1
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=1
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=1
+WARNING:  ParadeDB: Fetching column 1 from outer relation 72596 with CTID 5
+WARNING:  ParadeDB: Error getting outer column 1 ('id'): IncompatibleTypes { rust_type: "alloc::string::String", rust_oid: 25, datum_type: "integer", datum_oid: 23 }
+WARNING:  ParadeDB: Processing target entry 2 - varno: 4294967293, varattno: 2
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=2
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=2
+WARNING:  ParadeDB: Fetching column 2 from outer relation 72596 with CTID 5
+WARNING:  ParadeDB: Successfully fetched outer column 2 ('name') = 'Smartphone X'
+WARNING:  ParadeDB: Processing target entry 3 - varno: 4294967293, varattno: 3
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=3
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=3
+WARNING:  ParadeDB: Fetching column 3 from outer relation 72596 with CTID 5
+WARNING:  ParadeDB: Successfully fetched outer column 3 ('description') = 'Latest smartphone with cutting-edge technology'
+WARNING:  ParadeDB: Fetched 2 out of 3 column values in 431μs: [None, Some("Smartphone X"), Some("Latest smartphone with cutting-edge technology")]
+WARNING:  ParadeDB: Created join result tuple with real heap data: [None, Some("Smartphone X"), Some("Latest smartphone with cutting-edge technology")]
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Processing join match [2/2] × [3/3]
 WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[2]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 5 and 6
-WARNING:  ParadeDB: Fetching from relations products (70518) and reviews (70527)
-WARNING:  ParadeDB: Attempting to fetch heap tuple for outer relation products (70518) with CTID 5
-WARNING:  ParadeDB: CTID 5 -> block: 0, offset: 5 for relation products
-WARNING:  ParadeDB: Generated 3 simulated values for products (outer): ["5", "Product 5", "Description for product 5"]
-WARNING:  ParadeDB: Returning 3 simulated values for outer relation products: ["5", "Product 5", "Description for product 5"]
-WARNING:  ParadeDB: Attempting to fetch heap tuple for inner relation reviews (70527) with CTID 6
-WARNING:  ParadeDB: CTID 6 -> block: 0, offset: 6 for relation reviews
-WARNING:  ParadeDB: Generated 3 simulated values for reviews (inner): ["6", "Review 6", "Review text for item 6"]
-WARNING:  ParadeDB: Returning 3 simulated values for inner relation reviews: ["6", "Review 6", "Review text for item 6"]
-WARNING:  ParadeDB: Successfully fetched real heap tuple values in 377μs - outer: ["5", "Product 5", "Description for product 5"], inner: ["6", "Review 6", "Review text for item 6"]
-WARNING:  ParadeDB: Using real column values from heap tuples
-WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Fetching real heap tuple values for CTIDs 5 and 6 from relations Some(72596) and Some(72605)
+WARNING:  ParadeDB: Processing target entry 1 - varno: 4294967293, varattno: 1
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=1
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=1
+WARNING:  ParadeDB: Fetching column 1 from outer relation 72596 with CTID 5
+WARNING:  ParadeDB: Error getting outer column 1 ('id'): IncompatibleTypes { rust_type: "alloc::string::String", rust_oid: 25, datum_type: "integer", datum_oid: 23 }
+WARNING:  ParadeDB: Processing target entry 2 - varno: 4294967293, varattno: 2
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=2
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=2
+WARNING:  ParadeDB: Fetching column 2 from outer relation 72596 with CTID 5
+WARNING:  ParadeDB: Successfully fetched outer column 2 ('name') = 'Smartphone X'
+WARNING:  ParadeDB: Processing target entry 3 - varno: 4294967293, varattno: 3
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=3
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=3
+WARNING:  ParadeDB: Fetching column 3 from outer relation 72596 with CTID 5
+WARNING:  ParadeDB: Successfully fetched outer column 3 ('description') = 'Latest smartphone with cutting-edge technology'
+WARNING:  ParadeDB: Fetched 2 out of 3 column values in 459μs: [None, Some("Smartphone X"), Some("Latest smartphone with cutting-edge technology")]
+WARNING:  ParadeDB: Created join result tuple with real heap data: [None, Some("Smartphone X"), Some("Latest smartphone with cutting-edge technology")]
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
-WARNING:  ParadeDB: Join matching complete - total matches: 6, total time: 2326μs
+WARNING:  ParadeDB: Join matching complete - total matches: 6, total time: 3458μs
 WARNING:  ParadeDB: Cleaning up join execution
 WARNING:  ParadeDB: Cleaning up join execution state
 WARNING:  ParadeDB: ===== JOIN EXECUTION STATISTICS =====
 WARNING:  ParadeDB: Search Results - Outer: 2, Inner: 3, Total Combinations: 6
 WARNING:  ParadeDB: Join Processing - Matches: 6, Returned: 6, Success Rate: 100.0%
-WARNING:  ParadeDB: Performance Timing - Search: 1076μs, Matching: 2326μs, Total: 3402μs
-WARNING:  ParadeDB: Search Breakdown - Outer: 528μs, Inner: 548μs
+WARNING:  ParadeDB: Performance Timing - Search: 1458μs, Matching: 3458μs, Total: 4916μs
+WARNING:  ParadeDB: Search Breakdown - Outer: 806μs, Inner: 652μs
 WARNING:  ParadeDB: Heap Tuple Access - Attempts: 12, Successes: 12, Success Rate: 100.0%
-WARNING:  ParadeDB: Efficiency Metrics - Avg Match Time: 387μs, Throughput: 1.8 matches/ms
+WARNING:  ParadeDB: Efficiency Metrics - Avg Match Time: 576μs, Throughput: 1.2 matches/ms
 WARNING:  ParadeDB: Cleaned up 2 search readers
 WARNING:  ParadeDB: Cleared 2 outer and 3 inner search results
 WARNING:  ParadeDB: ===== END JOIN EXECUTION STATISTICS =====
 WARNING:  ParadeDB: Join execution cleanup complete
- name | description | review_text 
-------+-------------+-------------
- 2    | Product 2   | 1
- 2    | Product 2   | 3
- 2    | Product 2   | 6
- 5    | Product 5   | 1
- 5    | Product 5   | 3
- 5    | Product 5   | 6
+ name |  description   |                   review_text                    
+------+----------------+--------------------------------------------------
+      | Wireless Mouse | Ergonomic wireless mouse with precision tracking
+      | Wireless Mouse | Ergonomic wireless mouse with precision tracking
+      | Wireless Mouse | Ergonomic wireless mouse with precision tracking
+      | Smartphone X   | Latest smartphone with cutting-edge technology
+      | Smartphone X   | Latest smartphone with cutting-edge technology
+      | Smartphone X   | Latest smartphone with cutting-edge technology
 (6 rows)
 
 -- Test 4: Search with numeric conditions (should still trigger custom join)
@@ -646,12 +727,12 @@ WARNING:  ParadeDB: Opening search reader for outer relation products
 WARNING:  ParadeDB: Successfully opened search reader for products
 WARNING:  ParadeDB: Initialized 1 search readers
 WARNING:  ParadeDB: Executing real searches on join relations
-WARNING:  ParadeDB: Executing search on outer relation products (70518)
+WARNING:  ParadeDB: Executing search on outer relation products
 WARNING:  ParadeDB: Executing real BM25 search on relation products
 WARNING:  ParadeDB: Real search on products returned 1 results
-WARNING:  ParadeDB: Found 1 results for outer relation products in 456μs
+WARNING:  ParadeDB: Found 1 results for outer relation products in 537μs
 WARNING:  ParadeDB: No inner search results, using default result
-WARNING:  ParadeDB: Completed real search execution in 538μs - outer: 1, inner: 1
+WARNING:  ParadeDB: Completed real search execution in 612μs - outer: 1, inner: 1
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Executing outer search
 WARNING:  ParadeDB: Executing search on outer relation
@@ -666,39 +747,44 @@ WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Processing join match [1/1] × [1/1]
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 1
-WARNING:  ParadeDB: Fetching from relations products (70518) and reviews (70527)
-WARNING:  ParadeDB: Attempting to fetch heap tuple for outer relation products (70518) with CTID 1
-WARNING:  ParadeDB: CTID 1 -> block: 0, offset: 1 for relation products
-WARNING:  ParadeDB: Generated 3 simulated values for products (outer): ["1", "Product 1", "Description for product 1"]
-WARNING:  ParadeDB: Returning 3 simulated values for outer relation products: ["1", "Product 1", "Description for product 1"]
-WARNING:  ParadeDB: Attempting to fetch heap tuple for inner relation reviews (70527) with CTID 1
-WARNING:  ParadeDB: CTID 1 -> block: 0, offset: 1 for relation reviews
-WARNING:  ParadeDB: Generated 3 simulated values for reviews (inner): ["1", "Review 1", "Review text for item 1"]
-WARNING:  ParadeDB: Returning 3 simulated values for inner relation reviews: ["1", "Review 1", "Review text for item 1"]
-WARNING:  ParadeDB: Successfully fetched real heap tuple values in 357μs - outer: ["1", "Product 1", "Description for product 1"], inner: ["1", "Review 1", "Review text for item 1"]
-WARNING:  ParadeDB: Using real column values from heap tuples
-WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Fetching real heap tuple values for CTIDs 1 and 1 from relations Some(72596) and Some(72605)
+WARNING:  ParadeDB: Processing target entry 1 - varno: 4294967293, varattno: 1
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=1
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=1
+WARNING:  ParadeDB: Fetching column 1 from outer relation 72596 with CTID 1
+WARNING:  ParadeDB: Error getting outer column 1 ('id'): IncompatibleTypes { rust_type: "alloc::string::String", rust_oid: 25, datum_type: "integer", datum_oid: 23 }
+WARNING:  ParadeDB: Processing target entry 2 - varno: 4294967293, varattno: 2
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=2
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=2
+WARNING:  ParadeDB: Fetching column 2 from outer relation 72596 with CTID 1
+WARNING:  ParadeDB: Successfully fetched outer column 2 ('name') = 'Laptop Pro'
+WARNING:  ParadeDB: Processing target entry 3 - varno: 4294967293, varattno: 3
+WARNING:  ParadeDB: Looking up variable mapping for varno=4294967293, varattno=3
+WARNING:  ParadeDB: No variable mapping found for varno=4294967293, varattno=3
+WARNING:  ParadeDB: Fetching column 3 from outer relation 72596 with CTID 1
+WARNING:  ParadeDB: Successfully fetched outer column 3 ('description') = 'High-performance laptop with advanced features for professionals'
+WARNING:  ParadeDB: Fetched 2 out of 3 column values in 433μs: [None, Some("Laptop Pro"), Some("High-performance laptop with advanced features for professionals")]
+WARNING:  ParadeDB: Created join result tuple with real heap data: [None, Some("Laptop Pro"), Some("High-performance laptop with advanced features for professionals")]
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
-WARNING:  ParadeDB: Join matching complete - total matches: 1, total time: 585μs
+WARNING:  ParadeDB: Join matching complete - total matches: 1, total time: 602μs
 WARNING:  ParadeDB: Cleaning up join execution
 WARNING:  ParadeDB: Cleaning up join execution state
 WARNING:  ParadeDB: ===== JOIN EXECUTION STATISTICS =====
 WARNING:  ParadeDB: Search Results - Outer: 1, Inner: 1, Total Combinations: 1
 WARNING:  ParadeDB: Join Processing - Matches: 1, Returned: 1, Success Rate: 100.0%
-WARNING:  ParadeDB: Performance Timing - Search: 456μs, Matching: 585μs, Total: 1041μs
-WARNING:  ParadeDB: Search Breakdown - Outer: 456μs, Inner: 0μs
+WARNING:  ParadeDB: Performance Timing - Search: 537μs, Matching: 602μs, Total: 1139μs
+WARNING:  ParadeDB: Search Breakdown - Outer: 537μs, Inner: 0μs
 WARNING:  ParadeDB: Heap Tuple Access - Attempts: 2, Successes: 2, Success Rate: 100.0%
-WARNING:  ParadeDB: Efficiency Metrics - Avg Match Time: 585μs, Throughput: 1.0 matches/ms
+WARNING:  ParadeDB: Efficiency Metrics - Avg Match Time: 602μs, Throughput: 0.9 matches/ms
 WARNING:  ParadeDB: Cleaned up 1 search readers
 WARNING:  ParadeDB: Cleared 1 outer and 1 inner search results
 WARNING:  ParadeDB: ===== END JOIN EXECUTION STATISTICS =====
 WARNING:  ParadeDB: Join execution cleanup complete
- name | review_text | rating 
-------+-------------+--------
- 1    | Product 1   |      1
+ name | review_text |                              rating                              
+------+-------------+------------------------------------------------------------------
+      | Laptop Pro  | High-performance laptop with advanced features for professionals
 (1 row)
 
 -- Test 5: No search predicates (should use regular join)

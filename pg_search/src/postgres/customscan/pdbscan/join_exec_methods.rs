@@ -618,9 +618,8 @@ unsafe fn execute_real_searches(
                 if let Some(search_reader) = join_state.search_readers.get(&predicate.relid) {
                     let relation_name = get_rel_name(predicate.relid);
                     warning!(
-                        "ParadeDB: Executing search on outer relation {} ({})",
-                        relation_name,
-                        predicate.relid
+                        "ParadeDB: Executing search on outer relation {}",
+                        relation_name
                     );
 
                     let search_start = std::time::Instant::now();
@@ -934,55 +933,32 @@ unsafe fn create_join_result_tuple(
     // Get the CTIDs from search results
     let (outer_ctid, inner_ctid) = get_ctids_from_results(state, outer_pos, inner_pos);
 
-    // Try to fetch real column values from heap tuples
-    if let Some((outer_values, inner_values)) =
-        fetch_real_column_values(state, outer_ctid, inner_ctid)
-    {
-        warning!("ParadeDB: Using real column values from heap tuples");
+    // Get relation information for heap tuple fetching
+    let (outer_relid, inner_relid) = get_relation_oids_from_state(state);
 
-        // Populate the slot with real column values
-        for i in 0..natts {
-            let value = match i {
-                0 => outer_values
-                    .get(0)
-                    .cloned()
-                    .unwrap_or_else(|| format!("outer_id_{}", outer_pos + 1)),
-                1 => outer_values
-                    .get(1)
-                    .cloned()
-                    .unwrap_or_else(|| format!("outer_title_{}", outer_pos + 1)),
-                2 => inner_values
-                    .get(0)
-                    .cloned()
-                    .unwrap_or_else(|| format!("inner_file_{}", inner_pos + 1)),
-                _ => format!("col_{}_{}", i, outer_pos + inner_pos),
-            };
+    // Fetch real column values from heap tuples
+    let column_values = fetch_real_join_column_values(
+        state,
+        outer_ctid,
+        inner_ctid,
+        outer_relid,
+        inner_relid,
+        natts,
+    );
 
-            let value_cstr = std::ffi::CString::new(value).unwrap();
+    // Populate the slot with the fetched values
+    for (i, value) in column_values.iter().enumerate().take(natts) {
+        if let Some(value) = value {
+            let value_cstr = std::ffi::CString::new(value.clone()).unwrap();
             let text_datum = pg_sys::cstring_to_text(value_cstr.as_ptr());
 
             // Set the value in the slot
             (*slot).tts_values.add(i).write(text_datum.into());
             (*slot).tts_isnull.add(i).write(false);
-        }
-    } else {
-        warning!("ParadeDB: Using simulated column values");
-
-        // Fall back to simulated data if heap tuple fetching fails
-        for i in 0..natts {
-            let test_value = match i {
-                0 => format!("outer_id_{}", outer_pos + 1), // Simulated outer relation ID
-                1 => format!("outer_title_{}", outer_pos + 1), // Simulated outer relation title
-                2 => format!("inner_file_{}", inner_pos + 1), // Simulated inner relation filename
-                _ => format!("col_{}_{}", i, outer_pos + inner_pos),
-            };
-
-            let test_value_cstr = std::ffi::CString::new(test_value).unwrap();
-            let text_datum = pg_sys::cstring_to_text(test_value_cstr.as_ptr());
-
-            // Set the value in the slot
-            (*slot).tts_values.add(i).write(text_datum.into());
-            (*slot).tts_isnull.add(i).write(false);
+        } else {
+            // NULL value
+            (*slot).tts_values.add(i).write(pg_sys::Datum::null());
+            (*slot).tts_isnull.add(i).write(true);
         }
     }
 
@@ -990,9 +966,464 @@ unsafe fn create_join_result_tuple(
     (*slot).tts_nvalid = natts as _;
     pg_sys::ExecStoreVirtualTuple(slot);
 
-    warning!("ParadeDB: Created join result tuple with real data");
+    warning!(
+        "ParadeDB: Created join result tuple with real heap data: {:?}",
+        column_values
+    );
 
     slot
+}
+
+/// Get relation OIDs from the join execution state
+fn get_relation_oids_from_state(
+    state: &mut CustomScanStateWrapper<PdbScan>,
+) -> (Option<pg_sys::Oid>, Option<pg_sys::Oid>) {
+    if let Some(ref join_state) = state.custom_state().join_exec_state {
+        if let Some(ref predicates) = join_state.search_predicates {
+            let outer_relid = predicates.outer_predicates.first().map(|p| p.relid);
+            let inner_relid = predicates.inner_predicates.first().map(|p| p.relid);
+            (outer_relid, inner_relid)
+        } else {
+            (None, None)
+        }
+    } else {
+        (None, None)
+    }
+}
+
+/// Fetch real column values from heap tuples for join results
+unsafe fn fetch_real_join_column_values(
+    state: &mut CustomScanStateWrapper<PdbScan>,
+    outer_ctid: u64,
+    inner_ctid: u64,
+    outer_relid: Option<pg_sys::Oid>,
+    inner_relid: Option<pg_sys::Oid>,
+    natts: usize,
+) -> Vec<Option<String>> {
+    let fetch_start = std::time::Instant::now();
+
+    warning!(
+        "ParadeDB: Fetching real heap tuple values for CTIDs {} and {} from relations {:?} and {:?}",
+        outer_ctid,
+        inner_ctid,
+        outer_relid,
+        inner_relid
+    );
+
+    // Update fetch attempt statistics
+    if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
+        join_state.stats.heap_fetch_attempts += 2; // One for outer, one for inner
+    }
+
+    let mut column_values = Vec::with_capacity(natts);
+
+    // Get the target list to understand what columns we need to fetch
+    let planstate = state.planstate();
+    let plan = (*planstate).plan;
+    let target_list = (*plan).targetlist;
+
+    if !target_list.is_null() {
+        let tlist = pgrx::PgList::<pg_sys::TargetEntry>::from_pg(target_list);
+
+        for (i, te) in tlist.iter_ptr().enumerate().take(natts) {
+            let target_entry = &*te;
+
+            // Try to extract the column information from the target entry
+            let column_value = if let Some(var) = extract_var_from_target_entry(target_entry) {
+                let varno = (*var).varno as u32;
+                let varattno = (*var).varattno;
+
+                warning!(
+                    "ParadeDB: Processing target entry {} - varno: {}, varattno: {}",
+                    i + 1,
+                    varno,
+                    varattno
+                );
+
+                // Use proper variable resolution based on the varno
+                resolve_variable_to_column_value(
+                    state,
+                    varno,
+                    varattno,
+                    outer_relid,
+                    inner_relid,
+                    outer_ctid,
+                    inner_ctid,
+                )
+            } else {
+                warning!(
+                    "ParadeDB: Could not extract Var from target entry {}",
+                    i + 1
+                );
+                None
+            };
+
+            column_values.push(column_value);
+        }
+    } else {
+        warning!("ParadeDB: No target list available");
+        // Fill with None values
+        for _ in 0..natts {
+            column_values.push(None);
+        }
+    }
+
+    let fetch_duration = fetch_start.elapsed();
+
+    // Update success statistics based on how many values we successfully fetched
+    let successful_fetches = column_values.iter().filter(|v| v.is_some()).count();
+    if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
+        join_state.stats.heap_fetch_successes += successful_fetches;
+    }
+
+    warning!(
+        "ParadeDB: Fetched {} out of {} column values in {}μs: {:?}",
+        successful_fetches,
+        natts,
+        fetch_duration.as_micros(),
+        column_values
+    );
+
+    column_values
+}
+
+/// Extract a Var node from a target entry
+unsafe fn extract_var_from_target_entry(
+    target_entry: &pg_sys::TargetEntry,
+) -> Option<*mut pg_sys::Var> {
+    let expr = target_entry.expr;
+
+    // Try direct Var
+    if let Some(var) = crate::nodecast!(Var, T_Var, expr) {
+        return Some(var);
+    }
+
+    // Try RelabelType wrapping a Var
+    if let Some(relabel) = crate::nodecast!(RelabelType, T_RelabelType, expr) {
+        if let Some(var) = crate::nodecast!(Var, T_Var, (*relabel).arg) {
+            return Some(var);
+        }
+    }
+
+    None
+}
+
+/// Resolve a variable to its actual column value using proper PostgreSQL variable resolution
+unsafe fn resolve_variable_to_column_value(
+    state: &mut CustomScanStateWrapper<PdbScan>,
+    varno: u32,
+    varattno: pg_sys::AttrNumber,
+    outer_relid: Option<pg_sys::Oid>,
+    inner_relid: Option<pg_sys::Oid>,
+    outer_ctid: u64,
+    inner_ctid: u64,
+) -> Option<String> {
+    // For join nodes, PostgreSQL transforms the variable numbers
+    // We need to use the var_attname_lookup that was created during planning
+    // to map the transformed variables back to their original column names
+
+    warning!(
+        "ParadeDB: Looking up variable mapping for varno={}, varattno={}",
+        varno,
+        varattno
+    );
+
+    // Get the variable mapping from the planning phase
+    let var_attname_lookup = &state.custom_state().var_attname_lookup;
+
+    // Look up the column name for this variable
+    if let Some(column_name) = var_attname_lookup.get(&(varno as i32, varattno)) {
+        warning!(
+            "ParadeDB: Found column mapping: varno={}, varattno={} -> '{}'",
+            varno,
+            varattno,
+            column_name
+        );
+
+        // Now we need to determine which relation this column belongs to
+        // and fetch the value from the appropriate heap tuple
+
+        // For now, let's use a heuristic based on the column name and available relations
+        // In a more complete implementation, we'd store the relation mapping during planning
+
+        let column_value = if let Some(relid) = outer_relid {
+            // Try to fetch from outer relation first
+            let outer_value = fetch_column_value_by_name(relid, outer_ctid, column_name, "outer");
+            if outer_value.is_some() {
+                outer_value
+            } else if let Some(inner_relid) = inner_relid {
+                // If not found in outer, try inner
+                fetch_column_value_by_name(inner_relid, inner_ctid, column_name, "inner")
+            } else {
+                None
+            }
+        } else if let Some(relid) = inner_relid {
+            // Only inner relation available
+            fetch_column_value_by_name(relid, inner_ctid, column_name, "inner")
+        } else {
+            warning!(
+                "ParadeDB: No relations available for column '{}'",
+                column_name
+            );
+            None
+        };
+
+        column_value
+    } else {
+        warning!(
+            "ParadeDB: No variable mapping found for varno={}, varattno={}",
+            varno,
+            varattno
+        );
+
+        // Fallback: try to fetch using the attribute number directly
+        // This is less reliable but might work for simple cases
+        if let Some(relid) = outer_relid {
+            fetch_column_value_from_heap(relid, outer_ctid, varattno, "outer")
+        } else if let Some(relid) = inner_relid {
+            fetch_column_value_from_heap(relid, inner_ctid, varattno, "inner")
+        } else {
+            None
+        }
+    }
+}
+
+/// Fetch a column value by name from a heap tuple using CTID
+unsafe fn fetch_column_value_by_name(
+    relid: pg_sys::Oid,
+    ctid: u64,
+    column_name: &str,
+    relation_type: &str,
+) -> Option<String> {
+    warning!(
+        "ParadeDB: Fetching column '{}' from {} relation {} with CTID {}",
+        column_name,
+        relation_type,
+        relid,
+        ctid
+    );
+
+    // Open the relation
+    let heaprel = pg_sys::relation_open(relid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+    if heaprel.is_null() {
+        warning!("ParadeDB: Failed to open relation {}", relid);
+        return None;
+    }
+
+    // Convert CTID to ItemPointer
+    let mut ipd = pg_sys::ItemPointerData::default();
+    crate::postgres::utils::u64_to_item_pointer(ctid, &mut ipd);
+
+    // Prepare heap tuple structure
+    let mut htup = pg_sys::HeapTupleData {
+        t_self: ipd,
+        ..Default::default()
+    };
+    let mut buffer: pg_sys::Buffer = pg_sys::InvalidBuffer as i32;
+
+    // Fetch the heap tuple
+    let found = {
+        #[cfg(feature = "pg14")]
+        {
+            pg_sys::heap_fetch(heaprel, pg_sys::GetActiveSnapshot(), &mut htup, &mut buffer)
+        }
+        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+        {
+            pg_sys::heap_fetch(
+                heaprel,
+                pg_sys::GetActiveSnapshot(),
+                &mut htup,
+                &mut buffer,
+                false,
+            )
+        }
+    };
+
+    let result = if found {
+        // Extract the column value by name
+        let tuple_desc = pgrx::PgTupleDesc::from_pg_unchecked((*heaprel).rd_att);
+        let heap_tuple =
+            pgrx::heap_tuple::PgHeapTuple::from_heap_tuple(tuple_desc.clone(), &mut htup);
+
+        match heap_tuple.get_by_name::<String>(column_name) {
+            Ok(Some(value)) => {
+                warning!(
+                    "ParadeDB: Successfully fetched {} column '{}' = '{}'",
+                    relation_type,
+                    column_name,
+                    value
+                );
+                Some(value)
+            }
+            Ok(None) => {
+                warning!(
+                    "ParadeDB: {} column '{}' is NULL",
+                    relation_type,
+                    column_name
+                );
+                None
+            }
+            Err(e) => {
+                warning!(
+                    "ParadeDB: Error getting {} column '{}': {:?}",
+                    relation_type,
+                    column_name,
+                    e
+                );
+                None
+            }
+        }
+    } else {
+        warning!(
+            "ParadeDB: Heap tuple not found for CTID {} in {} relation {}",
+            ctid,
+            relation_type,
+            relid
+        );
+        None
+    };
+
+    // Clean up
+    if buffer != pg_sys::InvalidBuffer as i32 {
+        pg_sys::ReleaseBuffer(buffer);
+    }
+    pg_sys::relation_close(heaprel, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+
+    result
+}
+
+/// Fetch a specific column value from a heap tuple using CTID
+unsafe fn fetch_column_value_from_heap(
+    relid: pg_sys::Oid,
+    ctid: u64,
+    varattno: pg_sys::AttrNumber,
+    relation_type: &str,
+) -> Option<String> {
+    warning!(
+        "ParadeDB: Fetching column {} from {} relation {} with CTID {}",
+        varattno,
+        relation_type,
+        relid,
+        ctid
+    );
+
+    // Open the relation
+    let heaprel = pg_sys::relation_open(relid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+    if heaprel.is_null() {
+        warning!("ParadeDB: Failed to open relation {}", relid);
+        return None;
+    }
+
+    // Convert CTID to ItemPointer
+    let mut ipd = pg_sys::ItemPointerData::default();
+    crate::postgres::utils::u64_to_item_pointer(ctid, &mut ipd);
+
+    // Prepare heap tuple structure
+    let mut htup = pg_sys::HeapTupleData {
+        t_self: ipd,
+        ..Default::default()
+    };
+    let mut buffer: pg_sys::Buffer = pg_sys::InvalidBuffer as i32;
+
+    // Fetch the heap tuple
+    let found = {
+        #[cfg(feature = "pg14")]
+        {
+            pg_sys::heap_fetch(heaprel, pg_sys::GetActiveSnapshot(), &mut htup, &mut buffer)
+        }
+        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+        {
+            pg_sys::heap_fetch(
+                heaprel,
+                pg_sys::GetActiveSnapshot(),
+                &mut htup,
+                &mut buffer,
+                false,
+            )
+        }
+    };
+
+    let result = if found {
+        // Extract the column value
+        let tuple_desc = pgrx::PgTupleDesc::from_pg_unchecked((*heaprel).rd_att);
+        let heap_tuple =
+            pgrx::heap_tuple::PgHeapTuple::from_heap_tuple(tuple_desc.clone(), &mut htup);
+
+        // Handle special system columns
+        let column_value =
+            if varattno == pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber {
+                // ctid column
+                Some(format!(
+                    "({},{})",
+                    (ctid >> 16) as pg_sys::BlockNumber,
+                    (ctid & 0xFFFF) as pg_sys::OffsetNumber
+                ))
+            } else if varattno == pg_sys::TableOidAttributeNumber as pg_sys::AttrNumber {
+                // tableoid column
+                Some(relid.to_string())
+            } else if varattno > 0 && (varattno as usize) <= tuple_desc.len() {
+                // Regular user column
+                let attribute_index = (varattno - 1) as usize;
+                if let Some(attribute) = tuple_desc.get(attribute_index) {
+                    let column_name = attribute.name();
+                    match heap_tuple.get_by_name::<String>(column_name) {
+                        Ok(Some(value)) => {
+                            warning!(
+                                "ParadeDB: Successfully fetched {} column {} ('{}') = '{}'",
+                                relation_type,
+                                varattno,
+                                column_name,
+                                value
+                            );
+                            Some(value)
+                        }
+                        Ok(None) => {
+                            warning!(
+                                "ParadeDB: {} column {} ('{}') is NULL",
+                                relation_type,
+                                varattno,
+                                column_name
+                            );
+                            None
+                        }
+                        Err(e) => {
+                            warning!(
+                                "ParadeDB: Error getting {} column {} ('{}'): {:?}",
+                                relation_type,
+                                varattno,
+                                column_name,
+                                e
+                            );
+                            None
+                        }
+                    }
+                } else {
+                    warning!("ParadeDB: Invalid attribute index {}", attribute_index);
+                    None
+                }
+            } else {
+                warning!("ParadeDB: Invalid varattno: {}", varattno);
+                None
+            };
+
+        column_value
+    } else {
+        warning!(
+            "ParadeDB: Heap tuple not found for CTID {} in {} relation {}",
+            ctid,
+            relation_type,
+            relid
+        );
+        None
+    };
+
+    // Clean up
+    if buffer != pg_sys::InvalidBuffer as i32 {
+        pg_sys::ReleaseBuffer(buffer);
+    }
+    pg_sys::relation_close(heaprel, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+
+    result
 }
 
 /// Get CTIDs from search results
@@ -1019,280 +1450,5 @@ fn get_ctids_from_results(
         (outer_ctid, inner_ctid)
     } else {
         (outer_pos as u64 + 1, inner_pos as u64 + 1)
-    }
-}
-
-/// Fetch real column values from heap tuples using CTIDs
-unsafe fn fetch_real_column_values(
-    state: &mut CustomScanStateWrapper<PdbScan>,
-    outer_ctid: u64,
-    inner_ctid: u64,
-) -> Option<(Vec<String>, Vec<String>)> {
-    let fetch_start = std::time::Instant::now();
-
-    warning!(
-        "ParadeDB: Attempting to fetch real column values for CTIDs {} and {}",
-        outer_ctid,
-        inner_ctid
-    );
-
-    // Update fetch attempt statistics
-    if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
-        join_state.stats.heap_fetch_attempts += 2; // One for outer, one for inner
-    }
-
-    // Get the search predicates to identify the relations
-    let (outer_relid, inner_relid, outer_relname, inner_relname) =
-        if let Some(ref join_state) = state.custom_state().join_exec_state {
-            if let Some(ref predicates) = join_state.search_predicates {
-                let outer_pred = predicates.outer_predicates.first();
-                let inner_pred = predicates.inner_predicates.first();
-
-                let outer_relid = outer_pred.map(|p| p.relid);
-                let inner_relid = inner_pred.map(|p| p.relid);
-                let outer_relname = outer_pred
-                    .map(|p| get_rel_name(p.relid))
-                    .unwrap_or_else(|| "unknown_outer".to_string());
-                let inner_relname = inner_pred
-                    .map(|p| get_rel_name(p.relid))
-                    .unwrap_or_else(|| "unknown_inner".to_string());
-
-                (outer_relid, inner_relid, outer_relname, inner_relname)
-            } else {
-                (
-                    None,
-                    None,
-                    "no_predicates_outer".to_string(),
-                    "no_predicates_inner".to_string(),
-                )
-            }
-        } else {
-            (
-                None,
-                None,
-                "no_state_outer".to_string(),
-                "no_state_inner".to_string(),
-            )
-        };
-
-    if let (Some(outer_relid), Some(inner_relid)) = (outer_relid, inner_relid) {
-        warning!(
-            "ParadeDB: Fetching from relations {} ({}) and {} ({})",
-            outer_relname,
-            outer_relid,
-            inner_relname,
-            inner_relid
-        );
-
-        // Attempt to fetch real column values from heap tuples
-        let outer_values =
-            fetch_heap_tuple_values(outer_relid, outer_ctid, "outer", &outer_relname);
-        let inner_values =
-            fetch_heap_tuple_values(inner_relid, inner_ctid, "inner", &inner_relname);
-
-        let fetch_duration = fetch_start.elapsed();
-
-        if outer_values.is_empty() || inner_values.is_empty() {
-            warning!(
-                "ParadeDB: Failed to fetch real heap tuple values in {}μs, using enhanced simulated data",
-                fetch_duration.as_micros()
-            );
-
-            // Fall back to enhanced simulated data with relation-specific logic
-            let outer_values = generate_simulated_values(&outer_relname, outer_ctid, "outer");
-            let inner_values = generate_simulated_values(&inner_relname, inner_ctid, "inner");
-
-            Some((outer_values, inner_values))
-        } else {
-            // Update success statistics
-            if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
-                join_state.stats.heap_fetch_successes += 2;
-            }
-
-            warning!(
-                "ParadeDB: Successfully fetched real heap tuple values in {}μs - outer: {:?}, inner: {:?}",
-                fetch_duration.as_micros(),
-                outer_values,
-                inner_values
-            );
-            Some((outer_values, inner_values))
-        }
-    } else {
-        let fetch_duration = fetch_start.elapsed();
-        warning!(
-            "ParadeDB: Could not determine relation OIDs in {}μs, using basic simulated data",
-            fetch_duration.as_micros()
-        );
-
-        // Fall back to basic simulated data
-        let outer_values = vec![
-            format!("real_doc_id_{}", outer_ctid),
-            format!("real_doc_title_{}", outer_ctid),
-        ];
-
-        let inner_values = vec![format!("real_file_{}.txt", inner_ctid)];
-
-        Some((outer_values, inner_values))
-    }
-}
-
-/// Generate simulated values based on relation name and CTID
-fn generate_simulated_values(relation_name: &str, ctid: u64, relation_type: &str) -> Vec<String> {
-    let mut values = Vec::new();
-
-    // Generate relation-specific simulated data based on common naming patterns
-    if relation_name.contains("document") {
-        values.push(ctid.to_string()); // id
-        values.push(format!("Document {}", ctid)); // title
-        if relation_name.contains("content") {
-            values.push(format!("Content for document {}", ctid)); // content
-        }
-    } else if relation_name.contains("file") {
-        values.push(ctid.to_string()); // id
-        values.push(format!("file{}.txt", ctid)); // filename
-        if relation_name.contains("content") {
-            values.push(format!("File content {}", ctid)); // content
-        }
-    } else if relation_name.contains("product") {
-        values.push(ctid.to_string()); // id
-        values.push(format!("Product {}", ctid)); // name
-        values.push(format!("Description for product {}", ctid)); // description
-    } else if relation_name.contains("review") {
-        values.push(ctid.to_string()); // id
-        values.push(format!("Review {}", ctid)); // title
-        values.push(format!("Review text for item {}", ctid)); // text
-    } else {
-        // Generic fallback
-        values.push(ctid.to_string());
-        values.push(format!("{}_item_{}", relation_type, ctid));
-    }
-
-    warning!(
-        "ParadeDB: Generated {} simulated values for {} ({}): {:?}",
-        values.len(),
-        relation_name,
-        relation_type,
-        values
-    );
-
-    values
-}
-
-/// Fetch column values from a heap tuple using CTID
-unsafe fn fetch_heap_tuple_values(
-    relid: pg_sys::Oid,
-    ctid: u64,
-    relation_type: &str,
-    relation_name: &str,
-) -> Vec<String> {
-    warning!(
-        "ParadeDB: Attempting to fetch heap tuple for {} relation {} ({}) with CTID {}",
-        relation_type,
-        relation_name,
-        relid,
-        ctid
-    );
-
-    // Convert CTID to ItemPointer format
-    // CTID is stored as a 64-bit value where:
-    // - Upper 32 bits: block number
-    // - Lower 16 bits: offset number
-    let block_number = (ctid >> 16) as pg_sys::BlockNumber;
-    let offset_number = (ctid & 0xFFFF) as pg_sys::OffsetNumber;
-
-    warning!(
-        "ParadeDB: CTID {} -> block: {}, offset: {} for relation {}",
-        ctid,
-        block_number,
-        offset_number,
-        relation_name
-    );
-
-    // For now, implement a safer approach that doesn't crash
-    // We'll create realistic simulated data based on the actual CTID and relation
-    let result_values = generate_simulated_values(relation_name, ctid, relation_type);
-
-    warning!(
-        "ParadeDB: Returning {} simulated values for {} relation {}: {:?}",
-        result_values.len(),
-        relation_type,
-        relation_name,
-        result_values
-    );
-
-    result_values
-
-    // TODO: Implement real heap tuple fetching
-    // The crash suggests we need to be more careful about:
-    // 1. Relation locking and access patterns
-    // 2. CTID format and validation
-    // 3. Buffer management
-    // 4. MVCC visibility checking
-    // 5. Memory management for text values
-    //
-    // For now, we'll use the simulated approach above which demonstrates
-    // the framework is working correctly with real CTIDs from BM25 searches
-}
-
-/// Convert a PostgreSQL Datum to a string representation
-unsafe fn convert_datum_to_string(
-    datum: pg_sys::Datum,
-    type_oid: pg_sys::Oid,
-    attnum: i32,
-    relation_type: &str,
-) -> String {
-    match type_oid {
-        pg_sys::INT4OID => {
-            let int_val = datum.value() as i32;
-            warning!(
-                "ParadeDB: Column {} (INT4) = {} for {} relation",
-                attnum,
-                int_val,
-                relation_type
-            );
-            int_val.to_string()
-        }
-        pg_sys::TEXTOID | pg_sys::VARCHAROID => {
-            // Handle text/varchar types using pgrx utilities
-            let text_ptr = datum.cast_mut_ptr::<pg_sys::varlena>();
-            if !text_ptr.is_null() {
-                // Use pgrx's text handling utilities
-                match std::ffi::CStr::from_ptr(pg_sys::text_to_cstring(text_ptr.cast())).to_str() {
-                    Ok(text_str) => {
-                        warning!(
-                            "ParadeDB: Column {} (TEXT) = '{}' for {} relation",
-                            attnum,
-                            text_str,
-                            relation_type
-                        );
-                        text_str.to_string()
-                    }
-                    Err(_) => {
-                        warning!(
-                            "ParadeDB: Column {} (TEXT) failed to convert for {} relation",
-                            attnum,
-                            relation_type
-                        );
-                        format!("text_col_{}", attnum)
-                    }
-                }
-            } else {
-                warning!(
-                    "ParadeDB: Column {} (TEXT) is null pointer for {} relation",
-                    attnum,
-                    relation_type
-                );
-                format!("text_col_{}", attnum)
-            }
-        }
-        _ => {
-            warning!(
-                "ParadeDB: Column {} has unsupported type {} for {} relation",
-                attnum,
-                type_oid,
-                relation_type
-            );
-            format!("unknown_type_{}_{}", type_oid, attnum)
-        }
     }
 }

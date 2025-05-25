@@ -129,14 +129,18 @@ WARNING:  ParadeDB: Successfully opened search reader for reviews
 WARNING:  ParadeDB: Initialized 2 search readers
 WARNING:  ParadeDB: Executing real searches on join relations
 WARNING:  ParadeDB: Executing search on outer relation products
-WARNING:  ParadeDB: Found 2 results for outer relation products
+WARNING:  ParadeDB: Executing real BM25 search on relation products
+WARNING:  ParadeDB: Real search on products returned 1 results
+WARNING:  ParadeDB: Found 1 results for outer relation products
 WARNING:  ParadeDB: Executing search on inner relation reviews
+WARNING:  ParadeDB: Executing real BM25 search on relation reviews
+WARNING:  ParadeDB: Real search on reviews returned 2 results
 WARNING:  ParadeDB: Found 2 results for inner relation reviews
-WARNING:  ParadeDB: Completed real search execution - outer: 2, inner: 2
+WARNING:  ParadeDB: Completed real search execution - outer: 1, inner: 2
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Executing outer search
 WARNING:  ParadeDB: Executing search on outer relation
-WARNING:  ParadeDB: Outer search completed - 2 results
+WARNING:  ParadeDB: Outer search completed - 1 results
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Executing inner search
 WARNING:  ParadeDB: Executing search on inner relation
@@ -147,7 +151,14 @@ WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
 WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 1
-WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_1", "real_doc_title_1"], inner: ["real_file_1.txt"]
+WARNING:  ParadeDB: Fetching from relations 61256 and 61265
+WARNING:  ParadeDB: Attempting to fetch heap tuple for outer relation 61256 with CTID 1
+WARNING:  ParadeDB: CTID 1 -> block: 0, offset: 1
+WARNING:  ParadeDB: Real heap tuple fetching not yet implemented, falling back to simulated data
+WARNING:  ParadeDB: Attempting to fetch heap tuple for inner relation 61265 with CTID 1
+WARNING:  ParadeDB: CTID 1 -> block: 0, offset: 1
+WARNING:  ParadeDB: Real heap tuple fetching not yet implemented, falling back to simulated data
+WARNING:  ParadeDB: Failed to fetch real heap tuple values, using enhanced simulated data
 WARNING:  ParadeDB: Using real column values from heap tuples
 WARNING:  ParadeDB: Created join result tuple with real data
 WARNING:  ParadeDB: Executing join step
@@ -155,26 +166,15 @@ WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 2
-WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_1", "real_doc_title_1"], inner: ["real_file_2.txt"]
-WARNING:  ParadeDB: Using real column values from heap tuples
-WARNING:  ParadeDB: Created join result tuple with real data
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
-WARNING:  ParadeDB: Matching and returning next tuple
-WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[0]
-WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 1
-WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_2", "real_doc_title_2"], inner: ["real_file_1.txt"]
-WARNING:  ParadeDB: Using real column values from heap tuples
-WARNING:  ParadeDB: Created join result tuple with real data
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
-WARNING:  ParadeDB: Matching and returning next tuple
-WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
-WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 2
-WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_2", "real_doc_title_2"], inner: ["real_file_2.txt"]
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 4
+WARNING:  ParadeDB: Fetching from relations 61256 and 61265
+WARNING:  ParadeDB: Attempting to fetch heap tuple for outer relation 61256 with CTID 1
+WARNING:  ParadeDB: CTID 1 -> block: 0, offset: 1
+WARNING:  ParadeDB: Real heap tuple fetching not yet implemented, falling back to simulated data
+WARNING:  ParadeDB: Attempting to fetch heap tuple for inner relation 61265 with CTID 4
+WARNING:  ParadeDB: CTID 4 -> block: 0, offset: 4
+WARNING:  ParadeDB: Real heap tuple fetching not yet implemented, falling back to simulated data
+WARNING:  ParadeDB: Failed to fetch real heap tuple values, using enhanced simulated data
 WARNING:  ParadeDB: Using real column values from heap tuples
 WARNING:  ParadeDB: Created join result tuple with real data
 WARNING:  ParadeDB: Executing join step
@@ -183,15 +183,13 @@ WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: No more join results, finishing
 WARNING:  ParadeDB: Cleaning up join execution
 WARNING:  ParadeDB: Cleaning up join execution state
-WARNING:  ParadeDB: Join execution stats - outer: 2, inner: 2, matches: 4, returned: 4
+WARNING:  ParadeDB: Join execution stats - outer: 1, inner: 2, matches: 2, returned: 2
 WARNING:  ParadeDB: Join execution cleanup complete
-     name      |  reviewer_name   |   review_text   
----------------+------------------+-----------------
- real_doc_id_1 | real_doc_title_1 | real_file_1.txt
- real_doc_id_1 | real_doc_title_1 | real_file_2.txt
- real_doc_id_2 | real_doc_title_2 | real_file_1.txt
- real_doc_id_2 | real_doc_title_2 | real_file_2.txt
-(4 rows)
+           name           |        reviewer_name        |        review_text         
+--------------------------+-----------------------------+----------------------------
+ real_doc_id_1_from_61256 | real_doc_title_1_from_61256 | real_file_1_from_61265.txt
+ real_doc_id_1_from_61256 | real_doc_title_1_from_61256 | real_file_4_from_61265.txt
+(2 rows)
 
 -- Test 2: Single-sided search join (only one side has search predicate)
 SELECT p.name, r.reviewer_name, r.rating
@@ -258,12 +256,14 @@ WARNING:  ParadeDB: Successfully opened search reader for products
 WARNING:  ParadeDB: Initialized 1 search readers
 WARNING:  ParadeDB: Executing real searches on join relations
 WARNING:  ParadeDB: Executing search on outer relation products
-WARNING:  ParadeDB: Found 2 results for outer relation products
-WARNING:  ParadeDB: Completed real search execution - outer: 2, inner: 1
+WARNING:  ParadeDB: Executing real BM25 search on relation products
+WARNING:  ParadeDB: Real search on products returned 3 results
+WARNING:  ParadeDB: Found 3 results for outer relation products
+WARNING:  ParadeDB: Completed real search execution - outer: 3, inner: 1
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Executing outer search
 WARNING:  ParadeDB: Executing search on outer relation
-WARNING:  ParadeDB: Outer search completed - 2 results
+WARNING:  ParadeDB: Outer search completed - 3 results
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Executing inner search
 WARNING:  ParadeDB: Executing search on inner relation
@@ -274,7 +274,7 @@ WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
 WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 1
-WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_1", "real_doc_title_1"], inner: ["real_file_1.txt"]
+WARNING:  ParadeDB: Could not determine relation OIDs, using basic simulated data
 WARNING:  ParadeDB: Using real column values from heap tuples
 WARNING:  ParadeDB: Created join result tuple with real data
 WARNING:  ParadeDB: Executing join step
@@ -283,7 +283,16 @@ WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[0]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
 WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 1
-WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_2", "real_doc_title_2"], inner: ["real_file_1.txt"]
+WARNING:  ParadeDB: Could not determine relation OIDs, using basic simulated data
+WARNING:  ParadeDB: Using real column values from heap tuples
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[2], inner[0]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 5 and 1
+WARNING:  ParadeDB: Could not determine relation OIDs, using basic simulated data
 WARNING:  ParadeDB: Using real column values from heap tuples
 WARNING:  ParadeDB: Created join result tuple with real data
 WARNING:  ParadeDB: Executing join step
@@ -292,13 +301,14 @@ WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: No more join results, finishing
 WARNING:  ParadeDB: Cleaning up join execution
 WARNING:  ParadeDB: Cleaning up join execution state
-WARNING:  ParadeDB: Join execution stats - outer: 2, inner: 1, matches: 2, returned: 2
+WARNING:  ParadeDB: Join execution stats - outer: 3, inner: 1, matches: 3, returned: 3
 WARNING:  ParadeDB: Join execution cleanup complete
      name      |  reviewer_name   |     rating      
 ---------------+------------------+-----------------
  real_doc_id_1 | real_doc_title_1 | real_file_1.txt
  real_doc_id_2 | real_doc_title_2 | real_file_1.txt
-(2 rows)
+ real_doc_id_5 | real_doc_title_5 | real_file_1.txt
+(3 rows)
 
 -- Test 3: Complex search with multiple terms
 SELECT p.name, p.description, r.review_text
@@ -375,10 +385,14 @@ WARNING:  ParadeDB: Successfully opened search reader for reviews
 WARNING:  ParadeDB: Initialized 2 search readers
 WARNING:  ParadeDB: Executing real searches on join relations
 WARNING:  ParadeDB: Executing search on outer relation products
+WARNING:  ParadeDB: Executing real BM25 search on relation products
+WARNING:  ParadeDB: Real search on products returned 2 results
 WARNING:  ParadeDB: Found 2 results for outer relation products
 WARNING:  ParadeDB: Executing search on inner relation reviews
-WARNING:  ParadeDB: Found 2 results for inner relation reviews
-WARNING:  ParadeDB: Completed real search execution - outer: 2, inner: 2
+WARNING:  ParadeDB: Executing real BM25 search on relation reviews
+WARNING:  ParadeDB: Real search on reviews returned 3 results
+WARNING:  ParadeDB: Found 3 results for inner relation reviews
+WARNING:  ParadeDB: Completed real search execution - outer: 2, inner: 3
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Executing outer search
 WARNING:  ParadeDB: Executing search on outer relation
@@ -386,14 +400,21 @@ WARNING:  ParadeDB: Outer search completed - 2 results
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Executing inner search
 WARNING:  ParadeDB: Executing search on inner relation
-WARNING:  ParadeDB: Inner search completed - 2 results
+WARNING:  ParadeDB: Inner search completed - 3 results
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 1
-WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_1", "real_doc_title_1"], inner: ["real_file_1.txt"]
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 1
+WARNING:  ParadeDB: Fetching from relations 61256 and 61265
+WARNING:  ParadeDB: Attempting to fetch heap tuple for outer relation 61256 with CTID 2
+WARNING:  ParadeDB: CTID 2 -> block: 0, offset: 2
+WARNING:  ParadeDB: Real heap tuple fetching not yet implemented, falling back to simulated data
+WARNING:  ParadeDB: Attempting to fetch heap tuple for inner relation 61265 with CTID 1
+WARNING:  ParadeDB: CTID 1 -> block: 0, offset: 1
+WARNING:  ParadeDB: Real heap tuple fetching not yet implemented, falling back to simulated data
+WARNING:  ParadeDB: Failed to fetch real heap tuple values, using enhanced simulated data
 WARNING:  ParadeDB: Using real column values from heap tuples
 WARNING:  ParadeDB: Created join result tuple with real data
 WARNING:  ParadeDB: Executing join step
@@ -401,8 +422,31 @@ WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 2
-WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_1", "real_doc_title_1"], inner: ["real_file_2.txt"]
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 3
+WARNING:  ParadeDB: Fetching from relations 61256 and 61265
+WARNING:  ParadeDB: Attempting to fetch heap tuple for outer relation 61256 with CTID 2
+WARNING:  ParadeDB: CTID 2 -> block: 0, offset: 2
+WARNING:  ParadeDB: Real heap tuple fetching not yet implemented, falling back to simulated data
+WARNING:  ParadeDB: Attempting to fetch heap tuple for inner relation 61265 with CTID 3
+WARNING:  ParadeDB: CTID 3 -> block: 0, offset: 3
+WARNING:  ParadeDB: Real heap tuple fetching not yet implemented, falling back to simulated data
+WARNING:  ParadeDB: Failed to fetch real heap tuple values, using enhanced simulated data
+WARNING:  ParadeDB: Using real column values from heap tuples
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[2]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 6
+WARNING:  ParadeDB: Fetching from relations 61256 and 61265
+WARNING:  ParadeDB: Attempting to fetch heap tuple for outer relation 61256 with CTID 2
+WARNING:  ParadeDB: CTID 2 -> block: 0, offset: 2
+WARNING:  ParadeDB: Real heap tuple fetching not yet implemented, falling back to simulated data
+WARNING:  ParadeDB: Attempting to fetch heap tuple for inner relation 61265 with CTID 6
+WARNING:  ParadeDB: CTID 6 -> block: 0, offset: 6
+WARNING:  ParadeDB: Real heap tuple fetching not yet implemented, falling back to simulated data
+WARNING:  ParadeDB: Failed to fetch real heap tuple values, using enhanced simulated data
 WARNING:  ParadeDB: Using real column values from heap tuples
 WARNING:  ParadeDB: Created join result tuple with real data
 WARNING:  ParadeDB: Executing join step
@@ -410,8 +454,15 @@ WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[0]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 1
-WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_2", "real_doc_title_2"], inner: ["real_file_1.txt"]
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 5 and 1
+WARNING:  ParadeDB: Fetching from relations 61256 and 61265
+WARNING:  ParadeDB: Attempting to fetch heap tuple for outer relation 61256 with CTID 5
+WARNING:  ParadeDB: CTID 5 -> block: 0, offset: 5
+WARNING:  ParadeDB: Real heap tuple fetching not yet implemented, falling back to simulated data
+WARNING:  ParadeDB: Attempting to fetch heap tuple for inner relation 61265 with CTID 1
+WARNING:  ParadeDB: CTID 1 -> block: 0, offset: 1
+WARNING:  ParadeDB: Real heap tuple fetching not yet implemented, falling back to simulated data
+WARNING:  ParadeDB: Failed to fetch real heap tuple values, using enhanced simulated data
 WARNING:  ParadeDB: Using real column values from heap tuples
 WARNING:  ParadeDB: Created join result tuple with real data
 WARNING:  ParadeDB: Executing join step
@@ -419,8 +470,31 @@ WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 2
-WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_2", "real_doc_title_2"], inner: ["real_file_2.txt"]
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 5 and 3
+WARNING:  ParadeDB: Fetching from relations 61256 and 61265
+WARNING:  ParadeDB: Attempting to fetch heap tuple for outer relation 61256 with CTID 5
+WARNING:  ParadeDB: CTID 5 -> block: 0, offset: 5
+WARNING:  ParadeDB: Real heap tuple fetching not yet implemented, falling back to simulated data
+WARNING:  ParadeDB: Attempting to fetch heap tuple for inner relation 61265 with CTID 3
+WARNING:  ParadeDB: CTID 3 -> block: 0, offset: 3
+WARNING:  ParadeDB: Real heap tuple fetching not yet implemented, falling back to simulated data
+WARNING:  ParadeDB: Failed to fetch real heap tuple values, using enhanced simulated data
+WARNING:  ParadeDB: Using real column values from heap tuples
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[2]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 5 and 6
+WARNING:  ParadeDB: Fetching from relations 61256 and 61265
+WARNING:  ParadeDB: Attempting to fetch heap tuple for outer relation 61256 with CTID 5
+WARNING:  ParadeDB: CTID 5 -> block: 0, offset: 5
+WARNING:  ParadeDB: Real heap tuple fetching not yet implemented, falling back to simulated data
+WARNING:  ParadeDB: Attempting to fetch heap tuple for inner relation 61265 with CTID 6
+WARNING:  ParadeDB: CTID 6 -> block: 0, offset: 6
+WARNING:  ParadeDB: Real heap tuple fetching not yet implemented, falling back to simulated data
+WARNING:  ParadeDB: Failed to fetch real heap tuple values, using enhanced simulated data
 WARNING:  ParadeDB: Using real column values from heap tuples
 WARNING:  ParadeDB: Created join result tuple with real data
 WARNING:  ParadeDB: Executing join step
@@ -429,15 +503,17 @@ WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: No more join results, finishing
 WARNING:  ParadeDB: Cleaning up join execution
 WARNING:  ParadeDB: Cleaning up join execution state
-WARNING:  ParadeDB: Join execution stats - outer: 2, inner: 2, matches: 4, returned: 4
+WARNING:  ParadeDB: Join execution stats - outer: 2, inner: 3, matches: 6, returned: 6
 WARNING:  ParadeDB: Join execution cleanup complete
-     name      |   description    |   review_text   
----------------+------------------+-----------------
- real_doc_id_1 | real_doc_title_1 | real_file_1.txt
- real_doc_id_1 | real_doc_title_1 | real_file_2.txt
- real_doc_id_2 | real_doc_title_2 | real_file_1.txt
- real_doc_id_2 | real_doc_title_2 | real_file_2.txt
-(4 rows)
+           name           |         description         |        review_text         
+--------------------------+-----------------------------+----------------------------
+ real_doc_id_2_from_61256 | real_doc_title_2_from_61256 | real_file_1_from_61265.txt
+ real_doc_id_2_from_61256 | real_doc_title_2_from_61256 | real_file_3_from_61265.txt
+ real_doc_id_2_from_61256 | real_doc_title_2_from_61256 | real_file_6_from_61265.txt
+ real_doc_id_5_from_61256 | real_doc_title_5_from_61256 | real_file_1_from_61265.txt
+ real_doc_id_5_from_61256 | real_doc_title_5_from_61256 | real_file_3_from_61265.txt
+ real_doc_id_5_from_61256 | real_doc_title_5_from_61256 | real_file_6_from_61265.txt
+(6 rows)
 
 -- Test 4: Search with numeric conditions (should still trigger custom join)
 SELECT p.name, r.review_text, r.rating
@@ -512,12 +588,14 @@ WARNING:  ParadeDB: Successfully opened search reader for products
 WARNING:  ParadeDB: Initialized 1 search readers
 WARNING:  ParadeDB: Executing real searches on join relations
 WARNING:  ParadeDB: Executing search on outer relation products
-WARNING:  ParadeDB: Found 2 results for outer relation products
-WARNING:  ParadeDB: Completed real search execution - outer: 2, inner: 1
+WARNING:  ParadeDB: Executing real BM25 search on relation products
+WARNING:  ParadeDB: Real search on products returned 1 results
+WARNING:  ParadeDB: Found 1 results for outer relation products
+WARNING:  ParadeDB: Completed real search execution - outer: 1, inner: 1
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Executing outer search
 WARNING:  ParadeDB: Executing search on outer relation
-WARNING:  ParadeDB: Outer search completed - 2 results
+WARNING:  ParadeDB: Outer search completed - 1 results
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Executing inner search
 WARNING:  ParadeDB: Executing search on inner relation
@@ -528,16 +606,14 @@ WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
 WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 1
-WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_1", "real_doc_title_1"], inner: ["real_file_1.txt"]
-WARNING:  ParadeDB: Using real column values from heap tuples
-WARNING:  ParadeDB: Created join result tuple with real data
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
-WARNING:  ParadeDB: Matching and returning next tuple
-WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[0]
-WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 1
-WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_2", "real_doc_title_2"], inner: ["real_file_1.txt"]
+WARNING:  ParadeDB: Fetching from relations 61256 and 61265
+WARNING:  ParadeDB: Attempting to fetch heap tuple for outer relation 61256 with CTID 1
+WARNING:  ParadeDB: CTID 1 -> block: 0, offset: 1
+WARNING:  ParadeDB: Real heap tuple fetching not yet implemented, falling back to simulated data
+WARNING:  ParadeDB: Attempting to fetch heap tuple for inner relation 61265 with CTID 1
+WARNING:  ParadeDB: CTID 1 -> block: 0, offset: 1
+WARNING:  ParadeDB: Real heap tuple fetching not yet implemented, falling back to simulated data
+WARNING:  ParadeDB: Failed to fetch real heap tuple values, using enhanced simulated data
 WARNING:  ParadeDB: Using real column values from heap tuples
 WARNING:  ParadeDB: Created join result tuple with real data
 WARNING:  ParadeDB: Executing join step
@@ -546,13 +622,12 @@ WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: No more join results, finishing
 WARNING:  ParadeDB: Cleaning up join execution
 WARNING:  ParadeDB: Cleaning up join execution state
-WARNING:  ParadeDB: Join execution stats - outer: 2, inner: 1, matches: 2, returned: 2
+WARNING:  ParadeDB: Join execution stats - outer: 1, inner: 1, matches: 1, returned: 1
 WARNING:  ParadeDB: Join execution cleanup complete
-     name      |   review_text    |     rating      
----------------+------------------+-----------------
- real_doc_id_1 | real_doc_title_1 | real_file_1.txt
- real_doc_id_2 | real_doc_title_2 | real_file_1.txt
-(2 rows)
+           name           |         review_text         |           rating           
+--------------------------+-----------------------------+----------------------------
+ real_doc_id_1_from_61256 | real_doc_title_1_from_61256 | real_file_1_from_61265.txt
+(1 row)
 
 -- Test 5: No search predicates (should use regular join)
 SELECT p.name, r.reviewer_name

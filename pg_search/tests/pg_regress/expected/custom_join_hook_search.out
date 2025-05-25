@@ -108,16 +108,31 @@ WARNING:  ParadeDB: Mapped join variable varno=2, varattno=3 to join_attr_2
 WARNING:  ParadeDB: Mapped join variable varno=2, varattno=4 to join_attr_3
 WARNING:  ParadeDB: Set custom scan target list for join node
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
+WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
+WARNING:  ParadeDB: Using stored search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Creating join tuple descriptor with 3 columns
 WARNING:  ParadeDB: Tuple descriptor created successfully
 WARNING:  ParadeDB: Join execution initialized with 3 target columns
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Starting join execution - initializing search
 WARNING:  ParadeDB: Initializing real search execution for join
-WARNING:  ParadeDB: No search predicates found, using mock data
-WARNING:  ParadeDB: Initialized mock search results - outer: 2, inner: 2
+WARNING:  ParadeDB: Join execution state found
+WARNING:  ParadeDB: Search predicates found in join state - outer: 1, inner: 1
+WARNING:  ParadeDB: Retrieved search predicates from join state - outer: 1, inner: 1
+WARNING:  ParadeDB: Initializing search readers for join relations
+WARNING:  ParadeDB: Opening search reader for outer relation products
+WARNING:  ParadeDB: Successfully opened search reader for products
+WARNING:  ParadeDB: Opening search reader for inner relation reviews
+WARNING:  ParadeDB: Successfully opened search reader for reviews
+WARNING:  ParadeDB: Initialized 2 search readers
+WARNING:  ParadeDB: Executing real searches on join relations
+WARNING:  ParadeDB: Executing search on outer relation products
+WARNING:  ParadeDB: Found 2 results for outer relation products
+WARNING:  ParadeDB: Executing search on inner relation reviews
+WARNING:  ParadeDB: Found 2 results for inner relation reviews
+WARNING:  ParadeDB: Completed real search execution - outer: 2, inner: 2
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Executing outer search
 WARNING:  ParadeDB: Executing search on outer relation
@@ -140,8 +155,8 @@ WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 3
-WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_1", "real_doc_title_1"], inner: ["real_file_3.txt"]
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 2
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_1", "real_doc_title_1"], inner: ["real_file_2.txt"]
 WARNING:  ParadeDB: Using real column values from heap tuples
 WARNING:  ParadeDB: Created join result tuple with real data
 WARNING:  ParadeDB: Executing join step
@@ -158,8 +173,8 @@ WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 3
-WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_2", "real_doc_title_2"], inner: ["real_file_3.txt"]
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 2
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_2", "real_doc_title_2"], inner: ["real_file_2.txt"]
 WARNING:  ParadeDB: Using real column values from heap tuples
 WARNING:  ParadeDB: Created join result tuple with real data
 WARNING:  ParadeDB: Executing join step
@@ -173,9 +188,9 @@ WARNING:  ParadeDB: Join execution cleanup complete
      name      |  reviewer_name   |   review_text   
 ---------------+------------------+-----------------
  real_doc_id_1 | real_doc_title_1 | real_file_1.txt
- real_doc_id_1 | real_doc_title_1 | real_file_3.txt
+ real_doc_id_1 | real_doc_title_1 | real_file_2.txt
  real_doc_id_2 | real_doc_title_2 | real_file_1.txt
- real_doc_id_2 | real_doc_title_2 | real_file_3.txt
+ real_doc_id_2 | real_doc_title_2 | real_file_2.txt
 (4 rows)
 
 -- Test 2: Single-sided search join (only one side has search predicate)
@@ -224,16 +239,27 @@ WARNING:  ParadeDB: Mapped join variable varno=2, varattno=3 to join_attr_2
 WARNING:  ParadeDB: Mapped join variable varno=2, varattno=5 to join_attr_3
 WARNING:  ParadeDB: Set custom scan target list for join node
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
+WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 0, bilateral: false
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
+WARNING:  ParadeDB: Using stored search predicates - outer: 1, inner: 0, bilateral: false
 WARNING:  ParadeDB: Creating join tuple descriptor with 3 columns
 WARNING:  ParadeDB: Tuple descriptor created successfully
 WARNING:  ParadeDB: Join execution initialized with 3 target columns
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Starting join execution - initializing search
 WARNING:  ParadeDB: Initializing real search execution for join
-WARNING:  ParadeDB: No search predicates found, using mock data
-WARNING:  ParadeDB: Initialized mock search results - outer: 2, inner: 2
+WARNING:  ParadeDB: Join execution state found
+WARNING:  ParadeDB: Search predicates found in join state - outer: 1, inner: 0
+WARNING:  ParadeDB: Retrieved search predicates from join state - outer: 1, inner: 0
+WARNING:  ParadeDB: Initializing search readers for join relations
+WARNING:  ParadeDB: Opening search reader for outer relation products
+WARNING:  ParadeDB: Successfully opened search reader for products
+WARNING:  ParadeDB: Initialized 1 search readers
+WARNING:  ParadeDB: Executing real searches on join relations
+WARNING:  ParadeDB: Executing search on outer relation products
+WARNING:  ParadeDB: Found 2 results for outer relation products
+WARNING:  ParadeDB: Completed real search execution - outer: 2, inner: 1
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Executing outer search
 WARNING:  ParadeDB: Executing search on outer relation
@@ -241,7 +267,7 @@ WARNING:  ParadeDB: Outer search completed - 2 results
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Executing inner search
 WARNING:  ParadeDB: Executing search on inner relation
-WARNING:  ParadeDB: Inner search completed - 2 results
+WARNING:  ParadeDB: Inner search completed - 1 results
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
@@ -249,15 +275,6 @@ WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
 WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 1
 WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_1", "real_doc_title_1"], inner: ["real_file_1.txt"]
-WARNING:  ParadeDB: Using real column values from heap tuples
-WARNING:  ParadeDB: Created join result tuple with real data
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
-WARNING:  ParadeDB: Matching and returning next tuple
-WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
-WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 3
-WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_1", "real_doc_title_1"], inner: ["real_file_3.txt"]
 WARNING:  ParadeDB: Using real column values from heap tuples
 WARNING:  ParadeDB: Created join result tuple with real data
 WARNING:  ParadeDB: Executing join step
@@ -272,27 +289,16 @@ WARNING:  ParadeDB: Created join result tuple with real data
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
-WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
-WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 3
-WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_2", "real_doc_title_2"], inner: ["real_file_3.txt"]
-WARNING:  ParadeDB: Using real column values from heap tuples
-WARNING:  ParadeDB: Created join result tuple with real data
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
-WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: No more join results, finishing
 WARNING:  ParadeDB: Cleaning up join execution
 WARNING:  ParadeDB: Cleaning up join execution state
-WARNING:  ParadeDB: Join execution stats - outer: 2, inner: 2, matches: 4, returned: 4
+WARNING:  ParadeDB: Join execution stats - outer: 2, inner: 1, matches: 2, returned: 2
 WARNING:  ParadeDB: Join execution cleanup complete
      name      |  reviewer_name   |     rating      
 ---------------+------------------+-----------------
  real_doc_id_1 | real_doc_title_1 | real_file_1.txt
- real_doc_id_1 | real_doc_title_1 | real_file_3.txt
  real_doc_id_2 | real_doc_title_2 | real_file_1.txt
- real_doc_id_2 | real_doc_title_2 | real_file_3.txt
-(4 rows)
+(2 rows)
 
 -- Test 3: Complex search with multiple terms
 SELECT p.name, p.description, r.review_text
@@ -348,16 +354,31 @@ WARNING:  ParadeDB: Mapped join variable varno=1, varattno=3 to join_attr_2
 WARNING:  ParadeDB: Mapped join variable varno=2, varattno=4 to join_attr_3
 WARNING:  ParadeDB: Set custom scan target list for join node
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
+WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
+WARNING:  ParadeDB: Using stored search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Creating join tuple descriptor with 3 columns
 WARNING:  ParadeDB: Tuple descriptor created successfully
 WARNING:  ParadeDB: Join execution initialized with 3 target columns
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Starting join execution - initializing search
 WARNING:  ParadeDB: Initializing real search execution for join
-WARNING:  ParadeDB: No search predicates found, using mock data
-WARNING:  ParadeDB: Initialized mock search results - outer: 2, inner: 2
+WARNING:  ParadeDB: Join execution state found
+WARNING:  ParadeDB: Search predicates found in join state - outer: 1, inner: 1
+WARNING:  ParadeDB: Retrieved search predicates from join state - outer: 1, inner: 1
+WARNING:  ParadeDB: Initializing search readers for join relations
+WARNING:  ParadeDB: Opening search reader for outer relation products
+WARNING:  ParadeDB: Successfully opened search reader for products
+WARNING:  ParadeDB: Opening search reader for inner relation reviews
+WARNING:  ParadeDB: Successfully opened search reader for reviews
+WARNING:  ParadeDB: Initialized 2 search readers
+WARNING:  ParadeDB: Executing real searches on join relations
+WARNING:  ParadeDB: Executing search on outer relation products
+WARNING:  ParadeDB: Found 2 results for outer relation products
+WARNING:  ParadeDB: Executing search on inner relation reviews
+WARNING:  ParadeDB: Found 2 results for inner relation reviews
+WARNING:  ParadeDB: Completed real search execution - outer: 2, inner: 2
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Executing outer search
 WARNING:  ParadeDB: Executing search on outer relation
@@ -380,8 +401,8 @@ WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 3
-WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_1", "real_doc_title_1"], inner: ["real_file_3.txt"]
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 2
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_1", "real_doc_title_1"], inner: ["real_file_2.txt"]
 WARNING:  ParadeDB: Using real column values from heap tuples
 WARNING:  ParadeDB: Created join result tuple with real data
 WARNING:  ParadeDB: Executing join step
@@ -398,8 +419,8 @@ WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 3
-WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_2", "real_doc_title_2"], inner: ["real_file_3.txt"]
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 2
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_2", "real_doc_title_2"], inner: ["real_file_2.txt"]
 WARNING:  ParadeDB: Using real column values from heap tuples
 WARNING:  ParadeDB: Created join result tuple with real data
 WARNING:  ParadeDB: Executing join step
@@ -413,9 +434,9 @@ WARNING:  ParadeDB: Join execution cleanup complete
      name      |   description    |   review_text   
 ---------------+------------------+-----------------
  real_doc_id_1 | real_doc_title_1 | real_file_1.txt
- real_doc_id_1 | real_doc_title_1 | real_file_3.txt
+ real_doc_id_1 | real_doc_title_1 | real_file_2.txt
  real_doc_id_2 | real_doc_title_2 | real_file_1.txt
- real_doc_id_2 | real_doc_title_2 | real_file_3.txt
+ real_doc_id_2 | real_doc_title_2 | real_file_2.txt
 (4 rows)
 
 -- Test 4: Search with numeric conditions (should still trigger custom join)
@@ -472,16 +493,27 @@ WARNING:  ParadeDB: Mapped join variable varno=2, varattno=4 to join_attr_2
 WARNING:  ParadeDB: Mapped join variable varno=2, varattno=5 to join_attr_3
 WARNING:  ParadeDB: Set custom scan target list for join node
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
+WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
+WARNING:  ParadeDB: Using stored search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Creating join tuple descriptor with 3 columns
 WARNING:  ParadeDB: Tuple descriptor created successfully
 WARNING:  ParadeDB: Join execution initialized with 3 target columns
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Starting join execution - initializing search
 WARNING:  ParadeDB: Initializing real search execution for join
-WARNING:  ParadeDB: No search predicates found, using mock data
-WARNING:  ParadeDB: Initialized mock search results - outer: 2, inner: 2
+WARNING:  ParadeDB: Join execution state found
+WARNING:  ParadeDB: Search predicates found in join state - outer: 1, inner: 1
+WARNING:  ParadeDB: Retrieved search predicates from join state - outer: 1, inner: 1
+WARNING:  ParadeDB: Initializing search readers for join relations
+WARNING:  ParadeDB: Opening search reader for outer relation products
+WARNING:  ParadeDB: Successfully opened search reader for products
+WARNING:  ParadeDB: Initialized 1 search readers
+WARNING:  ParadeDB: Executing real searches on join relations
+WARNING:  ParadeDB: Executing search on outer relation products
+WARNING:  ParadeDB: Found 2 results for outer relation products
+WARNING:  ParadeDB: Completed real search execution - outer: 2, inner: 1
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Executing outer search
 WARNING:  ParadeDB: Executing search on outer relation
@@ -489,7 +521,7 @@ WARNING:  ParadeDB: Outer search completed - 2 results
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Executing inner search
 WARNING:  ParadeDB: Executing search on inner relation
-WARNING:  ParadeDB: Inner search completed - 2 results
+WARNING:  ParadeDB: Inner search completed - 1 results
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
@@ -497,15 +529,6 @@ WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
 WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 1
 WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_1", "real_doc_title_1"], inner: ["real_file_1.txt"]
-WARNING:  ParadeDB: Using real column values from heap tuples
-WARNING:  ParadeDB: Created join result tuple with real data
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
-WARNING:  ParadeDB: Matching and returning next tuple
-WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
-WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 3
-WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_1", "real_doc_title_1"], inner: ["real_file_3.txt"]
 WARNING:  ParadeDB: Using real column values from heap tuples
 WARNING:  ParadeDB: Created join result tuple with real data
 WARNING:  ParadeDB: Executing join step
@@ -520,27 +543,16 @@ WARNING:  ParadeDB: Created join result tuple with real data
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
-WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
-WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 3
-WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_2", "real_doc_title_2"], inner: ["real_file_3.txt"]
-WARNING:  ParadeDB: Using real column values from heap tuples
-WARNING:  ParadeDB: Created join result tuple with real data
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
-WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: No more join results, finishing
 WARNING:  ParadeDB: Cleaning up join execution
 WARNING:  ParadeDB: Cleaning up join execution state
-WARNING:  ParadeDB: Join execution stats - outer: 2, inner: 2, matches: 4, returned: 4
+WARNING:  ParadeDB: Join execution stats - outer: 2, inner: 1, matches: 2, returned: 2
 WARNING:  ParadeDB: Join execution cleanup complete
      name      |   review_text    |     rating      
 ---------------+------------------+-----------------
  real_doc_id_1 | real_doc_title_1 | real_file_1.txt
- real_doc_id_1 | real_doc_title_1 | real_file_3.txt
  real_doc_id_2 | real_doc_title_2 | real_file_1.txt
- real_doc_id_2 | real_doc_title_2 | real_file_3.txt
-(4 rows)
+(2 rows)
 
 -- Test 5: No search predicates (should use regular join)
 SELECT p.name, r.reviewer_name

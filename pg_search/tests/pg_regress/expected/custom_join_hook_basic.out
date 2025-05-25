@@ -109,7 +109,9 @@ WARNING:  ParadeDB: Join execution initialized with 3 target columns
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Starting join execution - initializing search
 WARNING:  ParadeDB: Initializing real search execution for join
-WARNING:  ParadeDB: Found 1 outer predicates, 1 inner predicates
+WARNING:  ParadeDB: Join execution state found
+WARNING:  ParadeDB: Search predicates found in join state - outer: 1, inner: 1
+WARNING:  ParadeDB: Retrieved search predicates from join state - outer: 1, inner: 1
 WARNING:  ParadeDB: Initializing search readers for join relations
 WARNING:  ParadeDB: Opening search reader for outer relation documents_join_test
 WARNING:  ParadeDB: Successfully opened search reader for documents_join_test
@@ -286,7 +288,9 @@ WARNING:  ParadeDB: Join execution initialized with 3 target columns
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Starting join execution - initializing search
 WARNING:  ParadeDB: Initializing real search execution for join
-WARNING:  ParadeDB: Found 1 outer predicates, 0 inner predicates
+WARNING:  ParadeDB: Join execution state found
+WARNING:  ParadeDB: Search predicates found in join state - outer: 1, inner: 0
+WARNING:  ParadeDB: Retrieved search predicates from join state - outer: 1, inner: 0
 WARNING:  ParadeDB: Initializing search readers for join relations
 WARNING:  ParadeDB: Opening search reader for outer relation documents_join_test
 WARNING:  ParadeDB: Successfully opened search reader for documents_join_test

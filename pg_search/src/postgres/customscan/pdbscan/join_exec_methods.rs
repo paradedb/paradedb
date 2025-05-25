@@ -369,16 +369,33 @@ pub unsafe fn cleanup_join_execution(state: &mut CustomScanStateWrapper<PdbScan>
 unsafe fn init_search_execution(state: &mut CustomScanStateWrapper<PdbScan>) {
     warning!("ParadeDB: Initializing real search execution for join");
 
-    // Extract search predicates from the join execution state
+    // Debug: Check if join execution state exists
+    if let Some(ref join_state) = state.custom_state().join_exec_state {
+        warning!("ParadeDB: Join execution state found");
+        if let Some(ref predicates) = join_state.search_predicates {
+            warning!(
+                "ParadeDB: Search predicates found in join state - outer: {}, inner: {}",
+                predicates.outer_predicates.len(),
+                predicates.inner_predicates.len()
+            );
+        } else {
+            warning!("ParadeDB: Join execution state exists but no search predicates");
+        }
+    } else {
+        warning!("ParadeDB: No join execution state found");
+    }
+
+    // Extract search predicates from the join execution state (set during scan state creation)
     let search_predicates = if let Some(ref join_state) = state.custom_state().join_exec_state {
         join_state.search_predicates.clone()
     } else {
+        warning!("ParadeDB: No join execution state found");
         None
     };
 
     if let Some(predicates) = search_predicates {
         warning!(
-            "ParadeDB: Found {} outer predicates, {} inner predicates",
+            "ParadeDB: Retrieved search predicates from join state - outer: {}, inner: {}",
             predicates.outer_predicates.len(),
             predicates.inner_predicates.len()
         );
@@ -389,7 +406,7 @@ unsafe fn init_search_execution(state: &mut CustomScanStateWrapper<PdbScan>) {
         // Execute searches and store results
         execute_real_searches(state, &predicates);
     } else {
-        warning!("ParadeDB: No search predicates found, using mock data");
+        warning!("ParadeDB: No search predicates found in join state, using mock data");
 
         // Fall back to mock data for demonstration
         if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {

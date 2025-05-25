@@ -20,7 +20,7 @@ mod exec_methods;
 mod join_exec_methods;
 pub mod join_qual_inspect;
 pub mod parallel;
-mod privdat;
+pub mod privdat;
 mod projections;
 mod pushdown;
 mod qual_inspect;
@@ -30,7 +30,7 @@ mod solve_expr;
 use crate::api::operator::{
     anyelement_query_input_opoid, attname_from_var, estimate_selectivity, find_var_relation,
 };
-use crate::api::Cardinality;
+use crate::api::{Cardinality, Varno};
 use crate::api::{HashMap, HashSet};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
@@ -48,7 +48,7 @@ use crate::postgres::customscan::pdbscan::exec_methods::{
     fast_fields, normal::NormalScanExecState, ExecState,
 };
 use crate::postgres::customscan::pdbscan::join_exec_methods::{
-    cleanup_join_execution, exec_join_step, init_join_execution,
+    cleanup_join_execution, exec_join_step, init_join_execution, JoinExecState,
 };
 use crate::postgres::customscan::pdbscan::parallel::{compute_nworkers, list_segment_ids};
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
@@ -379,14 +379,19 @@ impl CustomScan for PdbScan {
                 //
                 // and sorting by score always works
                 match (maybe_needs_const_projections, pathkey) {
-                    (false, OrderByStyle::Field(..)) => {
-                        builder.custom_private().set_sort_info(pathkey);
+                    (false, OrderByStyle::Field(_, field_name)) => {
+                        builder.custom_private().set_sort_field(field_name.clone());
+                    }
+                    (true, OrderByStyle::Field(_, _)) => {
+                        // Field sorting with const projections - skip setting sort field
                     }
                     (_, OrderByStyle::Score(..)) => {
-                        builder.custom_private().set_sort_info(pathkey);
+                        // Score sorting doesn't need a field name
                     }
-                    _ => {}
                 }
+                builder
+                    .custom_private()
+                    .set_sort_direction(Some(pathkey.direction()));
             } else if limit.is_some()
                 && PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys)
                     .is_empty()
@@ -443,7 +448,17 @@ impl CustomScan for PdbScan {
                     builder = builder.set_parallel(nworkers);
                 } else {
                     // otherwise we'll do a regular scan
-                    builder.custom_private().set_sort_info(pathkey);
+                    match pathkey {
+                        OrderByStyle::Field(_, field_name) => {
+                            builder.custom_private().set_sort_field(field_name.clone());
+                        }
+                        OrderByStyle::Score(..) => {
+                            // Score sorting doesn't need a field name
+                        }
+                    }
+                    builder
+                        .custom_private()
+                        .set_sort_direction(Some(pathkey.direction()));
                 }
             } else if !quals.contains_external_var() && nworkers > 0 {
                 builder = builder.set_parallel(nworkers);
@@ -539,7 +554,7 @@ impl CustomScan for PdbScan {
                 for (i, te) in tlist.iter_ptr().enumerate() {
                     if let Some(var) = nodecast!(Var, T_Var, (*te).expr) {
                         let attname = format!("join_attr_{}", i + 1);
-                        attname_lookup.insert(((*var).varno, (*var).varattno), attname);
+                        attname_lookup.insert(((*var).varno as Varno, (*var).varattno), attname);
                         pgrx::warning!(
                             "ParadeDB: Mapped join variable varno={}, varattno={} to {}",
                             (*var).varno,
@@ -606,7 +621,7 @@ impl CustomScan for PdbScan {
                     let attname = attname_from_var(builder.args().root, var)
                         .1
                         .expect("function call argument should be a column name");
-                    attname_lookup.insert(((*var).varno, (*var).varattno), attname);
+                    attname_lookup.insert(((*var).varno as Varno, (*var).varattno), attname);
                 }
             }
 
@@ -629,6 +644,20 @@ impl CustomScan for PdbScan {
                     "ParadeDB: Creating custom scan state for join node (scanrelid = 0)"
                 );
 
+                // For join nodes, extract search predicates from private data
+                let search_predicates = builder.custom_private().join_search_predicates().clone();
+
+                if let Some(ref predicates) = search_predicates {
+                    pgrx::warning!(
+                        "ParadeDB: Extracted search predicates from private data - outer: {}, inner: {}, bilateral: {}",
+                        predicates.outer_predicates.len(),
+                        predicates.inner_predicates.len(),
+                        predicates.has_bilateral_search()
+                    );
+                } else {
+                    pgrx::warning!("ParadeDB: No search predicates found in private data");
+                }
+
                 // For join nodes, we don't have specific heap/index relations
                 // We'll need to handle this differently in execution
                 // For now, set up minimal state that won't crash
@@ -642,8 +671,9 @@ impl CustomScan for PdbScan {
                 builder.custom_state().sort_field = None;
                 builder.custom_state().sort_direction = None;
 
-                // For joins, we'll need a different execution strategy
-                // This will be implemented in later milestones
+                // Store the search predicates in the join execution state
+                let join_exec_state = JoinExecState::new(search_predicates);
+                builder.custom_state().join_exec_state = Some(join_exec_state);
 
                 return builder.build();
             }

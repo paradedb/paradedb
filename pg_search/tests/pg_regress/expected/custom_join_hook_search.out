@@ -1,0 +1,597 @@
+-- Test search integration in custom joins
+-- This test focuses on validating search predicate extraction and execution
+-- Create the extension first
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Enable the custom join feature
+SET paradedb.enable_custom_join = true;
+-- Create test tables with more realistic data
+CREATE TABLE products (
+    id SERIAL PRIMARY KEY,
+    name TEXT,
+    description TEXT,
+    category TEXT
+);
+CREATE TABLE reviews (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER,
+    reviewer_name TEXT,
+    review_text TEXT,
+    rating INTEGER
+);
+-- Insert test data with search-friendly content
+INSERT INTO products (name, description, category) VALUES 
+    ('Laptop Pro', 'High-performance laptop with advanced features for professionals', 'Electronics'),
+    ('Wireless Mouse', 'Ergonomic wireless mouse with precision tracking', 'Electronics'),
+    ('Coffee Maker', 'Automatic coffee maker with programmable settings', 'Kitchen'),
+    ('Running Shoes', 'Lightweight running shoes with excellent cushioning', 'Sports'),
+    ('Smartphone X', 'Latest smartphone with cutting-edge technology', 'Electronics');
+INSERT INTO reviews (product_id, reviewer_name, review_text, rating) VALUES 
+    (1, 'John Doe', 'Excellent laptop with amazing performance and battery life', 5),
+    (1, 'Jane Smith', 'Great for professional work, highly recommended', 4),
+    (2, 'Bob Wilson', 'Perfect wireless mouse, very responsive and comfortable', 5),
+    (3, 'Alice Brown', 'Makes excellent coffee every morning, love the programmable features', 4),
+    (4, 'Charlie Davis', 'Best running shoes I have ever owned, great cushioning', 5),
+    (5, 'Eva Martinez', 'Amazing smartphone with incredible camera and performance', 5);
+-- Create BM25 indexes
+CREATE INDEX products_search_idx ON products USING bm25 (
+    id,
+    name,
+    description,
+    category
+) WITH (
+    key_field = 'id',
+    text_fields = '{"name": {"tokenizer": {"type": "default"}}, "description": {"tokenizer": {"type": "default"}}, "category": {"tokenizer": {"type": "default"}}}'
+);
+CREATE INDEX reviews_search_idx ON reviews USING bm25 (
+    id,
+    product_id,
+    reviewer_name,
+    review_text,
+    rating
+) WITH (
+    key_field = 'id',
+    numeric_fields = '{"product_id": {"fast": true}, "rating": {"fast": true}}',
+    text_fields = '{"reviewer_name": {"tokenizer": {"type": "default"}}, "review_text": {"tokenizer": {"type": "default"}}}'
+);
+-- Test 1: Bilateral search join (both sides have search predicates)
+-- This should trigger our custom join with real search predicates
+SELECT p.name, r.reviewer_name, r.review_text
+FROM products p
+JOIN reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'performance' AND r.review_text @@@ 'excellent';
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["products"], inner relids: ["reviews"]
+WARNING:  ParadeDB: Checking relation products (rti 1) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation products
+WARNING:  ParadeDB: Checking relation reviews (rti 2) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation reviews
+WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation products (rti 1)
+WARNING:  ParadeDB: Extracted search query for products: uses_search_operator=true
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation reviews (rti 2)
+WARNING:  ParadeDB: Extracted search query for reviews: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Outer predicate for products - uses_search: true
+WARNING:  ParadeDB: Inner predicate for reviews - uses_search: true
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["reviews"], inner relids: ["products"]
+WARNING:  ParadeDB: Checking relation reviews (rti 2) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation reviews
+WARNING:  ParadeDB: Checking relation products (rti 1) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation products
+WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation reviews (rti 2)
+WARNING:  ParadeDB: Extracted search query for reviews: uses_search_operator=true
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation products (rti 1)
+WARNING:  ParadeDB: Extracted search query for products: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Outer predicate for reviews - uses_search: true
+WARNING:  ParadeDB: Inner predicate for products - uses_search: true
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
+WARNING:  ParadeDB: Join target list has 3 entries
+WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to join_attr_1
+WARNING:  ParadeDB: Mapped join variable varno=2, varattno=3 to join_attr_2
+WARNING:  ParadeDB: Mapped join variable varno=2, varattno=4 to join_attr_3
+WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
+WARNING:  ParadeDB: Beginning custom scan for join node
+WARNING:  ParadeDB: Initializing join execution
+WARNING:  ParadeDB: Creating join tuple descriptor with 3 columns
+WARNING:  ParadeDB: Tuple descriptor created successfully
+WARNING:  ParadeDB: Join execution initialized with 3 target columns
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Starting join execution - initializing search
+WARNING:  ParadeDB: Initializing real search execution for join
+WARNING:  ParadeDB: No search predicates found, using mock data
+WARNING:  ParadeDB: Initialized mock search results - outer: 2, inner: 2
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Executing outer search
+WARNING:  ParadeDB: Executing search on outer relation
+WARNING:  ParadeDB: Outer search completed - 2 results
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Executing inner search
+WARNING:  ParadeDB: Executing search on inner relation
+WARNING:  ParadeDB: Inner search completed - 2 results
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 1
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_1", "real_doc_title_1"], inner: ["real_file_1.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 3
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_1", "real_doc_title_1"], inner: ["real_file_3.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[0]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 1
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_2", "real_doc_title_2"], inner: ["real_file_1.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 3
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_2", "real_doc_title_2"], inner: ["real_file_3.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: No more join results, finishing
+WARNING:  ParadeDB: Cleaning up join execution
+WARNING:  ParadeDB: Cleaning up join execution state
+WARNING:  ParadeDB: Join execution stats - outer: 2, inner: 2, matches: 4, returned: 4
+WARNING:  ParadeDB: Join execution cleanup complete
+     name      |  reviewer_name   |   review_text   
+---------------+------------------+-----------------
+ real_doc_id_1 | real_doc_title_1 | real_file_1.txt
+ real_doc_id_1 | real_doc_title_1 | real_file_3.txt
+ real_doc_id_2 | real_doc_title_2 | real_file_1.txt
+ real_doc_id_2 | real_doc_title_2 | real_file_3.txt
+(4 rows)
+
+-- Test 2: Single-sided search join (only one side has search predicate)
+SELECT p.name, r.reviewer_name, r.rating
+FROM products p
+JOIN reviews r ON p.id = r.product_id
+WHERE p.category @@@ 'Electronics';
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["products"], inner relids: ["reviews"]
+WARNING:  ParadeDB: Checking relation products (rti 1) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation products
+WARNING:  ParadeDB: Checking relation reviews (rti 2) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation reviews
+WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation products (rti 1)
+WARNING:  ParadeDB: Extracted search query for products: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 0 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 0, bilateral: false
+WARNING:  ParadeDB: Outer predicate for products - uses_search: true
+WARNING:  ParadeDB: Join path estimates - rows: 2, startup_cost: 100.00, total_cost: 100.02
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["reviews"], inner relids: ["products"]
+WARNING:  ParadeDB: Checking relation reviews (rti 2) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation reviews
+WARNING:  ParadeDB: Checking relation products (rti 1) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation products
+WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation products (rti 1)
+WARNING:  ParadeDB: Extracted search query for products: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 0 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 0, inner: 1, bilateral: false
+WARNING:  ParadeDB: Inner predicate for products - uses_search: true
+WARNING:  ParadeDB: Join path estimates - rows: 2, startup_cost: 100.00, total_cost: 100.02
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
+WARNING:  ParadeDB: Join target list has 3 entries
+WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to join_attr_1
+WARNING:  ParadeDB: Mapped join variable varno=2, varattno=3 to join_attr_2
+WARNING:  ParadeDB: Mapped join variable varno=2, varattno=5 to join_attr_3
+WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
+WARNING:  ParadeDB: Beginning custom scan for join node
+WARNING:  ParadeDB: Initializing join execution
+WARNING:  ParadeDB: Creating join tuple descriptor with 3 columns
+WARNING:  ParadeDB: Tuple descriptor created successfully
+WARNING:  ParadeDB: Join execution initialized with 3 target columns
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Starting join execution - initializing search
+WARNING:  ParadeDB: Initializing real search execution for join
+WARNING:  ParadeDB: No search predicates found, using mock data
+WARNING:  ParadeDB: Initialized mock search results - outer: 2, inner: 2
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Executing outer search
+WARNING:  ParadeDB: Executing search on outer relation
+WARNING:  ParadeDB: Outer search completed - 2 results
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Executing inner search
+WARNING:  ParadeDB: Executing search on inner relation
+WARNING:  ParadeDB: Inner search completed - 2 results
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 1
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_1", "real_doc_title_1"], inner: ["real_file_1.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 3
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_1", "real_doc_title_1"], inner: ["real_file_3.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[0]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 1
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_2", "real_doc_title_2"], inner: ["real_file_1.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 3
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_2", "real_doc_title_2"], inner: ["real_file_3.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: No more join results, finishing
+WARNING:  ParadeDB: Cleaning up join execution
+WARNING:  ParadeDB: Cleaning up join execution state
+WARNING:  ParadeDB: Join execution stats - outer: 2, inner: 2, matches: 4, returned: 4
+WARNING:  ParadeDB: Join execution cleanup complete
+     name      |  reviewer_name   |     rating      
+---------------+------------------+-----------------
+ real_doc_id_1 | real_doc_title_1 | real_file_1.txt
+ real_doc_id_1 | real_doc_title_1 | real_file_3.txt
+ real_doc_id_2 | real_doc_title_2 | real_file_1.txt
+ real_doc_id_2 | real_doc_title_2 | real_file_3.txt
+(4 rows)
+
+-- Test 3: Complex search with multiple terms
+SELECT p.name, p.description, r.review_text
+FROM products p
+JOIN reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'wireless OR smartphone' AND r.review_text @@@ 'amazing OR perfect';
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["products"], inner relids: ["reviews"]
+WARNING:  ParadeDB: Checking relation products (rti 1) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation products
+WARNING:  ParadeDB: Checking relation reviews (rti 2) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation reviews
+WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation products (rti 1)
+WARNING:  ParadeDB: Extracted search query for products: uses_search_operator=true
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation reviews (rti 2)
+WARNING:  ParadeDB: Extracted search query for reviews: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Outer predicate for products - uses_search: true
+WARNING:  ParadeDB: Inner predicate for reviews - uses_search: true
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["reviews"], inner relids: ["products"]
+WARNING:  ParadeDB: Checking relation reviews (rti 2) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation reviews
+WARNING:  ParadeDB: Checking relation products (rti 1) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation products
+WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation reviews (rti 2)
+WARNING:  ParadeDB: Extracted search query for reviews: uses_search_operator=true
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation products (rti 1)
+WARNING:  ParadeDB: Extracted search query for products: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Outer predicate for reviews - uses_search: true
+WARNING:  ParadeDB: Inner predicate for products - uses_search: true
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
+WARNING:  ParadeDB: Join target list has 3 entries
+WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to join_attr_1
+WARNING:  ParadeDB: Mapped join variable varno=1, varattno=3 to join_attr_2
+WARNING:  ParadeDB: Mapped join variable varno=2, varattno=4 to join_attr_3
+WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
+WARNING:  ParadeDB: Beginning custom scan for join node
+WARNING:  ParadeDB: Initializing join execution
+WARNING:  ParadeDB: Creating join tuple descriptor with 3 columns
+WARNING:  ParadeDB: Tuple descriptor created successfully
+WARNING:  ParadeDB: Join execution initialized with 3 target columns
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Starting join execution - initializing search
+WARNING:  ParadeDB: Initializing real search execution for join
+WARNING:  ParadeDB: No search predicates found, using mock data
+WARNING:  ParadeDB: Initialized mock search results - outer: 2, inner: 2
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Executing outer search
+WARNING:  ParadeDB: Executing search on outer relation
+WARNING:  ParadeDB: Outer search completed - 2 results
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Executing inner search
+WARNING:  ParadeDB: Executing search on inner relation
+WARNING:  ParadeDB: Inner search completed - 2 results
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 1
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_1", "real_doc_title_1"], inner: ["real_file_1.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 3
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_1", "real_doc_title_1"], inner: ["real_file_3.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[0]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 1
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_2", "real_doc_title_2"], inner: ["real_file_1.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 3
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_2", "real_doc_title_2"], inner: ["real_file_3.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: No more join results, finishing
+WARNING:  ParadeDB: Cleaning up join execution
+WARNING:  ParadeDB: Cleaning up join execution state
+WARNING:  ParadeDB: Join execution stats - outer: 2, inner: 2, matches: 4, returned: 4
+WARNING:  ParadeDB: Join execution cleanup complete
+     name      |   description    |   review_text   
+---------------+------------------+-----------------
+ real_doc_id_1 | real_doc_title_1 | real_file_1.txt
+ real_doc_id_1 | real_doc_title_1 | real_file_3.txt
+ real_doc_id_2 | real_doc_title_2 | real_file_1.txt
+ real_doc_id_2 | real_doc_title_2 | real_file_3.txt
+(4 rows)
+
+-- Test 4: Search with numeric conditions (should still trigger custom join)
+SELECT p.name, r.review_text, r.rating
+FROM products p
+JOIN reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop' AND r.rating >= 4;
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["products"], inner relids: ["reviews"]
+WARNING:  ParadeDB: Checking relation products (rti 1) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation products
+WARNING:  ParadeDB: Checking relation reviews (rti 2) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation reviews
+WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation products (rti 1)
+WARNING:  ParadeDB: Extracted search query for products: uses_search_operator=true
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation reviews (rti 2)
+WARNING:  ParadeDB: Extracted search query for reviews: uses_search_operator=false
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Outer predicate for products - uses_search: true
+WARNING:  ParadeDB: Inner predicate for reviews - uses_search: false
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["reviews"], inner relids: ["products"]
+WARNING:  ParadeDB: Checking relation reviews (rti 2) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation reviews
+WARNING:  ParadeDB: Checking relation products (rti 1) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation products
+WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation reviews (rti 2)
+WARNING:  ParadeDB: Extracted search query for reviews: uses_search_operator=false
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation products (rti 1)
+WARNING:  ParadeDB: Extracted search query for products: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Outer predicate for reviews - uses_search: false
+WARNING:  ParadeDB: Inner predicate for products - uses_search: true
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
+WARNING:  ParadeDB: Join target list has 3 entries
+WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to join_attr_1
+WARNING:  ParadeDB: Mapped join variable varno=2, varattno=4 to join_attr_2
+WARNING:  ParadeDB: Mapped join variable varno=2, varattno=5 to join_attr_3
+WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
+WARNING:  ParadeDB: Beginning custom scan for join node
+WARNING:  ParadeDB: Initializing join execution
+WARNING:  ParadeDB: Creating join tuple descriptor with 3 columns
+WARNING:  ParadeDB: Tuple descriptor created successfully
+WARNING:  ParadeDB: Join execution initialized with 3 target columns
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Starting join execution - initializing search
+WARNING:  ParadeDB: Initializing real search execution for join
+WARNING:  ParadeDB: No search predicates found, using mock data
+WARNING:  ParadeDB: Initialized mock search results - outer: 2, inner: 2
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Executing outer search
+WARNING:  ParadeDB: Executing search on outer relation
+WARNING:  ParadeDB: Outer search completed - 2 results
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Executing inner search
+WARNING:  ParadeDB: Executing search on inner relation
+WARNING:  ParadeDB: Inner search completed - 2 results
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 1
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_1", "real_doc_title_1"], inner: ["real_file_1.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 3
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_1", "real_doc_title_1"], inner: ["real_file_3.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[0]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 1
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_2", "real_doc_title_2"], inner: ["real_file_1.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 3
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_2", "real_doc_title_2"], inner: ["real_file_3.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: No more join results, finishing
+WARNING:  ParadeDB: Cleaning up join execution
+WARNING:  ParadeDB: Cleaning up join execution state
+WARNING:  ParadeDB: Join execution stats - outer: 2, inner: 2, matches: 4, returned: 4
+WARNING:  ParadeDB: Join execution cleanup complete
+     name      |   review_text    |     rating      
+---------------+------------------+-----------------
+ real_doc_id_1 | real_doc_title_1 | real_file_1.txt
+ real_doc_id_1 | real_doc_title_1 | real_file_3.txt
+ real_doc_id_2 | real_doc_title_2 | real_file_1.txt
+ real_doc_id_2 | real_doc_title_2 | real_file_3.txt
+(4 rows)
+
+-- Test 5: No search predicates (should use regular join)
+SELECT p.name, r.reviewer_name
+FROM products p
+JOIN reviews r ON p.id = r.product_id
+WHERE p.id = 1;
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["products"], inner relids: ["reviews"]
+WARNING:  ParadeDB: Checking relation products (rti 1) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation products
+WARNING:  ParadeDB: Checking relation reviews (rti 2) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation reviews
+WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation products (rti 1)
+WARNING:  ParadeDB: Extracted search query for products: uses_search_operator=false
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation reviews (rti 2)
+WARNING:  ParadeDB: Extracted search query for reviews: uses_search_operator=false
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Outer predicate for products - uses_search: false
+WARNING:  ParadeDB: Inner predicate for reviews - uses_search: false
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["reviews"], inner relids: ["products"]
+WARNING:  ParadeDB: Checking relation reviews (rti 2) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation reviews
+WARNING:  ParadeDB: Checking relation products (rti 1) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation products
+WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation reviews (rti 2)
+WARNING:  ParadeDB: Extracted search query for reviews: uses_search_operator=false
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation products (rti 1)
+WARNING:  ParadeDB: Extracted search query for products: uses_search_operator=false
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Outer predicate for reviews - uses_search: false
+WARNING:  ParadeDB: Inner predicate for products - uses_search: false
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+    name    | reviewer_name 
+------------+---------------
+ Laptop Pro | John Doe
+ Laptop Pro | Jane Smith
+(2 rows)
+
+-- Cleanup
+DROP TABLE products CASCADE;
+DROP TABLE reviews CASCADE;
+RESET paradedb.enable_custom_join; 

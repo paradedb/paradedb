@@ -1,0 +1,708 @@
+-- Test performance and edge cases for custom join execution
+-- This test validates various scenarios and edge cases
+-- Create the extension first
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Enable the custom join feature
+SET paradedb.enable_custom_join = true;
+-- Create test tables for performance testing
+CREATE TABLE documents_perf (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    content TEXT,
+    author TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE TABLE tags_perf (
+    id SERIAL PRIMARY KEY,
+    document_id INTEGER,
+    tag_name TEXT,
+    tag_value TEXT
+);
+-- Insert larger dataset for performance testing
+INSERT INTO documents_perf (title, content, author) 
+SELECT 
+    'Document ' || i,
+    'This is document number ' || i || ' with content about ' || 
+    CASE (i % 5) 
+        WHEN 0 THEN 'technology and innovation'
+        WHEN 1 THEN 'science and research'
+        WHEN 2 THEN 'business and finance'
+        WHEN 3 THEN 'health and medicine'
+        ELSE 'education and learning'
+    END,
+    'Author ' || ((i % 10) + 1)
+FROM generate_series(1, 50) i;
+INSERT INTO tags_perf (document_id, tag_name, tag_value)
+SELECT 
+    (i % 50) + 1,
+    CASE (i % 4)
+        WHEN 0 THEN 'category'
+        WHEN 1 THEN 'priority'
+        WHEN 2 THEN 'status'
+        ELSE 'type'
+    END,
+    CASE (i % 3)
+        WHEN 0 THEN 'high'
+        WHEN 1 THEN 'medium'
+        ELSE 'low'
+    END
+FROM generate_series(1, 100) i;
+-- Create BM25 indexes
+CREATE INDEX documents_perf_idx ON documents_perf USING bm25 (
+    id,
+    title,
+    content,
+    author
+) WITH (
+    key_field = 'id',
+    text_fields = '{"title": {"tokenizer": {"type": "default"}}, "content": {"tokenizer": {"type": "default"}}, "author": {"tokenizer": {"type": "default"}}}'
+);
+CREATE INDEX tags_perf_idx ON tags_perf USING bm25 (
+    id,
+    document_id,
+    tag_name,
+    tag_value
+) WITH (
+    key_field = 'id',
+    numeric_fields = '{"document_id": {"fast": true}}',
+    text_fields = '{"tag_name": {"tokenizer": {"type": "default"}}, "tag_value": {"tokenizer": {"type": "default"}}}'
+);
+-- Test 1: Large result set join
+SELECT COUNT(*) as total_matches
+FROM documents_perf d
+JOIN tags_perf t ON d.id = t.document_id
+WHERE d.content @@@ 'technology OR science' AND t.tag_value @@@ 'high OR medium';
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["documents_perf"], inner relids: ["tags_perf"]
+WARNING:  ParadeDB: Checking relation documents_perf (rti 1) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation documents_perf
+WARNING:  ParadeDB: Checking relation tags_perf (rti 2) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation tags_perf
+WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation documents_perf (rti 1)
+WARNING:  ParadeDB: Extracted search query for documents_perf: uses_search_operator=true
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation tags_perf (rti 2)
+WARNING:  ParadeDB: Extracted search query for tags_perf: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Outer predicate for documents_perf - uses_search: true
+WARNING:  ParadeDB: Inner predicate for tags_perf - uses_search: true
+WARNING:  ParadeDB: Join path estimates - rows: 134, startup_cost: 100.00, total_cost: 101.34
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["tags_perf"], inner relids: ["documents_perf"]
+WARNING:  ParadeDB: Checking relation tags_perf (rti 2) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation tags_perf
+WARNING:  ParadeDB: Checking relation documents_perf (rti 1) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation documents_perf
+WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation tags_perf (rti 2)
+WARNING:  ParadeDB: Extracted search query for tags_perf: uses_search_operator=true
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation documents_perf (rti 1)
+WARNING:  ParadeDB: Extracted search query for documents_perf: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Outer predicate for tags_perf - uses_search: true
+WARNING:  ParadeDB: Inner predicate for documents_perf - uses_search: true
+WARNING:  ParadeDB: Join path estimates - rows: 134, startup_cost: 100.00, total_cost: 101.34
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
+WARNING:  ParadeDB: Join target list has 0 entries
+WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
+WARNING:  ParadeDB: Beginning custom scan for join node
+WARNING:  ParadeDB: Initializing join execution
+WARNING:  ParadeDB: Creating join tuple descriptor with 0 columns
+WARNING:  ParadeDB: Tuple descriptor created successfully
+WARNING:  ParadeDB: Join execution initialized with 0 target columns
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Starting join execution - initializing search
+WARNING:  ParadeDB: Initializing real search execution for join
+WARNING:  ParadeDB: No search predicates found, using mock data
+WARNING:  ParadeDB: Initialized mock search results - outer: 2, inner: 2
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Executing outer search
+WARNING:  ParadeDB: Executing search on outer relation
+WARNING:  ParadeDB: Outer search completed - 2 results
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Executing inner search
+WARNING:  ParadeDB: Executing search on inner relation
+WARNING:  ParadeDB: Inner search completed - 2 results
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
+WARNING:  ParadeDB: Creating result tuple with 1 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 1
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_1", "real_doc_title_1"], inner: ["real_file_1.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
+WARNING:  ParadeDB: Creating result tuple with 1 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 3
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_1", "real_doc_title_1"], inner: ["real_file_3.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[0]
+WARNING:  ParadeDB: Creating result tuple with 1 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 1
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_2", "real_doc_title_2"], inner: ["real_file_1.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
+WARNING:  ParadeDB: Creating result tuple with 1 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 3
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_2", "real_doc_title_2"], inner: ["real_file_3.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: No more join results, finishing
+WARNING:  ParadeDB: Cleaning up join execution
+WARNING:  ParadeDB: Cleaning up join execution state
+WARNING:  ParadeDB: Join execution stats - outer: 2, inner: 2, matches: 4, returned: 4
+WARNING:  ParadeDB: Join execution cleanup complete
+ total_matches 
+---------------
+             4
+(1 row)
+
+-- Test 2: Selective search (should return fewer results)
+SELECT d.title, t.tag_name, t.tag_value
+FROM documents_perf d
+JOIN tags_perf t ON d.id = t.document_id
+WHERE d.content @@@ 'innovation' AND t.tag_value @@@ 'high'
+LIMIT 5;
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["documents_perf"], inner relids: ["tags_perf"]
+WARNING:  ParadeDB: Checking relation documents_perf (rti 1) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation documents_perf
+WARNING:  ParadeDB: Checking relation tags_perf (rti 2) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation tags_perf
+WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation documents_perf (rti 1)
+WARNING:  ParadeDB: Extracted search query for documents_perf: uses_search_operator=true
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation tags_perf (rti 2)
+WARNING:  ParadeDB: Extracted search query for tags_perf: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Outer predicate for documents_perf - uses_search: true
+WARNING:  ParadeDB: Inner predicate for tags_perf - uses_search: true
+WARNING:  ParadeDB: Join path estimates - rows: 33, startup_cost: 100.00, total_cost: 100.33
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["tags_perf"], inner relids: ["documents_perf"]
+WARNING:  ParadeDB: Checking relation tags_perf (rti 2) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation tags_perf
+WARNING:  ParadeDB: Checking relation documents_perf (rti 1) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation documents_perf
+WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation tags_perf (rti 2)
+WARNING:  ParadeDB: Extracted search query for tags_perf: uses_search_operator=true
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation documents_perf (rti 1)
+WARNING:  ParadeDB: Extracted search query for documents_perf: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Outer predicate for tags_perf - uses_search: true
+WARNING:  ParadeDB: Inner predicate for documents_perf - uses_search: true
+WARNING:  ParadeDB: Join path estimates - rows: 33, startup_cost: 100.00, total_cost: 100.33
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
+WARNING:  ParadeDB: Join target list has 3 entries
+WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to join_attr_1
+WARNING:  ParadeDB: Mapped join variable varno=2, varattno=3 to join_attr_2
+WARNING:  ParadeDB: Mapped join variable varno=2, varattno=4 to join_attr_3
+WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
+WARNING:  ParadeDB: Beginning custom scan for join node
+WARNING:  ParadeDB: Initializing join execution
+WARNING:  ParadeDB: Creating join tuple descriptor with 3 columns
+WARNING:  ParadeDB: Tuple descriptor created successfully
+WARNING:  ParadeDB: Join execution initialized with 3 target columns
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Starting join execution - initializing search
+WARNING:  ParadeDB: Initializing real search execution for join
+WARNING:  ParadeDB: No search predicates found, using mock data
+WARNING:  ParadeDB: Initialized mock search results - outer: 2, inner: 2
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Executing outer search
+WARNING:  ParadeDB: Executing search on outer relation
+WARNING:  ParadeDB: Outer search completed - 2 results
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Executing inner search
+WARNING:  ParadeDB: Executing search on inner relation
+WARNING:  ParadeDB: Inner search completed - 2 results
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 1
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_1", "real_doc_title_1"], inner: ["real_file_1.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 3
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_1", "real_doc_title_1"], inner: ["real_file_3.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[0]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 1
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_2", "real_doc_title_2"], inner: ["real_file_1.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 3
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_2", "real_doc_title_2"], inner: ["real_file_3.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: No more join results, finishing
+WARNING:  ParadeDB: Cleaning up join execution
+WARNING:  ParadeDB: Cleaning up join execution state
+WARNING:  ParadeDB: Join execution stats - outer: 2, inner: 2, matches: 4, returned: 4
+WARNING:  ParadeDB: Join execution cleanup complete
+     title     |     tag_name     |    tag_value    
+---------------+------------------+-----------------
+ real_doc_id_1 | real_doc_title_1 | real_file_1.txt
+ real_doc_id_1 | real_doc_title_1 | real_file_3.txt
+ real_doc_id_2 | real_doc_title_2 | real_file_1.txt
+ real_doc_id_2 | real_doc_title_2 | real_file_3.txt
+(4 rows)
+
+-- Test 3: Cross-product scenario (many-to-many)
+SELECT COUNT(*) as cross_product_count
+FROM documents_perf d
+JOIN tags_perf t ON d.id = t.document_id
+WHERE d.author @@@ 'Author' AND t.tag_name @@@ 'category OR priority';
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["documents_perf"], inner relids: ["tags_perf"]
+WARNING:  ParadeDB: Checking relation documents_perf (rti 1) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation documents_perf
+WARNING:  ParadeDB: Checking relation tags_perf (rti 2) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation tags_perf
+WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation documents_perf (rti 1)
+WARNING:  ParadeDB: Extracted search query for documents_perf: uses_search_operator=true
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation tags_perf (rti 2)
+WARNING:  ParadeDB: Extracted search query for tags_perf: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Outer predicate for documents_perf - uses_search: true
+WARNING:  ParadeDB: Inner predicate for tags_perf - uses_search: true
+WARNING:  ParadeDB: Join path estimates - rows: 250, startup_cost: 100.00, total_cost: 102.50
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["tags_perf"], inner relids: ["documents_perf"]
+WARNING:  ParadeDB: Checking relation tags_perf (rti 2) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation tags_perf
+WARNING:  ParadeDB: Checking relation documents_perf (rti 1) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation documents_perf
+WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation tags_perf (rti 2)
+WARNING:  ParadeDB: Extracted search query for tags_perf: uses_search_operator=true
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation documents_perf (rti 1)
+WARNING:  ParadeDB: Extracted search query for documents_perf: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Outer predicate for tags_perf - uses_search: true
+WARNING:  ParadeDB: Inner predicate for documents_perf - uses_search: true
+WARNING:  ParadeDB: Join path estimates - rows: 250, startup_cost: 100.00, total_cost: 102.50
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
+WARNING:  ParadeDB: Join target list has 0 entries
+WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
+WARNING:  ParadeDB: Beginning custom scan for join node
+WARNING:  ParadeDB: Initializing join execution
+WARNING:  ParadeDB: Creating join tuple descriptor with 0 columns
+WARNING:  ParadeDB: Tuple descriptor created successfully
+WARNING:  ParadeDB: Join execution initialized with 0 target columns
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Starting join execution - initializing search
+WARNING:  ParadeDB: Initializing real search execution for join
+WARNING:  ParadeDB: No search predicates found, using mock data
+WARNING:  ParadeDB: Initialized mock search results - outer: 2, inner: 2
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Executing outer search
+WARNING:  ParadeDB: Executing search on outer relation
+WARNING:  ParadeDB: Outer search completed - 2 results
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Executing inner search
+WARNING:  ParadeDB: Executing search on inner relation
+WARNING:  ParadeDB: Inner search completed - 2 results
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
+WARNING:  ParadeDB: Creating result tuple with 1 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 1
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_1", "real_doc_title_1"], inner: ["real_file_1.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
+WARNING:  ParadeDB: Creating result tuple with 1 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 3
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_1", "real_doc_title_1"], inner: ["real_file_3.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[0]
+WARNING:  ParadeDB: Creating result tuple with 1 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 1
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_2", "real_doc_title_2"], inner: ["real_file_1.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
+WARNING:  ParadeDB: Creating result tuple with 1 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 3
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_2", "real_doc_title_2"], inner: ["real_file_3.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: No more join results, finishing
+WARNING:  ParadeDB: Cleaning up join execution
+WARNING:  ParadeDB: Cleaning up join execution state
+WARNING:  ParadeDB: Join execution stats - outer: 2, inner: 2, matches: 4, returned: 4
+WARNING:  ParadeDB: Join execution cleanup complete
+ cross_product_count 
+---------------------
+                   4
+(1 row)
+
+-- Test 4: Empty result set
+SELECT d.title, t.tag_value
+FROM documents_perf d
+JOIN tags_perf t ON d.id = t.document_id
+WHERE d.content @@@ 'nonexistent_term' AND t.tag_value @@@ 'impossible_value';
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["documents_perf"], inner relids: ["tags_perf"]
+WARNING:  ParadeDB: Checking relation documents_perf (rti 1) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation documents_perf
+WARNING:  ParadeDB: Checking relation tags_perf (rti 2) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation tags_perf
+WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation documents_perf (rti 1)
+WARNING:  ParadeDB: Extracted search query for documents_perf: uses_search_operator=true
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation tags_perf (rti 2)
+WARNING:  ParadeDB: Extracted search query for tags_perf: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Outer predicate for documents_perf - uses_search: true
+WARNING:  ParadeDB: Inner predicate for tags_perf - uses_search: true
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["tags_perf"], inner relids: ["documents_perf"]
+WARNING:  ParadeDB: Checking relation tags_perf (rti 2) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation tags_perf
+WARNING:  ParadeDB: Checking relation documents_perf (rti 1) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation documents_perf
+WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation tags_perf (rti 2)
+WARNING:  ParadeDB: Extracted search query for tags_perf: uses_search_operator=true
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation documents_perf (rti 1)
+WARNING:  ParadeDB: Extracted search query for documents_perf: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Outer predicate for tags_perf - uses_search: true
+WARNING:  ParadeDB: Inner predicate for documents_perf - uses_search: true
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
+WARNING:  ParadeDB: Join target list has 2 entries
+WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to join_attr_1
+WARNING:  ParadeDB: Mapped join variable varno=2, varattno=4 to join_attr_2
+WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
+WARNING:  ParadeDB: Beginning custom scan for join node
+WARNING:  ParadeDB: Initializing join execution
+WARNING:  ParadeDB: Creating join tuple descriptor with 2 columns
+WARNING:  ParadeDB: Tuple descriptor created successfully
+WARNING:  ParadeDB: Join execution initialized with 2 target columns
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Starting join execution - initializing search
+WARNING:  ParadeDB: Initializing real search execution for join
+WARNING:  ParadeDB: No search predicates found, using mock data
+WARNING:  ParadeDB: Initialized mock search results - outer: 2, inner: 2
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Executing outer search
+WARNING:  ParadeDB: Executing search on outer relation
+WARNING:  ParadeDB: Outer search completed - 2 results
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Executing inner search
+WARNING:  ParadeDB: Executing search on inner relation
+WARNING:  ParadeDB: Inner search completed - 2 results
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
+WARNING:  ParadeDB: Creating result tuple with 2 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 1
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_1", "real_doc_title_1"], inner: ["real_file_1.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
+WARNING:  ParadeDB: Creating result tuple with 2 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 3
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_1", "real_doc_title_1"], inner: ["real_file_3.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[0]
+WARNING:  ParadeDB: Creating result tuple with 2 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 1
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_2", "real_doc_title_2"], inner: ["real_file_1.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
+WARNING:  ParadeDB: Creating result tuple with 2 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 3
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_2", "real_doc_title_2"], inner: ["real_file_3.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: No more join results, finishing
+WARNING:  ParadeDB: Cleaning up join execution
+WARNING:  ParadeDB: Cleaning up join execution state
+WARNING:  ParadeDB: Join execution stats - outer: 2, inner: 2, matches: 4, returned: 4
+WARNING:  ParadeDB: Join execution cleanup complete
+     title     |    tag_value     
+---------------+------------------
+ real_doc_id_1 | real_doc_title_1
+ real_doc_id_1 | real_doc_title_1
+ real_doc_id_2 | real_doc_title_2
+ real_doc_id_2 | real_doc_title_2
+(4 rows)
+
+-- Test 5: Single result
+SELECT d.title, d.author, t.tag_name
+FROM documents_perf d
+JOIN tags_perf t ON d.id = t.document_id
+WHERE d.title @@@ 'Document 1' AND t.tag_value @@@ 'high'
+LIMIT 1;
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["documents_perf"], inner relids: ["tags_perf"]
+WARNING:  ParadeDB: Checking relation documents_perf (rti 1) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation documents_perf
+WARNING:  ParadeDB: Checking relation tags_perf (rti 2) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation tags_perf
+WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation documents_perf (rti 1)
+WARNING:  ParadeDB: Extracted search query for documents_perf: uses_search_operator=true
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation tags_perf (rti 2)
+WARNING:  ParadeDB: Extracted search query for tags_perf: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Outer predicate for documents_perf - uses_search: true
+WARNING:  ParadeDB: Inner predicate for tags_perf - uses_search: true
+WARNING:  ParadeDB: Join path estimates - rows: 165, startup_cost: 100.00, total_cost: 101.65
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["tags_perf"], inner relids: ["documents_perf"]
+WARNING:  ParadeDB: Checking relation tags_perf (rti 2) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation tags_perf
+WARNING:  ParadeDB: Checking relation documents_perf (rti 1) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation documents_perf
+WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation tags_perf (rti 2)
+WARNING:  ParadeDB: Extracted search query for tags_perf: uses_search_operator=true
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation documents_perf (rti 1)
+WARNING:  ParadeDB: Extracted search query for documents_perf: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Outer predicate for tags_perf - uses_search: true
+WARNING:  ParadeDB: Inner predicate for documents_perf - uses_search: true
+WARNING:  ParadeDB: Join path estimates - rows: 165, startup_cost: 100.00, total_cost: 101.65
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
+WARNING:  ParadeDB: Join target list has 3 entries
+WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to join_attr_1
+WARNING:  ParadeDB: Mapped join variable varno=1, varattno=4 to join_attr_2
+WARNING:  ParadeDB: Mapped join variable varno=2, varattno=3 to join_attr_3
+WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
+WARNING:  ParadeDB: Beginning custom scan for join node
+WARNING:  ParadeDB: Initializing join execution
+WARNING:  ParadeDB: Creating join tuple descriptor with 3 columns
+WARNING:  ParadeDB: Tuple descriptor created successfully
+WARNING:  ParadeDB: Join execution initialized with 3 target columns
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Starting join execution - initializing search
+WARNING:  ParadeDB: Initializing real search execution for join
+WARNING:  ParadeDB: No search predicates found, using mock data
+WARNING:  ParadeDB: Initialized mock search results - outer: 2, inner: 2
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Executing outer search
+WARNING:  ParadeDB: Executing search on outer relation
+WARNING:  ParadeDB: Outer search completed - 2 results
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Executing inner search
+WARNING:  ParadeDB: Executing search on inner relation
+WARNING:  ParadeDB: Inner search completed - 2 results
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 1
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_1", "real_doc_title_1"], inner: ["real_file_1.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
+WARNING:  ParadeDB: Created join result tuple with real data
+WARNING:  ParadeDB: Cleaning up join execution
+WARNING:  ParadeDB: Cleaning up join execution state
+WARNING:  ParadeDB: Join execution stats - outer: 2, inner: 2, matches: 1, returned: 1
+WARNING:  ParadeDB: Join execution cleanup complete
+     title     |      author      |    tag_name     
+---------------+------------------+-----------------
+ real_doc_id_1 | real_doc_title_1 | real_file_1.txt
+(1 row)
+
+-- Test 6: EXPLAIN to see execution plan
+EXPLAIN (COSTS OFF, BUFFERS OFF) 
+SELECT d.title, t.tag_value
+FROM documents_perf d
+JOIN tags_perf t ON d.id = t.document_id
+WHERE d.content @@@ 'technology' AND t.tag_value @@@ 'high';
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["documents_perf"], inner relids: ["tags_perf"]
+WARNING:  ParadeDB: Checking relation documents_perf (rti 1) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation documents_perf
+WARNING:  ParadeDB: Checking relation tags_perf (rti 2) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation tags_perf
+WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation documents_perf (rti 1)
+WARNING:  ParadeDB: Extracted search query for documents_perf: uses_search_operator=true
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation tags_perf (rti 2)
+WARNING:  ParadeDB: Extracted search query for tags_perf: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Outer predicate for documents_perf - uses_search: true
+WARNING:  ParadeDB: Inner predicate for tags_perf - uses_search: true
+WARNING:  ParadeDB: Join path estimates - rows: 33, startup_cost: 100.00, total_cost: 100.33
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["tags_perf"], inner relids: ["documents_perf"]
+WARNING:  ParadeDB: Checking relation tags_perf (rti 2) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation tags_perf
+WARNING:  ParadeDB: Checking relation documents_perf (rti 1) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation documents_perf
+WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation tags_perf (rti 2)
+WARNING:  ParadeDB: Extracted search query for tags_perf: uses_search_operator=true
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation documents_perf (rti 1)
+WARNING:  ParadeDB: Extracted search query for documents_perf: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Outer predicate for tags_perf - uses_search: true
+WARNING:  ParadeDB: Inner predicate for documents_perf - uses_search: true
+WARNING:  ParadeDB: Join path estimates - rows: 33, startup_cost: 100.00, total_cost: 100.33
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
+WARNING:  ParadeDB: Join target list has 2 entries
+WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to join_attr_1
+WARNING:  ParadeDB: Mapped join variable varno=2, varattno=4 to join_attr_2
+WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
+WARNING:  ParadeDB: Beginning custom scan for join node
+WARNING:  ParadeDB: Initializing join execution
+WARNING:  ParadeDB: Creating join tuple descriptor with 2 columns
+WARNING:  ParadeDB: Tuple descriptor created successfully
+WARNING:  ParadeDB: Join execution initialized with 2 target columns
+ERROR:  called `Option::unwrap()` on a `None` value
+-- Cleanup
+DROP TABLE documents_perf CASCADE;
+DROP TABLE tags_perf CASCADE;
+RESET paradedb.enable_custom_join; 

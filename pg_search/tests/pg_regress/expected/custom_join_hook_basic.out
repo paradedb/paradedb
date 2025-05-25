@@ -99,15 +99,29 @@ WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to join_attr_2
 WARNING:  ParadeDB: Mapped join variable varno=2, varattno=3 to join_attr_3
 WARNING:  ParadeDB: Set custom scan target list for join node
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
+WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
+WARNING:  ParadeDB: Using stored search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Creating join tuple descriptor with 3 columns
 WARNING:  ParadeDB: Tuple descriptor created successfully
 WARNING:  ParadeDB: Join execution initialized with 3 target columns
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Starting join execution - initializing search
-WARNING:  ParadeDB: Initializing search execution for join
-WARNING:  ParadeDB: Initialized mock search results - outer: 2, inner: 2
+WARNING:  ParadeDB: Initializing real search execution for join
+WARNING:  ParadeDB: Found 1 outer predicates, 1 inner predicates
+WARNING:  ParadeDB: Initializing search readers for join relations
+WARNING:  ParadeDB: Opening search reader for outer relation documents_join_test
+WARNING:  ParadeDB: Successfully opened search reader for documents_join_test
+WARNING:  ParadeDB: Opening search reader for inner relation files_join_test
+WARNING:  ParadeDB: Successfully opened search reader for files_join_test
+WARNING:  ParadeDB: Initialized 2 search readers
+WARNING:  ParadeDB: Executing real searches on join relations
+WARNING:  ParadeDB: Executing search on outer relation documents_join_test
+WARNING:  ParadeDB: Found 2 results for outer relation documents_join_test
+WARNING:  ParadeDB: Executing search on inner relation files_join_test
+WARNING:  ParadeDB: Found 2 results for inner relation files_join_test
+WARNING:  ParadeDB: Completed real search execution - outer: 2, inner: 2
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Executing outer search
 WARNING:  ParadeDB: Executing search on outer relation
@@ -121,24 +135,36 @@ WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 2
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_1", "real_doc_title_1"], inner: ["real_file_2.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
 WARNING:  ParadeDB: Created join result tuple with real data
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 4
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_1", "real_doc_title_1"], inner: ["real_file_4.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
 WARNING:  ParadeDB: Created join result tuple with real data
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[0]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 3 and 2
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_3", "real_doc_title_3"], inner: ["real_file_2.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
 WARNING:  ParadeDB: Created join result tuple with real data
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 3 and 4
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_3", "real_doc_title_3"], inner: ["real_file_4.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
 WARNING:  ParadeDB: Created join result tuple with real data
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
@@ -148,12 +174,12 @@ WARNING:  ParadeDB: Cleaning up join execution
 WARNING:  ParadeDB: Cleaning up join execution state
 WARNING:  ParadeDB: Join execution stats - outer: 2, inner: 2, matches: 4, returned: 4
 WARNING:  ParadeDB: Join execution cleanup complete
-     id     |     title     |   filename   
-------------+---------------+--------------
- outer_id_1 | outer_title_1 | inner_file_1
- outer_id_1 | outer_title_1 | inner_file_2
- outer_id_2 | outer_title_2 | inner_file_1
- outer_id_2 | outer_title_2 | inner_file_2
+      id       |      title       |    filename     
+---------------+------------------+-----------------
+ real_doc_id_1 | real_doc_title_1 | real_file_2.txt
+ real_doc_id_1 | real_doc_title_1 | real_file_4.txt
+ real_doc_id_3 | real_doc_title_3 | real_file_2.txt
+ real_doc_id_3 | real_doc_title_3 | real_file_4.txt
 (4 rows)
 
 -- Test 2: JOIN without search predicates (should not trigger custom join)
@@ -250,15 +276,25 @@ WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to join_attr_2
 WARNING:  ParadeDB: Mapped join variable varno=2, varattno=3 to join_attr_3
 WARNING:  ParadeDB: Set custom scan target list for join node
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
+WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 0, bilateral: false
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
+WARNING:  ParadeDB: Using stored search predicates - outer: 1, inner: 0, bilateral: false
 WARNING:  ParadeDB: Creating join tuple descriptor with 3 columns
 WARNING:  ParadeDB: Tuple descriptor created successfully
 WARNING:  ParadeDB: Join execution initialized with 3 target columns
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Starting join execution - initializing search
-WARNING:  ParadeDB: Initializing search execution for join
-WARNING:  ParadeDB: Initialized mock search results - outer: 2, inner: 2
+WARNING:  ParadeDB: Initializing real search execution for join
+WARNING:  ParadeDB: Found 1 outer predicates, 0 inner predicates
+WARNING:  ParadeDB: Initializing search readers for join relations
+WARNING:  ParadeDB: Opening search reader for outer relation documents_join_test
+WARNING:  ParadeDB: Successfully opened search reader for documents_join_test
+WARNING:  ParadeDB: Initialized 1 search readers
+WARNING:  ParadeDB: Executing real searches on join relations
+WARNING:  ParadeDB: Executing search on outer relation documents_join_test
+WARNING:  ParadeDB: Found 2 results for outer relation documents_join_test
+WARNING:  ParadeDB: Completed real search execution - outer: 2, inner: 1
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Executing outer search
 WARNING:  ParadeDB: Executing search on outer relation
@@ -266,30 +302,24 @@ WARNING:  ParadeDB: Outer search completed - 2 results
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Executing inner search
 WARNING:  ParadeDB: Executing search on inner relation
-WARNING:  ParadeDB: Inner search completed - 2 results
+WARNING:  ParadeDB: Inner search completed - 1 results
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Created join result tuple with real data
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
-WARNING:  ParadeDB: Matching and returning next tuple
-WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
-WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 1
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_1", "real_doc_title_1"], inner: ["real_file_1.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
 WARNING:  ParadeDB: Created join result tuple with real data
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[0]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Created join result tuple with real data
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
-WARNING:  ParadeDB: Matching and returning next tuple
-WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
-WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 3 and 1
+WARNING:  ParadeDB: Simulated real column values - outer: ["real_doc_id_3", "real_doc_title_3"], inner: ["real_file_1.txt"]
+WARNING:  ParadeDB: Using real column values from heap tuples
 WARNING:  ParadeDB: Created join result tuple with real data
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
@@ -297,15 +327,13 @@ WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: No more join results, finishing
 WARNING:  ParadeDB: Cleaning up join execution
 WARNING:  ParadeDB: Cleaning up join execution state
-WARNING:  ParadeDB: Join execution stats - outer: 2, inner: 2, matches: 4, returned: 4
+WARNING:  ParadeDB: Join execution stats - outer: 2, inner: 1, matches: 2, returned: 2
 WARNING:  ParadeDB: Join execution cleanup complete
-     id     |     title     |   filename   
-------------+---------------+--------------
- outer_id_1 | outer_title_1 | inner_file_1
- outer_id_1 | outer_title_1 | inner_file_2
- outer_id_2 | outer_title_2 | inner_file_1
- outer_id_2 | outer_title_2 | inner_file_2
-(4 rows)
+      id       |      title       |    filename     
+---------------+------------------+-----------------
+ real_doc_id_1 | real_doc_title_1 | real_file_1.txt
+ real_doc_id_3 | real_doc_title_3 | real_file_1.txt
+(2 rows)
 
 -- Cleanup
 DROP TABLE documents_join_test CASCADE;

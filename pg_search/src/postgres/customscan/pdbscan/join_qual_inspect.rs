@@ -28,9 +28,10 @@ use crate::postgres::rel_get_bm25_index;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 use pgrx::{pg_sys, warning, PgList, PgRelation};
+use serde;
 
 /// Represents search predicates extracted from a join condition
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct JoinSearchPredicates {
     /// Search predicates for the outer relation
     pub outer_predicates: Vec<RelationSearchPredicate>,
@@ -41,7 +42,7 @@ pub struct JoinSearchPredicates {
 }
 
 /// A search predicate for a specific relation in the join
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RelationSearchPredicate {
     /// Range table index of the relation
     pub rti: pg_sys::Index,
@@ -56,7 +57,7 @@ pub struct RelationSearchPredicate {
 }
 
 /// A join condition between two relations
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct JoinCondition {
     /// Left side relation RTI
     pub left_rti: pg_sys::Index,
@@ -64,16 +65,8 @@ pub struct JoinCondition {
     pub right_rti: pg_sys::Index,
     /// Join operator (e.g., equality)
     pub operator: pg_sys::Oid,
-    /// Join condition type (e.g., equality join)
-    pub condition_type: JoinConditionType,
-}
-
-#[derive(Debug, Clone)]
-pub enum JoinConditionType {
-    /// Simple equality join: table1.id = table2.foreign_id
-    Equality,
-    /// Other join types (for future extension)
-    Other,
+    /// Join condition type (e.g., "equality", "other")
+    pub condition_type: String,
 }
 
 impl JoinSearchPredicates {

@@ -18,34 +18,34 @@
 use crate::api::{AsCStr, Cardinality, Varno};
 use crate::api::{HashMap, HashSet};
 use crate::index::fast_fields_helper::WhichFastField;
-use crate::postgres::customscan::builders::custom_path::{OrderByStyle, SortDirection};
+use crate::postgres::customscan::builders::custom_path::SortDirection;
+use crate::postgres::customscan::pdbscan::join_qual_inspect::JoinSearchPredicates;
 use crate::postgres::customscan::pdbscan::ExecMethodType;
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::{pg_sys, PgList};
 use serde::{Deserialize, Serialize};
 
-#[derive(Default, Debug, Serialize, Deserialize)]
+/// Private data for the custom scan
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct PrivateData {
     heaprelid: Option<pg_sys::Oid>,
     indexrelid: Option<pg_sys::Oid>,
     range_table_index: Option<pg_sys::Index>,
     query: Option<SearchQueryInput>,
     limit: Option<usize>,
+    segment_count: usize,
     sort_field: Option<String>,
     sort_direction: Option<SortDirection>,
+    exec_method_type: ExecMethodType,
     #[serde(with = "var_attname_lookup_serializer")]
     var_attname_lookup: Option<HashMap<(Varno, pg_sys::AttrNumber), String>>,
-    segment_count: usize,
-    // The fast fields which were identified during planning time as potentially being
-    // needed at execution time. In order for our planning-time-chosen ExecMethodType to be
-    // accurate, this must always be a superset of the fields extracted from the execution
-    // time target list.
-    planned_which_fast_fields: Option<HashSet<WhichFastField>>,
     target_list_len: Option<usize>,
+    planned_which_fast_fields: Option<HashSet<WhichFastField>>,
     referenced_columns_count: usize,
-    need_scores: bool,
-    exec_method_type: ExecMethodType,
+
+    /// Join search predicates for custom join execution
+    join_search_predicates: Option<JoinSearchPredicates>,
 }
 
 mod var_attname_lookup_serializer {
@@ -53,11 +53,11 @@ mod var_attname_lookup_serializer {
 
     use serde::{de::Error, Deserializer, Serializer};
 
-    fn key_to_string(key: &(Varno, i16)) -> String {
+    fn key_to_string(key: &(Varno, pg_sys::AttrNumber)) -> String {
         format!("{},{}", key.0, key.1)
     }
 
-    fn key_from_string(s: &str) -> Result<(Varno, i16), String> {
+    fn key_from_string(s: &str) -> Result<(Varno, pg_sys::AttrNumber), String> {
         let mut parts = s.splitn(2, ',');
         let p1_str = parts
             .next()
@@ -70,14 +70,14 @@ mod var_attname_lookup_serializer {
             .parse::<Varno>()
             .map_err(|e| format!("Failed to parse first key part '{}': {}", p1_str, e))?;
         let p2 = p2_str
-            .parse::<i16>()
+            .parse::<pg_sys::AttrNumber>()
             .map_err(|e| format!("Failed to parse second key part '{}': {}", p2_str, e))?;
 
         Ok((p1, p2))
     }
 
     pub fn serialize<S>(
-        map_option: &Option<HashMap<(Varno, i16), String>>,
+        map_option: &Option<HashMap<(Varno, pg_sys::AttrNumber), String>>,
         serializer: S,
     ) -> Result<S::Ok, S::Error>
     where
@@ -97,7 +97,7 @@ mod var_attname_lookup_serializer {
     #[allow(clippy::type_complexity)]
     pub fn deserialize<'de, D>(
         deserializer: D,
-    ) -> Result<Option<HashMap<(Varno, i16), String>>, D::Error>
+    ) -> Result<Option<HashMap<(Varno, pg_sys::AttrNumber), String>>, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -173,12 +173,8 @@ impl PrivateData {
         self.sort_direction = sort_direction;
     }
 
-    pub fn set_sort_info(&mut self, style: &OrderByStyle) {
-        match &style {
-            OrderByStyle::Score(_) => {}
-            OrderByStyle::Field(_, name) => self.sort_field = Some(name.clone()),
-        }
-        self.sort_direction = Some(style.direction())
+    pub fn set_sort_field(&mut self, sort_field: String) {
+        self.sort_field = Some(sort_field);
     }
 
     pub fn set_var_attname_lookup(
@@ -211,8 +207,11 @@ impl PrivateData {
         self.referenced_columns_count = count;
     }
 
-    pub fn set_need_scores(&mut self, maybe: bool) {
-        self.need_scores = maybe;
+    pub fn set_join_search_predicates(
+        &mut self,
+        join_search_predicates: Option<JoinSearchPredicates>,
+    ) {
+        self.join_search_predicates = join_search_predicates;
     }
 }
 
@@ -282,7 +281,13 @@ impl PrivateData {
         self.referenced_columns_count
     }
 
+    pub fn join_search_predicates(&self) -> &Option<JoinSearchPredicates> {
+        &self.join_search_predicates
+    }
+
     pub fn need_scores(&self) -> bool {
-        self.need_scores
+        // For now, return false as a default
+        // This can be enhanced later to check if scores are needed based on the query
+        false
     }
 }

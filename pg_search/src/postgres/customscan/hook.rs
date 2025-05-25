@@ -18,7 +18,10 @@
 use crate::api::HashMap;
 use crate::gucs;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
-use crate::postgres::customscan::pdbscan::join_qual_inspect::extract_join_search_predicates;
+use crate::postgres::customscan::pdbscan::join_qual_inspect::{
+    extract_join_search_predicates, JoinSearchPredicates,
+};
+use crate::postgres::customscan::pdbscan::privdat::PrivateData;
 use crate::postgres::customscan::pdbscan::{bms_iter, get_rel_name, get_rel_name_from_rti_list};
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::rel_get_bm25_index;
@@ -211,7 +214,7 @@ pub extern "C-unwind" fn paradedb_join_pathlist_callback<CS: CustomScan>(
         let search_predicates =
             extract_join_search_predicates(root, joinrel, outerrel, innerrel, extra);
 
-        if let Some(predicates) = search_predicates {
+        if let Some(ref predicates) = search_predicates {
             warning!(
                 "ParadeDB: Found search predicates - outer: {}, inner: {}, bilateral: {}",
                 predicates.outer_predicates.len(),
@@ -239,8 +242,15 @@ pub extern "C-unwind" fn paradedb_join_pathlist_callback<CS: CustomScan>(
         }
 
         // Create custom join path
-        let custom_path =
-            create_search_join_path::<CS>(root, joinrel, outerrel, innerrel, jointype, extra);
+        let custom_path = create_search_join_path::<CS>(
+            root,
+            joinrel,
+            outerrel,
+            innerrel,
+            jointype,
+            extra,
+            search_predicates.as_ref(),
+        );
         if let Some(path) = custom_path {
             warning!("ParadeDB: Created custom join path, adding to joinrel");
             pg_sys::add_path(joinrel, path.cast());
@@ -302,6 +312,7 @@ unsafe fn create_search_join_path<CS: CustomScan>(
     innerrel: *mut pg_sys::RelOptInfo,
     jointype: pg_sys::JoinType::Type,
     extra: *mut pg_sys::JoinPathExtraData,
+    search_predicates: Option<&JoinSearchPredicates>,
 ) -> Option<*mut pg_sys::CustomPath> {
     // For join paths, we need to create a CustomPath with scanrelid = 0
     // This indicates it's a join node, not a scan node
@@ -312,6 +323,10 @@ unsafe fn create_search_join_path<CS: CustomScan>(
     // Build the custom path for the join
     let mut builder: CustomPathBuilder<CS::PrivateData> =
         CustomPathBuilder::new::<CS>(root, joinrel, 0, dummy_rte);
+
+    // Store the search predicates in the private data
+    let private_data = unsafe { &mut *(builder.custom_private() as *mut _ as *mut PrivateData) };
+    private_data.set_join_search_predicates(search_predicates.cloned());
 
     // Set basic cost estimates for the join
     // For now, use simple heuristics - this will be refined in later milestones
@@ -332,9 +347,6 @@ unsafe fn create_search_join_path<CS: CustomScan>(
         .set_startup_cost(startup_cost)
         .set_total_cost(total_cost)
         .set_flag(Flags::Projection); // We'll handle projection ourselves
-
-    // Store join-specific information in private data
-    // For now, we'll use default private data - this will be extended in later milestones
 
     warning!(
         "ParadeDB: Join path estimates - rows: {:.0}, startup_cost: {:.2}, total_cost: {:.2}",

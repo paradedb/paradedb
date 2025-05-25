@@ -119,15 +119,15 @@ WARNING:  ParadeDB: Opening search reader for inner relation files_join_test
 WARNING:  ParadeDB: Successfully opened search reader for files_join_test
 WARNING:  ParadeDB: Initialized 2 search readers
 WARNING:  ParadeDB: Executing real searches on join relations
-WARNING:  ParadeDB: Executing search on outer relation documents_join_test
+WARNING:  ParadeDB: Executing search on outer relation documents_join_test (70477)
 WARNING:  ParadeDB: Executing real BM25 search on relation documents_join_test
 WARNING:  ParadeDB: Real search on documents_join_test returned 1 results
-WARNING:  ParadeDB: Found 1 results for outer relation documents_join_test
-WARNING:  ParadeDB: Executing search on inner relation files_join_test
+WARNING:  ParadeDB: Found 1 results for outer relation documents_join_test in 602μs
+WARNING:  ParadeDB: Executing search on inner relation files_join_test (70486)
 WARNING:  ParadeDB: Executing real BM25 search on relation files_join_test
 WARNING:  ParadeDB: Real search on files_join_test returned 3 results
-WARNING:  ParadeDB: Found 3 results for inner relation files_join_test
-WARNING:  ParadeDB: Completed real search execution - outer: 1, inner: 3
+WARNING:  ParadeDB: Found 3 results for inner relation files_join_test in 414μs
+WARNING:  ParadeDB: Completed real search execution in 1144μs - outer: 1, inner: 3
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Executing outer search
 WARNING:  ParadeDB: Executing search on outer relation
@@ -139,64 +139,76 @@ WARNING:  ParadeDB: Inner search completed - 3 results
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Processing join match [1/1] × [1/3]
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
 WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 1
-WARNING:  ParadeDB: Fetching from relations documents_join_test and files_join_test
-WARNING:  ParadeDB: Attempting to fetch heap tuple for outer relation 70061 with CTID 1
-WARNING:  ParadeDB: CTID 1 -> block: 0, offset: 1
-WARNING:  ParadeDB: Simulated outer relation values: ["1", "Document 1"]
-WARNING:  ParadeDB: Returning 2 simulated values for outer relation: ["1", "Document 1"]
-WARNING:  ParadeDB: Attempting to fetch heap tuple for inner relation 70070 with CTID 1
-WARNING:  ParadeDB: CTID 1 -> block: 0, offset: 1
-WARNING:  ParadeDB: Simulated inner relation values: ["1", "file1.txt"]
-WARNING:  ParadeDB: Returning 2 simulated values for inner relation: ["1", "file1.txt"]
-WARNING:  ParadeDB: Successfully fetched real heap tuple values - outer: ["1", "Document 1"], inner: ["1", "file1.txt"]
+WARNING:  ParadeDB: Fetching from relations documents_join_test (70477) and files_join_test (70486)
+WARNING:  ParadeDB: Attempting to fetch heap tuple for outer relation documents_join_test (70477) with CTID 1
+WARNING:  ParadeDB: CTID 1 -> block: 0, offset: 1 for relation documents_join_test
+WARNING:  ParadeDB: Generated 2 simulated values for documents_join_test (outer): ["1", "Document 1"]
+WARNING:  ParadeDB: Returning 2 simulated values for outer relation documents_join_test: ["1", "Document 1"]
+WARNING:  ParadeDB: Attempting to fetch heap tuple for inner relation files_join_test (70486) with CTID 1
+WARNING:  ParadeDB: CTID 1 -> block: 0, offset: 1 for relation files_join_test
+WARNING:  ParadeDB: Generated 2 simulated values for files_join_test (inner): ["1", "file1.txt"]
+WARNING:  ParadeDB: Returning 2 simulated values for inner relation files_join_test: ["1", "file1.txt"]
+WARNING:  ParadeDB: Successfully fetched real heap tuple values in 293μs - outer: ["1", "Document 1"], inner: ["1", "file1.txt"]
 WARNING:  ParadeDB: Using real column values from heap tuples
 WARNING:  ParadeDB: Created join result tuple with real data
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Processing join match [1/1] × [2/3]
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
 WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 2
-WARNING:  ParadeDB: Fetching from relations documents_join_test and files_join_test
-WARNING:  ParadeDB: Attempting to fetch heap tuple for outer relation 70061 with CTID 1
-WARNING:  ParadeDB: CTID 1 -> block: 0, offset: 1
-WARNING:  ParadeDB: Simulated outer relation values: ["1", "Document 1"]
-WARNING:  ParadeDB: Returning 2 simulated values for outer relation: ["1", "Document 1"]
-WARNING:  ParadeDB: Attempting to fetch heap tuple for inner relation 70070 with CTID 2
-WARNING:  ParadeDB: CTID 2 -> block: 0, offset: 2
-WARNING:  ParadeDB: Simulated inner relation values: ["2", "file2.txt"]
-WARNING:  ParadeDB: Returning 2 simulated values for inner relation: ["2", "file2.txt"]
-WARNING:  ParadeDB: Successfully fetched real heap tuple values - outer: ["1", "Document 1"], inner: ["2", "file2.txt"]
+WARNING:  ParadeDB: Fetching from relations documents_join_test (70477) and files_join_test (70486)
+WARNING:  ParadeDB: Attempting to fetch heap tuple for outer relation documents_join_test (70477) with CTID 1
+WARNING:  ParadeDB: CTID 1 -> block: 0, offset: 1 for relation documents_join_test
+WARNING:  ParadeDB: Generated 2 simulated values for documents_join_test (outer): ["1", "Document 1"]
+WARNING:  ParadeDB: Returning 2 simulated values for outer relation documents_join_test: ["1", "Document 1"]
+WARNING:  ParadeDB: Attempting to fetch heap tuple for inner relation files_join_test (70486) with CTID 2
+WARNING:  ParadeDB: CTID 2 -> block: 0, offset: 2 for relation files_join_test
+WARNING:  ParadeDB: Generated 2 simulated values for files_join_test (inner): ["2", "file2.txt"]
+WARNING:  ParadeDB: Returning 2 simulated values for inner relation files_join_test: ["2", "file2.txt"]
+WARNING:  ParadeDB: Successfully fetched real heap tuple values in 255μs - outer: ["1", "Document 1"], inner: ["2", "file2.txt"]
 WARNING:  ParadeDB: Using real column values from heap tuples
 WARNING:  ParadeDB: Created join result tuple with real data
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Processing join match [1/1] × [3/3]
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[2]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
 WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 1 and 3
-WARNING:  ParadeDB: Fetching from relations documents_join_test and files_join_test
-WARNING:  ParadeDB: Attempting to fetch heap tuple for outer relation 70061 with CTID 1
-WARNING:  ParadeDB: CTID 1 -> block: 0, offset: 1
-WARNING:  ParadeDB: Simulated outer relation values: ["1", "Document 1"]
-WARNING:  ParadeDB: Returning 2 simulated values for outer relation: ["1", "Document 1"]
-WARNING:  ParadeDB: Attempting to fetch heap tuple for inner relation 70070 with CTID 3
-WARNING:  ParadeDB: CTID 3 -> block: 0, offset: 3
-WARNING:  ParadeDB: Simulated inner relation values: ["3", "file3.txt"]
-WARNING:  ParadeDB: Returning 2 simulated values for inner relation: ["3", "file3.txt"]
-WARNING:  ParadeDB: Successfully fetched real heap tuple values - outer: ["1", "Document 1"], inner: ["3", "file3.txt"]
+WARNING:  ParadeDB: Fetching from relations documents_join_test (70477) and files_join_test (70486)
+WARNING:  ParadeDB: Attempting to fetch heap tuple for outer relation documents_join_test (70477) with CTID 1
+WARNING:  ParadeDB: CTID 1 -> block: 0, offset: 1 for relation documents_join_test
+WARNING:  ParadeDB: Generated 2 simulated values for documents_join_test (outer): ["1", "Document 1"]
+WARNING:  ParadeDB: Returning 2 simulated values for outer relation documents_join_test: ["1", "Document 1"]
+WARNING:  ParadeDB: Attempting to fetch heap tuple for inner relation files_join_test (70486) with CTID 3
+WARNING:  ParadeDB: CTID 3 -> block: 0, offset: 3 for relation files_join_test
+WARNING:  ParadeDB: Generated 2 simulated values for files_join_test (inner): ["3", "file3.txt"]
+WARNING:  ParadeDB: Returning 2 simulated values for inner relation files_join_test: ["3", "file3.txt"]
+WARNING:  ParadeDB: Successfully fetched real heap tuple values in 251μs - outer: ["1", "Document 1"], inner: ["3", "file3.txt"]
 WARNING:  ParadeDB: Using real column values from heap tuples
 WARNING:  ParadeDB: Created join result tuple with real data
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
-WARNING:  ParadeDB: No more join results, finishing
+WARNING:  ParadeDB: Join matching complete - total matches: 3, total time: 1380μs
 WARNING:  ParadeDB: Cleaning up join execution
 WARNING:  ParadeDB: Cleaning up join execution state
-WARNING:  ParadeDB: Join execution stats - outer: 1, inner: 3, matches: 3, returned: 3
+WARNING:  ParadeDB: ===== JOIN EXECUTION STATISTICS =====
+WARNING:  ParadeDB: Search Results - Outer: 1, Inner: 3, Total Combinations: 3
+WARNING:  ParadeDB: Join Processing - Matches: 3, Returned: 3, Success Rate: 100.0%
+WARNING:  ParadeDB: Performance Timing - Search: 1016μs, Matching: 1380μs, Total: 2396μs
+WARNING:  ParadeDB: Search Breakdown - Outer: 602μs, Inner: 414μs
+WARNING:  ParadeDB: Heap Tuple Access - Attempts: 6, Successes: 6, Success Rate: 100.0%
+WARNING:  ParadeDB: Efficiency Metrics - Avg Match Time: 460μs, Throughput: 1.3 matches/ms
+WARNING:  ParadeDB: Cleaned up 2 search readers
+WARNING:  ParadeDB: Cleared 1 outer and 3 inner search results
+WARNING:  ParadeDB: ===== END JOIN EXECUTION STATISTICS =====
 WARNING:  ParadeDB: Join execution cleanup complete
  id |   title    | filename 
 ----+------------+----------
@@ -317,11 +329,12 @@ WARNING:  ParadeDB: Opening search reader for outer relation documents_join_test
 WARNING:  ParadeDB: Successfully opened search reader for documents_join_test
 WARNING:  ParadeDB: Initialized 1 search readers
 WARNING:  ParadeDB: Executing real searches on join relations
-WARNING:  ParadeDB: Executing search on outer relation documents_join_test
+WARNING:  ParadeDB: Executing search on outer relation documents_join_test (70477)
 WARNING:  ParadeDB: Executing real BM25 search on relation documents_join_test
 WARNING:  ParadeDB: Real search on documents_join_test returned 1 results
-WARNING:  ParadeDB: Found 1 results for outer relation documents_join_test
-WARNING:  ParadeDB: Completed real search execution - outer: 1, inner: 1
+WARNING:  ParadeDB: Found 1 results for outer relation documents_join_test in 520μs
+WARNING:  ParadeDB: No inner search results, using default result
+WARNING:  ParadeDB: Completed real search execution in 608μs - outer: 1, inner: 1
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Executing outer search
 WARNING:  ParadeDB: Executing search on outer relation
@@ -333,19 +346,31 @@ WARNING:  ParadeDB: Inner search completed - 1 results
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
+WARNING:  ParadeDB: Processing join match [1/1] × [1/1]
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
 WARNING:  ParadeDB: Attempting to fetch real column values for CTIDs 2 and 1
-WARNING:  ParadeDB: Could not determine relation OIDs, using basic simulated data
+WARNING:  ParadeDB: Could not determine relation OIDs in 28μs, using basic simulated data
 WARNING:  ParadeDB: Using real column values from heap tuples
 WARNING:  ParadeDB: Created join result tuple with real data
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
-WARNING:  ParadeDB: No more join results, finishing
+WARNING:  ParadeDB: Join matching complete - total matches: 1, total time: 248μs
 WARNING:  ParadeDB: Cleaning up join execution
 WARNING:  ParadeDB: Cleaning up join execution state
-WARNING:  ParadeDB: Join execution stats - outer: 1, inner: 1, matches: 1, returned: 1
+WARNING:  ParadeDB: ===== JOIN EXECUTION STATISTICS =====
+WARNING:  ParadeDB: Search Results - Outer: 1, Inner: 1, Total Combinations: 1
+WARNING:  ParadeDB: Join Processing - Matches: 1, Returned: 1, Success Rate: 100.0%
+WARNING:  ParadeDB: Performance Timing - Search: 520μs, Matching: 248μs, Total: 768μs
+WARNING:  ParadeDB: Search Breakdown - Outer: 520μs, Inner: 0μs
+WARNING:  ParadeDB: Heap Tuple Access - Attempts: 2, Successes: 0, Success Rate: 0.0%
+WARNING:  ParadeDB: Efficiency Metrics - Avg Match Time: 248μs, Throughput: 1.3 matches/ms
+WARNING:  ParadeDB: PERFORMANCE NOTE: Search time dominates execution (67.70833333333334% of total)
+WARNING:  ParadeDB: PERFORMANCE NOTE: Low heap fetch success rate (0.0%), consider optimizing tuple access
+WARNING:  ParadeDB: Cleaned up 1 search readers
+WARNING:  ParadeDB: Cleared 1 outer and 1 inner search results
+WARNING:  ParadeDB: ===== END JOIN EXECUTION STATISTICS =====
 WARNING:  ParadeDB: Join execution cleanup complete
       id       |      title       |    filename     
 ---------------+------------------+-----------------

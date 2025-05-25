@@ -114,6 +114,10 @@ impl<P: Into<*mut pg_sys::List> + From<*mut pg_sys::List> + Default> CustomScanB
         &mut self.custom_private
     }
 
+    pub fn is_join(&self) -> bool {
+        self.custom_scan_node.scan.scanrelid == 0
+    }
+
     pub fn build(self) -> pg_sys::CustomScan {
         let mut node = self.custom_scan_node;
         node.custom_private = self.custom_private.into();

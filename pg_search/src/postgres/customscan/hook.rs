@@ -20,8 +20,9 @@ use crate::gucs;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::postgres::customscan::pdbscan::bms_iter;
 use crate::postgres::customscan::CustomScan;
+use crate::postgres::rel_get_bm25_index;
 use once_cell::sync::Lazy;
-use pgrx::{pg_guard, pg_sys, warning, PgList, PgMemoryContexts};
+use pgrx::{pg_guard, pg_sys, warning, PgMemoryContexts};
 use std::collections::hash_map::Entry;
 
 pub fn register_rel_pathlist<CS: CustomScan + 'static>(_: CS) {
@@ -213,7 +214,7 @@ pub extern "C-unwind" fn paradedb_join_pathlist_callback<CS: CustomScan>(
         }
 
         // Check if both relations have BM25 indexes
-        if !has_bm25_index(outerrel) || !has_bm25_index(innerrel) {
+        if !has_bm25_index(root, outerrel) || !has_bm25_index(root, innerrel) {
             warning!("ParadeDB: Skipping join - missing BM25 indexes");
             return;
         }
@@ -229,9 +230,15 @@ pub extern "C-unwind" fn paradedb_join_pathlist_callback<CS: CustomScan>(
 
         warning!("ParadeDB: Join is feasible - would create custom join path here");
 
-        // TODO: Create custom join path in next milestone
-        // let custom_path = create_search_join_path(root, joinrel, outerrel, innerrel, jointype, extra);
-        // pg_sys::add_path(joinrel, custom_path);
+        // Create custom join path
+        let custom_path =
+            create_search_join_path::<CS>(root, joinrel, outerrel, innerrel, jointype, extra);
+        if let Some(path) = custom_path {
+            warning!("ParadeDB: Created custom join path, adding to joinrel");
+            pg_sys::add_path(joinrel, path.cast());
+        } else {
+            warning!("ParadeDB: Failed to create custom join path");
+        }
     }
 }
 
@@ -241,21 +248,92 @@ unsafe fn is_base_relation(rel: *mut pg_sys::RelOptInfo) -> bool {
 }
 
 /// Check if a base relation has a BM25 index
-unsafe fn has_bm25_index(rel: *mut pg_sys::RelOptInfo) -> bool {
-    // For now, we'll use a simple heuristic - check if there are any custom paths
-    // In a real implementation, we'd check for actual BM25 indexes
-    if (*rel).pathlist.is_null() {
-        return false;
-    }
+unsafe fn has_bm25_index(root: *mut pg_sys::PlannerInfo, rel: *mut pg_sys::RelOptInfo) -> bool {
+    for rti in bms_iter((*rel).relids) {
+        // Get the RTE for this relation
+        let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
 
-    // Check if any existing paths are custom paths (indicating BM25 index)
-    let pathlist = PgList::<pg_sys::Path>::from_pg((*rel).pathlist);
-    for path in pathlist.iter_ptr() {
-        if !path.is_null() && (*path).pathtype == pg_sys::NodeTag::T_CustomPath {
-            warning!("ParadeDB: Found BM25 index for relation");
-            return true;
+        if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
+            let relid = (*rte).relid;
+            warning!(
+                "ParadeDB: Checking relation OID {} (rti {}) for BM25 index",
+                relid,
+                rti
+            );
+
+            // Use the existing function to check for BM25 index
+            if let Some((_, _)) = rel_get_bm25_index(relid) {
+                warning!("ParadeDB: Found BM25 index for relation OID {}", relid);
+                return true;
+            } else {
+                warning!("ParadeDB: No BM25 index found for relation OID {}", relid);
+            }
+        } else {
+            warning!(
+                "ParadeDB: RTE {} is not a relation (kind: {:?})",
+                rti,
+                (*rte).rtekind
+            );
         }
     }
 
     false
+}
+
+/// Create a custom join path for search optimization
+unsafe fn create_search_join_path<CS: CustomScan>(
+    root: *mut pg_sys::PlannerInfo,
+    joinrel: *mut pg_sys::RelOptInfo,
+    outerrel: *mut pg_sys::RelOptInfo,
+    innerrel: *mut pg_sys::RelOptInfo,
+    jointype: pg_sys::JoinType::Type,
+    extra: *mut pg_sys::JoinPathExtraData,
+) -> Option<*mut pg_sys::CustomPath> {
+    // For join paths, we need to create a CustomPath with scanrelid = 0
+    // This indicates it's a join node, not a scan node
+
+    // Create a dummy RTE for the join (scanrelid = 0 means no specific relation)
+    let dummy_rte = std::ptr::null_mut();
+
+    // Build the custom path for the join
+    let mut builder: CustomPathBuilder<CS::PrivateData> =
+        CustomPathBuilder::new::<CS>(root, joinrel, 0, dummy_rte);
+
+    // Set basic cost estimates for the join
+    // For now, use simple heuristics - this will be refined in later milestones
+    let outer_rows = (*outerrel).rows;
+    let inner_rows = (*innerrel).rows;
+
+    // Estimate join selectivity (conservative estimate for now)
+    let join_selectivity = 0.1; // 10% selectivity
+    let estimated_rows = (outer_rows * inner_rows * join_selectivity).max(1.0);
+
+    // Cost model: startup cost + per-tuple processing cost
+    let startup_cost = 100.0; // Fixed startup cost for join setup
+    let per_tuple_cost = 0.01; // Cost per tuple processed
+    let total_cost = startup_cost + (estimated_rows * per_tuple_cost);
+
+    builder = builder
+        .set_rows(estimated_rows)
+        .set_startup_cost(startup_cost)
+        .set_total_cost(total_cost)
+        .set_flag(Flags::Projection); // We'll handle projection ourselves
+
+    // Store join-specific information in private data
+    // For now, we'll use default private data - this will be extended in later milestones
+
+    warning!(
+        "ParadeDB: Join path estimates - rows: {:.0}, startup_cost: {:.2}, total_cost: {:.2}",
+        estimated_rows,
+        startup_cost,
+        total_cost
+    );
+
+    let mut custom_path = builder.build();
+
+    // Allocate the path in the current memory context
+    let path_ptr = PgMemoryContexts::CurrentMemoryContext
+        .copy_ptr_into(&mut custom_path, std::mem::size_of_val(&custom_path));
+
+    Some(path_ptr)
 }

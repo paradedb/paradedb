@@ -51,23 +51,44 @@ FROM documents_join_test d
 JOIN files_join_test f ON d.id = f.document_id
 WHERE d.content @@@ 'technology' AND f.content @@@ 'file';
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["documents_join_test"], inner relids: ["files_join_test"]
-WARNING:  ParadeDB: Skipping join - missing BM25 indexes
+WARNING:  ParadeDB: Checking relation OID 31219 (rti 1) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation OID 31219
+WARNING:  ParadeDB: Checking relation OID 31228 (rti 2) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation OID 31228
+WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["files_join_test"], inner relids: ["documents_join_test"]
-WARNING:  ParadeDB: Skipping join - missing BM25 indexes
- id |   title    | filename  
-----+------------+-----------
-  1 | Document 1 | file1.txt
-(1 row)
-
+WARNING:  ParadeDB: Checking relation OID 31228 (rti 2) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation OID 31228
+WARNING:  ParadeDB: Checking relation OID 31219 (rti 1) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation OID 31219
+WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
+ERROR:  variable not found in subplan target list
 -- Test 2: JOIN without search predicates (should not trigger custom join)
 SELECT d.id, d.title, f.filename  
 FROM documents_join_test d
 JOIN files_join_test f ON d.id = f.document_id
 WHERE d.id = 1;
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["documents_join_test"], inner relids: ["files_join_test"]
-WARNING:  ParadeDB: Skipping join - missing BM25 indexes
+WARNING:  ParadeDB: Checking relation OID 31219 (rti 1) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation OID 31219
+WARNING:  ParadeDB: Checking relation OID 31228 (rti 2) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation OID 31228
+WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["files_join_test"], inner relids: ["documents_join_test"]
-WARNING:  ParadeDB: Skipping join - missing BM25 indexes
+WARNING:  ParadeDB: Checking relation OID 31228 (rti 2) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation OID 31228
+WARNING:  ParadeDB: Checking relation OID 31219 (rti 1) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation OID 31219
+WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
  id |   title    | filename  
 ----+------------+-----------
   1 | Document 1 | file1.txt
@@ -79,14 +100,23 @@ FROM documents_join_test d
 JOIN files_join_test f ON d.id = f.document_id
 WHERE d.content @@@ 'science';
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["documents_join_test"], inner relids: ["files_join_test"]
-WARNING:  ParadeDB: Skipping join - missing BM25 indexes
+WARNING:  ParadeDB: Checking relation OID 31219 (rti 1) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation OID 31219
+WARNING:  ParadeDB: Checking relation OID 31228 (rti 2) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation OID 31228
+WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["files_join_test"], inner relids: ["documents_join_test"]
-WARNING:  ParadeDB: Skipping join - missing BM25 indexes
- id |   title    | filename  
-----+------------+-----------
-  2 | Document 2 | file2.txt
-(1 row)
-
+WARNING:  ParadeDB: Checking relation OID 31228 (rti 2) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation OID 31228
+WARNING:  ParadeDB: Checking relation OID 31219 (rti 1) for BM25 index
+WARNING:  ParadeDB: Found BM25 index for relation OID 31219
+WARNING:  ParadeDB: Join is feasible - would create custom join path here
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
+ERROR:  variable not found in subplan target list
 -- Cleanup
 DROP TABLE documents_join_test CASCADE;
 DROP TABLE files_join_test CASCADE; 

@@ -514,6 +514,22 @@ impl CustomScan for PdbScan {
 
             let private_data = builder.custom_private();
 
+            // Check if this is a join node (scanrelid = 0) or a scan node
+            if builder.is_join() {
+                // This is a join node - handle differently
+                pgrx::warning!("ParadeDB: Planning custom join path with scanrelid = 0");
+
+                // For join nodes, we don't have a specific relation to scan
+                // Instead, we need to handle the join logic
+                // For now, we'll create a minimal plan that can be executed
+
+                // Set up basic join metadata in private data
+                // This will be expanded in later milestones
+
+                return builder.build();
+            }
+
+            // Original scan node logic continues here
             let rti: i32 = private_data
                 .range_table_index()
                 .expect("range table index should have been set")
@@ -568,6 +584,34 @@ impl CustomScan for PdbScan {
         mut builder: CustomScanStateBuilder<Self, Self::PrivateData>,
     ) -> *mut CustomScanStateWrapper<Self> {
         unsafe {
+            let scanrelid = (*builder.args().cscan).scan.scanrelid;
+
+            if scanrelid == 0 {
+                // This is a join node - handle differently
+                pgrx::warning!(
+                    "ParadeDB: Creating custom scan state for join node (scanrelid = 0)"
+                );
+
+                // For join nodes, we don't have specific heap/index relations
+                // We'll need to handle this differently in execution
+                // For now, set up minimal state that won't crash
+
+                builder.custom_state().execution_rti = 0; // No specific relation
+                builder.custom_state().exec_method_type = ExecMethodType::Normal;
+                builder.custom_state().targetlist_len = builder.target_list().len();
+
+                // Set default values for join execution
+                builder.custom_state().limit = None;
+                builder.custom_state().sort_field = None;
+                builder.custom_state().sort_direction = None;
+
+                // For joins, we'll need a different execution strategy
+                // This will be implemented in later milestones
+
+                return builder.build();
+            }
+
+            // Original scan node logic continues here
             builder.custom_state().heaprelid = builder
                 .custom_private()
                 .heaprelid()
@@ -741,6 +785,26 @@ impl CustomScan for PdbScan {
         eflags: i32,
     ) {
         unsafe {
+            // Check if this is a join node
+            if state.custom_state().execution_rti == 0 {
+                pgrx::warning!("ParadeDB: Beginning custom scan for join node");
+
+                // For join nodes, we don't open specific relations
+                // Instead, we'll need to handle the join execution differently
+                // For now, just set up minimal state for EXPLAIN
+
+                if eflags & (pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) != 0 {
+                    // For EXPLAIN, just return without setting up execution state
+                    return;
+                }
+
+                // For actual execution, we'll need to implement join logic
+                // This will be expanded in later milestones
+                pgrx::warning!("ParadeDB: Join execution not yet implemented - returning early");
+                return;
+            }
+
+            // Original scan node logic continues here
             // open the heap and index relations with the proper locks
             let rte = pg_sys::exec_rt_fetch(state.custom_state().execution_rti, estate);
             assert!(!rte.is_null());
@@ -821,6 +885,12 @@ impl CustomScan for PdbScan {
 
     #[allow(clippy::blocks_in_conditions)]
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
+        // Check if this is a join node
+        if state.custom_state().execution_rti == 0 {
+            // Join execution not yet implemented - return EOF
+            return std::ptr::null_mut();
+        }
+
         if state.custom_state().search_reader.is_none() {
             Self::init_search_reader(state);
         }

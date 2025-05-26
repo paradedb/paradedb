@@ -122,12 +122,12 @@ WARNING:  ParadeDB: Executing real searches on join relations
 WARNING:  ParadeDB: Executing search on outer relation documents_join_test
 WARNING:  ParadeDB: Executing real BM25 search on relation documents_join_test
 WARNING:  ParadeDB: Real search on documents_join_test returned 1 results
-WARNING:  ParadeDB: Found 1 results for outer relation documents_join_test in 1157μs
+WARNING:  ParadeDB: Found 1 results for outer relation documents_join_test
 WARNING:  ParadeDB: Executing search on inner relation files_join_test
 WARNING:  ParadeDB: Executing real BM25 search on relation files_join_test
 WARNING:  ParadeDB: Real search on files_join_test returned 3 results
-WARNING:  ParadeDB: Found 3 results for inner relation files_join_test in 729μs
-WARNING:  ParadeDB: Completed real search execution in 2091μs - outer: 1, inner: 3
+WARNING:  ParadeDB: Found 3 results for inner relation files_join_test
+WARNING:  ParadeDB: Completed real search execution - outer: 1, inner: 3
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Executing outer search
 WARNING:  ParadeDB: Executing search on outer relation
@@ -143,9 +143,9 @@ WARNING:  ParadeDB: Processing join match [1/1] × [1/3]
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
 WARNING:  ParadeDB: Getting relation OIDs - outer predicates: 1, inner predicates: 1
-WARNING:  ParadeDB: Outer relation OID: 75109 (documents_join_test)
-WARNING:  ParadeDB: Inner relation OID: 75118 (files_join_test)
-WARNING:  ParadeDB: Fetching real heap tuple values from relations "documents_join_test" and "files_join_test"
+WARNING:  ParadeDB: Outer relation: documents_join_test
+WARNING:  ParadeDB: Inner relation: files_join_test
+WARNING:  ParadeDB: Fetching real heap tuple values from relations documents_join_test and files_join_test
 WARNING:  ParadeDB: Detected relations from predicates - outer: 'documents_join_test', inner: 'files_join_test'
 WARNING:  ParadeDB: Fetching all columns with names from relation documents_join_test with CTID 1
 WARNING:  ParadeDB: documents_join_test column 'id' = '1'
@@ -161,8 +161,8 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from files_join_test relation
 WARNING:  ParadeDB: Fetched 3 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Analyzing 3 target entries using direct name mapping
 WARNING:  ParadeDB: Getting relation OIDs - outer predicates: 1, inner predicates: 1
-WARNING:  ParadeDB: Outer relation OID: 75109 (documents_join_test)
-WARNING:  ParadeDB: Inner relation OID: 75118 (files_join_test)
+WARNING:  ParadeDB: Outer relation: documents_join_test
+WARNING:  ParadeDB: Inner relation: files_join_test
 WARNING:  ParadeDB: Analyzing target entry 1 with name 'id'
 WARNING:  ParadeDB: Checking for column 'id' in relation documents_join_test - found: true, available columns: ["id", "title", "content"]
 WARNING:  ParadeDB: Found column 'id' in outer relation documents_join_test
@@ -176,7 +176,7 @@ WARNING:  ParadeDB: Checking for column 'filename' in relation documents_join_te
 WARNING:  ParadeDB: Checking for column 'filename' in relation files_join_test - found: true, available columns: ["id", "document_id", "filename", "content"]
 WARNING:  ParadeDB: Found column 'filename' in inner relation files_join_test
 WARNING:  ParadeDB: Target entry 3 ('filename') mapped to: InnerColumn("filename")
-WARNING:  ParadeDB: Mapped 3 out of 3 column values in 930μs: [Some("1"), Some("Document 1"), Some("file1.txt")]
+WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("1"), Some("Document 1"), Some("file1.txt")]
 WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("1"), Some("Document 1"), Some("file1.txt")]
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
@@ -185,9 +185,9 @@ WARNING:  ParadeDB: Processing join match [1/1] × [2/3]
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
 WARNING:  ParadeDB: Getting relation OIDs - outer predicates: 1, inner predicates: 1
-WARNING:  ParadeDB: Outer relation OID: 75109 (documents_join_test)
-WARNING:  ParadeDB: Inner relation OID: 75118 (files_join_test)
-WARNING:  ParadeDB: Fetching real heap tuple values from relations "documents_join_test" and "files_join_test"
+WARNING:  ParadeDB: Outer relation: documents_join_test
+WARNING:  ParadeDB: Inner relation: files_join_test
+WARNING:  ParadeDB: Fetching real heap tuple values from relations documents_join_test and files_join_test
 WARNING:  ParadeDB: Detected relations from predicates - outer: 'documents_join_test', inner: 'files_join_test'
 WARNING:  ParadeDB: Fetching all columns with names from relation documents_join_test with CTID 1
 WARNING:  ParadeDB: documents_join_test column 'id' = '1'
@@ -203,8 +203,8 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from files_join_test relation
 WARNING:  ParadeDB: Fetched 3 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Analyzing 3 target entries using direct name mapping
 WARNING:  ParadeDB: Getting relation OIDs - outer predicates: 1, inner predicates: 1
-WARNING:  ParadeDB: Outer relation OID: 75109 (documents_join_test)
-WARNING:  ParadeDB: Inner relation OID: 75118 (files_join_test)
+WARNING:  ParadeDB: Outer relation: documents_join_test
+WARNING:  ParadeDB: Inner relation: files_join_test
 WARNING:  ParadeDB: Analyzing target entry 1 with name 'id'
 WARNING:  ParadeDB: Checking for column 'id' in relation documents_join_test - found: true, available columns: ["id", "title", "content"]
 WARNING:  ParadeDB: Found column 'id' in outer relation documents_join_test
@@ -218,7 +218,7 @@ WARNING:  ParadeDB: Checking for column 'filename' in relation documents_join_te
 WARNING:  ParadeDB: Checking for column 'filename' in relation files_join_test - found: true, available columns: ["id", "document_id", "filename", "content"]
 WARNING:  ParadeDB: Found column 'filename' in inner relation files_join_test
 WARNING:  ParadeDB: Target entry 3 ('filename') mapped to: InnerColumn("filename")
-WARNING:  ParadeDB: Mapped 3 out of 3 column values in 982μs: [Some("1"), Some("Document 1"), Some("file2.txt")]
+WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("1"), Some("Document 1"), Some("file2.txt")]
 WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("1"), Some("Document 1"), Some("file2.txt")]
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
@@ -227,9 +227,9 @@ WARNING:  ParadeDB: Processing join match [1/1] × [3/3]
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[2]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
 WARNING:  ParadeDB: Getting relation OIDs - outer predicates: 1, inner predicates: 1
-WARNING:  ParadeDB: Outer relation OID: 75109 (documents_join_test)
-WARNING:  ParadeDB: Inner relation OID: 75118 (files_join_test)
-WARNING:  ParadeDB: Fetching real heap tuple values from relations "documents_join_test" and "files_join_test"
+WARNING:  ParadeDB: Outer relation: documents_join_test
+WARNING:  ParadeDB: Inner relation: files_join_test
+WARNING:  ParadeDB: Fetching real heap tuple values from relations documents_join_test and files_join_test
 WARNING:  ParadeDB: Detected relations from predicates - outer: 'documents_join_test', inner: 'files_join_test'
 WARNING:  ParadeDB: Fetching all columns with names from relation documents_join_test with CTID 1
 WARNING:  ParadeDB: documents_join_test column 'id' = '1'
@@ -245,8 +245,8 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from files_join_test relation
 WARNING:  ParadeDB: Fetched 3 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Analyzing 3 target entries using direct name mapping
 WARNING:  ParadeDB: Getting relation OIDs - outer predicates: 1, inner predicates: 1
-WARNING:  ParadeDB: Outer relation OID: 75109 (documents_join_test)
-WARNING:  ParadeDB: Inner relation OID: 75118 (files_join_test)
+WARNING:  ParadeDB: Outer relation: documents_join_test
+WARNING:  ParadeDB: Inner relation: files_join_test
 WARNING:  ParadeDB: Analyzing target entry 1 with name 'id'
 WARNING:  ParadeDB: Checking for column 'id' in relation documents_join_test - found: true, available columns: ["id", "title", "content"]
 WARNING:  ParadeDB: Found column 'id' in outer relation documents_join_test
@@ -260,21 +260,18 @@ WARNING:  ParadeDB: Checking for column 'filename' in relation documents_join_te
 WARNING:  ParadeDB: Checking for column 'filename' in relation files_join_test - found: true, available columns: ["id", "document_id", "filename", "content"]
 WARNING:  ParadeDB: Found column 'filename' in inner relation files_join_test
 WARNING:  ParadeDB: Target entry 3 ('filename') mapped to: InnerColumn("filename")
-WARNING:  ParadeDB: Mapped 3 out of 3 column values in 902μs: [Some("1"), Some("Document 1"), Some("file3.txt")]
+WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("1"), Some("Document 1"), Some("file3.txt")]
 WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("1"), Some("Document 1"), Some("file3.txt")]
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
-WARNING:  ParadeDB: Join matching complete - total matches: 3, total time: 3625μs
+WARNING:  ParadeDB: Join matching complete - total matches: 3
 WARNING:  ParadeDB: Cleaning up join execution
 WARNING:  ParadeDB: Cleaning up join execution state
 WARNING:  ParadeDB: ===== JOIN EXECUTION STATISTICS =====
 WARNING:  ParadeDB: Search Results - Outer: 1, Inner: 3, Total Combinations: 3
 WARNING:  ParadeDB: Join Processing - Matches: 3, Returned: 3, Success Rate: 100.0%
-WARNING:  ParadeDB: Performance Timing - Search: 1886μs, Matching: 3625μs, Total: 5511μs
-WARNING:  ParadeDB: Search Breakdown - Outer: 1157μs, Inner: 729μs
 WARNING:  ParadeDB: Heap Tuple Access - Attempts: 6, Successes: 9, Success Rate: 150.0%
-WARNING:  ParadeDB: Efficiency Metrics - Avg Match Time: 1208μs, Throughput: 0.5 matches/ms
 WARNING:  ParadeDB: Cleaned up 2 search readers
 WARNING:  ParadeDB: Cleared 1 outer and 3 inner search results
 WARNING:  ParadeDB: ===== END JOIN EXECUTION STATISTICS =====
@@ -401,9 +398,9 @@ WARNING:  ParadeDB: Executing real searches on join relations
 WARNING:  ParadeDB: Executing search on outer relation documents_join_test
 WARNING:  ParadeDB: Executing real BM25 search on relation documents_join_test
 WARNING:  ParadeDB: Real search on documents_join_test returned 1 results
-WARNING:  ParadeDB: Found 1 results for outer relation documents_join_test in 525μs
+WARNING:  ParadeDB: Found 1 results for outer relation documents_join_test
 WARNING:  ParadeDB: No inner search results, using default result
-WARNING:  ParadeDB: Completed real search execution in 612μs - outer: 1, inner: 1
+WARNING:  ParadeDB: Completed real search execution - outer: 1, inner: 1
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Executing outer search
 WARNING:  ParadeDB: Executing search on outer relation
@@ -419,10 +416,10 @@ WARNING:  ParadeDB: Processing join match [1/1] × [1/1]
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
 WARNING:  ParadeDB: Getting relation OIDs - outer predicates: 1, inner predicates: 0
-WARNING:  ParadeDB: Outer relation OID: 75109 (documents_join_test)
-WARNING:  ParadeDB: No inner relation OID found
-WARNING:  ParadeDB: Trying to infer missing relation OID, known relation: documents_join_test (75109)
-WARNING:  ParadeDB: Fetching real heap tuple values from relations "documents_join_test" and "rti_0"
+WARNING:  ParadeDB: Outer relation: documents_join_test
+WARNING:  ParadeDB: No inner relation found
+WARNING:  ParadeDB: Trying to infer missing relation, known relation: documents_join_test
+WARNING:  ParadeDB: Fetching real heap tuple values from relations documents_join_test and unknown
 WARNING:  ParadeDB: Detected relations from predicates - outer: 'documents_join_test', inner: 'unknown_inner'
 WARNING:  ParadeDB: Fetching all columns with names from relation documents_join_test with CTID 2
 WARNING:  ParadeDB: documents_join_test column 'id' = '2'
@@ -432,9 +429,9 @@ WARNING:  ParadeDB: Successfully fetched 3 columns from documents_join_test rela
 WARNING:  ParadeDB: Fetched 3 columns from outer relation, 0 from inner relation
 WARNING:  ParadeDB: Analyzing 3 target entries using direct name mapping
 WARNING:  ParadeDB: Getting relation OIDs - outer predicates: 1, inner predicates: 0
-WARNING:  ParadeDB: Outer relation OID: 75109 (documents_join_test)
-WARNING:  ParadeDB: No inner relation OID found
-WARNING:  ParadeDB: Trying to infer missing relation OID, known relation: documents_join_test (75109)
+WARNING:  ParadeDB: Outer relation: documents_join_test
+WARNING:  ParadeDB: No inner relation found
+WARNING:  ParadeDB: Trying to infer missing relation, known relation: documents_join_test
 WARNING:  ParadeDB: Analyzing target entry 1 with name 'id'
 WARNING:  ParadeDB: Checking for column 'id' in relation documents_join_test - found: true, available columns: ["id", "title", "content"]
 WARNING:  ParadeDB: Found column 'id' in outer relation documents_join_test
@@ -449,21 +446,18 @@ WARNING:  ParadeDB: Column 'filename' not found in either relation, using generi
 WARNING:  ParadeDB: No direct matches for 'filename', trying intelligent fallback with outer: ["id", "title", "content"], inner: []
 WARNING:  ParadeDB: Target 'filename' looks like a name field, using outer column 'title'
 WARNING:  ParadeDB: Target entry 3 ('filename') mapped to: OuterColumn("title")
-WARNING:  ParadeDB: Mapped 3 out of 3 column values in 842μs: [Some("2"), Some("Document 2"), Some("Document 2")]
+WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("2"), Some("Document 2"), Some("Document 2")]
 WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("2"), Some("Document 2"), Some("Document 2")]
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
-WARNING:  ParadeDB: Join matching complete - total matches: 1, total time: 1171μs
+WARNING:  ParadeDB: Join matching complete - total matches: 1
 WARNING:  ParadeDB: Cleaning up join execution
 WARNING:  ParadeDB: Cleaning up join execution state
 WARNING:  ParadeDB: ===== JOIN EXECUTION STATISTICS =====
 WARNING:  ParadeDB: Search Results - Outer: 1, Inner: 1, Total Combinations: 1
 WARNING:  ParadeDB: Join Processing - Matches: 1, Returned: 1, Success Rate: 100.0%
-WARNING:  ParadeDB: Performance Timing - Search: 525μs, Matching: 1171μs, Total: 1696μs
-WARNING:  ParadeDB: Search Breakdown - Outer: 525μs, Inner: 0μs
 WARNING:  ParadeDB: Heap Tuple Access - Attempts: 2, Successes: 3, Success Rate: 150.0%
-WARNING:  ParadeDB: Efficiency Metrics - Avg Match Time: 1171μs, Throughput: 0.6 matches/ms
 WARNING:  ParadeDB: Cleaned up 1 search readers
 WARNING:  ParadeDB: Cleared 1 outer and 1 inner search results
 WARNING:  ParadeDB: ===== END JOIN EXECUTION STATISTICS =====

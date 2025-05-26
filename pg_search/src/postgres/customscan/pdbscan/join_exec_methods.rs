@@ -357,25 +357,6 @@ pub unsafe fn cleanup_join_execution(state: &mut CustomScanStateWrapper<PdbScan>
     if let Some(mut join_state) = state.custom_state_mut().join_exec_state.take() {
         warning!("ParadeDB: Cleaning up join execution state");
 
-        // Calculate performance metrics
-        let total_search_time =
-            join_state.stats.outer_search_time_us + join_state.stats.inner_search_time_us;
-        let total_execution_time = total_search_time + join_state.stats.join_matching_time_us;
-
-        let heap_fetch_success_rate = if join_state.stats.heap_fetch_attempts > 0 {
-            (join_state.stats.heap_fetch_successes as f64
-                / join_state.stats.heap_fetch_attempts as f64)
-                * 100.0
-        } else {
-            0.0
-        };
-
-        let avg_match_time = if join_state.stats.join_matches > 0 {
-            join_state.stats.join_matching_time_us / join_state.stats.join_matches as u64
-        } else {
-            0
-        };
-
         // Log comprehensive execution statistics
         warning!("ParadeDB: ===== JOIN EXECUTION STATISTICS =====");
         warning!(
@@ -397,49 +378,17 @@ pub unsafe fn cleanup_join_execution(state: &mut CustomScanStateWrapper<PdbScan>
             }
         );
         warning!(
-            "ParadeDB: Performance Timing - Search: {}μs, Matching: {}μs, Total: {}μs",
-            total_search_time,
-            join_state.stats.join_matching_time_us,
-            total_execution_time
-        );
-        warning!(
-            "ParadeDB: Search Breakdown - Outer: {}μs, Inner: {}μs",
-            join_state.stats.outer_search_time_us,
-            join_state.stats.inner_search_time_us
-        );
-        warning!(
             "ParadeDB: Heap Tuple Access - Attempts: {}, Successes: {}, Success Rate: {:.1}%",
             join_state.stats.heap_fetch_attempts,
             join_state.stats.heap_fetch_successes,
-            heap_fetch_success_rate
-        );
-        warning!(
-            "ParadeDB: Efficiency Metrics - Avg Match Time: {}μs, Throughput: {:.1} matches/ms",
-            avg_match_time,
-            if total_execution_time > 0 {
-                (join_state.stats.join_matches as f64 * 1000.0) / total_execution_time as f64
+            if join_state.stats.heap_fetch_attempts > 0 {
+                (join_state.stats.heap_fetch_successes as f64
+                    / join_state.stats.heap_fetch_attempts as f64)
+                    * 100.0
             } else {
                 0.0
             }
         );
-
-        // Performance analysis and recommendations
-        if total_search_time > join_state.stats.join_matching_time_us * 2 {
-            warning!(
-                "ParadeDB: PERFORMANCE NOTE: Search time dominates execution ({}% of total)",
-                (total_search_time as f64 / total_execution_time as f64) * 100.0
-            );
-        }
-
-        if heap_fetch_success_rate < 50.0 && join_state.stats.heap_fetch_attempts > 0 {
-            warning!("ParadeDB: PERFORMANCE NOTE: Low heap fetch success rate ({:.1}%), consider optimizing tuple access", 
-                heap_fetch_success_rate);
-        }
-
-        if join_state.stats.join_matches > 1000 && avg_match_time > 100 {
-            warning!("ParadeDB: PERFORMANCE NOTE: High average match time ({}μs) with many matches, consider join algorithm optimization", 
-                avg_match_time);
-        }
 
         // Clean up search readers
         let reader_count = join_state.search_readers.len();
@@ -609,8 +558,6 @@ unsafe fn execute_real_searches(
     warning!("ParadeDB: Executing real searches on join relations");
 
     if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
-        let start_time = std::time::Instant::now();
-
         // Execute searches on outer relation
         let mut outer_results = Vec::new();
         for predicate in &predicates.outer_predicates {
@@ -622,18 +569,13 @@ unsafe fn execute_real_searches(
                         relation_name
                     );
 
-                    let search_start = std::time::Instant::now();
                     let results = execute_real_search(search_reader, predicate);
-                    let search_duration = search_start.elapsed();
-
-                    join_state.stats.outer_search_time_us += search_duration.as_micros() as u64;
                     outer_results.extend(results);
 
                     warning!(
-                        "ParadeDB: Found {} results for outer relation {} in {}μs",
+                        "ParadeDB: Found {} results for outer relation {}",
                         outer_results.len(),
-                        relation_name,
-                        search_duration.as_micros()
+                        relation_name
                     );
                 }
             }
@@ -650,18 +592,13 @@ unsafe fn execute_real_searches(
                         relation_name
                     );
 
-                    let search_start = std::time::Instant::now();
                     let results = execute_real_search(search_reader, predicate);
-                    let search_duration = search_start.elapsed();
-
-                    join_state.stats.inner_search_time_us += search_duration.as_micros() as u64;
                     inner_results.extend(results);
 
                     warning!(
-                        "ParadeDB: Found {} results for inner relation {} in {}μs",
+                        "ParadeDB: Found {} results for inner relation {}",
                         inner_results.len(),
-                        relation_name,
-                        search_duration.as_micros()
+                        relation_name
                     );
                 }
             }
@@ -685,10 +622,8 @@ unsafe fn execute_real_searches(
         join_state.outer_position = 0;
         join_state.inner_position = 0;
 
-        let total_duration = start_time.elapsed();
         warning!(
-            "ParadeDB: Completed real search execution in {}μs - outer: {}, inner: {}",
-            total_duration.as_micros(),
+            "ParadeDB: Completed real search execution - outer: {}, inner: {}",
             join_state.outer_results.as_ref().unwrap().len(),
             join_state.inner_results.as_ref().unwrap().len()
         );
@@ -792,8 +727,6 @@ unsafe fn execute_inner_search(state: &mut CustomScanStateWrapper<PdbScan>) {
 unsafe fn match_and_return_next_tuple(
     state: &mut CustomScanStateWrapper<PdbScan>,
 ) -> *mut pg_sys::TupleTableSlot {
-    let match_start = std::time::Instant::now();
-
     warning!("ParadeDB: Matching and returning next tuple");
 
     // Get current positions and results with enhanced error checking
@@ -831,13 +764,9 @@ unsafe fn match_and_return_next_tuple(
         if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
             join_state.phase = JoinExecPhase::Finished;
 
-            let match_duration = match_start.elapsed();
-            join_state.stats.join_matching_time_us += match_duration.as_micros() as u64;
-
             warning!(
-                "ParadeDB: Join matching complete - total matches: {}, total time: {}μs",
-                join_state.stats.join_matches,
-                join_state.stats.join_matching_time_us
+                "ParadeDB: Join matching complete - total matches: {}",
+                join_state.stats.join_matches
             );
         }
         return std::ptr::null_mut();
@@ -882,14 +811,10 @@ unsafe fn match_and_return_next_tuple(
         join_state.stats.join_matches += 1;
         join_state.stats.tuples_returned += 1;
 
-        let match_duration = match_start.elapsed();
-        join_state.stats.join_matching_time_us += match_duration.as_micros() as u64;
-
         if join_state.stats.join_matches % 100 == 0 {
             warning!(
-                "ParadeDB: Join progress - {} matches processed, avg time: {}μs per match",
-                join_state.stats.join_matches,
-                join_state.stats.join_matching_time_us / join_state.stats.join_matches as u64
+                "ParadeDB: Join progress - {} matches processed",
+                join_state.stats.join_matches
             );
         }
     }
@@ -989,19 +914,19 @@ fn get_relation_oids_from_state(
             );
 
             if let Some(outer_oid) = outer_relid {
-                warning!("ParadeDB: Outer relation OID: {} ({})", outer_oid, unsafe {
+                warning!("ParadeDB: Outer relation: {}", unsafe {
                     get_rel_name(outer_oid)
                 });
             } else {
-                warning!("ParadeDB: No outer relation OID found");
+                warning!("ParadeDB: No outer relation found");
             }
 
             if let Some(inner_oid) = inner_relid {
-                warning!("ParadeDB: Inner relation OID: {} ({})", inner_oid, unsafe {
+                warning!("ParadeDB: Inner relation: {}", unsafe {
                     get_rel_name(inner_oid)
                 });
             } else {
-                warning!("ParadeDB: No inner relation OID found");
+                warning!("ParadeDB: No inner relation found");
             }
 
             // ENHANCEMENT: If we don't have both relation OIDs from search predicates,
@@ -1033,11 +958,9 @@ fn get_relation_oids_from_state(
             });
 
             if final_inner_relid.is_some() && final_inner_relid != inner_relid {
-                warning!(
-                    "ParadeDB: Enhanced inner relation detection: {} ({})",
-                    final_inner_relid.unwrap(),
-                    unsafe { get_rel_name(final_inner_relid.unwrap()) }
-                );
+                warning!("ParadeDB: Enhanced inner relation detection: {}", unsafe {
+                    get_rel_name(final_inner_relid.unwrap())
+                });
             }
 
             (final_outer_relid, final_inner_relid)
@@ -1059,28 +982,21 @@ unsafe fn infer_missing_relation_oid(known_relid: pg_sys::Oid) -> Option<pg_sys:
 
     let known_name = get_rel_name(known_relid);
     warning!(
-        "ParadeDB: Trying to infer missing relation OID, known relation: {} ({})",
-        known_name,
-        known_relid
+        "ParadeDB: Trying to infer missing relation, known relation: {}",
+        known_name
     );
 
     // QUICK FIX: For the products/reviews join pattern, try to find the other table
     if known_name == "products" {
         // Try to find the reviews table
         if let Some(reviews_oid) = find_relation_by_name("reviews") {
-            warning!(
-                "ParadeDB: Found reviews table OID: {} for products join",
-                reviews_oid
-            );
+            warning!("ParadeDB: Found reviews table for products join");
             return Some(reviews_oid);
         }
     } else if known_name == "reviews" {
         // Try to find the products table
         if let Some(products_oid) = find_relation_by_name("products") {
-            warning!(
-                "ParadeDB: Found products table OID: {} for reviews join",
-                products_oid
-            );
+            warning!("ParadeDB: Found products table for reviews join");
             return Some(products_oid);
         }
     }
@@ -1102,17 +1018,10 @@ unsafe fn find_relation_by_name(relation_name: &str) -> Option<pg_sys::Oid> {
 
     let relid = pg_sys::get_relname_relid(relation_name_cstr.as_ptr(), namespace_oid);
     if relid == pg_sys::InvalidOid {
-        warning!(
-            "ParadeDB: Could not find relation '{}' in public namespace",
-            relation_name
-        );
+        warning!("ParadeDB: Could not find relation '{}'", relation_name);
         None
     } else {
-        warning!(
-            "ParadeDB: Found relation '{}' with OID: {}",
-            relation_name,
-            relid
-        );
+        warning!("ParadeDB: Found relation '{}'", relation_name);
         Some(relid)
     }
 }
@@ -1126,12 +1035,14 @@ unsafe fn fetch_real_join_column_values(
     inner_relid: Option<pg_sys::Oid>,
     natts: usize,
 ) -> Vec<Option<String>> {
-    let fetch_start = std::time::Instant::now();
-
     warning!(
-        "ParadeDB: Fetching real heap tuple values from relations {:?} and {:?}",
-        get_rel_name(outer_relid.unwrap_or(pg_sys::InvalidOid)),
-        get_rel_name(inner_relid.unwrap_or(pg_sys::InvalidOid))
+        "ParadeDB: Fetching real heap tuple values from relations {} and {}",
+        outer_relid
+            .map(|oid| unsafe { get_rel_name(oid) })
+            .unwrap_or_else(|| "unknown".to_string()),
+        inner_relid
+            .map(|oid| unsafe { get_rel_name(oid) })
+            .unwrap_or_else(|| "unknown".to_string())
     );
 
     // Update fetch attempt statistics
@@ -1208,8 +1119,6 @@ unsafe fn fetch_real_join_column_values(
         column_values.push(column_value);
     }
 
-    let fetch_duration = fetch_start.elapsed();
-
     // Update success statistics
     let successful_fetches = column_values.iter().filter(|v| v.is_some()).count();
     if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
@@ -1217,10 +1126,9 @@ unsafe fn fetch_real_join_column_values(
     }
 
     warning!(
-        "ParadeDB: Mapped {} out of {} column values in {}μs: {:?}",
+        "ParadeDB: Mapped {} out of {} column values: {:?}",
         successful_fetches,
         natts,
-        fetch_duration.as_micros(),
         column_values
     );
 
@@ -1495,7 +1403,7 @@ unsafe fn column_exists_in_relation(relid: pg_sys::Oid, column_name: &str) -> bo
     if heaprel.is_null() {
         warning!(
             "ParadeDB: Failed to open relation {} for column check",
-            relid
+            get_rel_name(relid)
         );
         return false;
     }

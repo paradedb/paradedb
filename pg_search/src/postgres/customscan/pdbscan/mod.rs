@@ -550,16 +550,27 @@ impl CustomScan for PdbScan {
                 // This prevents the "variable not found" error by providing basic mappings
                 let mut attname_lookup = HashMap::default();
 
-                // For each target entry, create a basic mapping
+                // For each target entry, create a mapping using the actual column name
                 for (i, te) in tlist.iter_ptr().enumerate() {
                     if let Some(var) = nodecast!(Var, T_Var, (*te).expr) {
-                        let attname = format!("join_attr_{}", i + 1);
-                        attname_lookup.insert(((*var).varno as Varno, (*var).varattno), attname);
+                        // Extract the actual column name from the target entry
+                        let attname = if !(*te).resname.is_null() {
+                            // Use the actual column name from resname
+                            std::ffi::CStr::from_ptr((*te).resname)
+                                .to_string_lossy()
+                                .to_string()
+                        } else {
+                            // Fallback to generic name if resname is not available
+                            format!("join_attr_{}", i + 1)
+                        };
+
+                        attname_lookup
+                            .insert(((*var).varno as Varno, (*var).varattno), attname.clone());
                         pgrx::warning!(
-                            "ParadeDB: Mapped join variable varno={}, varattno={} to {}",
+                            "ParadeDB: Mapped join variable varno={}, varattno={} to '{}'",
                             (*var).varno,
                             (*var).varattno,
-                            format!("join_attr_{}", i + 1)
+                            attname
                         );
                     }
                 }

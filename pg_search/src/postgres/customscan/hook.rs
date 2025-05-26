@@ -187,18 +187,6 @@ pub extern "C-unwind" fn paradedb_join_pathlist_callback<CS: CustomScan>(
             get_rel_name_from_rti_list((*innerrel).relids, root),
         );
 
-        // Basic feasibility check - both relations must be base relations for now
-        if !is_base_relation(outerrel) || !is_base_relation(innerrel) {
-            warning!("ParadeDB: Skipping join - not base relations");
-            return;
-        }
-
-        // Check if both relations have BM25 indexes
-        if !has_bm25_index(root, outerrel) || !has_bm25_index(root, innerrel) {
-            warning!("ParadeDB: Skipping join - missing BM25 indexes");
-            return;
-        }
-
         // Check join type - only support INNER joins for now
         if jointype != pg_sys::JoinType::JOIN_INNER {
             warning!(
@@ -208,9 +196,23 @@ pub extern "C-unwind" fn paradedb_join_pathlist_callback<CS: CustomScan>(
             return;
         }
 
-        warning!("ParadeDB: Join is feasible - would create custom join path here");
+        // Enhanced feasibility check: Check if we have any relations with BM25 indexes
+        // This handles both base relations and composite relations containing base relations
+        let outer_has_bm25 = has_any_bm25_index(root, outerrel);
+        let inner_has_bm25 = has_any_bm25_index(root, innerrel);
 
-        // Analyze search predicates in the join
+        if !outer_has_bm25 && !inner_has_bm25 {
+            warning!("ParadeDB: Skipping join - no BM25 indexes found in either relation");
+            return;
+        }
+
+        warning!(
+            "ParadeDB: Join feasibility check - outer has BM25: {}, inner has BM25: {}",
+            outer_has_bm25,
+            inner_has_bm25
+        );
+
+        // Analyze search predicates in the join BEFORE making final feasibility decision
         let search_predicates =
             extract_join_search_predicates(root, joinrel, outerrel, innerrel, extra);
 
@@ -221,22 +223,6 @@ pub extern "C-unwind" fn paradedb_join_pathlist_callback<CS: CustomScan>(
                 predicates.inner_predicates.len(),
                 predicates.has_bilateral_search()
             );
-
-            // Log details about the search predicates
-            for pred in &predicates.outer_predicates {
-                warning!(
-                    "ParadeDB: Outer predicate for {} - uses_search: {}",
-                    pred.relname,
-                    pred.uses_search_operator
-                );
-            }
-            for pred in &predicates.inner_predicates {
-                warning!(
-                    "ParadeDB: Inner predicate for {} - uses_search: {}",
-                    pred.relname,
-                    pred.uses_search_operator
-                );
-            }
 
             // Check: ensure at least one side actually uses the search operator
             let outer_has_search = predicates
@@ -255,6 +241,43 @@ pub extern "C-unwind" fn paradedb_join_pathlist_callback<CS: CustomScan>(
                     inner_has_search
                 );
                 return;
+            }
+
+            // Final feasibility check: We need at least one side with both BM25 index AND search predicates
+            let outer_feasible = outer_has_bm25 && outer_has_search;
+            let inner_feasible = inner_has_bm25 && inner_has_search;
+
+            if !outer_feasible && !inner_feasible {
+                warning!(
+                    "ParadeDB: Skipping join - no side has both BM25 index and search predicates (outer: BM25={}, search={}; inner: BM25={}, search={})",
+                    outer_has_bm25,
+                    outer_has_search,
+                    inner_has_bm25,
+                    inner_has_search
+                );
+                return;
+            }
+
+            warning!(
+                "ParadeDB: Join is feasible - outer feasible: {}, inner feasible: {}",
+                outer_feasible,
+                inner_feasible
+            );
+
+            // Log details about the search predicates
+            for pred in &predicates.outer_predicates {
+                warning!(
+                    "ParadeDB: Outer predicate for {} - uses_search: {}",
+                    pred.relname,
+                    pred.uses_search_operator
+                );
+            }
+            for pred in &predicates.inner_predicates {
+                warning!(
+                    "ParadeDB: Inner predicate for {} - uses_search: {}",
+                    pred.relname,
+                    pred.uses_search_operator
+                );
             }
 
             if predicates.has_bilateral_search() {
@@ -328,6 +351,44 @@ unsafe fn has_bm25_index(root: *mut pg_sys::PlannerInfo, rel: *mut pg_sys::RelOp
     }
 
     false
+}
+
+/// Check if any relation in a RelOptInfo (base or composite) has a BM25 index
+/// This handles both base relations and composite relations (joins)
+unsafe fn has_any_bm25_index(root: *mut pg_sys::PlannerInfo, rel: *mut pg_sys::RelOptInfo) -> bool {
+    let mut found_bm25 = false;
+    let mut checked_relations = Vec::new();
+
+    for rti in bms_iter((*rel).relids) {
+        // Get the RTE for this relation
+        let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
+
+        if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
+            let relid = (*rte).relid;
+            let relname = get_rel_name(relid);
+            checked_relations.push(relname.clone());
+
+            // Use the existing function to check for BM25 index
+            if let Some((_, _)) = rel_get_bm25_index(relid) {
+                warning!(
+                    "ParadeDB: Found BM25 index for relation {} (rti {})",
+                    relname,
+                    rti
+                );
+                found_bm25 = true;
+            }
+        }
+    }
+
+    if !checked_relations.is_empty() {
+        warning!(
+            "ParadeDB: Checked relations {:?} for BM25 indexes, found: {}",
+            checked_relations,
+            found_bm25
+        );
+    }
+
+    found_bm25
 }
 
 /// Create a custom join path for search optimization

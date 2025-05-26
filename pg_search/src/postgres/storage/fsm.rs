@@ -1,6 +1,6 @@
-use pgrx::pg_sys;
-use crate::postgres::storage::block::{PgItem, MVCCEntry};
+use crate::postgres::storage::block::{MVCCEntry, PgItem};
 use crate::postgres::storage::buffer::BufferManager;
+use pgrx::pg_sys;
 
 #[repr(transparent)]
 #[derive(Debug, Clone)]
@@ -8,7 +8,10 @@ pub struct FreeBlockNumber(pg_sys::BlockNumber);
 
 impl From<FreeBlockNumber> for PgItem {
     fn from(val: FreeBlockNumber) -> Self {
-        PgItem(val.0 as pg_sys::Item, std::mem::size_of::<pg_sys::BlockNumber>())
+        PgItem(
+            val.0 as pg_sys::Item,
+            std::mem::size_of::<pg_sys::BlockNumber>(),
+        )
     }
 }
 

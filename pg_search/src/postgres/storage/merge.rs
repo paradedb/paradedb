@@ -21,7 +21,6 @@ use crate::postgres::storage::block::{
 };
 use crate::postgres::storage::buffer::{BufferManager, BufferMut, PinnedBuffer};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
-use crate::postgres::storage::fsm::FreeBlockNumber;
 use pgrx::{pg_sys, StringInfo};
 use serde::{Deserialize, Serialize};
 use std::slice::from_raw_parts;

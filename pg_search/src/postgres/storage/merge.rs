@@ -20,6 +20,7 @@ use crate::postgres::storage::block::{
     block_number_is_valid, bm25_max_free_space, BM25PageSpecialData, LinkedList, MVCCEntry, PgItem,
 };
 use crate::postgres::storage::buffer::{BufferManager, BufferMut, PinnedBuffer};
+use crate::postgres::storage::fsm::FreeBlockNumber;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use pgrx::{pg_sys, StringInfo};
 use serde::{Deserialize, Serialize};
@@ -287,14 +288,14 @@ impl MergeList {
         self.entries.list()
     }
 
-    pub unsafe fn garbage_collect(&mut self) {
-        let recycled_entries = self.entries.garbage_collect();
+    pub unsafe fn garbage_collect(&mut self, fsm: &mut LinkedItemList<FreeBlockNumber>) {
+        let recycled_entries = self.entries.garbage_collect(fsm);
         for recycled_entry in recycled_entries {
             LinkedBytesList::open(
                 self.bman.relation_oid(),
                 recycled_entry.segment_ids_start_blockno,
             )
-            .return_to_fsm();
+            .return_to_fsm(fsm);
             pg_sys::IndexFreeSpaceMapVacuum(self.bman.bm25cache().indexrel());
         }
     }
@@ -340,14 +341,18 @@ impl MergeList {
         )
     }
 
-    pub unsafe fn remove_entry(&mut self, merge_entry: MergeEntry) -> anyhow::Result<MergeEntry> {
+    pub unsafe fn remove_entry(
+        &mut self,
+        merge_entry: MergeEntry,
+        fsm: &mut LinkedItemList<FreeBlockNumber>,
+    ) -> anyhow::Result<MergeEntry> {
         let removed_entry = self.entries.remove_item(|entry| entry == &merge_entry)?;
 
         LinkedBytesList::open(
             self.bman.relation_oid(),
             removed_entry.segment_ids_start_blockno,
         )
-        .return_to_fsm();
+        .return_to_fsm(fsm);
         pg_sys::IndexFreeSpaceMapVacuum(self.bman.bm25cache().indexrel());
         Ok(removed_entry)
     }

@@ -306,8 +306,8 @@ pub unsafe fn save_new_metas(
     }
 
     // atomically replace the SegmentMetaEntry list, and then mark any orphaned files deleted.
-    linked_list.commit();
-
+    let mut fsm = MetaPage::open(relation_oid).fsm();
+    linked_list.commit(&mut fsm);
     Ok(())
 }
 

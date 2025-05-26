@@ -16,7 +16,8 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::HashMap;
-use crate::postgres::storage::block::{bm25_max_free_space, BM25PageSpecialData, PgItem};
+use crate::postgres::storage::block::{bm25_max_free_space, BM25PageSpecialData, PgItem, FIXED_BLOCK_NUMBERS};
+use crate::postgres::storage::metadata::fsm;
 use parking_lot::Mutex;
 use pgrx::pg_sys;
 use pgrx::pg_sys::OffsetNumber;
@@ -101,34 +102,14 @@ impl BM25BufferCache {
     }
 
     pub unsafe fn new_buffer(&self) -> pg_sys::Buffer {
-        // Try to find a recyclable page
-        loop {
-            // ask for a page with at least `bm25_max_free_space()` -- that's how much we need to do our things
-            let blockno = pg_sys::GetPageWithFreeSpace(self.indexrel, bm25_max_free_space() as _);
-            if blockno == pg_sys::InvalidBlockNumber {
-                break;
-            }
-            // we got one, so let Postgres know so the FSM will stop considering it
-            pg_sys::RecordUsedIndexPage(self.indexrel, blockno);
-
-            let buffer = self.get_buffer(blockno, None);
-            if pg_sys::ConditionalLockBuffer(buffer) {
-                let page = pg_sys::BufferGetPage(buffer);
-
-                // the FSM would have returned a page to us that was previously known to be reusable,
-                // but it may not still be reusable now that we have a lock.
-                //
-                // between then and now some other backend could have gotten this page too, locked it,
-                // (re)initialized it, and released its lock, making it unusable by us
-                if page.is_reusable() {
-                    return buffer;
-                }
-
-                pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_UNLOCK as i32);
-            }
-
-            pg_sys::ReleaseBuffer(buffer);
-        }
+        // let num_blocks = pg_sys::RelationGetNumberOfBlocksInFork(self.indexrel, pg_sys::ForkNumber::MAIN_FORKNUM);
+        // if num_blocks > *FIXED_BLOCK_NUMBERS.iter().max().unwrap() {
+        //     let mut fsm = fsm((*self.indexrel).rd_id);
+        //     if let Some((blockno, _)) = fsm.pop() {
+        //         // Try to reuse a recyclable page
+        //         return self.get_buffer(blockno.into(), Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+        //     }
+        // }
 
         // No recyclable pages found, create a new page
         // Postgres requires an exclusive lock on the relation to create a new page
@@ -142,6 +123,49 @@ impl BM25BufferCache {
         pg_sys::UnlockRelationForExtension(self.indexrel, pg_sys::ExclusiveLock as i32);
         buffer
     }
+
+    // pub unsafe fn new_buffer(&self) -> pg_sys::Buffer {
+    //     // Try to find a recyclable page
+    //     loop {
+    //         // ask for a page with at least `bm25_max_free_space()` -- that's how much we need to do our things
+    //         let blockno = pg_sys::GetPageWithFreeSpace(self.indexrel, bm25_max_free_space() as _);
+    //         if blockno == pg_sys::InvalidBlockNumber {
+    //             break;
+    //         }
+    //         // we got one, so let Postgres know so the FSM will stop considering it
+    //         pg_sys::RecordUsedIndexPage(self.indexrel, blockno);
+
+    //         let buffer = self.get_buffer(blockno, None);
+    //         if pg_sys::ConditionalLockBuffer(buffer) {
+    //             let page = pg_sys::BufferGetPage(buffer);
+
+    //             // the FSM would have returned a page to us that was previously known to be reusable,
+    //             // but it may not still be reusable now that we have a lock.
+    //             //
+    //             // between then and now some other backend could have gotten this page too, locked it,
+    //             // (re)initialized it, and released its lock, making it unusable by us
+    //             if page.is_reusable() {
+    //                 return buffer;
+    //             }
+
+    //             pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_UNLOCK as i32);
+    //         }
+
+    //         pg_sys::ReleaseBuffer(buffer);
+    //     }
+
+    //     // No recyclable pages found, create a new page
+    //     // Postgres requires an exclusive lock on the relation to create a new page
+    //     pg_sys::LockRelationForExtension(self.indexrel, pg_sys::ExclusiveLock as i32);
+
+    //     let buffer = self.get_buffer(
+    //         pg_sys::InvalidBlockNumber,
+    //         Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
+    //     );
+
+    //     pg_sys::UnlockRelationForExtension(self.indexrel, pg_sys::ExclusiveLock as i32);
+    //     buffer
+    // }
 
     pub unsafe fn get_buffer(
         &self,

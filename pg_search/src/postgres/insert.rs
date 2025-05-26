@@ -22,6 +22,7 @@ use crate::index::WriterResources;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::storage::block::{SegmentMetaEntry, CLEANUP_LOCK, SEGMENT_METAS_START};
 use crate::postgres::storage::buffer::BufferManager;
+use crate::postgres::storage::fsm::FreeBlockNumber;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use crate::postgres::utils::{
@@ -265,6 +266,7 @@ pub unsafe fn merge_index_with_policy(
     let cleanup_lock = BufferManager::new(indexrelid).get_buffer(CLEANUP_LOCK);
     let metadata = MetaPage::open(indexrelid);
     let merge_lock = metadata.acquire_merge_lock();
+    let mut fsm = metadata.fsm();
     let mut merger =
         SearchIndexMerger::open(indexrelid).expect("should be able to open a SearchIndexMerger");
     let merger_segment_ids = merger
@@ -340,7 +342,7 @@ pub unsafe fn merge_index_with_policy(
                     break;
                 }
                 if gc_after_merge {
-                    garbage_collect_index(&indexrel);
+                    garbage_collect_index(&indexrel, &mut fsm);
                     need_gc = false;
                 }
             }
@@ -384,7 +386,7 @@ pub unsafe fn merge_index_with_policy(
                 }
 
                 if gc_after_merge {
-                    garbage_collect_index(&indexrel);
+                    garbage_collect_index(&indexrel, &mut fsm);
                     need_gc = false;
                 }
             }
@@ -394,13 +396,13 @@ pub unsafe fn merge_index_with_policy(
         let merge_lock = metadata.acquire_merge_lock();
         merge_lock
             .merge_list()
-            .remove_entry(merge_entry)
+            .remove_entry(merge_entry, &mut fsm)
             .expect("should be able to remove MergeEntry");
         drop(merge_lock);
 
         // we can garbage collect and return blocks back to the FSM without being under the MergeLock
         if need_gc {
-            garbage_collect_index(&indexrel);
+            garbage_collect_index(&indexrel, &mut fsm);
         }
 
         // if merging was cancelled due to a legit interrupt we'd prefer that be provided to the user
@@ -425,7 +427,7 @@ pub unsafe fn merge_index_with_policy(
 /// moved to the `SEGMENT_METAS_GARBAGE` list until those replicas indicate that they are no longer
 /// in use, at which point they can be freed by `free_garbage`.
 ///
-unsafe fn garbage_collect_index(indexrel: &PgRelation) {
+unsafe fn garbage_collect_index(indexrel: &PgRelation, fsm: &mut LinkedItemList<FreeBlockNumber>) {
     let indexrelid = indexrel.oid();
 
     // Remove items which are no longer visible to active local transactions from SEGMENT_METAS,
@@ -438,19 +440,22 @@ unsafe fn garbage_collect_index(indexrel: &PgRelation) {
     let mut segment_metas_linked_list =
         LinkedItemList::<SegmentMetaEntry>::open(indexrelid, SEGMENT_METAS_START);
     let mut segment_metas = segment_metas_linked_list.atomically();
-    let entries = segment_metas.garbage_collect();
+    let entries = segment_metas.garbage_collect(fsm);
 
     // Replication is not enabled: immediately free the entries. It doesn't matter when we
     // commit the segment metas list in this case.
-    segment_metas.commit();
+    segment_metas.commit(fsm);
     free_entries(indexrel, entries);
 }
 
 pub fn free_entries(indexrel: &PgRelation, freeable_entries: Vec<SegmentMetaEntry>) {
+    let metadata = unsafe { MetaPage::open(indexrel.oid()) };
+    let mut fsm = metadata.fsm();
     for entry in freeable_entries {
         for (file_entry, _) in entry.file_entries() {
             unsafe {
-                LinkedBytesList::open(indexrel.oid(), file_entry.starting_block).return_to_fsm();
+                LinkedBytesList::open(indexrel.oid(), file_entry.starting_block)
+                    .return_to_fsm(&mut fsm);
             }
         }
     }

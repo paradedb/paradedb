@@ -477,10 +477,11 @@ fn force_merge_raw_bytes(
 fn merge_lock_garbage_collect(index: PgRelation) -> SetOfIterator<'static, i32> {
     unsafe {
         let metadata = MetaPage::open(index.oid());
+        let mut fsm = metadata.fsm();
         let merge_lock = metadata.acquire_merge_lock();
         let mut merge_list = merge_lock.merge_list();
         let before = merge_list.list();
-        merge_list.garbage_collect();
+        merge_list.garbage_collect(&mut fsm);
         let after = merge_list.list();
         drop(merge_lock);
 

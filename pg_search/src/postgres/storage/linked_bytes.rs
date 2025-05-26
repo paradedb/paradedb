@@ -18,6 +18,8 @@
 use super::block::{
     bm25_max_free_space, BM25PageSpecialData, LinkedList, LinkedListData, FIXED_BLOCK_NUMBERS,
 };
+use super::fsm::FreeBlockNumber;
+use super::linked_items::LinkedItemList;
 use crate::postgres::storage::blocklist;
 use crate::postgres::storage::buffer::{BufferManager, PageHeaderMethods};
 use anyhow::Result;
@@ -297,9 +299,10 @@ impl LinkedBytesList {
     ///
     /// It's the caller's responsibility to later call [`pg_sys::IndexFreeSpaceMapVacuum`]
     /// if necessary.
-    pub unsafe fn return_to_fsm(mut self) {
+    pub unsafe fn return_to_fsm(mut self, fsm: &mut LinkedItemList<FreeBlockNumber>) {
         // in addition to the list itself, we also have a secondary list of linked blocks (which
         // contain the blocknumbers of this list) that needs to be marked deleted too
+        let mut blocks = Vec::new();
         let metadata = self.get_linked_list_data();
         for starting_blockno in [metadata.start_blockno, metadata.blocklist_start] {
             let mut blockno = starting_blockno;
@@ -308,17 +311,12 @@ impl LinkedBytesList {
                     FIXED_BLOCK_NUMBERS.iter().all(|fb| *fb != blockno),
                     "mark_deleted:  blockno {blockno} cannot ever be recycled"
                 );
-                let mut buffer = self.bman.get_buffer_mut(blockno);
-                let page = buffer.page_mut();
-                let special = page.special::<BM25PageSpecialData>();
-
-                blockno = special.next_blockno;
-                // buffer.return_to_fsm(&mut self.bman);
+                blocks.push(blockno.into());
             }
         }
 
-        let header_buffer = self.bman.get_buffer_mut(self.header_blockno);
-        // header_buffer.return_to_fsm(&mut self.bman);
+        blocks.push(self.header_blockno.into());
+        fsm.add_items(&blocks, None);
     }
 
     pub fn is_empty(&self) -> bool {

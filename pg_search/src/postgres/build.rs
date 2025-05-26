@@ -95,6 +95,7 @@ pub extern "C-unwind" fn ambuild(
     }
 
     let tuple_count = do_heap_scan(index_info, &heap_relation, &index_relation);
+
     unsafe { pg_sys::FlushRelationBuffers(indexrel) };
 
     let mut result = unsafe { PgBox::<pg_sys::IndexBuildResult>::alloc0() };
@@ -147,10 +148,12 @@ fn do_heap_scan<'a>(
             &mut state,
         );
 
+
         state
             .writer
             .commit()
             .unwrap_or_else(|e| panic!("failed to commit new tantivy index: {e}"));
+
 
         // store number of segments created in metadata
         let reader = SearchIndexReader::open(index_relation, MvccSatisfies::Snapshot)
@@ -161,7 +164,6 @@ fn do_heap_scan<'a>(
         metadata
             .record_create_index_segment_ids(reader.segment_ids().iter())
             .expect("do_heap_scan: should be able to record segment ids in merge lock");
-
         state.count
     }
 }

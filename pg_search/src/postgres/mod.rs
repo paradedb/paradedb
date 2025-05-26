@@ -17,7 +17,7 @@
 
 use crate::api::HashMap;
 use crate::postgres::build::is_bm25_index;
-use crate::postgres::parallel::Spinlock;
+use crate::postgres::spinlock::Spinlock;
 use crate::query::SearchQueryInput;
 use pgrx::*;
 use std::io::Write;
@@ -41,6 +41,7 @@ pub mod fake_aminsertcleanup;
 pub mod index;
 mod parallel;
 pub mod parallel_worker;
+pub mod spinlock;
 pub mod storage;
 pub mod types;
 pub mod utils;

@@ -1,27 +1,23 @@
-#![allow(static_mut_refs)]
+// Copyright (c) 2023-2025 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
 use pgrx::pg_sys;
 use std::ptr::NonNull;
 
-pub unsafe fn create_message_queue(
-    pcxt: NonNull<pg_sys::ParallelContext>,
-    address: *mut std::ffi::c_void,
-    size: usize,
-) -> MessageQueueReceiver {
-    unsafe {
-        let mq = pg_sys::shm_mq_create(address, size);
-        MessageQueueReceiver::new(pcxt, mq)
-    }
-}
-
-pub unsafe fn attach_to_message_queue(
-    seg: *mut pg_sys::dsm_segment,
-    mq: *mut pg_sys::shm_mq,
-) -> MessageQueueSender {
-    unsafe { MessageQueueSender::new(seg, mq) }
-}
-
 struct MessageQueueHandle {
-    pcxt: Option<NonNull<pg_sys::ParallelContext>>,
     handle: NonNull<pg_sys::shm_mq_handle>,
 }
 
@@ -34,18 +30,17 @@ impl Drop for MessageQueueHandle {
 }
 
 impl MessageQueueHandle {
-    pub unsafe fn attach_sender(seg: *mut pg_sys::dsm_segment, mq: *mut pg_sys::shm_mq) -> Self {
+    unsafe fn attach_sender(seg: *mut pg_sys::dsm_segment, mq: *mut pg_sys::shm_mq) -> Self {
         unsafe {
             pg_sys::shm_mq_set_sender(mq, pg_sys::MyProc);
             let handle = pg_sys::shm_mq_attach(mq, seg, std::ptr::null_mut());
             MessageQueueHandle {
-                pcxt: None,
                 handle: NonNull::new_unchecked(handle),
             }
         }
     }
 
-    pub unsafe fn attach_receiver(
+    unsafe fn attach_receiver(
         pcxt: NonNull<pg_sys::ParallelContext>,
         mq: *mut pg_sys::shm_mq,
     ) -> Self {
@@ -53,7 +48,6 @@ impl MessageQueueHandle {
             pg_sys::shm_mq_set_receiver(mq, pg_sys::MyProc);
             let handle = pg_sys::shm_mq_attach(mq, (*pcxt.as_ptr()).seg, std::ptr::null_mut());
             MessageQueueHandle {
-                pcxt: Some(pcxt),
                 handle: NonNull::new_unchecked(handle),
             }
         }
@@ -69,7 +63,8 @@ pub struct MessageQueueSender {
 }
 
 impl MessageQueueSender {
-    unsafe fn new(seg: *mut pg_sys::dsm_segment, mq: *mut pg_sys::shm_mq) -> Self {
+    #[doc(hidden)]
+    pub(super) unsafe fn new(seg: *mut pg_sys::dsm_segment, mq: *mut pg_sys::shm_mq) -> Self {
         unsafe {
             Self {
                 handle: MessageQueueHandle::attach_sender(seg, mq),
@@ -119,8 +114,13 @@ pub struct MessageQueueReceiver {
 }
 
 impl MessageQueueReceiver {
-    unsafe fn new(pcxt: NonNull<pg_sys::ParallelContext>, mq: *mut pg_sys::shm_mq) -> Self {
+    pub(super) unsafe fn new(
+        pcxt: NonNull<pg_sys::ParallelContext>,
+        address: *mut std::ffi::c_void,
+        size: usize,
+    ) -> Self {
         unsafe {
+            let mq = pg_sys::shm_mq_create(address, size);
             Self {
                 handle: MessageQueueHandle::attach_receiver(pcxt, mq),
             }

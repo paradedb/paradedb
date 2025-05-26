@@ -1,136 +1,106 @@
-use crate::postgres::parallel_worker::mqueue::{create_message_queue, MessageQueueReceiver};
-use crate::postgres::parallel_worker::ParallelProcess;
+// Copyright (c) 2023-2025 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+use crate::postgres::parallel_worker::mqueue::MessageQueueReceiver;
+use crate::postgres::parallel_worker::{
+    estimate_chunk, estimate_keys, ParallelProcess, TocKeys, MAXALIGN_DOWN,
+};
 use pgrx::pg_sys;
-use rustc_hash::FxHashMap;
 use std::ffi::CString;
 use std::ptr::NonNull;
 
-#[repr(u64)]
-pub enum TocKeys {
-    TypeName = 1,
-    SharedState = 2,
-    MessageQueueSize = 3,
-    MessageQueues = 4,
-}
+pub struct ParallelProcessBuilder;
 
-impl TocKeys {
-    pub const fn last() -> u64 {
-        TocKeys::MessageQueues as u64
-    }
-}
-
-impl From<TocKeys> for u64 {
-    fn from(key: TocKeys) -> Self {
-        key as _
-    }
-}
-
-pub struct ParallelProcessBuilder<P: ParallelProcess> {
-    pcxt: NonNull<pg_sys::ParallelContext>,
-    entries: FxHashMap<u64, Vec<u8>>,
-    nworkers: usize,
-    process: P,
-}
-
-impl<P: ParallelProcess> ParallelProcessBuilder<P> {
-    pub fn new(process: P, nworkers: usize) -> Self {
+impl ParallelProcessBuilder {
+    pub fn build<P: ParallelProcess, S>(
+        process: P,
+        fn_name: &'static str,
+        nworkers: usize,
+        mq_size: usize,
+    ) -> Option<ParallelProcessLauncher<S>> {
         unsafe {
-            let type_name = CString::new(std::any::type_name::<P>()).expect("valid type name");
-            let mut entries = FxHashMap::default();
-            entries.insert(
-                TocKeys::TypeName.into(),
-                type_name.to_bytes_with_nul().to_vec(),
-            );
-            entries.insert(TocKeys::SharedState.into(), process.state());
-            entries.insert(
-                TocKeys::MessageQueueSize.into(),
-                process.message_queue_size().to_ne_bytes().to_vec(),
-            );
+            let mq_size = MAXALIGN_DOWN(mq_size);
+            let fn_name = CString::new(fn_name).unwrap();
+            let nstate_bytes = process.size_of_state();
+            let nmq_bytes = pg_sys::mul_size(mq_size, nworkers);
 
             pg_sys::EnterParallelMode();
-
-            let pcxt = NonNull::new(pg_sys::CreateParallelContext(
+            let pcxt = NonNull::new_unchecked(pg_sys::CreateParallelContext(
                 c"pg_search".as_ptr(),
-                c"pg_search_parallel_worker_main".as_ptr(),
+                fn_name.as_ptr(),
                 nworkers as _,
-            ))
-            .expect("should be able to create a ParallelContext");
+            ));
 
-            Self {
-                pcxt,
-                entries,
-                nworkers,
-                process,
-            }
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn push_state(&mut self, key: u64, value: &[u8]) {
-        assert_ne!(key, 0, "key must be greater than 0");
-        self.entries
-            .insert(key + TocKeys::last() + 1, value.to_vec());
-    }
-
-    pub fn build(self) -> Option<ParallelProcessLauncher> {
-        unsafe {
-            let message_queue_size = self.process.message_queue_size();
-
-            let pcxt = self.pcxt.as_ptr();
-
-            for value in self.entries.values() {
-                estimate_keys(pcxt, 1);
-                estimate_chunk(pcxt, value.len());
-            }
+            // for storing the shared state
+            estimate_keys(pcxt.as_ptr(), 1);
+            estimate_chunk(pcxt.as_ptr(), nstate_bytes);
 
             // for the message queues
-            estimate_keys(pcxt, 1);
-            estimate_chunk(pcxt, pg_sys::mul_size(message_queue_size, self.nworkers));
+            estimate_keys(pcxt.as_ptr(), 1);
+            estimate_chunk(pcxt.as_ptr(), nmq_bytes);
 
             // initialize shared memory
-            pg_sys::InitializeParallelDSM(pcxt);
-            if (*pcxt).seg.is_null() {
+            pg_sys::InitializeParallelDSM(pcxt.as_ptr());
+            if (*pcxt.as_ptr()).seg.is_null() {
                 // failed to initialize DSM
-                pg_sys::DestroyParallelContext(pcxt);
+                pg_sys::DestroyParallelContext(pcxt.as_ptr());
                 pg_sys::ExitParallelMode();
                 return None;
             }
 
-            // copy the entries into shared memory
-            for (key, value) in self.entries {
-                let address = pg_sys::shm_toc_allocate((*pcxt).toc, value.len() as _);
-                address.copy_from(value.as_ptr().cast(), value.len());
-                pg_sys::shm_toc_insert((*pcxt).toc, key, address);
-            }
+            // let the ParallelProcess initialize its state into the allocated shared memory space
+            let state_address = pg_sys::shm_toc_allocate((*pcxt.as_ptr()).toc, nstate_bytes);
+            process.init_shared_state(state_address);
+            pg_sys::shm_toc_insert(
+                (*pcxt.as_ptr()).toc,
+                TocKeys::SharedState.into(),
+                state_address,
+            );
 
             // setup the message queues
-            let mut mq_handles = Vec::with_capacity(self.nworkers);
-            let mq_start_address = pg_sys::shm_toc_allocate(
-                (*pcxt).toc,
-                pg_sys::mul_size(message_queue_size, self.nworkers),
-            );
-            for i in 0..self.nworkers {
-                let address = mq_start_address.add(i * message_queue_size);
-                let receiver = create_message_queue(self.pcxt, address, message_queue_size);
-                mq_handles.push(receiver);
+            let mut mq_receivers = Vec::with_capacity(nworkers);
+            let mq_start_address = pg_sys::shm_toc_allocate((*pcxt.as_ptr()).toc, nmq_bytes);
+            for i in 0..nworkers {
+                let address = mq_start_address.add(i * mq_size);
+                let receiver = MessageQueueReceiver::new(pcxt, address, mq_size);
+                mq_receivers.push(receiver);
             }
-            pg_sys::shm_toc_insert((*pcxt).toc, TocKeys::MessageQueues.into(), mq_start_address);
+            pg_sys::shm_toc_insert(
+                (*pcxt.as_ptr()).toc,
+                TocKeys::MessageQueues.into(),
+                mq_start_address,
+            );
 
             Some(ParallelProcessLauncher {
-                pcxt: self.pcxt,
-                message_queue_handles: mq_handles,
+                pcxt,
+                mq_handles: mq_receivers,
+                shared_state: NonNull::new(state_address as *mut S).unwrap(),
             })
         }
     }
 }
 
-pub struct ParallelProcessLauncher {
+pub struct ParallelProcessLauncher<S> {
     pcxt: NonNull<pg_sys::ParallelContext>,
-    message_queue_handles: Vec<MessageQueueReceiver>,
+    shared_state: NonNull<S>,
+    mq_handles: Vec<MessageQueueReceiver>,
 }
 
-impl ParallelProcessLauncher {
-    pub fn launch(self) -> Option<ParallelProcessAttach> {
+impl<S: Copy> ParallelProcessLauncher<S> {
+    pub fn launch(self) -> Option<ParallelProcessAttach<S>> {
         unsafe {
             let pcxt = self.pcxt.as_ptr();
             pg_sys::LaunchParallelWorkers(pcxt);
@@ -146,11 +116,11 @@ impl ParallelProcessLauncher {
 }
 
 #[repr(transparent)]
-pub struct ParallelProcessAttach {
-    launcher: ParallelProcessLauncher,
+pub struct ParallelProcessAttach<S> {
+    launcher: ParallelProcessLauncher<S>,
 }
-impl ParallelProcessAttach {
-    pub fn wait_for_attach(self) -> Option<ParallelProcessFinish> {
+impl<S> ParallelProcessAttach<S> {
+    pub fn wait_for_attach(self) -> Option<ParallelProcessFinish<S>> {
         unsafe {
             pg_sys::WaitForParallelWorkersToAttach(self.launcher.pcxt.as_ptr());
             Some(ParallelProcessFinish {
@@ -161,11 +131,23 @@ impl ParallelProcessAttach {
 }
 
 #[repr(transparent)]
-pub struct ParallelProcessFinish {
-    launcher: ParallelProcessLauncher,
+pub struct ParallelProcessFinish<S> {
+    launcher: ParallelProcessLauncher<S>,
 }
 
-impl ParallelProcessFinish {
+impl<S> ParallelProcessFinish<S> {
+    pub fn launched_workers(&self) -> usize {
+        unsafe { (*self.launcher.pcxt.as_ptr()).nworkers_launched as usize }
+    }
+
+    pub fn shared_state(&self) -> &S {
+        unsafe { &*self.launcher.shared_state.as_ptr() }
+    }
+
+    pub fn shared_state_mut(&mut self) -> &mut S {
+        unsafe { &mut *self.launcher.shared_state.as_ptr() }
+    }
+
     pub fn recv(&self) -> Option<Vec<(usize, Vec<u8>)>> {
         let nlaunched = unsafe { (*self.launcher.pcxt.as_ptr()).nworkers_launched as usize };
         let mut messages = Vec::with_capacity(nlaunched);
@@ -173,13 +155,7 @@ impl ParallelProcessFinish {
         // this is a blocking call and we'll keep trying to recv until all message queues are detached
         loop {
             let mut detached_cnt = 0;
-            for (i, receiver) in self
-                .launcher
-                .message_queue_handles
-                .iter()
-                .enumerate()
-                .take(nlaunched)
-            {
+            for (i, receiver) in self.launcher.mq_handles.iter().enumerate().take(nlaunched) {
                 if let Ok(message) = receiver.recv() {
                     messages.push((i, message));
                 } else {
@@ -204,13 +180,7 @@ impl ParallelProcessFinish {
         let nlaunched = unsafe { (*self.launcher.pcxt.as_ptr()).nworkers_launched as usize };
         let mut detached_cnt = 0;
         let mut messages = Vec::with_capacity(nlaunched);
-        for (i, receiver) in self
-            .launcher
-            .message_queue_handles
-            .iter()
-            .enumerate()
-            .take(nlaunched)
-        {
+        for (i, receiver) in self.launcher.mq_handles.iter().enumerate().take(nlaunched) {
             match receiver.try_recv() {
                 Ok(Some(message)) => messages.push((i, message)),
                 Ok(None) => continue,
@@ -248,14 +218,14 @@ impl ParallelProcessFinish {
     }
 }
 
-pub struct ParallelProcessMessageQueue {
-    finisher: Option<ParallelProcessFinish>,
+pub struct ParallelProcessMessageQueue<S: Copy> {
+    finisher: Option<ParallelProcessFinish<S>>,
     batch: Vec<(usize, Vec<u8>)>,
 }
 
-impl IntoIterator for ParallelProcessFinish {
+impl<S: Copy> IntoIterator for ParallelProcessFinish<S> {
     type Item = (usize, Vec<u8>);
-    type IntoIter = ParallelProcessMessageQueue;
+    type IntoIter = ParallelProcessMessageQueue<S>;
 
     fn into_iter(self) -> Self::IntoIter {
         ParallelProcessMessageQueue {
@@ -265,7 +235,7 @@ impl IntoIterator for ParallelProcessFinish {
     }
 }
 
-impl Iterator for ParallelProcessMessageQueue {
+impl<S: Copy> Iterator for ParallelProcessMessageQueue<S> {
     type Item = (usize, Vec<u8>);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -284,25 +254,4 @@ impl Iterator for ParallelProcessMessageQueue {
             }
         }
     }
-}
-
-/*
-#define shm_toc_estimate_chunk(e, sz) \
-    ((e)->space_for_chunks = add_size((e)->space_for_chunks, BUFFERALIGN(sz)))
-*/
-unsafe fn estimate_chunk(pcxt: *mut pg_sys::ParallelContext, sz: usize) {
-    const BUFFERALIGN: fn(usize) -> usize =
-        |len: usize| unsafe { pg_sys::TYPEALIGN(pg_sys::ALIGNOF_BUFFER as usize, len) };
-
-    let estimator = &mut (*pcxt).estimator;
-    estimator.space_for_chunks = pg_sys::add_size(estimator.space_for_chunks, BUFFERALIGN(sz));
-}
-
-/*
-#define shm_toc_estimate_keys(e, cnt) \
-    ((e)->number_of_keys = add_size((e)->number_of_keys, cnt))
-*/
-unsafe fn estimate_keys(pcxt: *mut pg_sys::ParallelContext, cnt: usize) {
-    let estimator = &mut (*pcxt).estimator;
-    estimator.number_of_keys = pg_sys::add_size(estimator.number_of_keys, cnt);
 }

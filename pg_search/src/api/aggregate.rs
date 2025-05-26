@@ -2,54 +2,142 @@ use crate::api::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::aggregate::vischeck::TSVisibilityChecker;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
+use crate::launch_parallel_process;
 use crate::postgres::parallel_worker::mqueue::MessageQueueSender;
-use crate::postgres::parallel_worker::{begin_parallel_process, ParallelProcess, ParallelWorker};
+use crate::postgres::parallel_worker::{ParallelProcess, ParallelState, ParallelWorker};
+use crate::postgres::spinlock::Spinlock;
 use crate::query::SearchQueryInput;
 use pgrx::{default, pg_extern, pg_sys, Json, JsonB, PgRelation};
 use std::error::Error;
 use std::ffi::c_void;
+use std::ptr::addr_of;
 use tantivy::aggregation::{AggregationCollector, AggregationLimitsGuard};
+use tantivy::index::SegmentId;
 
-pub struct ParallelAggregationProcess;
+#[derive(Copy, Clone)]
+pub struct ParallelAggregationState {
+    mutex: Spinlock,
+    nlaunched: usize,
+    nactive: usize,
+    ndone: usize,
 
-impl ParallelProcess for ParallelAggregationProcess {
-    fn empty() -> Self
-    where
-        Self: Sized,
-    {
-        Self
+    total_segments: usize,
+    nsegments: usize,
+    segment_ids: [SegmentId; 0], // allocated after the struct
+}
+
+impl ParallelState for ParallelAggregationState {}
+
+impl ParallelAggregationState {
+    pub fn set_launched_workers(&mut self, nlaunched: usize) {
+        let _lock = self.mutex.acquire();
+        self.nlaunched = nlaunched;
     }
 
-    fn state(&self) -> Vec<u8> {
-        vec![]
+    pub fn launched_workers(&mut self) -> usize {
+        let _lock = self.mutex.acquire();
+        self.nlaunched
     }
 
-    fn create_worker(
-        &self,
-        state: *mut c_void,
-        mq_sender: MessageQueueSender,
-    ) -> Box<dyn ParallelWorker> {
-        Box::new(ParallelAggregationWorker { sender: mq_sender })
+    pub fn inc_active_workers(&mut self) {
+        let _lock = self.mutex.acquire();
+        self.nactive += 1;
+    }
+
+    pub fn active_workers(&mut self) -> usize {
+        let _lock = self.mutex.acquire();
+        self.nactive
+    }
+
+    pub fn inc_done_workers(&mut self) {
+        let _lock = self.mutex.acquire();
+        self.ndone += 1;
+    }
+
+    pub fn done_workers(&mut self) -> usize {
+        let _lock = self.mutex.acquire();
+        self.ndone
+    }
+
+    pub fn checkout_segment(&mut self) -> Option<SegmentId> {
+        let _lock = self.mutex.acquire();
+        if self.nsegments == 0 {
+            return None;
+        }
+
+        let segment_ids = unsafe {
+            std::slice::from_raw_parts(
+                addr_of!(self.segment_ids) as *const SegmentId,
+                self.nsegments,
+            )
+        };
+        let segment = segment_ids.get(self.nsegments - 1).copied();
+        self.nsegments -= 1;
+
+        segment
+    }
+
+    pub fn nsegments(&mut self) -> usize {
+        let _lock = self.mutex.acquire();
+        self.nsegments
+    }
+
+    pub fn total_segments(&mut self) -> usize {
+        let _lock = self.mutex.acquire();
+        self.total_segments
     }
 }
 
-pub struct ParallelAggregationWorker {
-    sender: MessageQueueSender,
+pub struct ParallelAggregation {
+    state: ParallelAggregationState,
+    segment_ids: Vec<SegmentId>,
 }
+
+impl ParallelProcess for ParallelAggregation {
+    fn size_of_state(&self) -> usize {
+        size_of::<ParallelAggregationState>() + self.segment_ids.len() * size_of::<SegmentId>()
+    }
+
+    unsafe fn init_shared_state(&self, shared_state: *mut c_void) {
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                addr_of!(self.state) as *const c_void,
+                shared_state,
+                size_of::<ParallelAggregationState>(),
+            );
+            std::ptr::copy_nonoverlapping(
+                self.segment_ids.as_ptr() as *const c_void,
+                addr_of!(self.state.segment_ids) as *mut c_void,
+                self.segment_ids.len() * size_of::<SegmentId>(),
+            );
+        }
+    }
+}
+
+impl ParallelAggregation {
+    pub fn new(segment_ids: Vec<SegmentId>) -> Self {
+        Self {
+            state: ParallelAggregationState {
+                mutex: Spinlock::new(),
+                nlaunched: 0,
+                nactive: 0,
+                ndone: 0,
+                total_segments: segment_ids.len(),
+                nsegments: segment_ids.len(),
+                segment_ids: [],
+            },
+            segment_ids,
+        }
+    }
+}
+
+pub struct ParallelAggregationWorker;
 
 impl ParallelWorker for ParallelAggregationWorker {
-    unsafe fn run(&mut self) {
-        for i in 1..100 {
-            self.sender
-                .send(format!(
-                    "hello, world from ParallelWorkerNumber {}, msg #={i}",
-                    unsafe { pg_sys::ParallelWorkerNumber },
-                ))
-                .expect("should be able to send message");
-        }
-        pgrx::warning!("sent 100 messages from {}", unsafe {
-            pg_sys::ParallelWorkerNumber
-        });
+    type State = ParallelAggregationState;
+
+    unsafe fn run(_state: &mut Self::State, _mq_sender: &MessageQueueSender) {
+        todo!()
     }
 }
 
@@ -62,20 +150,32 @@ pub fn aggregate(
     memory_limit: default!(i64, 500000000),
     bucket_limit: default!(i64, 65000),
 ) -> Result<JsonB, Box<dyn Error>> {
-    let process = begin_parallel_process(ParallelAggregationProcess, bucket_limit as _)
-        .expect("failed to start parallel process");
-
-    for (worker_number, message) in process {
-        pgrx::warning!(
-            "worker #{worker_number} says: {}",
-            std::str::from_utf8(&message).unwrap()
-        );
-    }
-
     unsafe {
         let heaprel = indexrel.heap_relation().unwrap();
         let reader = SearchIndexReader::open(&indexrel, MvccSatisfies::Snapshot)?;
         let agg_req = serde_json::from_value(agg.0)?;
+
+        let process = ParallelAggregation::new(reader.segment_ids());
+
+        let mut process = launch_parallel_process!(
+            ParallelAggregation<
+                ParallelAggregationState, 
+                ParallelAggregationWorker
+            >, 
+            process, 
+            32,
+            65535)
+        .expect("should be able to launch parallel process");
+
+        let nlaunched = process.launched_workers();
+        process.shared_state_mut().set_launched_workers(nlaunched);
+
+        for (worker_number, message) in process {
+            pgrx::warning!(
+                "worker #{worker_number} says: {}",
+                std::str::from_utf8(&message).unwrap()
+            );
+        }
 
         // Create the base aggregation collector
         let base_collector = AggregationCollector::from_aggs(

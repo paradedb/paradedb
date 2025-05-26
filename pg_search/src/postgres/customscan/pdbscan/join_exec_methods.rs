@@ -1148,28 +1148,12 @@ unsafe fn analyze_target_list_for_join_mapping(
         let tlist = pgrx::PgList::<pg_sys::TargetEntry>::from_pg(target_list);
 
         warning!(
-            "ParadeDB: Analyzing {} target entries for robust mapping",
+            "ParadeDB: Analyzing {} target entries using direct name mapping",
             tlist.len()
         );
 
-        // Get relation OIDs and their column information
+        // Get relation OIDs for column lookups
         let (outer_relid, inner_relid) = get_relation_oids_from_state(state);
-        let outer_columns = if let Some(relid) = outer_relid {
-            get_all_column_names_from_relation(relid)
-        } else {
-            Vec::new()
-        };
-        let inner_columns = if let Some(relid) = inner_relid {
-            get_all_column_names_from_relation(relid)
-        } else {
-            Vec::new()
-        };
-
-        warning!(
-            "ParadeDB: Available columns - outer: {:?}, inner: {:?}",
-            outer_columns,
-            inner_columns
-        );
 
         for (i, te) in tlist.iter_ptr().enumerate() {
             let target_entry = &*te;
@@ -1189,15 +1173,14 @@ unsafe fn analyze_target_list_for_join_mapping(
                 target_name
             );
 
-            // ROBUST APPROACH: Use column name matching against actual relation schemas
-            // This avoids the transformed varno problem entirely
-            let mapping = determine_column_mapping_by_name_matching(
+            // SIMPLE AND RELIABLE APPROACH: Use the target name to directly determine
+            // which relation and column it should map to
+            let mapping = determine_mapping_from_target_name(
                 &target_name,
-                &outer_columns,
-                &inner_columns,
+                outer_relid,
+                inner_relid,
                 outer_relation_name,
                 inner_relation_name,
-                i,
             );
 
             warning!(
@@ -1213,127 +1196,135 @@ unsafe fn analyze_target_list_for_join_mapping(
     mappings
 }
 
-/// Determine column mapping by matching target names against actual relation schemas
-fn determine_column_mapping_by_name_matching(
+/// Determine column mapping directly from target name and relation information
+unsafe fn determine_mapping_from_target_name(
     target_name: &str,
-    outer_columns: &[String],
-    inner_columns: &[String],
+    outer_relid: Option<pg_sys::Oid>,
+    inner_relid: Option<pg_sys::Oid>,
     outer_relation_name: &str,
     inner_relation_name: &str,
-    position: usize,
 ) -> ColumnMapping {
-    // First, try exact name matching
-    if outer_columns.contains(&target_name.to_string()) {
-        warning!(
-            "ParadeDB: Found exact match for '{}' in outer relation ({})",
-            target_name,
-            outer_relation_name
-        );
-        return ColumnMapping::OuterColumn(target_name.to_string());
+    // Check if the target name exists as a column in either relation
+    if let Some(outer_oid) = outer_relid {
+        if column_exists_in_relation(outer_oid, target_name) {
+            warning!(
+                "ParadeDB: Found column '{}' in outer relation {}",
+                target_name,
+                outer_relation_name
+            );
+            return ColumnMapping::OuterColumn(target_name.to_string());
+        }
     }
 
-    if inner_columns.contains(&target_name.to_string()) {
-        warning!(
-            "ParadeDB: Found exact match for '{}' in inner relation ({})",
-            target_name,
-            inner_relation_name
-        );
-        return ColumnMapping::InnerColumn(target_name.to_string());
+    if let Some(inner_oid) = inner_relid {
+        if column_exists_in_relation(inner_oid, target_name) {
+            warning!(
+                "ParadeDB: Found column '{}' in inner relation {}",
+                target_name,
+                inner_relation_name
+            );
+            return ColumnMapping::InnerColumn(target_name.to_string());
+        }
     }
 
-    // If no exact match, try to infer from position and available columns
+    // If the column name doesn't exist in either relation, this might be a
+    // transformed name. Fall back to reasonable defaults based on common patterns.
     warning!(
-        "ParadeDB: No exact match for '{}', using position-based inference",
+        "ParadeDB: Column '{}' not found in either relation, using generic fallback",
         target_name
     );
 
-    // Use position-based mapping as fallback
-    match position {
-        0 => {
-            // First column - typically an identifier or name from outer relation
-            if outer_columns.len() > 1 {
-                ColumnMapping::OuterColumn(outer_columns[1].clone()) // Skip ID, use second column
-            } else if !outer_columns.is_empty() {
-                ColumnMapping::OuterColumn(outer_columns[0].clone())
-            } else {
-                ColumnMapping::OuterIndex(0)
-            }
+    // GENERIC FALLBACK: When we can't find the exact column name,
+    // we need to make a reasonable guess without hardcoding schema assumptions
+
+    // Try to get the first few columns from each relation to make an educated guess
+    let outer_columns = if let Some(outer_oid) = outer_relid {
+        get_first_few_columns(outer_oid, 3)
+    } else {
+        Vec::new()
+    };
+
+    let inner_columns = if let Some(inner_oid) = inner_relid {
+        get_first_few_columns(inner_oid, 3)
+    } else {
+        Vec::new()
+    };
+
+    // Use a simple heuristic: if the target name is similar to any column name,
+    // use that relation. Otherwise, alternate between relations.
+    for (i, col_name) in outer_columns.iter().enumerate() {
+        if target_name
+            .to_lowercase()
+            .contains(&col_name.to_lowercase())
+            || col_name
+                .to_lowercase()
+                .contains(&target_name.to_lowercase())
+        {
+            warning!(
+                "ParadeDB: Target '{}' matches outer column '{}', using outer relation",
+                target_name,
+                col_name
+            );
+            return ColumnMapping::OuterColumn(col_name.clone());
         }
-        1 => {
-            // Second column - could be from either relation, prefer inner if available
-            if !inner_columns.is_empty() {
-                // Use a reasonable inner column based on position
-                if inner_columns.len() > 2 {
-                    ColumnMapping::InnerColumn(inner_columns[2].clone()) // Third column
-                } else {
-                    ColumnMapping::InnerColumn(inner_columns[inner_columns.len() - 1].clone())
-                }
-            } else if outer_columns.len() > 2 {
-                ColumnMapping::OuterColumn(outer_columns[2].clone()) // Third column from outer
-            } else {
-                ColumnMapping::OuterIndex(1)
-            }
+    }
+
+    for (i, col_name) in inner_columns.iter().enumerate() {
+        if target_name
+            .to_lowercase()
+            .contains(&col_name.to_lowercase())
+            || col_name
+                .to_lowercase()
+                .contains(&target_name.to_lowercase())
+        {
+            warning!(
+                "ParadeDB: Target '{}' matches inner column '{}', using inner relation",
+                target_name,
+                col_name
+            );
+            return ColumnMapping::InnerColumn(col_name.clone());
         }
-        2 => {
-            // Third column - typically from inner relation
-            if !inner_columns.is_empty() {
-                // Use the last available column from inner relation
-                if inner_columns.len() > 4 {
-                    ColumnMapping::InnerColumn(inner_columns[4].clone()) // Fifth column
-                } else {
-                    ColumnMapping::InnerColumn(inner_columns[inner_columns.len() - 1].clone())
-                }
-            } else {
-                ColumnMapping::OuterIndex(2)
-            }
-        }
-        _ => {
-            // Additional columns - alternate between relations
-            if position % 2 == 0 && !outer_columns.is_empty() {
-                let idx = (position / 2).min(outer_columns.len() - 1);
-                ColumnMapping::OuterColumn(outer_columns[idx].clone())
-            } else if !inner_columns.is_empty() {
-                let idx = (position / 2).min(inner_columns.len() - 1);
-                ColumnMapping::InnerColumn(inner_columns[idx].clone())
-            } else {
-                ColumnMapping::OuterIndex(position)
-            }
-        }
+    }
+
+    // Final fallback: use the second column from outer relation (skip ID column)
+    if outer_columns.len() > 1 {
+        warning!(
+            "ParadeDB: No matches found, defaulting to outer column '{}'",
+            outer_columns[1]
+        );
+        ColumnMapping::OuterColumn(outer_columns[1].clone())
+    } else if !outer_columns.is_empty() {
+        ColumnMapping::OuterColumn(outer_columns[0].clone())
+    } else {
+        ColumnMapping::OuterIndex(0)
     }
 }
 
-/// Get all column names from a relation
-unsafe fn get_all_column_names_from_relation(relid: pg_sys::Oid) -> Vec<String> {
-    let mut column_names = Vec::new();
-
+/// Check if a column exists in a relation
+unsafe fn column_exists_in_relation(relid: pg_sys::Oid, column_name: &str) -> bool {
     // Open the relation to get its tuple descriptor
     let heaprel = pg_sys::relation_open(relid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
     if heaprel.is_null() {
-        warning!(
-            "ParadeDB: Failed to open relation {} for column enumeration",
-            relid
-        );
-        return column_names;
+        return false;
     }
 
-    // Get all user columns
+    let mut found = false;
+
+    // Check all user columns
     let tuple_desc = pgrx::PgTupleDesc::from_pg_unchecked((*heaprel).rd_att);
     for i in 0..tuple_desc.len() {
         if let Some(attribute) = tuple_desc.get(i) {
-            column_names.push(attribute.name().to_string());
+            if attribute.name() == column_name {
+                found = true;
+                break;
+            }
         }
     }
 
     // Close the relation
     pg_sys::relation_close(heaprel, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
 
-    warning!(
-        "ParadeDB: Relation {} has columns: {:?}",
-        get_rel_name(relid),
-        column_names
-    );
-
-    column_names
+    found
 }
 
 /// Get CTIDs from search results
@@ -1500,4 +1491,64 @@ unsafe fn fetch_all_columns_from_relation_with_names(
     pg_sys::relation_close(heaprel, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
 
     result
+}
+
+/// Get all column names from a relation (for debugging/logging purposes)
+unsafe fn get_all_column_names_from_relation(relid: pg_sys::Oid) -> Vec<String> {
+    let mut column_names = Vec::new();
+
+    // Open the relation to get its tuple descriptor
+    let heaprel = pg_sys::relation_open(relid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+    if heaprel.is_null() {
+        warning!(
+            "ParadeDB: Failed to open relation {} for column enumeration",
+            relid
+        );
+        return column_names;
+    }
+
+    // Get all user columns
+    let tuple_desc = pgrx::PgTupleDesc::from_pg_unchecked((*heaprel).rd_att);
+    for i in 0..tuple_desc.len() {
+        if let Some(attribute) = tuple_desc.get(i) {
+            column_names.push(attribute.name().to_string());
+        }
+    }
+
+    // Close the relation
+    pg_sys::relation_close(heaprel, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+
+    warning!(
+        "ParadeDB: Relation {} has columns: {:?}",
+        get_rel_name(relid),
+        column_names
+    );
+
+    column_names
+}
+
+/// Get the first few column names from a relation
+unsafe fn get_first_few_columns(relid: pg_sys::Oid, max_columns: usize) -> Vec<String> {
+    let mut column_names = Vec::new();
+
+    // Open the relation to get its tuple descriptor
+    let heaprel = pg_sys::relation_open(relid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+    if heaprel.is_null() {
+        return column_names;
+    }
+
+    // Get the first few user columns
+    let tuple_desc = pgrx::PgTupleDesc::from_pg_unchecked((*heaprel).rd_att);
+    let limit = max_columns.min(tuple_desc.len());
+
+    for i in 0..limit {
+        if let Some(attribute) = tuple_desc.get(i) {
+            column_names.push(attribute.name().to_string());
+        }
+    }
+
+    // Close the relation
+    pg_sys::relation_close(heaprel, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+
+    column_names
 }

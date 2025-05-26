@@ -672,7 +672,25 @@ impl CustomScan for PdbScan {
                 builder.custom_state().sort_direction = None;
 
                 // Store the search predicates in the join execution state
-                let join_exec_state = JoinExecState::new(search_predicates);
+                let mut join_exec_state = JoinExecState::new(search_predicates);
+
+                // CRITICAL: Store the relation OIDs from private data
+                // This eliminates the need to infer missing relations during execution
+                if let Some(outer_relid) = builder.custom_private().join_outer_relid() {
+                    join_exec_state.outer_relid = outer_relid;
+                    pgrx::warning!(
+                        "ParadeDB: Stored outer relation OID: {}",
+                        crate::postgres::customscan::pdbscan::get_rel_name(outer_relid)
+                    );
+                }
+                if let Some(inner_relid) = builder.custom_private().join_inner_relid() {
+                    join_exec_state.inner_relid = inner_relid;
+                    pgrx::warning!(
+                        "ParadeDB: Stored inner relation OID: {}",
+                        crate::postgres::customscan::pdbscan::get_rel_name(inner_relid)
+                    );
+                }
+
                 builder.custom_state().join_exec_state = Some(join_exec_state);
 
                 return builder.build();

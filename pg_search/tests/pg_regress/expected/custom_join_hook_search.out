@@ -78,6 +78,8 @@ WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join con
 WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Outer predicate for products - uses_search: true
 WARNING:  ParadeDB: Inner predicate for reviews - uses_search: true
+WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["products"], inner: ["reviews"]
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["reviews"], inner relids: ["products"]
@@ -99,6 +101,8 @@ WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join con
 WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Outer predicate for reviews - uses_search: true
 WARNING:  ParadeDB: Inner predicate for products - uses_search: true
+WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["reviews"], inner: ["products"]
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
@@ -109,6 +113,8 @@ WARNING:  ParadeDB: Mapped join variable varno=2, varattno=4 to join_attr_3
 WARNING:  ParadeDB: Set custom scan target list for join node
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Stored outer relation OID: products
+WARNING:  ParadeDB: Stored inner relation OID: reviews
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
 WARNING:  ParadeDB: Using stored search predicates - outer: 1, inner: 1, bilateral: true
@@ -151,10 +157,9 @@ WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Processing join match [1/1] × [1/2]
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Getting relation OIDs - outer predicates: 1, inner predicates: 1
-WARNING:  ParadeDB: Outer relation: products
-WARNING:  ParadeDB: Inner relation: reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Fetching real heap tuple values from relations products and reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Detected relations from predicates - outer: 'products', inner: 'reviews'
 WARNING:  ParadeDB: Fetching all columns with names from relation products with CTID 1
 WARNING:  ParadeDB: products column 'id' = '1'
@@ -171,9 +176,7 @@ WARNING:  ParadeDB: reviews column 'rating' = '5'
 WARNING:  ParadeDB: Successfully fetched 5 columns from reviews relation
 WARNING:  ParadeDB: Fetched 4 columns from outer relation, 5 from inner relation
 WARNING:  ParadeDB: Analyzing 3 target entries using direct name mapping
-WARNING:  ParadeDB: Getting relation OIDs - outer predicates: 1, inner predicates: 1
-WARNING:  ParadeDB: Outer relation: products
-WARNING:  ParadeDB: Inner relation: reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Analyzing target entry 1 with name 'name'
 WARNING:  ParadeDB: Checking for column 'name' in relation products - found: true, available columns: ["id", "name", "description", "category"]
 WARNING:  ParadeDB: Found column 'name' in outer relation products
@@ -196,10 +199,9 @@ WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Processing join match [1/1] × [2/2]
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Getting relation OIDs - outer predicates: 1, inner predicates: 1
-WARNING:  ParadeDB: Outer relation: products
-WARNING:  ParadeDB: Inner relation: reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Fetching real heap tuple values from relations products and reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Detected relations from predicates - outer: 'products', inner: 'reviews'
 WARNING:  ParadeDB: Fetching all columns with names from relation products with CTID 1
 WARNING:  ParadeDB: products column 'id' = '1'
@@ -216,9 +218,7 @@ WARNING:  ParadeDB: reviews column 'rating' = '4'
 WARNING:  ParadeDB: Successfully fetched 5 columns from reviews relation
 WARNING:  ParadeDB: Fetched 4 columns from outer relation, 5 from inner relation
 WARNING:  ParadeDB: Analyzing 3 target entries using direct name mapping
-WARNING:  ParadeDB: Getting relation OIDs - outer predicates: 1, inner predicates: 1
-WARNING:  ParadeDB: Outer relation: products
-WARNING:  ParadeDB: Inner relation: reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Analyzing target entry 1 with name 'name'
 WARNING:  ParadeDB: Checking for column 'name' in relation products - found: true, available columns: ["id", "name", "description", "category"]
 WARNING:  ParadeDB: Found column 'name' in outer relation products
@@ -275,6 +275,8 @@ WARNING:  ParadeDB: Extracted search query for products: uses_search_operator=tr
 WARNING:  ParadeDB: Extracted 1 outer predicates, 0 inner predicates, 0 join conditions
 WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 0, bilateral: false
 WARNING:  ParadeDB: Outer predicate for products - uses_search: true
+WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["products"], inner: ["reviews"]
 WARNING:  ParadeDB: Join path estimates - rows: 2, startup_cost: 100.00, total_cost: 100.02
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["reviews"], inner relids: ["products"]
@@ -292,6 +294,8 @@ WARNING:  ParadeDB: Extracted search query for products: uses_search_operator=tr
 WARNING:  ParadeDB: Extracted 0 outer predicates, 1 inner predicates, 0 join conditions
 WARNING:  ParadeDB: Found search predicates - outer: 0, inner: 1, bilateral: false
 WARNING:  ParadeDB: Inner predicate for products - uses_search: true
+WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["reviews"], inner: ["products"]
 WARNING:  ParadeDB: Join path estimates - rows: 2, startup_cost: 100.00, total_cost: 100.02
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
@@ -302,6 +306,8 @@ WARNING:  ParadeDB: Mapped join variable varno=2, varattno=5 to join_attr_3
 WARNING:  ParadeDB: Set custom scan target list for join node
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 0, bilateral: false
+WARNING:  ParadeDB: Stored outer relation OID: products
+WARNING:  ParadeDB: Stored inner relation OID: reviews
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
 WARNING:  ParadeDB: Using stored search predicates - outer: 1, inner: 0, bilateral: false
@@ -339,37 +345,26 @@ WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Processing join match [1/3] × [1/1]
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Getting relation OIDs - outer predicates: 1, inner predicates: 0
-WARNING:  ParadeDB: Outer relation: products
-WARNING:  ParadeDB: No inner relation found
-WARNING:  ParadeDB: Trying to infer missing relation, known relation: products
-WARNING:  ParadeDB: Found relation 'reviews'
-WARNING:  ParadeDB: Found reviews table for products join
-WARNING:  ParadeDB: Enhanced inner relation detection: reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Fetching real heap tuple values from relations products and reviews
-WARNING:  ParadeDB: Detected relations from predicates - outer: 'products', inner: 'unknown_inner'
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Detected relations from predicates - outer: 'products', inner: 'reviews'
 WARNING:  ParadeDB: Fetching all columns with names from relation products with CTID 1
 WARNING:  ParadeDB: products column 'id' = '1'
 WARNING:  ParadeDB: products column 'name' = 'Laptop Pro'
 WARNING:  ParadeDB: products column 'description' = 'High-performance laptop with advanced features for professionals'
 WARNING:  ParadeDB: products column 'category' = 'Electronics'
 WARNING:  ParadeDB: Successfully fetched 4 columns from products relation
-WARNING:  ParadeDB: Fetching all columns with names from relation unknown_inner with CTID 1
-WARNING:  ParadeDB: unknown_inner column 'id' = '1'
-WARNING:  ParadeDB: unknown_inner column 'product_id' = '1'
-WARNING:  ParadeDB: unknown_inner column 'reviewer_name' = 'John Doe'
-WARNING:  ParadeDB: unknown_inner column 'review_text' = 'Excellent laptop with amazing performance and battery life'
-WARNING:  ParadeDB: unknown_inner column 'rating' = '5'
-WARNING:  ParadeDB: Successfully fetched 5 columns from unknown_inner relation
+WARNING:  ParadeDB: Fetching all columns with names from relation reviews with CTID 1
+WARNING:  ParadeDB: reviews column 'id' = '1'
+WARNING:  ParadeDB: reviews column 'product_id' = '1'
+WARNING:  ParadeDB: reviews column 'reviewer_name' = 'John Doe'
+WARNING:  ParadeDB: reviews column 'review_text' = 'Excellent laptop with amazing performance and battery life'
+WARNING:  ParadeDB: reviews column 'rating' = '5'
+WARNING:  ParadeDB: Successfully fetched 5 columns from reviews relation
 WARNING:  ParadeDB: Fetched 4 columns from outer relation, 5 from inner relation
 WARNING:  ParadeDB: Analyzing 3 target entries using direct name mapping
-WARNING:  ParadeDB: Getting relation OIDs - outer predicates: 1, inner predicates: 0
-WARNING:  ParadeDB: Outer relation: products
-WARNING:  ParadeDB: No inner relation found
-WARNING:  ParadeDB: Trying to infer missing relation, known relation: products
-WARNING:  ParadeDB: Found relation 'reviews'
-WARNING:  ParadeDB: Found reviews table for products join
-WARNING:  ParadeDB: Enhanced inner relation detection: reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Analyzing target entry 1 with name 'name'
 WARNING:  ParadeDB: Checking for column 'name' in relation products - found: true, available columns: ["id", "name", "description", "category"]
 WARNING:  ParadeDB: Found column 'name' in outer relation products
@@ -377,12 +372,12 @@ WARNING:  ParadeDB: Target entry 1 ('name') mapped to: OuterColumn("name")
 WARNING:  ParadeDB: Analyzing target entry 2 with name 'reviewer_name'
 WARNING:  ParadeDB: Checking for column 'reviewer_name' in relation products - found: false, available columns: ["id", "name", "description", "category"]
 WARNING:  ParadeDB: Checking for column 'reviewer_name' in relation reviews - found: true, available columns: ["id", "product_id", "reviewer_name", "review_text", "rating"]
-WARNING:  ParadeDB: Found column 'reviewer_name' in inner relation unknown_inner
+WARNING:  ParadeDB: Found column 'reviewer_name' in inner relation reviews
 WARNING:  ParadeDB: Target entry 2 ('reviewer_name') mapped to: InnerColumn("reviewer_name")
 WARNING:  ParadeDB: Analyzing target entry 3 with name 'rating'
 WARNING:  ParadeDB: Checking for column 'rating' in relation products - found: false, available columns: ["id", "name", "description", "category"]
 WARNING:  ParadeDB: Checking for column 'rating' in relation reviews - found: true, available columns: ["id", "product_id", "reviewer_name", "review_text", "rating"]
-WARNING:  ParadeDB: Found column 'rating' in inner relation unknown_inner
+WARNING:  ParadeDB: Found column 'rating' in inner relation reviews
 WARNING:  ParadeDB: Target entry 3 ('rating') mapped to: InnerColumn("rating")
 WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Laptop Pro"), Some("John Doe"), Some("5")]
 WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Laptop Pro"), Some("John Doe"), Some("5")]
@@ -393,37 +388,26 @@ WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Processing join match [2/3] × [1/1]
 WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[0]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Getting relation OIDs - outer predicates: 1, inner predicates: 0
-WARNING:  ParadeDB: Outer relation: products
-WARNING:  ParadeDB: No inner relation found
-WARNING:  ParadeDB: Trying to infer missing relation, known relation: products
-WARNING:  ParadeDB: Found relation 'reviews'
-WARNING:  ParadeDB: Found reviews table for products join
-WARNING:  ParadeDB: Enhanced inner relation detection: reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Fetching real heap tuple values from relations products and reviews
-WARNING:  ParadeDB: Detected relations from predicates - outer: 'products', inner: 'unknown_inner'
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Detected relations from predicates - outer: 'products', inner: 'reviews'
 WARNING:  ParadeDB: Fetching all columns with names from relation products with CTID 2
 WARNING:  ParadeDB: products column 'id' = '2'
 WARNING:  ParadeDB: products column 'name' = 'Wireless Mouse'
 WARNING:  ParadeDB: products column 'description' = 'Ergonomic wireless mouse with precision tracking'
 WARNING:  ParadeDB: products column 'category' = 'Electronics'
 WARNING:  ParadeDB: Successfully fetched 4 columns from products relation
-WARNING:  ParadeDB: Fetching all columns with names from relation unknown_inner with CTID 1
-WARNING:  ParadeDB: unknown_inner column 'id' = '1'
-WARNING:  ParadeDB: unknown_inner column 'product_id' = '1'
-WARNING:  ParadeDB: unknown_inner column 'reviewer_name' = 'John Doe'
-WARNING:  ParadeDB: unknown_inner column 'review_text' = 'Excellent laptop with amazing performance and battery life'
-WARNING:  ParadeDB: unknown_inner column 'rating' = '5'
-WARNING:  ParadeDB: Successfully fetched 5 columns from unknown_inner relation
+WARNING:  ParadeDB: Fetching all columns with names from relation reviews with CTID 1
+WARNING:  ParadeDB: reviews column 'id' = '1'
+WARNING:  ParadeDB: reviews column 'product_id' = '1'
+WARNING:  ParadeDB: reviews column 'reviewer_name' = 'John Doe'
+WARNING:  ParadeDB: reviews column 'review_text' = 'Excellent laptop with amazing performance and battery life'
+WARNING:  ParadeDB: reviews column 'rating' = '5'
+WARNING:  ParadeDB: Successfully fetched 5 columns from reviews relation
 WARNING:  ParadeDB: Fetched 4 columns from outer relation, 5 from inner relation
 WARNING:  ParadeDB: Analyzing 3 target entries using direct name mapping
-WARNING:  ParadeDB: Getting relation OIDs - outer predicates: 1, inner predicates: 0
-WARNING:  ParadeDB: Outer relation: products
-WARNING:  ParadeDB: No inner relation found
-WARNING:  ParadeDB: Trying to infer missing relation, known relation: products
-WARNING:  ParadeDB: Found relation 'reviews'
-WARNING:  ParadeDB: Found reviews table for products join
-WARNING:  ParadeDB: Enhanced inner relation detection: reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Analyzing target entry 1 with name 'name'
 WARNING:  ParadeDB: Checking for column 'name' in relation products - found: true, available columns: ["id", "name", "description", "category"]
 WARNING:  ParadeDB: Found column 'name' in outer relation products
@@ -431,12 +415,12 @@ WARNING:  ParadeDB: Target entry 1 ('name') mapped to: OuterColumn("name")
 WARNING:  ParadeDB: Analyzing target entry 2 with name 'reviewer_name'
 WARNING:  ParadeDB: Checking for column 'reviewer_name' in relation products - found: false, available columns: ["id", "name", "description", "category"]
 WARNING:  ParadeDB: Checking for column 'reviewer_name' in relation reviews - found: true, available columns: ["id", "product_id", "reviewer_name", "review_text", "rating"]
-WARNING:  ParadeDB: Found column 'reviewer_name' in inner relation unknown_inner
+WARNING:  ParadeDB: Found column 'reviewer_name' in inner relation reviews
 WARNING:  ParadeDB: Target entry 2 ('reviewer_name') mapped to: InnerColumn("reviewer_name")
 WARNING:  ParadeDB: Analyzing target entry 3 with name 'rating'
 WARNING:  ParadeDB: Checking for column 'rating' in relation products - found: false, available columns: ["id", "name", "description", "category"]
 WARNING:  ParadeDB: Checking for column 'rating' in relation reviews - found: true, available columns: ["id", "product_id", "reviewer_name", "review_text", "rating"]
-WARNING:  ParadeDB: Found column 'rating' in inner relation unknown_inner
+WARNING:  ParadeDB: Found column 'rating' in inner relation reviews
 WARNING:  ParadeDB: Target entry 3 ('rating') mapped to: InnerColumn("rating")
 WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Wireless Mouse"), Some("John Doe"), Some("5")]
 WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Wireless Mouse"), Some("John Doe"), Some("5")]
@@ -447,37 +431,26 @@ WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Processing join match [3/3] × [1/1]
 WARNING:  ParadeDB: Creating join result tuple for outer[2], inner[0]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Getting relation OIDs - outer predicates: 1, inner predicates: 0
-WARNING:  ParadeDB: Outer relation: products
-WARNING:  ParadeDB: No inner relation found
-WARNING:  ParadeDB: Trying to infer missing relation, known relation: products
-WARNING:  ParadeDB: Found relation 'reviews'
-WARNING:  ParadeDB: Found reviews table for products join
-WARNING:  ParadeDB: Enhanced inner relation detection: reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Fetching real heap tuple values from relations products and reviews
-WARNING:  ParadeDB: Detected relations from predicates - outer: 'products', inner: 'unknown_inner'
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Detected relations from predicates - outer: 'products', inner: 'reviews'
 WARNING:  ParadeDB: Fetching all columns with names from relation products with CTID 5
 WARNING:  ParadeDB: products column 'id' = '5'
 WARNING:  ParadeDB: products column 'name' = 'Smartphone X'
 WARNING:  ParadeDB: products column 'description' = 'Latest smartphone with cutting-edge technology'
 WARNING:  ParadeDB: products column 'category' = 'Electronics'
 WARNING:  ParadeDB: Successfully fetched 4 columns from products relation
-WARNING:  ParadeDB: Fetching all columns with names from relation unknown_inner with CTID 1
-WARNING:  ParadeDB: unknown_inner column 'id' = '1'
-WARNING:  ParadeDB: unknown_inner column 'product_id' = '1'
-WARNING:  ParadeDB: unknown_inner column 'reviewer_name' = 'John Doe'
-WARNING:  ParadeDB: unknown_inner column 'review_text' = 'Excellent laptop with amazing performance and battery life'
-WARNING:  ParadeDB: unknown_inner column 'rating' = '5'
-WARNING:  ParadeDB: Successfully fetched 5 columns from unknown_inner relation
+WARNING:  ParadeDB: Fetching all columns with names from relation reviews with CTID 1
+WARNING:  ParadeDB: reviews column 'id' = '1'
+WARNING:  ParadeDB: reviews column 'product_id' = '1'
+WARNING:  ParadeDB: reviews column 'reviewer_name' = 'John Doe'
+WARNING:  ParadeDB: reviews column 'review_text' = 'Excellent laptop with amazing performance and battery life'
+WARNING:  ParadeDB: reviews column 'rating' = '5'
+WARNING:  ParadeDB: Successfully fetched 5 columns from reviews relation
 WARNING:  ParadeDB: Fetched 4 columns from outer relation, 5 from inner relation
 WARNING:  ParadeDB: Analyzing 3 target entries using direct name mapping
-WARNING:  ParadeDB: Getting relation OIDs - outer predicates: 1, inner predicates: 0
-WARNING:  ParadeDB: Outer relation: products
-WARNING:  ParadeDB: No inner relation found
-WARNING:  ParadeDB: Trying to infer missing relation, known relation: products
-WARNING:  ParadeDB: Found relation 'reviews'
-WARNING:  ParadeDB: Found reviews table for products join
-WARNING:  ParadeDB: Enhanced inner relation detection: reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Analyzing target entry 1 with name 'name'
 WARNING:  ParadeDB: Checking for column 'name' in relation products - found: true, available columns: ["id", "name", "description", "category"]
 WARNING:  ParadeDB: Found column 'name' in outer relation products
@@ -485,12 +458,12 @@ WARNING:  ParadeDB: Target entry 1 ('name') mapped to: OuterColumn("name")
 WARNING:  ParadeDB: Analyzing target entry 2 with name 'reviewer_name'
 WARNING:  ParadeDB: Checking for column 'reviewer_name' in relation products - found: false, available columns: ["id", "name", "description", "category"]
 WARNING:  ParadeDB: Checking for column 'reviewer_name' in relation reviews - found: true, available columns: ["id", "product_id", "reviewer_name", "review_text", "rating"]
-WARNING:  ParadeDB: Found column 'reviewer_name' in inner relation unknown_inner
+WARNING:  ParadeDB: Found column 'reviewer_name' in inner relation reviews
 WARNING:  ParadeDB: Target entry 2 ('reviewer_name') mapped to: InnerColumn("reviewer_name")
 WARNING:  ParadeDB: Analyzing target entry 3 with name 'rating'
 WARNING:  ParadeDB: Checking for column 'rating' in relation products - found: false, available columns: ["id", "name", "description", "category"]
 WARNING:  ParadeDB: Checking for column 'rating' in relation reviews - found: true, available columns: ["id", "product_id", "reviewer_name", "review_text", "rating"]
-WARNING:  ParadeDB: Found column 'rating' in inner relation unknown_inner
+WARNING:  ParadeDB: Found column 'rating' in inner relation reviews
 WARNING:  ParadeDB: Target entry 3 ('rating') mapped to: InnerColumn("rating")
 WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Smartphone X"), Some("John Doe"), Some("5")]
 WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Smartphone X"), Some("John Doe"), Some("5")]
@@ -539,6 +512,8 @@ WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join con
 WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Outer predicate for products - uses_search: true
 WARNING:  ParadeDB: Inner predicate for reviews - uses_search: true
+WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["products"], inner: ["reviews"]
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["reviews"], inner relids: ["products"]
@@ -560,6 +535,8 @@ WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join con
 WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Outer predicate for reviews - uses_search: true
 WARNING:  ParadeDB: Inner predicate for products - uses_search: true
+WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["reviews"], inner: ["products"]
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
@@ -570,6 +547,8 @@ WARNING:  ParadeDB: Mapped join variable varno=2, varattno=4 to join_attr_3
 WARNING:  ParadeDB: Set custom scan target list for join node
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Stored outer relation OID: products
+WARNING:  ParadeDB: Stored inner relation OID: reviews
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
 WARNING:  ParadeDB: Using stored search predicates - outer: 1, inner: 1, bilateral: true
@@ -612,10 +591,9 @@ WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Processing join match [1/2] × [1/3]
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Getting relation OIDs - outer predicates: 1, inner predicates: 1
-WARNING:  ParadeDB: Outer relation: products
-WARNING:  ParadeDB: Inner relation: reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Fetching real heap tuple values from relations products and reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Detected relations from predicates - outer: 'products', inner: 'reviews'
 WARNING:  ParadeDB: Fetching all columns with names from relation products with CTID 2
 WARNING:  ParadeDB: products column 'id' = '2'
@@ -632,9 +610,7 @@ WARNING:  ParadeDB: reviews column 'rating' = '5'
 WARNING:  ParadeDB: Successfully fetched 5 columns from reviews relation
 WARNING:  ParadeDB: Fetched 4 columns from outer relation, 5 from inner relation
 WARNING:  ParadeDB: Analyzing 3 target entries using direct name mapping
-WARNING:  ParadeDB: Getting relation OIDs - outer predicates: 1, inner predicates: 1
-WARNING:  ParadeDB: Outer relation: products
-WARNING:  ParadeDB: Inner relation: reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Analyzing target entry 1 with name 'name'
 WARNING:  ParadeDB: Checking for column 'name' in relation products - found: true, available columns: ["id", "name", "description", "category"]
 WARNING:  ParadeDB: Found column 'name' in outer relation products
@@ -656,10 +632,9 @@ WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Processing join match [1/2] × [2/3]
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Getting relation OIDs - outer predicates: 1, inner predicates: 1
-WARNING:  ParadeDB: Outer relation: products
-WARNING:  ParadeDB: Inner relation: reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Fetching real heap tuple values from relations products and reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Detected relations from predicates - outer: 'products', inner: 'reviews'
 WARNING:  ParadeDB: Fetching all columns with names from relation products with CTID 2
 WARNING:  ParadeDB: products column 'id' = '2'
@@ -676,9 +651,7 @@ WARNING:  ParadeDB: reviews column 'rating' = '5'
 WARNING:  ParadeDB: Successfully fetched 5 columns from reviews relation
 WARNING:  ParadeDB: Fetched 4 columns from outer relation, 5 from inner relation
 WARNING:  ParadeDB: Analyzing 3 target entries using direct name mapping
-WARNING:  ParadeDB: Getting relation OIDs - outer predicates: 1, inner predicates: 1
-WARNING:  ParadeDB: Outer relation: products
-WARNING:  ParadeDB: Inner relation: reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Analyzing target entry 1 with name 'name'
 WARNING:  ParadeDB: Checking for column 'name' in relation products - found: true, available columns: ["id", "name", "description", "category"]
 WARNING:  ParadeDB: Found column 'name' in outer relation products
@@ -700,10 +673,9 @@ WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Processing join match [1/2] × [3/3]
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[2]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Getting relation OIDs - outer predicates: 1, inner predicates: 1
-WARNING:  ParadeDB: Outer relation: products
-WARNING:  ParadeDB: Inner relation: reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Fetching real heap tuple values from relations products and reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Detected relations from predicates - outer: 'products', inner: 'reviews'
 WARNING:  ParadeDB: Fetching all columns with names from relation products with CTID 2
 WARNING:  ParadeDB: products column 'id' = '2'
@@ -720,9 +692,7 @@ WARNING:  ParadeDB: reviews column 'rating' = '5'
 WARNING:  ParadeDB: Successfully fetched 5 columns from reviews relation
 WARNING:  ParadeDB: Fetched 4 columns from outer relation, 5 from inner relation
 WARNING:  ParadeDB: Analyzing 3 target entries using direct name mapping
-WARNING:  ParadeDB: Getting relation OIDs - outer predicates: 1, inner predicates: 1
-WARNING:  ParadeDB: Outer relation: products
-WARNING:  ParadeDB: Inner relation: reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Analyzing target entry 1 with name 'name'
 WARNING:  ParadeDB: Checking for column 'name' in relation products - found: true, available columns: ["id", "name", "description", "category"]
 WARNING:  ParadeDB: Found column 'name' in outer relation products
@@ -745,10 +715,9 @@ WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Processing join match [2/2] × [1/3]
 WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[0]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Getting relation OIDs - outer predicates: 1, inner predicates: 1
-WARNING:  ParadeDB: Outer relation: products
-WARNING:  ParadeDB: Inner relation: reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Fetching real heap tuple values from relations products and reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Detected relations from predicates - outer: 'products', inner: 'reviews'
 WARNING:  ParadeDB: Fetching all columns with names from relation products with CTID 5
 WARNING:  ParadeDB: products column 'id' = '5'
@@ -765,9 +734,7 @@ WARNING:  ParadeDB: reviews column 'rating' = '5'
 WARNING:  ParadeDB: Successfully fetched 5 columns from reviews relation
 WARNING:  ParadeDB: Fetched 4 columns from outer relation, 5 from inner relation
 WARNING:  ParadeDB: Analyzing 3 target entries using direct name mapping
-WARNING:  ParadeDB: Getting relation OIDs - outer predicates: 1, inner predicates: 1
-WARNING:  ParadeDB: Outer relation: products
-WARNING:  ParadeDB: Inner relation: reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Analyzing target entry 1 with name 'name'
 WARNING:  ParadeDB: Checking for column 'name' in relation products - found: true, available columns: ["id", "name", "description", "category"]
 WARNING:  ParadeDB: Found column 'name' in outer relation products
@@ -789,10 +756,9 @@ WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Processing join match [2/2] × [2/3]
 WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Getting relation OIDs - outer predicates: 1, inner predicates: 1
-WARNING:  ParadeDB: Outer relation: products
-WARNING:  ParadeDB: Inner relation: reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Fetching real heap tuple values from relations products and reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Detected relations from predicates - outer: 'products', inner: 'reviews'
 WARNING:  ParadeDB: Fetching all columns with names from relation products with CTID 5
 WARNING:  ParadeDB: products column 'id' = '5'
@@ -809,9 +775,7 @@ WARNING:  ParadeDB: reviews column 'rating' = '5'
 WARNING:  ParadeDB: Successfully fetched 5 columns from reviews relation
 WARNING:  ParadeDB: Fetched 4 columns from outer relation, 5 from inner relation
 WARNING:  ParadeDB: Analyzing 3 target entries using direct name mapping
-WARNING:  ParadeDB: Getting relation OIDs - outer predicates: 1, inner predicates: 1
-WARNING:  ParadeDB: Outer relation: products
-WARNING:  ParadeDB: Inner relation: reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Analyzing target entry 1 with name 'name'
 WARNING:  ParadeDB: Checking for column 'name' in relation products - found: true, available columns: ["id", "name", "description", "category"]
 WARNING:  ParadeDB: Found column 'name' in outer relation products
@@ -833,10 +797,9 @@ WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Processing join match [2/2] × [3/3]
 WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[2]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Getting relation OIDs - outer predicates: 1, inner predicates: 1
-WARNING:  ParadeDB: Outer relation: products
-WARNING:  ParadeDB: Inner relation: reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Fetching real heap tuple values from relations products and reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Detected relations from predicates - outer: 'products', inner: 'reviews'
 WARNING:  ParadeDB: Fetching all columns with names from relation products with CTID 5
 WARNING:  ParadeDB: products column 'id' = '5'
@@ -853,9 +816,7 @@ WARNING:  ParadeDB: reviews column 'rating' = '5'
 WARNING:  ParadeDB: Successfully fetched 5 columns from reviews relation
 WARNING:  ParadeDB: Fetched 4 columns from outer relation, 5 from inner relation
 WARNING:  ParadeDB: Analyzing 3 target entries using direct name mapping
-WARNING:  ParadeDB: Getting relation OIDs - outer predicates: 1, inner predicates: 1
-WARNING:  ParadeDB: Outer relation: products
-WARNING:  ParadeDB: Inner relation: reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Analyzing target entry 1 with name 'name'
 WARNING:  ParadeDB: Checking for column 'name' in relation products - found: true, available columns: ["id", "name", "description", "category"]
 WARNING:  ParadeDB: Found column 'name' in outer relation products
@@ -919,6 +880,8 @@ WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join con
 WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Outer predicate for products - uses_search: true
 WARNING:  ParadeDB: Inner predicate for reviews - uses_search: false
+WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["products"], inner: ["reviews"]
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["reviews"], inner relids: ["products"]
@@ -940,6 +903,8 @@ WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join con
 WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Outer predicate for reviews - uses_search: false
 WARNING:  ParadeDB: Inner predicate for products - uses_search: true
+WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["reviews"], inner: ["products"]
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
@@ -950,6 +915,8 @@ WARNING:  ParadeDB: Mapped join variable varno=2, varattno=5 to join_attr_3
 WARNING:  ParadeDB: Set custom scan target list for join node
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Stored outer relation OID: products
+WARNING:  ParadeDB: Stored inner relation OID: reviews
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
 WARNING:  ParadeDB: Using stored search predicates - outer: 1, inner: 1, bilateral: true
@@ -987,10 +954,9 @@ WARNING:  ParadeDB: Matching and returning next tuple
 WARNING:  ParadeDB: Processing join match [1/1] × [1/1]
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Getting relation OIDs - outer predicates: 1, inner predicates: 1
-WARNING:  ParadeDB: Outer relation: products
-WARNING:  ParadeDB: Inner relation: reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Fetching real heap tuple values from relations products and reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Detected relations from predicates - outer: 'products', inner: 'reviews'
 WARNING:  ParadeDB: Fetching all columns with names from relation products with CTID 1
 WARNING:  ParadeDB: products column 'id' = '1'
@@ -1007,9 +973,7 @@ WARNING:  ParadeDB: reviews column 'rating' = '5'
 WARNING:  ParadeDB: Successfully fetched 5 columns from reviews relation
 WARNING:  ParadeDB: Fetched 4 columns from outer relation, 5 from inner relation
 WARNING:  ParadeDB: Analyzing 3 target entries using direct name mapping
-WARNING:  ParadeDB: Getting relation OIDs - outer predicates: 1, inner predicates: 1
-WARNING:  ParadeDB: Outer relation: products
-WARNING:  ParadeDB: Inner relation: reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Analyzing target entry 1 with name 'name'
 WARNING:  ParadeDB: Checking for column 'name' in relation products - found: true, available columns: ["id", "name", "description", "category"]
 WARNING:  ParadeDB: Found column 'name' in outer relation products
@@ -1067,8 +1031,7 @@ WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join con
 WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Outer predicate for products - uses_search: false
 WARNING:  ParadeDB: Inner predicate for reviews - uses_search: false
-WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Skipping custom join - no search operators found (outer: false, inner: false)
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["reviews"], inner relids: ["products"]
 WARNING:  ParadeDB: Checking relation reviews (rti 2) for BM25 index
 WARNING:  ParadeDB: Found BM25 index for relation reviews
@@ -1086,8 +1049,7 @@ WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join con
 WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Outer predicate for reviews - uses_search: false
 WARNING:  ParadeDB: Inner predicate for products - uses_search: false
-WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Skipping custom join - no search operators found (outer: false, inner: false)
     name    | reviewer_name 
 ------------+---------------
  Laptop Pro | John Doe

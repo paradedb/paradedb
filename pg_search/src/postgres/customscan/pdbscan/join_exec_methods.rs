@@ -902,13 +902,46 @@ unsafe fn create_join_result_tuple(
 fn get_relation_oids_from_state(
     state: &mut CustomScanStateWrapper<PdbScan>,
 ) -> (Option<pg_sys::Oid>, Option<pg_sys::Oid>) {
+    // FIRST: Try to get relation OIDs from the join execution state
+    // These were stored during scan state creation from the private data
+    if let Some(ref join_state) = state.custom_state().join_exec_state {
+        let outer_relid = if join_state.outer_relid != pg_sys::InvalidOid {
+            Some(join_state.outer_relid)
+        } else {
+            None
+        };
+        let inner_relid = if join_state.inner_relid != pg_sys::InvalidOid {
+            Some(join_state.inner_relid)
+        } else {
+            None
+        };
+
+        if outer_relid.is_some() || inner_relid.is_some() {
+            warning!(
+                "ParadeDB: Using stored relation OIDs from join state - outer: {}, inner: {}",
+                outer_relid
+                    .map(|oid| unsafe { get_rel_name(oid) })
+                    .unwrap_or_else(|| "None".to_string()),
+                inner_relid
+                    .map(|oid| unsafe { get_rel_name(oid) })
+                    .unwrap_or_else(|| "None".to_string())
+            );
+            return (outer_relid, inner_relid);
+        }
+    }
+
+    // FALLBACK: Try to get from search predicates (for backward compatibility)
+    warning!(
+        "ParadeDB: No stored relation OIDs found in join state, falling back to search predicates"
+    );
+
     if let Some(ref join_state) = state.custom_state().join_exec_state {
         if let Some(ref predicates) = join_state.search_predicates {
             let outer_relid = predicates.outer_predicates.first().map(|p| p.relid);
             let inner_relid = predicates.inner_predicates.first().map(|p| p.relid);
 
             warning!(
-                "ParadeDB: Getting relation OIDs - outer predicates: {}, inner predicates: {}",
+                "ParadeDB: Getting relation OIDs from predicates - outer predicates: {}, inner predicates: {}",
                 predicates.outer_predicates.len(),
                 predicates.inner_predicates.len()
             );
@@ -918,7 +951,7 @@ fn get_relation_oids_from_state(
                     get_rel_name(outer_oid)
                 });
             } else {
-                warning!("ParadeDB: No outer relation found");
+                warning!("ParadeDB: No outer relation found in predicates");
             }
 
             if let Some(inner_oid) = inner_relid {
@@ -926,44 +959,13 @@ fn get_relation_oids_from_state(
                     get_rel_name(inner_oid)
                 });
             } else {
-                warning!("ParadeDB: No inner relation found");
+                warning!("ParadeDB: No inner relation found in predicates");
             }
 
-            // ENHANCEMENT: If we don't have both relation OIDs from search predicates,
-            // try to get them from all predicates (including non-search ones)
-            let final_outer_relid = outer_relid.or_else(|| {
-                // Try to get from any predicate
-                predicates
-                    .outer_predicates
-                    .first()
-                    .or_else(|| predicates.inner_predicates.first())
-                    .map(|p| p.relid)
-            });
-
-            let final_inner_relid = inner_relid.or_else(|| {
-                // Look for a different relation OID than the outer one
-                let outer_oid = final_outer_relid.unwrap_or(pg_sys::InvalidOid);
-                predicates
-                    .outer_predicates
-                    .iter()
-                    .chain(predicates.inner_predicates.iter())
-                    .find(|p| p.relid != outer_oid)
-                    .map(|p| p.relid)
-                    .or_else(|| {
-                        // If still not found, try to infer from relation names
-                        // This is a fallback for cases where we have join conditions
-                        // but the predicates don't capture all relations
-                        unsafe { infer_missing_relation_oid(outer_oid) }
-                    })
-            });
-
-            if final_inner_relid.is_some() && final_inner_relid != inner_relid {
-                warning!("ParadeDB: Enhanced inner relation detection: {}", unsafe {
-                    get_rel_name(final_inner_relid.unwrap())
-                });
-            }
-
-            (final_outer_relid, final_inner_relid)
+            // For unilateral joins, we might only have one relation in predicates
+            // In this case, we should NOT try to infer the missing relation
+            // Instead, we should handle the unilateral case properly
+            (outer_relid, inner_relid)
         } else {
             warning!("ParadeDB: No search predicates found in join state");
             (None, None)
@@ -971,58 +973,6 @@ fn get_relation_oids_from_state(
     } else {
         warning!("ParadeDB: No join execution state found");
         (None, None)
-    }
-}
-
-/// Try to infer the missing relation OID by looking for common join patterns
-unsafe fn infer_missing_relation_oid(known_relid: pg_sys::Oid) -> Option<pg_sys::Oid> {
-    if known_relid == pg_sys::InvalidOid {
-        return None;
-    }
-
-    let known_name = get_rel_name(known_relid);
-    warning!(
-        "ParadeDB: Trying to infer missing relation, known relation: {}",
-        known_name
-    );
-
-    // QUICK FIX: For the products/reviews join pattern, try to find the other table
-    if known_name == "products" {
-        // Try to find the reviews table
-        if let Some(reviews_oid) = find_relation_by_name("reviews") {
-            warning!("ParadeDB: Found reviews table for products join");
-            return Some(reviews_oid);
-        }
-    } else if known_name == "reviews" {
-        // Try to find the products table
-        if let Some(products_oid) = find_relation_by_name("products") {
-            warning!("ParadeDB: Found products table for reviews join");
-            return Some(products_oid);
-        }
-    }
-
-    None
-}
-
-/// Find a relation OID by name (for the current database)
-unsafe fn find_relation_by_name(relation_name: &str) -> Option<pg_sys::Oid> {
-    // Use PostgreSQL's system catalog to find the relation by name
-    let relation_name_cstr = std::ffi::CString::new(relation_name).ok()?;
-
-    // Look up the relation in the current namespace
-    let namespace_oid = pg_sys::get_namespace_oid(c"public".as_ptr(), false);
-    if namespace_oid == pg_sys::InvalidOid {
-        warning!("ParadeDB: Could not find public namespace");
-        return None;
-    }
-
-    let relid = pg_sys::get_relname_relid(relation_name_cstr.as_ptr(), namespace_oid);
-    if relid == pg_sys::InvalidOid {
-        warning!("ParadeDB: Could not find relation '{}'", relation_name);
-        None
-    } else {
-        warning!("ParadeDB: Found relation '{}'", relation_name);
-        Some(relid)
     }
 }
 
@@ -1148,22 +1098,22 @@ enum ColumnMapping {
 fn get_relation_names_from_predicates(
     state: &mut CustomScanStateWrapper<PdbScan>,
 ) -> (String, String) {
-    if let Some(ref join_state) = state.custom_state().join_exec_state {
-        if let Some(ref predicates) = join_state.search_predicates {
-            let outer_name = predicates
-                .outer_predicates
-                .first()
-                .map(|p| p.relname.clone())
-                .unwrap_or_else(|| "unknown_outer".to_string());
-            let inner_name = predicates
-                .inner_predicates
-                .first()
-                .map(|p| p.relname.clone())
-                .unwrap_or_else(|| "unknown_inner".to_string());
-            return (outer_name, inner_name);
-        }
-    }
-    ("unknown_outer".to_string(), "unknown_inner".to_string())
+    // Use the same enhanced logic as get_relation_oids_from_state
+    let (outer_relid, inner_relid) = get_relation_oids_from_state(state);
+
+    let outer_name = if let Some(oid) = outer_relid {
+        unsafe { get_rel_name(oid) }
+    } else {
+        "unknown_outer".to_string()
+    };
+
+    let inner_name = if let Some(oid) = inner_relid {
+        unsafe { get_rel_name(oid) }
+    } else {
+        "unknown_inner".to_string()
+    };
+
+    (outer_name, inner_name)
 }
 
 /// Analyze the target list to create intelligent column mapping

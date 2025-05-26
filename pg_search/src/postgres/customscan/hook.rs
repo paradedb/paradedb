@@ -237,8 +237,34 @@ pub extern "C-unwind" fn paradedb_join_pathlist_callback<CS: CustomScan>(
                     pred.uses_search_operator
                 );
             }
+
+            // Check: ensure at least one side actually uses the search operator
+            let outer_has_search = predicates
+                .outer_predicates
+                .iter()
+                .any(|p| p.uses_search_operator);
+            let inner_has_search = predicates
+                .inner_predicates
+                .iter()
+                .any(|p| p.uses_search_operator);
+
+            if !outer_has_search && !inner_has_search {
+                warning!(
+                    "ParadeDB: Skipping custom join - no search operators found (outer: {}, inner: {})",
+                    outer_has_search,
+                    inner_has_search
+                );
+                return;
+            }
+
+            if predicates.has_bilateral_search() {
+                warning!("ParadeDB: Bilateral search detected - proceeding with custom join path");
+            } else {
+                warning!("ParadeDB: Unilateral search detected - proceeding with custom join path");
+            }
         } else {
-            warning!("ParadeDB: No search predicates found in join");
+            warning!("ParadeDB: No search predicates found in join - skipping custom join");
+            return;
         }
 
         // Create custom join path
@@ -328,6 +354,31 @@ unsafe fn create_search_join_path<CS: CustomScan>(
     let private_data = unsafe { &mut *(builder.custom_private() as *mut _ as *mut PrivateData) };
     private_data.set_join_search_predicates(search_predicates.cloned());
 
+    // CRITICAL: Store the relation OIDs from the join structure
+    // This eliminates the need to infer missing relations during execution
+    let outer_relids = extract_relation_oids_from_reloptinfo(root, outerrel);
+    let inner_relids = extract_relation_oids_from_reloptinfo(root, innerrel);
+
+    warning!(
+        "ParadeDB: Storing join relation OIDs - outer: {:?}, inner: {:?}",
+        outer_relids
+            .iter()
+            .map(|oid| get_rel_name(*oid))
+            .collect::<Vec<_>>(),
+        inner_relids
+            .iter()
+            .map(|oid| get_rel_name(*oid))
+            .collect::<Vec<_>>()
+    );
+
+    // Store the first relation OID from each side (for base relations, there should be only one)
+    if let Some(outer_oid) = outer_relids.first() {
+        private_data.set_join_outer_relid(*outer_oid);
+    }
+    if let Some(inner_oid) = inner_relids.first() {
+        private_data.set_join_inner_relid(*inner_oid);
+    }
+
     // Set basic cost estimates for the join
     // For now, use simple heuristics - this will be refined in later milestones
     let outer_rows = (*outerrel).rows;
@@ -366,4 +417,21 @@ unsafe fn create_search_join_path<CS: CustomScan>(
         .copy_ptr_into(&mut custom_path, std::mem::size_of_val(&custom_path));
 
     Some(path_ptr)
+}
+
+/// Extract relation OIDs from a RelOptInfo structure
+unsafe fn extract_relation_oids_from_reloptinfo(
+    root: *mut pg_sys::PlannerInfo,
+    rel: *mut pg_sys::RelOptInfo,
+) -> Vec<pg_sys::Oid> {
+    let mut relids = Vec::new();
+
+    for rti in bms_iter((*rel).relids) {
+        let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
+        if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
+            relids.push((*rte).relid);
+        }
+    }
+
+    relids
 }

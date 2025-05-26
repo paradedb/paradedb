@@ -46,6 +46,12 @@ pub struct PrivateData {
 
     /// Join search predicates for custom join execution
     join_search_predicates: Option<JoinSearchPredicates>,
+
+    /// Outer relation OID for join execution
+    join_outer_relid: Option<pg_sys::Oid>,
+
+    /// Inner relation OID for join execution
+    join_inner_relid: Option<pg_sys::Oid>,
 }
 
 mod var_attname_lookup_serializer {
@@ -213,6 +219,14 @@ impl PrivateData {
     ) {
         self.join_search_predicates = join_search_predicates;
     }
+
+    pub fn set_join_outer_relid(&mut self, oid: pg_sys::Oid) {
+        self.join_outer_relid = Some(oid);
+    }
+
+    pub fn set_join_inner_relid(&mut self, oid: pg_sys::Oid) {
+        self.join_inner_relid = Some(oid);
+    }
 }
 
 //
@@ -289,5 +303,13 @@ impl PrivateData {
         // For now, return false as a default
         // This can be enhanced later to check if scores are needed based on the query
         false
+    }
+
+    pub fn join_outer_relid(&self) -> Option<pg_sys::Oid> {
+        self.join_outer_relid
+    }
+
+    pub fn join_inner_relid(&self) -> Option<pg_sys::Oid> {
+        self.join_inner_relid
     }
 }

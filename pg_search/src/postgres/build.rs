@@ -148,12 +148,10 @@ fn do_heap_scan<'a>(
             &mut state,
         );
 
-
         state
             .writer
             .commit()
             .unwrap_or_else(|e| panic!("failed to commit new tantivy index: {e}"));
-
 
         // store number of segments created in metadata
         let reader = SearchIndexReader::open(index_relation, MvccSatisfies::Snapshot)

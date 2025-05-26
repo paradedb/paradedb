@@ -445,22 +445,19 @@ unsafe fn garbage_collect_index(indexrel: &PgRelation, fsm: &mut LinkedItemList<
     // Replication is not enabled: immediately free the entries. It doesn't matter when we
     // commit the segment metas list in this case.
     segment_metas.commit(fsm);
-    free_entries(indexrel, entries);
+    free_entries(indexrel, entries, fsm);
 }
 
-pub fn free_entries(indexrel: &PgRelation, freeable_entries: Vec<SegmentMetaEntry>) {
-    let metadata = unsafe { MetaPage::open(indexrel.oid()) };
-    let mut fsm = metadata.fsm();
+pub fn free_entries(
+    indexrel: &PgRelation,
+    freeable_entries: Vec<SegmentMetaEntry>,
+    fsm: &mut LinkedItemList<FreeBlockNumber>,
+) {
     for entry in freeable_entries {
         for (file_entry, _) in entry.file_entries() {
             unsafe {
-                LinkedBytesList::open(indexrel.oid(), file_entry.starting_block)
-                    .return_to_fsm(&mut fsm);
+                LinkedBytesList::open(indexrel.oid(), file_entry.starting_block).return_to_fsm(fsm);
             }
         }
-    }
-
-    unsafe {
-        pg_sys::IndexFreeSpaceMapVacuum(indexrel.as_ptr());
     }
 }

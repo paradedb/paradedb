@@ -285,10 +285,8 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             self.bman.get_buffer_exchange_mut(start_blockno, buffer)
         };
 
-
         for item in items {
             let PgItem(pg_item, size) = item.clone().into();
-
 
             'append_loop: loop {
                 let mut page = buffer.page_mut();

@@ -16,8 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::HashMap;
-use crate::postgres::storage::block::{bm25_max_free_space, BM25PageSpecialData, PgItem, FIXED_BLOCK_NUMBERS};
-use crate::postgres::storage::metadata::fsm;
+use crate::postgres::storage::block::{
+    bm25_max_free_space, BM25PageSpecialData, PgItem, FIXED_BLOCK_NUMBERS,
+};
 use parking_lot::Mutex;
 use pgrx::pg_sys;
 use pgrx::pg_sys::OffsetNumber;
@@ -104,7 +105,9 @@ impl BM25BufferCache {
     pub unsafe fn new_buffer(&self) -> pg_sys::Buffer {
         // let num_blocks = pg_sys::RelationGetNumberOfBlocksInFork(self.indexrel, pg_sys::ForkNumber::MAIN_FORKNUM);
         // if num_blocks > *FIXED_BLOCK_NUMBERS.iter().max().unwrap() {
+        //     pgrx::info!("num_blocks {:?}", num_blocks);
         //     let mut fsm = fsm((*self.indexrel).rd_id);
+        //     pgrx::info!("got fsm");
         //     if let Some((blockno, _)) = fsm.pop() {
         //         // Try to reuse a recyclable page
         //         return self.get_buffer(blockno.into(), Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));

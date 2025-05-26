@@ -213,9 +213,9 @@ impl MetaPageMut {
 }
 
 /// Helper function that makes accessing the FSM easier
-pub unsafe fn fsm(relation_oid: pg_sys::Oid) -> LinkedItemList<FreeBlockNumber> {
-    MetaPage::open(relation_oid).fsm()
-}
+// pub unsafe fn fsm(relation_oid: pg_sys::Oid) -> LinkedItemList<FreeBlockNumber> {
+//     MetaPage::open(relation_oid).fsm()
+// }
 
 #[inline(always)]
 fn new_buffer_and_init_page(relation_oid: pg_sys::Oid) -> pg_sys::BlockNumber {

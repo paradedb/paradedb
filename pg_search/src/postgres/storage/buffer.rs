@@ -101,22 +101,6 @@ impl BufferMut {
     pub fn page_size(&self) -> pg_sys::Size {
         self.inner.page_size()
     }
-
-    /// Return this [`BufferMut`] instance back to Postgres' Free Space Map, making
-    /// it available for future reuse as a new buffer.
-    ///
-    /// It's the caller's responsibility to later call [`pg_sys::IndexFreeSpaceMapVacuum`]
-    /// if necessary.
-    pub fn return_to_fsm(mut self, bman: &mut BufferManager) {
-        unsafe {
-            let blockno = self.page_mut().mark_deleted();
-            debug_assert!(
-                FIXED_BLOCK_NUMBERS.iter().all(|fb| *fb != blockno),
-                "record_free_index_page: blockno {blockno} cannot ever be recycled"
-            );
-            pg_sys::RecordPageWithFreeSpace(bman.bcache.indexrel(), blockno, bm25_max_free_space());
-        }
-    }
 }
 
 #[derive(Debug)]

@@ -23,7 +23,10 @@ impl From<FreeBlockNumber> for PgItem {
         let bytes = val.0.to_ne_bytes();
         let ptr = unsafe { pg_sys::palloc(bytes.len()) } as *mut i8;
         unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr() as *const i8, ptr, bytes.len()) };
-        PgItem(ptr as pg_sys::Item, std::mem::size_of::<pg_sys::BlockNumber>())
+        PgItem(
+            ptr as pg_sys::Item,
+            std::mem::size_of::<pg_sys::BlockNumber>(),
+        )
     }
 }
 

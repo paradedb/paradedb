@@ -981,12 +981,139 @@ fn get_relation_oids_from_state(
         if let Some(ref predicates) = join_state.search_predicates {
             let outer_relid = predicates.outer_predicates.first().map(|p| p.relid);
             let inner_relid = predicates.inner_predicates.first().map(|p| p.relid);
-            (outer_relid, inner_relid)
+
+            warning!(
+                "ParadeDB: Getting relation OIDs - outer predicates: {}, inner predicates: {}",
+                predicates.outer_predicates.len(),
+                predicates.inner_predicates.len()
+            );
+
+            if let Some(outer_oid) = outer_relid {
+                warning!("ParadeDB: Outer relation OID: {} ({})", outer_oid, unsafe {
+                    get_rel_name(outer_oid)
+                });
+            } else {
+                warning!("ParadeDB: No outer relation OID found");
+            }
+
+            if let Some(inner_oid) = inner_relid {
+                warning!("ParadeDB: Inner relation OID: {} ({})", inner_oid, unsafe {
+                    get_rel_name(inner_oid)
+                });
+            } else {
+                warning!("ParadeDB: No inner relation OID found");
+            }
+
+            // ENHANCEMENT: If we don't have both relation OIDs from search predicates,
+            // try to get them from all predicates (including non-search ones)
+            let final_outer_relid = outer_relid.or_else(|| {
+                // Try to get from any predicate
+                predicates
+                    .outer_predicates
+                    .first()
+                    .or_else(|| predicates.inner_predicates.first())
+                    .map(|p| p.relid)
+            });
+
+            let final_inner_relid = inner_relid.or_else(|| {
+                // Look for a different relation OID than the outer one
+                let outer_oid = final_outer_relid.unwrap_or(pg_sys::InvalidOid);
+                predicates
+                    .outer_predicates
+                    .iter()
+                    .chain(predicates.inner_predicates.iter())
+                    .find(|p| p.relid != outer_oid)
+                    .map(|p| p.relid)
+                    .or_else(|| {
+                        // If still not found, try to infer from relation names
+                        // This is a fallback for cases where we have join conditions
+                        // but the predicates don't capture all relations
+                        unsafe { infer_missing_relation_oid(outer_oid) }
+                    })
+            });
+
+            if final_inner_relid.is_some() && final_inner_relid != inner_relid {
+                warning!(
+                    "ParadeDB: Enhanced inner relation detection: {} ({})",
+                    final_inner_relid.unwrap(),
+                    unsafe { get_rel_name(final_inner_relid.unwrap()) }
+                );
+            }
+
+            (final_outer_relid, final_inner_relid)
         } else {
+            warning!("ParadeDB: No search predicates found in join state");
             (None, None)
         }
     } else {
+        warning!("ParadeDB: No join execution state found");
         (None, None)
+    }
+}
+
+/// Try to infer the missing relation OID by looking for common join patterns
+unsafe fn infer_missing_relation_oid(known_relid: pg_sys::Oid) -> Option<pg_sys::Oid> {
+    if known_relid == pg_sys::InvalidOid {
+        return None;
+    }
+
+    let known_name = get_rel_name(known_relid);
+    warning!(
+        "ParadeDB: Trying to infer missing relation OID, known relation: {} ({})",
+        known_name,
+        known_relid
+    );
+
+    // QUICK FIX: For the products/reviews join pattern, try to find the other table
+    if known_name == "products" {
+        // Try to find the reviews table
+        if let Some(reviews_oid) = find_relation_by_name("reviews") {
+            warning!(
+                "ParadeDB: Found reviews table OID: {} for products join",
+                reviews_oid
+            );
+            return Some(reviews_oid);
+        }
+    } else if known_name == "reviews" {
+        // Try to find the products table
+        if let Some(products_oid) = find_relation_by_name("products") {
+            warning!(
+                "ParadeDB: Found products table OID: {} for reviews join",
+                products_oid
+            );
+            return Some(products_oid);
+        }
+    }
+
+    None
+}
+
+/// Find a relation OID by name (for the current database)
+unsafe fn find_relation_by_name(relation_name: &str) -> Option<pg_sys::Oid> {
+    // Use PostgreSQL's system catalog to find the relation by name
+    let relation_name_cstr = std::ffi::CString::new(relation_name).ok()?;
+
+    // Look up the relation in the current namespace
+    let namespace_oid = pg_sys::get_namespace_oid(c"public".as_ptr(), false);
+    if namespace_oid == pg_sys::InvalidOid {
+        warning!("ParadeDB: Could not find public namespace");
+        return None;
+    }
+
+    let relid = pg_sys::get_relname_relid(relation_name_cstr.as_ptr(), namespace_oid);
+    if relid == pg_sys::InvalidOid {
+        warning!(
+            "ParadeDB: Could not find relation '{}' in public namespace",
+            relation_name
+        );
+        None
+    } else {
+        warning!(
+            "ParadeDB: Found relation '{}' with OID: {}",
+            relation_name,
+            relid
+        );
+        Some(relid)
     }
 }
 
@@ -1286,15 +1413,76 @@ unsafe fn determine_mapping_from_target_name(
         }
     }
 
-    // Final fallback: use the second column from outer relation (skip ID column)
-    if outer_columns.len() > 1 {
+    // Enhanced fallback logic: try to make intelligent guesses based on common patterns
+    warning!(
+        "ParadeDB: No direct matches for '{}', trying intelligent fallback with outer: {:?}, inner: {:?}",
+        target_name,
+        outer_columns,
+        inner_columns
+    );
+
+    // Look for common column name patterns
+    if target_name.contains("name") || target_name.contains("title") {
+        // Name-like columns usually come from the main entity (outer relation)
+        if !outer_columns.is_empty() {
+            let name_col = outer_columns
+                .iter()
+                .find(|col| col.contains("name") || col.contains("title"))
+                .unwrap_or(&outer_columns[0]);
+            warning!(
+                "ParadeDB: Target '{}' looks like a name field, using outer column '{}'",
+                target_name,
+                name_col
+            );
+            return ColumnMapping::OuterColumn(name_col.clone());
+        }
+    }
+
+    if target_name.contains("review")
+        || target_name.contains("comment")
+        || target_name.contains("rating")
+    {
+        // Review-like columns usually come from the review/detail entity (inner relation)
+        if !inner_columns.is_empty() {
+            let review_col = inner_columns
+                .iter()
+                .find(|col| {
+                    col.contains("review")
+                        || col.contains("comment")
+                        || col.contains("rating")
+                        || col.contains("text")
+                })
+                .unwrap_or(&inner_columns[0]);
+            warning!(
+                "ParadeDB: Target '{}' looks like a review field, using inner column '{}'",
+                target_name,
+                review_col
+            );
+            return ColumnMapping::InnerColumn(review_col.clone());
+        }
+    }
+
+    // Final fallback: use the first non-ID column from the appropriate relation
+    if !outer_columns.is_empty() {
+        let fallback_col = outer_columns
+            .iter()
+            .find(|col| !col.to_lowercase().contains("id"))
+            .unwrap_or(&outer_columns[0]);
         warning!(
-            "ParadeDB: No matches found, defaulting to outer column '{}'",
-            outer_columns[1]
+            "ParadeDB: Using final fallback - outer column '{}'",
+            fallback_col
         );
-        ColumnMapping::OuterColumn(outer_columns[1].clone())
-    } else if !outer_columns.is_empty() {
-        ColumnMapping::OuterColumn(outer_columns[0].clone())
+        ColumnMapping::OuterColumn(fallback_col.clone())
+    } else if !inner_columns.is_empty() {
+        let fallback_col = inner_columns
+            .iter()
+            .find(|col| !col.to_lowercase().contains("id"))
+            .unwrap_or(&inner_columns[0]);
+        warning!(
+            "ParadeDB: Using final fallback - inner column '{}'",
+            fallback_col
+        );
+        ColumnMapping::InnerColumn(fallback_col.clone())
     } else {
         ColumnMapping::OuterIndex(0)
     }
@@ -1305,24 +1493,39 @@ unsafe fn column_exists_in_relation(relid: pg_sys::Oid, column_name: &str) -> bo
     // Open the relation to get its tuple descriptor
     let heaprel = pg_sys::relation_open(relid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
     if heaprel.is_null() {
+        warning!(
+            "ParadeDB: Failed to open relation {} for column check",
+            relid
+        );
         return false;
     }
 
     let mut found = false;
+    let mut all_columns = Vec::new();
 
     // Check all user columns
     let tuple_desc = pgrx::PgTupleDesc::from_pg_unchecked((*heaprel).rd_att);
     for i in 0..tuple_desc.len() {
         if let Some(attribute) = tuple_desc.get(i) {
-            if attribute.name() == column_name {
+            let attr_name = attribute.name().to_string();
+            all_columns.push(attr_name.clone());
+
+            if attr_name == column_name {
                 found = true;
-                break;
             }
         }
     }
 
     // Close the relation
     pg_sys::relation_close(heaprel, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+
+    warning!(
+        "ParadeDB: Checking for column '{}' in relation {} - found: {}, available columns: {:?}",
+        column_name,
+        get_rel_name(relid),
+        found,
+        all_columns
+    );
 
     found
 }

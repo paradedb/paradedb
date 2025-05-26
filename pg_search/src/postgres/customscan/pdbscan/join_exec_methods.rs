@@ -646,9 +646,8 @@ unsafe fn execute_real_searches(
                 if let Some(search_reader) = join_state.search_readers.get(&predicate.relid) {
                     let relation_name = get_rel_name(predicate.relid);
                     warning!(
-                        "ParadeDB: Executing search on inner relation {} ({})",
-                        relation_name,
-                        predicate.relid
+                        "ParadeDB: Executing search on inner relation {}",
+                        relation_name
                     );
 
                     let search_start = std::time::Instant::now();
@@ -1003,11 +1002,9 @@ unsafe fn fetch_real_join_column_values(
     let fetch_start = std::time::Instant::now();
 
     warning!(
-        "ParadeDB: Fetching real heap tuple values for CTIDs {} and {} from relations {:?} and {:?}",
-        outer_ctid,
-        inner_ctid,
-        outer_relid,
-        inner_relid
+        "ParadeDB: Fetching real heap tuple values from relations {:?} and {:?}",
+        get_rel_name(outer_relid.unwrap_or(pg_sys::InvalidOid)),
+        get_rel_name(inner_relid.unwrap_or(pg_sys::InvalidOid))
     );
 
     // Update fetch attempt statistics
@@ -1151,78 +1148,64 @@ unsafe fn analyze_target_list_for_join_mapping(
         let tlist = pgrx::PgList::<pg_sys::TargetEntry>::from_pg(target_list);
 
         warning!(
-            "ParadeDB: Analyzing {} target entries for intelligent mapping",
+            "ParadeDB: Analyzing {} target entries for robust mapping",
             tlist.len()
+        );
+
+        // Get relation OIDs and their column information
+        let (outer_relid, inner_relid) = get_relation_oids_from_state(state);
+        let outer_columns = if let Some(relid) = outer_relid {
+            get_all_column_names_from_relation(relid)
+        } else {
+            Vec::new()
+        };
+        let inner_columns = if let Some(relid) = inner_relid {
+            get_all_column_names_from_relation(relid)
+        } else {
+            Vec::new()
+        };
+
+        warning!(
+            "ParadeDB: Available columns - outer: {:?}, inner: {:?}",
+            outer_columns,
+            inner_columns
         );
 
         for (i, te) in tlist.iter_ptr().enumerate() {
             let target_entry = &*te;
 
-            // Try to determine what this target entry represents
-            let mapping = if let Some(var) = extract_var_from_target_entry(target_entry) {
-                let varattno = (*var).varattno;
-
-                warning!(
-                    "ParadeDB: Target entry {} has varattno={}, analyzing...",
-                    i + 1,
-                    varattno
-                );
-
-                // Smart mapping based on common SQL patterns and attribute numbers
-                match (i, varattno) {
-                    // First column is typically the primary identifier/name from outer relation
-                    (0, _) => {
-                        if outer_relation_name.contains("product") {
-                            ColumnMapping::OuterColumn("name".to_string())
-                        } else {
-                            ColumnMapping::OuterIndex(1) // Skip ID, get name
-                        }
-                    }
-                    // Second column depends on the query pattern
-                    (1, _) => {
-                        // Analyze the query pattern to determine if this should be from inner or outer
-                        if should_use_inner_relation_for_second_column(
-                            state,
-                            outer_relation_name,
-                            inner_relation_name,
-                        ) {
-                            if inner_relation_name.contains("review") {
-                                ColumnMapping::InnerColumn("reviewer_name".to_string())
-                            } else {
-                                ColumnMapping::InnerIndex(2)
-                            }
-                        } else {
-                            // Use outer relation (e.g., for p.name, p.description pattern)
-                            ColumnMapping::OuterColumn("description".to_string())
-                        }
-                    }
-                    // Third column is typically from inner relation
-                    (2, _) => {
-                        if inner_relation_name.contains("review") {
-                            ColumnMapping::InnerColumn("review_text".to_string())
-                        } else {
-                            ColumnMapping::InnerIndex(3)
-                        }
-                    }
-                    // Additional columns alternate
-                    _ => {
-                        if i % 2 == 0 {
-                            ColumnMapping::OuterIndex(i / 2 + 1)
-                        } else {
-                            ColumnMapping::InnerIndex(i / 2 + 1)
-                        }
-                    }
-                }
+            // Get the target entry name if available
+            let target_name = if !target_entry.resname.is_null() {
+                std::ffi::CStr::from_ptr(target_entry.resname)
+                    .to_string_lossy()
+                    .to_string()
             } else {
-                // Fallback for non-Var expressions
-                if i % 2 == 0 {
-                    ColumnMapping::OuterIndex(i / 2 + 1)
-                } else {
-                    ColumnMapping::InnerIndex(i / 2 + 1)
-                }
+                format!("col_{}", i + 1)
             };
 
-            warning!("ParadeDB: Target entry {} mapped to: {:?}", i + 1, mapping);
+            warning!(
+                "ParadeDB: Analyzing target entry {} with name '{}'",
+                i + 1,
+                target_name
+            );
+
+            // ROBUST APPROACH: Use column name matching against actual relation schemas
+            // This avoids the transformed varno problem entirely
+            let mapping = determine_column_mapping_by_name_matching(
+                &target_name,
+                &outer_columns,
+                &inner_columns,
+                outer_relation_name,
+                inner_relation_name,
+                i,
+            );
+
+            warning!(
+                "ParadeDB: Target entry {} ('{}') mapped to: {:?}",
+                i + 1,
+                target_name,
+                mapping
+            );
             mappings.push(mapping);
         }
     }
@@ -1230,35 +1213,175 @@ unsafe fn analyze_target_list_for_join_mapping(
     mappings
 }
 
-/// Determine if the second column should come from inner relation
-fn should_use_inner_relation_for_second_column(
-    state: &mut CustomScanStateWrapper<PdbScan>,
+/// Determine column mapping by matching target names against actual relation schemas
+fn determine_column_mapping_by_name_matching(
+    target_name: &str,
+    outer_columns: &[String],
+    inner_columns: &[String],
     outer_relation_name: &str,
     inner_relation_name: &str,
-) -> bool {
-    // Analyze the target list length and relation types to make intelligent decisions
-    let target_list_len = state.custom_state().targetlist_len;
+    position: usize,
+) -> ColumnMapping {
+    // First, try exact name matching
+    if outer_columns.contains(&target_name.to_string()) {
+        warning!(
+            "ParadeDB: Found exact match for '{}' in outer relation ({})",
+            target_name,
+            outer_relation_name
+        );
+        return ColumnMapping::OuterColumn(target_name.to_string());
+    }
 
-    // For 2-column queries, second column is typically from inner relation
-    // For 3+ column queries, it depends on the pattern
-    match target_list_len {
-        2 => true, // p.name, r.reviewer_name
-        3 => {
-            // Could be p.name, r.reviewer_name, r.review_text
-            // OR p.name, p.description, r.review_text
-            // Use heuristic: if both relations have search predicates, likely the first pattern
-            if let Some(ref join_state) = state.custom_state().join_exec_state {
-                if let Some(ref predicates) = join_state.search_predicates {
-                    predicates.has_bilateral_search()
-                } else {
-                    true
-                }
+    if inner_columns.contains(&target_name.to_string()) {
+        warning!(
+            "ParadeDB: Found exact match for '{}' in inner relation ({})",
+            target_name,
+            inner_relation_name
+        );
+        return ColumnMapping::InnerColumn(target_name.to_string());
+    }
+
+    // If no exact match, try to infer from position and available columns
+    warning!(
+        "ParadeDB: No exact match for '{}', using position-based inference",
+        target_name
+    );
+
+    // Use position-based mapping as fallback
+    match position {
+        0 => {
+            // First column - typically an identifier or name from outer relation
+            if outer_columns.len() > 1 {
+                ColumnMapping::OuterColumn(outer_columns[1].clone()) // Skip ID, use second column
+            } else if !outer_columns.is_empty() {
+                ColumnMapping::OuterColumn(outer_columns[0].clone())
             } else {
-                true
+                ColumnMapping::OuterIndex(0)
             }
         }
-        _ => true,
+        1 => {
+            // Second column - could be from either relation, prefer inner if available
+            if !inner_columns.is_empty() {
+                // Use a reasonable inner column based on position
+                if inner_columns.len() > 2 {
+                    ColumnMapping::InnerColumn(inner_columns[2].clone()) // Third column
+                } else {
+                    ColumnMapping::InnerColumn(inner_columns[inner_columns.len() - 1].clone())
+                }
+            } else if outer_columns.len() > 2 {
+                ColumnMapping::OuterColumn(outer_columns[2].clone()) // Third column from outer
+            } else {
+                ColumnMapping::OuterIndex(1)
+            }
+        }
+        2 => {
+            // Third column - typically from inner relation
+            if !inner_columns.is_empty() {
+                // Use the last available column from inner relation
+                if inner_columns.len() > 4 {
+                    ColumnMapping::InnerColumn(inner_columns[4].clone()) // Fifth column
+                } else {
+                    ColumnMapping::InnerColumn(inner_columns[inner_columns.len() - 1].clone())
+                }
+            } else {
+                ColumnMapping::OuterIndex(2)
+            }
+        }
+        _ => {
+            // Additional columns - alternate between relations
+            if position % 2 == 0 && !outer_columns.is_empty() {
+                let idx = (position / 2).min(outer_columns.len() - 1);
+                ColumnMapping::OuterColumn(outer_columns[idx].clone())
+            } else if !inner_columns.is_empty() {
+                let idx = (position / 2).min(inner_columns.len() - 1);
+                ColumnMapping::InnerColumn(inner_columns[idx].clone())
+            } else {
+                ColumnMapping::OuterIndex(position)
+            }
+        }
     }
+}
+
+/// Get all column names from a relation
+unsafe fn get_all_column_names_from_relation(relid: pg_sys::Oid) -> Vec<String> {
+    let mut column_names = Vec::new();
+
+    // Open the relation to get its tuple descriptor
+    let heaprel = pg_sys::relation_open(relid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+    if heaprel.is_null() {
+        warning!(
+            "ParadeDB: Failed to open relation {} for column enumeration",
+            relid
+        );
+        return column_names;
+    }
+
+    // Get all user columns
+    let tuple_desc = pgrx::PgTupleDesc::from_pg_unchecked((*heaprel).rd_att);
+    for i in 0..tuple_desc.len() {
+        if let Some(attribute) = tuple_desc.get(i) {
+            column_names.push(attribute.name().to_string());
+        }
+    }
+
+    // Close the relation
+    pg_sys::relation_close(heaprel, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+
+    warning!(
+        "ParadeDB: Relation {} has columns: {:?}",
+        get_rel_name(relid),
+        column_names
+    );
+
+    column_names
+}
+
+/// Get CTIDs from search results
+fn get_ctids_from_results(
+    state: &mut CustomScanStateWrapper<PdbScan>,
+    outer_pos: usize,
+    inner_pos: usize,
+) -> (u64, u64) {
+    if let Some(ref join_state) = state.custom_state().join_exec_state {
+        let outer_ctid = join_state
+            .outer_results
+            .as_ref()
+            .and_then(|results| results.get(outer_pos))
+            .map(|(ctid, _)| *ctid)
+            .unwrap_or(outer_pos as u64 + 1);
+
+        let inner_ctid = join_state
+            .inner_results
+            .as_ref()
+            .and_then(|results| results.get(inner_pos))
+            .map(|(ctid, _)| *ctid)
+            .unwrap_or(inner_pos as u64 + 1);
+
+        (outer_ctid, inner_ctid)
+    } else {
+        (outer_pos as u64 + 1, inner_pos as u64 + 1)
+    }
+}
+
+/// Extract a Var node from a target entry
+unsafe fn extract_var_from_target_entry(
+    target_entry: &pg_sys::TargetEntry,
+) -> Option<*mut pg_sys::Var> {
+    let expr = target_entry.expr;
+
+    // Try direct Var
+    if let Some(var) = crate::nodecast!(Var, T_Var, expr) {
+        return Some(var);
+    }
+
+    // Try RelabelType wrapping a Var
+    if let Some(relabel) = crate::nodecast!(RelabelType, T_RelabelType, expr) {
+        if let Some(var) = crate::nodecast!(Var, T_Var, (*relabel).arg) {
+            return Some(var);
+        }
+    }
+
+    None
 }
 
 /// Find a column value by name in the fetched columns
@@ -1276,9 +1399,8 @@ unsafe fn fetch_all_columns_from_relation_with_names(
     relation_name: &str,
 ) -> Vec<(String, String)> {
     warning!(
-        "ParadeDB: Fetching all columns with names from relation {} ({}) with CTID {}",
+        "ParadeDB: Fetching all columns with names from relation {} with CTID {}",
         relation_name,
-        relid,
         ctid
     );
 
@@ -1378,52 +1500,4 @@ unsafe fn fetch_all_columns_from_relation_with_names(
     pg_sys::relation_close(heaprel, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
 
     result
-}
-
-/// Get CTIDs from search results
-fn get_ctids_from_results(
-    state: &mut CustomScanStateWrapper<PdbScan>,
-    outer_pos: usize,
-    inner_pos: usize,
-) -> (u64, u64) {
-    if let Some(ref join_state) = state.custom_state().join_exec_state {
-        let outer_ctid = join_state
-            .outer_results
-            .as_ref()
-            .and_then(|results| results.get(outer_pos))
-            .map(|(ctid, _)| *ctid)
-            .unwrap_or(outer_pos as u64 + 1);
-
-        let inner_ctid = join_state
-            .inner_results
-            .as_ref()
-            .and_then(|results| results.get(inner_pos))
-            .map(|(ctid, _)| *ctid)
-            .unwrap_or(inner_pos as u64 + 1);
-
-        (outer_ctid, inner_ctid)
-    } else {
-        (outer_pos as u64 + 1, inner_pos as u64 + 1)
-    }
-}
-
-/// Extract a Var node from a target entry
-unsafe fn extract_var_from_target_entry(
-    target_entry: &pg_sys::TargetEntry,
-) -> Option<*mut pg_sys::Var> {
-    let expr = target_entry.expr;
-
-    // Try direct Var
-    if let Some(var) = crate::nodecast!(Var, T_Var, expr) {
-        return Some(var);
-    }
-
-    // Try RelabelType wrapping a Var
-    if let Some(relabel) = crate::nodecast!(RelabelType, T_RelabelType, expr) {
-        if let Some(var) = crate::nodecast!(Var, T_Var, (*relabel).arg) {
-            return Some(var);
-        }
-    }
-
-    None
 }

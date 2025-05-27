@@ -1,6 +1,8 @@
 use crate::postgres::storage::block::{
     bm25_max_free_space, BM25PageSpecialData, PgItem, FIXED_BLOCK_NUMBERS,
 };
+use crate::postgres::storage::fsm::FreeBlockNumber;
+use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
 use pgrx::pg_sys;
 
@@ -109,12 +111,10 @@ impl BufferMut {
     /// if necessary.
     pub fn return_to_fsm(mut self, bman: &mut BufferManager) {
         unsafe {
-            let blockno = self.page_mut().mark_deleted();
-            debug_assert!(
-                FIXED_BLOCK_NUMBERS.iter().all(|fb| *fb != blockno),
-                "record_free_index_page: blockno {blockno} cannot ever be recycled"
-            );
-            pg_sys::RecordPageWithFreeSpace(bman.bcache.indexrel(), blockno, bm25_max_free_space());
+            let metadata = MetaPage::open(bman.relation_oid());
+            let mut fsm = metadata.fsm();
+            let blockno = self.inner.number();
+            fsm.add_items(&[FreeBlockNumber::from(blockno)], None);
         }
     }
 }

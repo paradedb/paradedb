@@ -50,6 +50,10 @@ WITH (
     boolean_fields = '{"bool_field": {"fast": true}}'
 );
 
+-- We increase the threshold for Mixed selection in order to more easily validate which columns
+-- are capable of being used as fast.
+SET paradedb.mixed_fast_field_exec_column_threshold = 100;
+
 -- Test 1: Should use MixedFastFieldExecState with multiple string fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1, text_field2
@@ -182,5 +186,7 @@ ORDER BY text_field1, text_field2, num_field1;
 -- Clean up
 DROP INDEX IF EXISTS exec_method_idx;
 DROP TABLE IF EXISTS exec_method_test; 
+
+RESET paradedb.mixed_fast_field_exec_column_threshold;
 
 \i common/mixedff_advanced_cleanup.sql

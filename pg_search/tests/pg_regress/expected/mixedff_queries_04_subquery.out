@@ -5,6 +5,9 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
 SET paradedb.enable_mixed_fast_field_exec = true;
+-- The `mixedff` tests allow any number of columns to be used with fast fields, in order to test
+-- more permutations of selected columns.
+SET paradedb.mixed_fast_field_exec_column_threshold = 100;
 -- Drop any existing test tables from this group
 DROP TABLE IF EXISTS documents CASCADE;
 DROP TABLE IF EXISTS files CASCADE;
@@ -47,7 +50,7 @@ CREATE INDEX documents_search ON documents USING bm25 (
     key_field = 'id',
     text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "parents": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
-psql:common/mixedff_queries_setup.sql:53: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_queries_setup.sql:56: WARNING:  the `raw` tokenizer is deprecated
 CREATE INDEX files_search ON files USING bm25 (
     id,
     documentId,
@@ -57,7 +60,7 @@ CREATE INDEX files_search ON files USING bm25 (
     key_field = 'id',
     text_fields = '{"documentid": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "file_path": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
-psql:common/mixedff_queries_setup.sql:63: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_queries_setup.sql:66: WARNING:  the `raw` tokenizer is deprecated
 CREATE INDEX pages_search ON pages USING bm25 (
     id,
     fileId,
@@ -68,7 +71,7 @@ CREATE INDEX pages_search ON pages USING bm25 (
     text_fields = '{"fileid": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
     numeric_fields = '{"page_number": {"fast": true}}'
 );
-psql:common/mixedff_queries_setup.sql:74: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_queries_setup.sql:77: WARNING:  the `raw` tokenizer is deprecated
 -- Insert sample data for documents
 INSERT INTO documents (id, title, content, parents) VALUES
 ('doc1', 'Invoice 2023', 'This is an invoice for services rendered in 2023', 'Factures'),
@@ -200,6 +203,7 @@ DROP TABLE IF EXISTS documents CASCADE;
 RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;
 RESET paradedb.enable_mixed_fast_field_exec;
+RESET paradedb.mixed_fast_field_exec_column_threshold;
 SELECT 'Relational query tests cleanup complete' AS status; 
                  status                  
 -----------------------------------------

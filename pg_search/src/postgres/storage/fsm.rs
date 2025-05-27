@@ -1,4 +1,4 @@
-use crate::postgres::storage::block::{BM25PageSpecialData, MVCCEntry, PgItem};
+use crate::postgres::storage::block::{BM25PageSpecialData, PgItem};
 use crate::postgres::storage::buffer::BufferManager;
 use pgrx::pg_sys;
 
@@ -41,26 +41,6 @@ impl From<PgItem> for FreeBlockNumber {
         FreeBlockNumber(pg_sys::BlockNumber::from_ne_bytes(
             bytes.try_into().unwrap(),
         ))
-    }
-}
-
-// TODO: This is for compatibility with LinkedItemList, which requires MVCCEntry to be implemented
-// Eventually we shouldn't have to implement this trait
-impl MVCCEntry for FreeBlockNumber {
-    fn pintest_blockno(&self) -> pg_sys::BlockNumber {
-        self.0
-    }
-
-    unsafe fn visible(&self) -> bool {
-        true
-    }
-
-    unsafe fn recyclable(&self, _bman: &mut BufferManager) -> bool {
-        false
-    }
-
-    unsafe fn mergeable(&self) -> bool {
-        false
     }
 }
 

@@ -702,6 +702,25 @@ impl CustomScan for PdbScan {
                     );
                 }
 
+                // Store variable mappings from the planning phase for reference
+                // Note: These may be different at execution time, but they provide a starting point
+                if let Some(var_lookup) = builder.custom_private().var_attname_lookup() {
+                    pgrx::warning!(
+                        "ParadeDB: Storing {} variable mappings from planning phase",
+                        var_lookup.len()
+                    );
+
+                    // Convert the planning-time mappings to a format we can use for debugging
+                    for ((varno, attno), attname) in var_lookup.iter() {
+                        pgrx::warning!(
+                            "ParadeDB: Planning-time mapping: varno={}, attno={} -> '{}'",
+                            varno,
+                            attno,
+                            attname
+                        );
+                    }
+                }
+
                 builder.custom_state().join_exec_state = Some(join_exec_state);
 
                 return builder.build();

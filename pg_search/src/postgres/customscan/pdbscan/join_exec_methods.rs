@@ -32,6 +32,26 @@ use pgrx::{pg_sys, warning};
 use std::collections::HashMap;
 use tantivy::Index;
 
+/// Column mapping strategies for join results - Updated to handle PostgreSQL's special varno values
+#[derive(Debug, Clone)]
+enum ColumnMapping {
+    /// Variable from a specific base relation (positive varno)
+    BaseRelationVar {
+        varno: pg_sys::Index,
+        attno: pg_sys::AttrNumber,
+    },
+    /// Fallback to relation column by name
+    RelationColumn {
+        relid: pg_sys::Oid,
+        column_name: String,
+    },
+    /// Fallback to index-based access
+    IndexBased {
+        relation_index: usize,
+        column_index: usize,
+    },
+}
+
 /// Join execution state for custom join nodes
 pub struct JoinExecState {
     /// Search predicates extracted during planning
@@ -55,6 +75,10 @@ pub struct JoinExecState {
     /// Relations involved in the join
     pub outer_relid: pg_sys::Oid,
     pub inner_relid: pg_sys::Oid,
+    /// Execution-time variable mappings (varno -> relid)
+    pub varno_to_relid: HashMap<pg_sys::Index, pg_sys::Oid>,
+    /// Cached intermediate join results for multi-step joins
+    pub intermediate_results: HashMap<String, Vec<Vec<Option<String>>>>,
 }
 
 /// Execution phases for join processing
@@ -119,6 +143,8 @@ impl Default for JoinExecState {
             inner_position: 0,
             outer_relid: pg_sys::InvalidOid,
             inner_relid: pg_sys::InvalidOid,
+            varno_to_relid: HashMap::new(),
+            intermediate_results: HashMap::new(),
         }
     }
 }
@@ -148,6 +174,8 @@ impl JoinExecState {
             inner_position: 0,
             outer_relid: pg_sys::InvalidOid,
             inner_relid: pg_sys::InvalidOid,
+            varno_to_relid: HashMap::new(),
+            intermediate_results: HashMap::new(),
         }
     }
 
@@ -1038,27 +1066,61 @@ unsafe fn fetch_real_join_column_values(
     let target_mapping =
         analyze_target_list_for_join_mapping(state, &outer_relation_name, &inner_relation_name);
 
-    // Map columns based on the intelligent analysis
+    // Map columns based on the execution-time varno/attno analysis
     for i in 0..natts {
         let column_value = if let Some(mapping) = target_mapping.get(i) {
             match mapping {
-                ColumnMapping::OuterColumn(col_name) => {
-                    find_column_by_name(&outer_columns, col_name)
+                ColumnMapping::BaseRelationVar { varno, attno } => {
+                    // Variable from a specific base relation
+                    warning!(
+                        "ParadeDB: Base relation var - varno: {}, attno: {}",
+                        varno,
+                        attno
+                    );
+                    fetch_column_value_by_base_relation_var(
+                        state,
+                        *varno,
+                        *attno,
+                        outer_ctid,
+                        inner_ctid,
+                        &outer_columns,
+                        &inner_columns,
+                    )
                 }
-                ColumnMapping::InnerColumn(col_name) => {
-                    find_column_by_name(&inner_columns, col_name)
+                ColumnMapping::RelationColumn { relid, column_name } => {
+                    // Fetch from the specific relation
+                    if Some(*relid) == outer_relid {
+                        find_column_by_name(&outer_columns, column_name)
+                    } else if Some(*relid) == inner_relid {
+                        find_column_by_name(&inner_columns, column_name)
+                    } else {
+                        // Try to fetch directly from the relation
+                        fetch_column_from_relation_by_name(*relid, outer_ctid, column_name).or_else(
+                            || fetch_column_from_relation_by_name(*relid, inner_ctid, column_name),
+                        )
+                    }
                 }
-                ColumnMapping::OuterIndex(idx) => {
-                    outer_columns.get(*idx).map(|(_, value)| value.clone())
-                }
-                ColumnMapping::InnerIndex(idx) => {
-                    inner_columns.get(*idx).map(|(_, value)| value.clone())
+                ColumnMapping::IndexBased {
+                    relation_index,
+                    column_index,
+                } => {
+                    if *relation_index == 0 && !outer_columns.is_empty() {
+                        outer_columns
+                            .get(*column_index)
+                            .map(|(_, value)| value.clone())
+                    } else if !inner_columns.is_empty() {
+                        inner_columns
+                            .get(*column_index)
+                            .map(|(_, value)| value.clone())
+                    } else {
+                        None
+                    }
                 }
             }
         } else {
             // Fallback: alternate between relations
             if i % 2 == 0 && !outer_columns.is_empty() {
-                outer_columns.get(i / 2 + 1).map(|(_, value)| value.clone())
+                outer_columns.get(i / 2).map(|(_, value)| value.clone())
             } else if !inner_columns.is_empty() {
                 inner_columns.get(i / 2).map(|(_, value)| value.clone())
             } else {
@@ -1085,15 +1147,6 @@ unsafe fn fetch_real_join_column_values(
     column_values
 }
 
-/// Column mapping strategies for join results
-#[derive(Debug, Clone)]
-enum ColumnMapping {
-    OuterColumn(String), // Column by name from outer relation
-    InnerColumn(String), // Column by name from inner relation
-    OuterIndex(usize),   // Column by index from outer relation
-    InnerIndex(usize),   // Column by index from inner relation
-}
-
 /// Get relation names from search predicates
 fn get_relation_names_from_predicates(
     state: &mut CustomScanStateWrapper<PdbScan>,
@@ -1116,7 +1169,7 @@ fn get_relation_names_from_predicates(
     (outer_name, inner_name)
 }
 
-/// Analyze the target list to create intelligent column mapping
+/// Analyze the target list to create execution-time varno/attno-based column mapping
 unsafe fn analyze_target_list_for_join_mapping(
     state: &mut CustomScanStateWrapper<PdbScan>,
     outer_relation_name: &str,
@@ -1129,66 +1182,225 @@ unsafe fn analyze_target_list_for_join_mapping(
     let plan = (*planstate).plan;
     let target_list = (*plan).targetlist;
 
+    warning!(
+        "ParadeDB: PLAN: {:?}",
+        core::ffi::CStr::from_ptr(pg_sys::nodeToString(plan.cast())).to_str()
+    );
+
     if !target_list.is_null() {
         let tlist = pgrx::PgList::<pg_sys::TargetEntry>::from_pg(target_list);
 
         warning!(
-            "ParadeDB: Analyzing {} target entries using direct name mapping",
-            tlist.len()
+            "ParadeDB: Analyzing {} target entries using execution-time varno/attno mapping: {:?}",
+            tlist.len(),
+            tlist
+                .iter_ptr()
+                .map(|te| {
+                    let var = extract_var_from_target_entry(&*te);
+                    (
+                        (*te).resno,
+                        var.map(|v| {
+                            (core::ffi::CStr::from_ptr(pg_sys::nodeToString(v.cast())).to_str(),)
+                        }),
+                    )
+                })
+                .collect::<Vec<_>>()
         );
 
-        // Get relation OIDs for column lookups
-        let (outer_relid, inner_relid) = get_relation_oids_from_state(state);
+        // Build execution-time varno to relid mapping
+        let varno_to_relid = build_execution_time_varno_mapping(state);
 
         for (i, te) in tlist.iter_ptr().enumerate() {
             let target_entry = &*te;
 
-            // Get the target entry name if available
-            let target_name = if !target_entry.resname.is_null() {
-                std::ffi::CStr::from_ptr(target_entry.resname)
-                    .to_string_lossy()
-                    .to_string()
+            warning!(
+                "ParadeDB: Analyzing target entry {} (resno: {})",
+                i + 1,
+                target_entry.resno
+            );
+
+            // Extract the variable information from the target entry
+            let mapping = if let Some((varno, attno, varnosyn, varattnosyn)) =
+                extract_var_info_from_target_entry(target_entry)
+            {
+                warning!(
+                    "ParadeDB: Found Var in target entry {} - varno: {}, attno: {}, varnosyn: {}, varattnosyn: {}",
+                    i + 1,
+                    varno,
+                    attno,
+                    varnosyn,
+                    varattnosyn
+                );
+
+                // Handle PostgreSQL's special varno values correctly
+                // For negative varno values, use the original varnosyn/varattnosyn to understand the real mapping
+                match varno {
+                    -2 => {
+                        // OUTER_VAR
+                        warning!("ParadeDB: Variable references OUTER relation, using varnosyn: {}, varattnosyn: {}", varnosyn, varattnosyn);
+                        // Use the original variable reference to determine the actual relation
+                        map_original_variable_to_relation(
+                            state,
+                            varnosyn,
+                            varattnosyn,
+                            outer_relation_name,
+                            inner_relation_name,
+                        )
+                    }
+                    -1 => {
+                        // INNER_VAR
+                        warning!("ParadeDB: Variable references INNER relation, using varnosyn: {}, varattnosyn: {}", varnosyn, varattnosyn);
+                        // Use the original variable reference to determine the actual relation
+                        map_original_variable_to_relation(
+                            state,
+                            varnosyn,
+                            varattnosyn,
+                            outer_relation_name,
+                            inner_relation_name,
+                        )
+                    }
+                    -3 => {
+                        // INDEX_VAR
+                        warning!("ParadeDB: Variable references INDEX/intermediate result, using varnosyn: {}, varattnosyn: {}", varnosyn, varattnosyn);
+                        // For INDEX_VAR, use the original variable reference to understand what column this really represents
+                        map_original_variable_to_relation(
+                            state,
+                            varnosyn,
+                            varattnosyn,
+                            outer_relation_name,
+                            inner_relation_name,
+                        )
+                    }
+                    _ if varno > 0 => {
+                        warning!("ParadeDB: Variable references base relation {}", varno);
+                        ColumnMapping::BaseRelationVar {
+                            varno: varno as pg_sys::Index,
+                            attno,
+                        }
+                    }
+                    _ => {
+                        warning!("ParadeDB: Unknown varno {}, using fallback", varno);
+                        determine_fallback_mapping_from_target_name(
+                            &format!("unknown_var_{}", i + 1),
+                            state,
+                            outer_relation_name,
+                            inner_relation_name,
+                        )
+                    }
+                }
             } else {
-                format!("col_{}", i + 1)
+                // Fallback for non-Var expressions
+                let target_name = if !target_entry.resname.is_null() {
+                    std::ffi::CStr::from_ptr(target_entry.resname)
+                        .to_string_lossy()
+                        .to_string()
+                } else {
+                    format!("col_{}", i + 1)
+                };
+
+                warning!(
+                    "ParadeDB: No Var found in target entry {}, using fallback for '{}'",
+                    i + 1,
+                    target_name
+                );
+
+                // Try to map by name as fallback
+                determine_fallback_mapping_from_target_name(
+                    &target_name,
+                    state,
+                    outer_relation_name,
+                    inner_relation_name,
+                )
             };
 
-            warning!(
-                "ParadeDB: Analyzing target entry {} with name '{}'",
-                i + 1,
-                target_name
-            );
-
-            // SIMPLE AND RELIABLE APPROACH: Use the target name to directly determine
-            // which relation and column it should map to
-            let mapping = determine_mapping_from_target_name(
-                &target_name,
-                outer_relid,
-                inner_relid,
-                outer_relation_name,
-                inner_relation_name,
-            );
-
-            warning!(
-                "ParadeDB: Target entry {} ('{}') mapped to: {:?}",
-                i + 1,
-                target_name,
-                mapping
-            );
+            warning!("ParadeDB: Target entry {} mapped to: {:?}", i + 1, mapping);
             mappings.push(mapping);
+        }
+
+        // Store the varno mapping in the join state for later use
+        if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
+            join_state.varno_to_relid = varno_to_relid;
         }
     }
 
     mappings
 }
 
-/// Determine column mapping directly from target name and relation information
-unsafe fn determine_mapping_from_target_name(
+/// Build execution-time varno to relid mapping by analyzing the current join context
+unsafe fn build_execution_time_varno_mapping(
+    state: &mut CustomScanStateWrapper<PdbScan>,
+) -> HashMap<pg_sys::Index, pg_sys::Oid> {
+    let mut varno_to_relid = HashMap::new();
+
+    // Get relation OIDs from the join execution state (extract them first to avoid borrowing issues)
+    let (outer_relid, inner_relid) =
+        if let Some(ref join_state) = state.custom_state().join_exec_state {
+            (join_state.outer_relid, join_state.inner_relid)
+        } else {
+            (pg_sys::InvalidOid, pg_sys::InvalidOid)
+        };
+
+    if outer_relid != pg_sys::InvalidOid {
+        // For now, we'll use a simple mapping. In a more sophisticated implementation,
+        // we would analyze the actual join tree to determine the correct varno assignments.
+        // The key insight is that varno values at execution time may be different from planning time.
+
+        // Try to determine varnos by examining the target list structure
+        let planstate = state.planstate();
+        let plan = (*planstate).plan;
+        let target_list = (*plan).targetlist;
+
+        if !target_list.is_null() {
+            let tlist = pgrx::PgList::<pg_sys::TargetEntry>::from_pg(target_list);
+
+            for te in tlist.iter_ptr() {
+                if let Some(var) = extract_var_from_target_entry(&*te) {
+                    let varno = (*var).varno as pg_sys::Index;
+
+                    // This is a simplified mapping - in practice, we'd need more sophisticated
+                    // logic to determine which varno corresponds to which relation
+                    if !varno_to_relid.contains_key(&varno) {
+                        if varno_to_relid.is_empty() {
+                            varno_to_relid.insert(varno, outer_relid);
+                            warning!(
+                                "ParadeDB: Mapped varno {} to outer relation {}",
+                                varno,
+                                get_rel_name(outer_relid)
+                            );
+                        } else if inner_relid != pg_sys::InvalidOid {
+                            varno_to_relid.insert(varno, inner_relid);
+                            warning!(
+                                "ParadeDB: Mapped varno {} to inner relation {}",
+                                varno,
+                                get_rel_name(inner_relid)
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    warning!(
+        "ParadeDB: Built execution-time varno mapping with {} entries: {:?}",
+        varno_to_relid.len(),
+        varno_to_relid
+            .iter()
+            .map(|(varno, relid)| (*varno, get_rel_name(*relid)))
+            .collect::<Vec<_>>()
+    );
+
+    varno_to_relid
+}
+
+/// Determine fallback column mapping from target name and relation information
+unsafe fn determine_fallback_mapping_from_target_name(
     target_name: &str,
-    outer_relid: Option<pg_sys::Oid>,
-    inner_relid: Option<pg_sys::Oid>,
+    state: &mut CustomScanStateWrapper<PdbScan>,
     outer_relation_name: &str,
     inner_relation_name: &str,
 ) -> ColumnMapping {
+    let (outer_relid, inner_relid) = get_relation_oids_from_state(state);
     // Check if the target name exists as a column in either relation
     if let Some(outer_oid) = outer_relid {
         if column_exists_in_relation(outer_oid, target_name) {
@@ -1197,7 +1409,10 @@ unsafe fn determine_mapping_from_target_name(
                 target_name,
                 outer_relation_name
             );
-            return ColumnMapping::OuterColumn(target_name.to_string());
+            return ColumnMapping::RelationColumn {
+                relid: outer_oid,
+                column_name: target_name.to_string(),
+            };
         }
     }
 
@@ -1208,7 +1423,10 @@ unsafe fn determine_mapping_from_target_name(
                 target_name,
                 inner_relation_name
             );
-            return ColumnMapping::InnerColumn(target_name.to_string());
+            return ColumnMapping::RelationColumn {
+                relid: inner_oid,
+                column_name: target_name.to_string(),
+            };
         }
     }
 
@@ -1250,7 +1468,10 @@ unsafe fn determine_mapping_from_target_name(
                 target_name,
                 col_name
             );
-            return ColumnMapping::OuterColumn(col_name.clone());
+            return ColumnMapping::RelationColumn {
+                relid: outer_relid.unwrap(),
+                column_name: col_name.clone(),
+            };
         }
     }
 
@@ -1267,7 +1488,10 @@ unsafe fn determine_mapping_from_target_name(
                 target_name,
                 col_name
             );
-            return ColumnMapping::InnerColumn(col_name.clone());
+            return ColumnMapping::RelationColumn {
+                relid: inner_relid.unwrap(),
+                column_name: col_name.clone(),
+            };
         }
     }
 
@@ -1282,7 +1506,7 @@ unsafe fn determine_mapping_from_target_name(
     // Look for common column name patterns
     if target_name.contains("name") || target_name.contains("title") {
         // Name-like columns usually come from the main entity (outer relation)
-        if !outer_columns.is_empty() {
+        if !outer_columns.is_empty() && outer_relid.is_some() {
             let name_col = outer_columns
                 .iter()
                 .find(|col| col.contains("name") || col.contains("title"))
@@ -1292,7 +1516,10 @@ unsafe fn determine_mapping_from_target_name(
                 target_name,
                 name_col
             );
-            return ColumnMapping::OuterColumn(name_col.clone());
+            return ColumnMapping::RelationColumn {
+                relid: outer_relid.unwrap(),
+                column_name: name_col.clone(),
+            };
         }
     }
 
@@ -1301,7 +1528,7 @@ unsafe fn determine_mapping_from_target_name(
         || target_name.contains("rating")
     {
         // Review-like columns usually come from the review/detail entity (inner relation)
-        if !inner_columns.is_empty() {
+        if !inner_columns.is_empty() && inner_relid.is_some() {
             let review_col = inner_columns
                 .iter()
                 .find(|col| {
@@ -1316,12 +1543,15 @@ unsafe fn determine_mapping_from_target_name(
                 target_name,
                 review_col
             );
-            return ColumnMapping::InnerColumn(review_col.clone());
+            return ColumnMapping::RelationColumn {
+                relid: inner_relid.unwrap(),
+                column_name: review_col.clone(),
+            };
         }
     }
 
     // Final fallback: use the first non-ID column from the appropriate relation
-    if !outer_columns.is_empty() {
+    if !outer_columns.is_empty() && outer_relid.is_some() {
         let fallback_col = outer_columns
             .iter()
             .find(|col| !col.to_lowercase().contains("id"))
@@ -1330,8 +1560,11 @@ unsafe fn determine_mapping_from_target_name(
             "ParadeDB: Using final fallback - outer column '{}'",
             fallback_col
         );
-        ColumnMapping::OuterColumn(fallback_col.clone())
-    } else if !inner_columns.is_empty() {
+        ColumnMapping::RelationColumn {
+            relid: outer_relid.unwrap(),
+            column_name: fallback_col.clone(),
+        }
+    } else if !inner_columns.is_empty() && inner_relid.is_some() {
         let fallback_col = inner_columns
             .iter()
             .find(|col| !col.to_lowercase().contains("id"))
@@ -1340,9 +1573,15 @@ unsafe fn determine_mapping_from_target_name(
             "ParadeDB: Using final fallback - inner column '{}'",
             fallback_col
         );
-        ColumnMapping::InnerColumn(fallback_col.clone())
+        ColumnMapping::RelationColumn {
+            relid: inner_relid.unwrap(),
+            column_name: fallback_col.clone(),
+        }
     } else {
-        ColumnMapping::OuterIndex(0)
+        ColumnMapping::IndexBased {
+            relation_index: 0,
+            column_index: 0,
+        }
     }
 }
 
@@ -1415,7 +1654,7 @@ fn get_ctids_from_results(
     }
 }
 
-/// Extract a Var node from a target entry
+/// Extract a Var node from a target entry and handle PostgreSQL's variable transformations
 unsafe fn extract_var_from_target_entry(
     target_entry: &pg_sys::TargetEntry,
 ) -> Option<*mut pg_sys::Var> {
@@ -1434,6 +1673,22 @@ unsafe fn extract_var_from_target_entry(
     }
 
     None
+}
+
+/// Extract variable information considering both transformed and original variable references
+unsafe fn extract_var_info_from_target_entry(
+    target_entry: &pg_sys::TargetEntry,
+) -> Option<(i16, pg_sys::AttrNumber, i16, pg_sys::AttrNumber)> {
+    if let Some(var) = extract_var_from_target_entry(target_entry) {
+        let varno = (*var).varno as i16;
+        let varattno = (*var).varattno;
+        let varnosyn = (*var).varnosyn as i16;
+        let varattnosyn = (*var).varattnosyn;
+
+        Some((varno, varattno, varnosyn, varattnosyn))
+    } else {
+        None
+    }
 }
 
 /// Find a column value by name in the fetched columns
@@ -1612,4 +1867,343 @@ unsafe fn get_first_few_columns(relid: pg_sys::Oid, max_columns: usize) -> Vec<S
     pg_sys::relation_close(heaprel, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
 
     column_names
+}
+
+/// Fetch column value for base relation variables (positive varno)
+unsafe fn fetch_column_value_by_base_relation_var(
+    state: &mut CustomScanStateWrapper<PdbScan>,
+    varno: pg_sys::Index,
+    attno: pg_sys::AttrNumber,
+    outer_ctid: u64,
+    inner_ctid: u64,
+    outer_columns: &[(String, String)],
+    inner_columns: &[(String, String)],
+) -> Option<String> {
+    warning!(
+        "ParadeDB: Fetching column value for base relation varno={}, attno={}",
+        varno,
+        attno
+    );
+
+    // Get the varno to relid mapping from the join state
+    let relid = if let Some(ref join_state) = state.custom_state().join_exec_state {
+        join_state.varno_to_relid.get(&varno).copied()
+    } else {
+        None
+    };
+
+    if let Some(relid) = relid {
+        warning!(
+            "ParadeDB: Mapped varno {} to relation {} ({})",
+            varno,
+            relid,
+            get_rel_name(relid)
+        );
+
+        // Determine which CTID to use based on the relation
+        let (outer_relid, inner_relid) = get_relation_oids_from_state(state);
+        let ctid = if Some(relid) == outer_relid {
+            outer_ctid
+        } else if Some(relid) == inner_relid {
+            inner_ctid
+        } else {
+            // This might be an intermediate join result - use outer_ctid as default
+            warning!(
+                "ParadeDB: Relation {} not found in outer/inner, using outer_ctid",
+                get_rel_name(relid)
+            );
+            outer_ctid
+        };
+
+        // Fetch the column value directly from the relation using attno
+        fetch_column_from_relation_by_attno(relid, ctid, attno)
+    } else {
+        warning!(
+            "ParadeDB: No relid mapping found for varno {}, using fallback",
+            varno
+        );
+
+        // Fallback: try to find the column in the cached results
+        // This is a simplified approach - in practice, we'd need more sophisticated logic
+        if attno > 0 && attno as usize <= outer_columns.len() {
+            outer_columns
+                .get(attno as usize - 1)
+                .map(|(_, value)| value.clone())
+        } else if attno > 0 && attno as usize <= inner_columns.len() {
+            inner_columns
+                .get(attno as usize - 1)
+                .map(|(_, value)| value.clone())
+        } else {
+            None
+        }
+    }
+}
+
+/// Fetch a column value from a relation by column name
+unsafe fn fetch_column_from_relation_by_name(
+    relid: pg_sys::Oid,
+    ctid: u64,
+    column_name: &str,
+) -> Option<String> {
+    warning!(
+        "ParadeDB: Fetching column '{}' from relation {} with CTID {}",
+        column_name,
+        get_rel_name(relid),
+        ctid
+    );
+
+    // Open the relation
+    let heaprel = pg_sys::relation_open(relid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+    if heaprel.is_null() {
+        warning!("ParadeDB: Failed to open relation {}", relid);
+        return None;
+    }
+
+    // Find the column by name
+    let tuple_desc = pgrx::PgTupleDesc::from_pg_unchecked((*heaprel).rd_att);
+    let mut attno = None;
+    for i in 0..tuple_desc.len() {
+        if let Some(attribute) = tuple_desc.get(i) {
+            if attribute.name() == column_name {
+                attno = Some((i + 1) as pg_sys::AttrNumber);
+                break;
+            }
+        }
+    }
+
+    let result = if let Some(attno) = attno {
+        fetch_column_from_relation_by_attno_with_open_rel(heaprel, ctid, attno)
+    } else {
+        warning!(
+            "ParadeDB: Column '{}' not found in relation {}",
+            column_name,
+            get_rel_name(relid)
+        );
+        None
+    };
+
+    // Close the relation
+    pg_sys::relation_close(heaprel, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+
+    result
+}
+
+/// Fetch a column value from a relation by attribute number
+unsafe fn fetch_column_from_relation_by_attno(
+    relid: pg_sys::Oid,
+    ctid: u64,
+    attno: pg_sys::AttrNumber,
+) -> Option<String> {
+    warning!(
+        "ParadeDB: Fetching attno {} from relation {} with CTID {}",
+        attno,
+        get_rel_name(relid),
+        ctid
+    );
+
+    // Open the relation
+    let heaprel = pg_sys::relation_open(relid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+    if heaprel.is_null() {
+        warning!("ParadeDB: Failed to open relation {}", relid);
+        return None;
+    }
+
+    let result = fetch_column_from_relation_by_attno_with_open_rel(heaprel, ctid, attno);
+
+    // Close the relation
+    pg_sys::relation_close(heaprel, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+
+    result
+}
+
+/// Helper function to fetch column value with an already open relation
+unsafe fn fetch_column_from_relation_by_attno_with_open_rel(
+    heaprel: pg_sys::Relation,
+    ctid: u64,
+    attno: pg_sys::AttrNumber,
+) -> Option<String> {
+    // Convert CTID to ItemPointer
+    let mut ipd = pg_sys::ItemPointerData::default();
+    crate::postgres::utils::u64_to_item_pointer(ctid, &mut ipd);
+
+    // Prepare heap tuple structure
+    let mut htup = pg_sys::HeapTupleData {
+        t_self: ipd,
+        ..Default::default()
+    };
+    let mut buffer: pg_sys::Buffer = pg_sys::InvalidBuffer as i32;
+
+    // Fetch the heap tuple
+    let found = {
+        #[cfg(feature = "pg14")]
+        {
+            pg_sys::heap_fetch(heaprel, pg_sys::GetActiveSnapshot(), &mut htup, &mut buffer)
+        }
+        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+        {
+            pg_sys::heap_fetch(
+                heaprel,
+                pg_sys::GetActiveSnapshot(),
+                &mut htup,
+                &mut buffer,
+                false,
+            )
+        }
+    };
+
+    let result = if found {
+        // Extract the specific column value
+        let tuple_desc = pgrx::PgTupleDesc::from_pg_unchecked((*heaprel).rd_att);
+        let heap_tuple =
+            pgrx::heap_tuple::PgHeapTuple::from_heap_tuple(tuple_desc.clone(), &mut htup);
+
+        if let Some(attribute) = tuple_desc.get(attno as usize - 1) {
+            let column_name = attribute.name().to_string();
+
+            // Handle different data types appropriately
+            let column_value = if attribute.type_oid() == pg_sys::INT4OID.into() {
+                // Handle integer columns
+                match heap_tuple.get_by_name::<i32>(&column_name) {
+                    Ok(Some(value)) => Some(value.to_string()),
+                    Ok(None) => Some("NULL".to_string()),
+                    Err(_) => None,
+                }
+            } else {
+                // Handle text/varchar columns
+                match heap_tuple.get_by_name::<String>(&column_name) {
+                    Ok(Some(value)) => Some(value),
+                    Ok(None) => Some("NULL".to_string()),
+                    Err(_) => None,
+                }
+            };
+
+            warning!(
+                "ParadeDB: Fetched column '{}' (attno {}) = {:?}",
+                column_name,
+                attno,
+                column_value
+            );
+            column_value
+        } else {
+            warning!("ParadeDB: Invalid attno {} for relation", attno);
+            None
+        }
+    } else {
+        warning!("ParadeDB: Heap tuple not found for CTID {}", ctid);
+        None
+    };
+
+    // Clean up
+    if buffer != pg_sys::InvalidBuffer as i32 {
+        pg_sys::ReleaseBuffer(buffer);
+    }
+
+    result
+}
+
+/// Map original variable reference (varnosyn/varattnosyn) to the actual relation
+unsafe fn map_original_variable_to_relation(
+    state: &mut CustomScanStateWrapper<PdbScan>,
+    varnosyn: i16,
+    varattnosyn: pg_sys::AttrNumber,
+    outer_relation_name: &str,
+    inner_relation_name: &str,
+) -> ColumnMapping {
+    warning!(
+        "ParadeDB: Mapping original variable varnosyn: {}, varattnosyn: {} to relation",
+        varnosyn,
+        varattnosyn
+    );
+
+    // Get the relation OIDs to determine which is which
+    let (outer_relid, inner_relid) = get_relation_oids_from_state(state);
+
+    // Try to map the varnosyn to the actual relation
+    // varnosyn represents the original range table index before transformation
+
+    // Get the relation OID for this varnosyn by looking it up in the range table
+    let planstate = state.planstate();
+    let plan = (*planstate).plan;
+
+    // For join nodes, we need to determine which relation the varnosyn refers to
+    // This is a simplified approach - in practice, we'd need to analyze the range table more carefully
+
+    if let (Some(outer_oid), Some(inner_oid)) = (outer_relid, inner_relid) {
+        // Check if varnosyn corresponds to our known relations
+        // This is a heuristic based on the typical range table ordering
+
+        if varnosyn == 1 {
+            // First relation in range table - likely the outer relation
+            warning!(
+                "ParadeDB: varnosyn 1 mapped to outer relation {} (attno {})",
+                outer_relation_name,
+                varattnosyn
+            );
+            ColumnMapping::RelationColumn {
+                relid: outer_oid,
+                column_name: get_column_name_by_attno(outer_oid, varattnosyn),
+            }
+        } else if varnosyn == 2 {
+            // Second relation in range table - likely the inner relation
+            warning!(
+                "ParadeDB: varnosyn 2 mapped to inner relation {} (attno {})",
+                inner_relation_name,
+                varattnosyn
+            );
+            ColumnMapping::RelationColumn {
+                relid: inner_oid,
+                column_name: get_column_name_by_attno(inner_oid, varattnosyn),
+            }
+        } else {
+            warning!(
+                "ParadeDB: Unknown varnosyn {}, using fallback mapping",
+                varnosyn
+            );
+            // Fallback to index-based mapping
+            ColumnMapping::IndexBased {
+                relation_index: if varnosyn == 1 { 0 } else { 1 },
+                column_index: (varattnosyn - 1) as usize,
+            }
+        }
+    } else {
+        warning!("ParadeDB: No relation OIDs available, using index-based fallback");
+        ColumnMapping::IndexBased {
+            relation_index: if varnosyn == 1 { 0 } else { 1 },
+            column_index: (varattnosyn - 1) as usize,
+        }
+    }
+}
+
+/// Get column name by attribute number from a relation
+unsafe fn get_column_name_by_attno(relid: pg_sys::Oid, attno: pg_sys::AttrNumber) -> String {
+    // Open the relation to get its tuple descriptor
+    let heaprel = pg_sys::relation_open(relid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+    if heaprel.is_null() {
+        warning!(
+            "ParadeDB: Failed to open relation {} for column name lookup",
+            relid
+        );
+        return format!("col_{}", attno);
+    }
+
+    let column_name = {
+        let tuple_desc = pgrx::PgTupleDesc::from_pg_unchecked((*heaprel).rd_att);
+        if let Some(attribute) = tuple_desc.get(attno as usize - 1) {
+            attribute.name().to_string()
+        } else {
+            format!("col_{}", attno)
+        }
+    };
+
+    // Close the relation
+    pg_sys::relation_close(heaprel, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+
+    warning!(
+        "ParadeDB: Relation {} attno {} -> column name '{}'",
+        get_rel_name(relid),
+        attno,
+        column_name
+    );
+
+    column_name
 }

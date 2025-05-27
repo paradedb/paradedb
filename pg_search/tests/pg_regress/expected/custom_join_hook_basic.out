@@ -129,6 +129,10 @@ WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Stored outer relation OID: documents_join_test
 WARNING:  ParadeDB: Stored inner relation OID: files_join_test
+WARNING:  ParadeDB: Storing 3 variable mappings from planning phase
+WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=1 -> 'join_attr_1'
+WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_2'
+WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=3 -> 'join_attr_3'
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
 WARNING:  ParadeDB: Using stored search predicates - outer: 1, inner: 1, bilateral: true
@@ -187,21 +191,34 @@ WARNING:  ParadeDB: files_join_test column 'filename' = 'file1.txt'
 WARNING:  ParadeDB: files_join_test column 'content' = 'Technology file content'
 WARNING:  ParadeDB: Successfully fetched 4 columns from files_join_test relation
 WARNING:  ParadeDB: Fetched 3 columns from outer relation, 4 from inner relation
-WARNING:  ParadeDB: Analyzing 3 target entries using direct name mapping
+WARNING:  ParadeDB: PLAN: Ok("{CUSTOMSCAN :scan.plan.startup_cost 100 :scan.plan.total_cost 100.01 :scan.plan.plan_rows 1 :scan.plan.plan_width 68 :scan.plan.parallel_aware false :scan.plan.parallel_safe false :scan.plan.async_capable false :scan.plan.plan_node_id 0 :scan.plan.targetlist ({TARGETENTRY :expr {VAR :varno -3 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname id :ressortgroupref 0 :resorigtbl 81211 :resorigcol 1 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 2 :resname title :ressortgroupref 0 :resorigtbl 81211 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 3 :resname filename :ressortgroupref 0 :resorigtbl 81220 :resorigcol 3 :resjunk false}) :scan.plan.qual <> :scan.plan.lefttree <> :scan.plan.righttree <> :scan.plan.initPlan <> :scan.plan.extParam (b) :scan.plan.allParam (b) :scan.scanrelid 0 :flags 4 :custom_plans <> :custom_exprs <> :custom_private (\"\\{\"heaprelid\":null,\"indexrelid\":null,\"range_table_index\":null,\"query\":null,\"limit\":null,\"segment_count\":0,\"sort_field\":null,\"sort_direction\":null,\"exec_method_type\":\"Normal\",\"var_attname_lookup\":[[\"1,1\",\"join_attr_1\"],[\"1,2\",\"join_attr_2\"],[\"2,3\",\"join_attr_3\"]],\"target_list_len\":3,\"planned_which_fast_fields\":null,\"referenced_columns_count\":0,\"join_search_predicates\":\\{\"outer_predicates\":[\\{\"rti\":1,\"relid\":81211,\"relname\":\"documents_join_test\",\"query\":\\{\"with_index\":\\{\"oid\":81237,\"query\":\\{\"parse_with_field\":\\{\"field\":\"content\",\"query_string\":\"technology\",\"lenient\":null,\"conjunction_mode\":null\\}\\}\\}\\},\"uses_search_operator\":true\\}],\"inner_predicates\":[\\{\"rti\":2,\"relid\":81220,\"relname\":\"files_join_test\",\"query\":\\{\"with_index\":\\{\"oid\":81238,\"query\":\\{\"parse_with_field\":\\{\"field\":\"content\",\"query_string\":\"file\",\"lenient\":null,\"conjunction_mode\":null\\}\\}\\}\\},\"uses_search_operator\":true\\}],\"join_conditions\":[]\\},\"join_outer_relid\":81211,\"join_inner_relid\":81220\\}\") :custom_scan_tlist ({TARGETENTRY :expr {VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname id :ressortgroupref 0 :resorigtbl 81211 :resorigcol 1 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 2 :resname title :ressortgroupref 0 :resorigtbl 81211 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 3 :resname filename :ressortgroupref 0 :resorigtbl 81220 :resorigcol 3 :resjunk false}) :custom_relids (b 1 2) :methods ParadeDB\\ Scan}")
+WARNING:  ParadeDB: Analyzing 3 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}"),)))]
+WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation documents_join_test
+WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "documents_join_test")]
+WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
+WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 1
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 1
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 1 to relation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
-WARNING:  ParadeDB: Analyzing target entry 1 with name 'id'
-WARNING:  ParadeDB: Checking for column 'id' in relation documents_join_test - found: true, available columns: ["id", "title", "content"]
-WARNING:  ParadeDB: Found column 'id' in outer relation documents_join_test
-WARNING:  ParadeDB: Target entry 1 ('id') mapped to: OuterColumn("id")
-WARNING:  ParadeDB: Analyzing target entry 2 with name 'title'
-WARNING:  ParadeDB: Checking for column 'title' in relation documents_join_test - found: true, available columns: ["id", "title", "content"]
-WARNING:  ParadeDB: Found column 'title' in outer relation documents_join_test
-WARNING:  ParadeDB: Target entry 2 ('title') mapped to: OuterColumn("title")
-WARNING:  ParadeDB: Analyzing target entry 3 with name 'filename'
-WARNING:  ParadeDB: Checking for column 'filename' in relation documents_join_test - found: false, available columns: ["id", "title", "content"]
-WARNING:  ParadeDB: Checking for column 'filename' in relation files_join_test - found: true, available columns: ["id", "document_id", "filename", "content"]
-WARNING:  ParadeDB: Found column 'filename' in inner relation files_join_test
-WARNING:  ParadeDB: Target entry 3 ('filename') mapped to: InnerColumn("filename")
+WARNING:  ParadeDB: varnosyn 1 mapped to outer relation documents_join_test (attno 1)
+WARNING:  ParadeDB: Relation documents_join_test attno 1 -> column name 'id'
+WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn { relid: 81211, column_name: "id" }
+WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
+WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: varnosyn 1 mapped to outer relation documents_join_test (attno 2)
+WARNING:  ParadeDB: Relation documents_join_test attno 2 -> column name 'title'
+WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn { relid: 81211, column_name: "title" }
+WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
+WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 3
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 3
+WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 3 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: varnosyn 2 mapped to inner relation files_join_test (attno 3)
+WARNING:  ParadeDB: Relation files_join_test attno 3 -> column name 'filename'
+WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn { relid: 81220, column_name: "filename" }
 WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("1"), Some("Document 1"), Some("file1.txt")]
 WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("1"), Some("Document 1"), Some("file1.txt")]
 WARNING:  ParadeDB: Executing join step
@@ -226,21 +243,34 @@ WARNING:  ParadeDB: files_join_test column 'filename' = 'file2.txt'
 WARNING:  ParadeDB: files_join_test column 'content' = 'Science file content'
 WARNING:  ParadeDB: Successfully fetched 4 columns from files_join_test relation
 WARNING:  ParadeDB: Fetched 3 columns from outer relation, 4 from inner relation
-WARNING:  ParadeDB: Analyzing 3 target entries using direct name mapping
+WARNING:  ParadeDB: PLAN: Ok("{CUSTOMSCAN :scan.plan.startup_cost 100 :scan.plan.total_cost 100.01 :scan.plan.plan_rows 1 :scan.plan.plan_width 68 :scan.plan.parallel_aware false :scan.plan.parallel_safe false :scan.plan.async_capable false :scan.plan.plan_node_id 0 :scan.plan.targetlist ({TARGETENTRY :expr {VAR :varno -3 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname id :ressortgroupref 0 :resorigtbl 81211 :resorigcol 1 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 2 :resname title :ressortgroupref 0 :resorigtbl 81211 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 3 :resname filename :ressortgroupref 0 :resorigtbl 81220 :resorigcol 3 :resjunk false}) :scan.plan.qual <> :scan.plan.lefttree <> :scan.plan.righttree <> :scan.plan.initPlan <> :scan.plan.extParam (b) :scan.plan.allParam (b) :scan.scanrelid 0 :flags 4 :custom_plans <> :custom_exprs <> :custom_private (\"\\{\"heaprelid\":null,\"indexrelid\":null,\"range_table_index\":null,\"query\":null,\"limit\":null,\"segment_count\":0,\"sort_field\":null,\"sort_direction\":null,\"exec_method_type\":\"Normal\",\"var_attname_lookup\":[[\"1,1\",\"join_attr_1\"],[\"1,2\",\"join_attr_2\"],[\"2,3\",\"join_attr_3\"]],\"target_list_len\":3,\"planned_which_fast_fields\":null,\"referenced_columns_count\":0,\"join_search_predicates\":\\{\"outer_predicates\":[\\{\"rti\":1,\"relid\":81211,\"relname\":\"documents_join_test\",\"query\":\\{\"with_index\":\\{\"oid\":81237,\"query\":\\{\"parse_with_field\":\\{\"field\":\"content\",\"query_string\":\"technology\",\"lenient\":null,\"conjunction_mode\":null\\}\\}\\}\\},\"uses_search_operator\":true\\}],\"inner_predicates\":[\\{\"rti\":2,\"relid\":81220,\"relname\":\"files_join_test\",\"query\":\\{\"with_index\":\\{\"oid\":81238,\"query\":\\{\"parse_with_field\":\\{\"field\":\"content\",\"query_string\":\"file\",\"lenient\":null,\"conjunction_mode\":null\\}\\}\\}\\},\"uses_search_operator\":true\\}],\"join_conditions\":[]\\},\"join_outer_relid\":81211,\"join_inner_relid\":81220\\}\") :custom_scan_tlist ({TARGETENTRY :expr {VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname id :ressortgroupref 0 :resorigtbl 81211 :resorigcol 1 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 2 :resname title :ressortgroupref 0 :resorigtbl 81211 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 3 :resname filename :ressortgroupref 0 :resorigtbl 81220 :resorigcol 3 :resjunk false}) :custom_relids (b 1 2) :methods ParadeDB\\ Scan}")
+WARNING:  ParadeDB: Analyzing 3 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}"),)))]
+WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation documents_join_test
+WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "documents_join_test")]
+WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
+WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 1
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 1
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 1 to relation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
-WARNING:  ParadeDB: Analyzing target entry 1 with name 'id'
-WARNING:  ParadeDB: Checking for column 'id' in relation documents_join_test - found: true, available columns: ["id", "title", "content"]
-WARNING:  ParadeDB: Found column 'id' in outer relation documents_join_test
-WARNING:  ParadeDB: Target entry 1 ('id') mapped to: OuterColumn("id")
-WARNING:  ParadeDB: Analyzing target entry 2 with name 'title'
-WARNING:  ParadeDB: Checking for column 'title' in relation documents_join_test - found: true, available columns: ["id", "title", "content"]
-WARNING:  ParadeDB: Found column 'title' in outer relation documents_join_test
-WARNING:  ParadeDB: Target entry 2 ('title') mapped to: OuterColumn("title")
-WARNING:  ParadeDB: Analyzing target entry 3 with name 'filename'
-WARNING:  ParadeDB: Checking for column 'filename' in relation documents_join_test - found: false, available columns: ["id", "title", "content"]
-WARNING:  ParadeDB: Checking for column 'filename' in relation files_join_test - found: true, available columns: ["id", "document_id", "filename", "content"]
-WARNING:  ParadeDB: Found column 'filename' in inner relation files_join_test
-WARNING:  ParadeDB: Target entry 3 ('filename') mapped to: InnerColumn("filename")
+WARNING:  ParadeDB: varnosyn 1 mapped to outer relation documents_join_test (attno 1)
+WARNING:  ParadeDB: Relation documents_join_test attno 1 -> column name 'id'
+WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn { relid: 81211, column_name: "id" }
+WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
+WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: varnosyn 1 mapped to outer relation documents_join_test (attno 2)
+WARNING:  ParadeDB: Relation documents_join_test attno 2 -> column name 'title'
+WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn { relid: 81211, column_name: "title" }
+WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
+WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 3
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 3
+WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 3 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: varnosyn 2 mapped to inner relation files_join_test (attno 3)
+WARNING:  ParadeDB: Relation files_join_test attno 3 -> column name 'filename'
+WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn { relid: 81220, column_name: "filename" }
 WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("1"), Some("Document 1"), Some("file2.txt")]
 WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("1"), Some("Document 1"), Some("file2.txt")]
 WARNING:  ParadeDB: Executing join step
@@ -265,21 +295,34 @@ WARNING:  ParadeDB: files_join_test column 'filename' = 'file3.txt'
 WARNING:  ParadeDB: files_join_test column 'content' = 'Research file content'
 WARNING:  ParadeDB: Successfully fetched 4 columns from files_join_test relation
 WARNING:  ParadeDB: Fetched 3 columns from outer relation, 4 from inner relation
-WARNING:  ParadeDB: Analyzing 3 target entries using direct name mapping
+WARNING:  ParadeDB: PLAN: Ok("{CUSTOMSCAN :scan.plan.startup_cost 100 :scan.plan.total_cost 100.01 :scan.plan.plan_rows 1 :scan.plan.plan_width 68 :scan.plan.parallel_aware false :scan.plan.parallel_safe false :scan.plan.async_capable false :scan.plan.plan_node_id 0 :scan.plan.targetlist ({TARGETENTRY :expr {VAR :varno -3 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname id :ressortgroupref 0 :resorigtbl 81211 :resorigcol 1 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 2 :resname title :ressortgroupref 0 :resorigtbl 81211 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 3 :resname filename :ressortgroupref 0 :resorigtbl 81220 :resorigcol 3 :resjunk false}) :scan.plan.qual <> :scan.plan.lefttree <> :scan.plan.righttree <> :scan.plan.initPlan <> :scan.plan.extParam (b) :scan.plan.allParam (b) :scan.scanrelid 0 :flags 4 :custom_plans <> :custom_exprs <> :custom_private (\"\\{\"heaprelid\":null,\"indexrelid\":null,\"range_table_index\":null,\"query\":null,\"limit\":null,\"segment_count\":0,\"sort_field\":null,\"sort_direction\":null,\"exec_method_type\":\"Normal\",\"var_attname_lookup\":[[\"1,1\",\"join_attr_1\"],[\"1,2\",\"join_attr_2\"],[\"2,3\",\"join_attr_3\"]],\"target_list_len\":3,\"planned_which_fast_fields\":null,\"referenced_columns_count\":0,\"join_search_predicates\":\\{\"outer_predicates\":[\\{\"rti\":1,\"relid\":81211,\"relname\":\"documents_join_test\",\"query\":\\{\"with_index\":\\{\"oid\":81237,\"query\":\\{\"parse_with_field\":\\{\"field\":\"content\",\"query_string\":\"technology\",\"lenient\":null,\"conjunction_mode\":null\\}\\}\\}\\},\"uses_search_operator\":true\\}],\"inner_predicates\":[\\{\"rti\":2,\"relid\":81220,\"relname\":\"files_join_test\",\"query\":\\{\"with_index\":\\{\"oid\":81238,\"query\":\\{\"parse_with_field\":\\{\"field\":\"content\",\"query_string\":\"file\",\"lenient\":null,\"conjunction_mode\":null\\}\\}\\}\\},\"uses_search_operator\":true\\}],\"join_conditions\":[]\\},\"join_outer_relid\":81211,\"join_inner_relid\":81220\\}\") :custom_scan_tlist ({TARGETENTRY :expr {VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname id :ressortgroupref 0 :resorigtbl 81211 :resorigcol 1 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 2 :resname title :ressortgroupref 0 :resorigtbl 81211 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 3 :resname filename :ressortgroupref 0 :resorigtbl 81220 :resorigcol 3 :resjunk false}) :custom_relids (b 1 2) :methods ParadeDB\\ Scan}")
+WARNING:  ParadeDB: Analyzing 3 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}"),)))]
+WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation documents_join_test
+WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "documents_join_test")]
+WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
+WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 1
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 1
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 1 to relation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
-WARNING:  ParadeDB: Analyzing target entry 1 with name 'id'
-WARNING:  ParadeDB: Checking for column 'id' in relation documents_join_test - found: true, available columns: ["id", "title", "content"]
-WARNING:  ParadeDB: Found column 'id' in outer relation documents_join_test
-WARNING:  ParadeDB: Target entry 1 ('id') mapped to: OuterColumn("id")
-WARNING:  ParadeDB: Analyzing target entry 2 with name 'title'
-WARNING:  ParadeDB: Checking for column 'title' in relation documents_join_test - found: true, available columns: ["id", "title", "content"]
-WARNING:  ParadeDB: Found column 'title' in outer relation documents_join_test
-WARNING:  ParadeDB: Target entry 2 ('title') mapped to: OuterColumn("title")
-WARNING:  ParadeDB: Analyzing target entry 3 with name 'filename'
-WARNING:  ParadeDB: Checking for column 'filename' in relation documents_join_test - found: false, available columns: ["id", "title", "content"]
-WARNING:  ParadeDB: Checking for column 'filename' in relation files_join_test - found: true, available columns: ["id", "document_id", "filename", "content"]
-WARNING:  ParadeDB: Found column 'filename' in inner relation files_join_test
-WARNING:  ParadeDB: Target entry 3 ('filename') mapped to: InnerColumn("filename")
+WARNING:  ParadeDB: varnosyn 1 mapped to outer relation documents_join_test (attno 1)
+WARNING:  ParadeDB: Relation documents_join_test attno 1 -> column name 'id'
+WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn { relid: 81211, column_name: "id" }
+WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
+WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: varnosyn 1 mapped to outer relation documents_join_test (attno 2)
+WARNING:  ParadeDB: Relation documents_join_test attno 2 -> column name 'title'
+WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn { relid: 81211, column_name: "title" }
+WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
+WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 3
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 3
+WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 3 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: varnosyn 2 mapped to inner relation files_join_test (attno 3)
+WARNING:  ParadeDB: Relation files_join_test attno 3 -> column name 'filename'
+WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn { relid: 81220, column_name: "filename" }
 WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("1"), Some("Document 1"), Some("file3.txt")]
 WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("1"), Some("Document 1"), Some("file3.txt")]
 WARNING:  ParadeDB: Executing join step
@@ -400,6 +443,10 @@ WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 0, bilateral: false
 WARNING:  ParadeDB: Stored outer relation OID: documents_join_test
 WARNING:  ParadeDB: Stored inner relation OID: files_join_test
+WARNING:  ParadeDB: Storing 3 variable mappings from planning phase
+WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=1 -> 'join_attr_1'
+WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_2'
+WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=3 -> 'join_attr_3'
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
 WARNING:  ParadeDB: Using stored search predicates - outer: 1, inner: 0, bilateral: false
@@ -453,21 +500,34 @@ WARNING:  ParadeDB: files_join_test column 'filename' = 'file1.txt'
 WARNING:  ParadeDB: files_join_test column 'content' = 'Technology file content'
 WARNING:  ParadeDB: Successfully fetched 4 columns from files_join_test relation
 WARNING:  ParadeDB: Fetched 3 columns from outer relation, 4 from inner relation
-WARNING:  ParadeDB: Analyzing 3 target entries using direct name mapping
+WARNING:  ParadeDB: PLAN: Ok("{CUSTOMSCAN :scan.plan.startup_cost 100 :scan.plan.total_cost 100.01 :scan.plan.plan_rows 1 :scan.plan.plan_width 68 :scan.plan.parallel_aware false :scan.plan.parallel_safe false :scan.plan.async_capable false :scan.plan.plan_node_id 0 :scan.plan.targetlist ({TARGETENTRY :expr {VAR :varno -3 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname id :ressortgroupref 0 :resorigtbl 81211 :resorigcol 1 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 2 :resname title :ressortgroupref 0 :resorigtbl 81211 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 3 :resname filename :ressortgroupref 0 :resorigtbl 81220 :resorigcol 3 :resjunk false}) :scan.plan.qual <> :scan.plan.lefttree <> :scan.plan.righttree <> :scan.plan.initPlan <> :scan.plan.extParam (b) :scan.plan.allParam (b) :scan.scanrelid 0 :flags 4 :custom_plans <> :custom_exprs <> :custom_private (\"\\{\"heaprelid\":null,\"indexrelid\":null,\"range_table_index\":null,\"query\":null,\"limit\":null,\"segment_count\":0,\"sort_field\":null,\"sort_direction\":null,\"exec_method_type\":\"Normal\",\"var_attname_lookup\":[[\"1,1\",\"join_attr_1\"],[\"1,2\",\"join_attr_2\"],[\"2,3\",\"join_attr_3\"]],\"target_list_len\":3,\"planned_which_fast_fields\":null,\"referenced_columns_count\":0,\"join_search_predicates\":\\{\"outer_predicates\":[\\{\"rti\":1,\"relid\":81211,\"relname\":\"documents_join_test\",\"query\":\\{\"with_index\":\\{\"oid\":81237,\"query\":\\{\"parse_with_field\":\\{\"field\":\"content\",\"query_string\":\"science\",\"lenient\":null,\"conjunction_mode\":null\\}\\}\\}\\},\"uses_search_operator\":true\\}],\"inner_predicates\":[],\"join_conditions\":[]\\},\"join_outer_relid\":81211,\"join_inner_relid\":81220\\}\") :custom_scan_tlist ({TARGETENTRY :expr {VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname id :ressortgroupref 0 :resorigtbl 81211 :resorigcol 1 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 2 :resname title :ressortgroupref 0 :resorigtbl 81211 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 3 :resname filename :ressortgroupref 0 :resorigtbl 81220 :resorigcol 3 :resjunk false}) :custom_relids (b 1 2) :methods ParadeDB\\ Scan}")
+WARNING:  ParadeDB: Analyzing 3 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}"),)))]
+WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation documents_join_test
+WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "documents_join_test")]
+WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
+WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 1
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 1
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 1 to relation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
-WARNING:  ParadeDB: Analyzing target entry 1 with name 'id'
-WARNING:  ParadeDB: Checking for column 'id' in relation documents_join_test - found: true, available columns: ["id", "title", "content"]
-WARNING:  ParadeDB: Found column 'id' in outer relation documents_join_test
-WARNING:  ParadeDB: Target entry 1 ('id') mapped to: OuterColumn("id")
-WARNING:  ParadeDB: Analyzing target entry 2 with name 'title'
-WARNING:  ParadeDB: Checking for column 'title' in relation documents_join_test - found: true, available columns: ["id", "title", "content"]
-WARNING:  ParadeDB: Found column 'title' in outer relation documents_join_test
-WARNING:  ParadeDB: Target entry 2 ('title') mapped to: OuterColumn("title")
-WARNING:  ParadeDB: Analyzing target entry 3 with name 'filename'
-WARNING:  ParadeDB: Checking for column 'filename' in relation documents_join_test - found: false, available columns: ["id", "title", "content"]
-WARNING:  ParadeDB: Checking for column 'filename' in relation files_join_test - found: true, available columns: ["id", "document_id", "filename", "content"]
-WARNING:  ParadeDB: Found column 'filename' in inner relation files_join_test
-WARNING:  ParadeDB: Target entry 3 ('filename') mapped to: InnerColumn("filename")
+WARNING:  ParadeDB: varnosyn 1 mapped to outer relation documents_join_test (attno 1)
+WARNING:  ParadeDB: Relation documents_join_test attno 1 -> column name 'id'
+WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn { relid: 81211, column_name: "id" }
+WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
+WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: varnosyn 1 mapped to outer relation documents_join_test (attno 2)
+WARNING:  ParadeDB: Relation documents_join_test attno 2 -> column name 'title'
+WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn { relid: 81211, column_name: "title" }
+WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
+WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 3
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 3
+WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 3 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: varnosyn 2 mapped to inner relation files_join_test (attno 3)
+WARNING:  ParadeDB: Relation files_join_test attno 3 -> column name 'filename'
+WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn { relid: 81220, column_name: "filename" }
 WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("2"), Some("Document 2"), Some("file1.txt")]
 WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("2"), Some("Document 2"), Some("file1.txt")]
 WARNING:  ParadeDB: Executing join step
@@ -742,6 +802,11 @@ WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 0, inner: 1, bilateral: false
 WARNING:  ParadeDB: Stored outer relation OID: documents_join_test
 WARNING:  ParadeDB: Stored inner relation OID: files_join_test
+WARNING:  ParadeDB: Storing 4 variable mappings from planning phase
+WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=1 -> 'join_attr_1'
+WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_2'
+WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=3 -> 'join_attr_3'
+WARNING:  ParadeDB: Planning-time mapping: varno=4, attno=3 -> 'join_attr_4'
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
 WARNING:  ParadeDB: Using stored search predicates - outer: 0, inner: 1, bilateral: false
@@ -795,30 +860,43 @@ WARNING:  ParadeDB: files_join_test column 'filename' = 'file1.txt'
 WARNING:  ParadeDB: files_join_test column 'content' = 'Technology file content'
 WARNING:  ParadeDB: Successfully fetched 4 columns from files_join_test relation
 WARNING:  ParadeDB: Fetched 3 columns from outer relation, 4 from inner relation
-WARNING:  ParadeDB: Analyzing 4 target entries using direct name mapping
+WARNING:  ParadeDB: PLAN: Ok("{CUSTOMSCAN :scan.plan.startup_cost 100 :scan.plan.total_cost 100.01 :scan.plan.plan_rows 1 :scan.plan.plan_width 100 :scan.plan.parallel_aware false :scan.plan.parallel_safe false :scan.plan.async_capable false :scan.plan.plan_node_id 0 :scan.plan.targetlist ({TARGETENTRY :expr {VAR :varno -3 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname id :ressortgroupref 0 :resorigtbl 81211 :resorigcol 1 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 2 :resname title :ressortgroupref 0 :resorigtbl 81211 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 3 :resname filename :ressortgroupref 0 :resorigtbl 81220 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 3 :location -1} :resno 4 :resname author_name :ressortgroupref 0 :resorigtbl 81229 :resorigcol 3 :resjunk false}) :scan.plan.qual <> :scan.plan.lefttree <> :scan.plan.righttree <> :scan.plan.initPlan <> :scan.plan.extParam (b) :scan.plan.allParam (b) :scan.scanrelid 0 :flags 4 :custom_plans <> :custom_exprs <> :custom_private (\"\\{\"heaprelid\":null,\"indexrelid\":null,\"range_table_index\":null,\"query\":null,\"limit\":null,\"segment_count\":0,\"sort_field\":null,\"sort_direction\":null,\"exec_method_type\":\"Normal\",\"var_attname_lookup\":[[\"1,1\",\"join_attr_1\"],[\"1,2\",\"join_attr_2\"],[\"2,3\",\"join_attr_3\"],[\"4,3\",\"join_attr_4\"]],\"target_list_len\":4,\"planned_which_fast_fields\":null,\"referenced_columns_count\":0,\"join_search_predicates\":\\{\"outer_predicates\":[],\"inner_predicates\":[\\{\"rti\":2,\"relid\":81220,\"relname\":\"files_join_test\",\"query\":\\{\"with_index\":\\{\"oid\":81238,\"query\":\\{\"parse_with_field\":\\{\"field\":\"content\",\"query_string\":\"file\",\"lenient\":null,\"conjunction_mode\":null\\}\\}\\}\\},\"uses_search_operator\":true\\}],\"join_conditions\":[]\\},\"join_outer_relid\":81211,\"join_inner_relid\":81220\\}\") :custom_scan_tlist ({TARGETENTRY :expr {VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname id :ressortgroupref 0 :resorigtbl 81211 :resorigcol 1 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 2 :resname title :ressortgroupref 0 :resorigtbl 81211 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 3 :resname filename :ressortgroupref 0 :resorigtbl 81220 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno 4 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 3 :location -1} :resno 4 :resname author_name :ressortgroupref 0 :resorigtbl 81229 :resorigcol 3 :resjunk false}) :custom_relids (b 1 2 4) :methods ParadeDB\\ Scan}")
+WARNING:  ParadeDB: Analyzing 4 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}"),))), (4, Some((Ok("{VAR :varno -3 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 3 :location -1}"),)))]
+WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation documents_join_test
+WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "documents_join_test")]
+WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
+WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 1
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 1
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 1 to relation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
-WARNING:  ParadeDB: Analyzing target entry 1 with name 'id'
-WARNING:  ParadeDB: Checking for column 'id' in relation documents_join_test - found: true, available columns: ["id", "title", "content"]
-WARNING:  ParadeDB: Found column 'id' in outer relation documents_join_test
-WARNING:  ParadeDB: Target entry 1 ('id') mapped to: OuterColumn("id")
-WARNING:  ParadeDB: Analyzing target entry 2 with name 'title'
-WARNING:  ParadeDB: Checking for column 'title' in relation documents_join_test - found: true, available columns: ["id", "title", "content"]
-WARNING:  ParadeDB: Found column 'title' in outer relation documents_join_test
-WARNING:  ParadeDB: Target entry 2 ('title') mapped to: OuterColumn("title")
-WARNING:  ParadeDB: Analyzing target entry 3 with name 'filename'
-WARNING:  ParadeDB: Checking for column 'filename' in relation documents_join_test - found: false, available columns: ["id", "title", "content"]
-WARNING:  ParadeDB: Checking for column 'filename' in relation files_join_test - found: true, available columns: ["id", "document_id", "filename", "content"]
-WARNING:  ParadeDB: Found column 'filename' in inner relation files_join_test
-WARNING:  ParadeDB: Target entry 3 ('filename') mapped to: InnerColumn("filename")
-WARNING:  ParadeDB: Analyzing target entry 4 with name 'author_name'
-WARNING:  ParadeDB: Checking for column 'author_name' in relation documents_join_test - found: false, available columns: ["id", "title", "content"]
-WARNING:  ParadeDB: Checking for column 'author_name' in relation files_join_test - found: false, available columns: ["id", "document_id", "filename", "content"]
-WARNING:  ParadeDB: Column 'author_name' not found in either relation, using generic fallback
-WARNING:  ParadeDB: No direct matches for 'author_name', trying intelligent fallback with outer: ["id", "title", "content"], inner: ["id", "document_id", "filename"]
-WARNING:  ParadeDB: Target 'author_name' looks like a name field, using outer column 'title'
-WARNING:  ParadeDB: Target entry 4 ('author_name') mapped to: OuterColumn("title")
-WARNING:  ParadeDB: Mapped 4 out of 4 column values: [Some("1"), Some("Document 1"), Some("file1.txt"), Some("Document 1")]
-WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("1"), Some("Document 1"), Some("file1.txt"), Some("Document 1")]
+WARNING:  ParadeDB: varnosyn 1 mapped to outer relation documents_join_test (attno 1)
+WARNING:  ParadeDB: Relation documents_join_test attno 1 -> column name 'id'
+WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn { relid: 81211, column_name: "id" }
+WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
+WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: varnosyn 1 mapped to outer relation documents_join_test (attno 2)
+WARNING:  ParadeDB: Relation documents_join_test attno 2 -> column name 'title'
+WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn { relid: 81211, column_name: "title" }
+WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
+WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 3
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 3
+WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 3 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: varnosyn 2 mapped to inner relation files_join_test (attno 3)
+WARNING:  ParadeDB: Relation files_join_test attno 3 -> column name 'filename'
+WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn { relid: 81220, column_name: "filename" }
+WARNING:  ParadeDB: Analyzing target entry 4 (resno: 4)
+WARNING:  ParadeDB: Found Var in target entry 4 - varno: -3, attno: 4, varnosyn: 4, varattnosyn: 3
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 4, varattnosyn: 3
+WARNING:  ParadeDB: Mapping original variable varnosyn: 4, varattnosyn: 3 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: Unknown varnosyn 4, using fallback mapping
+WARNING:  ParadeDB: Target entry 4 mapped to: IndexBased { relation_index: 1, column_index: 2 }
+WARNING:  ParadeDB: Mapped 4 out of 4 column values: [Some("1"), Some("Document 1"), Some("file1.txt"), Some("file1.txt")]
+WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("1"), Some("Document 1"), Some("file1.txt"), Some("file1.txt")]
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
@@ -841,30 +919,43 @@ WARNING:  ParadeDB: files_join_test column 'filename' = 'file2.txt'
 WARNING:  ParadeDB: files_join_test column 'content' = 'Science file content'
 WARNING:  ParadeDB: Successfully fetched 4 columns from files_join_test relation
 WARNING:  ParadeDB: Fetched 3 columns from outer relation, 4 from inner relation
-WARNING:  ParadeDB: Analyzing 4 target entries using direct name mapping
+WARNING:  ParadeDB: PLAN: Ok("{CUSTOMSCAN :scan.plan.startup_cost 100 :scan.plan.total_cost 100.01 :scan.plan.plan_rows 1 :scan.plan.plan_width 100 :scan.plan.parallel_aware false :scan.plan.parallel_safe false :scan.plan.async_capable false :scan.plan.plan_node_id 0 :scan.plan.targetlist ({TARGETENTRY :expr {VAR :varno -3 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname id :ressortgroupref 0 :resorigtbl 81211 :resorigcol 1 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 2 :resname title :ressortgroupref 0 :resorigtbl 81211 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 3 :resname filename :ressortgroupref 0 :resorigtbl 81220 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 3 :location -1} :resno 4 :resname author_name :ressortgroupref 0 :resorigtbl 81229 :resorigcol 3 :resjunk false}) :scan.plan.qual <> :scan.plan.lefttree <> :scan.plan.righttree <> :scan.plan.initPlan <> :scan.plan.extParam (b) :scan.plan.allParam (b) :scan.scanrelid 0 :flags 4 :custom_plans <> :custom_exprs <> :custom_private (\"\\{\"heaprelid\":null,\"indexrelid\":null,\"range_table_index\":null,\"query\":null,\"limit\":null,\"segment_count\":0,\"sort_field\":null,\"sort_direction\":null,\"exec_method_type\":\"Normal\",\"var_attname_lookup\":[[\"1,1\",\"join_attr_1\"],[\"1,2\",\"join_attr_2\"],[\"2,3\",\"join_attr_3\"],[\"4,3\",\"join_attr_4\"]],\"target_list_len\":4,\"planned_which_fast_fields\":null,\"referenced_columns_count\":0,\"join_search_predicates\":\\{\"outer_predicates\":[],\"inner_predicates\":[\\{\"rti\":2,\"relid\":81220,\"relname\":\"files_join_test\",\"query\":\\{\"with_index\":\\{\"oid\":81238,\"query\":\\{\"parse_with_field\":\\{\"field\":\"content\",\"query_string\":\"file\",\"lenient\":null,\"conjunction_mode\":null\\}\\}\\}\\},\"uses_search_operator\":true\\}],\"join_conditions\":[]\\},\"join_outer_relid\":81211,\"join_inner_relid\":81220\\}\") :custom_scan_tlist ({TARGETENTRY :expr {VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname id :ressortgroupref 0 :resorigtbl 81211 :resorigcol 1 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 2 :resname title :ressortgroupref 0 :resorigtbl 81211 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 3 :resname filename :ressortgroupref 0 :resorigtbl 81220 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno 4 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 3 :location -1} :resno 4 :resname author_name :ressortgroupref 0 :resorigtbl 81229 :resorigcol 3 :resjunk false}) :custom_relids (b 1 2 4) :methods ParadeDB\\ Scan}")
+WARNING:  ParadeDB: Analyzing 4 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}"),))), (4, Some((Ok("{VAR :varno -3 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 3 :location -1}"),)))]
+WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation documents_join_test
+WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "documents_join_test")]
+WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
+WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 1
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 1
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 1 to relation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
-WARNING:  ParadeDB: Analyzing target entry 1 with name 'id'
-WARNING:  ParadeDB: Checking for column 'id' in relation documents_join_test - found: true, available columns: ["id", "title", "content"]
-WARNING:  ParadeDB: Found column 'id' in outer relation documents_join_test
-WARNING:  ParadeDB: Target entry 1 ('id') mapped to: OuterColumn("id")
-WARNING:  ParadeDB: Analyzing target entry 2 with name 'title'
-WARNING:  ParadeDB: Checking for column 'title' in relation documents_join_test - found: true, available columns: ["id", "title", "content"]
-WARNING:  ParadeDB: Found column 'title' in outer relation documents_join_test
-WARNING:  ParadeDB: Target entry 2 ('title') mapped to: OuterColumn("title")
-WARNING:  ParadeDB: Analyzing target entry 3 with name 'filename'
-WARNING:  ParadeDB: Checking for column 'filename' in relation documents_join_test - found: false, available columns: ["id", "title", "content"]
-WARNING:  ParadeDB: Checking for column 'filename' in relation files_join_test - found: true, available columns: ["id", "document_id", "filename", "content"]
-WARNING:  ParadeDB: Found column 'filename' in inner relation files_join_test
-WARNING:  ParadeDB: Target entry 3 ('filename') mapped to: InnerColumn("filename")
-WARNING:  ParadeDB: Analyzing target entry 4 with name 'author_name'
-WARNING:  ParadeDB: Checking for column 'author_name' in relation documents_join_test - found: false, available columns: ["id", "title", "content"]
-WARNING:  ParadeDB: Checking for column 'author_name' in relation files_join_test - found: false, available columns: ["id", "document_id", "filename", "content"]
-WARNING:  ParadeDB: Column 'author_name' not found in either relation, using generic fallback
-WARNING:  ParadeDB: No direct matches for 'author_name', trying intelligent fallback with outer: ["id", "title", "content"], inner: ["id", "document_id", "filename"]
-WARNING:  ParadeDB: Target 'author_name' looks like a name field, using outer column 'title'
-WARNING:  ParadeDB: Target entry 4 ('author_name') mapped to: OuterColumn("title")
-WARNING:  ParadeDB: Mapped 4 out of 4 column values: [Some("1"), Some("Document 1"), Some("file2.txt"), Some("Document 1")]
-WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("1"), Some("Document 1"), Some("file2.txt"), Some("Document 1")]
+WARNING:  ParadeDB: varnosyn 1 mapped to outer relation documents_join_test (attno 1)
+WARNING:  ParadeDB: Relation documents_join_test attno 1 -> column name 'id'
+WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn { relid: 81211, column_name: "id" }
+WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
+WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: varnosyn 1 mapped to outer relation documents_join_test (attno 2)
+WARNING:  ParadeDB: Relation documents_join_test attno 2 -> column name 'title'
+WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn { relid: 81211, column_name: "title" }
+WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
+WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 3
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 3
+WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 3 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: varnosyn 2 mapped to inner relation files_join_test (attno 3)
+WARNING:  ParadeDB: Relation files_join_test attno 3 -> column name 'filename'
+WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn { relid: 81220, column_name: "filename" }
+WARNING:  ParadeDB: Analyzing target entry 4 (resno: 4)
+WARNING:  ParadeDB: Found Var in target entry 4 - varno: -3, attno: 4, varnosyn: 4, varattnosyn: 3
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 4, varattnosyn: 3
+WARNING:  ParadeDB: Mapping original variable varnosyn: 4, varattnosyn: 3 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: Unknown varnosyn 4, using fallback mapping
+WARNING:  ParadeDB: Target entry 4 mapped to: IndexBased { relation_index: 1, column_index: 2 }
+WARNING:  ParadeDB: Mapped 4 out of 4 column values: [Some("1"), Some("Document 1"), Some("file2.txt"), Some("file2.txt")]
+WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("1"), Some("Document 1"), Some("file2.txt"), Some("file2.txt")]
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
@@ -887,30 +978,43 @@ WARNING:  ParadeDB: files_join_test column 'filename' = 'file3.txt'
 WARNING:  ParadeDB: files_join_test column 'content' = 'Research file content'
 WARNING:  ParadeDB: Successfully fetched 4 columns from files_join_test relation
 WARNING:  ParadeDB: Fetched 3 columns from outer relation, 4 from inner relation
-WARNING:  ParadeDB: Analyzing 4 target entries using direct name mapping
+WARNING:  ParadeDB: PLAN: Ok("{CUSTOMSCAN :scan.plan.startup_cost 100 :scan.plan.total_cost 100.01 :scan.plan.plan_rows 1 :scan.plan.plan_width 100 :scan.plan.parallel_aware false :scan.plan.parallel_safe false :scan.plan.async_capable false :scan.plan.plan_node_id 0 :scan.plan.targetlist ({TARGETENTRY :expr {VAR :varno -3 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname id :ressortgroupref 0 :resorigtbl 81211 :resorigcol 1 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 2 :resname title :ressortgroupref 0 :resorigtbl 81211 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 3 :resname filename :ressortgroupref 0 :resorigtbl 81220 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 3 :location -1} :resno 4 :resname author_name :ressortgroupref 0 :resorigtbl 81229 :resorigcol 3 :resjunk false}) :scan.plan.qual <> :scan.plan.lefttree <> :scan.plan.righttree <> :scan.plan.initPlan <> :scan.plan.extParam (b) :scan.plan.allParam (b) :scan.scanrelid 0 :flags 4 :custom_plans <> :custom_exprs <> :custom_private (\"\\{\"heaprelid\":null,\"indexrelid\":null,\"range_table_index\":null,\"query\":null,\"limit\":null,\"segment_count\":0,\"sort_field\":null,\"sort_direction\":null,\"exec_method_type\":\"Normal\",\"var_attname_lookup\":[[\"1,1\",\"join_attr_1\"],[\"1,2\",\"join_attr_2\"],[\"2,3\",\"join_attr_3\"],[\"4,3\",\"join_attr_4\"]],\"target_list_len\":4,\"planned_which_fast_fields\":null,\"referenced_columns_count\":0,\"join_search_predicates\":\\{\"outer_predicates\":[],\"inner_predicates\":[\\{\"rti\":2,\"relid\":81220,\"relname\":\"files_join_test\",\"query\":\\{\"with_index\":\\{\"oid\":81238,\"query\":\\{\"parse_with_field\":\\{\"field\":\"content\",\"query_string\":\"file\",\"lenient\":null,\"conjunction_mode\":null\\}\\}\\}\\},\"uses_search_operator\":true\\}],\"join_conditions\":[]\\},\"join_outer_relid\":81211,\"join_inner_relid\":81220\\}\") :custom_scan_tlist ({TARGETENTRY :expr {VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname id :ressortgroupref 0 :resorigtbl 81211 :resorigcol 1 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 2 :resname title :ressortgroupref 0 :resorigtbl 81211 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 3 :resname filename :ressortgroupref 0 :resorigtbl 81220 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno 4 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 3 :location -1} :resno 4 :resname author_name :ressortgroupref 0 :resorigtbl 81229 :resorigcol 3 :resjunk false}) :custom_relids (b 1 2 4) :methods ParadeDB\\ Scan}")
+WARNING:  ParadeDB: Analyzing 4 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}"),))), (4, Some((Ok("{VAR :varno -3 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 3 :location -1}"),)))]
+WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation documents_join_test
+WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "documents_join_test")]
+WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
+WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 1
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 1
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 1 to relation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
-WARNING:  ParadeDB: Analyzing target entry 1 with name 'id'
-WARNING:  ParadeDB: Checking for column 'id' in relation documents_join_test - found: true, available columns: ["id", "title", "content"]
-WARNING:  ParadeDB: Found column 'id' in outer relation documents_join_test
-WARNING:  ParadeDB: Target entry 1 ('id') mapped to: OuterColumn("id")
-WARNING:  ParadeDB: Analyzing target entry 2 with name 'title'
-WARNING:  ParadeDB: Checking for column 'title' in relation documents_join_test - found: true, available columns: ["id", "title", "content"]
-WARNING:  ParadeDB: Found column 'title' in outer relation documents_join_test
-WARNING:  ParadeDB: Target entry 2 ('title') mapped to: OuterColumn("title")
-WARNING:  ParadeDB: Analyzing target entry 3 with name 'filename'
-WARNING:  ParadeDB: Checking for column 'filename' in relation documents_join_test - found: false, available columns: ["id", "title", "content"]
-WARNING:  ParadeDB: Checking for column 'filename' in relation files_join_test - found: true, available columns: ["id", "document_id", "filename", "content"]
-WARNING:  ParadeDB: Found column 'filename' in inner relation files_join_test
-WARNING:  ParadeDB: Target entry 3 ('filename') mapped to: InnerColumn("filename")
-WARNING:  ParadeDB: Analyzing target entry 4 with name 'author_name'
-WARNING:  ParadeDB: Checking for column 'author_name' in relation documents_join_test - found: false, available columns: ["id", "title", "content"]
-WARNING:  ParadeDB: Checking for column 'author_name' in relation files_join_test - found: false, available columns: ["id", "document_id", "filename", "content"]
-WARNING:  ParadeDB: Column 'author_name' not found in either relation, using generic fallback
-WARNING:  ParadeDB: No direct matches for 'author_name', trying intelligent fallback with outer: ["id", "title", "content"], inner: ["id", "document_id", "filename"]
-WARNING:  ParadeDB: Target 'author_name' looks like a name field, using outer column 'title'
-WARNING:  ParadeDB: Target entry 4 ('author_name') mapped to: OuterColumn("title")
-WARNING:  ParadeDB: Mapped 4 out of 4 column values: [Some("1"), Some("Document 1"), Some("file3.txt"), Some("Document 1")]
-WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("1"), Some("Document 1"), Some("file3.txt"), Some("Document 1")]
+WARNING:  ParadeDB: varnosyn 1 mapped to outer relation documents_join_test (attno 1)
+WARNING:  ParadeDB: Relation documents_join_test attno 1 -> column name 'id'
+WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn { relid: 81211, column_name: "id" }
+WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
+WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: varnosyn 1 mapped to outer relation documents_join_test (attno 2)
+WARNING:  ParadeDB: Relation documents_join_test attno 2 -> column name 'title'
+WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn { relid: 81211, column_name: "title" }
+WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
+WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 3
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 3
+WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 3 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: varnosyn 2 mapped to inner relation files_join_test (attno 3)
+WARNING:  ParadeDB: Relation files_join_test attno 3 -> column name 'filename'
+WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn { relid: 81220, column_name: "filename" }
+WARNING:  ParadeDB: Analyzing target entry 4 (resno: 4)
+WARNING:  ParadeDB: Found Var in target entry 4 - varno: -3, attno: 4, varnosyn: 4, varattnosyn: 3
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 4, varattnosyn: 3
+WARNING:  ParadeDB: Mapping original variable varnosyn: 4, varattnosyn: 3 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: Unknown varnosyn 4, using fallback mapping
+WARNING:  ParadeDB: Target entry 4 mapped to: IndexBased { relation_index: 1, column_index: 2 }
+WARNING:  ParadeDB: Mapped 4 out of 4 column values: [Some("1"), Some("Document 1"), Some("file3.txt"), Some("file3.txt")]
+WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("1"), Some("Document 1"), Some("file3.txt"), Some("file3.txt")]
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
@@ -927,9 +1031,9 @@ WARNING:  ParadeDB: ===== END JOIN EXECUTION STATISTICS =====
 WARNING:  ParadeDB: Join execution cleanup complete
  id |   title    | filename  | author_name 
 ----+------------+-----------+-------------
-  1 | Document 1 | file1.txt | Document 1
-  1 | Document 1 | file2.txt | Document 1
-  1 | Document 1 | file3.txt | Document 1
+  1 | Document 1 | file1.txt | file1.txt
+  1 | Document 1 | file2.txt | file2.txt
+  1 | Document 1 | file3.txt | file3.txt
 (3 rows)
 
 -- Test 5: 3-way join with trilateral search (all three tables)
@@ -1219,6 +1323,11 @@ WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 0, inner: 1, bilateral: false
 WARNING:  ParadeDB: Stored outer relation OID: documents_join_test
 WARNING:  ParadeDB: Stored inner relation OID: authors_join_test
+WARNING:  ParadeDB: Storing 4 variable mappings from planning phase
+WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=1 -> 'join_attr_1'
+WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_2'
+WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=3 -> 'join_attr_3'
+WARNING:  ParadeDB: Planning-time mapping: varno=4, attno=3 -> 'join_attr_4'
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
 WARNING:  ParadeDB: Using stored search predicates - outer: 0, inner: 1, bilateral: false
@@ -1272,30 +1381,43 @@ WARNING:  ParadeDB: authors_join_test column 'author_name' = 'Jane Doe'
 WARNING:  ParadeDB: authors_join_test column 'bio' = 'Scientist specializing in research methods'
 WARNING:  ParadeDB: Successfully fetched 4 columns from authors_join_test relation
 WARNING:  ParadeDB: Fetched 3 columns from outer relation, 4 from inner relation
-WARNING:  ParadeDB: Analyzing 4 target entries using direct name mapping
+WARNING:  ParadeDB: PLAN: Ok("{CUSTOMSCAN :scan.plan.startup_cost 100 :scan.plan.total_cost 100.01 :scan.plan.plan_rows 1 :scan.plan.plan_width 100 :scan.plan.parallel_aware false :scan.plan.parallel_safe false :scan.plan.async_capable false :scan.plan.plan_node_id 0 :scan.plan.targetlist ({TARGETENTRY :expr {VAR :varno -3 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname id :ressortgroupref 0 :resorigtbl 81211 :resorigcol 1 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 2 :resname title :ressortgroupref 0 :resorigtbl 81211 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 3 :resname filename :ressortgroupref 0 :resorigtbl 81220 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 3 :location -1} :resno 4 :resname author_name :ressortgroupref 0 :resorigtbl 81229 :resorigcol 3 :resjunk false}) :scan.plan.qual <> :scan.plan.lefttree <> :scan.plan.righttree <> :scan.plan.initPlan <> :scan.plan.extParam (b) :scan.plan.allParam (b) :scan.scanrelid 0 :flags 4 :custom_plans <> :custom_exprs <> :custom_private (\"\\{\"heaprelid\":null,\"indexrelid\":null,\"range_table_index\":null,\"query\":null,\"limit\":null,\"segment_count\":0,\"sort_field\":null,\"sort_direction\":null,\"exec_method_type\":\"Normal\",\"var_attname_lookup\":[[\"1,1\",\"join_attr_1\"],[\"1,2\",\"join_attr_2\"],[\"2,3\",\"join_attr_3\"],[\"4,3\",\"join_attr_4\"]],\"target_list_len\":4,\"planned_which_fast_fields\":null,\"referenced_columns_count\":0,\"join_search_predicates\":\\{\"outer_predicates\":[],\"inner_predicates\":[\\{\"rti\":4,\"relid\":81229,\"relname\":\"authors_join_test\",\"query\":\\{\"with_index\":\\{\"oid\":81239,\"query\":\\{\"parse_with_field\":\\{\"field\":\"bio\",\"query_string\":\"research\",\"lenient\":null,\"conjunction_mode\":null\\}\\}\\}\\},\"uses_search_operator\":true\\}],\"join_conditions\":[]\\},\"join_outer_relid\":81211,\"join_inner_relid\":81229\\}\") :custom_scan_tlist ({TARGETENTRY :expr {VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname id :ressortgroupref 0 :resorigtbl 81211 :resorigcol 1 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 2 :resname title :ressortgroupref 0 :resorigtbl 81211 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 3 :resname filename :ressortgroupref 0 :resorigtbl 81220 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno 4 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 3 :location -1} :resno 4 :resname author_name :ressortgroupref 0 :resorigtbl 81229 :resorigcol 3 :resjunk false}) :custom_relids (b 1 2 4) :methods ParadeDB\\ Scan}")
+WARNING:  ParadeDB: Analyzing 4 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}"),))), (4, Some((Ok("{VAR :varno -3 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 3 :location -1}"),)))]
+WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation documents_join_test
+WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "documents_join_test")]
+WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
+WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 1
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 1
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 1 to relation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: authors_join_test
-WARNING:  ParadeDB: Analyzing target entry 1 with name 'id'
-WARNING:  ParadeDB: Checking for column 'id' in relation documents_join_test - found: true, available columns: ["id", "title", "content"]
-WARNING:  ParadeDB: Found column 'id' in outer relation documents_join_test
-WARNING:  ParadeDB: Target entry 1 ('id') mapped to: OuterColumn("id")
-WARNING:  ParadeDB: Analyzing target entry 2 with name 'title'
-WARNING:  ParadeDB: Checking for column 'title' in relation documents_join_test - found: true, available columns: ["id", "title", "content"]
-WARNING:  ParadeDB: Found column 'title' in outer relation documents_join_test
-WARNING:  ParadeDB: Target entry 2 ('title') mapped to: OuterColumn("title")
-WARNING:  ParadeDB: Analyzing target entry 3 with name 'filename'
-WARNING:  ParadeDB: Checking for column 'filename' in relation documents_join_test - found: false, available columns: ["id", "title", "content"]
-WARNING:  ParadeDB: Checking for column 'filename' in relation authors_join_test - found: false, available columns: ["id", "document_id", "author_name", "bio"]
-WARNING:  ParadeDB: Column 'filename' not found in either relation, using generic fallback
-WARNING:  ParadeDB: No direct matches for 'filename', trying intelligent fallback with outer: ["id", "title", "content"], inner: ["id", "document_id", "author_name"]
-WARNING:  ParadeDB: Target 'filename' looks like a name field, using outer column 'title'
-WARNING:  ParadeDB: Target entry 3 ('filename') mapped to: OuterColumn("title")
-WARNING:  ParadeDB: Analyzing target entry 4 with name 'author_name'
-WARNING:  ParadeDB: Checking for column 'author_name' in relation documents_join_test - found: false, available columns: ["id", "title", "content"]
-WARNING:  ParadeDB: Checking for column 'author_name' in relation authors_join_test - found: true, available columns: ["id", "document_id", "author_name", "bio"]
-WARNING:  ParadeDB: Found column 'author_name' in inner relation authors_join_test
-WARNING:  ParadeDB: Target entry 4 ('author_name') mapped to: InnerColumn("author_name")
-WARNING:  ParadeDB: Mapped 4 out of 4 column values: [Some("1"), Some("Document 1"), Some("Document 1"), Some("Jane Doe")]
-WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("1"), Some("Document 1"), Some("Document 1"), Some("Jane Doe")]
+WARNING:  ParadeDB: varnosyn 1 mapped to outer relation documents_join_test (attno 1)
+WARNING:  ParadeDB: Relation documents_join_test attno 1 -> column name 'id'
+WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn { relid: 81211, column_name: "id" }
+WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
+WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: authors_join_test
+WARNING:  ParadeDB: varnosyn 1 mapped to outer relation documents_join_test (attno 2)
+WARNING:  ParadeDB: Relation documents_join_test attno 2 -> column name 'title'
+WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn { relid: 81211, column_name: "title" }
+WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
+WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 3
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 3
+WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 3 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: authors_join_test
+WARNING:  ParadeDB: varnosyn 2 mapped to inner relation authors_join_test (attno 3)
+WARNING:  ParadeDB: Relation authors_join_test attno 3 -> column name 'author_name'
+WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn { relid: 81229, column_name: "author_name" }
+WARNING:  ParadeDB: Analyzing target entry 4 (resno: 4)
+WARNING:  ParadeDB: Found Var in target entry 4 - varno: -3, attno: 4, varnosyn: 4, varattnosyn: 3
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 4, varattnosyn: 3
+WARNING:  ParadeDB: Mapping original variable varnosyn: 4, varattnosyn: 3 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: authors_join_test
+WARNING:  ParadeDB: Unknown varnosyn 4, using fallback mapping
+WARNING:  ParadeDB: Target entry 4 mapped to: IndexBased { relation_index: 1, column_index: 2 }
+WARNING:  ParadeDB: Mapped 4 out of 4 column values: [Some("1"), Some("Document 1"), Some("Jane Doe"), Some("Jane Doe")]
+WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("1"), Some("Document 1"), Some("Jane Doe"), Some("Jane Doe")]
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
@@ -1318,30 +1440,43 @@ WARNING:  ParadeDB: authors_join_test column 'author_name' = 'Bob Wilson'
 WARNING:  ParadeDB: authors_join_test column 'bio' = 'Research analyst with focus on data science'
 WARNING:  ParadeDB: Successfully fetched 4 columns from authors_join_test relation
 WARNING:  ParadeDB: Fetched 3 columns from outer relation, 4 from inner relation
-WARNING:  ParadeDB: Analyzing 4 target entries using direct name mapping
+WARNING:  ParadeDB: PLAN: Ok("{CUSTOMSCAN :scan.plan.startup_cost 100 :scan.plan.total_cost 100.01 :scan.plan.plan_rows 1 :scan.plan.plan_width 100 :scan.plan.parallel_aware false :scan.plan.parallel_safe false :scan.plan.async_capable false :scan.plan.plan_node_id 0 :scan.plan.targetlist ({TARGETENTRY :expr {VAR :varno -3 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname id :ressortgroupref 0 :resorigtbl 81211 :resorigcol 1 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 2 :resname title :ressortgroupref 0 :resorigtbl 81211 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 3 :resname filename :ressortgroupref 0 :resorigtbl 81220 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 3 :location -1} :resno 4 :resname author_name :ressortgroupref 0 :resorigtbl 81229 :resorigcol 3 :resjunk false}) :scan.plan.qual <> :scan.plan.lefttree <> :scan.plan.righttree <> :scan.plan.initPlan <> :scan.plan.extParam (b) :scan.plan.allParam (b) :scan.scanrelid 0 :flags 4 :custom_plans <> :custom_exprs <> :custom_private (\"\\{\"heaprelid\":null,\"indexrelid\":null,\"range_table_index\":null,\"query\":null,\"limit\":null,\"segment_count\":0,\"sort_field\":null,\"sort_direction\":null,\"exec_method_type\":\"Normal\",\"var_attname_lookup\":[[\"1,1\",\"join_attr_1\"],[\"1,2\",\"join_attr_2\"],[\"2,3\",\"join_attr_3\"],[\"4,3\",\"join_attr_4\"]],\"target_list_len\":4,\"planned_which_fast_fields\":null,\"referenced_columns_count\":0,\"join_search_predicates\":\\{\"outer_predicates\":[],\"inner_predicates\":[\\{\"rti\":4,\"relid\":81229,\"relname\":\"authors_join_test\",\"query\":\\{\"with_index\":\\{\"oid\":81239,\"query\":\\{\"parse_with_field\":\\{\"field\":\"bio\",\"query_string\":\"research\",\"lenient\":null,\"conjunction_mode\":null\\}\\}\\}\\},\"uses_search_operator\":true\\}],\"join_conditions\":[]\\},\"join_outer_relid\":81211,\"join_inner_relid\":81229\\}\") :custom_scan_tlist ({TARGETENTRY :expr {VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname id :ressortgroupref 0 :resorigtbl 81211 :resorigcol 1 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 2 :resname title :ressortgroupref 0 :resorigtbl 81211 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 3 :resname filename :ressortgroupref 0 :resorigtbl 81220 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno 4 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 3 :location -1} :resno 4 :resname author_name :ressortgroupref 0 :resorigtbl 81229 :resorigcol 3 :resjunk false}) :custom_relids (b 1 2 4) :methods ParadeDB\\ Scan}")
+WARNING:  ParadeDB: Analyzing 4 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}"),))), (4, Some((Ok("{VAR :varno -3 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 3 :location -1}"),)))]
+WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation documents_join_test
+WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "documents_join_test")]
+WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
+WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 1
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 1
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 1 to relation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: authors_join_test
-WARNING:  ParadeDB: Analyzing target entry 1 with name 'id'
-WARNING:  ParadeDB: Checking for column 'id' in relation documents_join_test - found: true, available columns: ["id", "title", "content"]
-WARNING:  ParadeDB: Found column 'id' in outer relation documents_join_test
-WARNING:  ParadeDB: Target entry 1 ('id') mapped to: OuterColumn("id")
-WARNING:  ParadeDB: Analyzing target entry 2 with name 'title'
-WARNING:  ParadeDB: Checking for column 'title' in relation documents_join_test - found: true, available columns: ["id", "title", "content"]
-WARNING:  ParadeDB: Found column 'title' in outer relation documents_join_test
-WARNING:  ParadeDB: Target entry 2 ('title') mapped to: OuterColumn("title")
-WARNING:  ParadeDB: Analyzing target entry 3 with name 'filename'
-WARNING:  ParadeDB: Checking for column 'filename' in relation documents_join_test - found: false, available columns: ["id", "title", "content"]
-WARNING:  ParadeDB: Checking for column 'filename' in relation authors_join_test - found: false, available columns: ["id", "document_id", "author_name", "bio"]
-WARNING:  ParadeDB: Column 'filename' not found in either relation, using generic fallback
-WARNING:  ParadeDB: No direct matches for 'filename', trying intelligent fallback with outer: ["id", "title", "content"], inner: ["id", "document_id", "author_name"]
-WARNING:  ParadeDB: Target 'filename' looks like a name field, using outer column 'title'
-WARNING:  ParadeDB: Target entry 3 ('filename') mapped to: OuterColumn("title")
-WARNING:  ParadeDB: Analyzing target entry 4 with name 'author_name'
-WARNING:  ParadeDB: Checking for column 'author_name' in relation documents_join_test - found: false, available columns: ["id", "title", "content"]
-WARNING:  ParadeDB: Checking for column 'author_name' in relation authors_join_test - found: true, available columns: ["id", "document_id", "author_name", "bio"]
-WARNING:  ParadeDB: Found column 'author_name' in inner relation authors_join_test
-WARNING:  ParadeDB: Target entry 4 ('author_name') mapped to: InnerColumn("author_name")
-WARNING:  ParadeDB: Mapped 4 out of 4 column values: [Some("1"), Some("Document 1"), Some("Document 1"), Some("Bob Wilson")]
-WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("1"), Some("Document 1"), Some("Document 1"), Some("Bob Wilson")]
+WARNING:  ParadeDB: varnosyn 1 mapped to outer relation documents_join_test (attno 1)
+WARNING:  ParadeDB: Relation documents_join_test attno 1 -> column name 'id'
+WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn { relid: 81211, column_name: "id" }
+WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
+WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: authors_join_test
+WARNING:  ParadeDB: varnosyn 1 mapped to outer relation documents_join_test (attno 2)
+WARNING:  ParadeDB: Relation documents_join_test attno 2 -> column name 'title'
+WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn { relid: 81211, column_name: "title" }
+WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
+WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 3
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 3
+WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 3 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: authors_join_test
+WARNING:  ParadeDB: varnosyn 2 mapped to inner relation authors_join_test (attno 3)
+WARNING:  ParadeDB: Relation authors_join_test attno 3 -> column name 'author_name'
+WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn { relid: 81229, column_name: "author_name" }
+WARNING:  ParadeDB: Analyzing target entry 4 (resno: 4)
+WARNING:  ParadeDB: Found Var in target entry 4 - varno: -3, attno: 4, varnosyn: 4, varattnosyn: 3
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 4, varattnosyn: 3
+WARNING:  ParadeDB: Mapping original variable varnosyn: 4, varattnosyn: 3 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: authors_join_test
+WARNING:  ParadeDB: Unknown varnosyn 4, using fallback mapping
+WARNING:  ParadeDB: Target entry 4 mapped to: IndexBased { relation_index: 1, column_index: 2 }
+WARNING:  ParadeDB: Mapped 4 out of 4 column values: [Some("1"), Some("Document 1"), Some("Bob Wilson"), Some("Bob Wilson")]
+WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("1"), Some("Document 1"), Some("Bob Wilson"), Some("Bob Wilson")]
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
@@ -1358,8 +1493,8 @@ WARNING:  ParadeDB: ===== END JOIN EXECUTION STATISTICS =====
 WARNING:  ParadeDB: Join execution cleanup complete
  id |   title    |  filename  | author_name 
 ----+------------+------------+-------------
-  1 | Document 1 | Document 1 | Jane Doe
-  1 | Document 1 | Document 1 | Bob Wilson
+  1 | Document 1 | Jane Doe   | Jane Doe
+  1 | Document 1 | Bob Wilson | Bob Wilson
 (2 rows)
 
 -- Test 6: 3-way join with unilateral search (only documents)
@@ -1571,6 +1706,11 @@ WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 0, inner: 1, bilateral: false
 WARNING:  ParadeDB: Stored outer relation OID: files_join_test
 WARNING:  ParadeDB: Stored inner relation OID: documents_join_test
+WARNING:  ParadeDB: Storing 4 variable mappings from planning phase
+WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=1 -> 'join_attr_1'
+WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_2'
+WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=3 -> 'join_attr_3'
+WARNING:  ParadeDB: Planning-time mapping: varno=4, attno=3 -> 'join_attr_4'
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
 WARNING:  ParadeDB: Using stored search predicates - outer: 0, inner: 1, bilateral: false
@@ -1624,30 +1764,43 @@ WARNING:  ParadeDB: documents_join_test column 'title' = 'Document 3'
 WARNING:  ParadeDB: documents_join_test column 'content' = 'This is the third document about research'
 WARNING:  ParadeDB: Successfully fetched 3 columns from documents_join_test relation
 WARNING:  ParadeDB: Fetched 4 columns from outer relation, 3 from inner relation
-WARNING:  ParadeDB: Analyzing 4 target entries using direct name mapping
+WARNING:  ParadeDB: PLAN: Ok("{CUSTOMSCAN :scan.plan.startup_cost 100 :scan.plan.total_cost 100.01 :scan.plan.plan_rows 1 :scan.plan.plan_width 100 :scan.plan.parallel_aware false :scan.plan.parallel_safe false :scan.plan.async_capable false :scan.plan.plan_node_id 0 :scan.plan.targetlist ({TARGETENTRY :expr {VAR :varno -3 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname id :ressortgroupref 0 :resorigtbl 81211 :resorigcol 1 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 2 :resname title :ressortgroupref 0 :resorigtbl 81211 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 3 :resname filename :ressortgroupref 0 :resorigtbl 81220 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 3 :location -1} :resno 4 :resname author_name :ressortgroupref 0 :resorigtbl 81229 :resorigcol 3 :resjunk false}) :scan.plan.qual <> :scan.plan.lefttree <> :scan.plan.righttree <> :scan.plan.initPlan <> :scan.plan.extParam (b) :scan.plan.allParam (b) :scan.scanrelid 0 :flags 4 :custom_plans <> :custom_exprs <> :custom_private (\"\\{\"heaprelid\":null,\"indexrelid\":null,\"range_table_index\":null,\"query\":null,\"limit\":null,\"segment_count\":0,\"sort_field\":null,\"sort_direction\":null,\"exec_method_type\":\"Normal\",\"var_attname_lookup\":[[\"1,1\",\"join_attr_1\"],[\"1,2\",\"join_attr_2\"],[\"2,3\",\"join_attr_3\"],[\"4,3\",\"join_attr_4\"]],\"target_list_len\":4,\"planned_which_fast_fields\":null,\"referenced_columns_count\":0,\"join_search_predicates\":\\{\"outer_predicates\":[],\"inner_predicates\":[\\{\"rti\":1,\"relid\":81211,\"relname\":\"documents_join_test\",\"query\":\\{\"with_index\":\\{\"oid\":81237,\"query\":\\{\"parse_with_field\":\\{\"field\":\"content\",\"query_string\":\"research\",\"lenient\":null,\"conjunction_mode\":null\\}\\}\\}\\},\"uses_search_operator\":true\\}],\"join_conditions\":[]\\},\"join_outer_relid\":81220,\"join_inner_relid\":81211\\}\") :custom_scan_tlist ({TARGETENTRY :expr {VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname id :ressortgroupref 0 :resorigtbl 81211 :resorigcol 1 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 2 :resname title :ressortgroupref 0 :resorigtbl 81211 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 3 :resname filename :ressortgroupref 0 :resorigtbl 81220 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno 4 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 3 :location -1} :resno 4 :resname author_name :ressortgroupref 0 :resorigtbl 81229 :resorigcol 3 :resjunk false}) :custom_relids (b 1 2 4) :methods ParadeDB\\ Scan}")
+WARNING:  ParadeDB: Analyzing 4 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}"),))), (4, Some((Ok("{VAR :varno -3 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 3 :location -1}"),)))]
+WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation files_join_test
+WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "files_join_test")]
+WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
+WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 1
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 1
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 1 to relation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: files_join_test, inner: documents_join_test
-WARNING:  ParadeDB: Analyzing target entry 1 with name 'id'
-WARNING:  ParadeDB: Checking for column 'id' in relation files_join_test - found: true, available columns: ["id", "document_id", "filename", "content"]
-WARNING:  ParadeDB: Found column 'id' in outer relation files_join_test
-WARNING:  ParadeDB: Target entry 1 ('id') mapped to: OuterColumn("id")
-WARNING:  ParadeDB: Analyzing target entry 2 with name 'title'
-WARNING:  ParadeDB: Checking for column 'title' in relation files_join_test - found: false, available columns: ["id", "document_id", "filename", "content"]
-WARNING:  ParadeDB: Checking for column 'title' in relation documents_join_test - found: true, available columns: ["id", "title", "content"]
-WARNING:  ParadeDB: Found column 'title' in inner relation documents_join_test
-WARNING:  ParadeDB: Target entry 2 ('title') mapped to: InnerColumn("title")
-WARNING:  ParadeDB: Analyzing target entry 3 with name 'filename'
-WARNING:  ParadeDB: Checking for column 'filename' in relation files_join_test - found: true, available columns: ["id", "document_id", "filename", "content"]
-WARNING:  ParadeDB: Found column 'filename' in outer relation files_join_test
-WARNING:  ParadeDB: Target entry 3 ('filename') mapped to: OuterColumn("filename")
-WARNING:  ParadeDB: Analyzing target entry 4 with name 'author_name'
-WARNING:  ParadeDB: Checking for column 'author_name' in relation files_join_test - found: false, available columns: ["id", "document_id", "filename", "content"]
-WARNING:  ParadeDB: Checking for column 'author_name' in relation documents_join_test - found: false, available columns: ["id", "title", "content"]
-WARNING:  ParadeDB: Column 'author_name' not found in either relation, using generic fallback
-WARNING:  ParadeDB: No direct matches for 'author_name', trying intelligent fallback with outer: ["id", "document_id", "filename"], inner: ["id", "title", "content"]
-WARNING:  ParadeDB: Target 'author_name' looks like a name field, using outer column 'filename'
-WARNING:  ParadeDB: Target entry 4 ('author_name') mapped to: OuterColumn("filename")
-WARNING:  ParadeDB: Mapped 4 out of 4 column values: [Some("1"), Some("Document 3"), Some("file1.txt"), Some("file1.txt")]
-WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("1"), Some("Document 3"), Some("file1.txt"), Some("file1.txt")]
+WARNING:  ParadeDB: varnosyn 1 mapped to outer relation files_join_test (attno 1)
+WARNING:  ParadeDB: Relation files_join_test attno 1 -> column name 'id'
+WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn { relid: 81220, column_name: "id" }
+WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
+WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: files_join_test, inner: documents_join_test
+WARNING:  ParadeDB: varnosyn 1 mapped to outer relation files_join_test (attno 2)
+WARNING:  ParadeDB: Relation files_join_test attno 2 -> column name 'document_id'
+WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn { relid: 81220, column_name: "document_id" }
+WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
+WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 3
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 3
+WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 3 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: files_join_test, inner: documents_join_test
+WARNING:  ParadeDB: varnosyn 2 mapped to inner relation documents_join_test (attno 3)
+WARNING:  ParadeDB: Relation documents_join_test attno 3 -> column name 'content'
+WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn { relid: 81211, column_name: "content" }
+WARNING:  ParadeDB: Analyzing target entry 4 (resno: 4)
+WARNING:  ParadeDB: Found Var in target entry 4 - varno: -3, attno: 4, varnosyn: 4, varattnosyn: 3
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 4, varattnosyn: 3
+WARNING:  ParadeDB: Mapping original variable varnosyn: 4, varattnosyn: 3 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: files_join_test, inner: documents_join_test
+WARNING:  ParadeDB: Unknown varnosyn 4, using fallback mapping
+WARNING:  ParadeDB: Target entry 4 mapped to: IndexBased { relation_index: 1, column_index: 2 }
+WARNING:  ParadeDB: Mapped 4 out of 4 column values: [Some("1"), Some("1"), Some("This is the third document about research"), Some("This is the third document about research")]
+WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("1"), Some("1"), Some("This is the third document about research"), Some("This is the third document about research")]
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple
@@ -1662,9 +1815,9 @@ WARNING:  ParadeDB: Cleaned up 1 search readers
 WARNING:  ParadeDB: Cleared 1 outer and 1 inner search results
 WARNING:  ParadeDB: ===== END JOIN EXECUTION STATISTICS =====
 WARNING:  ParadeDB: Join execution cleanup complete
- id |   title    | filename  | author_name 
-----+------------+-----------+-------------
-  1 | Document 3 | file1.txt | file1.txt
+ id | title |                 filename                  |                author_name                
+----+-------+-------------------------------------------+-------------------------------------------
+  1 | 1     | This is the third document about research | This is the third document about research
 (1 row)
 
 -- Cleanup

@@ -152,7 +152,8 @@ impl FreeBlockList {
                     let next_blockno = page.next_blockno();
                     buffer = self.bman.get_buffer_mut(next_blockno);
                 } else {
-                    // need to create new block and link it to this one
+                    // The FSM cannot call new_buffer() because it would cause a circular dependency
+                    // new_buffer() itself relies on the FSM - we have to extend the relation here
                     let mut new_page = self.bman.extend_relation();
                     let new_blockno = new_page.number();
                     new_page.init_page();

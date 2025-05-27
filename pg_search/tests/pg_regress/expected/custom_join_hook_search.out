@@ -785,7 +785,7 @@ WARNING:  ParadeDB: Extracted 2 join keys
 WARNING:  ParadeDB: Executing filtered search with 2 filter keys pushed down to Tantivy
 WARNING:  ParadeDB: Creating filtered query for relation reviews with 2 filter keys
 WARNING:  ParadeDB: Using join key field 'id' for relation reviews
-WARNING:  ParadeDB: Created combined query: original_search AND (key IN [5, 2])
+WARNING:  ParadeDB: Created combined query: original_search AND (key IN [2, 5])
 WARNING:  ParadeDB: Created combined query with filter pushdown for relation reviews
 WARNING:  ParadeDB: Filtered search with Tantivy pushdown returned 0 results (vs 2 filter keys)
 WARNING:  ParadeDB: Filtered target search returned 0 results

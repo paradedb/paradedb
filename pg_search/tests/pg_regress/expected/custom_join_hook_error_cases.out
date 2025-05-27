@@ -628,7 +628,7 @@ WARNING:  ParadeDB: Extracted 100 join keys
 WARNING:  ParadeDB: Executing filtered search with 100 filter keys pushed down to Tantivy
 WARNING:  ParadeDB: Creating filtered query for relation large_files with 100 filter keys
 WARNING:  ParadeDB: Using join key field 'id' for relation large_files
-WARNING:  ParadeDB: Created combined query: original_search AND (key IN [36, 21, 42, 31, 59, 69, 73, 89, 62, 52, 82, 6, 33, 67, 18, 68, 9, 40, 60, 74, 29, 25, 26, 3, 56, 1, 10, 47, 79, 87, 84, 41, 78, 35, 92, 14, 85, 93, 20, 34, 94, 16, 88, 8, 37, 77, 22, 27, 11, 39, 90, 70, 97, 81, 51, 54, 61, 46, 76, 63, 96, 99, 72, 98, 64, 53, 48, 49, 23, 28, 12, 30, 17, 4, 2, 38, 43, 45, 71, 32, 5, 19, 24, 65, 75, 80, 44, 83, 57, 66, 15, 86, 13, 91, 95, 100, 7, 55, 58, 50])
+WARNING:  ParadeDB: Created combined query: original_search AND (key IN [25, 6, 66, 68, 5, 64, 33, 90, 62, 22, 23, 67, 92, 100, 70, 7, 13, 1, 44, 82, 16, 38, 24, 55, 57, 20, 61, 69, 79, 96, 29, 45, 8, 3, 87, 99, 15, 30, 72, 34, 77, 27, 19, 39, 59, 56, 14, 53, 49, 54, 21, 52, 60, 75, 83, 91, 93, 32, 47, 94, 2, 48, 35, 58, 73, 46, 84, 97, 88, 10, 36, 43, 26, 50, 63, 28, 9, 18, 31, 41, 11, 51, 40, 65, 74, 76, 12, 4, 78, 85, 81, 42, 17, 37, 71, 80, 86, 95, 89, 98])
 WARNING:  ParadeDB: Created combined query with filter pushdown for relation large_files
 WARNING:  ParadeDB: Filtered search with Tantivy pushdown returned 100 results (vs 100 filter keys)
 WARNING:  ParadeDB: Filtered target search returned 100 results

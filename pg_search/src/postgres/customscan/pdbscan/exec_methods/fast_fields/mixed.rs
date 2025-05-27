@@ -664,21 +664,21 @@ mod multi_field_collector {
                     WhichFastField::Named(field_name, FastFieldType::Numeric) => {
                         // Try different numeric field types in order
                         let ff_type = if let Ok(i64_col) = ff.i64(field_name) {
-                            Some(FFType::I64(i64_col))
+                            FFType::I64(i64_col)
                         } else if let Ok(u64_col) = ff.u64(field_name) {
-                            Some(FFType::U64(u64_col))
+                            FFType::U64(u64_col)
                         } else if let Ok(f64_col) = ff.f64(field_name) {
-                            Some(FFType::F64(f64_col))
+                            FFType::F64(f64_col)
                         } else if let Ok(bool_col) = ff.bool(field_name) {
-                            Some(FFType::Bool(bool_col))
+                            FFType::Bool(bool_col)
+                        } else if let Ok(date_col) = ff.date(field_name) {
+                            FFType::Date(date_col)
                         } else {
-                            None
+                            panic!("Unrecognized numeric fast field type for: {field_name}");
                         };
 
-                        if let Some(field_type) = ff_type {
-                            numeric_columns.push((field_idx, field_type));
-                            numeric_values.push(Vec::default());
-                        }
+                        numeric_columns.push((field_idx, ff_type));
+                        numeric_values.push(Vec::default());
                     }
                     _ => {}
                 }
@@ -794,7 +794,14 @@ mod multi_field_collector {
                             OwnedValue::Null
                         }
                     }
-                    _ => OwnedValue::Null,
+                    FFType::Date(col) => {
+                        if let Some(val) = col.first(doc) {
+                            OwnedValue::Date(val)
+                        } else {
+                            OwnedValue::Null
+                        }
+                    }
+                    x => panic!("Unhandled column type {x:?}"),
                 };
 
                 // Store the value for this document

@@ -696,12 +696,10 @@ ORDER BY text_field1, non_indexed_field;
    ->  Custom Scan (ParadeDB Scan) on exec_method_test
          Table: exec_method_test
          Index: exec_method_idx
-         Exec Method: StringFastFieldExecState
-         Fast Fields: text_field1
-         String Agg Field: text_field1
+         Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+(8 rows)
 
 SELECT text_field1, non_indexed_field
 FROM exec_method_test

@@ -211,10 +211,7 @@ impl MetaPage {
             return None;
         }
 
-        Some(FreeBlockList::open(
-            self.bman.relation_oid(),
-            self.data.fsm,
-        ))
+        Some(FreeBlockList::open(self.bman.relation_oid(), self.data.fsm))
     }
 }
 

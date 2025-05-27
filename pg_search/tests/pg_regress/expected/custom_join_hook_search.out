@@ -162,7 +162,7 @@ WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation reviews with CTID 1
 WARNING:  ParadeDB: Column 'document_id' not found in relation reviews
 WARNING:  ParadeDB: Failed to fetch join key values - outer_id: Some("1"), inner_document_id: None
-WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 1) × inner[1] (ctid 1) = false
+WARNING:  ParadeDB: Evaluating join condition for outer[0] (ctid 1) × inner[0] (ctid 1) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 1
@@ -170,7 +170,7 @@ WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation reviews with CTID 4
 WARNING:  ParadeDB: Column 'document_id' not found in relation reviews
 WARNING:  ParadeDB: Failed to fetch join key values - outer_id: Some("1"), inner_document_id: None
-WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 1) × inner[2] (ctid 4) = false
+WARNING:  ParadeDB: Evaluating join condition for outer[0] (ctid 1) × inner[1] (ctid 4) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Join matching complete - total matches: 0
 WARNING:  ParadeDB: Cleaning up join execution
@@ -282,7 +282,7 @@ WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation reviews with CTID 1
 WARNING:  ParadeDB: Column 'document_id' not found in relation reviews
 WARNING:  ParadeDB: Failed to fetch join key values - outer_id: Some("1"), inner_document_id: None
-WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 1) × inner[1] (ctid 1) = false
+WARNING:  ParadeDB: Evaluating join condition for outer[0] (ctid 1) × inner[0] (ctid 1) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Advanced to next outer tuple [2/3]
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
@@ -291,7 +291,7 @@ WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation reviews with CTID 1
 WARNING:  ParadeDB: Column 'document_id' not found in relation reviews
 WARNING:  ParadeDB: Failed to fetch join key values - outer_id: Some("2"), inner_document_id: None
-WARNING:  ParadeDB: Evaluating join condition for outer[2] (ctid 2) × inner[1] (ctid 1) = false
+WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 2) × inner[0] (ctid 1) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Advanced to next outer tuple [3/3]
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
@@ -300,7 +300,7 @@ WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("5")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation reviews with CTID 1
 WARNING:  ParadeDB: Column 'document_id' not found in relation reviews
 WARNING:  ParadeDB: Failed to fetch join key values - outer_id: Some("5"), inner_document_id: None
-WARNING:  ParadeDB: Evaluating join condition for outer[3] (ctid 5) × inner[1] (ctid 1) = false
+WARNING:  ParadeDB: Evaluating join condition for outer[2] (ctid 5) × inner[0] (ctid 1) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Join matching complete - total matches: 0
 WARNING:  ParadeDB: Cleaning up join execution
@@ -425,7 +425,7 @@ WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation reviews with CTID 1
 WARNING:  ParadeDB: Column 'document_id' not found in relation reviews
 WARNING:  ParadeDB: Failed to fetch join key values - outer_id: Some("2"), inner_document_id: None
-WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 2) × inner[1] (ctid 1) = false
+WARNING:  ParadeDB: Evaluating join condition for outer[0] (ctid 2) × inner[0] (ctid 1) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 2
@@ -433,7 +433,7 @@ WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation reviews with CTID 3
 WARNING:  ParadeDB: Column 'document_id' not found in relation reviews
 WARNING:  ParadeDB: Failed to fetch join key values - outer_id: Some("2"), inner_document_id: None
-WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 2) × inner[2] (ctid 3) = false
+WARNING:  ParadeDB: Evaluating join condition for outer[0] (ctid 2) × inner[1] (ctid 3) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 2
@@ -441,7 +441,7 @@ WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation reviews with CTID 6
 WARNING:  ParadeDB: Column 'document_id' not found in relation reviews
 WARNING:  ParadeDB: Failed to fetch join key values - outer_id: Some("2"), inner_document_id: None
-WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 2) × inner[3] (ctid 6) = false
+WARNING:  ParadeDB: Evaluating join condition for outer[0] (ctid 2) × inner[2] (ctid 6) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Advanced to next outer tuple [2/2]
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
@@ -450,7 +450,7 @@ WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("5")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation reviews with CTID 1
 WARNING:  ParadeDB: Column 'document_id' not found in relation reviews
 WARNING:  ParadeDB: Failed to fetch join key values - outer_id: Some("5"), inner_document_id: None
-WARNING:  ParadeDB: Evaluating join condition for outer[2] (ctid 5) × inner[1] (ctid 1) = false
+WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 5) × inner[0] (ctid 1) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 5
@@ -458,7 +458,7 @@ WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("5")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation reviews with CTID 3
 WARNING:  ParadeDB: Column 'document_id' not found in relation reviews
 WARNING:  ParadeDB: Failed to fetch join key values - outer_id: Some("5"), inner_document_id: None
-WARNING:  ParadeDB: Evaluating join condition for outer[2] (ctid 5) × inner[2] (ctid 3) = false
+WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 5) × inner[1] (ctid 3) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 5
@@ -466,7 +466,7 @@ WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("5")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation reviews with CTID 6
 WARNING:  ParadeDB: Column 'document_id' not found in relation reviews
 WARNING:  ParadeDB: Failed to fetch join key values - outer_id: Some("5"), inner_document_id: None
-WARNING:  ParadeDB: Evaluating join condition for outer[2] (ctid 5) × inner[3] (ctid 6) = false
+WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 5) × inner[2] (ctid 6) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Join matching complete - total matches: 0
 WARNING:  ParadeDB: Cleaning up join execution
@@ -586,7 +586,7 @@ WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation reviews with CTID 1
 WARNING:  ParadeDB: Column 'document_id' not found in relation reviews
 WARNING:  ParadeDB: Failed to fetch join key values - outer_id: Some("1"), inner_document_id: None
-WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 1) × inner[1] (ctid 1) = false
+WARNING:  ParadeDB: Evaluating join condition for outer[0] (ctid 1) × inner[0] (ctid 1) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Join matching complete - total matches: 0
 WARNING:  ParadeDB: Cleaning up join execution

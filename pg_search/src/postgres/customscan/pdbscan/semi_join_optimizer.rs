@@ -183,13 +183,13 @@ impl SemiJoinOptimizer {
         // In a production implementation, this would analyze the actual join conditions
         // For now, we'll use hardcoded relationships for the common patterns
 
-        let mut outer_relids: Vec<pg_sys::Oid> = self
+        let outer_relids: Vec<pg_sys::Oid> = self
             .predicates
             .outer_predicates
             .iter()
             .map(|p| p.relid)
             .collect();
-        let mut inner_relids: Vec<pg_sys::Oid> = self
+        let inner_relids: Vec<pg_sys::Oid> = self
             .predicates
             .inner_predicates
             .iter()
@@ -854,20 +854,105 @@ unsafe fn create_filtered_query(
 /// Determine the join key field name for a relation
 /// This maps relation names to their appropriate join key fields
 unsafe fn determine_join_key_field_name(relid: pg_sys::Oid) -> String {
+    // First, try to analyze the actual schema to find foreign key relationships
+    if let Some(fk_field) = analyze_foreign_key_relationships(relid) {
+        return fk_field;
+    }
+
+    // Fallback to common patterns
     let relation_name = get_rel_name(relid);
 
-    // Map relation names to their join key fields based on our schema
-    match relation_name.as_str() {
-        "documents_join_test" => "id".to_string(),
-        "files_join_test" => "document_id".to_string(), // files join on document_id
-        "authors_join_test" => "document_id".to_string(), // authors join on document_id
-        _ => {
-            // Generic fallback: try common patterns
+    // Look for common join key patterns in the relation itself
+    let column_names = get_relation_column_names(relid);
+
+    // Priority order for join key detection:
+    // 1. "id" - primary key
+    // 2. "*_id" - foreign key pattern
+    // 3. First integer column
+
+    if column_names.contains(&"id".to_string()) {
+        return "id".to_string();
+    }
+
+    // Look for foreign key patterns
+    for column in &column_names {
+        if column.ends_with("_id") || column.ends_with("Id") {
             warning!(
-                "ParadeDB: Unknown relation '{}', using 'id' as join key field",
+                "ParadeDB: Found foreign key pattern '{}' in relation {}",
+                column,
                 relation_name
             );
-            "id".to_string()
+            return column.clone();
         }
     }
+
+    // Look for the first integer column
+    if let Some(int_column) = find_first_integer_column(relid) {
+        warning!(
+            "ParadeDB: Using first integer column '{}' as join key for relation {}",
+            int_column,
+            relation_name
+        );
+        return int_column;
+    }
+
+    // Final fallback
+    warning!(
+        "ParadeDB: No suitable join key found for relation '{}', using 'id' as fallback",
+        relation_name
+    );
+    "id".to_string()
+}
+
+/// Analyze foreign key relationships to determine join keys
+unsafe fn analyze_foreign_key_relationships(relid: pg_sys::Oid) -> Option<String> {
+    // Query PostgreSQL's system catalogs to find foreign key constraints
+    // This is a simplified implementation - in production, we'd use proper catalog queries
+
+    // For now, return None to use the fallback logic
+    None
+}
+
+/// Get all column names for a relation
+unsafe fn get_relation_column_names(relid: pg_sys::Oid) -> Vec<String> {
+    let mut column_names = Vec::new();
+
+    let heaprel = pg_sys::relation_open(relid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+    if heaprel.is_null() {
+        return column_names;
+    }
+
+    let tuple_desc = pgrx::PgTupleDesc::from_pg_unchecked((*heaprel).rd_att);
+    for i in 0..tuple_desc.len() {
+        if let Some(attribute) = tuple_desc.get(i) {
+            column_names.push(attribute.name().to_string());
+        }
+    }
+
+    pg_sys::relation_close(heaprel, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+    column_names
+}
+
+/// Find the first integer column in a relation
+unsafe fn find_first_integer_column(relid: pg_sys::Oid) -> Option<String> {
+    let heaprel = pg_sys::relation_open(relid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+    if heaprel.is_null() {
+        return None;
+    }
+
+    let tuple_desc = pgrx::PgTupleDesc::from_pg_unchecked((*heaprel).rd_att);
+    for i in 0..tuple_desc.len() {
+        if let Some(attribute) = tuple_desc.get(i) {
+            if attribute.type_oid() == pg_sys::INT4OID.into()
+                || attribute.type_oid() == pg_sys::INT8OID.into()
+            {
+                let column_name = attribute.name().to_string();
+                pg_sys::relation_close(heaprel, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+                return Some(column_name);
+            }
+        }
+    }
+
+    pg_sys::relation_close(heaprel, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+    None
 }

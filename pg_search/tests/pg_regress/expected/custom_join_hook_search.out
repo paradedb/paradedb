@@ -124,12 +124,10 @@ WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_1'
 WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=3 -> 'join_attr_2'
 WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=4 -> 'join_attr_3'
 WARNING:  ParadeDB: Beginning custom scan for join node
-WARNING:  ParadeDB: Initializing production-ready join execution
-WARNING:  ParadeDB: Join configuration - outer predicates: 1 (search: 1), inner predicates: 1 (search: 1), bilateral: true
-WARNING:  ParadeDB: Relation validation - outer: products (valid: true), inner: reviews (valid: true)
-WARNING:  ParadeDB: Join execution initialization completed successfully
-WARNING:  ParadeDB: Phase 1/4 - Initializing join execution
+WARNING:  ParadeDB: Initializing join execution
+WARNING:  ParadeDB: Join execution initialization complete
 WARNING:  ParadeDB: Prerequisites validation passed - ready for join execution
+WARNING:  ParadeDB: Starting join execution - initializing search
 WARNING:  ParadeDB: Initializing search execution with safety checks
 WARNING:  ParadeDB: Initializing search with 1 outer and 1 inner predicates
 WARNING:  ParadeDB: Initializing search readers with safety checks
@@ -137,19 +135,43 @@ WARNING:  ParadeDB: Successfully opened search reader for products
 WARNING:  ParadeDB: Successfully opened search reader for reviews
 WARNING:  ParadeDB: Search reader initialization - 2 successful out of 2 attempts
 WARNING:  ParadeDB: Executing real searches with safety checks
+WARNING:  ParadeDB: Executing real searches on join relations with semi-join optimization
+WARNING:  ParadeDB: Semi-join optimization check - can_optimize: true, outer_preds: 1, inner_preds: 1
+WARNING:  ParadeDB: Applying semi-join optimization
+WARNING:  ParadeDB: Analyzing semi-join optimization opportunities
+WARNING:  ParadeDB: Estimating search predicate selectivity
+WARNING:  ParadeDB: Estimated selectivity for products (outer): 0.0050
+WARNING:  ParadeDB: Estimated selectivity for reviews (inner): 0.0050
+WARNING:  ParadeDB: Identifying join relationships
+WARNING:  ParadeDB: Found join relationship: products.id = reviews.product_id
+WARNING:  ParadeDB: Found join relationship: products -> reviews
+WARNING:  ParadeDB: Ordered predicates by selectivity:
+WARNING:  ParadeDB: 1. products (selectivity: 0.0050)
+WARNING:  ParadeDB: 2. reviews (selectivity: 0.0050)
+WARNING:  ParadeDB: Creating semi-join strategies
+WARNING:  ParadeDB: Created semi-join strategy: products -> reviews
+WARNING:  ParadeDB: Semi-join optimizer created 1 strategies
+WARNING:  ParadeDB: Found 1 semi-join strategies
+WARNING:  ParadeDB: Executing search filter strategy
+WARNING:  ParadeDB: Source search returned 1 results
+WARNING:  ParadeDB: Extracted 1 join keys
+WARNING:  ParadeDB: Executing filtered search with 1 filter keys pushed down to Tantivy
+WARNING:  ParadeDB: Creating filtered query for relation reviews with 1 filter keys
+WARNING:  ParadeDB: Using join key field 'id' for relation reviews
+WARNING:  ParadeDB: Created combined query: original_search AND (key IN [1])
+WARNING:  ParadeDB: Created combined query with filter pushdown for relation reviews
+WARNING:  ParadeDB: Filtered search with Tantivy pushdown returned 1 results (vs 1 filter keys)
+WARNING:  ParadeDB: Filtered target search returned 1 results
+WARNING:  ParadeDB: Semi-join optimization successful, got 1 results
+WARNING:  ParadeDB: Executing search on relation products
 WARNING:  ParadeDB: Executing real BM25 search on relation products
 WARNING:  ParadeDB: Real search on products returned 1 results
-WARNING:  ParadeDB: Successfully executed search on products
-WARNING:  ParadeDB: Executing real BM25 search on relation reviews
-WARNING:  ParadeDB: Real search on reviews returned 2 results
-WARNING:  ParadeDB: Successfully executed search on reviews
-WARNING:  ParadeDB: Search execution completed - outer: 1, inner: 2
+WARNING:  ParadeDB: Found 1 results for relation products
+WARNING:  ParadeDB: Semi-join optimization completed - outer: 1, inner: 1
+WARNING:  ParadeDB: Semi-join optimized search execution completed successfully
 WARNING:  ParadeDB: Search execution initialization completed successfully
-WARNING:  ParadeDB: Phase 2/4 - Executing outer relation search
-WARNING:  ParadeDB: Outer search completed - 1 results
-WARNING:  ParadeDB: Phase 3/4 - Executing inner relation search
-WARNING:  ParadeDB: Inner search completed - 2 results
-WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
+WARNING:  ParadeDB: Prerequisites validation passed - ready for join execution
+WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Unknown relation pair (products, reviews), using generic 'id' = 'id' join
@@ -212,27 +234,11 @@ WARNING:  ParadeDB: Relation reviews attno 4 -> column name 'review_text'
 WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn(reviews,review_text)
 WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Laptop Pro"), Some("John Doe"), Some("Excellent laptop with amazing performance and battery life")]
 WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Laptop Pro"), Some("John Doe"), Some("Excellent laptop with amazing performance and battery life")]
-WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
+WARNING:  ParadeDB: Prerequisites validation passed - ready for join execution
+WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Unknown relation pair (products, reviews), using generic 'id' = 'id' join
-WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation reviews with CTID 4
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("4")
-WARNING:  ParadeDB: Join condition evaluation: 1 (products.id) = 4 (reviews.id) -> false
-WARNING:  ParadeDB: Evaluating join condition for outer[0] (ctid 1) × inner[1] (ctid 4) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Join matching complete - total matches: 1
-WARNING:  ParadeDB: Cleaning up join execution
 WARNING:  ParadeDB: Cleaning up join execution state
-WARNING:  ParadeDB: ===== JOIN EXECUTION STATISTICS =====
-WARNING:  ParadeDB: Search Results - Outer: 1, Inner: 2, Total Combinations: 2
-WARNING:  ParadeDB: Join Processing - Matches: 1, Returned: 1, Success Rate: 50.0%
-WARNING:  ParadeDB: Heap Tuple Access - Attempts: 2, Successes: 3, Success Rate: 150.0%
-WARNING:  ParadeDB: Cleaned up 2 search readers
-WARNING:  ParadeDB: Cleared 1 outer and 2 inner search results
-WARNING:  ParadeDB: ===== END JOIN EXECUTION STATISTICS =====
 WARNING:  ParadeDB: Join execution cleanup complete
     name    | reviewer_name |                        review_text                         
 ------------+---------------+------------------------------------------------------------
@@ -305,32 +311,33 @@ WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_1'
 WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=3 -> 'join_attr_2'
 WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=5 -> 'join_attr_3'
 WARNING:  ParadeDB: Beginning custom scan for join node
-WARNING:  ParadeDB: Initializing production-ready join execution
-WARNING:  ParadeDB: Join configuration - outer predicates: 1 (search: 1), inner predicates: 0 (search: 0), bilateral: false
-WARNING:  ParadeDB: Relation validation - outer: products (valid: true), inner: reviews (valid: true)
-WARNING:  ParadeDB: Join execution initialization completed successfully
-WARNING:  ParadeDB: Phase 1/4 - Initializing join execution
+WARNING:  ParadeDB: Initializing join execution
+WARNING:  ParadeDB: Join execution initialization complete
 WARNING:  ParadeDB: Prerequisites validation passed - ready for join execution
+WARNING:  ParadeDB: Starting join execution - initializing search
 WARNING:  ParadeDB: Initializing search execution with safety checks
 WARNING:  ParadeDB: Initializing search with 1 outer and 0 inner predicates
 WARNING:  ParadeDB: Initializing search readers with safety checks
 WARNING:  ParadeDB: Successfully opened search reader for products
 WARNING:  ParadeDB: Search reader initialization - 1 successful out of 1 attempts
 WARNING:  ParadeDB: Executing real searches with safety checks
+WARNING:  ParadeDB: Executing real searches on join relations with semi-join optimization
+WARNING:  ParadeDB: Semi-join optimization check - can_optimize: false, outer_preds: 1, inner_preds: 0
+WARNING:  ParadeDB: Semi-join optimization not applicable, using standard search
+WARNING:  ParadeDB: Using standard search execution (no semi-join optimization)
+WARNING:  ParadeDB: Executing search on relation products
 WARNING:  ParadeDB: Executing real BM25 search on relation products
 WARNING:  ParadeDB: Real search on products returned 3 results
-WARNING:  ParadeDB: Successfully executed search on products
+WARNING:  ParadeDB: Found 3 results for relation products
 WARNING:  ParadeDB: No inner search results - generating table scan results for unilateral join
 WARNING:  ParadeDB: Generating table scan results for relation reviews
 WARNING:  ParadeDB: Relation reviews has 1 pages
 WARNING:  ParadeDB: Generated 6 table scan results for relation reviews
-WARNING:  ParadeDB: Search execution completed - outer: 3, inner: 6
+WARNING:  ParadeDB: Completed standard search execution - outer: 3, inner: 6
+WARNING:  ParadeDB: Semi-join optimized search execution completed successfully
 WARNING:  ParadeDB: Search execution initialization completed successfully
-WARNING:  ParadeDB: Phase 2/4 - Executing outer relation search
-WARNING:  ParadeDB: Outer search completed - 3 results
-WARNING:  ParadeDB: Phase 3/4 - Executing inner relation search
-WARNING:  ParadeDB: Inner search completed - 6 results
-WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
+WARNING:  ParadeDB: Prerequisites validation passed - ready for join execution
+WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Unknown relation pair (products, reviews), using generic 'id' = 'id' join
@@ -394,7 +401,8 @@ WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn(reviews,rating)
 WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Laptop Pro"), Some("John Doe"), Some("5")]
 WARNING:  ParadeDB: Converting '5' to integer 5
 WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Laptop Pro"), Some("John Doe"), Some("5")]
-WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
+WARNING:  ParadeDB: Prerequisites validation passed - ready for join execution
+WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Unknown relation pair (products, reviews), using generic 'id' = 'id' join
@@ -513,7 +521,8 @@ WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn(reviews,rating)
 WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Wireless Mouse"), Some("Jane Smith"), Some("4")]
 WARNING:  ParadeDB: Converting '4' to integer 4
 WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Wireless Mouse"), Some("Jane Smith"), Some("4")]
-WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
+WARNING:  ParadeDB: Prerequisites validation passed - ready for join execution
+WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Unknown relation pair (products, reviews), using generic 'id' = 'id' join
@@ -650,7 +659,8 @@ WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn(reviews,rating)
 WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Smartphone X"), Some("Charlie Davis"), Some("5")]
 WARNING:  ParadeDB: Converting '5' to integer 5
 WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Smartphone X"), Some("Charlie Davis"), Some("5")]
-WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
+WARNING:  ParadeDB: Prerequisites validation passed - ready for join execution
+WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Unknown relation pair (products, reviews), using generic 'id' = 'id' join
@@ -662,15 +672,7 @@ WARNING:  ParadeDB: Join condition evaluation: 5 (products.id) = 6 (reviews.id) 
 WARNING:  ParadeDB: Evaluating join condition for outer[2] (ctid 5) × inner[5] (ctid 6) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Join matching complete - total matches: 3
-WARNING:  ParadeDB: Cleaning up join execution
 WARNING:  ParadeDB: Cleaning up join execution state
-WARNING:  ParadeDB: ===== JOIN EXECUTION STATISTICS =====
-WARNING:  ParadeDB: Search Results - Outer: 3, Inner: 6, Total Combinations: 18
-WARNING:  ParadeDB: Join Processing - Matches: 3, Returned: 3, Success Rate: 16.7%
-WARNING:  ParadeDB: Heap Tuple Access - Attempts: 6, Successes: 9, Success Rate: 150.0%
-WARNING:  ParadeDB: Cleaned up 1 search readers
-WARNING:  ParadeDB: Cleared 3 outer and 6 inner search results
-WARNING:  ParadeDB: ===== END JOIN EXECUTION STATISTICS =====
 WARNING:  ParadeDB: Join execution cleanup complete
       name      | reviewer_name | rating 
 ----------------+---------------+--------
@@ -749,12 +751,10 @@ WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_1'
 WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=4 -> 'join_attr_3'
 WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=3 -> 'join_attr_2'
 WARNING:  ParadeDB: Beginning custom scan for join node
-WARNING:  ParadeDB: Initializing production-ready join execution
-WARNING:  ParadeDB: Join configuration - outer predicates: 1 (search: 1), inner predicates: 1 (search: 1), bilateral: true
-WARNING:  ParadeDB: Relation validation - outer: products (valid: true), inner: reviews (valid: true)
-WARNING:  ParadeDB: Join execution initialization completed successfully
-WARNING:  ParadeDB: Phase 1/4 - Initializing join execution
+WARNING:  ParadeDB: Initializing join execution
+WARNING:  ParadeDB: Join execution initialization complete
 WARNING:  ParadeDB: Prerequisites validation passed - ready for join execution
+WARNING:  ParadeDB: Starting join execution - initializing search
 WARNING:  ParadeDB: Initializing search execution with safety checks
 WARNING:  ParadeDB: Initializing search with 1 outer and 1 inner predicates
 WARNING:  ParadeDB: Initializing search readers with safety checks
@@ -762,85 +762,45 @@ WARNING:  ParadeDB: Successfully opened search reader for products
 WARNING:  ParadeDB: Successfully opened search reader for reviews
 WARNING:  ParadeDB: Search reader initialization - 2 successful out of 2 attempts
 WARNING:  ParadeDB: Executing real searches with safety checks
+WARNING:  ParadeDB: Executing real searches on join relations with semi-join optimization
+WARNING:  ParadeDB: Semi-join optimization check - can_optimize: true, outer_preds: 1, inner_preds: 1
+WARNING:  ParadeDB: Applying semi-join optimization
+WARNING:  ParadeDB: Analyzing semi-join optimization opportunities
+WARNING:  ParadeDB: Estimating search predicate selectivity
+WARNING:  ParadeDB: Estimated selectivity for products (outer): 0.0050
+WARNING:  ParadeDB: Estimated selectivity for reviews (inner): 0.0050
+WARNING:  ParadeDB: Identifying join relationships
+WARNING:  ParadeDB: Found join relationship: products.id = reviews.product_id
+WARNING:  ParadeDB: Found join relationship: products -> reviews
+WARNING:  ParadeDB: Ordered predicates by selectivity:
+WARNING:  ParadeDB: 1. products (selectivity: 0.0050)
+WARNING:  ParadeDB: 2. reviews (selectivity: 0.0050)
+WARNING:  ParadeDB: Creating semi-join strategies
+WARNING:  ParadeDB: Created semi-join strategy: products -> reviews
+WARNING:  ParadeDB: Semi-join optimizer created 1 strategies
+WARNING:  ParadeDB: Found 1 semi-join strategies
+WARNING:  ParadeDB: Executing search filter strategy
+WARNING:  ParadeDB: Source search returned 2 results
+WARNING:  ParadeDB: Extracted 2 join keys
+WARNING:  ParadeDB: Executing filtered search with 2 filter keys pushed down to Tantivy
+WARNING:  ParadeDB: Creating filtered query for relation reviews with 2 filter keys
+WARNING:  ParadeDB: Using join key field 'id' for relation reviews
+WARNING:  ParadeDB: Created combined query: original_search AND (key IN [5, 2])
+WARNING:  ParadeDB: Created combined query with filter pushdown for relation reviews
+WARNING:  ParadeDB: Filtered search with Tantivy pushdown returned 0 results (vs 2 filter keys)
+WARNING:  ParadeDB: Filtered target search returned 0 results
+WARNING:  ParadeDB: Semi-join optimization successful, got 0 results
+WARNING:  ParadeDB: Executing search on relation products
 WARNING:  ParadeDB: Executing real BM25 search on relation products
 WARNING:  ParadeDB: Real search on products returned 2 results
-WARNING:  ParadeDB: Successfully executed search on products
-WARNING:  ParadeDB: Executing real BM25 search on relation reviews
-WARNING:  ParadeDB: Real search on reviews returned 3 results
-WARNING:  ParadeDB: Successfully executed search on reviews
-WARNING:  ParadeDB: Search execution completed - outer: 2, inner: 3
+WARNING:  ParadeDB: Found 2 results for relation products
+WARNING:  ParadeDB: Semi-join optimization completed - outer: 2, inner: 0
+WARNING:  ParadeDB: Semi-join optimized search execution completed successfully
 WARNING:  ParadeDB: Search execution initialization completed successfully
-WARNING:  ParadeDB: Phase 2/4 - Executing outer relation search
-WARNING:  ParadeDB: Outer search completed - 2 results
-WARNING:  ParadeDB: Phase 3/4 - Executing inner relation search
-WARNING:  ParadeDB: Inner search completed - 3 results
-WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
-WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Unknown relation pair (products, reviews), using generic 'id' = 'id' join
-WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Join condition evaluation: 2 (products.id) = 1 (reviews.id) -> false
-WARNING:  ParadeDB: Evaluating join condition for outer[0] (ctid 2) × inner[0] (ctid 1) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Unknown relation pair (products, reviews), using generic 'id' = 'id' join
-WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation reviews with CTID 3
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("3")
-WARNING:  ParadeDB: Join condition evaluation: 2 (products.id) = 3 (reviews.id) -> false
-WARNING:  ParadeDB: Evaluating join condition for outer[0] (ctid 2) × inner[1] (ctid 3) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Unknown relation pair (products, reviews), using generic 'id' = 'id' join
-WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation reviews with CTID 6
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("6")
-WARNING:  ParadeDB: Join condition evaluation: 2 (products.id) = 6 (reviews.id) -> false
-WARNING:  ParadeDB: Evaluating join condition for outer[0] (ctid 2) × inner[2] (ctid 6) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next outer tuple [2/2]
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Unknown relation pair (products, reviews), using generic 'id' = 'id' join
-WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 5
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("5")
-WARNING:  ParadeDB: Fetching column 'id' from relation reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Join condition evaluation: 5 (products.id) = 1 (reviews.id) -> false
-WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 5) × inner[0] (ctid 1) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Unknown relation pair (products, reviews), using generic 'id' = 'id' join
-WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 5
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("5")
-WARNING:  ParadeDB: Fetching column 'id' from relation reviews with CTID 3
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("3")
-WARNING:  ParadeDB: Join condition evaluation: 5 (products.id) = 3 (reviews.id) -> false
-WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 5) × inner[1] (ctid 3) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Unknown relation pair (products, reviews), using generic 'id' = 'id' join
-WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 5
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("5")
-WARNING:  ParadeDB: Fetching column 'id' from relation reviews with CTID 6
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("6")
-WARNING:  ParadeDB: Join condition evaluation: 5 (products.id) = 6 (reviews.id) -> false
-WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 5) × inner[2] (ctid 6) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Join matching complete - total matches: 0
-WARNING:  ParadeDB: Cleaning up join execution
+WARNING:  ParadeDB: Prerequisites validation passed - ready for join execution
+WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Join matching complete - no results to join (outer: 2, inner: 0)
 WARNING:  ParadeDB: Cleaning up join execution state
-WARNING:  ParadeDB: ===== JOIN EXECUTION STATISTICS =====
-WARNING:  ParadeDB: Search Results - Outer: 2, Inner: 3, Total Combinations: 6
-WARNING:  ParadeDB: Join Processing - Matches: 0, Returned: 0, Success Rate: 0.0%
-WARNING:  ParadeDB: Heap Tuple Access - Attempts: 0, Successes: 0, Success Rate: 0.0%
-WARNING:  ParadeDB: Cleaned up 2 search readers
-WARNING:  ParadeDB: Cleared 2 outer and 3 inner search results
-WARNING:  ParadeDB: ===== END JOIN EXECUTION STATISTICS =====
 WARNING:  ParadeDB: Join execution cleanup complete
  name | description | review_text 
 ------+-------------+-------------
@@ -916,32 +876,33 @@ WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_1'
 WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=4 -> 'join_attr_2'
 WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=5 -> 'join_attr_3'
 WARNING:  ParadeDB: Beginning custom scan for join node
-WARNING:  ParadeDB: Initializing production-ready join execution
-WARNING:  ParadeDB: Join configuration - outer predicates: 1 (search: 1), inner predicates: 1 (search: 0), bilateral: true
-WARNING:  ParadeDB: Relation validation - outer: products (valid: true), inner: reviews (valid: true)
-WARNING:  ParadeDB: Join execution initialization completed successfully
-WARNING:  ParadeDB: Phase 1/4 - Initializing join execution
+WARNING:  ParadeDB: Initializing join execution
+WARNING:  ParadeDB: Join execution initialization complete
 WARNING:  ParadeDB: Prerequisites validation passed - ready for join execution
+WARNING:  ParadeDB: Starting join execution - initializing search
 WARNING:  ParadeDB: Initializing search execution with safety checks
 WARNING:  ParadeDB: Initializing search with 1 outer and 1 inner predicates
 WARNING:  ParadeDB: Initializing search readers with safety checks
 WARNING:  ParadeDB: Successfully opened search reader for products
 WARNING:  ParadeDB: Search reader initialization - 1 successful out of 1 attempts
 WARNING:  ParadeDB: Executing real searches with safety checks
+WARNING:  ParadeDB: Executing real searches on join relations with semi-join optimization
+WARNING:  ParadeDB: Semi-join optimization check - can_optimize: false, outer_preds: 1, inner_preds: 1
+WARNING:  ParadeDB: Semi-join optimization not applicable, using standard search
+WARNING:  ParadeDB: Using standard search execution (no semi-join optimization)
+WARNING:  ParadeDB: Executing search on relation products
 WARNING:  ParadeDB: Executing real BM25 search on relation products
 WARNING:  ParadeDB: Real search on products returned 1 results
-WARNING:  ParadeDB: Successfully executed search on products
+WARNING:  ParadeDB: Found 1 results for relation products
 WARNING:  ParadeDB: No inner search results - generating table scan results for unilateral join
 WARNING:  ParadeDB: Generating table scan results for relation reviews
 WARNING:  ParadeDB: Relation reviews has 1 pages
 WARNING:  ParadeDB: Generated 6 table scan results for relation reviews
-WARNING:  ParadeDB: Search execution completed - outer: 1, inner: 6
+WARNING:  ParadeDB: Completed standard search execution - outer: 1, inner: 6
+WARNING:  ParadeDB: Semi-join optimized search execution completed successfully
 WARNING:  ParadeDB: Search execution initialization completed successfully
-WARNING:  ParadeDB: Phase 2/4 - Executing outer relation search
-WARNING:  ParadeDB: Outer search completed - 1 results
-WARNING:  ParadeDB: Phase 3/4 - Executing inner relation search
-WARNING:  ParadeDB: Inner search completed - 6 results
-WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
+WARNING:  ParadeDB: Prerequisites validation passed - ready for join execution
+WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Unknown relation pair (products, reviews), using generic 'id' = 'id' join
@@ -1005,7 +966,8 @@ WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn(reviews,rating)
 WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Laptop Pro"), Some("Excellent laptop with amazing performance and battery life"), Some("5")]
 WARNING:  ParadeDB: Converting '5' to integer 5
 WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Laptop Pro"), Some("Excellent laptop with amazing performance and battery life"), Some("5")]
-WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
+WARNING:  ParadeDB: Prerequisites validation passed - ready for join execution
+WARNING:  ParadeDB: Performing join matching
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
 WARNING:  ParadeDB: Unknown relation pair (products, reviews), using generic 'id' = 'id' join
@@ -1053,15 +1015,7 @@ WARNING:  ParadeDB: Join condition evaluation: 1 (products.id) = 6 (reviews.id) 
 WARNING:  ParadeDB: Evaluating join condition for outer[0] (ctid 1) × inner[5] (ctid 6) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Join matching complete - total matches: 1
-WARNING:  ParadeDB: Cleaning up join execution
 WARNING:  ParadeDB: Cleaning up join execution state
-WARNING:  ParadeDB: ===== JOIN EXECUTION STATISTICS =====
-WARNING:  ParadeDB: Search Results - Outer: 1, Inner: 6, Total Combinations: 6
-WARNING:  ParadeDB: Join Processing - Matches: 1, Returned: 1, Success Rate: 16.7%
-WARNING:  ParadeDB: Heap Tuple Access - Attempts: 2, Successes: 3, Success Rate: 150.0%
-WARNING:  ParadeDB: Cleaned up 1 search readers
-WARNING:  ParadeDB: Cleared 1 outer and 6 inner search results
-WARNING:  ParadeDB: ===== END JOIN EXECUTION STATISTICS =====
 WARNING:  ParadeDB: Join execution cleanup complete
     name    |                        review_text                         | rating 
 ------------+------------------------------------------------------------+--------

@@ -104,8 +104,8 @@ impl MetaPage {
             }
 
             if !block_number_is_valid(metadata.fsm) {
-                metadata.fsm = LinkedItemList::<FreeBlockNumber>::create(relation_oid)
-                    .get_header_blockno();
+                metadata.fsm =
+                    LinkedItemList::<FreeBlockNumber>::create(relation_oid).get_header_blockno();
             }
         }
 

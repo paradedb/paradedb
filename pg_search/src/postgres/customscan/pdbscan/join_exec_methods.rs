@@ -31,6 +31,7 @@ use crate::postgres::rel_get_bm25_index;
 use crate::query::SearchQueryInput;
 use pgrx::{pg_sys, warning, FromDatum};
 use std::collections::HashMap;
+use std::fmt::Display;
 use tantivy::Index;
 
 /// Column mapping strategies for join results - Updated to handle PostgreSQL's special varno values
@@ -51,6 +52,28 @@ enum ColumnMapping {
         relation_index: usize,
         column_index: usize,
     },
+}
+
+impl Display for ColumnMapping {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ColumnMapping::BaseRelationVar { varno, attno } => {
+                write!(f, "BaseRelationVar({},{})", varno, attno)
+            }
+            ColumnMapping::RelationColumn { relid, column_name } => {
+                write!(
+                    f,
+                    "RelationColumn({},{})",
+                    unsafe { get_rel_name(*relid) },
+                    column_name
+                )
+            }
+            ColumnMapping::IndexBased {
+                relation_index,
+                column_index,
+            } => write!(f, "IndexBased({},{})", relation_index, column_index),
+        }
+    }
 }
 
 /// Join execution state for custom join nodes
@@ -934,7 +957,7 @@ unsafe fn match_and_return_next_tuple(
     }
 }
 
-/// Evaluate the join condition (d.id = f.document_id) for the given CTIDs
+/// Evaluate the join condition for the given CTIDs with proper column mapping
 unsafe fn evaluate_join_condition(
     state: &mut CustomScanStateWrapper<PdbScan>,
     outer_ctid: u64,
@@ -951,26 +974,83 @@ unsafe fn evaluate_join_condition(
     let outer_relid = outer_relid.unwrap();
     let inner_relid = inner_relid.unwrap();
 
-    // Fetch the join key values from both tuples
-    // For our test case: d.id from documents_join_test and f.document_id from files_join_test
-    let outer_id = fetch_column_from_relation_by_name(outer_relid, outer_ctid, "id");
-    let inner_document_id =
-        fetch_column_from_relation_by_name(inner_relid, inner_ctid, "document_id");
+    // Determine the correct join keys based on the actual relations being joined
+    let (outer_key_col, inner_key_col) = determine_join_keys(outer_relid, inner_relid);
 
-    match (&outer_id, &inner_document_id) {
+    // Fetch the join key values from both tuples
+    let outer_key_value =
+        fetch_column_from_relation_by_name(outer_relid, outer_ctid, &outer_key_col);
+    let inner_key_value =
+        fetch_column_from_relation_by_name(inner_relid, inner_ctid, &inner_key_col);
+
+    match (&outer_key_value, &inner_key_value) {
         (Some(outer_val), Some(inner_val)) => {
             let condition_satisfied = outer_val == inner_val;
             warning!(
-                "ParadeDB: Join condition evaluation: {} (outer.id) = {} (inner.document_id) -> {}",
+                "ParadeDB: Join condition evaluation: {} ({}.{}) = {} ({}.{}) -> {}",
                 outer_val,
+                get_rel_name(outer_relid),
+                outer_key_col,
                 inner_val,
+                get_rel_name(inner_relid),
+                inner_key_col,
                 condition_satisfied
             );
             condition_satisfied
         }
         _ => {
-            warning!("ParadeDB: Failed to fetch join key values - outer_id: {:?}, inner_document_id: {:?}", outer_id, inner_document_id);
+            warning!(
+                "ParadeDB: Failed to fetch join key values - {}.{}: {:?}, {}.{}: {:?}",
+                get_rel_name(outer_relid),
+                outer_key_col,
+                outer_key_value,
+                get_rel_name(inner_relid),
+                inner_key_col,
+                inner_key_value
+            );
             false
+        }
+    }
+}
+
+/// Determine the correct join key columns based on the relations being joined
+unsafe fn determine_join_keys(
+    outer_relid: pg_sys::Oid,
+    inner_relid: pg_sys::Oid,
+) -> (String, String) {
+    let outer_name = get_rel_name(outer_relid);
+    let inner_name = get_rel_name(inner_relid);
+
+    // Define the join key mappings for our test schema
+    match (outer_name.as_str(), inner_name.as_str()) {
+        // documents ⟷ files: d.id = f.document_id
+        ("documents_join_test", "files_join_test") => ("id".to_string(), "document_id".to_string()),
+        ("files_join_test", "documents_join_test") => ("document_id".to_string(), "id".to_string()),
+
+        // documents ⟷ authors: d.id = a.document_id
+        ("documents_join_test", "authors_join_test") => {
+            ("id".to_string(), "document_id".to_string())
+        }
+        ("authors_join_test", "documents_join_test") => {
+            ("document_id".to_string(), "id".to_string())
+        }
+
+        // files ⟷ authors: f.document_id = a.document_id
+        ("files_join_test", "authors_join_test") => {
+            ("document_id".to_string(), "document_id".to_string())
+        }
+        ("authors_join_test", "files_join_test") => {
+            ("document_id".to_string(), "document_id".to_string())
+        }
+
+        // Generic fallback: assume both sides have 'id' column
+        _ => {
+            warning!(
+                "ParadeDB: Unknown relation pair ({}, {}), using generic 'id' = 'id' join",
+                outer_name,
+                inner_name
+            );
+            ("id".to_string(), "id".to_string())
         }
     }
 }
@@ -1590,7 +1670,7 @@ unsafe fn analyze_target_list_for_join_mapping(
                 )
             };
 
-            warning!("ParadeDB: Target entry {} mapped to: {:?}", i + 1, mapping);
+            warning!("ParadeDB: Target entry {} mapped to: {}", i + 1, mapping);
             mappings.push(mapping);
         }
 

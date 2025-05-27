@@ -47,11 +47,11 @@ pub struct PrivateData {
     /// Join search predicates for custom join execution
     join_search_predicates: Option<JoinSearchPredicates>,
 
-    /// Outer relation OID for join execution
-    join_outer_relid: Option<pg_sys::Oid>,
+    /// Outer relation OIDs for join execution (can be multiple for composite relations)
+    join_outer_relids: Vec<pg_sys::Oid>,
 
-    /// Inner relation OID for join execution
-    join_inner_relid: Option<pg_sys::Oid>,
+    /// Inner relation OIDs for join execution (can be multiple for composite relations)
+    join_inner_relids: Vec<pg_sys::Oid>,
 }
 
 mod var_attname_lookup_serializer {
@@ -220,12 +220,12 @@ impl PrivateData {
         self.join_search_predicates = join_search_predicates;
     }
 
-    pub fn set_join_outer_relid(&mut self, oid: pg_sys::Oid) {
-        self.join_outer_relid = Some(oid);
+    pub fn set_join_outer_relids(&mut self, oids: Vec<pg_sys::Oid>) {
+        self.join_outer_relids = oids;
     }
 
-    pub fn set_join_inner_relid(&mut self, oid: pg_sys::Oid) {
-        self.join_inner_relid = Some(oid);
+    pub fn set_join_inner_relids(&mut self, oids: Vec<pg_sys::Oid>) {
+        self.join_inner_relids = oids;
     }
 }
 
@@ -305,11 +305,21 @@ impl PrivateData {
         false
     }
 
-    pub fn join_outer_relid(&self) -> Option<pg_sys::Oid> {
-        self.join_outer_relid
+    pub fn join_outer_relids(&self) -> &Vec<pg_sys::Oid> {
+        &self.join_outer_relids
     }
 
+    pub fn join_inner_relids(&self) -> &Vec<pg_sys::Oid> {
+        &self.join_inner_relids
+    }
+
+    /// Get the primary outer relation OID (first one for backward compatibility)
+    pub fn join_outer_relid(&self) -> Option<pg_sys::Oid> {
+        self.join_outer_relids.first().copied()
+    }
+
+    /// Get the primary inner relation OID (first one for backward compatibility)
     pub fn join_inner_relid(&self) -> Option<pg_sys::Oid> {
-        self.join_inner_relid
+        self.join_inner_relids.first().copied()
     }
 }

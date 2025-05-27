@@ -687,18 +687,29 @@ impl CustomScan for PdbScan {
 
                 // CRITICAL: Store the relation OIDs from private data
                 // This eliminates the need to infer missing relations during execution
-                if let Some(outer_relid) = builder.custom_private().join_outer_relid() {
-                    join_exec_state.outer_relid = outer_relid;
+                let outer_relids = builder.custom_private().join_outer_relids();
+                let inner_relids = builder.custom_private().join_inner_relids();
+
+                if !outer_relids.is_empty() {
+                    // For now, use the first outer relation as the primary one for backward compatibility
+                    join_exec_state.outer_relid = outer_relids[0];
                     pgrx::warning!(
-                        "ParadeDB: Stored outer relation OID: {}",
-                        crate::postgres::customscan::pdbscan::get_rel_name(outer_relid)
+                        "ParadeDB: Stored outer relation OIDs: {:?}",
+                        outer_relids
+                            .iter()
+                            .map(|oid| crate::postgres::customscan::pdbscan::get_rel_name(*oid))
+                            .collect::<Vec<_>>()
                     );
                 }
-                if let Some(inner_relid) = builder.custom_private().join_inner_relid() {
-                    join_exec_state.inner_relid = inner_relid;
+                if !inner_relids.is_empty() {
+                    // For now, use the first inner relation as the primary one for backward compatibility
+                    join_exec_state.inner_relid = inner_relids[0];
                     pgrx::warning!(
-                        "ParadeDB: Stored inner relation OID: {}",
-                        crate::postgres::customscan::pdbscan::get_rel_name(inner_relid)
+                        "ParadeDB: Stored inner relation OIDs: {:?}",
+                        inner_relids
+                            .iter()
+                            .map(|oid| crate::postgres::customscan::pdbscan::get_rel_name(*oid))
+                            .collect::<Vec<_>>()
                     );
                 }
 

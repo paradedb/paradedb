@@ -18,7 +18,7 @@
 use crate::postgres::storage::block::{
     block_number_is_valid, BM25PageSpecialData, LinkedList, SegmentMetaEntry, METADATA,
 };
-use crate::postgres::storage::buffer::{BufferManager, BufferMut};
+use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::fsm::FreeBlockNumber;
 use crate::postgres::storage::merge::{MergeLock, SegmentIdBytes, VacuumList, VacuumSentinel};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
@@ -65,7 +65,7 @@ pub struct MetaPage {
 
 impl MetaPage {
     pub unsafe fn open(relation_oid: pg_sys::Oid) -> Self {
-        let mut bman = BufferManager::new(relation_oid);
+        let bman = BufferManager::new(relation_oid);
         let buffer = bman.get_buffer(METADATA);
         let page = buffer.page();
         let metadata = page.contents::<MetaPageData>();
@@ -223,7 +223,7 @@ pub struct MetaPageMut {
 
 impl MetaPageMut {
     pub fn new(relation_oid: pg_sys::Oid) -> Self {
-        let mut bman = BufferManager::new(relation_oid);
+        let bman = BufferManager::new(relation_oid);
         Self { bman }
     }
 

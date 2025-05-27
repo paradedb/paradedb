@@ -1,6 +1,4 @@
-use crate::postgres::storage::block::{
-    bm25_max_free_space, BM25PageSpecialData, PgItem, FIXED_BLOCK_NUMBERS,
-};
+use crate::postgres::storage::block::{BM25PageSpecialData, PgItem};
 use crate::postgres::storage::fsm::FreeBlockNumber;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
@@ -109,7 +107,7 @@ impl BufferMut {
     ///
     /// It's the caller's responsibility to later call [`pg_sys::IndexFreeSpaceMapVacuum`]
     /// if necessary.
-    pub fn return_to_fsm(mut self, bman: &mut BufferManager) {
+    pub fn return_to_fsm(self, bman: &mut BufferManager) {
         unsafe {
             let metadata = MetaPage::open_or_init(bman.relation_oid());
             let mut fsm = metadata.fsm();
@@ -215,22 +213,6 @@ pub struct PageMut<'a> {
 }
 
 impl PageMut<'_> {
-    fn mark_deleted(mut self) -> pg_sys::BlockNumber {
-        let blockno = self.buffer.number();
-        let special = self.special_mut::<BM25PageSpecialData>();
-
-        assert!(
-            special.xmax == pg_sys::InvalidTransactionId
-                || special.xmax == pg_sys::FrozenTransactionId,
-            "page {} is already marked deleted with xid={}",
-            blockno,
-            special.xmax
-        );
-        special.xmax = pg_sys::FrozenTransactionId;
-        self.buffer.dirty = true;
-        blockno
-    }
-
     pub fn max_offset_number(&self) -> pg_sys::OffsetNumber {
         unsafe { pg_sys::PageGetMaxOffsetNumber(self.pg_page) }
     }
@@ -333,6 +315,7 @@ impl PageMut<'_> {
         header
     }
 
+    #[allow(dead_code)]
     pub fn special<T>(&self) -> &T {
         unsafe { &*(pg_sys::PageGetSpecialPointer(self.pg_page) as *const T) }
     }

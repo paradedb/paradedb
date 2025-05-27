@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::HashMap;
-use crate::postgres::storage::block::{bm25_max_free_space, BM25PageSpecialData, PgItem};
+use crate::postgres::storage::block::PgItem;
 use crate::postgres::storage::metadata::MetaPage;
 use parking_lot::Mutex;
 use pgrx::pg_sys;
@@ -31,11 +31,6 @@ pub trait BM25Page {
         &self,
         offsetno: pg_sys::OffsetNumber,
     ) -> Option<(T, pg_sys::Size)>;
-
-    unsafe fn xmax(&self) -> pg_sys::TransactionId;
-
-    /// Return true if the page is able to reused as if it were a new page
-    unsafe fn is_reusable(&self) -> bool;
 }
 
 impl BM25Page for pg_sys::Page {
@@ -58,22 +53,6 @@ impl BM25Page for pg_sys::Page {
         let item = pg_sys::PageGetItem(*self, item_id);
         let size = (*item_id).lp_len() as pg_sys::Size;
         Some(PgItem(item, size))
-    }
-
-    unsafe fn xmax(&self) -> pg_sys::TransactionId {
-        let special = pg_sys::PageGetSpecialPointer(*self) as *mut BM25PageSpecialData;
-        (*special).xmax
-    }
-
-    unsafe fn is_reusable(&self) -> bool {
-        if pg_sys::PageIsNew(*self) {
-            return true;
-        }
-
-        // technically we're only called on pages given to us by the FSM, and in that case the page
-        // can be immediately reused if our internal `xmax` tracking is set to frozen, indicating
-        // that it's been deleted
-        self.xmax() == pg_sys::FrozenTransactionId
     }
 }
 

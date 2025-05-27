@@ -305,7 +305,7 @@ impl LinkedBytesList {
                     FIXED_BLOCK_NUMBERS.iter().all(|fb| *fb != blockno),
                     "mark_deleted:  blockno {blockno} cannot ever be recycled"
                 );
-                let mut buffer = self.bman.get_buffer_mut(blockno);
+                let buffer = self.bman.get_buffer_mut(blockno);
                 let page = buffer.page();
                 let special = page.special::<BM25PageSpecialData>();
 

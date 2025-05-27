@@ -670,8 +670,10 @@ mod multi_field_collector {
                             Some(FFType::F64(f64_col))
                         } else if let Ok(bool_col) = ff.bool(field_name) {
                             Some(FFType::Bool(bool_col))
+                        } else if let Ok(date_col) = ff.date(field_name) {
+                            Some(FFType::Date(date_col))
                         } else {
-                            None
+                            panic!("Unrecognized numeric fast field type for: {field_name}");
                         };
 
                         if let Some(field_type) = ff_type {
@@ -791,7 +793,14 @@ mod multi_field_collector {
                             OwnedValue::Null
                         }
                     }
-                    _ => OwnedValue::Null,
+                    FFType::Date(col) => {
+                        if let Some(val) = col.first(doc) {
+                            OwnedValue::Date(val)
+                        } else {
+                            OwnedValue::Null
+                        }
+                    }
+                    x => panic!("Unhandled column type {x:?}"),
                 };
 
                 // Store the value for this document

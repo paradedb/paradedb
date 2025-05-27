@@ -26,6 +26,7 @@ use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::pdbscan::join_qual_inspect::{
     JoinSearchPredicates, RelationSearchPredicate,
 };
+use crate::postgres::customscan::pdbscan::privdat::{CompositeSide, JoinCompositeInfo};
 use crate::postgres::customscan::pdbscan::{get_rel_name, PdbScan};
 use crate::postgres::rel_get_bm25_index;
 use crate::query::SearchQueryInput;
@@ -109,6 +110,8 @@ pub struct JoinExecState {
     pub has_intermediate_input: bool,
     /// Which side has intermediate results (if any)
     pub intermediate_side: Option<IntermediateSide>,
+    /// Information about composite relations
+    pub composite_info: Option<JoinCompositeInfo>,
 }
 
 /// Iterator for intermediate join results from PostgreSQL's executor
@@ -199,6 +202,7 @@ impl Default for JoinExecState {
             intermediate_iterator: None,
             has_intermediate_input: false,
             intermediate_side: None,
+            composite_info: None,
         }
     }
 }
@@ -233,6 +237,7 @@ impl JoinExecState {
             intermediate_iterator: None,
             has_intermediate_input: false,
             intermediate_side: None,
+            composite_info: None,
         }
     }
 

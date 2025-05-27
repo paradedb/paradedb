@@ -26,6 +26,28 @@ use pgrx::pg_sys::AsPgCStr;
 use pgrx::{pg_sys, PgList};
 use serde::{Deserialize, Serialize};
 
+/// Information about composite relations in a join
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct JoinCompositeInfo {
+    /// Which side has the composite relation
+    pub composite_side: CompositeSide,
+    /// Whether the base relation side has search predicates
+    pub base_has_search: bool,
+    /// Whether the composite side has any search predicates
+    pub composite_has_search: bool,
+}
+
+/// Which side of the join has composite relations
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub enum CompositeSide {
+    /// Outer side is composite, inner is base
+    Outer,
+    /// Inner side is composite, outer is base
+    Inner,
+    /// Neither side is composite (both are base relations)
+    None,
+}
+
 /// Private data for the custom scan
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct PrivateData {
@@ -52,6 +74,9 @@ pub struct PrivateData {
 
     /// Inner relation OIDs for join execution (can be multiple for composite relations)
     join_inner_relids: Vec<pg_sys::Oid>,
+
+    /// Information about composite relations in the join
+    join_composite_info: Option<JoinCompositeInfo>,
 }
 
 mod var_attname_lookup_serializer {
@@ -227,6 +252,10 @@ impl PrivateData {
     pub fn set_join_inner_relids(&mut self, oids: Vec<pg_sys::Oid>) {
         self.join_inner_relids = oids;
     }
+
+    pub fn set_join_composite_info(&mut self, info: Option<JoinCompositeInfo>) {
+        self.join_composite_info = info;
+    }
 }
 
 //
@@ -321,5 +350,9 @@ impl PrivateData {
     /// Get the primary inner relation OID (first one for backward compatibility)
     pub fn join_inner_relid(&self) -> Option<pg_sys::Oid> {
         self.join_inner_relids.first().copied()
+    }
+
+    pub fn join_composite_info(&self) -> &Option<JoinCompositeInfo> {
+        &self.join_composite_info
     }
 }

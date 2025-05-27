@@ -732,6 +732,17 @@ impl CustomScan for PdbScan {
                     }
                 }
 
+                // Store composite relation information if available
+                if let Some(ref composite_info) = builder.custom_private().join_composite_info() {
+                    pgrx::warning!(
+                        "ParadeDB: Storing composite join info - composite_side: {:?}, base_has_search: {}, composite_has_search: {}",
+                        composite_info.composite_side,
+                        composite_info.base_has_search,
+                        composite_info.composite_has_search
+                    );
+                    join_exec_state.composite_info = Some(composite_info.clone());
+                }
+
                 builder.custom_state().join_exec_state = Some(join_exec_state);
 
                 return builder.build();

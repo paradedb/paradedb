@@ -19,6 +19,7 @@ use crate::postgres::storage::block::{
     block_number_is_valid, BM25PageSpecialData, LinkedList, SegmentMetaEntry, METADATA,
 };
 use crate::postgres::storage::buffer::{BufferManager, BufferMut};
+use crate::postgres::storage::fsm::FreeBlockNumber;
 use crate::postgres::storage::merge::{MergeLock, SegmentIdBytes, VacuumList, VacuumSentinel};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use pgrx::pg_sys;
@@ -49,6 +50,9 @@ pub struct MetaPageData {
 
     /// Merge lock block number
     merge_lock: pg_sys::BlockNumber,
+
+    /// The header block for a [`LinkedItemsList<FreeBlockNumber>]`
+    fsm: pg_sys::BlockNumber,
 }
 
 /// Provides read access to the metadata page
@@ -70,7 +74,8 @@ impl MetaPage {
         let may_need_init = !block_number_is_valid(metadata.active_vacuum_list)
             || !block_number_is_valid(metadata.ambulkdelete_sentinel)
             || !block_number_is_valid(metadata.segment_meta_garbage)
-            || !block_number_is_valid(metadata.merge_lock);
+            || !block_number_is_valid(metadata.merge_lock)
+            || !block_number_is_valid(metadata.fsm);
 
         drop(buffer);
 
@@ -96,6 +101,11 @@ impl MetaPage {
 
             if !block_number_is_valid(metadata.merge_lock) {
                 metadata.merge_lock = new_buffer_and_init_page(relation_oid);
+            }
+
+            if !block_number_is_valid(metadata.fsm) {
+                metadata.fsm = LinkedItemList::<FreeBlockNumber>::create(relation_oid)
+                    .get_header_blockno();
             }
         }
 
@@ -159,6 +169,11 @@ impl MetaPage {
                 SegmentId::from_bytes(entry.try_into().expect("malformed SegmentId entry"))
             })
             .collect()
+    }
+
+    pub fn fsm(&self) -> LinkedItemList<FreeBlockNumber> {
+        assert!(block_number_is_valid(self.data.fsm));
+        LinkedItemList::<FreeBlockNumber>::open(self.bman.relation_oid(), self.data.fsm)
     }
 }
 

@@ -239,13 +239,28 @@ pub extern "C-unwind" fn paradedb_join_pathlist_callback<CS: CustomScan>(
                 warning!("ParadeDB: Both sides are base relations - proceeding with standard join");
             }
             CompositeRelationAnalysis::OuterComposite => {
-                warning!("ParadeDB: Outer side is composite, inner is base - checking if we can handle this");
+                warning!("ParadeDB: Outer side is composite, inner is base - checking feasibility");
+
+                // ENHANCED REJECTION LOGIC: We currently cannot handle composite joins effectively
+                // because we lack access to intermediate results from child plan states.
+                // Until we implement proper intermediate result access, reject these joins
+                // to avoid accepting scenarios we cannot optimize.
+                warning!("ParadeDB: Composite joins not yet supported - intermediate result access not implemented");
+                warning!("ParadeDB: Rejecting composite join to allow PostgreSQL's optimized default processing");
+                return;
             }
             CompositeRelationAnalysis::InnerComposite => {
-                warning!("ParadeDB: Outer side is base, inner is composite - checking if we can handle this");
+                warning!("ParadeDB: Outer side is base, inner is composite - checking feasibility");
+
+                // Same limitation - reject composite joins until we have proper support
+                warning!("ParadeDB: Composite joins not yet supported - intermediate result access not implemented");
+                warning!("ParadeDB: Rejecting composite join to allow PostgreSQL's optimized default processing");
+                return;
             }
             CompositeRelationAnalysis::BothComposite => {
-                warning!("ParadeDB: Both sides are composite - too complex, rejecting");
+                warning!(
+                    "ParadeDB: Both sides are composite - too complex for current implementation"
+                );
                 return;
             }
         }
@@ -614,18 +629,18 @@ unsafe fn create_search_join_path<CS: CustomScan>(
 
     private_data.set_join_composite_info(composite_info);
 
-    // Set basic cost estimates for the join
-    // For now, use simple heuristics - this will be refined in later milestones
+    // ENHANCED COST ESTIMATION for 2-way joins
     let outer_rows = (*outerrel).rows;
     let inner_rows = (*innerrel).rows;
 
-    // Estimate join selectivity (conservative estimate for now)
-    let join_selectivity = 0.1; // 10% selectivity
+    // Intelligent join selectivity estimation based on search predicates
+    let join_selectivity =
+        estimate_search_join_selectivity(search_predicates, outer_rows, inner_rows);
     let estimated_rows = (outer_rows * inner_rows * join_selectivity).max(1.0);
 
-    // Cost model: startup cost + per-tuple processing cost
-    let startup_cost = 100.0; // Fixed startup cost for join setup
-    let per_tuple_cost = 0.01; // Cost per tuple processed
+    // Enhanced cost model that considers search optimization benefits
+    let (startup_cost, per_tuple_cost) =
+        calculate_search_join_costs(search_predicates, outer_rows, inner_rows);
     let total_cost = startup_cost + (estimated_rows * per_tuple_cost);
 
     builder = builder
@@ -669,4 +684,74 @@ unsafe fn extract_relation_oids_from_reloptinfo(
     }
 
     relids
+}
+
+/// Estimate join selectivity based on search predicates
+/// This provides more accurate cost estimation for search-optimized joins
+fn estimate_search_join_selectivity(
+    search_predicates: Option<&JoinSearchPredicates>,
+    outer_rows: f64,
+    inner_rows: f64,
+) -> f64 {
+    if let Some(predicates) = search_predicates {
+        // Count search predicates to estimate selectivity
+        let search_predicate_count = predicates
+            .outer_predicates
+            .iter()
+            .filter(|p| p.uses_search_operator)
+            .count()
+            + predicates
+                .inner_predicates
+                .iter()
+                .filter(|p| p.uses_search_operator)
+                .count();
+
+        match search_predicate_count {
+            0 => 0.5,  // No search predicates - moderate selectivity
+            1 => 0.1,  // Single search predicate - high selectivity
+            2 => 0.05, // Bilateral search - very high selectivity
+            _ => 0.01, // Multiple search predicates - extremely high selectivity
+        }
+    } else {
+        0.5 // Default selectivity when no predicates
+    }
+}
+
+/// Calculate optimized costs for search joins
+/// Returns (startup_cost, per_tuple_cost) based on search optimization benefits
+fn calculate_search_join_costs(
+    search_predicates: Option<&JoinSearchPredicates>,
+    outer_rows: f64,
+    inner_rows: f64,
+) -> (f64, f64) {
+    if let Some(predicates) = search_predicates {
+        let has_outer_search = predicates
+            .outer_predicates
+            .iter()
+            .any(|p| p.uses_search_operator);
+        let has_inner_search = predicates
+            .inner_predicates
+            .iter()
+            .any(|p| p.uses_search_operator);
+
+        match (has_outer_search, has_inner_search) {
+            (true, true) => {
+                // Bilateral search - highest optimization benefit
+                // Lower costs because both sides are pre-filtered by search
+                (50.0, 0.005)
+            }
+            (true, false) | (false, true) => {
+                // Unilateral search - moderate optimization benefit
+                // One side is pre-filtered, reducing join work
+                (75.0, 0.008)
+            }
+            (false, false) => {
+                // No search optimization - standard costs
+                (100.0, 0.01)
+            }
+        }
+    } else {
+        // No predicates - standard costs
+        (100.0, 0.01)
+    }
 }

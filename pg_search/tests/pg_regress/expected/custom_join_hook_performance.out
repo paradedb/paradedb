@@ -95,7 +95,7 @@ WARNING:  ParadeDB: Outer predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_perf"], inner: ["tags_perf"]
-WARNING:  ParadeDB: Join path estimates - rows: 134, startup_cost: 100.00, total_cost: 101.34
+WARNING:  ParadeDB: Join path estimates - rows: 67, startup_cost: 50.00, total_cost: 50.34
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["tags_perf"], inner relids: ["documents_perf"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
@@ -120,7 +120,7 @@ WARNING:  ParadeDB: Outer predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["tags_perf"], inner: ["documents_perf"]
-WARNING:  ParadeDB: Join path estimates - rows: 134, startup_cost: 100.00, total_cost: 101.34
+WARNING:  ParadeDB: Join path estimates - rows: 67, startup_cost: 50.00, total_cost: 50.34
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
 WARNING:  ParadeDB: Join target list has 0 entries
@@ -131,39 +131,32 @@ WARNING:  ParadeDB: Stored outer relation OIDs: ["documents_perf"]
 WARNING:  ParadeDB: Stored inner relation OIDs: ["tags_perf"]
 WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
 WARNING:  ParadeDB: Beginning custom scan for join node
-WARNING:  ParadeDB: Initializing join execution with enhanced composite support
-WARNING:  ParadeDB: Using stored search predicates - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Join execution initialization complete
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Starting join execution - initializing search
-WARNING:  ParadeDB: Initializing search execution for join
-WARNING:  ParadeDB: Retrieved search predicates from join state - outer: 1, inner: 1
-WARNING:  ParadeDB: Initializing search readers for join relations
-WARNING:  ParadeDB: Opening search reader for outer relation documents_perf
+WARNING:  ParadeDB: Initializing production-ready join execution
+WARNING:  ParadeDB: Join configuration - outer predicates: 1 (search: 1), inner predicates: 1 (search: 1), bilateral: true
+WARNING:  ParadeDB: Relation validation - outer: documents_perf (valid: true), inner: tags_perf (valid: true)
+WARNING:  ParadeDB: Join execution initialization completed successfully
+WARNING:  ParadeDB: Phase 1/4 - Initializing join execution
+WARNING:  ParadeDB: Prerequisites validation passed - ready for join execution
+WARNING:  ParadeDB: Initializing search execution with safety checks
+WARNING:  ParadeDB: Initializing search with 1 outer and 1 inner predicates
+WARNING:  ParadeDB: Initializing search readers with safety checks
 WARNING:  ParadeDB: Successfully opened search reader for documents_perf
-WARNING:  ParadeDB: Opening search reader for inner relation tags_perf
 WARNING:  ParadeDB: Successfully opened search reader for tags_perf
-WARNING:  ParadeDB: Initialized 2 search readers
-WARNING:  ParadeDB: Executing real searches on join relations
-WARNING:  ParadeDB: Executing search on outer relation documents_perf
+WARNING:  ParadeDB: Search reader initialization - 2 successful out of 2 attempts
+WARNING:  ParadeDB: Executing real searches with safety checks
 WARNING:  ParadeDB: Executing real BM25 search on relation documents_perf
 WARNING:  ParadeDB: Real search on documents_perf returned 20 results
-WARNING:  ParadeDB: Found 20 results for outer relation documents_perf
-WARNING:  ParadeDB: Executing search on inner relation tags_perf
+WARNING:  ParadeDB: Successfully executed search on documents_perf
 WARNING:  ParadeDB: Executing real BM25 search on relation tags_perf
 WARNING:  ParadeDB: Real search on tags_perf returned 67 results
-WARNING:  ParadeDB: Found 67 results for inner relation tags_perf
-WARNING:  ParadeDB: Completed real search execution - outer: 20, inner: 67
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Executing outer search
-WARNING:  ParadeDB: Executing search on outer relation
+WARNING:  ParadeDB: Successfully executed search on tags_perf
+WARNING:  ParadeDB: Search execution completed - outer: 20, inner: 67
+WARNING:  ParadeDB: Search execution initialization completed successfully
+WARNING:  ParadeDB: Phase 2/4 - Executing outer relation search
 WARNING:  ParadeDB: Outer search completed - 20 results
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Executing inner search
-WARNING:  ParadeDB: Executing search on inner relation
+WARNING:  ParadeDB: Phase 3/4 - Executing inner relation search
 WARNING:  ParadeDB: Inner search completed - 67 results
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -196,8 +189,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -1456,8 +1448,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -2112,8 +2103,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -3372,8 +3362,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -4010,8 +3999,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -5270,8 +5258,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -5926,8 +5913,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -7186,8 +7172,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -7824,8 +7809,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -9084,8 +9068,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -9740,8 +9723,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -11000,8 +10982,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -11638,8 +11619,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -12614,7 +12594,7 @@ WARNING:  ParadeDB: Outer predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_perf"], inner: ["tags_perf"]
-WARNING:  ParadeDB: Join path estimates - rows: 33, startup_cost: 100.00, total_cost: 100.33
+WARNING:  ParadeDB: Join path estimates - rows: 16, startup_cost: 50.00, total_cost: 50.08
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["tags_perf"], inner relids: ["documents_perf"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
@@ -12639,7 +12619,7 @@ WARNING:  ParadeDB: Outer predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["tags_perf"], inner: ["documents_perf"]
-WARNING:  ParadeDB: Join path estimates - rows: 33, startup_cost: 100.00, total_cost: 100.33
+WARNING:  ParadeDB: Join path estimates - rows: 16, startup_cost: 50.00, total_cost: 50.08
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
 WARNING:  ParadeDB: Join target list has 3 entries
@@ -12656,39 +12636,32 @@ WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_1'
 WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=3 -> 'join_attr_2'
 WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=4 -> 'join_attr_3'
 WARNING:  ParadeDB: Beginning custom scan for join node
-WARNING:  ParadeDB: Initializing join execution with enhanced composite support
-WARNING:  ParadeDB: Using stored search predicates - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Join execution initialization complete
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Starting join execution - initializing search
-WARNING:  ParadeDB: Initializing search execution for join
-WARNING:  ParadeDB: Retrieved search predicates from join state - outer: 1, inner: 1
-WARNING:  ParadeDB: Initializing search readers for join relations
-WARNING:  ParadeDB: Opening search reader for outer relation documents_perf
+WARNING:  ParadeDB: Initializing production-ready join execution
+WARNING:  ParadeDB: Join configuration - outer predicates: 1 (search: 1), inner predicates: 1 (search: 1), bilateral: true
+WARNING:  ParadeDB: Relation validation - outer: documents_perf (valid: true), inner: tags_perf (valid: true)
+WARNING:  ParadeDB: Join execution initialization completed successfully
+WARNING:  ParadeDB: Phase 1/4 - Initializing join execution
+WARNING:  ParadeDB: Prerequisites validation passed - ready for join execution
+WARNING:  ParadeDB: Initializing search execution with safety checks
+WARNING:  ParadeDB: Initializing search with 1 outer and 1 inner predicates
+WARNING:  ParadeDB: Initializing search readers with safety checks
 WARNING:  ParadeDB: Successfully opened search reader for documents_perf
-WARNING:  ParadeDB: Opening search reader for inner relation tags_perf
 WARNING:  ParadeDB: Successfully opened search reader for tags_perf
-WARNING:  ParadeDB: Initialized 2 search readers
-WARNING:  ParadeDB: Executing real searches on join relations
-WARNING:  ParadeDB: Executing search on outer relation documents_perf
+WARNING:  ParadeDB: Search reader initialization - 2 successful out of 2 attempts
+WARNING:  ParadeDB: Executing real searches with safety checks
 WARNING:  ParadeDB: Executing real BM25 search on relation documents_perf
 WARNING:  ParadeDB: Real search on documents_perf returned 10 results
-WARNING:  ParadeDB: Found 10 results for outer relation documents_perf
-WARNING:  ParadeDB: Executing search on inner relation tags_perf
+WARNING:  ParadeDB: Successfully executed search on documents_perf
 WARNING:  ParadeDB: Executing real BM25 search on relation tags_perf
 WARNING:  ParadeDB: Real search on tags_perf returned 33 results
-WARNING:  ParadeDB: Found 33 results for inner relation tags_perf
-WARNING:  ParadeDB: Completed real search execution - outer: 10, inner: 33
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Executing outer search
-WARNING:  ParadeDB: Executing search on outer relation
+WARNING:  ParadeDB: Successfully executed search on tags_perf
+WARNING:  ParadeDB: Search execution completed - outer: 10, inner: 33
+WARNING:  ParadeDB: Search execution initialization completed successfully
+WARNING:  ParadeDB: Phase 2/4 - Executing outer relation search
 WARNING:  ParadeDB: Outer search completed - 10 results
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Executing inner search
-WARNING:  ParadeDB: Executing search on inner relation
+WARNING:  ParadeDB: Phase 3/4 - Executing inner relation search
 WARNING:  ParadeDB: Inner search completed - 33 results
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -13383,8 +13356,7 @@ WARNING:  ParadeDB: Relation tags_perf attno 4 -> column name 'tag_value'
 WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn(tags_perf,tag_value)
 WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Document 15"), Some("type"), Some("high")]
 WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Document 15"), Some("type"), Some("high")]
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -14377,8 +14349,7 @@ WARNING:  ParadeDB: Relation tags_perf attno 4 -> column name 'tag_value'
 WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn(tags_perf,tag_value)
 WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Document 30"), Some("status"), Some("high")]
 WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Document 30"), Some("status"), Some("high")]
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -15371,8 +15342,7 @@ WARNING:  ParadeDB: Relation tags_perf attno 4 -> column name 'tag_value'
 WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn(tags_perf,tag_value)
 WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Document 45"), Some("priority"), Some("high")]
 WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Document 45"), Some("priority"), Some("high")]
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -15880,7 +15850,7 @@ WARNING:  ParadeDB: Outer predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_perf"], inner: ["tags_perf"]
-WARNING:  ParadeDB: Join path estimates - rows: 250, startup_cost: 100.00, total_cost: 102.50
+WARNING:  ParadeDB: Join path estimates - rows: 125, startup_cost: 50.00, total_cost: 50.62
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["tags_perf"], inner relids: ["documents_perf"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
@@ -15905,7 +15875,7 @@ WARNING:  ParadeDB: Outer predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["tags_perf"], inner: ["documents_perf"]
-WARNING:  ParadeDB: Join path estimates - rows: 250, startup_cost: 100.00, total_cost: 102.50
+WARNING:  ParadeDB: Join path estimates - rows: 125, startup_cost: 50.00, total_cost: 50.62
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
 WARNING:  ParadeDB: Join target list has 0 entries
@@ -15916,39 +15886,32 @@ WARNING:  ParadeDB: Stored outer relation OIDs: ["documents_perf"]
 WARNING:  ParadeDB: Stored inner relation OIDs: ["tags_perf"]
 WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
 WARNING:  ParadeDB: Beginning custom scan for join node
-WARNING:  ParadeDB: Initializing join execution with enhanced composite support
-WARNING:  ParadeDB: Using stored search predicates - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Join execution initialization complete
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Starting join execution - initializing search
-WARNING:  ParadeDB: Initializing search execution for join
-WARNING:  ParadeDB: Retrieved search predicates from join state - outer: 1, inner: 1
-WARNING:  ParadeDB: Initializing search readers for join relations
-WARNING:  ParadeDB: Opening search reader for outer relation documents_perf
+WARNING:  ParadeDB: Initializing production-ready join execution
+WARNING:  ParadeDB: Join configuration - outer predicates: 1 (search: 1), inner predicates: 1 (search: 1), bilateral: true
+WARNING:  ParadeDB: Relation validation - outer: documents_perf (valid: true), inner: tags_perf (valid: true)
+WARNING:  ParadeDB: Join execution initialization completed successfully
+WARNING:  ParadeDB: Phase 1/4 - Initializing join execution
+WARNING:  ParadeDB: Prerequisites validation passed - ready for join execution
+WARNING:  ParadeDB: Initializing search execution with safety checks
+WARNING:  ParadeDB: Initializing search with 1 outer and 1 inner predicates
+WARNING:  ParadeDB: Initializing search readers with safety checks
 WARNING:  ParadeDB: Successfully opened search reader for documents_perf
-WARNING:  ParadeDB: Opening search reader for inner relation tags_perf
 WARNING:  ParadeDB: Successfully opened search reader for tags_perf
-WARNING:  ParadeDB: Initialized 2 search readers
-WARNING:  ParadeDB: Executing real searches on join relations
-WARNING:  ParadeDB: Executing search on outer relation documents_perf
+WARNING:  ParadeDB: Search reader initialization - 2 successful out of 2 attempts
+WARNING:  ParadeDB: Executing real searches with safety checks
 WARNING:  ParadeDB: Executing real BM25 search on relation documents_perf
 WARNING:  ParadeDB: Real search on documents_perf returned 50 results
-WARNING:  ParadeDB: Found 50 results for outer relation documents_perf
-WARNING:  ParadeDB: Executing search on inner relation tags_perf
+WARNING:  ParadeDB: Successfully executed search on documents_perf
 WARNING:  ParadeDB: Executing real BM25 search on relation tags_perf
 WARNING:  ParadeDB: Real search on tags_perf returned 50 results
-WARNING:  ParadeDB: Found 50 results for inner relation tags_perf
-WARNING:  ParadeDB: Completed real search execution - outer: 50, inner: 50
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Executing outer search
-WARNING:  ParadeDB: Executing search on outer relation
+WARNING:  ParadeDB: Successfully executed search on tags_perf
+WARNING:  ParadeDB: Search execution completed - outer: 50, inner: 50
+WARNING:  ParadeDB: Search execution initialization completed successfully
+WARNING:  ParadeDB: Phase 2/4 - Executing outer relation search
 WARNING:  ParadeDB: Outer search completed - 50 results
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Executing inner search
-WARNING:  ParadeDB: Executing search on inner relation
+WARNING:  ParadeDB: Phase 3/4 - Executing inner relation search
 WARNING:  ParadeDB: Inner search completed - 50 results
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -15981,8 +15944,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -17368,8 +17330,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -17853,8 +17814,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -19240,8 +19200,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -19725,8 +19684,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -21112,8 +21070,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -21597,8 +21554,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -22984,8 +22940,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -23469,8 +23424,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -24856,8 +24810,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -25341,8 +25294,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -26728,8 +26680,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -27213,8 +27164,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -28600,8 +28550,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -29085,8 +29034,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -30472,8 +30420,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -30957,8 +30904,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -32344,8 +32290,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -32829,8 +32774,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -34216,8 +34160,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -34701,8 +34644,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -36088,8 +36030,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -36573,8 +36514,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -37960,8 +37900,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -38445,8 +38384,7 @@ WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
 WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -39168,7 +39106,7 @@ WARNING:  ParadeDB: Outer predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_perf"], inner: ["tags_perf"]
-WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["tags_perf"], inner relids: ["documents_perf"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
@@ -39193,7 +39131,7 @@ WARNING:  ParadeDB: Outer predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["tags_perf"], inner: ["documents_perf"]
-WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
 WARNING:  ParadeDB: Join target list has 2 entries
@@ -39208,41 +39146,32 @@ WARNING:  ParadeDB: Storing 2 variable mappings from planning phase
 WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_1'
 WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=4 -> 'join_attr_2'
 WARNING:  ParadeDB: Beginning custom scan for join node
-WARNING:  ParadeDB: Initializing join execution with enhanced composite support
-WARNING:  ParadeDB: Using stored search predicates - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Join execution initialization complete
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Starting join execution - initializing search
-WARNING:  ParadeDB: Initializing search execution for join
-WARNING:  ParadeDB: Retrieved search predicates from join state - outer: 1, inner: 1
-WARNING:  ParadeDB: Initializing search readers for join relations
-WARNING:  ParadeDB: Opening search reader for outer relation documents_perf
+WARNING:  ParadeDB: Initializing production-ready join execution
+WARNING:  ParadeDB: Join configuration - outer predicates: 1 (search: 1), inner predicates: 1 (search: 1), bilateral: true
+WARNING:  ParadeDB: Relation validation - outer: documents_perf (valid: true), inner: tags_perf (valid: true)
+WARNING:  ParadeDB: Join execution initialization completed successfully
+WARNING:  ParadeDB: Phase 1/4 - Initializing join execution
+WARNING:  ParadeDB: Prerequisites validation passed - ready for join execution
+WARNING:  ParadeDB: Initializing search execution with safety checks
+WARNING:  ParadeDB: Initializing search with 1 outer and 1 inner predicates
+WARNING:  ParadeDB: Initializing search readers with safety checks
 WARNING:  ParadeDB: Successfully opened search reader for documents_perf
-WARNING:  ParadeDB: Opening search reader for inner relation tags_perf
 WARNING:  ParadeDB: Successfully opened search reader for tags_perf
-WARNING:  ParadeDB: Initialized 2 search readers
-WARNING:  ParadeDB: Executing real searches on join relations
-WARNING:  ParadeDB: Executing search on outer relation documents_perf
+WARNING:  ParadeDB: Search reader initialization - 2 successful out of 2 attempts
+WARNING:  ParadeDB: Executing real searches with safety checks
 WARNING:  ParadeDB: Executing real BM25 search on relation documents_perf
 WARNING:  ParadeDB: Real search on documents_perf returned 0 results
-WARNING:  ParadeDB: Found 0 results for outer relation documents_perf
-WARNING:  ParadeDB: Executing search on inner relation tags_perf
+WARNING:  ParadeDB: Successfully executed search on documents_perf
 WARNING:  ParadeDB: Executing real BM25 search on relation tags_perf
 WARNING:  ParadeDB: Real search on tags_perf returned 0 results
-WARNING:  ParadeDB: Found 0 results for inner relation tags_perf
-WARNING:  ParadeDB: No outer search results, using default result
-WARNING:  ParadeDB: No inner search results, using default result
-WARNING:  ParadeDB: Completed real search execution - outer: 1, inner: 1
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Executing outer search
-WARNING:  ParadeDB: Executing search on outer relation
+WARNING:  ParadeDB: Successfully executed search on tags_perf
+WARNING:  ParadeDB: Search execution completed - outer: 1, inner: 1
+WARNING:  ParadeDB: Search execution initialization completed successfully
+WARNING:  ParadeDB: Phase 2/4 - Executing outer relation search
 WARNING:  ParadeDB: Outer search completed - 1 results
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Executing inner search
-WARNING:  ParadeDB: Executing search on inner relation
+WARNING:  ParadeDB: Phase 3/4 - Executing inner relation search
 WARNING:  ParadeDB: Inner search completed - 1 results
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -39296,8 +39225,7 @@ WARNING:  ParadeDB: Relation tags_perf attno 4 -> column name 'tag_value'
 WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn(tags_perf,tag_value)
 WARNING:  ParadeDB: Mapped 2 out of 2 column values: [Some("Document 1"), Some("medium")]
 WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Document 1"), Some("medium")]
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Join matching complete - total matches: 1
 WARNING:  ParadeDB: Cleaning up join execution
@@ -39344,7 +39272,7 @@ WARNING:  ParadeDB: Outer predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_perf"], inner: ["tags_perf"]
-WARNING:  ParadeDB: Join path estimates - rows: 165, startup_cost: 100.00, total_cost: 101.65
+WARNING:  ParadeDB: Join path estimates - rows: 82, startup_cost: 50.00, total_cost: 50.41
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["tags_perf"], inner relids: ["documents_perf"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
@@ -39369,7 +39297,7 @@ WARNING:  ParadeDB: Outer predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["tags_perf"], inner: ["documents_perf"]
-WARNING:  ParadeDB: Join path estimates - rows: 165, startup_cost: 100.00, total_cost: 101.65
+WARNING:  ParadeDB: Join path estimates - rows: 82, startup_cost: 50.00, total_cost: 50.41
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
 WARNING:  ParadeDB: Join target list has 3 entries
@@ -39386,39 +39314,32 @@ WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_1'
 WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=3 -> 'join_attr_3'
 WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=4 -> 'join_attr_2'
 WARNING:  ParadeDB: Beginning custom scan for join node
-WARNING:  ParadeDB: Initializing join execution with enhanced composite support
-WARNING:  ParadeDB: Using stored search predicates - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Join execution initialization complete
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Starting join execution - initializing search
-WARNING:  ParadeDB: Initializing search execution for join
-WARNING:  ParadeDB: Retrieved search predicates from join state - outer: 1, inner: 1
-WARNING:  ParadeDB: Initializing search readers for join relations
-WARNING:  ParadeDB: Opening search reader for outer relation documents_perf
+WARNING:  ParadeDB: Initializing production-ready join execution
+WARNING:  ParadeDB: Join configuration - outer predicates: 1 (search: 1), inner predicates: 1 (search: 1), bilateral: true
+WARNING:  ParadeDB: Relation validation - outer: documents_perf (valid: true), inner: tags_perf (valid: true)
+WARNING:  ParadeDB: Join execution initialization completed successfully
+WARNING:  ParadeDB: Phase 1/4 - Initializing join execution
+WARNING:  ParadeDB: Prerequisites validation passed - ready for join execution
+WARNING:  ParadeDB: Initializing search execution with safety checks
+WARNING:  ParadeDB: Initializing search with 1 outer and 1 inner predicates
+WARNING:  ParadeDB: Initializing search readers with safety checks
 WARNING:  ParadeDB: Successfully opened search reader for documents_perf
-WARNING:  ParadeDB: Opening search reader for inner relation tags_perf
 WARNING:  ParadeDB: Successfully opened search reader for tags_perf
-WARNING:  ParadeDB: Initialized 2 search readers
-WARNING:  ParadeDB: Executing real searches on join relations
-WARNING:  ParadeDB: Executing search on outer relation documents_perf
+WARNING:  ParadeDB: Search reader initialization - 2 successful out of 2 attempts
+WARNING:  ParadeDB: Executing real searches with safety checks
 WARNING:  ParadeDB: Executing real BM25 search on relation documents_perf
 WARNING:  ParadeDB: Real search on documents_perf returned 50 results
-WARNING:  ParadeDB: Found 50 results for outer relation documents_perf
-WARNING:  ParadeDB: Executing search on inner relation tags_perf
+WARNING:  ParadeDB: Successfully executed search on documents_perf
 WARNING:  ParadeDB: Executing real BM25 search on relation tags_perf
 WARNING:  ParadeDB: Real search on tags_perf returned 33 results
-WARNING:  ParadeDB: Found 33 results for inner relation tags_perf
-WARNING:  ParadeDB: Completed real search execution - outer: 50, inner: 33
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Executing outer search
-WARNING:  ParadeDB: Executing search on outer relation
+WARNING:  ParadeDB: Successfully executed search on tags_perf
+WARNING:  ParadeDB: Search execution completed - outer: 50, inner: 33
+WARNING:  ParadeDB: Search execution initialization completed successfully
+WARNING:  ParadeDB: Phase 2/4 - Executing outer relation search
 WARNING:  ParadeDB: Outer search completed - 50 results
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Executing inner search
-WARNING:  ParadeDB: Executing search on inner relation
+WARNING:  ParadeDB: Phase 3/4 - Executing inner relation search
 WARNING:  ParadeDB: Inner search completed - 33 results
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
 WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
@@ -40121,7 +40042,7 @@ WARNING:  ParadeDB: Outer predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_perf"], inner: ["tags_perf"]
-WARNING:  ParadeDB: Join path estimates - rows: 33, startup_cost: 100.00, total_cost: 100.33
+WARNING:  ParadeDB: Join path estimates - rows: 16, startup_cost: 50.00, total_cost: 50.08
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["tags_perf"], inner relids: ["documents_perf"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
@@ -40146,7 +40067,7 @@ WARNING:  ParadeDB: Outer predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["tags_perf"], inner: ["documents_perf"]
-WARNING:  ParadeDB: Join path estimates - rows: 33, startup_cost: 100.00, total_cost: 100.33
+WARNING:  ParadeDB: Join path estimates - rows: 16, startup_cost: 50.00, total_cost: 50.08
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
 WARNING:  ParadeDB: Join target list has 2 entries
@@ -40161,9 +40082,10 @@ WARNING:  ParadeDB: Storing 2 variable mappings from planning phase
 WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_1'
 WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=4 -> 'join_attr_2'
 WARNING:  ParadeDB: Beginning custom scan for join node
-WARNING:  ParadeDB: Initializing join execution with enhanced composite support
-WARNING:  ParadeDB: Using stored search predicates - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Join execution initialization complete
+WARNING:  ParadeDB: Initializing production-ready join execution
+WARNING:  ParadeDB: Join configuration - outer predicates: 1 (search: 1), inner predicates: 1 (search: 1), bilateral: true
+WARNING:  ParadeDB: Relation validation - outer: documents_perf (valid: true), inner: tags_perf (valid: true)
+WARNING:  ParadeDB: Join execution initialization completed successfully
 ERROR:  called `Option::unwrap()` on a `None` value
 -- Cleanup
 DROP TABLE documents_perf CASCADE;

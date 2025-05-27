@@ -311,44 +311,74 @@ unsafe fn detect_intermediate_input(state: &mut CustomScanStateWrapper<PdbScan>)
 unsafe fn setup_intermediate_result_handling(state: &mut CustomScanStateWrapper<PdbScan>) {
     warning!("ParadeDB: Setting up intermediate result handling");
 
-    // Get the plan to check for child nodes
+    // Get the plan state to check for child nodes
     let planstate = state.planstate();
-    let plan = (*planstate).plan;
-    let left_tree = (*plan).lefttree;
-    let right_tree = (*plan).righttree;
 
-    // Determine which side has intermediate results
-    let intermediate_side = if !left_tree.is_null() && !right_tree.is_null() {
-        // Both sides have child plans - this is a complex join
-        warning!("ParadeDB: Both sides have child plans");
-        Some(IntermediateSide::Outer) // Default to outer for now
-    } else if !left_tree.is_null() {
-        warning!("ParadeDB: Left side has child plan (intermediate results)");
-        Some(IntermediateSide::Outer)
-    } else if !right_tree.is_null() {
-        warning!("ParadeDB: Right side has child plan (intermediate results)");
-        Some(IntermediateSide::Inner)
+    // Check for left and right child plan states (not just plans)
+    let left_planstate = (*planstate).lefttree;
+    let right_planstate = (*planstate).righttree;
+
+    warning!(
+        "ParadeDB: Checking child plan states - left: {:?}, right: {:?}",
+        left_planstate.is_null(),
+        right_planstate.is_null()
+    );
+
+    // Determine which side has intermediate results based on composite info
+    let intermediate_side = if let Some(ref join_state) = state.custom_state().join_exec_state {
+        if let Some(ref composite_info) = join_state.composite_info {
+            match composite_info.composite_side {
+                crate::postgres::customscan::pdbscan::privdat::CompositeSide::Outer => {
+                    warning!("ParadeDB: Composite info indicates outer side is composite");
+                    Some(IntermediateSide::Outer)
+                }
+                crate::postgres::customscan::pdbscan::privdat::CompositeSide::Inner => {
+                    warning!("ParadeDB: Composite info indicates inner side is composite");
+                    Some(IntermediateSide::Inner)
+                }
+                crate::postgres::customscan::pdbscan::privdat::CompositeSide::None => {
+                    warning!("ParadeDB: Composite info indicates no composite relations");
+                    None
+                }
+            }
+        } else {
+            // Fallback to checking actual child plan states
+            if !left_planstate.is_null() && !right_planstate.is_null() {
+                warning!("ParadeDB: Both sides have child plan states - defaulting to outer");
+                Some(IntermediateSide::Outer)
+            } else if !left_planstate.is_null() {
+                warning!("ParadeDB: Left side has child plan state");
+                Some(IntermediateSide::Outer)
+            } else if !right_planstate.is_null() {
+                warning!("ParadeDB: Right side has child plan state");
+                Some(IntermediateSide::Inner)
+            } else {
+                warning!("ParadeDB: No child plan states found");
+                None
+            }
+        }
     } else {
-        warning!("ParadeDB: No child plans found");
+        warning!("ParadeDB: No join execution state available");
         None
     };
 
     // Update the join execution state
     if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
-        join_state.has_intermediate_input = true;
+        join_state.has_intermediate_input = intermediate_side.is_some();
         join_state.intermediate_side = intermediate_side.clone();
 
         // Set up the intermediate result iterator if we have a child plan
         if let Some(side) = &intermediate_side {
             let child_plan_state = match side {
-                IntermediateSide::Outer => left_tree as *mut pg_sys::PlanState,
-                IntermediateSide::Inner => right_tree as *mut pg_sys::PlanState,
+                IntermediateSide::Outer => left_planstate,
+                IntermediateSide::Inner => right_planstate,
             };
 
             if !child_plan_state.is_null() {
                 warning!(
-                    "ParadeDB: Setting up intermediate result iterator for {:?} side",
-                    side
+                    "ParadeDB: Setting up intermediate result iterator for {:?} side with plan state {:p}",
+                    side,
+                    child_plan_state
                 );
 
                 // Create the intermediate result iterator
@@ -361,6 +391,9 @@ unsafe fn setup_intermediate_result_handling(state: &mut CustomScanStateWrapper<
                 };
 
                 join_state.intermediate_iterator = Some(iterator);
+                warning!("ParadeDB: Intermediate result iterator created successfully");
+            } else {
+                warning!("ParadeDB: Child plan state is null for {:?} side", side);
             }
         }
     }
@@ -382,25 +415,69 @@ unsafe fn process_intermediate_results_from_executor(
             iterator.cached_tuples.clear();
             iterator.current_position = 0;
 
-            // Fetch all intermediate tuples from the child plan
+            warning!("ParadeDB: Executing child plan to get intermediate results");
+
+            // First, try to rescan the child plan to ensure we get fresh results
+            // This is important for cases where the child plan might have been executed before
+            if !iterator.child_plan_state.is_null() {
+                warning!("ParadeDB: Rescanning child plan state to ensure fresh results");
+                pg_sys::ExecReScan(iterator.child_plan_state);
+            }
+
+            // Execute the child plan to get all intermediate tuples
+            // This is the key integration with PostgreSQL's executor
+            let mut tuple_count = 0;
             loop {
                 let slot = pg_sys::ExecProcNode(iterator.child_plan_state);
                 if slot.is_null() {
-                    // No more tuples
+                    // No more tuples from child plan
+                    warning!(
+                        "ParadeDB: Child plan returned NULL slot - end of results after {} tuples",
+                        tuple_count
+                    );
                     break;
                 }
 
-                // Check if the slot has valid data
-                if !(*slot).tts_isnull.is_null() && (*slot).tts_nvalid > 0 {
+                // Check if the slot contains valid data
+                if !(*slot).tts_tupleDescriptor.is_null() && (*slot).tts_nvalid > 0 {
+                    tuple_count += 1;
+                    warning!(
+                        "ParadeDB: Got valid tuple {} from child plan with {} attributes",
+                        tuple_count,
+                        (*slot).tts_nvalid
+                    );
+
                     // Extract tuple values from the slot
                     let tuple_values = extract_tuple_values_from_slot(slot);
+                    warning!(
+                        "ParadeDB: Extracted intermediate tuple {}: {:?}",
+                        tuple_count,
+                        tuple_values
+                    );
+
                     iterator.cached_tuples.push(tuple_values);
                     has_results = true;
 
                     // Set the tuple descriptor if not already set
                     if iterator.intermediate_tupdesc.is_null() {
                         iterator.intermediate_tupdesc = (*slot).tts_tupleDescriptor;
+                        warning!("ParadeDB: Set intermediate tuple descriptor");
                     }
+                } else {
+                    warning!(
+                        "ParadeDB: Got empty or invalid slot from child plan (tuple {})",
+                        tuple_count + 1
+                    );
+                    // Don't break here - there might be more valid tuples
+                }
+
+                // Safety check to prevent infinite loops
+                if tuple_count > 10000 {
+                    warning!(
+                        "ParadeDB: Safety limit reached - stopping after {} tuples",
+                        tuple_count
+                    );
+                    break;
                 }
             }
 
@@ -408,7 +485,26 @@ unsafe fn process_intermediate_results_from_executor(
                 "ParadeDB: Cached {} intermediate tuples from executor",
                 iterator.cached_tuples.len()
             );
+
+            // If we got results, log the first few for debugging
+            if has_results {
+                for (i, tuple) in iterator.cached_tuples.iter().enumerate().take(3) {
+                    warning!("ParadeDB: Intermediate tuple {}: {:?}", i, tuple);
+                }
+                if iterator.cached_tuples.len() > 3 {
+                    warning!(
+                        "ParadeDB: ... and {} more intermediate tuples",
+                        iterator.cached_tuples.len() - 3
+                    );
+                }
+            } else {
+                warning!("ParadeDB: No intermediate results obtained from child plan");
+            }
+        } else {
+            warning!("ParadeDB: No intermediate iterator available");
         }
+    } else {
+        warning!("ParadeDB: No join execution state available");
     }
 
     has_results
@@ -463,16 +559,28 @@ unsafe fn execute_outer_composite_inner_base_join(
     warning!("ParadeDB: Executing outer composite + inner base join");
 
     // First, ensure we have intermediate results from the composite side
-    if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
-        if let Some(ref iterator) = join_state.intermediate_iterator {
-            if iterator.cached_tuples.is_empty() {
-                // Try to fetch intermediate results
-                if !process_intermediate_results_from_executor(state) {
-                    warning!("ParadeDB: No intermediate results available");
-                    return std::ptr::null_mut();
-                }
+    let needs_intermediate_fetch =
+        if let Some(ref join_state) = state.custom_state().join_exec_state {
+            if let Some(ref iterator) = join_state.intermediate_iterator {
+                iterator.cached_tuples.is_empty()
+            } else {
+                warning!("ParadeDB: No intermediate iterator available");
+                false
             }
+        } else {
+            warning!("ParadeDB: No join execution state available");
+            false
+        };
+
+    if needs_intermediate_fetch {
+        warning!("ParadeDB: Need to fetch intermediate results from child plan");
+        // Try to fetch intermediate results from PostgreSQL's executor
+        if !process_intermediate_results_from_executor(state) {
+            warning!("ParadeDB: No intermediate results available from child plan");
+            return std::ptr::null_mut();
         }
+    } else {
+        warning!("ParadeDB: Already have cached intermediate results");
     }
 
     // Execute search on the base relation (inner side)

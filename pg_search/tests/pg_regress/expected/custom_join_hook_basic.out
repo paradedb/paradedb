@@ -690,7 +690,9 @@ WARNING:  ParadeDB: Initializing join execution with enhanced composite support
 WARNING:  ParadeDB: Using stored search predicates - outer: 0, inner: 1, bilateral: false
 WARNING:  ParadeDB: Detected composite join - composite_side: Outer, setting up intermediate result handling
 WARNING:  ParadeDB: Setting up intermediate result handling
-WARNING:  ParadeDB: No child plans found
+WARNING:  ParadeDB: Checking child plan states - left: true, right: true
+WARNING:  ParadeDB: Composite info indicates outer side is composite
+WARNING:  ParadeDB: Child plan state is null for Outer side
 WARNING:  ParadeDB: Intermediate result handling setup complete
 WARNING:  ParadeDB: Join execution initialization complete
 WARNING:  ParadeDB: Executing join step
@@ -722,6 +724,8 @@ WARNING:  ParadeDB: Using enhanced composite join execution
 WARNING:  ParadeDB: Executing composite join with intermediate results
 WARNING:  ParadeDB: Handling outer composite, inner base with search
 WARNING:  ParadeDB: Executing outer composite + inner base join
+WARNING:  ParadeDB: No intermediate iterator available
+WARNING:  ParadeDB: Already have cached intermediate results
 WARNING:  ParadeDB: Executing search on base relation
 WARNING:  ParadeDB: Executing real BM25 search on relation files_join_test
 WARNING:  ParadeDB: Real search on files_join_test returned 3 results
@@ -1045,7 +1049,9 @@ WARNING:  ParadeDB: Initializing join execution with enhanced composite support
 WARNING:  ParadeDB: Using stored search predicates - outer: 0, inner: 1, bilateral: false
 WARNING:  ParadeDB: Detected composite join - composite_side: Outer, setting up intermediate result handling
 WARNING:  ParadeDB: Setting up intermediate result handling
-WARNING:  ParadeDB: No child plans found
+WARNING:  ParadeDB: Checking child plan states - left: true, right: true
+WARNING:  ParadeDB: Composite info indicates outer side is composite
+WARNING:  ParadeDB: Child plan state is null for Outer side
 WARNING:  ParadeDB: Intermediate result handling setup complete
 WARNING:  ParadeDB: Join execution initialization complete
 WARNING:  ParadeDB: Executing join step
@@ -1077,6 +1083,8 @@ WARNING:  ParadeDB: Using enhanced composite join execution
 WARNING:  ParadeDB: Executing composite join with intermediate results
 WARNING:  ParadeDB: Handling outer composite, inner base with search
 WARNING:  ParadeDB: Executing outer composite + inner base join
+WARNING:  ParadeDB: No intermediate iterator available
+WARNING:  ParadeDB: Already have cached intermediate results
 WARNING:  ParadeDB: Executing search on base relation
 WARNING:  ParadeDB: Executing real BM25 search on relation authors_join_test
 WARNING:  ParadeDB: Real search on authors_join_test returned 2 results
@@ -1318,7 +1326,9 @@ WARNING:  ParadeDB: Initializing join execution with enhanced composite support
 WARNING:  ParadeDB: Using stored search predicates - outer: 0, inner: 1, bilateral: false
 WARNING:  ParadeDB: Detected composite join - composite_side: Outer, setting up intermediate result handling
 WARNING:  ParadeDB: Setting up intermediate result handling
-WARNING:  ParadeDB: No child plans found
+WARNING:  ParadeDB: Checking child plan states - left: true, right: true
+WARNING:  ParadeDB: Composite info indicates outer side is composite
+WARNING:  ParadeDB: Child plan state is null for Outer side
 WARNING:  ParadeDB: Intermediate result handling setup complete
 WARNING:  ParadeDB: Join execution initialization complete
 WARNING:  ParadeDB: Executing join step
@@ -1350,6 +1360,8 @@ WARNING:  ParadeDB: Using enhanced composite join execution
 WARNING:  ParadeDB: Executing composite join with intermediate results
 WARNING:  ParadeDB: Handling outer composite, inner base with search
 WARNING:  ParadeDB: Executing outer composite + inner base join
+WARNING:  ParadeDB: No intermediate iterator available
+WARNING:  ParadeDB: Already have cached intermediate results
 WARNING:  ParadeDB: Executing search on base relation
 WARNING:  ParadeDB: Executing real BM25 search on relation documents_join_test
 WARNING:  ParadeDB: Real search on documents_join_test returned 2 results

@@ -498,7 +498,6 @@ impl BufferManager {
     ///
     /// See `get_buffer_exchange`.
     ///
-    #[allow(dead_code)]
     pub fn get_buffer_exchange_mut(
         &mut self,
         blockno: pg_sys::BlockNumber,

@@ -273,8 +273,8 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         let mut buffer = if let Some(buffer) = buffer {
             buffer
         } else {
-            let (start_blockno, _) = self.get_start_blockno();
-            self.bman.get_buffer_mut(start_blockno)
+            let (start_blockno, buffer) = self.get_start_blockno_mut();
+            self.bman.get_buffer_exchange_mut(start_blockno, buffer)
         };
 
         for item in items {

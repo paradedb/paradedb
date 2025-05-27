@@ -411,7 +411,10 @@ pub extern "C-unwind" fn paradedb_join_pathlist_callback<CS: CustomScan>(
             if predicates.has_bilateral_search() {
                 warning!("ParadeDB: Bilateral search detected - proceeding with custom join path");
             } else {
-                warning!("ParadeDB: Unilateral search detected - proceeding with custom join path");
+                warning!("ParadeDB: Unilateral search detected - rejecting for now");
+                warning!("ParadeDB: Unilateral joins require proper table scanning which is not yet implemented");
+                warning!("ParadeDB: Falling back to PostgreSQL's default join processing");
+                return;
             }
         } else {
             warning!("ParadeDB: No search predicates found in join - skipping custom join");

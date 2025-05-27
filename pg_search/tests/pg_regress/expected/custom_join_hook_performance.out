@@ -39165,84 +39165,9 @@ WARNING:  ParadeDB: Successfully executed search on documents_perf
 WARNING:  ParadeDB: Executing real BM25 search on relation tags_perf
 WARNING:  ParadeDB: Real search on tags_perf returned 0 results
 WARNING:  ParadeDB: Successfully executed search on tags_perf
-WARNING:  ParadeDB: Search execution completed - outer: 1, inner: 1
-WARNING:  ParadeDB: Search execution initialization completed successfully
-WARNING:  ParadeDB: Phase 2/4 - Executing outer relation search
-WARNING:  ParadeDB: Outer search completed - 1 results
-WARNING:  ParadeDB: Phase 3/4 - Executing inner relation search
-WARNING:  ParadeDB: Inner search completed - 1 results
-WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
-WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Unknown relation pair (documents_perf, tags_perf), using generic 'id' = 'id' join
-WARNING:  ParadeDB: Fetching column 'id' from relation documents_perf with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation tags_perf with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Join condition evaluation: 1 (documents_perf.id) = 1 (tags_perf.id) -> true
-WARNING:  ParadeDB: Evaluating join condition for outer[0] (ctid 1) × inner[0] (ctid 1) = true
-WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[0]
-WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
-WARNING:  ParadeDB: Creating result tuple with 2 attributes
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Fetching real heap tuple values from relations documents_perf and tags_perf
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Detected relations from predicates - outer: 'documents_perf', inner: 'tags_perf'
-WARNING:  ParadeDB: Fetching all columns with names from relation documents_perf with CTID 1
-WARNING:  ParadeDB: documents_perf column 'id' = '1'
-WARNING:  ParadeDB: documents_perf column 'title' = 'Document 1'
-WARNING:  ParadeDB: documents_perf column 'content' = 'This is document number 1 with content about science and research'
-WARNING:  ParadeDB: documents_perf column 'author' = 'Author 2'
-WARNING:  ParadeDB: documents_perf column 'created_at' = 'ERROR_TEXT_5'
-WARNING:  ParadeDB: Successfully fetched 5 columns from documents_perf relation
-WARNING:  ParadeDB: Fetching all columns with names from relation tags_perf with CTID 1
-WARNING:  ParadeDB: tags_perf column 'id' = '1'
-WARNING:  ParadeDB: tags_perf column 'document_id' = '2'
-WARNING:  ParadeDB: tags_perf column 'tag_name' = 'priority'
-WARNING:  ParadeDB: tags_perf column 'tag_value' = 'medium'
-WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
-WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
-WARNING:  ParadeDB: Analyzing 2 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}"),)))]
-WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation documents_perf
-WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "documents_perf")]
-WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
-WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Resolved varnosyn 1 to relation documents_perf
-WARNING:  ParadeDB: varnosyn 1 resolved to relation documents_perf, attno 2
-WARNING:  ParadeDB: Relation documents_perf attno 2 -> column name 'title'
-WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn(documents_perf,title)
-WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
-WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 2, varattnosyn: 4
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 4
-WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 4 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Resolved varnosyn 2 to relation tags_perf
-WARNING:  ParadeDB: varnosyn 2 resolved to relation tags_perf, attno 4
-WARNING:  ParadeDB: Relation tags_perf attno 4 -> column name 'tag_value'
-WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn(tags_perf,tag_value)
-WARNING:  ParadeDB: Mapped 2 out of 2 column values: [Some("Document 1"), Some("medium")]
-WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Document 1"), Some("medium")]
-WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
-WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
-WARNING:  ParadeDB: Join matching complete - total matches: 1
-WARNING:  ParadeDB: Cleaning up join execution
-WARNING:  ParadeDB: Cleaning up join execution state
-WARNING:  ParadeDB: ===== JOIN EXECUTION STATISTICS =====
-WARNING:  ParadeDB: Search Results - Outer: 1, Inner: 1, Total Combinations: 1
-WARNING:  ParadeDB: Join Processing - Matches: 1, Returned: 1, Success Rate: 100.0%
-WARNING:  ParadeDB: Heap Tuple Access - Attempts: 2, Successes: 2, Success Rate: 100.0%
-WARNING:  ParadeDB: Cleaned up 2 search readers
-WARNING:  ParadeDB: Cleared 1 outer and 1 inner search results
-WARNING:  ParadeDB: ===== END JOIN EXECUTION STATISTICS =====
-WARNING:  ParadeDB: Join execution cleanup complete
-   title    | tag_value 
-------------+-----------
- Document 1 | medium
-(1 row)
-
+WARNING:  ParadeDB: No outer search results - this indicates a unilateral join
+WARNING:  ParadeDB: No inner search results - this indicates a unilateral join
+ERROR:  called `Option::unwrap()` on a `None` value
 -- Test 5: Single result
 SELECT d.title, d.author, t.tag_name
 FROM documents_perf d

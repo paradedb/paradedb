@@ -33,16 +33,16 @@ CREATE TABLE authors_join_test (
 INSERT INTO documents_join_test (title, content) VALUES 
     ('Document 1', 'This is the first document about technology'),
     ('Document 2', 'This is the second document about science and research'),
-    ('Document 3', 'This is the third document about research and analysis');
+    ('Document 3', 'This is the third document about research and data analysis');
 
 INSERT INTO files_join_test (document_id, filename, content) VALUES 
-    (1, 'file1.txt', 'Technology file content'),
+    (1, 'file1.txt', 'Technology file content with data'),
     (2, 'file2.txt', 'Science file content with research data'),
-    (3, 'file3.txt', 'Research file content and analysis');
+    (3, 'file3.txt', 'Research file content and analysis data');
 
 INSERT INTO authors_join_test (document_id, author_name, bio) VALUES 
-    (1, 'John Smith', 'Expert in technology and innovation'),
-    (2, 'Jane Doe', 'Scientist specializing in research methods and analysis'),
+    (1, 'John Smith', 'Expert in technology and innovation with research background'),
+    (2, 'Jane Doe', 'Scientist specializing in research methods and data analysis'),
     (3, 'Bob Wilson', 'Research analyst with focus on data science and research');
 
 -- Create BM25 indexes

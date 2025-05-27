@@ -398,26 +398,38 @@ impl MixedAggResults {
     }
 
     fn next_segment(&mut self) -> bool {
-        let Some((string_columns, string_results, numeric_columns, numeric_values)) =
+        let Some((mut string_columns, mut string_results, numeric_columns, numeric_values)) =
             self.per_segment.next()
         else {
             return false;
         };
 
-        // Track documents and their field values.
-        //
-        // Note: this is equivalent to a hash join by doc address. We could alternatively emit in
-        // sorted order using the sorted order provided by `ords_to_sorted_terms`.
-        let mut doc_fields = HashMap::default();
+        // Build a hashmap of any non-sort column values, which will then be hash joined to the
+        // sort column, if any.
+        let rows = string_results
+            .first()
+            .map(|res| res.len())
+            .or(numeric_values.first().map(|res| res.len()))
+            .unwrap_or(16);
+        let mut doc_fields = HashMap::with_capacity_and_hasher(rows, Default::default());
 
-        // Process string fields from this segment
+        // Pop a string column to use as the sort order for emitted rows, if any.
+        //
+        // Note that under some combinations of `paradedb.enable_fast_field_exec` and
+        // `paradedb.enable_mixed_fast_field_exec`, Mixed might be used without a string column.
+        //
+        // TODO: Make the choice of sort column to use a planning-time decision.
+        let string_sort_column = string_columns.pop();
+        let string_sort_results = string_results.pop();
+
+        // Process remaining string fields from this segment
         for ((field_idx, str_ff), field_result) in string_columns.into_iter().zip(string_results) {
             // Resolve all term ordinals to their string values.
             let field_results_iter =
                 ords_to_sorted_terms(str_ff, field_result, |(term_ordinal, _, _)| *term_ordinal);
 
             // Add term to each document
-            for ((term_ord, score, doc_addr), term_value) in field_results_iter {
+            for ((_, score, doc_addr), term_value) in field_results_iter {
                 doc_fields
                     .entry(doc_addr)
                     .or_insert_with(|| (FieldValues::new(self.fields_len), score))
@@ -438,11 +450,32 @@ impl MixedAggResults {
             }
         }
 
-        self.current_segment = Box::new(
-            doc_fields
-                .into_iter()
-                .map(|(doc_addr, (field_values, score))| (score, doc_addr, field_values)),
-        );
+        if let Some(((sort_field_idx, sort_str_ff), string_sort_results)) =
+            string_sort_column.zip(string_sort_results)
+        {
+            // We have a sort column, so create an iterator that lazily scans the sort column and
+            // joins the remaining columns.
+            let fields_len = self.fields_len;
+            self.current_segment = Box::new(
+                ords_to_sorted_terms(sort_str_ff, string_sort_results, |(term_ordinal, _, _)| {
+                    *term_ordinal
+                })
+                .map(move |((_, score, doc_addr), term_value)| {
+                    let (mut field_values, score) = doc_fields
+                        .remove(&doc_addr)
+                        .unwrap_or_else(|| (FieldValues::new(fields_len), score));
+                    field_values.set_string(sort_field_idx, Some(term_value));
+                    (score, doc_addr, field_values)
+                }),
+            );
+        } else {
+            // Otherwise, emit the remaining columns directly.
+            self.current_segment = Box::new(
+                doc_fields
+                    .into_iter()
+                    .map(|(doc_addr, (field_values, score))| (score, doc_addr, field_values)),
+            );
+        }
 
         true
     }

@@ -545,7 +545,30 @@ WARNING:  ParadeDB: Executing real BM25 search on relation products
 WARNING:  ParadeDB: Real search on products returned 1 results
 WARNING:  ParadeDB: Successfully executed search on products
 WARNING:  ParadeDB: No inner search results - this indicates a unilateral join
-ERROR:  called `Option::unwrap()` on a `None` value
+WARNING:  ParadeDB: Unilateral joins should have been rejected at planning time
+WARNING:  ParadeDB: Search execution completed - outer: 1, inner: 0
+WARNING:  ParadeDB: Search execution initialization completed successfully
+WARNING:  ParadeDB: Phase 2/4 - Executing outer relation search
+WARNING:  ParadeDB: Outer search completed - 1 results
+WARNING:  ParadeDB: Phase 3/4 - Executing inner relation search
+WARNING:  ParadeDB: Inner search completed - 0 results
+WARNING:  ParadeDB: WARNING - Inner search returned no results
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
+WARNING:  ParadeDB: Join matching complete - no results to join (outer: 1, inner: 0)
+WARNING:  ParadeDB: Cleaning up join execution
+WARNING:  ParadeDB: Cleaning up join execution state
+WARNING:  ParadeDB: ===== JOIN EXECUTION STATISTICS =====
+WARNING:  ParadeDB: Search Results - Outer: 1, Inner: 0, Total Combinations: 0
+WARNING:  ParadeDB: Join Processing - Matches: 0, Returned: 0, Success Rate: 0.0%
+WARNING:  ParadeDB: Heap Tuple Access - Attempts: 0, Successes: 0, Success Rate: 0.0%
+WARNING:  ParadeDB: Cleaned up 1 search readers
+WARNING:  ParadeDB: Cleared 1 outer and 0 inner search results
+WARNING:  ParadeDB: ===== END JOIN EXECUTION STATISTICS =====
+WARNING:  ParadeDB: Join execution cleanup complete
+ name | review_text | rating 
+------+-------------+--------
+(0 rows)
+
 -- Test 5: No search predicates (should use regular join)
 SELECT p.name, r.reviewer_name
 FROM products p

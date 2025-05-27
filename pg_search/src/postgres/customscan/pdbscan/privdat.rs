@@ -48,6 +48,15 @@ pub enum CompositeSide {
     None,
 }
 
+/// Which side of a unilateral join has a child plan for table scanning
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub enum UnilateralChildSide {
+    /// Outer side has child plan (inner side has search)
+    Outer,
+    /// Inner side has child plan (outer side has search)
+    Inner,
+}
+
 /// Private data for the custom scan
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct PrivateData {
@@ -77,6 +86,9 @@ pub struct PrivateData {
 
     /// Information about composite relations in the join
     join_composite_info: Option<JoinCompositeInfo>,
+
+    /// Which side has a child plan for unilateral joins
+    unilateral_child_plan_side: Option<UnilateralChildSide>,
 }
 
 mod var_attname_lookup_serializer {
@@ -256,6 +268,10 @@ impl PrivateData {
     pub fn set_join_composite_info(&mut self, info: Option<JoinCompositeInfo>) {
         self.join_composite_info = info;
     }
+
+    pub fn set_unilateral_child_plan_side(&mut self, side: Option<UnilateralChildSide>) {
+        self.unilateral_child_plan_side = side;
+    }
 }
 
 //
@@ -354,5 +370,9 @@ impl PrivateData {
 
     pub fn join_composite_info(&self) -> &Option<JoinCompositeInfo> {
         &self.join_composite_info
+    }
+
+    pub fn unilateral_child_plan_side(&self) -> &Option<UnilateralChildSide> {
+        &self.unilateral_child_plan_side
     }
 }

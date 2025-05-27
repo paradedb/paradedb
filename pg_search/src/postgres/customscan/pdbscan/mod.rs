@@ -744,6 +744,10 @@ impl CustomScan for PdbScan {
                 }
 
                 builder.custom_state().join_exec_state = Some(join_exec_state);
+                builder.custom_state().unilateral_child_plan_side = builder
+                    .custom_private()
+                    .unilateral_child_plan_side()
+                    .clone();
 
                 return builder.build();
             }

@@ -569,6 +569,35 @@ unsafe fn create_search_join_path<CS: CustomScan>(
     private_data.set_join_outer_relids(outer_relids);
     private_data.set_join_inner_relids(inner_relids);
 
+    // For unilateral joins, determine which side needs table scanning
+    if let Some(ref predicates) = search_predicates {
+        let outer_has_search = predicates
+            .outer_predicates
+            .iter()
+            .any(|p| p.uses_search_operator);
+        let inner_has_search = predicates
+            .inner_predicates
+            .iter()
+            .any(|p| p.uses_search_operator);
+
+        if !predicates.has_bilateral_search() {
+            // This is a unilateral join - store which side needs table scanning
+            if outer_has_search && !inner_has_search {
+                // Outer has search, inner needs table scan
+                warning!("ParadeDB: Unilateral join - outer has search, inner needs table scan");
+                private_data.set_unilateral_child_plan_side(Some(
+                    crate::postgres::customscan::pdbscan::privdat::UnilateralChildSide::Inner,
+                ));
+            } else if inner_has_search && !outer_has_search {
+                // Inner has search, outer needs table scan
+                warning!("ParadeDB: Unilateral join - inner has search, outer needs table scan");
+                private_data.set_unilateral_child_plan_side(Some(
+                    crate::postgres::customscan::pdbscan::privdat::UnilateralChildSide::Outer,
+                ));
+            }
+        }
+    }
+
     // Store composite relation information
     let composite_info = match composite_analysis {
         CompositeRelationAnalysis::BothBaseRelations => None,
@@ -675,14 +704,39 @@ unsafe fn create_search_join_path<CS: CustomScan>(
 /// Extract relation OIDs from a RelOptInfo structure
 unsafe fn extract_relation_oids_from_reloptinfo(
     root: *mut pg_sys::PlannerInfo,
-    rel: *mut pg_sys::RelOptInfo,
+    reloptinfo: *mut pg_sys::RelOptInfo,
 ) -> Vec<pg_sys::Oid> {
     let mut relids = Vec::new();
 
-    for rti in bms_iter((*rel).relids) {
-        let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
-        if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
-            relids.push((*rte).relid);
+    if reloptinfo.is_null() {
+        return relids;
+    }
+
+    // Check if this is a base relation (single table)
+    if (*reloptinfo).reloptkind == pg_sys::RelOptKind::RELOPT_BASEREL {
+        // This is a base relation - get its OID directly
+        if (*reloptinfo).relid > 0 {
+            let rte = pg_sys::planner_rt_fetch((*reloptinfo).relid, root);
+            if !rte.is_null() && (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
+                relids.push((*rte).relid);
+            }
+        }
+    } else if (*reloptinfo).reloptkind == pg_sys::RelOptKind::RELOPT_JOINREL {
+        // This is a join relation - extract all base relation OIDs from relids
+        let relids_bms = (*reloptinfo).relids;
+        if !relids_bms.is_null() {
+            let mut relid = -1;
+            loop {
+                relid = pg_sys::bms_next_member(relids_bms, relid);
+                if relid < 0 {
+                    break;
+                }
+                // Convert from 1-based to actual relid and get the OID
+                let rte = pg_sys::planner_rt_fetch(relid as pg_sys::Index, root);
+                if !rte.is_null() && (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
+                    relids.push((*rte).relid);
+                }
+            }
         }
     }
 

@@ -1458,12 +1458,11 @@ unsafe fn execute_real_searches(
             }
         }
 
-        // Store the search results with proper fallback handling for unilateral joins
+        // Store the search results - if either side is empty, this indicates a unilateral join
+        // which should have been rejected at planning time
         join_state.outer_results = if outer_results.is_empty() {
             warning!("ParadeDB: No outer search results - this indicates a unilateral join");
-            // For unilateral joins, we should not generate fake results
-            // Instead, we should let PostgreSQL handle the non-search side properly
-            // Return None to indicate no search results, which will trigger proper table scan logic
+            warning!("ParadeDB: Unilateral joins should have been rejected at planning time");
             None
         } else {
             Some(outer_results)
@@ -1471,9 +1470,7 @@ unsafe fn execute_real_searches(
 
         join_state.inner_results = if inner_results.is_empty() {
             warning!("ParadeDB: No inner search results - this indicates a unilateral join");
-            // For unilateral joins, we should not generate fake results
-            // Instead, we should let PostgreSQL handle the non-search side properly
-            // Return None to indicate no search results, which will trigger proper table scan logic
+            warning!("ParadeDB: Unilateral joins should have been rejected at planning time");
             None
         } else {
             Some(inner_results)
@@ -1615,10 +1612,12 @@ unsafe fn match_and_return_next_tuple(
                     (Some(_), None) | (None, Some(_)) => {
                         // Unilateral join - only one side has search results
                         warning!(
-                            "ParadeDB: Unilateral join detected - this requires different handling"
+                            "ParadeDB: Unilateral join detected in execution - this should have been rejected at planning time"
                         );
-                        warning!("ParadeDB: Current implementation doesn't support unilateral joins properly");
-                        warning!("ParadeDB: Falling back to PostgreSQL's default join processing");
+                        warning!("ParadeDB: Terminating join execution");
+                        if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
+                            join_state.phase = JoinExecPhase::Finished;
+                        }
                         return std::ptr::null_mut();
                     }
                     (None, None) => {
@@ -3780,11 +3779,11 @@ unsafe fn execute_real_searches_safe(
             }
         }
 
-        // Store results with proper fallback handling for unilateral joins
+        // Store results - if either side is empty, this indicates a unilateral join
+        // which should have been rejected at planning time
         join_state.outer_results = if outer_results.is_empty() {
             warning!("ParadeDB: No outer search results - this indicates a unilateral join");
-            // For unilateral joins, we should not generate fake results
-            // Instead, we should let PostgreSQL handle the non-search side properly
+            warning!("ParadeDB: Unilateral joins should have been rejected at planning time");
             None
         } else {
             Some(outer_results)
@@ -3792,8 +3791,7 @@ unsafe fn execute_real_searches_safe(
 
         join_state.inner_results = if inner_results.is_empty() {
             warning!("ParadeDB: No inner search results - this indicates a unilateral join");
-            // For unilateral joins, we should not generate fake results
-            // Instead, we should let PostgreSQL handle the non-search side properly
+            warning!("ParadeDB: Unilateral joins should have been rejected at planning time");
             None
         } else {
             Some(inner_results)
@@ -3804,8 +3802,16 @@ unsafe fn execute_real_searches_safe(
 
         warning!(
             "ParadeDB: Search execution completed - outer: {}, inner: {}",
-            join_state.outer_results.as_ref().unwrap().len(),
-            join_state.inner_results.as_ref().unwrap().len()
+            join_state
+                .outer_results
+                .as_ref()
+                .map(|r| r.len())
+                .unwrap_or(0),
+            join_state
+                .inner_results
+                .as_ref()
+                .map(|r| r.len())
+                .unwrap_or(0)
         );
 
         true

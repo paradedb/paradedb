@@ -35,6 +35,8 @@ use std::cell::UnsafeCell;
 use tantivy::snippet::SnippetGenerator;
 use tantivy::SegmentReader;
 
+use super::privdat::UnilateralChildSide;
+
 #[derive(Default)]
 pub struct PdbScanState {
     pub parallel_state: Option<*mut ParallelScanState>,
@@ -97,6 +99,7 @@ pub struct PdbScanState {
 
     /// Join execution state (only used for join nodes)
     pub join_exec_state: Option<JoinExecState>,
+    pub unilateral_child_plan_side: Option<UnilateralChildSide>,
 }
 
 impl CustomScanState for PdbScanState {

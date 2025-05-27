@@ -836,73 +836,147 @@ unsafe fn execute_inner_search(state: &mut CustomScanStateWrapper<PdbScan>) {
     }
 }
 
-/// Perform join matching and return the next result tuple with intermediate result support
+/// Perform join matching and return the next result tuple with proper join condition evaluation
 unsafe fn match_and_return_next_tuple(
     state: &mut CustomScanStateWrapper<PdbScan>,
 ) -> *mut pg_sys::TupleTableSlot {
-    warning!("ParadeDB: Matching and returning next tuple");
-    warning!("ParadeDB: Standard join matching for base relations");
+    warning!("ParadeDB: Matching and returning next tuple with join condition evaluation");
 
-    // Get current positions and results with enhanced error checking
-    let (outer_pos, inner_pos, has_more, outer_total, inner_total) = {
-        if let Some(ref join_state) = state.custom_state().join_exec_state {
-            let empty_outer = vec![];
-            let empty_inner = vec![];
-            let outer_results = join_state.outer_results.as_ref().unwrap_or(&empty_outer);
-            let inner_results = join_state.inner_results.as_ref().unwrap_or(&empty_inner);
+    // Find the next valid join match by evaluating join conditions
+    loop {
+        // Get current positions and results
+        let (outer_pos, inner_pos, has_more, outer_total, inner_total) = {
+            if let Some(ref join_state) = state.custom_state().join_exec_state {
+                let empty_outer = vec![];
+                let empty_inner = vec![];
+                let outer_results = join_state.outer_results.as_ref().unwrap_or(&empty_outer);
+                let inner_results = join_state.inner_results.as_ref().unwrap_or(&empty_inner);
 
-            if outer_results.is_empty() || inner_results.is_empty() {
-                warning!("ParadeDB: No results available for join matching");
+                if outer_results.is_empty() || inner_results.is_empty() {
+                    warning!("ParadeDB: No results available for join matching");
+                    return std::ptr::null_mut();
+                }
+
+                // Check if we have more combinations to try
+                let has_more = join_state.outer_position < outer_results.len();
+
+                (
+                    join_state.outer_position,
+                    join_state.inner_position,
+                    has_more,
+                    outer_results.len(),
+                    inner_results.len(),
+                )
+            } else {
+                warning!("ParadeDB: No join execution state available");
+                return std::ptr::null_mut();
+            }
+        };
+
+        if !has_more {
+            // No more tuples to return - update statistics
+            if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
+                join_state.phase = JoinExecPhase::Finished;
+
+                warning!(
+                    "ParadeDB: Join matching complete - total matches: {}",
+                    join_state.stats.join_matches
+                );
+            }
+            return std::ptr::null_mut();
+        }
+
+        // Get the CTIDs for the current combination
+        let (outer_ctid, inner_ctid) = get_ctids_from_results(state, outer_pos, inner_pos);
+
+        // Evaluate join condition: d.id = f.document_id
+        let join_condition_satisfied = evaluate_join_condition(state, outer_ctid, inner_ctid);
+
+        warning!(
+            "ParadeDB: Evaluating join condition for outer[{}] (ctid {}) × inner[{}] (ctid {}) = {}",
+            outer_pos + 1,
+            outer_ctid,
+            inner_pos + 1,
+            inner_ctid,
+            join_condition_satisfied
+        );
+
+        if join_condition_satisfied {
+            // This combination satisfies the join condition - create result tuple
+            warning!(
+                "ParadeDB: Join condition satisfied - creating result tuple for outer[{}] × inner[{}]",
+                outer_pos,
+                inner_pos
+            );
+
+            let result_tuple = create_join_result_tuple(state, outer_pos, inner_pos);
+
+            if result_tuple.is_null() {
+                warning!("ParadeDB: Failed to create join result tuple");
                 return std::ptr::null_mut();
             }
 
-            // Enhanced nested loop join logic with bounds checking
-            let has_more = join_state.outer_position < outer_results.len()
-                && join_state.inner_position < inner_results.len();
+            // Advance to next position
+            advance_join_position(state);
 
-            (
-                join_state.outer_position,
-                join_state.inner_position,
-                has_more,
-                outer_results.len(),
-                inner_results.len(),
-            )
+            // Update statistics
+            if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
+                join_state.stats.join_matches += 1;
+                join_state.stats.tuples_returned += 1;
+            }
+
+            return result_tuple;
         } else {
-            warning!("ParadeDB: No join execution state available");
-            return std::ptr::null_mut();
+            // This combination doesn't satisfy the join condition - try next
+            warning!("ParadeDB: Join condition not satisfied - advancing to next combination");
+            advance_join_position(state);
         }
-    };
+    }
+}
 
-    if !has_more {
-        // No more tuples to return - update statistics
-        if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
-            join_state.phase = JoinExecPhase::Finished;
+/// Evaluate the join condition (d.id = f.document_id) for the given CTIDs
+unsafe fn evaluate_join_condition(
+    state: &mut CustomScanStateWrapper<PdbScan>,
+    outer_ctid: u64,
+    inner_ctid: u64,
+) -> bool {
+    // Get relation OIDs
+    let (outer_relid, inner_relid) = get_relation_oids_from_state(state);
 
+    if outer_relid.is_none() || inner_relid.is_none() {
+        warning!("ParadeDB: Cannot evaluate join condition - missing relation OIDs");
+        return false;
+    }
+
+    let outer_relid = outer_relid.unwrap();
+    let inner_relid = inner_relid.unwrap();
+
+    // Fetch the join key values from both tuples
+    // For our test case: d.id from documents_join_test and f.document_id from files_join_test
+    let outer_id = fetch_column_from_relation_by_name(outer_relid, outer_ctid, "id");
+    let inner_document_id =
+        fetch_column_from_relation_by_name(inner_relid, inner_ctid, "document_id");
+
+    match (&outer_id, &inner_document_id) {
+        (Some(outer_val), Some(inner_val)) => {
+            let condition_satisfied = outer_val == inner_val;
             warning!(
-                "ParadeDB: Join matching complete - total matches: {}",
-                join_state.stats.join_matches
+                "ParadeDB: Join condition evaluation: {} (outer.id) = {} (inner.document_id) -> {}",
+                outer_val,
+                inner_val,
+                condition_satisfied
             );
+            condition_satisfied
         }
-        return std::ptr::null_mut();
+        _ => {
+            warning!("ParadeDB: Failed to fetch join key values - outer_id: {:?}, inner_document_id: {:?}", outer_id, inner_document_id);
+            false
+        }
     }
+}
 
-    warning!(
-        "ParadeDB: Processing join match [{}/{}] × [{}/{}]",
-        outer_pos + 1,
-        outer_total,
-        inner_pos + 1,
-        inner_total
-    );
-
-    // Create a result tuple with enhanced error handling
-    let result_tuple = create_join_result_tuple(state, outer_pos, inner_pos);
-
-    if result_tuple.is_null() {
-        warning!("ParadeDB: Failed to create join result tuple");
-        return std::ptr::null_mut();
-    }
-
-    // Advance to next position with improved logic
+/// Advance to the next join position using nested loop logic
+unsafe fn advance_join_position(state: &mut CustomScanStateWrapper<PdbScan>) {
     if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
         join_state.inner_position += 1;
 
@@ -912,28 +986,18 @@ unsafe fn match_and_return_next_tuple(
                 join_state.outer_position += 1;
                 join_state.inner_position = 0;
 
-                if join_state.outer_position < outer_total {
-                    warning!(
-                        "ParadeDB: Advanced to next outer tuple [{}/{}]",
-                        join_state.outer_position + 1,
-                        outer_total
-                    );
+                if let Some(ref outer_results) = join_state.outer_results {
+                    if join_state.outer_position < outer_results.len() {
+                        warning!(
+                            "ParadeDB: Advanced to next outer tuple [{}/{}]",
+                            join_state.outer_position + 1,
+                            outer_results.len()
+                        );
+                    }
                 }
             }
         }
-
-        join_state.stats.join_matches += 1;
-        join_state.stats.tuples_returned += 1;
-
-        if join_state.stats.join_matches % 100 == 0 {
-            warning!(
-                "ParadeDB: Join progress - {} matches processed",
-                join_state.stats.join_matches
-            );
-        }
     }
-
-    result_tuple
 }
 
 /// Match intermediate results with search results

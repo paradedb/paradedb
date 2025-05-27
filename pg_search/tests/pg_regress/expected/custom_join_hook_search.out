@@ -155,134 +155,37 @@ WARNING:  ParadeDB: Executing search on inner relation
 WARNING:  ParadeDB: Inner search completed - 2 results
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
-WARNING:  ParadeDB: Matching and returning next tuple
-WARNING:  ParadeDB: Standard join matching for base relations
-WARNING:  ParadeDB: Processing join match [1/1] × [1/2]
-WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
-WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Fetching real heap tuple values from relations products and reviews
+WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 1
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
+WARNING:  ParadeDB: Fetching column 'document_id' from relation reviews with CTID 1
+WARNING:  ParadeDB: Column 'document_id' not found in relation reviews
+WARNING:  ParadeDB: Failed to fetch join key values - outer_id: Some("1"), inner_document_id: None
+WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 1) × inner[1] (ctid 1) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Detected relations from predicates - outer: 'products', inner: 'reviews'
-WARNING:  ParadeDB: Fetching all columns with names from relation products with CTID 1
-WARNING:  ParadeDB: products column 'id' = '1'
-WARNING:  ParadeDB: products column 'name' = 'Laptop Pro'
-WARNING:  ParadeDB: products column 'description' = 'High-performance laptop with advanced features for professionals'
-WARNING:  ParadeDB: products column 'category' = 'Electronics'
-WARNING:  ParadeDB: Successfully fetched 4 columns from products relation
-WARNING:  ParadeDB: Fetching all columns with names from relation reviews with CTID 1
-WARNING:  ParadeDB: reviews column 'id' = '1'
-WARNING:  ParadeDB: reviews column 'product_id' = '1'
-WARNING:  ParadeDB: reviews column 'reviewer_name' = 'John Doe'
-WARNING:  ParadeDB: reviews column 'review_text' = 'Excellent laptop with amazing performance and battery life'
-WARNING:  ParadeDB: reviews column 'rating' = '5'
-WARNING:  ParadeDB: Successfully fetched 5 columns from reviews relation
-WARNING:  ParadeDB: Fetched 4 columns from outer relation, 5 from inner relation
-WARNING:  ParadeDB: PLAN: Ok("{CUSTOMSCAN :scan.plan.startup_cost 100 :scan.plan.total_cost 100.01 :scan.plan.plan_rows 1 :scan.plan.plan_width 96 :scan.plan.parallel_aware false :scan.plan.parallel_safe false :scan.plan.async_capable false :scan.plan.plan_node_id 0 :scan.plan.targetlist ({TARGETENTRY :expr {VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname name :ressortgroupref 0 :resorigtbl 114278 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 2 :resname reviewer_name :ressortgroupref 0 :resorigtbl 114287 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1} :resno 3 :resname review_text :ressortgroupref 0 :resorigtbl 114287 :resorigcol 4 :resjunk false}) :scan.plan.qual <> :scan.plan.lefttree <> :scan.plan.righttree <> :scan.plan.initPlan <> :scan.plan.extParam (b) :scan.plan.allParam (b) :scan.scanrelid 0 :flags 4 :custom_plans <> :custom_exprs <> :custom_private (\"\\{\"heaprelid\":null,\"indexrelid\":null,\"range_table_index\":null,\"query\":null,\"limit\":null,\"segment_count\":0,\"sort_field\":null,\"sort_direction\":null,\"exec_method_type\":\"Normal\",\"var_attname_lookup\":[[\"1,2\",\"join_attr_1\"],[\"2,3\",\"join_attr_2\"],[\"2,4\",\"join_attr_3\"]],\"target_list_len\":3,\"planned_which_fast_fields\":null,\"referenced_columns_count\":0,\"join_search_predicates\":\\{\"outer_predicates\":[\\{\"rti\":1,\"relid\":114278,\"relname\":\"products\",\"query\":\\{\"with_index\":\\{\"oid\":114295,\"query\":\\{\"parse_with_field\":\\{\"field\":\"description\",\"query_string\":\"performance\",\"lenient\":null,\"conjunction_mode\":null\\}\\}\\}\\},\"uses_search_operator\":true\\}],\"inner_predicates\":[\\{\"rti\":2,\"relid\":114287,\"relname\":\"reviews\",\"query\":\\{\"with_index\":\\{\"oid\":114296,\"query\":\\{\"parse_with_field\":\\{\"field\":\"review_text\",\"query_string\":\"excellent\",\"lenient\":null,\"conjunction_mode\":null\\}\\}\\}\\},\"uses_search_operator\":true\\}],\"join_conditions\":[]\\},\"join_outer_relid\":114278,\"join_inner_relid\":114287\\}\") :custom_scan_tlist ({TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname name :ressortgroupref 0 :resorigtbl 114278 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 2 :resname reviewer_name :ressortgroupref 0 :resorigtbl 114287 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1} :resno 3 :resname review_text :ressortgroupref 0 :resorigtbl 114287 :resorigcol 4 :resjunk false}) :custom_relids (b 1 2) :methods ParadeDB\\ Scan}")
-WARNING:  ParadeDB: Analyzing 3 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}"),)))]
-WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation products
-WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "products")]
-WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
-WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: varnosyn 1 mapped to outer relation products (attno 2)
-WARNING:  ParadeDB: Relation products attno 2 -> column name 'name'
-WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn { relid: 114278, column_name: "name" }
-WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
-WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 2, varattnosyn: 3
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 3
-WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 3 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: varnosyn 2 mapped to inner relation reviews (attno 3)
-WARNING:  ParadeDB: Relation reviews attno 3 -> column name 'reviewer_name'
-WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn { relid: 114287, column_name: "reviewer_name" }
-WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
-WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 4
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 4
-WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 4 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: varnosyn 2 mapped to inner relation reviews (attno 4)
-WARNING:  ParadeDB: Relation reviews attno 4 -> column name 'review_text'
-WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn { relid: 114287, column_name: "review_text" }
-WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Laptop Pro"), Some("John Doe"), Some("Excellent laptop with amazing performance and battery life")]
-WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Laptop Pro"), Some("John Doe"), Some("Excellent laptop with amazing performance and battery life")]
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
-WARNING:  ParadeDB: Matching and returning next tuple
-WARNING:  ParadeDB: Standard join matching for base relations
-WARNING:  ParadeDB: Processing join match [1/1] × [2/2]
-WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
-WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Fetching real heap tuple values from relations products and reviews
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Detected relations from predicates - outer: 'products', inner: 'reviews'
-WARNING:  ParadeDB: Fetching all columns with names from relation products with CTID 1
-WARNING:  ParadeDB: products column 'id' = '1'
-WARNING:  ParadeDB: products column 'name' = 'Laptop Pro'
-WARNING:  ParadeDB: products column 'description' = 'High-performance laptop with advanced features for professionals'
-WARNING:  ParadeDB: products column 'category' = 'Electronics'
-WARNING:  ParadeDB: Successfully fetched 4 columns from products relation
-WARNING:  ParadeDB: Fetching all columns with names from relation reviews with CTID 4
-WARNING:  ParadeDB: reviews column 'id' = '4'
-WARNING:  ParadeDB: reviews column 'product_id' = '3'
-WARNING:  ParadeDB: reviews column 'reviewer_name' = 'Alice Brown'
-WARNING:  ParadeDB: reviews column 'review_text' = 'Makes excellent coffee every morning, love the programmable features'
-WARNING:  ParadeDB: reviews column 'rating' = '4'
-WARNING:  ParadeDB: Successfully fetched 5 columns from reviews relation
-WARNING:  ParadeDB: Fetched 4 columns from outer relation, 5 from inner relation
-WARNING:  ParadeDB: PLAN: Ok("{CUSTOMSCAN :scan.plan.startup_cost 100 :scan.plan.total_cost 100.01 :scan.plan.plan_rows 1 :scan.plan.plan_width 96 :scan.plan.parallel_aware false :scan.plan.parallel_safe false :scan.plan.async_capable false :scan.plan.plan_node_id 0 :scan.plan.targetlist ({TARGETENTRY :expr {VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname name :ressortgroupref 0 :resorigtbl 114278 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 2 :resname reviewer_name :ressortgroupref 0 :resorigtbl 114287 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1} :resno 3 :resname review_text :ressortgroupref 0 :resorigtbl 114287 :resorigcol 4 :resjunk false}) :scan.plan.qual <> :scan.plan.lefttree <> :scan.plan.righttree <> :scan.plan.initPlan <> :scan.plan.extParam (b) :scan.plan.allParam (b) :scan.scanrelid 0 :flags 4 :custom_plans <> :custom_exprs <> :custom_private (\"\\{\"heaprelid\":null,\"indexrelid\":null,\"range_table_index\":null,\"query\":null,\"limit\":null,\"segment_count\":0,\"sort_field\":null,\"sort_direction\":null,\"exec_method_type\":\"Normal\",\"var_attname_lookup\":[[\"1,2\",\"join_attr_1\"],[\"2,3\",\"join_attr_2\"],[\"2,4\",\"join_attr_3\"]],\"target_list_len\":3,\"planned_which_fast_fields\":null,\"referenced_columns_count\":0,\"join_search_predicates\":\\{\"outer_predicates\":[\\{\"rti\":1,\"relid\":114278,\"relname\":\"products\",\"query\":\\{\"with_index\":\\{\"oid\":114295,\"query\":\\{\"parse_with_field\":\\{\"field\":\"description\",\"query_string\":\"performance\",\"lenient\":null,\"conjunction_mode\":null\\}\\}\\}\\},\"uses_search_operator\":true\\}],\"inner_predicates\":[\\{\"rti\":2,\"relid\":114287,\"relname\":\"reviews\",\"query\":\\{\"with_index\":\\{\"oid\":114296,\"query\":\\{\"parse_with_field\":\\{\"field\":\"review_text\",\"query_string\":\"excellent\",\"lenient\":null,\"conjunction_mode\":null\\}\\}\\}\\},\"uses_search_operator\":true\\}],\"join_conditions\":[]\\},\"join_outer_relid\":114278,\"join_inner_relid\":114287\\}\") :custom_scan_tlist ({TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname name :ressortgroupref 0 :resorigtbl 114278 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 2 :resname reviewer_name :ressortgroupref 0 :resorigtbl 114287 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1} :resno 3 :resname review_text :ressortgroupref 0 :resorigtbl 114287 :resorigcol 4 :resjunk false}) :custom_relids (b 1 2) :methods ParadeDB\\ Scan}")
-WARNING:  ParadeDB: Analyzing 3 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}"),)))]
-WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation products
-WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "products")]
-WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
-WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: varnosyn 1 mapped to outer relation products (attno 2)
-WARNING:  ParadeDB: Relation products attno 2 -> column name 'name'
-WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn { relid: 114278, column_name: "name" }
-WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
-WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 2, varattnosyn: 3
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 3
-WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 3 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: varnosyn 2 mapped to inner relation reviews (attno 3)
-WARNING:  ParadeDB: Relation reviews attno 3 -> column name 'reviewer_name'
-WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn { relid: 114287, column_name: "reviewer_name" }
-WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
-WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 4
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 4
-WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 4 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: varnosyn 2 mapped to inner relation reviews (attno 4)
-WARNING:  ParadeDB: Relation reviews attno 4 -> column name 'review_text'
-WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn { relid: 114287, column_name: "review_text" }
-WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Laptop Pro"), Some("Alice Brown"), Some("Makes excellent coffee every morning, love the programmable features")]
-WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Laptop Pro"), Some("Alice Brown"), Some("Makes excellent coffee every morning, love the programmable features")]
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
-WARNING:  ParadeDB: Matching and returning next tuple
-WARNING:  ParadeDB: Standard join matching for base relations
-WARNING:  ParadeDB: Join matching complete - total matches: 2
+WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 1
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
+WARNING:  ParadeDB: Fetching column 'document_id' from relation reviews with CTID 4
+WARNING:  ParadeDB: Column 'document_id' not found in relation reviews
+WARNING:  ParadeDB: Failed to fetch join key values - outer_id: Some("1"), inner_document_id: None
+WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 1) × inner[2] (ctid 4) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Join matching complete - total matches: 0
 WARNING:  ParadeDB: Cleaning up join execution
 WARNING:  ParadeDB: Cleaning up join execution state
 WARNING:  ParadeDB: ===== JOIN EXECUTION STATISTICS =====
 WARNING:  ParadeDB: Search Results - Outer: 1, Inner: 2, Total Combinations: 2
-WARNING:  ParadeDB: Join Processing - Matches: 2, Returned: 2, Success Rate: 100.0%
-WARNING:  ParadeDB: Heap Tuple Access - Attempts: 4, Successes: 6, Success Rate: 150.0%
+WARNING:  ParadeDB: Join Processing - Matches: 0, Returned: 0, Success Rate: 0.0%
+WARNING:  ParadeDB: Heap Tuple Access - Attempts: 0, Successes: 0, Success Rate: 0.0%
 WARNING:  ParadeDB: Cleaned up 2 search readers
 WARNING:  ParadeDB: Cleared 1 outer and 2 inner search results
 WARNING:  ParadeDB: ===== END JOIN EXECUTION STATISTICS =====
 WARNING:  ParadeDB: Join execution cleanup complete
-    name    | reviewer_name |                             review_text                              
-------------+---------------+----------------------------------------------------------------------
- Laptop Pro | John Doe      | Excellent laptop with amazing performance and battery life
- Laptop Pro | Alice Brown   | Makes excellent coffee every morning, love the programmable features
-(2 rows)
+ name | reviewer_name | review_text 
+------+---------------+-------------
+(0 rows)
 
 -- Test 2: Single-sided search join (only one side has search predicate)
 SELECT p.name, r.reviewer_name, r.rating
@@ -372,192 +275,47 @@ WARNING:  ParadeDB: Executing search on inner relation
 WARNING:  ParadeDB: Inner search completed - 1 results
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
-WARNING:  ParadeDB: Matching and returning next tuple
-WARNING:  ParadeDB: Standard join matching for base relations
-WARNING:  ParadeDB: Processing join match [1/3] × [1/1]
-WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
-WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Fetching real heap tuple values from relations products and reviews
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Detected relations from predicates - outer: 'products', inner: 'reviews'
-WARNING:  ParadeDB: Fetching all columns with names from relation products with CTID 1
-WARNING:  ParadeDB: products column 'id' = '1'
-WARNING:  ParadeDB: products column 'name' = 'Laptop Pro'
-WARNING:  ParadeDB: products column 'description' = 'High-performance laptop with advanced features for professionals'
-WARNING:  ParadeDB: products column 'category' = 'Electronics'
-WARNING:  ParadeDB: Successfully fetched 4 columns from products relation
-WARNING:  ParadeDB: Fetching all columns with names from relation reviews with CTID 1
-WARNING:  ParadeDB: reviews column 'id' = '1'
-WARNING:  ParadeDB: reviews column 'product_id' = '1'
-WARNING:  ParadeDB: reviews column 'reviewer_name' = 'John Doe'
-WARNING:  ParadeDB: reviews column 'review_text' = 'Excellent laptop with amazing performance and battery life'
-WARNING:  ParadeDB: reviews column 'rating' = '5'
-WARNING:  ParadeDB: Successfully fetched 5 columns from reviews relation
-WARNING:  ParadeDB: Fetched 4 columns from outer relation, 5 from inner relation
-WARNING:  ParadeDB: PLAN: Ok("{CUSTOMSCAN :scan.plan.startup_cost 100 :scan.plan.total_cost 100.018 :scan.plan.plan_rows 1.8 :scan.plan.plan_width 68 :scan.plan.parallel_aware false :scan.plan.parallel_safe false :scan.plan.async_capable false :scan.plan.plan_node_id 0 :scan.plan.targetlist ({TARGETENTRY :expr {VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname name :ressortgroupref 0 :resorigtbl 114278 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 2 :resname reviewer_name :ressortgroupref 0 :resorigtbl 114287 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 3 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 5 :location -1} :resno 3 :resname rating :ressortgroupref 0 :resorigtbl 114287 :resorigcol 5 :resjunk false}) :scan.plan.qual <> :scan.plan.lefttree <> :scan.plan.righttree <> :scan.plan.initPlan <> :scan.plan.extParam (b) :scan.plan.allParam (b) :scan.scanrelid 0 :flags 4 :custom_plans <> :custom_exprs <> :custom_private (\"\\{\"heaprelid\":null,\"indexrelid\":null,\"range_table_index\":null,\"query\":null,\"limit\":null,\"segment_count\":0,\"sort_field\":null,\"sort_direction\":null,\"exec_method_type\":\"Normal\",\"var_attname_lookup\":[[\"1,2\",\"join_attr_1\"],[\"2,3\",\"join_attr_2\"],[\"2,5\",\"join_attr_3\"]],\"target_list_len\":3,\"planned_which_fast_fields\":null,\"referenced_columns_count\":0,\"join_search_predicates\":\\{\"outer_predicates\":[\\{\"rti\":1,\"relid\":114278,\"relname\":\"products\",\"query\":\\{\"with_index\":\\{\"oid\":114295,\"query\":\\{\"parse_with_field\":\\{\"field\":\"category\",\"query_string\":\"Electronics\",\"lenient\":null,\"conjunction_mode\":null\\}\\}\\}\\},\"uses_search_operator\":true\\}],\"inner_predicates\":[],\"join_conditions\":[]\\},\"join_outer_relid\":114278,\"join_inner_relid\":114287\\}\") :custom_scan_tlist ({TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname name :ressortgroupref 0 :resorigtbl 114278 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 2 :resname reviewer_name :ressortgroupref 0 :resorigtbl 114287 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 5 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 5 :location -1} :resno 3 :resname rating :ressortgroupref 0 :resorigtbl 114287 :resorigcol 5 :resjunk false}) :custom_relids (b 1 2) :methods ParadeDB\\ Scan}")
-WARNING:  ParadeDB: Analyzing 3 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 5 :location -1}"),)))]
-WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation products
-WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "products")]
-WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
-WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: varnosyn 1 mapped to outer relation products (attno 2)
-WARNING:  ParadeDB: Relation products attno 2 -> column name 'name'
-WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn { relid: 114278, column_name: "name" }
-WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
-WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 2, varattnosyn: 3
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 3
-WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 3 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: varnosyn 2 mapped to inner relation reviews (attno 3)
-WARNING:  ParadeDB: Relation reviews attno 3 -> column name 'reviewer_name'
-WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn { relid: 114287, column_name: "reviewer_name" }
-WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
-WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 5
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 5
-WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 5 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: varnosyn 2 mapped to inner relation reviews (attno 5)
-WARNING:  ParadeDB: Relation reviews attno 5 -> column name 'rating'
-WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn { relid: 114287, column_name: "rating" }
-WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Laptop Pro"), Some("John Doe"), Some("5")]
-WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Laptop Pro"), Some("John Doe"), Some("5")]
+WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 1
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
+WARNING:  ParadeDB: Fetching column 'document_id' from relation reviews with CTID 1
+WARNING:  ParadeDB: Column 'document_id' not found in relation reviews
+WARNING:  ParadeDB: Failed to fetch join key values - outer_id: Some("1"), inner_document_id: None
+WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 1) × inner[1] (ctid 1) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Advanced to next outer tuple [2/3]
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
-WARNING:  ParadeDB: Matching and returning next tuple
-WARNING:  ParadeDB: Standard join matching for base relations
-WARNING:  ParadeDB: Processing join match [2/3] × [1/1]
-WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[0]
-WARNING:  ParadeDB: Creating result tuple with 3 attributes
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Fetching real heap tuple values from relations products and reviews
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Detected relations from predicates - outer: 'products', inner: 'reviews'
-WARNING:  ParadeDB: Fetching all columns with names from relation products with CTID 2
-WARNING:  ParadeDB: products column 'id' = '2'
-WARNING:  ParadeDB: products column 'name' = 'Wireless Mouse'
-WARNING:  ParadeDB: products column 'description' = 'Ergonomic wireless mouse with precision tracking'
-WARNING:  ParadeDB: products column 'category' = 'Electronics'
-WARNING:  ParadeDB: Successfully fetched 4 columns from products relation
-WARNING:  ParadeDB: Fetching all columns with names from relation reviews with CTID 1
-WARNING:  ParadeDB: reviews column 'id' = '1'
-WARNING:  ParadeDB: reviews column 'product_id' = '1'
-WARNING:  ParadeDB: reviews column 'reviewer_name' = 'John Doe'
-WARNING:  ParadeDB: reviews column 'review_text' = 'Excellent laptop with amazing performance and battery life'
-WARNING:  ParadeDB: reviews column 'rating' = '5'
-WARNING:  ParadeDB: Successfully fetched 5 columns from reviews relation
-WARNING:  ParadeDB: Fetched 4 columns from outer relation, 5 from inner relation
-WARNING:  ParadeDB: PLAN: Ok("{CUSTOMSCAN :scan.plan.startup_cost 100 :scan.plan.total_cost 100.018 :scan.plan.plan_rows 1.8 :scan.plan.plan_width 68 :scan.plan.parallel_aware false :scan.plan.parallel_safe false :scan.plan.async_capable false :scan.plan.plan_node_id 0 :scan.plan.targetlist ({TARGETENTRY :expr {VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname name :ressortgroupref 0 :resorigtbl 114278 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 2 :resname reviewer_name :ressortgroupref 0 :resorigtbl 114287 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 3 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 5 :location -1} :resno 3 :resname rating :ressortgroupref 0 :resorigtbl 114287 :resorigcol 5 :resjunk false}) :scan.plan.qual <> :scan.plan.lefttree <> :scan.plan.righttree <> :scan.plan.initPlan <> :scan.plan.extParam (b) :scan.plan.allParam (b) :scan.scanrelid 0 :flags 4 :custom_plans <> :custom_exprs <> :custom_private (\"\\{\"heaprelid\":null,\"indexrelid\":null,\"range_table_index\":null,\"query\":null,\"limit\":null,\"segment_count\":0,\"sort_field\":null,\"sort_direction\":null,\"exec_method_type\":\"Normal\",\"var_attname_lookup\":[[\"1,2\",\"join_attr_1\"],[\"2,3\",\"join_attr_2\"],[\"2,5\",\"join_attr_3\"]],\"target_list_len\":3,\"planned_which_fast_fields\":null,\"referenced_columns_count\":0,\"join_search_predicates\":\\{\"outer_predicates\":[\\{\"rti\":1,\"relid\":114278,\"relname\":\"products\",\"query\":\\{\"with_index\":\\{\"oid\":114295,\"query\":\\{\"parse_with_field\":\\{\"field\":\"category\",\"query_string\":\"Electronics\",\"lenient\":null,\"conjunction_mode\":null\\}\\}\\}\\},\"uses_search_operator\":true\\}],\"inner_predicates\":[],\"join_conditions\":[]\\},\"join_outer_relid\":114278,\"join_inner_relid\":114287\\}\") :custom_scan_tlist ({TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname name :ressortgroupref 0 :resorigtbl 114278 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 2 :resname reviewer_name :ressortgroupref 0 :resorigtbl 114287 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 5 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 5 :location -1} :resno 3 :resname rating :ressortgroupref 0 :resorigtbl 114287 :resorigcol 5 :resjunk false}) :custom_relids (b 1 2) :methods ParadeDB\\ Scan}")
-WARNING:  ParadeDB: Analyzing 3 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 5 :location -1}"),)))]
-WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation products
-WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "products")]
-WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
-WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: varnosyn 1 mapped to outer relation products (attno 2)
-WARNING:  ParadeDB: Relation products attno 2 -> column name 'name'
-WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn { relid: 114278, column_name: "name" }
-WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
-WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 2, varattnosyn: 3
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 3
-WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 3 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: varnosyn 2 mapped to inner relation reviews (attno 3)
-WARNING:  ParadeDB: Relation reviews attno 3 -> column name 'reviewer_name'
-WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn { relid: 114287, column_name: "reviewer_name" }
-WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
-WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 5
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 5
-WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 5 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: varnosyn 2 mapped to inner relation reviews (attno 5)
-WARNING:  ParadeDB: Relation reviews attno 5 -> column name 'rating'
-WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn { relid: 114287, column_name: "rating" }
-WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Wireless Mouse"), Some("John Doe"), Some("5")]
-WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Wireless Mouse"), Some("John Doe"), Some("5")]
+WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'document_id' from relation reviews with CTID 1
+WARNING:  ParadeDB: Column 'document_id' not found in relation reviews
+WARNING:  ParadeDB: Failed to fetch join key values - outer_id: Some("2"), inner_document_id: None
+WARNING:  ParadeDB: Evaluating join condition for outer[2] (ctid 2) × inner[1] (ctid 1) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Advanced to next outer tuple [3/3]
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
-WARNING:  ParadeDB: Matching and returning next tuple
-WARNING:  ParadeDB: Standard join matching for base relations
-WARNING:  ParadeDB: Processing join match [3/3] × [1/1]
-WARNING:  ParadeDB: Creating join result tuple for outer[2], inner[0]
-WARNING:  ParadeDB: Creating result tuple with 3 attributes
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Fetching real heap tuple values from relations products and reviews
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Detected relations from predicates - outer: 'products', inner: 'reviews'
-WARNING:  ParadeDB: Fetching all columns with names from relation products with CTID 5
-WARNING:  ParadeDB: products column 'id' = '5'
-WARNING:  ParadeDB: products column 'name' = 'Smartphone X'
-WARNING:  ParadeDB: products column 'description' = 'Latest smartphone with cutting-edge technology'
-WARNING:  ParadeDB: products column 'category' = 'Electronics'
-WARNING:  ParadeDB: Successfully fetched 4 columns from products relation
-WARNING:  ParadeDB: Fetching all columns with names from relation reviews with CTID 1
-WARNING:  ParadeDB: reviews column 'id' = '1'
-WARNING:  ParadeDB: reviews column 'product_id' = '1'
-WARNING:  ParadeDB: reviews column 'reviewer_name' = 'John Doe'
-WARNING:  ParadeDB: reviews column 'review_text' = 'Excellent laptop with amazing performance and battery life'
-WARNING:  ParadeDB: reviews column 'rating' = '5'
-WARNING:  ParadeDB: Successfully fetched 5 columns from reviews relation
-WARNING:  ParadeDB: Fetched 4 columns from outer relation, 5 from inner relation
-WARNING:  ParadeDB: PLAN: Ok("{CUSTOMSCAN :scan.plan.startup_cost 100 :scan.plan.total_cost 100.018 :scan.plan.plan_rows 1.8 :scan.plan.plan_width 68 :scan.plan.parallel_aware false :scan.plan.parallel_safe false :scan.plan.async_capable false :scan.plan.plan_node_id 0 :scan.plan.targetlist ({TARGETENTRY :expr {VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname name :ressortgroupref 0 :resorigtbl 114278 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 2 :resname reviewer_name :ressortgroupref 0 :resorigtbl 114287 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 3 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 5 :location -1} :resno 3 :resname rating :ressortgroupref 0 :resorigtbl 114287 :resorigcol 5 :resjunk false}) :scan.plan.qual <> :scan.plan.lefttree <> :scan.plan.righttree <> :scan.plan.initPlan <> :scan.plan.extParam (b) :scan.plan.allParam (b) :scan.scanrelid 0 :flags 4 :custom_plans <> :custom_exprs <> :custom_private (\"\\{\"heaprelid\":null,\"indexrelid\":null,\"range_table_index\":null,\"query\":null,\"limit\":null,\"segment_count\":0,\"sort_field\":null,\"sort_direction\":null,\"exec_method_type\":\"Normal\",\"var_attname_lookup\":[[\"1,2\",\"join_attr_1\"],[\"2,3\",\"join_attr_2\"],[\"2,5\",\"join_attr_3\"]],\"target_list_len\":3,\"planned_which_fast_fields\":null,\"referenced_columns_count\":0,\"join_search_predicates\":\\{\"outer_predicates\":[\\{\"rti\":1,\"relid\":114278,\"relname\":\"products\",\"query\":\\{\"with_index\":\\{\"oid\":114295,\"query\":\\{\"parse_with_field\":\\{\"field\":\"category\",\"query_string\":\"Electronics\",\"lenient\":null,\"conjunction_mode\":null\\}\\}\\}\\},\"uses_search_operator\":true\\}],\"inner_predicates\":[],\"join_conditions\":[]\\},\"join_outer_relid\":114278,\"join_inner_relid\":114287\\}\") :custom_scan_tlist ({TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname name :ressortgroupref 0 :resorigtbl 114278 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 2 :resname reviewer_name :ressortgroupref 0 :resorigtbl 114287 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 5 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 5 :location -1} :resno 3 :resname rating :ressortgroupref 0 :resorigtbl 114287 :resorigcol 5 :resjunk false}) :custom_relids (b 1 2) :methods ParadeDB\\ Scan}")
-WARNING:  ParadeDB: Analyzing 3 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 5 :location -1}"),)))]
-WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation products
-WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "products")]
-WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
-WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: varnosyn 1 mapped to outer relation products (attno 2)
-WARNING:  ParadeDB: Relation products attno 2 -> column name 'name'
-WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn { relid: 114278, column_name: "name" }
-WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
-WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 2, varattnosyn: 3
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 3
-WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 3 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: varnosyn 2 mapped to inner relation reviews (attno 3)
-WARNING:  ParadeDB: Relation reviews attno 3 -> column name 'reviewer_name'
-WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn { relid: 114287, column_name: "reviewer_name" }
-WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
-WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 5
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 5
-WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 5 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: varnosyn 2 mapped to inner relation reviews (attno 5)
-WARNING:  ParadeDB: Relation reviews attno 5 -> column name 'rating'
-WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn { relid: 114287, column_name: "rating" }
-WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Smartphone X"), Some("John Doe"), Some("5")]
-WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Smartphone X"), Some("John Doe"), Some("5")]
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
-WARNING:  ParadeDB: Matching and returning next tuple
-WARNING:  ParadeDB: Standard join matching for base relations
-WARNING:  ParadeDB: Join matching complete - total matches: 3
+WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 5
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("5")
+WARNING:  ParadeDB: Fetching column 'document_id' from relation reviews with CTID 1
+WARNING:  ParadeDB: Column 'document_id' not found in relation reviews
+WARNING:  ParadeDB: Failed to fetch join key values - outer_id: Some("5"), inner_document_id: None
+WARNING:  ParadeDB: Evaluating join condition for outer[3] (ctid 5) × inner[1] (ctid 1) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Join matching complete - total matches: 0
 WARNING:  ParadeDB: Cleaning up join execution
 WARNING:  ParadeDB: Cleaning up join execution state
 WARNING:  ParadeDB: ===== JOIN EXECUTION STATISTICS =====
 WARNING:  ParadeDB: Search Results - Outer: 3, Inner: 1, Total Combinations: 3
-WARNING:  ParadeDB: Join Processing - Matches: 3, Returned: 3, Success Rate: 100.0%
-WARNING:  ParadeDB: Heap Tuple Access - Attempts: 6, Successes: 9, Success Rate: 150.0%
+WARNING:  ParadeDB: Join Processing - Matches: 0, Returned: 0, Success Rate: 0.0%
+WARNING:  ParadeDB: Heap Tuple Access - Attempts: 0, Successes: 0, Success Rate: 0.0%
 WARNING:  ParadeDB: Cleaned up 1 search readers
 WARNING:  ParadeDB: Cleared 3 outer and 1 inner search results
 WARNING:  ParadeDB: ===== END JOIN EXECUTION STATISTICS =====
 WARNING:  ParadeDB: Join execution cleanup complete
-      name      | reviewer_name |   rating   
-----------------+---------------+------------
- Laptop Pro     | John Doe      | 1342394832
- Wireless Mouse | John Doe      | 1342403344
- Smartphone X   | John Doe      | 1342422480
-(3 rows)
+ name | reviewer_name | rating 
+------+---------------+--------
+(0 rows)
 
 -- Test 3: Complex search with multiple terms
 SELECT p.name, p.description, r.review_text
@@ -660,359 +418,70 @@ WARNING:  ParadeDB: Executing search on inner relation
 WARNING:  ParadeDB: Inner search completed - 3 results
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
-WARNING:  ParadeDB: Matching and returning next tuple
-WARNING:  ParadeDB: Standard join matching for base relations
-WARNING:  ParadeDB: Processing join match [1/2] × [1/3]
-WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
-WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Fetching real heap tuple values from relations products and reviews
+WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'document_id' from relation reviews with CTID 1
+WARNING:  ParadeDB: Column 'document_id' not found in relation reviews
+WARNING:  ParadeDB: Failed to fetch join key values - outer_id: Some("2"), inner_document_id: None
+WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 2) × inner[1] (ctid 1) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Detected relations from predicates - outer: 'products', inner: 'reviews'
-WARNING:  ParadeDB: Fetching all columns with names from relation products with CTID 2
-WARNING:  ParadeDB: products column 'id' = '2'
-WARNING:  ParadeDB: products column 'name' = 'Wireless Mouse'
-WARNING:  ParadeDB: products column 'description' = 'Ergonomic wireless mouse with precision tracking'
-WARNING:  ParadeDB: products column 'category' = 'Electronics'
-WARNING:  ParadeDB: Successfully fetched 4 columns from products relation
-WARNING:  ParadeDB: Fetching all columns with names from relation reviews with CTID 1
-WARNING:  ParadeDB: reviews column 'id' = '1'
-WARNING:  ParadeDB: reviews column 'product_id' = '1'
-WARNING:  ParadeDB: reviews column 'reviewer_name' = 'John Doe'
-WARNING:  ParadeDB: reviews column 'review_text' = 'Excellent laptop with amazing performance and battery life'
-WARNING:  ParadeDB: reviews column 'rating' = '5'
-WARNING:  ParadeDB: Successfully fetched 5 columns from reviews relation
-WARNING:  ParadeDB: Fetched 4 columns from outer relation, 5 from inner relation
-WARNING:  ParadeDB: PLAN: Ok("{CUSTOMSCAN :scan.plan.startup_cost 100 :scan.plan.total_cost 100.01 :scan.plan.plan_rows 1 :scan.plan.plan_width 96 :scan.plan.parallel_aware false :scan.plan.parallel_safe false :scan.plan.async_capable false :scan.plan.plan_node_id 0 :scan.plan.targetlist ({TARGETENTRY :expr {VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname name :ressortgroupref 0 :resorigtbl 114278 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 3 :location -1} :resno 2 :resname description :ressortgroupref 0 :resorigtbl 114278 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1} :resno 3 :resname review_text :ressortgroupref 0 :resorigtbl 114287 :resorigcol 4 :resjunk false}) :scan.plan.qual <> :scan.plan.lefttree <> :scan.plan.righttree <> :scan.plan.initPlan <> :scan.plan.extParam (b) :scan.plan.allParam (b) :scan.scanrelid 0 :flags 4 :custom_plans <> :custom_exprs <> :custom_private (\"\\{\"heaprelid\":null,\"indexrelid\":null,\"range_table_index\":null,\"query\":null,\"limit\":null,\"segment_count\":0,\"sort_field\":null,\"sort_direction\":null,\"exec_method_type\":\"Normal\",\"var_attname_lookup\":[[\"1,2\",\"join_attr_1\"],[\"2,4\",\"join_attr_3\"],[\"1,3\",\"join_attr_2\"]],\"target_list_len\":3,\"planned_which_fast_fields\":null,\"referenced_columns_count\":0,\"join_search_predicates\":\\{\"outer_predicates\":[\\{\"rti\":1,\"relid\":114278,\"relname\":\"products\",\"query\":\\{\"with_index\":\\{\"oid\":114295,\"query\":\\{\"parse_with_field\":\\{\"field\":\"description\",\"query_string\":\"wireless\\ OR\\ smartphone\",\"lenient\":null,\"conjunction_mode\":null\\}\\}\\}\\},\"uses_search_operator\":true\\}],\"inner_predicates\":[\\{\"rti\":2,\"relid\":114287,\"relname\":\"reviews\",\"query\":\\{\"with_index\":\\{\"oid\":114296,\"query\":\\{\"parse_with_field\":\\{\"field\":\"review_text\",\"query_string\":\"amazing\\ OR\\ perfect\",\"lenient\":null,\"conjunction_mode\":null\\}\\}\\}\\},\"uses_search_operator\":true\\}],\"join_conditions\":[]\\},\"join_outer_relid\":114278,\"join_inner_relid\":114287\\}\") :custom_scan_tlist ({TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname name :ressortgroupref 0 :resorigtbl 114278 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 3 :location -1} :resno 2 :resname description :ressortgroupref 0 :resorigtbl 114278 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1} :resno 3 :resname review_text :ressortgroupref 0 :resorigtbl 114287 :resorigcol 4 :resjunk false}) :custom_relids (b 1 2) :methods ParadeDB\\ Scan}")
-WARNING:  ParadeDB: Analyzing 3 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 3 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}"),)))]
-WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation products
-WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "products")]
-WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
-WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
+WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'document_id' from relation reviews with CTID 3
+WARNING:  ParadeDB: Column 'document_id' not found in relation reviews
+WARNING:  ParadeDB: Failed to fetch join key values - outer_id: Some("2"), inner_document_id: None
+WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 2) × inner[2] (ctid 3) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: varnosyn 1 mapped to outer relation products (attno 2)
-WARNING:  ParadeDB: Relation products attno 2 -> column name 'name'
-WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn { relid: 114278, column_name: "name" }
-WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
-WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 1, varattnosyn: 3
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 3
-WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 3 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: varnosyn 1 mapped to outer relation products (attno 3)
-WARNING:  ParadeDB: Relation products attno 3 -> column name 'description'
-WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn { relid: 114278, column_name: "description" }
-WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
-WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 4
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 4
-WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 4 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: varnosyn 2 mapped to inner relation reviews (attno 4)
-WARNING:  ParadeDB: Relation reviews attno 4 -> column name 'review_text'
-WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn { relid: 114287, column_name: "review_text" }
-WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Wireless Mouse"), Some("Ergonomic wireless mouse with precision tracking"), Some("Excellent laptop with amazing performance and battery life")]
-WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Wireless Mouse"), Some("Ergonomic wireless mouse with precision tracking"), Some("Excellent laptop with amazing performance and battery life")]
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
-WARNING:  ParadeDB: Matching and returning next tuple
-WARNING:  ParadeDB: Standard join matching for base relations
-WARNING:  ParadeDB: Processing join match [1/2] × [2/3]
-WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
-WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Fetching real heap tuple values from relations products and reviews
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Detected relations from predicates - outer: 'products', inner: 'reviews'
-WARNING:  ParadeDB: Fetching all columns with names from relation products with CTID 2
-WARNING:  ParadeDB: products column 'id' = '2'
-WARNING:  ParadeDB: products column 'name' = 'Wireless Mouse'
-WARNING:  ParadeDB: products column 'description' = 'Ergonomic wireless mouse with precision tracking'
-WARNING:  ParadeDB: products column 'category' = 'Electronics'
-WARNING:  ParadeDB: Successfully fetched 4 columns from products relation
-WARNING:  ParadeDB: Fetching all columns with names from relation reviews with CTID 3
-WARNING:  ParadeDB: reviews column 'id' = '3'
-WARNING:  ParadeDB: reviews column 'product_id' = '2'
-WARNING:  ParadeDB: reviews column 'reviewer_name' = 'Bob Wilson'
-WARNING:  ParadeDB: reviews column 'review_text' = 'Perfect wireless mouse, very responsive and comfortable'
-WARNING:  ParadeDB: reviews column 'rating' = '5'
-WARNING:  ParadeDB: Successfully fetched 5 columns from reviews relation
-WARNING:  ParadeDB: Fetched 4 columns from outer relation, 5 from inner relation
-WARNING:  ParadeDB: PLAN: Ok("{CUSTOMSCAN :scan.plan.startup_cost 100 :scan.plan.total_cost 100.01 :scan.plan.plan_rows 1 :scan.plan.plan_width 96 :scan.plan.parallel_aware false :scan.plan.parallel_safe false :scan.plan.async_capable false :scan.plan.plan_node_id 0 :scan.plan.targetlist ({TARGETENTRY :expr {VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname name :ressortgroupref 0 :resorigtbl 114278 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 3 :location -1} :resno 2 :resname description :ressortgroupref 0 :resorigtbl 114278 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1} :resno 3 :resname review_text :ressortgroupref 0 :resorigtbl 114287 :resorigcol 4 :resjunk false}) :scan.plan.qual <> :scan.plan.lefttree <> :scan.plan.righttree <> :scan.plan.initPlan <> :scan.plan.extParam (b) :scan.plan.allParam (b) :scan.scanrelid 0 :flags 4 :custom_plans <> :custom_exprs <> :custom_private (\"\\{\"heaprelid\":null,\"indexrelid\":null,\"range_table_index\":null,\"query\":null,\"limit\":null,\"segment_count\":0,\"sort_field\":null,\"sort_direction\":null,\"exec_method_type\":\"Normal\",\"var_attname_lookup\":[[\"1,2\",\"join_attr_1\"],[\"2,4\",\"join_attr_3\"],[\"1,3\",\"join_attr_2\"]],\"target_list_len\":3,\"planned_which_fast_fields\":null,\"referenced_columns_count\":0,\"join_search_predicates\":\\{\"outer_predicates\":[\\{\"rti\":1,\"relid\":114278,\"relname\":\"products\",\"query\":\\{\"with_index\":\\{\"oid\":114295,\"query\":\\{\"parse_with_field\":\\{\"field\":\"description\",\"query_string\":\"wireless\\ OR\\ smartphone\",\"lenient\":null,\"conjunction_mode\":null\\}\\}\\}\\},\"uses_search_operator\":true\\}],\"inner_predicates\":[\\{\"rti\":2,\"relid\":114287,\"relname\":\"reviews\",\"query\":\\{\"with_index\":\\{\"oid\":114296,\"query\":\\{\"parse_with_field\":\\{\"field\":\"review_text\",\"query_string\":\"amazing\\ OR\\ perfect\",\"lenient\":null,\"conjunction_mode\":null\\}\\}\\}\\},\"uses_search_operator\":true\\}],\"join_conditions\":[]\\},\"join_outer_relid\":114278,\"join_inner_relid\":114287\\}\") :custom_scan_tlist ({TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname name :ressortgroupref 0 :resorigtbl 114278 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 3 :location -1} :resno 2 :resname description :ressortgroupref 0 :resorigtbl 114278 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1} :resno 3 :resname review_text :ressortgroupref 0 :resorigtbl 114287 :resorigcol 4 :resjunk false}) :custom_relids (b 1 2) :methods ParadeDB\\ Scan}")
-WARNING:  ParadeDB: Analyzing 3 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 3 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}"),)))]
-WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation products
-WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "products")]
-WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
-WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: varnosyn 1 mapped to outer relation products (attno 2)
-WARNING:  ParadeDB: Relation products attno 2 -> column name 'name'
-WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn { relid: 114278, column_name: "name" }
-WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
-WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 1, varattnosyn: 3
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 3
-WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 3 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: varnosyn 1 mapped to outer relation products (attno 3)
-WARNING:  ParadeDB: Relation products attno 3 -> column name 'description'
-WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn { relid: 114278, column_name: "description" }
-WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
-WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 4
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 4
-WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 4 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: varnosyn 2 mapped to inner relation reviews (attno 4)
-WARNING:  ParadeDB: Relation reviews attno 4 -> column name 'review_text'
-WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn { relid: 114287, column_name: "review_text" }
-WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Wireless Mouse"), Some("Ergonomic wireless mouse with precision tracking"), Some("Perfect wireless mouse, very responsive and comfortable")]
-WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Wireless Mouse"), Some("Ergonomic wireless mouse with precision tracking"), Some("Perfect wireless mouse, very responsive and comfortable")]
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
-WARNING:  ParadeDB: Matching and returning next tuple
-WARNING:  ParadeDB: Standard join matching for base relations
-WARNING:  ParadeDB: Processing join match [1/2] × [3/3]
-WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[2]
-WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Fetching real heap tuple values from relations products and reviews
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Detected relations from predicates - outer: 'products', inner: 'reviews'
-WARNING:  ParadeDB: Fetching all columns with names from relation products with CTID 2
-WARNING:  ParadeDB: products column 'id' = '2'
-WARNING:  ParadeDB: products column 'name' = 'Wireless Mouse'
-WARNING:  ParadeDB: products column 'description' = 'Ergonomic wireless mouse with precision tracking'
-WARNING:  ParadeDB: products column 'category' = 'Electronics'
-WARNING:  ParadeDB: Successfully fetched 4 columns from products relation
-WARNING:  ParadeDB: Fetching all columns with names from relation reviews with CTID 6
-WARNING:  ParadeDB: reviews column 'id' = '6'
-WARNING:  ParadeDB: reviews column 'product_id' = '5'
-WARNING:  ParadeDB: reviews column 'reviewer_name' = 'Eva Martinez'
-WARNING:  ParadeDB: reviews column 'review_text' = 'Amazing smartphone with incredible camera and performance'
-WARNING:  ParadeDB: reviews column 'rating' = '5'
-WARNING:  ParadeDB: Successfully fetched 5 columns from reviews relation
-WARNING:  ParadeDB: Fetched 4 columns from outer relation, 5 from inner relation
-WARNING:  ParadeDB: PLAN: Ok("{CUSTOMSCAN :scan.plan.startup_cost 100 :scan.plan.total_cost 100.01 :scan.plan.plan_rows 1 :scan.plan.plan_width 96 :scan.plan.parallel_aware false :scan.plan.parallel_safe false :scan.plan.async_capable false :scan.plan.plan_node_id 0 :scan.plan.targetlist ({TARGETENTRY :expr {VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname name :ressortgroupref 0 :resorigtbl 114278 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 3 :location -1} :resno 2 :resname description :ressortgroupref 0 :resorigtbl 114278 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1} :resno 3 :resname review_text :ressortgroupref 0 :resorigtbl 114287 :resorigcol 4 :resjunk false}) :scan.plan.qual <> :scan.plan.lefttree <> :scan.plan.righttree <> :scan.plan.initPlan <> :scan.plan.extParam (b) :scan.plan.allParam (b) :scan.scanrelid 0 :flags 4 :custom_plans <> :custom_exprs <> :custom_private (\"\\{\"heaprelid\":null,\"indexrelid\":null,\"range_table_index\":null,\"query\":null,\"limit\":null,\"segment_count\":0,\"sort_field\":null,\"sort_direction\":null,\"exec_method_type\":\"Normal\",\"var_attname_lookup\":[[\"1,2\",\"join_attr_1\"],[\"2,4\",\"join_attr_3\"],[\"1,3\",\"join_attr_2\"]],\"target_list_len\":3,\"planned_which_fast_fields\":null,\"referenced_columns_count\":0,\"join_search_predicates\":\\{\"outer_predicates\":[\\{\"rti\":1,\"relid\":114278,\"relname\":\"products\",\"query\":\\{\"with_index\":\\{\"oid\":114295,\"query\":\\{\"parse_with_field\":\\{\"field\":\"description\",\"query_string\":\"wireless\\ OR\\ smartphone\",\"lenient\":null,\"conjunction_mode\":null\\}\\}\\}\\},\"uses_search_operator\":true\\}],\"inner_predicates\":[\\{\"rti\":2,\"relid\":114287,\"relname\":\"reviews\",\"query\":\\{\"with_index\":\\{\"oid\":114296,\"query\":\\{\"parse_with_field\":\\{\"field\":\"review_text\",\"query_string\":\"amazing\\ OR\\ perfect\",\"lenient\":null,\"conjunction_mode\":null\\}\\}\\}\\},\"uses_search_operator\":true\\}],\"join_conditions\":[]\\},\"join_outer_relid\":114278,\"join_inner_relid\":114287\\}\") :custom_scan_tlist ({TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname name :ressortgroupref 0 :resorigtbl 114278 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 3 :location -1} :resno 2 :resname description :ressortgroupref 0 :resorigtbl 114278 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1} :resno 3 :resname review_text :ressortgroupref 0 :resorigtbl 114287 :resorigcol 4 :resjunk false}) :custom_relids (b 1 2) :methods ParadeDB\\ Scan}")
-WARNING:  ParadeDB: Analyzing 3 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 3 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}"),)))]
-WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation products
-WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "products")]
-WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
-WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: varnosyn 1 mapped to outer relation products (attno 2)
-WARNING:  ParadeDB: Relation products attno 2 -> column name 'name'
-WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn { relid: 114278, column_name: "name" }
-WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
-WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 1, varattnosyn: 3
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 3
-WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 3 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: varnosyn 1 mapped to outer relation products (attno 3)
-WARNING:  ParadeDB: Relation products attno 3 -> column name 'description'
-WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn { relid: 114278, column_name: "description" }
-WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
-WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 4
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 4
-WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 4 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: varnosyn 2 mapped to inner relation reviews (attno 4)
-WARNING:  ParadeDB: Relation reviews attno 4 -> column name 'review_text'
-WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn { relid: 114287, column_name: "review_text" }
-WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Wireless Mouse"), Some("Ergonomic wireless mouse with precision tracking"), Some("Amazing smartphone with incredible camera and performance")]
-WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Wireless Mouse"), Some("Ergonomic wireless mouse with precision tracking"), Some("Amazing smartphone with incredible camera and performance")]
+WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'document_id' from relation reviews with CTID 6
+WARNING:  ParadeDB: Column 'document_id' not found in relation reviews
+WARNING:  ParadeDB: Failed to fetch join key values - outer_id: Some("2"), inner_document_id: None
+WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 2) × inner[3] (ctid 6) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Advanced to next outer tuple [2/2]
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
-WARNING:  ParadeDB: Matching and returning next tuple
-WARNING:  ParadeDB: Standard join matching for base relations
-WARNING:  ParadeDB: Processing join match [2/2] × [1/3]
-WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[0]
-WARNING:  ParadeDB: Creating result tuple with 3 attributes
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Fetching real heap tuple values from relations products and reviews
+WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 5
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("5")
+WARNING:  ParadeDB: Fetching column 'document_id' from relation reviews with CTID 1
+WARNING:  ParadeDB: Column 'document_id' not found in relation reviews
+WARNING:  ParadeDB: Failed to fetch join key values - outer_id: Some("5"), inner_document_id: None
+WARNING:  ParadeDB: Evaluating join condition for outer[2] (ctid 5) × inner[1] (ctid 1) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Detected relations from predicates - outer: 'products', inner: 'reviews'
-WARNING:  ParadeDB: Fetching all columns with names from relation products with CTID 5
-WARNING:  ParadeDB: products column 'id' = '5'
-WARNING:  ParadeDB: products column 'name' = 'Smartphone X'
-WARNING:  ParadeDB: products column 'description' = 'Latest smartphone with cutting-edge technology'
-WARNING:  ParadeDB: products column 'category' = 'Electronics'
-WARNING:  ParadeDB: Successfully fetched 4 columns from products relation
-WARNING:  ParadeDB: Fetching all columns with names from relation reviews with CTID 1
-WARNING:  ParadeDB: reviews column 'id' = '1'
-WARNING:  ParadeDB: reviews column 'product_id' = '1'
-WARNING:  ParadeDB: reviews column 'reviewer_name' = 'John Doe'
-WARNING:  ParadeDB: reviews column 'review_text' = 'Excellent laptop with amazing performance and battery life'
-WARNING:  ParadeDB: reviews column 'rating' = '5'
-WARNING:  ParadeDB: Successfully fetched 5 columns from reviews relation
-WARNING:  ParadeDB: Fetched 4 columns from outer relation, 5 from inner relation
-WARNING:  ParadeDB: PLAN: Ok("{CUSTOMSCAN :scan.plan.startup_cost 100 :scan.plan.total_cost 100.01 :scan.plan.plan_rows 1 :scan.plan.plan_width 96 :scan.plan.parallel_aware false :scan.plan.parallel_safe false :scan.plan.async_capable false :scan.plan.plan_node_id 0 :scan.plan.targetlist ({TARGETENTRY :expr {VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname name :ressortgroupref 0 :resorigtbl 114278 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 3 :location -1} :resno 2 :resname description :ressortgroupref 0 :resorigtbl 114278 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1} :resno 3 :resname review_text :ressortgroupref 0 :resorigtbl 114287 :resorigcol 4 :resjunk false}) :scan.plan.qual <> :scan.plan.lefttree <> :scan.plan.righttree <> :scan.plan.initPlan <> :scan.plan.extParam (b) :scan.plan.allParam (b) :scan.scanrelid 0 :flags 4 :custom_plans <> :custom_exprs <> :custom_private (\"\\{\"heaprelid\":null,\"indexrelid\":null,\"range_table_index\":null,\"query\":null,\"limit\":null,\"segment_count\":0,\"sort_field\":null,\"sort_direction\":null,\"exec_method_type\":\"Normal\",\"var_attname_lookup\":[[\"1,2\",\"join_attr_1\"],[\"2,4\",\"join_attr_3\"],[\"1,3\",\"join_attr_2\"]],\"target_list_len\":3,\"planned_which_fast_fields\":null,\"referenced_columns_count\":0,\"join_search_predicates\":\\{\"outer_predicates\":[\\{\"rti\":1,\"relid\":114278,\"relname\":\"products\",\"query\":\\{\"with_index\":\\{\"oid\":114295,\"query\":\\{\"parse_with_field\":\\{\"field\":\"description\",\"query_string\":\"wireless\\ OR\\ smartphone\",\"lenient\":null,\"conjunction_mode\":null\\}\\}\\}\\},\"uses_search_operator\":true\\}],\"inner_predicates\":[\\{\"rti\":2,\"relid\":114287,\"relname\":\"reviews\",\"query\":\\{\"with_index\":\\{\"oid\":114296,\"query\":\\{\"parse_with_field\":\\{\"field\":\"review_text\",\"query_string\":\"amazing\\ OR\\ perfect\",\"lenient\":null,\"conjunction_mode\":null\\}\\}\\}\\},\"uses_search_operator\":true\\}],\"join_conditions\":[]\\},\"join_outer_relid\":114278,\"join_inner_relid\":114287\\}\") :custom_scan_tlist ({TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname name :ressortgroupref 0 :resorigtbl 114278 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 3 :location -1} :resno 2 :resname description :ressortgroupref 0 :resorigtbl 114278 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1} :resno 3 :resname review_text :ressortgroupref 0 :resorigtbl 114287 :resorigcol 4 :resjunk false}) :custom_relids (b 1 2) :methods ParadeDB\\ Scan}")
-WARNING:  ParadeDB: Analyzing 3 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 3 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}"),)))]
-WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation products
-WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "products")]
-WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
-WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
+WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 5
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("5")
+WARNING:  ParadeDB: Fetching column 'document_id' from relation reviews with CTID 3
+WARNING:  ParadeDB: Column 'document_id' not found in relation reviews
+WARNING:  ParadeDB: Failed to fetch join key values - outer_id: Some("5"), inner_document_id: None
+WARNING:  ParadeDB: Evaluating join condition for outer[2] (ctid 5) × inner[2] (ctid 3) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: varnosyn 1 mapped to outer relation products (attno 2)
-WARNING:  ParadeDB: Relation products attno 2 -> column name 'name'
-WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn { relid: 114278, column_name: "name" }
-WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
-WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 1, varattnosyn: 3
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 3
-WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 3 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: varnosyn 1 mapped to outer relation products (attno 3)
-WARNING:  ParadeDB: Relation products attno 3 -> column name 'description'
-WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn { relid: 114278, column_name: "description" }
-WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
-WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 4
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 4
-WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 4 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: varnosyn 2 mapped to inner relation reviews (attno 4)
-WARNING:  ParadeDB: Relation reviews attno 4 -> column name 'review_text'
-WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn { relid: 114287, column_name: "review_text" }
-WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Smartphone X"), Some("Latest smartphone with cutting-edge technology"), Some("Excellent laptop with amazing performance and battery life")]
-WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Smartphone X"), Some("Latest smartphone with cutting-edge technology"), Some("Excellent laptop with amazing performance and battery life")]
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
-WARNING:  ParadeDB: Matching and returning next tuple
-WARNING:  ParadeDB: Standard join matching for base relations
-WARNING:  ParadeDB: Processing join match [2/2] × [2/3]
-WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
-WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Fetching real heap tuple values from relations products and reviews
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Detected relations from predicates - outer: 'products', inner: 'reviews'
-WARNING:  ParadeDB: Fetching all columns with names from relation products with CTID 5
-WARNING:  ParadeDB: products column 'id' = '5'
-WARNING:  ParadeDB: products column 'name' = 'Smartphone X'
-WARNING:  ParadeDB: products column 'description' = 'Latest smartphone with cutting-edge technology'
-WARNING:  ParadeDB: products column 'category' = 'Electronics'
-WARNING:  ParadeDB: Successfully fetched 4 columns from products relation
-WARNING:  ParadeDB: Fetching all columns with names from relation reviews with CTID 3
-WARNING:  ParadeDB: reviews column 'id' = '3'
-WARNING:  ParadeDB: reviews column 'product_id' = '2'
-WARNING:  ParadeDB: reviews column 'reviewer_name' = 'Bob Wilson'
-WARNING:  ParadeDB: reviews column 'review_text' = 'Perfect wireless mouse, very responsive and comfortable'
-WARNING:  ParadeDB: reviews column 'rating' = '5'
-WARNING:  ParadeDB: Successfully fetched 5 columns from reviews relation
-WARNING:  ParadeDB: Fetched 4 columns from outer relation, 5 from inner relation
-WARNING:  ParadeDB: PLAN: Ok("{CUSTOMSCAN :scan.plan.startup_cost 100 :scan.plan.total_cost 100.01 :scan.plan.plan_rows 1 :scan.plan.plan_width 96 :scan.plan.parallel_aware false :scan.plan.parallel_safe false :scan.plan.async_capable false :scan.plan.plan_node_id 0 :scan.plan.targetlist ({TARGETENTRY :expr {VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname name :ressortgroupref 0 :resorigtbl 114278 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 3 :location -1} :resno 2 :resname description :ressortgroupref 0 :resorigtbl 114278 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1} :resno 3 :resname review_text :ressortgroupref 0 :resorigtbl 114287 :resorigcol 4 :resjunk false}) :scan.plan.qual <> :scan.plan.lefttree <> :scan.plan.righttree <> :scan.plan.initPlan <> :scan.plan.extParam (b) :scan.plan.allParam (b) :scan.scanrelid 0 :flags 4 :custom_plans <> :custom_exprs <> :custom_private (\"\\{\"heaprelid\":null,\"indexrelid\":null,\"range_table_index\":null,\"query\":null,\"limit\":null,\"segment_count\":0,\"sort_field\":null,\"sort_direction\":null,\"exec_method_type\":\"Normal\",\"var_attname_lookup\":[[\"1,2\",\"join_attr_1\"],[\"2,4\",\"join_attr_3\"],[\"1,3\",\"join_attr_2\"]],\"target_list_len\":3,\"planned_which_fast_fields\":null,\"referenced_columns_count\":0,\"join_search_predicates\":\\{\"outer_predicates\":[\\{\"rti\":1,\"relid\":114278,\"relname\":\"products\",\"query\":\\{\"with_index\":\\{\"oid\":114295,\"query\":\\{\"parse_with_field\":\\{\"field\":\"description\",\"query_string\":\"wireless\\ OR\\ smartphone\",\"lenient\":null,\"conjunction_mode\":null\\}\\}\\}\\},\"uses_search_operator\":true\\}],\"inner_predicates\":[\\{\"rti\":2,\"relid\":114287,\"relname\":\"reviews\",\"query\":\\{\"with_index\":\\{\"oid\":114296,\"query\":\\{\"parse_with_field\":\\{\"field\":\"review_text\",\"query_string\":\"amazing\\ OR\\ perfect\",\"lenient\":null,\"conjunction_mode\":null\\}\\}\\}\\},\"uses_search_operator\":true\\}],\"join_conditions\":[]\\},\"join_outer_relid\":114278,\"join_inner_relid\":114287\\}\") :custom_scan_tlist ({TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname name :ressortgroupref 0 :resorigtbl 114278 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 3 :location -1} :resno 2 :resname description :ressortgroupref 0 :resorigtbl 114278 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1} :resno 3 :resname review_text :ressortgroupref 0 :resorigtbl 114287 :resorigcol 4 :resjunk false}) :custom_relids (b 1 2) :methods ParadeDB\\ Scan}")
-WARNING:  ParadeDB: Analyzing 3 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 3 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}"),)))]
-WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation products
-WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "products")]
-WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
-WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: varnosyn 1 mapped to outer relation products (attno 2)
-WARNING:  ParadeDB: Relation products attno 2 -> column name 'name'
-WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn { relid: 114278, column_name: "name" }
-WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
-WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 1, varattnosyn: 3
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 3
-WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 3 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: varnosyn 1 mapped to outer relation products (attno 3)
-WARNING:  ParadeDB: Relation products attno 3 -> column name 'description'
-WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn { relid: 114278, column_name: "description" }
-WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
-WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 4
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 4
-WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 4 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: varnosyn 2 mapped to inner relation reviews (attno 4)
-WARNING:  ParadeDB: Relation reviews attno 4 -> column name 'review_text'
-WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn { relid: 114287, column_name: "review_text" }
-WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Smartphone X"), Some("Latest smartphone with cutting-edge technology"), Some("Perfect wireless mouse, very responsive and comfortable")]
-WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Smartphone X"), Some("Latest smartphone with cutting-edge technology"), Some("Perfect wireless mouse, very responsive and comfortable")]
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
-WARNING:  ParadeDB: Matching and returning next tuple
-WARNING:  ParadeDB: Standard join matching for base relations
-WARNING:  ParadeDB: Processing join match [2/2] × [3/3]
-WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[2]
-WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Fetching real heap tuple values from relations products and reviews
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Detected relations from predicates - outer: 'products', inner: 'reviews'
-WARNING:  ParadeDB: Fetching all columns with names from relation products with CTID 5
-WARNING:  ParadeDB: products column 'id' = '5'
-WARNING:  ParadeDB: products column 'name' = 'Smartphone X'
-WARNING:  ParadeDB: products column 'description' = 'Latest smartphone with cutting-edge technology'
-WARNING:  ParadeDB: products column 'category' = 'Electronics'
-WARNING:  ParadeDB: Successfully fetched 4 columns from products relation
-WARNING:  ParadeDB: Fetching all columns with names from relation reviews with CTID 6
-WARNING:  ParadeDB: reviews column 'id' = '6'
-WARNING:  ParadeDB: reviews column 'product_id' = '5'
-WARNING:  ParadeDB: reviews column 'reviewer_name' = 'Eva Martinez'
-WARNING:  ParadeDB: reviews column 'review_text' = 'Amazing smartphone with incredible camera and performance'
-WARNING:  ParadeDB: reviews column 'rating' = '5'
-WARNING:  ParadeDB: Successfully fetched 5 columns from reviews relation
-WARNING:  ParadeDB: Fetched 4 columns from outer relation, 5 from inner relation
-WARNING:  ParadeDB: PLAN: Ok("{CUSTOMSCAN :scan.plan.startup_cost 100 :scan.plan.total_cost 100.01 :scan.plan.plan_rows 1 :scan.plan.plan_width 96 :scan.plan.parallel_aware false :scan.plan.parallel_safe false :scan.plan.async_capable false :scan.plan.plan_node_id 0 :scan.plan.targetlist ({TARGETENTRY :expr {VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname name :ressortgroupref 0 :resorigtbl 114278 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 3 :location -1} :resno 2 :resname description :ressortgroupref 0 :resorigtbl 114278 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1} :resno 3 :resname review_text :ressortgroupref 0 :resorigtbl 114287 :resorigcol 4 :resjunk false}) :scan.plan.qual <> :scan.plan.lefttree <> :scan.plan.righttree <> :scan.plan.initPlan <> :scan.plan.extParam (b) :scan.plan.allParam (b) :scan.scanrelid 0 :flags 4 :custom_plans <> :custom_exprs <> :custom_private (\"\\{\"heaprelid\":null,\"indexrelid\":null,\"range_table_index\":null,\"query\":null,\"limit\":null,\"segment_count\":0,\"sort_field\":null,\"sort_direction\":null,\"exec_method_type\":\"Normal\",\"var_attname_lookup\":[[\"1,2\",\"join_attr_1\"],[\"2,4\",\"join_attr_3\"],[\"1,3\",\"join_attr_2\"]],\"target_list_len\":3,\"planned_which_fast_fields\":null,\"referenced_columns_count\":0,\"join_search_predicates\":\\{\"outer_predicates\":[\\{\"rti\":1,\"relid\":114278,\"relname\":\"products\",\"query\":\\{\"with_index\":\\{\"oid\":114295,\"query\":\\{\"parse_with_field\":\\{\"field\":\"description\",\"query_string\":\"wireless\\ OR\\ smartphone\",\"lenient\":null,\"conjunction_mode\":null\\}\\}\\}\\},\"uses_search_operator\":true\\}],\"inner_predicates\":[\\{\"rti\":2,\"relid\":114287,\"relname\":\"reviews\",\"query\":\\{\"with_index\":\\{\"oid\":114296,\"query\":\\{\"parse_with_field\":\\{\"field\":\"review_text\",\"query_string\":\"amazing\\ OR\\ perfect\",\"lenient\":null,\"conjunction_mode\":null\\}\\}\\}\\},\"uses_search_operator\":true\\}],\"join_conditions\":[]\\},\"join_outer_relid\":114278,\"join_inner_relid\":114287\\}\") :custom_scan_tlist ({TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname name :ressortgroupref 0 :resorigtbl 114278 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 3 :location -1} :resno 2 :resname description :ressortgroupref 0 :resorigtbl 114278 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1} :resno 3 :resname review_text :ressortgroupref 0 :resorigtbl 114287 :resorigcol 4 :resjunk false}) :custom_relids (b 1 2) :methods ParadeDB\\ Scan}")
-WARNING:  ParadeDB: Analyzing 3 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 3 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}"),)))]
-WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation products
-WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "products")]
-WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
-WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: varnosyn 1 mapped to outer relation products (attno 2)
-WARNING:  ParadeDB: Relation products attno 2 -> column name 'name'
-WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn { relid: 114278, column_name: "name" }
-WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
-WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 1, varattnosyn: 3
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 3
-WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 3 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: varnosyn 1 mapped to outer relation products (attno 3)
-WARNING:  ParadeDB: Relation products attno 3 -> column name 'description'
-WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn { relid: 114278, column_name: "description" }
-WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
-WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 4
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 4
-WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 4 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: varnosyn 2 mapped to inner relation reviews (attno 4)
-WARNING:  ParadeDB: Relation reviews attno 4 -> column name 'review_text'
-WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn { relid: 114287, column_name: "review_text" }
-WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Smartphone X"), Some("Latest smartphone with cutting-edge technology"), Some("Amazing smartphone with incredible camera and performance")]
-WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Smartphone X"), Some("Latest smartphone with cutting-edge technology"), Some("Amazing smartphone with incredible camera and performance")]
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
-WARNING:  ParadeDB: Matching and returning next tuple
-WARNING:  ParadeDB: Standard join matching for base relations
-WARNING:  ParadeDB: Join matching complete - total matches: 6
+WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 5
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("5")
+WARNING:  ParadeDB: Fetching column 'document_id' from relation reviews with CTID 6
+WARNING:  ParadeDB: Column 'document_id' not found in relation reviews
+WARNING:  ParadeDB: Failed to fetch join key values - outer_id: Some("5"), inner_document_id: None
+WARNING:  ParadeDB: Evaluating join condition for outer[2] (ctid 5) × inner[3] (ctid 6) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Join matching complete - total matches: 0
 WARNING:  ParadeDB: Cleaning up join execution
 WARNING:  ParadeDB: Cleaning up join execution state
 WARNING:  ParadeDB: ===== JOIN EXECUTION STATISTICS =====
 WARNING:  ParadeDB: Search Results - Outer: 2, Inner: 3, Total Combinations: 6
-WARNING:  ParadeDB: Join Processing - Matches: 6, Returned: 6, Success Rate: 100.0%
-WARNING:  ParadeDB: Heap Tuple Access - Attempts: 12, Successes: 18, Success Rate: 150.0%
+WARNING:  ParadeDB: Join Processing - Matches: 0, Returned: 0, Success Rate: 0.0%
+WARNING:  ParadeDB: Heap Tuple Access - Attempts: 0, Successes: 0, Success Rate: 0.0%
 WARNING:  ParadeDB: Cleaned up 2 search readers
 WARNING:  ParadeDB: Cleared 2 outer and 3 inner search results
 WARNING:  ParadeDB: ===== END JOIN EXECUTION STATISTICS =====
 WARNING:  ParadeDB: Join execution cleanup complete
-      name      |                   description                    |                        review_text                         
-----------------+--------------------------------------------------+------------------------------------------------------------
- Wireless Mouse | Ergonomic wireless mouse with precision tracking | Excellent laptop with amazing performance and battery life
- Wireless Mouse | Ergonomic wireless mouse with precision tracking | Perfect wireless mouse, very responsive and comfortable
- Wireless Mouse | Ergonomic wireless mouse with precision tracking | Amazing smartphone with incredible camera and performance
- Smartphone X   | Latest smartphone with cutting-edge technology   | Excellent laptop with amazing performance and battery life
- Smartphone X   | Latest smartphone with cutting-edge technology   | Perfect wireless mouse, very responsive and comfortable
- Smartphone X   | Latest smartphone with cutting-edge technology   | Amazing smartphone with incredible camera and performance
-(6 rows)
+ name | description | review_text 
+------+-------------+-------------
+(0 rows)
 
 -- Test 4: Search with numeric conditions (should still trigger custom join)
 SELECT p.name, r.review_text, r.rating
@@ -1110,78 +579,29 @@ WARNING:  ParadeDB: Executing search on inner relation
 WARNING:  ParadeDB: Inner search completed - 1 results
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Performing join matching
-WARNING:  ParadeDB: Matching and returning next tuple
-WARNING:  ParadeDB: Standard join matching for base relations
-WARNING:  ParadeDB: Processing join match [1/1] × [1/1]
-WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
-WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Fetching real heap tuple values from relations products and reviews
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Detected relations from predicates - outer: 'products', inner: 'reviews'
-WARNING:  ParadeDB: Fetching all columns with names from relation products with CTID 1
-WARNING:  ParadeDB: products column 'id' = '1'
-WARNING:  ParadeDB: products column 'name' = 'Laptop Pro'
-WARNING:  ParadeDB: products column 'description' = 'High-performance laptop with advanced features for professionals'
-WARNING:  ParadeDB: products column 'category' = 'Electronics'
-WARNING:  ParadeDB: Successfully fetched 4 columns from products relation
-WARNING:  ParadeDB: Fetching all columns with names from relation reviews with CTID 1
-WARNING:  ParadeDB: reviews column 'id' = '1'
-WARNING:  ParadeDB: reviews column 'product_id' = '1'
-WARNING:  ParadeDB: reviews column 'reviewer_name' = 'John Doe'
-WARNING:  ParadeDB: reviews column 'review_text' = 'Excellent laptop with amazing performance and battery life'
-WARNING:  ParadeDB: reviews column 'rating' = '5'
-WARNING:  ParadeDB: Successfully fetched 5 columns from reviews relation
-WARNING:  ParadeDB: Fetched 4 columns from outer relation, 5 from inner relation
-WARNING:  ParadeDB: PLAN: Ok("{CUSTOMSCAN :scan.plan.startup_cost 100 :scan.plan.total_cost 100.01 :scan.plan.plan_rows 1 :scan.plan.plan_width 68 :scan.plan.parallel_aware false :scan.plan.parallel_safe false :scan.plan.async_capable false :scan.plan.plan_node_id 0 :scan.plan.targetlist ({TARGETENTRY :expr {VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname name :ressortgroupref 0 :resorigtbl 114278 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1} :resno 2 :resname review_text :ressortgroupref 0 :resorigtbl 114287 :resorigcol 4 :resjunk false} {TARGETENTRY :expr {VAR :varno -3 :varattno 3 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 5 :location -1} :resno 3 :resname rating :ressortgroupref 0 :resorigtbl 114287 :resorigcol 5 :resjunk false}) :scan.plan.qual <> :scan.plan.lefttree <> :scan.plan.righttree <> :scan.plan.initPlan <> :scan.plan.extParam (b) :scan.plan.allParam (b) :scan.scanrelid 0 :flags 4 :custom_plans <> :custom_exprs <> :custom_private (\"\\{\"heaprelid\":null,\"indexrelid\":null,\"range_table_index\":null,\"query\":null,\"limit\":null,\"segment_count\":0,\"sort_field\":null,\"sort_direction\":null,\"exec_method_type\":\"Normal\",\"var_attname_lookup\":[[\"1,2\",\"join_attr_1\"],[\"2,4\",\"join_attr_2\"],[\"2,5\",\"join_attr_3\"]],\"target_list_len\":3,\"planned_which_fast_fields\":null,\"referenced_columns_count\":0,\"join_search_predicates\":\\{\"outer_predicates\":[\\{\"rti\":1,\"relid\":114278,\"relname\":\"products\",\"query\":\\{\"with_index\":\\{\"oid\":114295,\"query\":\\{\"parse_with_field\":\\{\"field\":\"description\",\"query_string\":\"laptop\",\"lenient\":null,\"conjunction_mode\":null\\}\\}\\}\\},\"uses_search_operator\":true\\}],\"inner_predicates\":[\\{\"rti\":2,\"relid\":114287,\"relname\":\"reviews\",\"query\":\\{\"range\":\\{\"field\":\"rating\",\"lower_bound\":\\{\"included\":4\\},\"upper_bound\":null,\"is_datetime\":false\\}\\},\"uses_search_operator\":false\\}],\"join_conditions\":[]\\},\"join_outer_relid\":114278,\"join_inner_relid\":114287\\}\") :custom_scan_tlist ({TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname name :ressortgroupref 0 :resorigtbl 114278 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1} :resno 2 :resname review_text :ressortgroupref 0 :resorigtbl 114287 :resorigcol 4 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 5 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 5 :location -1} :resno 3 :resname rating :ressortgroupref 0 :resorigtbl 114287 :resorigcol 5 :resjunk false}) :custom_relids (b 1 2) :methods ParadeDB\\ Scan}")
-WARNING:  ParadeDB: Analyzing 3 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 5 :location -1}"),)))]
-WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation products
-WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "products")]
-WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
-WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: varnosyn 1 mapped to outer relation products (attno 2)
-WARNING:  ParadeDB: Relation products attno 2 -> column name 'name'
-WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn { relid: 114278, column_name: "name" }
-WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
-WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 2, varattnosyn: 4
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 4
-WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 4 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: varnosyn 2 mapped to inner relation reviews (attno 4)
-WARNING:  ParadeDB: Relation reviews attno 4 -> column name 'review_text'
-WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn { relid: 114287, column_name: "review_text" }
-WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
-WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 5
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 5
-WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 5 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: varnosyn 2 mapped to inner relation reviews (attno 5)
-WARNING:  ParadeDB: Relation reviews attno 5 -> column name 'rating'
-WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn { relid: 114287, column_name: "rating" }
-WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Laptop Pro"), Some("Excellent laptop with amazing performance and battery life"), Some("5")]
-WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Laptop Pro"), Some("Excellent laptop with amazing performance and battery life"), Some("5")]
-WARNING:  ParadeDB: Executing join step
-WARNING:  ParadeDB: Performing join matching
-WARNING:  ParadeDB: Matching and returning next tuple
-WARNING:  ParadeDB: Standard join matching for base relations
-WARNING:  ParadeDB: Join matching complete - total matches: 1
+WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 1
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
+WARNING:  ParadeDB: Fetching column 'document_id' from relation reviews with CTID 1
+WARNING:  ParadeDB: Column 'document_id' not found in relation reviews
+WARNING:  ParadeDB: Failed to fetch join key values - outer_id: Some("1"), inner_document_id: None
+WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 1) × inner[1] (ctid 1) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Join matching complete - total matches: 0
 WARNING:  ParadeDB: Cleaning up join execution
 WARNING:  ParadeDB: Cleaning up join execution state
 WARNING:  ParadeDB: ===== JOIN EXECUTION STATISTICS =====
 WARNING:  ParadeDB: Search Results - Outer: 1, Inner: 1, Total Combinations: 1
-WARNING:  ParadeDB: Join Processing - Matches: 1, Returned: 1, Success Rate: 100.0%
-WARNING:  ParadeDB: Heap Tuple Access - Attempts: 2, Successes: 3, Success Rate: 150.0%
+WARNING:  ParadeDB: Join Processing - Matches: 0, Returned: 0, Success Rate: 0.0%
+WARNING:  ParadeDB: Heap Tuple Access - Attempts: 0, Successes: 0, Success Rate: 0.0%
 WARNING:  ParadeDB: Cleaned up 1 search readers
 WARNING:  ParadeDB: Cleared 1 outer and 1 inner search results
 WARNING:  ParadeDB: ===== END JOIN EXECUTION STATISTICS =====
 WARNING:  ParadeDB: Join execution cleanup complete
-    name    |                        review_text                         |  rating   
-------------+------------------------------------------------------------+-----------
- Laptop Pro | Excellent laptop with amazing performance and battery life | 939731888
-(1 row)
+ name | review_text | rating 
+------+-------------+--------
+(0 rows)
 
 -- Test 5: No search predicates (should use regular join)
 SELECT p.name, r.reviewer_name

@@ -68,7 +68,7 @@ CREATE INDEX pages_search ON pages USING bm25 (
     page_number
 ) WITH (
     key_field = 'id',
-    text_fields = '{"fileid": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
+    text_fields = '{"fileid": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}',
     numeric_fields = '{"page_number": {"fast": true}}'
 );
 psql:common/mixedff_queries_setup.sql:77: WARNING:  the `raw` tokenizer is deprecated
@@ -215,8 +215,8 @@ LIMIT 10;
                                  Table: pages
                                  Index: pages_search
                                  Exec Method: MixedFastFieldExecState
-                                 Fast Fields: fileid, page_number
-                                 String Fast Fields: fileid
+                                 Fast Fields: content, fileid, page_number
+                                 String Fast Fields: content, fileid
                                  Numeric Fast Fields: page_number
                                  Scores: false
                                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
@@ -231,148 +231,6 @@ LIMIT 10;
                         Sort Direction: asc
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Factures","lenient":null,"conjunction_mode":null}}}}
 (39 rows)
-
-DROP TABLE IF EXISTS pages CASCADE;
-CREATE TABLE pages (
-    id TEXT NOT NULL UNIQUE,
-    fileId TEXT NOT NULL,
-    page_number INTEGER NOT NULL,
-    content TEXT NOT NULL,
-    metadata JSONB,
-    created_at TIMESTAMP DEFAULT NOW(),
-    PRIMARY KEY (id, fileId),
-    FOREIGN KEY (fileId) REFERENCES files(id)
-);
-DROP INDEX IF EXISTS documents_search CASCADE;
-DROP INDEX IF EXISTS files_search CASCADE;
-DROP INDEX IF EXISTS pages_search CASCADE;
-INSERT INTO documents (id, title, content, parents)
-SELECT
-  md5(i::text || 'documents')::uuid::text,
-  'Invoice 2023',
-  'This is an invoice for services rendered in 2023',
-  'Factures'
-FROM generate_series(1,15000) AS s(i);
-INSERT INTO files (id, documentId, title, file_path, file_size)
-SELECT
-  md5(i::text || 'files')::uuid::text,
-  (
-    SELECT id
-    FROM   documents
-    WHERE  id = md5((i % 15000 + 1)::text || 'documents')::uuid::text
-  ),
-  'Receipt',
-  '/files/path',
-  15000
-FROM generate_series(1,15000) AS s(i);
-INSERT INTO pages (id, fileId, page_number, content, metadata)
-SELECT
-  md5(i::text || 'pages')::uuid::text,
-  (
-    SELECT id
-    FROM   files
-    WHERE  id = md5((i % 15000 + 1)::text || 'files')::uuid::text
-  ),
-  (i % 100 + 1)::int,
-  'Socienty',
-  '{"color":"red"}'::json
-FROM generate_series(1,15000) AS s(i);
--- Create BM25 indexes with fast fields using inline field options
-CREATE INDEX documents_search ON documents USING bm25 (
-    id,
-    title,
-    parents,
-    content
-) WITH (
-    key_field = 'id',
-    text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "parents": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}'
-);
-WARNING:  the `raw` tokenizer is deprecated
-CREATE INDEX files_search ON files USING bm25 (
-    id,
-    documentId,
-    title,
-    file_path
-) WITH (
-    key_field = 'id',
-    text_fields = '{"documentid": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "file_path": {"tokenizer": {"type": "default"}, "fast": true}}'
-);
-WARNING:  the `raw` tokenizer is deprecated
-CREATE INDEX pages_search ON pages USING bm25 (
-    id,
-    fileId,
-    content,
-    page_number
-) WITH (
-    key_field = 'id',
-    text_fields = '{"fileid": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}',
-    numeric_fields = '{"page_number": {"fast": true}}'
-);
-WARNING:  the `raw` tokenizer is deprecated
--- Test complex join with mixed fields
-SELECT pages.fileId, pages.page_number, pages.content
-FROM documents 
-JOIN files ON documents.id = files.documentId
-JOIN pages ON pages.fileId = files.id
-WHERE documents.parents @@@ 'Factures' AND files.title @@@ 'Receipt' AND pages.content @@@ 'Socienty'
-ORDER BY pages.fileId, pages.page_number
-LIMIT 10;
-                fileid                | page_number | content  
---------------------------------------+-------------+----------
- 00013e85-a019-3497-52d2-88612aee8785 |          26 | Socienty
- 0001a8fb-7db8-c730-e9ca-dcb343444f85 |          27 | Socienty
- 0003b564-3a04-4b80-f553-7f14a280b586 |          56 | Socienty
- 0005764e-3e0d-bbf7-6c5f-62c1f834bdaf |          45 | Socienty
- 000667aa-d327-bb8d-0b22-fc2ea2e05269 |          89 | Socienty
- 000a8eb8-cb5a-38b3-ae3f-c032729b09e8 |          90 | Socienty
- 000b9076-ec4f-80d2-97f4-db5ddeb43d3a |          15 | Socienty
- 000fcbec-71a3-8c89-a172-0610509a65d7 |          69 | Socienty
- 00109ad0-e8c7-8790-c3f4-6b177f5aca3f |          73 | Socienty
- 0013e169-39dc-6f5c-c28b-07ea8eee3f2f |          19 | Socienty
-(10 rows)
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT pages.fileId, pages.page_number, pages.content
-FROM documents 
-JOIN files ON documents.id = files.documentId
-JOIN pages ON pages.fileId = files.id
-WHERE documents.parents @@@ 'Factures' AND files.title @@@ 'Receipt' AND pages.content @@@ 'Socienty'
-LIMIT 10;
-                                                                                QUERY PLAN                                                                                
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Hash Join
-         Hash Cond: (files.documentid = documents.id)
-         ->  Hash Join
-               Hash Cond: (pages.fileid = files.id)
-               ->  Custom Scan (ParadeDB Scan) on pages
-                     Table: pages
-                     Index: pages_search
-                     Exec Method: MixedFastFieldExecState
-                     Fast Fields: content, fileid, page_number
-                     String Fast Fields: content, fileid
-                     Numeric Fast Fields: page_number
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
-               ->  Hash
-                     ->  Custom Scan (ParadeDB Scan) on files
-                           Table: files
-                           Index: files_search
-                           Exec Method: MixedFastFieldExecState
-                           Fast Fields: documentid, id
-                           String Fast Fields: documentid, id
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Receipt","lenient":null,"conjunction_mode":null}}}}
-         ->  Hash
-               ->  Custom Scan (ParadeDB Scan) on documents
-                     Table: documents
-                     Index: documents_search
-                     Exec Method: StringFastFieldExecState
-                     Fast Fields: id
-                     String Agg Field: id
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Factures","lenient":null,"conjunction_mode":null}}}}
-(32 rows)
 
 \i common/mixedff_queries_cleanup.sql
 -- Cleanup for relational query tests (07-10)

@@ -72,7 +72,7 @@ CREATE INDEX pages_search ON pages USING bm25 (
     page_number
 ) WITH (
     key_field = 'id',
-    text_fields = '{"fileid": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
+    text_fields = '{"fileid": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}',
     numeric_fields = '{"page_number": {"fast": true}}'
 );
 

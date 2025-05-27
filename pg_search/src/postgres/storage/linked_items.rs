@@ -273,8 +273,8 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         let mut buffer = if let Some(buffer) = buffer {
             buffer
         } else {
-            let (start_blockno, buffer) = self.get_start_blockno_mut();
-            self.bman.get_buffer_exchange_mut(start_blockno, buffer)
+            let (start_blockno, _) = self.get_start_blockno();
+            self.bman.get_buffer_mut(start_blockno)
         };
 
         for item in items {
@@ -292,7 +292,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
                     buffer = self.bman.get_buffer_mut(next_blockno);
                 } else {
                     // need to create new block and link it to this one
-                    let mut new_page = self.bman.new_buffer();
+                    let mut new_page = self.bman.extend_relation();
                     let new_blockno = new_page.number();
                     new_page.init_page();
 
@@ -353,22 +353,18 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
 
     pub unsafe fn pop(&mut self) -> Option<(T, pg_sys::Size)> {
         let (blockno, _) = self.get_start_blockno();
-        if let Some(mut buffer) = self.bman.get_buffer_conditional(blockno) {
-            let mut page = buffer.page_mut();
-            let max_offset = page.max_offset_number();
+        let mut buffer = self.bman.get_buffer_mut(blockno);
+        let mut page = buffer.page_mut();
+        let max_offset = page.max_offset_number();
 
-            if max_offset == pg_sys::InvalidOffsetNumber {
-                return None;
-            }
-
-
-            let item = page.deserialize_item::<T>(max_offset);
-            page.mark_item_dead(max_offset);
-            page.delete_item(max_offset);
-            return item;
+        if max_offset == pg_sys::InvalidOffsetNumber {
+            return None;
         }
 
-        None
+
+        let item = page.deserialize_item::<T>(max_offset);
+        page.delete_item(max_offset);
+        item
     }
 
     ///

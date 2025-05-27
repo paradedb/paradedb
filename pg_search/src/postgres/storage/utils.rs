@@ -121,7 +121,7 @@ impl BM25BufferCache {
         if let Some(mut fsm) = metadata.fsm_opt() {
             if let Some((blockno, _)) = fsm.pop() {
                 // Try to reuse a recyclable page
-                // return self.get_buffer(blockno.into(), Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+                return self.get_buffer(blockno.into(), Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
             }
         }
 

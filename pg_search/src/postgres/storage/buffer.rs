@@ -112,7 +112,7 @@ impl BufferMut {
             let metadata = MetaPage::open_or_init(bman.relation_oid());
             let mut fsm = metadata.fsm();
             let blockno = self.inner.number();
-            fsm.add_items(&[FreeBlockNumber::from(blockno)], None);
+            fsm.append_list(&[FreeBlockNumber::from(blockno)]);
         }
     }
 }

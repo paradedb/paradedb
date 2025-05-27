@@ -19,7 +19,7 @@ use crate::postgres::storage::block::{
     block_number_is_valid, BM25PageSpecialData, LinkedList, SegmentMetaEntry, METADATA,
 };
 use crate::postgres::storage::buffer::BufferManager;
-use crate::postgres::storage::fsm::FreeBlockNumber;
+use crate::postgres::storage::fsm::FreeBlockList;
 use crate::postgres::storage::merge::{MergeLock, SegmentIdBytes, VacuumList, VacuumSentinel};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use pgrx::pg_sys;
@@ -105,8 +105,11 @@ impl MetaPage {
             let segment_meta_garbage = needs_segment_meta_garbage
                 .then(|| LinkedItemList::<SegmentMetaEntry>::create(relation_oid));
             let merge_lock = needs_merge_lock.then(|| new_buffer_and_init_page(relation_oid));
-            let fsm = needs_fsm.then(|| LinkedItemList::<FreeBlockNumber>::create(relation_oid));
+            let fsm = needs_fsm.then(|| new_buffer_and_init_page(relation_oid));
 
+            // It's important to acquire the exclusive lock after the above structures have been created,
+            // because those structures call new_buffer(), which opens the MetaPage to read the FSM,
+            // which causes a circular dependency.
             let mut buffer = bman.get_buffer_mut(METADATA);
             let mut page = buffer.page_mut();
             let metadata = page.contents_mut::<MetaPageData>();
@@ -124,9 +127,9 @@ impl MetaPage {
             }
 
             if !block_number_is_valid(metadata.fsm) {
-                metadata.fsm = fsm.unwrap().get_header_blockno();
+                metadata.fsm = fsm.unwrap();
             } else {
-                fsm.map(|mut list| list.garbage_collect());
+                // TODO: GC the FSM list
             }
 
             if !block_number_is_valid(metadata.segment_meta_garbage) {
@@ -198,17 +201,17 @@ impl MetaPage {
             .collect()
     }
 
-    pub fn fsm(&self) -> LinkedItemList<FreeBlockNumber> {
+    pub fn fsm(&self) -> FreeBlockList {
         assert!(block_number_is_valid(self.data.fsm));
-        LinkedItemList::<FreeBlockNumber>::open(self.bman.relation_oid(), self.data.fsm)
+        FreeBlockList::open(self.bman.relation_oid(), self.data.fsm)
     }
 
-    pub fn fsm_opt(&self) -> Option<LinkedItemList<FreeBlockNumber>> {
+    pub fn fsm_opt(&self) -> Option<FreeBlockList> {
         if !block_number_is_valid(self.data.fsm) {
             return None;
         }
 
-        Some(LinkedItemList::<FreeBlockNumber>::open(
+        Some(FreeBlockList::open(
             self.bman.relation_oid(),
             self.data.fsm,
         ))

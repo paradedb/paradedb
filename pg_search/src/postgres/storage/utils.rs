@@ -98,7 +98,7 @@ impl BM25BufferCache {
 
         let metadata = MetaPage::open((*self.indexrel).rd_id);
         if let Some(mut fsm) = metadata.fsm_opt() {
-            if let Some((blockno, _)) = fsm.pop() {
+            if let Some(blockno) = fsm.pop() {
                 // Try to reuse a recyclable page
                 return self.get_buffer(blockno.into(), Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
             }

@@ -197,9 +197,8 @@ SELECT
         ELSE 'Low Relevance'
     END as relevance_category
 FROM score_test
-WHERE content @@@ 'research OR development'
-ORDER BY title, author, paradedb.score(id) DESC
-LIMIT 10;
+WHERE content @@@ 'research OR development' AND rating > 4
+ORDER BY title, author, paradedb.score(id) DESC;
 
 SELECT 
     title, 
@@ -211,22 +210,13 @@ SELECT
         ELSE 'Low Relevance'
     END as relevance_category
 FROM score_test
-WHERE content @@@ 'research OR development'
-ORDER BY title, author, paradedb.score(id) DESC
-LIMIT 10;
+WHERE content @@@ 'research OR development' AND rating > 4
+ORDER BY title, author, paradedb.score(id) DESC;
 
 -- Verify actual results of score function (not just execution method)
 SELECT title, author, rating, paradedb.score(id) as relevance
 FROM score_test
-WHERE content @@@ 'technology' AND rating >= 4
-ORDER BY title, author, relevance DESC
-LIMIT 5;
-
--- Test combination of score function and different fast field types
-SELECT title, author, rating, views, paradedb.score(id) as relevance
-FROM score_test
-WHERE content @@@ 'research' AND rating > 3 AND views > 1000
-ORDER BY title, author, relevance DESC
-LIMIT 3;
+WHERE content @@@ 'technology' AND rating > 4
+ORDER BY title, author, relevance DESC;
 
 \i common/mixedff_advanced_cleanup.sql

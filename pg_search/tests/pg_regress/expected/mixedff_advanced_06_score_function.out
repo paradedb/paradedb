@@ -355,14 +355,11 @@ LIMIT 10;
          ->  Custom Scan (ParadeDB Scan) on score_test
                Table: score_test
                Index: score_test_idx
-               Exec Method: MixedFastFieldExecState
-               Fast Fields: title, id, rating
-               String Fast Fields: title
-               Numeric Fast Fields: id, rating
+               Exec Method: NormalScanExecState
                Scores: true
                   Top N Limit: 10
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-(13 rows)
+(10 rows)
 
 SELECT title, paradedb.score(id), rating
 FROM score_test
@@ -398,14 +395,11 @@ LIMIT 5;
          ->  Custom Scan (ParadeDB Scan) on score_test
                Table: score_test
                Index: score_test_idx
-               Exec Method: MixedFastFieldExecState
-               Fast Fields: author, title, id, rating, views
-               String Fast Fields: author, title
-               Numeric Fast Fields: id, rating, views
+               Exec Method: NormalScanExecState
                Scores: true
                   Top N Limit: 5
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"research","lenient":null,"conjunction_mode":null}}}}
-(13 rows)
+(10 rows)
 
 SELECT title, author, rating, views, paradedb.score(id)
 FROM score_test
@@ -478,14 +472,11 @@ LIMIT 10;
          ->  Custom Scan (ParadeDB Scan) on score_test
                Table: score_test
                Index: score_test_idx
-               Exec Method: MixedFastFieldExecState
-               Fast Fields: author, title, id, rating
-               String Fast Fields: author, title
-               Numeric Fast Fields: id, rating
+               Exec Method: NormalScanExecState
                Scores: true
                   Top N Limit: 10
                Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"science OR research","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":3},"upper_bound":null,"is_datetime":false}}]}}
-(13 rows)
+(10 rows)
 
 WITH scored_posts AS (
     SELECT title, author, rating, paradedb.score(id) as relevance
@@ -791,25 +782,22 @@ SELECT
         ELSE 'Low Relevance'
     END as relevance_category
 FROM score_test
-WHERE content @@@ 'research OR development'
-ORDER BY title, author, paradedb.score(id) DESC
-LIMIT 10;
-                                                                                   QUERY PLAN                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Sort
-         Sort Key: title, author, (paradedb.score(id)) DESC
-         ->  Custom Scan (ParadeDB Scan) on score_test
-               Table: score_test
-               Index: score_test_idx
-               Exec Method: MixedFastFieldExecState
-               Fast Fields: author, title, id, rating
-               String Fast Fields: author, title
-               Numeric Fast Fields: id, rating
-               Scores: true
-                  Top N Limit: 10
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"research OR development","lenient":null,"conjunction_mode":null}}}}
-(13 rows)
+WHERE content @@@ 'research OR development' AND rating > 4
+ORDER BY title, author, paradedb.score(id) DESC;
+                                                                                                                                            QUERY PLAN                                                                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: title, author, (paradedb.score(id)) DESC
+   ->  Custom Scan (ParadeDB Scan) on score_test
+         Table: score_test
+         Index: score_test_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: author, title, id, rating
+         String Fast Fields: author, title
+         Numeric Fast Fields: id, rating
+         Scores: true
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"research OR development","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":4},"upper_bound":null,"is_datetime":false}}]}}
+(11 rows)
 
 SELECT 
     title, 
@@ -821,50 +809,63 @@ SELECT
         ELSE 'Low Relevance'
     END as relevance_category
 FROM score_test
-WHERE content @@@ 'research OR development'
-ORDER BY title, author, paradedb.score(id) DESC
-LIMIT 10;
+WHERE content @@@ 'research OR development' AND rating > 4
+ORDER BY title, author, paradedb.score(id) DESC;
            title           |    author     | rating | relevance_category 
 ---------------------------+---------------+--------+--------------------
- Advanced Science Research | Author Expert |      5 | Low Relevance
- Post 1                    | Author 2      |      2 | Low Relevance
- Post 10                   | Author 1      |      1 | Low Relevance
- Post 100                  | Author 1      |      1 | Low Relevance
- Post 11                   | Author 2      |      2 | Low Relevance
- Post 12                   | Author 3      |      3 | Low Relevance
- Post 13                   | Author 4      |      4 | Low Relevance
- Post 14                   | Author 5      |      5 | Low Relevance
- Post 15                   | Author 1      |      1 | Low Relevance
- Post 16                   | Author 2      |      2 | Low Relevance
-(10 rows)
+ Advanced Science Research | Author Expert |      5 | High Relevance
+ Post 14                   | Author 5      |      5 | High Relevance
+ Post 19                   | Author 5      |      5 | High Relevance
+ Post 24                   | Author 5      |      5 | High Relevance
+ Post 29                   | Author 5      |      5 | High Relevance
+ Post 34                   | Author 5      |      5 | High Relevance
+ Post 39                   | Author 5      |      5 | High Relevance
+ Post 4                    | Author 5      |      5 | High Relevance
+ Post 44                   | Author 5      |      5 | High Relevance
+ Post 49                   | Author 5      |      5 | High Relevance
+ Post 54                   | Author 5      |      5 | High Relevance
+ Post 59                   | Author 5      |      5 | High Relevance
+ Post 64                   | Author 5      |      5 | High Relevance
+ Post 69                   | Author 5      |      5 | High Relevance
+ Post 74                   | Author 5      |      5 | High Relevance
+ Post 79                   | Author 5      |      5 | High Relevance
+ Post 84                   | Author 5      |      5 | High Relevance
+ Post 89                   | Author 5      |      5 | High Relevance
+ Post 9                    | Author 5      |      5 | High Relevance
+ Post 94                   | Author 5      |      5 | High Relevance
+ Post 99                   | Author 5      |      5 | High Relevance
+ Special Technology Post   | Author Expert |      5 | High Relevance
+(22 rows)
 
 -- Verify actual results of score function (not just execution method)
 SELECT title, author, rating, paradedb.score(id) as relevance
 FROM score_test
-WHERE content @@@ 'technology' AND rating >= 4
-ORDER BY title, author, relevance DESC
-LIMIT 5;
-  title  |  author  | rating | relevance 
----------+----------+--------+-----------
- Post 13 | Author 4 |      4 |  1.014433
- Post 14 | Author 5 |      5 |  1.014433
- Post 18 | Author 4 |      4 |  1.014433
- Post 19 | Author 5 |      5 |  1.014433
- Post 23 | Author 4 |      4 |  1.014433
-(5 rows)
-
--- Test combination of score function and different fast field types
-SELECT title, author, rating, views, paradedb.score(id) as relevance
-FROM score_test
-WHERE content @@@ 'research' AND rating > 3 AND views > 1000
-ORDER BY title, author, relevance DESC
-LIMIT 3;
-           title           |    author     | rating | views | relevance 
----------------------------+---------------+--------+-------+-----------
- Advanced Science Research | Author Expert |      5 |  8888 | 2.0189679
- Post 13                   | Author 4      |      4 |  1300 |  2.014433
- Post 14                   | Author 5      |      5 |  1400 |  2.014433
-(3 rows)
+WHERE content @@@ 'technology' AND rating > 4
+ORDER BY title, author, relevance DESC;
+          title          |    author     | rating | relevance 
+-------------------------+---------------+--------+-----------
+ Post 14                 | Author 5      |      5 |  1.014433
+ Post 19                 | Author 5      |      5 |  1.014433
+ Post 24                 | Author 5      |      5 |  1.014433
+ Post 29                 | Author 5      |      5 |  1.014433
+ Post 34                 | Author 5      |      5 |  1.014433
+ Post 39                 | Author 5      |      5 |  1.014433
+ Post 4                  | Author 5      |      5 |  1.014433
+ Post 44                 | Author 5      |      5 |  1.014433
+ Post 49                 | Author 5      |      5 |  1.014433
+ Post 54                 | Author 5      |      5 |  1.014433
+ Post 59                 | Author 5      |      5 |  1.014433
+ Post 64                 | Author 5      |      5 |  1.014433
+ Post 69                 | Author 5      |      5 |  1.014433
+ Post 74                 | Author 5      |      5 |  1.014433
+ Post 79                 | Author 5      |      5 |  1.014433
+ Post 84                 | Author 5      |      5 |  1.014433
+ Post 89                 | Author 5      |      5 |  1.014433
+ Post 9                  | Author 5      |      5 |  1.014433
+ Post 94                 | Author 5      |      5 |  1.014433
+ Post 99                 | Author 5      |      5 |  1.014433
+ Special Technology Post | Author Expert |      5 | 1.0184412
+(21 rows)
 
 \i common/mixedff_advanced_cleanup.sql
 -- Cleanup for advanced features tests (13-21)

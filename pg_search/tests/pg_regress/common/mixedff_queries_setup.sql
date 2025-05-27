@@ -59,7 +59,8 @@ CREATE INDEX files_search ON files USING bm25 (
     id,
     documentId,
     title,
-    file_path
+    file_path,
+    file_size
 ) WITH (
     key_field = 'id',
     text_fields = '{"documentid": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "file_path": {"tokenizer": {"type": "default"}, "fast": true}}'

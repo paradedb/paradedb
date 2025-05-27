@@ -55,12 +55,13 @@ CREATE INDEX files_search ON files USING bm25 (
     id,
     documentId,
     title,
-    file_path
+    file_path,
+    file_size
 ) WITH (
     key_field = 'id',
     text_fields = '{"documentid": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "file_path": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
-psql:common/mixedff_queries_setup.sql:66: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_queries_setup.sql:67: WARNING:  the `raw` tokenizer is deprecated
 CREATE INDEX pages_search ON pages USING bm25 (
     id,
     fileId,
@@ -68,10 +69,10 @@ CREATE INDEX pages_search ON pages USING bm25 (
     page_number
 ) WITH (
     key_field = 'id',
-    text_fields = '{"fileid": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
+    text_fields = '{"fileid": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}',
     numeric_fields = '{"page_number": {"fast": true}}'
 );
-psql:common/mixedff_queries_setup.sql:77: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_queries_setup.sql:78: WARNING:  the `raw` tokenizer is deprecated
 -- Insert sample data for documents
 INSERT INTO documents (id, title, content, parents) VALUES
 ('doc1', 'Invoice 2023', 'This is an invoice for services rendered in 2023', 'Factures'),
@@ -154,8 +155,9 @@ ORDER BY document_title, file_title, page_number;
                  Table: files
                  Index: files_search
                  Exec Method: MixedFastFieldExecState
-                 Fast Fields: documentid, file_path, id, title
+                 Fast Fields: documentid, file_path, id, title, file_size
                  String Fast Fields: documentid, file_path, id, title
+                 Numeric Fast Fields: file_size
                  Scores: false
                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"CTE Test","lenient":null,"conjunction_mode":null}}}}
            ->  CTE Scan on searchable_docs sd_1
@@ -177,7 +179,7 @@ ORDER BY document_title, file_title, page_number;
                Numeric Fast Fields: page_number
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable OR testing","lenient":null,"conjunction_mode":null}}}}
-(41 rows)
+(42 rows)
 
 -- Test with CTE
 WITH searchable_docs AS (

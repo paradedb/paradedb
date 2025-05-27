@@ -31,7 +31,6 @@ use crate::postgres::utils::item_pointer_to_u64;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchFieldConfig;
 use crate::schema::SearchFieldName;
-use anyhow::bail;
 use anyhow::Result;
 use pgrx::prelude::*;
 use pgrx::JsonB;

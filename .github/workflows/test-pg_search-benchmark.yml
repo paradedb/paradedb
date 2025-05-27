@@ -36,7 +36,10 @@ jobs:
     strategy:
       matrix:
         pg_version: [17]
-        num_rows: [100000000]
+        num_rows: [10000000]
+        block_length: [4000]
+        block_length_triggering_compression: [2000]
+        compression_level: [1, 2, 3, 4]
 
     steps:
       - name: Checkout Git Repository
@@ -89,6 +92,9 @@ jobs:
         working-directory: pg_search/
         run: |
           cargo pgrx stop pg${{ matrix.pg_version }}
+          export TANTIVY_BLOCK_LEN="${{ matrix.block_length }}"
+          export TANTIVY_BLOCK_LEN_TRIGGERING_COMPRESSION="${{ matrix.block_length_triggering_compression }}"
+          export TANTIVY_COMPRESSION_LEVEL="${{ matrix.compression_level }}"
           cargo pgrx start pg${{ matrix.pg_version }}
 
       - name: Install pg_search
@@ -98,16 +104,15 @@ jobs:
 
       - name: Run Benchmark
         working-directory: benchmarks/
-        run: cargo run -- --url postgresql://localhost:288${{ matrix.pg_version }}/postgres --rows ${{ matrix.num_rows }} --type pg_search --output csv
-
-      - name: Upload Benchmark Results to Slack
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
-        working-directory: benchmarks/
         run: |
-          for file in results_pg_search_{test_info,index_creation,benchmark_results,postgres_settings}.csv; do
-            curl -F "file=@$file" \
-              -F "channels=${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}" \
-              -H "Authorization: Bearer ${{ secrets.SLACK_OAUTH_TOKEN }}" \
-              https://slack.com/api/files.upload
-          done
+          cargo run -- --url postgresql://localhost:288${{ matrix.pg_version }}/postgres --rows ${{ matrix.num_rows }} --type pg_search --dataset join --output csv
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: results-${{ matrix.block_length }}-${{ matrix.block_length_triggering_compression }}-${{ matrix.compression_level }}
+          path: benchmarks/results_pg_search_*.csv
+
+      - name: Print the Postgres Logs
+        if: always()
+        run: cat ~/.pgrx/${{ matrix.pg_version}}.log

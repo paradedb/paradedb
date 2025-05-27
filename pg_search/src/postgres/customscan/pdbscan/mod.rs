@@ -63,8 +63,8 @@ use crate::postgres::rel_get_bm25_index;
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
-use crate::{gucs, FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
+use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 use pgrx::pg_sys::CustomExecMethods;
 use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts, PgRelation};
 use std::ffi::CStr;
@@ -401,10 +401,12 @@ impl CustomScan for PdbScan {
                 0
             };
 
+            // TODO: Re-examine this `is_string_fast_field_capable` check after #2612 has landed,
+            // as it should likely also be checking for `is_mixed_fast_field_capable` as well, and
+            // should likely have different thresholds.
             if pathkey.is_some()
                 && !is_topn
-                && fast_fields::is_string_agg_capable_with_prereqs(builder.custom_private())
-                    .is_some()
+                && fast_fields::is_string_fast_field_capable(builder.custom_private()).is_some()
             {
                 let pathkey = pathkey.as_ref().unwrap();
 
@@ -996,7 +998,7 @@ impl CustomScan for PdbScan {
 }
 
 ///
-/// Choose and return an ExecMethodType based on the properties of the builder.
+/// Choose and return an ExecMethodType based on the properties of the builder at planning time.
 ///
 /// If the query can return "fast fields", make that determination here, falling back to the
 /// [`NormalScanExecState`] if not.
@@ -1005,6 +1007,10 @@ impl CustomScan for PdbScan {
 /// [`NumericFastFieldExecState`] when there's one or more numeric fast fields, or
 /// [`MixedFastFieldExecState`] when there are multiple string fast fields or a mix of string
 /// and numeric fast fields.
+///
+/// If we have failed to extract all relevant information at planning time, then the fast-field
+/// execution methods might still fall back to `Normal` at execution time: see the notes in
+/// `assign_exec_method` and `compute_exec_which_fast_fields`.
 ///
 /// `paradedb.score()`, `ctid`, and `tableoid` are considered fast fields for the purposes of
 /// these specialized [`ExecMethod`]s.
@@ -1019,27 +1025,17 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
             sort_direction,
             need_scores: privdata.need_scores(),
         }
-    } else if fast_fields::is_numeric_fast_field_capable(privdata)
-        && gucs::is_fast_field_exec_enabled()
-    {
+    } else if fast_fields::is_numeric_fast_field_capable(privdata) {
         // Check for numeric-only fast fields first because they're more selective
         ExecMethodType::FastFieldNumeric {
             which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
         }
-    } else if fast_fields::is_string_agg_capable(privdata).is_some()
-        && gucs::is_fast_field_exec_enabled()
-    {
-        let field = fast_fields::is_string_agg_capable(privdata).unwrap();
+    } else if let Some(field) = fast_fields::is_string_fast_field_capable(privdata) {
         ExecMethodType::FastFieldString {
             field,
             which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
         }
-    } else if gucs::is_mixed_fast_field_exec_enabled() {
-        // Use MixedFastFieldExec if enabled
-        //
-        // We'd suggest using MixedFastFieldExec as the last resort (default) at the planning
-        // stage, but we will fall back to NormalExecState (in assign_exec_method) if we can't
-        // execute using MixedFastFieldExec with the given fields and possibly expressions.
+    } else if fast_fields::is_mixed_fast_field_capable(privdata) {
         ExecMethodType::FastFieldMixed {
             which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
         }
@@ -1052,9 +1048,9 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
 ///
 /// Creates and assigns the execution method which was chosen at planning time.
 ///
-/// Currently, if MixedFastFieldExecState is chosen, we will fall back to NormalScanExecState if
-/// we fail to extract the superset of fields during planning time which was needed at execution
-/// time.
+/// If a fast-fields execution method was chosen at planning time, we might still fall back to
+/// NormalScanExecState if we fail to extract the superset of fields during planning time which was
+/// needed at execution time.
 ///
 fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>) {
     match builder.custom_state_ref().exec_method_type.clone() {
@@ -1170,12 +1166,17 @@ fn compute_exec_which_fast_fields(
         )
     };
 
-    let is_missing_fast_fields = exec_which_fast_fields.is_empty()
-        || exec_which_fast_fields
-            .iter()
-            .any(|ff| !planned_which_fast_fields.contains(ff));
+    let missing_fast_fields = exec_which_fast_fields
+        .iter()
+        .filter(|ff| !planned_which_fast_fields.contains(ff))
+        .collect::<Vec<_>>();
 
-    if is_missing_fast_fields {
+    if !missing_fast_fields.is_empty() {
+        pgrx::log!(
+            "Failed to extract all fast fields at planning time: \
+             was missing {missing_fast_fields:?} from {planned_which_fast_fields:?} \
+             Falling back to Normal execution.",
+        );
         return None;
     }
 

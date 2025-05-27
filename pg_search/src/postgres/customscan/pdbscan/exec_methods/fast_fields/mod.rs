@@ -20,6 +20,7 @@ pub mod numeric;
 pub mod string;
 
 use crate::api::HashSet;
+use crate::gucs;
 use crate::index::fast_fields_helper::{FFHelper, FastFieldType, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{SearchIndexReader, SearchIndexScore, SearchResults};
@@ -356,7 +357,7 @@ pub unsafe fn pullup_fast_fields(
     Some(matches)
 }
 
-pub fn fast_field_capable_prereqs(privdata: &PrivateData) -> bool {
+fn fast_field_capable_prereqs(privdata: &PrivateData) -> bool {
     if privdata.referenced_columns_count() == 0 {
         return false;
     }
@@ -386,18 +387,23 @@ pub fn fast_field_capable_prereqs(privdata: &PrivateData) -> bool {
     true
 }
 
-// Update is_string_agg_capable to consider test requirements
-pub fn is_string_agg_capable_with_prereqs(privdata: &PrivateData) -> Option<String> {
-    if !fast_field_capable_prereqs(privdata) {
+/// Check if we can use the String fast field execution method
+///
+/// Using StringFF when there's a limit is always a loss, performance-wise, because it
+/// collects the full set of query results (as doc ids and term ordinals) before beginning
+/// to return rows. Meanwhile, Normal is fully lazy but unsorted, and TopN searches
+/// eagerly, but avoids actually emitting anything but the limit.
+pub fn is_string_fast_field_capable(privdata: &PrivateData) -> Option<String> {
+    if !gucs::is_fast_field_exec_enabled() {
         return None;
     }
 
-    is_string_agg_capable(privdata)
-}
-// Update is_string_agg_capable to consider test requirements
-pub fn is_string_agg_capable(privdata: &PrivateData) -> Option<String> {
     if privdata.limit().is_some() {
-        // doing a string_agg when there's a limit is always a loss, performance-wise
+        // See the method doc with regard to limits/laziness.
+        return None;
+    }
+
+    if !fast_field_capable_prereqs(privdata) {
         return None;
     }
 
@@ -429,8 +435,16 @@ pub fn is_string_agg_capable(privdata: &PrivateData) -> Option<String> {
     string_field
 }
 
-// Check if we can use numeric fast field execution method
+/// Check if we can use the Numeric fast field execution method
 pub fn is_numeric_fast_field_capable(privdata: &PrivateData) -> bool {
+    if !gucs::is_fast_field_exec_enabled() {
+        return false;
+    }
+
+    if !fast_field_capable_prereqs(privdata) {
+        return false;
+    }
+
     let which_fast_fields = privdata.planned_which_fast_fields().as_ref().unwrap();
     // Make sure we don't have any string fast fields
     for ff in which_fast_fields.iter() {
@@ -439,6 +453,35 @@ pub fn is_numeric_fast_field_capable(privdata: &PrivateData) -> bool {
         }
     }
     true
+}
+
+/// Check if we can use the Mixed fast field execution method
+///
+/// MixedFF is subject to the same constraints around limits and laziness as StringFF: see
+/// `is_string_fast_field_capable`.
+pub fn is_mixed_fast_field_capable(privdata: &PrivateData) -> bool {
+    if !gucs::is_mixed_fast_field_exec_enabled() {
+        return false;
+    }
+
+    if privdata.limit().is_some() {
+        // See the method doc with regard to limits/laziness.
+        return false;
+    }
+
+    if !fast_field_capable_prereqs(privdata) {
+        return false;
+    }
+
+    // We should only use Mixed if there is at least one named fast field, but fewer than the
+    // configured column threshold.
+    let which_fast_fields = privdata.planned_which_fast_fields().as_ref().unwrap();
+    let named_field_count = which_fast_fields
+        .iter()
+        .filter(|wff| matches!(wff, WhichFastField::Named(_, _)))
+        .count();
+
+    0 < named_field_count && named_field_count < gucs::mixed_fast_field_exec_column_threshold()
 }
 
 fn is_all_special_or_junk_fields(which_fast_fields: &HashSet<WhichFastField>) -> bool {

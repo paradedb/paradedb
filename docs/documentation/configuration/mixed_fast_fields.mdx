@@ -4,12 +4,15 @@ title: Mixed Fast Fields
 
 ## Mixed Fast Fields Execution
 
-The Mixed Fast Fields execution state (`MixedFastFieldExecState`) is a specialized execution method for handling both multiple string fast fields and mixed string/numeric fast fields in a single query. By default, this execution method is disabled in favor of more stable execution methods.
+The Mixed Fast Fields execution state (`MixedFastFieldExecState`) is a specialized execution method for
+handling multiple string and numeric fast fields in a single query. By default, Mixed Fast Fields
+execution is enabled when there are a mix of column types, and fewer than a threshold of columns
+requested.
 
-To enable the Mixed Fast Fields execution state:
+To disable Mixed:
 
 ```sql
-SET paradedb.enable_mixed_fast_field_exec = true;
+SET paradedb.enable_mixed_fast_field_exec = false;
 ```
 
 ### When to Use
@@ -23,17 +26,12 @@ This is particularly useful in complex join queries where multiple fast fields n
 
 ### Trade-offs
 
-While the Mixed Fast Fields execution state can provide performance improvements, it's disabled by default because:
+Mixed Fast Fields fetches data as column-oriented, whereas the Normal mode fetches data as
+row-oriented. The default threshold for switching to Normal is three columns, but with a wide enough
+row, allowing Mixed to be used for more columns might be reasonable.
 
-1. It's a newer feature that may have edge cases not covered by existing tests
-2. The standard execution methods are well-tested and stable for most use cases
+To adjust the column count threshold at which Normal execution will be used instead (default 3):
 
-If you're experiencing performance issues with complex queries involving multiple fast fields, enabling this feature flag might help.
-
-### Usage in Production
-
-We recommend testing thoroughly in a staging environment before enabling this feature in production. You can permanently enable it in your `postgresql.conf` file:
-
-```
-paradedb.enable_mixed_fast_field_exec = true
+```sql
+SET paradedb.mixed_fast_field_exec_column_threshold = 4;
 ```

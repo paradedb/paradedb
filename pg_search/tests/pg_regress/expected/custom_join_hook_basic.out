@@ -322,9 +322,12 @@ WARNING:  ParadeDB: Extracted 1 outer predicates, 0 inner predicates, 0 join con
 WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 0, bilateral: false
 WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
 WARNING:  ParadeDB: Outer predicate for documents_join_test - uses_search: true
-WARNING:  ParadeDB: Unilateral search detected - rejecting for now
-WARNING:  ParadeDB: Unilateral joins require proper table scanning which is not yet implemented
-WARNING:  ParadeDB: Falling back to PostgreSQL's default join processing
+WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_join_test"], inner: ["files_join_test"]
+WARNING:  ParadeDB: Unilateral join - outer has search, inner needs table scan
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["files_join_test"], inner relids: ["documents_join_test"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation files_join_test (rti 2)
@@ -342,9 +345,142 @@ WARNING:  ParadeDB: Extracted 0 outer predicates, 1 inner predicates, 0 join con
 WARNING:  ParadeDB: Found search predicates - outer: 0, inner: 1, bilateral: false
 WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
 WARNING:  ParadeDB: Inner predicate for documents_join_test - uses_search: true
-WARNING:  ParadeDB: Unilateral search detected - rejecting for now
-WARNING:  ParadeDB: Unilateral joins require proper table scanning which is not yet implemented
-WARNING:  ParadeDB: Falling back to PostgreSQL's default join processing
+WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["files_join_test"], inner: ["documents_join_test"]
+WARNING:  ParadeDB: Unilateral join - inner has search, outer needs table scan
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
+WARNING:  ParadeDB: Join target list has 3 entries
+WARNING:  ParadeDB: Mapped join variable varno=1, varattno=1 to 'join_attr_1'
+WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'join_attr_2'
+WARNING:  ParadeDB: Mapped join variable varno=2, varattno=3 to 'join_attr_3'
+WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
+WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 0, bilateral: false
+WARNING:  ParadeDB: Stored outer relation OIDs: ["documents_join_test"]
+WARNING:  ParadeDB: Stored inner relation OIDs: ["files_join_test"]
+WARNING:  ParadeDB: Storing 3 variable mappings from planning phase
+WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=1 -> 'join_attr_1'
+WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_2'
+WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=3 -> 'join_attr_3'
+WARNING:  ParadeDB: Beginning custom scan for join node
+WARNING:  ParadeDB: Initializing production-ready join execution
+WARNING:  ParadeDB: Join configuration - outer predicates: 1 (search: 1), inner predicates: 0 (search: 0), bilateral: false
+WARNING:  ParadeDB: Relation validation - outer: documents_join_test (valid: true), inner: files_join_test (valid: true)
+WARNING:  ParadeDB: Join execution initialization completed successfully
+WARNING:  ParadeDB: Phase 1/4 - Initializing join execution
+WARNING:  ParadeDB: Prerequisites validation passed - ready for join execution
+WARNING:  ParadeDB: Initializing search execution with safety checks
+WARNING:  ParadeDB: Initializing search with 1 outer and 0 inner predicates
+WARNING:  ParadeDB: Initializing search readers with safety checks
+WARNING:  ParadeDB: Successfully opened search reader for documents_join_test
+WARNING:  ParadeDB: Search reader initialization - 1 successful out of 1 attempts
+WARNING:  ParadeDB: Executing real searches with safety checks
+WARNING:  ParadeDB: Executing real BM25 search on relation documents_join_test
+WARNING:  ParadeDB: Real search on documents_join_test returned 1 results
+WARNING:  ParadeDB: Successfully executed search on documents_join_test
+WARNING:  ParadeDB: No inner search results - generating table scan results for unilateral join
+WARNING:  ParadeDB: Generating table scan results for relation files_join_test
+WARNING:  ParadeDB: Relation files_join_test has 1 pages
+WARNING:  ParadeDB: Generated 3 table scan results for relation files_join_test
+WARNING:  ParadeDB: Search execution completed - outer: 1, inner: 3
+WARNING:  ParadeDB: Search execution initialization completed successfully
+WARNING:  ParadeDB: Phase 2/4 - Executing outer relation search
+WARNING:  ParadeDB: Outer search completed - 1 results
+WARNING:  ParadeDB: Phase 3/4 - Executing inner relation search
+WARNING:  ParadeDB: Inner search completed - 3 results
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: Fetching column 'id' from relation documents_join_test with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'document_id' from relation files_join_test with CTID 1
+WARNING:  ParadeDB: Fetched column 'document_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Join condition evaluation: 2 (documents_join_test.id) = 1 (files_join_test.document_id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[0] (ctid 2) × inner[0] (ctid 1) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: Fetching column 'id' from relation documents_join_test with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'document_id' from relation files_join_test with CTID 2
+WARNING:  ParadeDB: Fetched column 'document_id' (attno 2) = Some("2")
+WARNING:  ParadeDB: Join condition evaluation: 2 (documents_join_test.id) = 2 (files_join_test.document_id) -> true
+WARNING:  ParadeDB: Evaluating join condition for outer[0] (ctid 2) × inner[1] (ctid 2) = true
+WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[1]
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: Fetching real heap tuple values from relations documents_join_test and files_join_test
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: Detected relations from predicates - outer: 'documents_join_test', inner: 'files_join_test'
+WARNING:  ParadeDB: Fetching all columns with names from relation documents_join_test with CTID 2
+WARNING:  ParadeDB: documents_join_test column 'id' = '2'
+WARNING:  ParadeDB: documents_join_test column 'title' = 'Document 2'
+WARNING:  ParadeDB: documents_join_test column 'content' = 'This is the second document about science and research'
+WARNING:  ParadeDB: Successfully fetched 3 columns from documents_join_test relation
+WARNING:  ParadeDB: Fetching all columns with names from relation files_join_test with CTID 2
+WARNING:  ParadeDB: files_join_test column 'id' = '2'
+WARNING:  ParadeDB: files_join_test column 'document_id' = '2'
+WARNING:  ParadeDB: files_join_test column 'filename' = 'file2.txt'
+WARNING:  ParadeDB: files_join_test column 'content' = 'Science file content with research data'
+WARNING:  ParadeDB: Successfully fetched 4 columns from files_join_test relation
+WARNING:  ParadeDB: Fetched 3 columns from outer relation, 4 from inner relation
+WARNING:  ParadeDB: Analyzing 3 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}"),)))]
+WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation documents_join_test
+WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "documents_join_test")]
+WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
+WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 1
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 1
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 1 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: Resolved varnosyn 1 to relation documents_join_test
+WARNING:  ParadeDB: varnosyn 1 resolved to relation documents_join_test, attno 1
+WARNING:  ParadeDB: Relation documents_join_test attno 1 -> column name 'id'
+WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn(documents_join_test,id)
+WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
+WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: Resolved varnosyn 1 to relation documents_join_test
+WARNING:  ParadeDB: varnosyn 1 resolved to relation documents_join_test, attno 2
+WARNING:  ParadeDB: Relation documents_join_test attno 2 -> column name 'title'
+WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn(documents_join_test,title)
+WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
+WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 3
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 3
+WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 3 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: Resolved varnosyn 2 to relation files_join_test
+WARNING:  ParadeDB: varnosyn 2 resolved to relation files_join_test, attno 3
+WARNING:  ParadeDB: Relation files_join_test attno 3 -> column name 'filename'
+WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn(files_join_test,filename)
+WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("2"), Some("Document 2"), Some("file2.txt")]
+WARNING:  ParadeDB: Converting '2' to integer 2
+WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("2"), Some("Document 2"), Some("file2.txt")]
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: Fetching column 'id' from relation documents_join_test with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'document_id' from relation files_join_test with CTID 3
+WARNING:  ParadeDB: Fetched column 'document_id' (attno 2) = Some("3")
+WARNING:  ParadeDB: Join condition evaluation: 2 (documents_join_test.id) = 3 (files_join_test.document_id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[0] (ctid 2) × inner[2] (ctid 3) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Join matching complete - total matches: 1
+WARNING:  ParadeDB: Cleaning up join execution
+WARNING:  ParadeDB: Cleaning up join execution state
+WARNING:  ParadeDB: ===== JOIN EXECUTION STATISTICS =====
+WARNING:  ParadeDB: Search Results - Outer: 1, Inner: 3, Total Combinations: 3
+WARNING:  ParadeDB: Join Processing - Matches: 1, Returned: 1, Success Rate: 33.3%
+WARNING:  ParadeDB: Heap Tuple Access - Attempts: 2, Successes: 3, Success Rate: 150.0%
+WARNING:  ParadeDB: Cleaned up 1 search readers
+WARNING:  ParadeDB: Cleared 1 outer and 3 inner search results
+WARNING:  ParadeDB: ===== END JOIN EXECUTION STATISTICS =====
+WARNING:  ParadeDB: Join execution cleanup complete
  id |   title    | filename  
 ----+------------+-----------
   2 | Document 2 | file2.txt
@@ -423,9 +559,12 @@ WARNING:  ParadeDB: Extracted 1 outer predicates, 0 inner predicates, 0 join con
 WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 0, bilateral: false
 WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
 WARNING:  ParadeDB: Outer predicate for documents_join_test - uses_search: true
-WARNING:  ParadeDB: Unilateral search detected - rejecting for now
-WARNING:  ParadeDB: Unilateral joins require proper table scanning which is not yet implemented
-WARNING:  ParadeDB: Falling back to PostgreSQL's default join processing
+WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_join_test"], inner: ["authors_join_test"]
+WARNING:  ParadeDB: Unilateral join - outer has search, inner needs table scan
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["authors_join_test"], inner relids: ["documents_join_test"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation authors_join_test (rti 4)
@@ -443,9 +582,12 @@ WARNING:  ParadeDB: Extracted 0 outer predicates, 1 inner predicates, 0 join con
 WARNING:  ParadeDB: Found search predicates - outer: 0, inner: 1, bilateral: false
 WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
 WARNING:  ParadeDB: Inner predicate for documents_join_test - uses_search: true
-WARNING:  ParadeDB: Unilateral search detected - rejecting for now
-WARNING:  ParadeDB: Unilateral joins require proper table scanning which is not yet implemented
-WARNING:  ParadeDB: Falling back to PostgreSQL's default join processing
+WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_join_test"], inner: ["documents_join_test"]
+WARNING:  ParadeDB: Unilateral join - inner has search, outer needs table scan
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["files_join_test"], inner relids: ["authors_join_test"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation files_join_test (rti 2)
@@ -463,9 +605,12 @@ WARNING:  ParadeDB: Extracted 1 outer predicates, 0 inner predicates, 0 join con
 WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 0, bilateral: false
 WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
 WARNING:  ParadeDB: Outer predicate for files_join_test - uses_search: true
-WARNING:  ParadeDB: Unilateral search detected - rejecting for now
-WARNING:  ParadeDB: Unilateral joins require proper table scanning which is not yet implemented
-WARNING:  ParadeDB: Falling back to PostgreSQL's default join processing
+WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["files_join_test"], inner: ["authors_join_test"]
+WARNING:  ParadeDB: Unilateral join - outer has search, inner needs table scan
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["authors_join_test"], inner relids: ["files_join_test"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation authors_join_test (rti 4)
@@ -483,9 +628,12 @@ WARNING:  ParadeDB: Extracted 0 outer predicates, 1 inner predicates, 0 join con
 WARNING:  ParadeDB: Found search predicates - outer: 0, inner: 1, bilateral: false
 WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
 WARNING:  ParadeDB: Inner predicate for files_join_test - uses_search: true
-WARNING:  ParadeDB: Unilateral search detected - rejecting for now
-WARNING:  ParadeDB: Unilateral joins require proper table scanning which is not yet implemented
-WARNING:  ParadeDB: Falling back to PostgreSQL's default join processing
+WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_join_test"], inner: ["files_join_test"]
+WARNING:  ParadeDB: Unilateral join - inner has search, outer needs table scan
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["documents_join_test", "files_join_test"], inner relids: ["authors_join_test"]
 WARNING:  ParadeDB: Outer side is composite, inner is base - checking feasibility
 WARNING:  ParadeDB: Composite joins not yet supported - intermediate result access not implemented
@@ -865,9 +1013,12 @@ WARNING:  ParadeDB: Extracted 1 outer predicates, 0 inner predicates, 0 join con
 WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 0, bilateral: false
 WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
 WARNING:  ParadeDB: Outer predicate for documents_join_test - uses_search: true
-WARNING:  ParadeDB: Unilateral search detected - rejecting for now
-WARNING:  ParadeDB: Unilateral joins require proper table scanning which is not yet implemented
-WARNING:  ParadeDB: Falling back to PostgreSQL's default join processing
+WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_join_test"], inner: ["files_join_test"]
+WARNING:  ParadeDB: Unilateral join - outer has search, inner needs table scan
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["files_join_test"], inner relids: ["documents_join_test"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation files_join_test (rti 2)
@@ -885,9 +1036,12 @@ WARNING:  ParadeDB: Extracted 0 outer predicates, 1 inner predicates, 0 join con
 WARNING:  ParadeDB: Found search predicates - outer: 0, inner: 1, bilateral: false
 WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
 WARNING:  ParadeDB: Inner predicate for documents_join_test - uses_search: true
-WARNING:  ParadeDB: Unilateral search detected - rejecting for now
-WARNING:  ParadeDB: Unilateral joins require proper table scanning which is not yet implemented
-WARNING:  ParadeDB: Falling back to PostgreSQL's default join processing
+WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["files_join_test"], inner: ["documents_join_test"]
+WARNING:  ParadeDB: Unilateral join - inner has search, outer needs table scan
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["documents_join_test"], inner relids: ["authors_join_test"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation documents_join_test (rti 1)
@@ -905,9 +1059,12 @@ WARNING:  ParadeDB: Extracted 1 outer predicates, 0 inner predicates, 0 join con
 WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 0, bilateral: false
 WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
 WARNING:  ParadeDB: Outer predicate for documents_join_test - uses_search: true
-WARNING:  ParadeDB: Unilateral search detected - rejecting for now
-WARNING:  ParadeDB: Unilateral joins require proper table scanning which is not yet implemented
-WARNING:  ParadeDB: Falling back to PostgreSQL's default join processing
+WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_join_test"], inner: ["authors_join_test"]
+WARNING:  ParadeDB: Unilateral join - outer has search, inner needs table scan
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["authors_join_test"], inner relids: ["documents_join_test"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation authors_join_test (rti 4)
@@ -925,9 +1082,12 @@ WARNING:  ParadeDB: Extracted 0 outer predicates, 1 inner predicates, 0 join con
 WARNING:  ParadeDB: Found search predicates - outer: 0, inner: 1, bilateral: false
 WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
 WARNING:  ParadeDB: Inner predicate for documents_join_test - uses_search: true
-WARNING:  ParadeDB: Unilateral search detected - rejecting for now
-WARNING:  ParadeDB: Unilateral joins require proper table scanning which is not yet implemented
-WARNING:  ParadeDB: Falling back to PostgreSQL's default join processing
+WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_join_test"], inner: ["documents_join_test"]
+WARNING:  ParadeDB: Unilateral join - inner has search, outer needs table scan
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["files_join_test"], inner relids: ["authors_join_test"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation files_join_test (rti 2)
@@ -976,6 +1136,236 @@ WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: [
 WARNING:  ParadeDB: Outer side is base, inner is composite - checking feasibility
 WARNING:  ParadeDB: Composite joins not yet supported - intermediate result access not implemented
 WARNING:  ParadeDB: Rejecting composite join to allow PostgreSQL's optimized default processing
+WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
+WARNING:  ParadeDB: Join target list has 4 entries
+WARNING:  ParadeDB: Mapped join variable varno=1, varattno=1 to 'join_attr_1'
+WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'join_attr_2'
+WARNING:  ParadeDB: Mapped join variable varno=2, varattno=3 to 'join_attr_3'
+WARNING:  ParadeDB: Mapped join variable varno=2, varattno=2 to 'join_attr_4'
+WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
+WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 0, bilateral: false
+WARNING:  ParadeDB: Stored outer relation OIDs: ["documents_join_test"]
+WARNING:  ParadeDB: Stored inner relation OIDs: ["files_join_test"]
+WARNING:  ParadeDB: Storing 4 variable mappings from planning phase
+WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=1 -> 'join_attr_1'
+WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=2 -> 'join_attr_4'
+WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_2'
+WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=3 -> 'join_attr_3'
+WARNING:  ParadeDB: Beginning custom scan for join node
+WARNING:  ParadeDB: Initializing production-ready join execution
+WARNING:  ParadeDB: Join configuration - outer predicates: 1 (search: 1), inner predicates: 0 (search: 0), bilateral: false
+WARNING:  ParadeDB: Relation validation - outer: documents_join_test (valid: true), inner: files_join_test (valid: true)
+WARNING:  ParadeDB: Join execution initialization completed successfully
+WARNING:  ParadeDB: Phase 1/4 - Initializing join execution
+WARNING:  ParadeDB: Prerequisites validation passed - ready for join execution
+WARNING:  ParadeDB: Initializing search execution with safety checks
+WARNING:  ParadeDB: Initializing search with 1 outer and 0 inner predicates
+WARNING:  ParadeDB: Initializing search readers with safety checks
+WARNING:  ParadeDB: Successfully opened search reader for documents_join_test
+WARNING:  ParadeDB: Search reader initialization - 1 successful out of 1 attempts
+WARNING:  ParadeDB: Executing real searches with safety checks
+WARNING:  ParadeDB: Executing real BM25 search on relation documents_join_test
+WARNING:  ParadeDB: Real search on documents_join_test returned 2 results
+WARNING:  ParadeDB: Successfully executed search on documents_join_test
+WARNING:  ParadeDB: No inner search results - generating table scan results for unilateral join
+WARNING:  ParadeDB: Generating table scan results for relation files_join_test
+WARNING:  ParadeDB: Relation files_join_test has 1 pages
+WARNING:  ParadeDB: Generated 3 table scan results for relation files_join_test
+WARNING:  ParadeDB: Search execution completed - outer: 2, inner: 3
+WARNING:  ParadeDB: Search execution initialization completed successfully
+WARNING:  ParadeDB: Phase 2/4 - Executing outer relation search
+WARNING:  ParadeDB: Outer search completed - 2 results
+WARNING:  ParadeDB: Phase 3/4 - Executing inner relation search
+WARNING:  ParadeDB: Inner search completed - 3 results
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: Fetching column 'id' from relation documents_join_test with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'document_id' from relation files_join_test with CTID 1
+WARNING:  ParadeDB: Fetched column 'document_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Join condition evaluation: 2 (documents_join_test.id) = 1 (files_join_test.document_id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[0] (ctid 2) × inner[0] (ctid 1) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: Fetching column 'id' from relation documents_join_test with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'document_id' from relation files_join_test with CTID 2
+WARNING:  ParadeDB: Fetched column 'document_id' (attno 2) = Some("2")
+WARNING:  ParadeDB: Join condition evaluation: 2 (documents_join_test.id) = 2 (files_join_test.document_id) -> true
+WARNING:  ParadeDB: Evaluating join condition for outer[0] (ctid 2) × inner[1] (ctid 2) = true
+WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[1]
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
+WARNING:  ParadeDB: Creating result tuple with 4 attributes
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: Fetching real heap tuple values from relations documents_join_test and files_join_test
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: Detected relations from predicates - outer: 'documents_join_test', inner: 'files_join_test'
+WARNING:  ParadeDB: Fetching all columns with names from relation documents_join_test with CTID 2
+WARNING:  ParadeDB: documents_join_test column 'id' = '2'
+WARNING:  ParadeDB: documents_join_test column 'title' = 'Document 2'
+WARNING:  ParadeDB: documents_join_test column 'content' = 'This is the second document about science and research'
+WARNING:  ParadeDB: Successfully fetched 3 columns from documents_join_test relation
+WARNING:  ParadeDB: Fetching all columns with names from relation files_join_test with CTID 2
+WARNING:  ParadeDB: files_join_test column 'id' = '2'
+WARNING:  ParadeDB: files_join_test column 'document_id' = '2'
+WARNING:  ParadeDB: files_join_test column 'filename' = 'file2.txt'
+WARNING:  ParadeDB: files_join_test column 'content' = 'Science file content with research data'
+WARNING:  ParadeDB: Successfully fetched 4 columns from files_join_test relation
+WARNING:  ParadeDB: Fetched 3 columns from outer relation, 4 from inner relation
+WARNING:  ParadeDB: Analyzing 4 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}"),))), (4, Some((Ok("{VAR :varno -3 :varattno 4 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 2 :location -1}"),)))]
+WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation documents_join_test
+WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "documents_join_test")]
+WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
+WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 1
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 1
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 1 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: Resolved varnosyn 1 to relation documents_join_test
+WARNING:  ParadeDB: varnosyn 1 resolved to relation documents_join_test, attno 1
+WARNING:  ParadeDB: Relation documents_join_test attno 1 -> column name 'id'
+WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn(documents_join_test,id)
+WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
+WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: Resolved varnosyn 1 to relation documents_join_test
+WARNING:  ParadeDB: varnosyn 1 resolved to relation documents_join_test, attno 2
+WARNING:  ParadeDB: Relation documents_join_test attno 2 -> column name 'title'
+WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn(documents_join_test,title)
+WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
+WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 3
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 3
+WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 3 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: Resolved varnosyn 2 to relation files_join_test
+WARNING:  ParadeDB: varnosyn 2 resolved to relation files_join_test, attno 3
+WARNING:  ParadeDB: Relation files_join_test attno 3 -> column name 'filename'
+WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn(files_join_test,filename)
+WARNING:  ParadeDB: Analyzing target entry 4 (resno: 4)
+WARNING:  ParadeDB: Found Var in target entry 4 - varno: -3, attno: 4, varnosyn: 2, varattnosyn: 2
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 2
+WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 2 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: Resolved varnosyn 2 to relation files_join_test
+WARNING:  ParadeDB: varnosyn 2 resolved to relation files_join_test, attno 2
+WARNING:  ParadeDB: Relation files_join_test attno 2 -> column name 'document_id'
+WARNING:  ParadeDB: Target entry 4 mapped to: RelationColumn(files_join_test,document_id)
+WARNING:  ParadeDB: Mapped 4 out of 4 column values: [Some("2"), Some("Document 2"), Some("file2.txt"), Some("2")]
+WARNING:  ParadeDB: Converting '2' to integer 2
+WARNING:  ParadeDB: Converting '2' to integer 2
+WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("2"), Some("Document 2"), Some("file2.txt"), Some("2")]
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: Fetching column 'id' from relation documents_join_test with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'document_id' from relation files_join_test with CTID 3
+WARNING:  ParadeDB: Fetched column 'document_id' (attno 2) = Some("3")
+WARNING:  ParadeDB: Join condition evaluation: 2 (documents_join_test.id) = 3 (files_join_test.document_id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[0] (ctid 2) × inner[2] (ctid 3) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Advanced to next outer tuple [2/2]
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: Fetching column 'id' from relation documents_join_test with CTID 3
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("3")
+WARNING:  ParadeDB: Fetching column 'document_id' from relation files_join_test with CTID 1
+WARNING:  ParadeDB: Fetched column 'document_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Join condition evaluation: 3 (documents_join_test.id) = 1 (files_join_test.document_id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 3) × inner[0] (ctid 1) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: Fetching column 'id' from relation documents_join_test with CTID 3
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("3")
+WARNING:  ParadeDB: Fetching column 'document_id' from relation files_join_test with CTID 2
+WARNING:  ParadeDB: Fetched column 'document_id' (attno 2) = Some("2")
+WARNING:  ParadeDB: Join condition evaluation: 3 (documents_join_test.id) = 2 (files_join_test.document_id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 3) × inner[1] (ctid 2) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: Fetching column 'id' from relation documents_join_test with CTID 3
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("3")
+WARNING:  ParadeDB: Fetching column 'document_id' from relation files_join_test with CTID 3
+WARNING:  ParadeDB: Fetched column 'document_id' (attno 2) = Some("3")
+WARNING:  ParadeDB: Join condition evaluation: 3 (documents_join_test.id) = 3 (files_join_test.document_id) -> true
+WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 3) × inner[2] (ctid 3) = true
+WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[1] × inner[2]
+WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[2]
+WARNING:  ParadeDB: Creating result tuple with 4 attributes
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: Fetching real heap tuple values from relations documents_join_test and files_join_test
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: Detected relations from predicates - outer: 'documents_join_test', inner: 'files_join_test'
+WARNING:  ParadeDB: Fetching all columns with names from relation documents_join_test with CTID 3
+WARNING:  ParadeDB: documents_join_test column 'id' = '3'
+WARNING:  ParadeDB: documents_join_test column 'title' = 'Document 3'
+WARNING:  ParadeDB: documents_join_test column 'content' = 'This is the third document about research and data analysis'
+WARNING:  ParadeDB: Successfully fetched 3 columns from documents_join_test relation
+WARNING:  ParadeDB: Fetching all columns with names from relation files_join_test with CTID 3
+WARNING:  ParadeDB: files_join_test column 'id' = '3'
+WARNING:  ParadeDB: files_join_test column 'document_id' = '3'
+WARNING:  ParadeDB: files_join_test column 'filename' = 'file3.txt'
+WARNING:  ParadeDB: files_join_test column 'content' = 'Research file content and analysis data'
+WARNING:  ParadeDB: Successfully fetched 4 columns from files_join_test relation
+WARNING:  ParadeDB: Fetched 3 columns from outer relation, 4 from inner relation
+WARNING:  ParadeDB: Analyzing 4 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}"),))), (4, Some((Ok("{VAR :varno -3 :varattno 4 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 2 :location -1}"),)))]
+WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation documents_join_test
+WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "documents_join_test")]
+WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
+WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 1
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 1
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 1 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: Resolved varnosyn 1 to relation documents_join_test
+WARNING:  ParadeDB: varnosyn 1 resolved to relation documents_join_test, attno 1
+WARNING:  ParadeDB: Relation documents_join_test attno 1 -> column name 'id'
+WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn(documents_join_test,id)
+WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
+WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: Resolved varnosyn 1 to relation documents_join_test
+WARNING:  ParadeDB: varnosyn 1 resolved to relation documents_join_test, attno 2
+WARNING:  ParadeDB: Relation documents_join_test attno 2 -> column name 'title'
+WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn(documents_join_test,title)
+WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
+WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 3
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 3
+WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 3 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: Resolved varnosyn 2 to relation files_join_test
+WARNING:  ParadeDB: varnosyn 2 resolved to relation files_join_test, attno 3
+WARNING:  ParadeDB: Relation files_join_test attno 3 -> column name 'filename'
+WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn(files_join_test,filename)
+WARNING:  ParadeDB: Analyzing target entry 4 (resno: 4)
+WARNING:  ParadeDB: Found Var in target entry 4 - varno: -3, attno: 4, varnosyn: 2, varattnosyn: 2
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 2
+WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 2 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
+WARNING:  ParadeDB: Resolved varnosyn 2 to relation files_join_test
+WARNING:  ParadeDB: varnosyn 2 resolved to relation files_join_test, attno 2
+WARNING:  ParadeDB: Relation files_join_test attno 2 -> column name 'document_id'
+WARNING:  ParadeDB: Target entry 4 mapped to: RelationColumn(files_join_test,document_id)
+WARNING:  ParadeDB: Mapped 4 out of 4 column values: [Some("3"), Some("Document 3"), Some("file3.txt"), Some("3")]
+WARNING:  ParadeDB: Converting '3' to integer 3
+WARNING:  ParadeDB: Converting '3' to integer 3
+WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("3"), Some("Document 3"), Some("file3.txt"), Some("3")]
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Join matching complete - total matches: 2
+WARNING:  ParadeDB: Cleaning up join execution
+WARNING:  ParadeDB: Cleaning up join execution state
+WARNING:  ParadeDB: ===== JOIN EXECUTION STATISTICS =====
+WARNING:  ParadeDB: Search Results - Outer: 2, Inner: 3, Total Combinations: 6
+WARNING:  ParadeDB: Join Processing - Matches: 2, Returned: 2, Success Rate: 33.3%
+WARNING:  ParadeDB: Heap Tuple Access - Attempts: 4, Successes: 8, Success Rate: 200.0%
+WARNING:  ParadeDB: Cleaned up 1 search readers
+WARNING:  ParadeDB: Cleared 2 outer and 3 inner search results
+WARNING:  ParadeDB: ===== END JOIN EXECUTION STATISTICS =====
+WARNING:  ParadeDB: Join execution cleanup complete
  id |   title    | filename  | author_name 
 ----+------------+-----------+-------------
   2 | Document 2 | file2.txt | Jane Doe

@@ -1458,20 +1458,19 @@ unsafe fn execute_real_searches(
             }
         }
 
-        // Store the search results - if either side is empty, this indicates a unilateral join
-        // which should have been rejected at planning time
+        // Store the search results - handle unilateral joins by generating table scan results
         join_state.outer_results = if outer_results.is_empty() {
-            warning!("ParadeDB: No outer search results - this indicates a unilateral join");
-            warning!("ParadeDB: Unilateral joins should have been rejected at planning time");
-            None
+            warning!("ParadeDB: No outer search results - generating table scan results for unilateral join");
+            // For unilateral joins, generate CTIDs for table scanning the non-search side
+            Some(generate_table_scan_results(join_state.outer_relid))
         } else {
             Some(outer_results)
         };
 
         join_state.inner_results = if inner_results.is_empty() {
-            warning!("ParadeDB: No inner search results - this indicates a unilateral join");
-            warning!("ParadeDB: Unilateral joins should have been rejected at planning time");
-            None
+            warning!("ParadeDB: No inner search results - generating table scan results for unilateral join");
+            // For unilateral joins, generate CTIDs for table scanning the non-search side
+            Some(generate_table_scan_results(join_state.inner_relid))
         } else {
             Some(inner_results)
         };
@@ -1610,9 +1609,9 @@ unsafe fn match_and_return_next_tuple(
                         )
                     }
                     (Some(_), None) | (None, Some(_)) => {
-                        // Unilateral join - only one side has search results
+                        // This shouldn't happen anymore since we generate table scan results for unilateral joins
                         warning!(
-                            "ParadeDB: Unilateral join detected in execution - this should have been rejected at planning time"
+                            "ParadeDB: Unexpected None results - this indicates an implementation error"
                         );
                         warning!("ParadeDB: Terminating join execution");
                         if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
@@ -3326,6 +3325,106 @@ unsafe fn get_column_name_by_attno(relid: pg_sys::Oid, attno: pg_sys::AttrNumber
     column_name
 }
 
+/// Generate table scan results for unilateral joins
+/// This function creates a list of CTIDs for scanning the entire table
+unsafe fn generate_table_scan_results(relid: pg_sys::Oid) -> Vec<(u64, f32)> {
+    warning!(
+        "ParadeDB: Generating table scan results for relation {}",
+        get_rel_name(relid)
+    );
+
+    if relid == pg_sys::InvalidOid {
+        warning!("ParadeDB: Invalid relation OID, returning empty results");
+        return Vec::new();
+    }
+
+    // Open the relation to get its statistics
+    let heaprel = pg_sys::relation_open(relid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+    if heaprel.is_null() {
+        warning!(
+            "ParadeDB: Failed to open relation {} for table scan",
+            get_rel_name(relid)
+        );
+        return Vec::new();
+    }
+
+    // Get the number of pages in the relation
+    let num_pages =
+        pg_sys::RelationGetNumberOfBlocksInFork(heaprel, pg_sys::ForkNumber::MAIN_FORKNUM);
+    warning!(
+        "ParadeDB: Relation {} has {} pages",
+        get_rel_name(relid),
+        num_pages
+    );
+
+    let mut results = Vec::new();
+    let mut total_tuples = 0;
+
+    // Scan through the relation to find valid tuples
+    // For efficiency, we'll limit the scan to a reasonable number of tuples
+    const MAX_SCAN_TUPLES: usize = 1000;
+
+    for block_num in 0..num_pages {
+        if total_tuples >= MAX_SCAN_TUPLES {
+            warning!(
+                "ParadeDB: Reached maximum scan limit of {} tuples",
+                MAX_SCAN_TUPLES
+            );
+            break;
+        }
+
+        // Read the page
+        let buffer = pg_sys::ReadBuffer(heaprel, block_num);
+        if buffer == pg_sys::InvalidBuffer as i32 {
+            continue;
+        }
+
+        // Lock the buffer for reading
+        pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_SHARE as i32);
+
+        let page = pg_sys::BufferGetPage(buffer);
+        if page.is_null() {
+            pg_sys::UnlockReleaseBuffer(buffer);
+            continue;
+        }
+
+        // Get the maximum offset number on this page
+        let max_offset = pg_sys::PageGetMaxOffsetNumber(page);
+
+        // Scan through all line pointers on this page
+        for offset_num in 1..=max_offset {
+            if total_tuples >= MAX_SCAN_TUPLES {
+                break;
+            }
+
+            // Create ItemPointer for this tuple
+            let mut item_pointer = pg_sys::ItemPointerData::default();
+            pg_sys::ItemPointerSet(&mut item_pointer, block_num, offset_num);
+
+            // Convert to CTID (u64)
+            let ctid = crate::postgres::utils::item_pointer_to_u64(item_pointer);
+
+            // Add to results with a neutral score (1.0) since this is a table scan
+            results.push((ctid, 1.0));
+            total_tuples += 1;
+        }
+
+        // Unlock and release the buffer
+        pg_sys::UnlockReleaseBuffer(buffer);
+    }
+
+    // Close the relation
+    pg_sys::relation_close(heaprel, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+
+    warning!(
+        "ParadeDB: Generated {} table scan results for relation {}",
+        results.len(),
+        get_rel_name(relid)
+    );
+
+    results
+}
+
 /// Resolve varnosyn to actual relation OID by looking up in the range table
 unsafe fn resolve_varnosyn_to_relid(
     state: &mut CustomScanStateWrapper<PdbScan>,
@@ -3779,20 +3878,19 @@ unsafe fn execute_real_searches_safe(
             }
         }
 
-        // Store results - if either side is empty, this indicates a unilateral join
-        // which should have been rejected at planning time
+        // Store results - handle unilateral joins by generating table scan results
         join_state.outer_results = if outer_results.is_empty() {
-            warning!("ParadeDB: No outer search results - this indicates a unilateral join");
-            warning!("ParadeDB: Unilateral joins should have been rejected at planning time");
-            None
+            warning!("ParadeDB: No outer search results - generating table scan results for unilateral join");
+            // For unilateral joins, generate CTIDs for table scanning the non-search side
+            Some(generate_table_scan_results(join_state.outer_relid))
         } else {
             Some(outer_results)
         };
 
         join_state.inner_results = if inner_results.is_empty() {
-            warning!("ParadeDB: No inner search results - this indicates a unilateral join");
-            warning!("ParadeDB: Unilateral joins should have been rejected at planning time");
-            None
+            warning!("ParadeDB: No inner search results - generating table scan results for unilateral join");
+            // For unilateral joins, generate CTIDs for table scanning the non-search side
+            Some(generate_table_scan_results(join_state.inner_relid))
         } else {
             Some(inner_results)
         };

@@ -111,7 +111,7 @@ impl BufferMut {
     /// if necessary.
     pub fn return_to_fsm(mut self, bman: &mut BufferManager) {
         unsafe {
-            let metadata = MetaPage::open(bman.relation_oid());
+            let metadata = MetaPage::open_or_init(bman.relation_oid());
             let mut fsm = metadata.fsm();
             let blockno = self.inner.number();
             fsm.add_items(&[FreeBlockNumber::from(blockno)], None);
@@ -456,6 +456,20 @@ impl BufferManager {
                 dirty: false,
                 inner: Buffer {
                     pg_buffer: self.bcache.new_buffer(),
+                },
+            }
+        }
+    }
+
+    /// Like new_buffer, but explicitly disable use of the buffer cache and force a new page to be created.
+    ///
+    /// This is used to create pages during index initialization (e.g. ambuild).
+    pub fn extend_relation(&mut self) -> BufferMut {
+        unsafe {
+            BufferMut {
+                dirty: false,
+                inner: Buffer {
+                    pg_buffer: self.bcache.extend_relation(),
                 },
             }
         }

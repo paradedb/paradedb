@@ -56,7 +56,7 @@ pub struct MetaPageData {
 }
 
 /// Provides read access to the metadata page
-/// Because the metadata page does not change after it's initialized in MetaPage::open(),
+/// Because the metadata page does not change after it's initialized in MetaPage::open_or_init(),
 /// we do not need to hold a share lock for the lifetime of this struct.
 pub struct MetaPage {
     data: MetaPageData,
@@ -69,43 +69,70 @@ impl MetaPage {
         let buffer = bman.get_buffer(METADATA);
         let page = buffer.page();
         let metadata = page.contents::<MetaPageData>();
+        Self {
+            data: metadata,
+            bman,
+        }
+    }
+
+    pub unsafe fn open_or_init(relation_oid: pg_sys::Oid) -> Self {
+        let mut bman = BufferManager::new(relation_oid);
+        let buffer = bman.get_buffer(METADATA);
+        let page = buffer.page();
+        let metadata = page.contents::<MetaPageData>();
 
         // Skip create_index_list because it doesn't need to be initialized yet
-        let may_need_init = !block_number_is_valid(metadata.active_vacuum_list)
-            || !block_number_is_valid(metadata.ambulkdelete_sentinel)
-            || !block_number_is_valid(metadata.segment_meta_garbage)
-            || !block_number_is_valid(metadata.merge_lock)
-            || !block_number_is_valid(metadata.fsm);
+        let needs_vacuum_list = !block_number_is_valid(metadata.active_vacuum_list);
+        let needs_ambulkdelete_sentinel = !block_number_is_valid(metadata.ambulkdelete_sentinel);
+        let needs_segment_meta_garbage = !block_number_is_valid(metadata.segment_meta_garbage);
+        let needs_merge_lock = !block_number_is_valid(metadata.merge_lock);
+        let needs_fsm = !block_number_is_valid(metadata.fsm);
+
+        let may_need_init = needs_vacuum_list
+            || needs_ambulkdelete_sentinel
+            || needs_segment_meta_garbage
+            || needs_merge_lock
+            || needs_fsm;
 
         drop(buffer);
 
         // If any of the fields are not initialized, we need to initialize them
         // We swap our share lock for an exclusive lock
         if may_need_init {
+            let vacuum_list = needs_vacuum_list.then(|| new_buffer_and_init_page(relation_oid));
+            let ambulkdelete_sentinel =
+                needs_ambulkdelete_sentinel.then(|| new_buffer_and_init_page(relation_oid));
+            let segment_meta_garbage = needs_segment_meta_garbage
+                .then(|| LinkedItemList::<SegmentMetaEntry>::create(relation_oid));
+            let merge_lock = needs_merge_lock.then(|| new_buffer_and_init_page(relation_oid));
+            let fsm = needs_fsm.then(|| LinkedItemList::<FreeBlockNumber>::create(relation_oid));
+
             let mut buffer = bman.get_buffer_mut(METADATA);
             let mut page = buffer.page_mut();
             let metadata = page.contents_mut::<MetaPageData>();
 
             if !block_number_is_valid(metadata.active_vacuum_list) {
-                metadata.active_vacuum_list = new_buffer_and_init_page(relation_oid);
+                metadata.active_vacuum_list = vacuum_list.unwrap();
             }
 
             if !block_number_is_valid(metadata.ambulkdelete_sentinel) {
-                metadata.ambulkdelete_sentinel = new_buffer_and_init_page(relation_oid);
-            }
-
-            if !block_number_is_valid(metadata.segment_meta_garbage) {
-                metadata.segment_meta_garbage =
-                    LinkedItemList::<SegmentMetaEntry>::create(relation_oid).get_header_blockno();
+                metadata.ambulkdelete_sentinel = ambulkdelete_sentinel.unwrap();
             }
 
             if !block_number_is_valid(metadata.merge_lock) {
-                metadata.merge_lock = new_buffer_and_init_page(relation_oid);
+                metadata.merge_lock = merge_lock.unwrap();
             }
 
             if !block_number_is_valid(metadata.fsm) {
-                metadata.fsm =
-                    LinkedItemList::<FreeBlockNumber>::create(relation_oid).get_header_blockno();
+                metadata.fsm = fsm.unwrap().get_header_blockno();
+            } else {
+                fsm.map(|mut list| list.garbage_collect());
+            }
+
+            if !block_number_is_valid(metadata.segment_meta_garbage) {
+                metadata.segment_meta_garbage = segment_meta_garbage.unwrap().get_header_blockno();
+            } else {
+                segment_meta_garbage.map(|mut list| list.garbage_collect());
             }
         }
 
@@ -175,20 +202,29 @@ impl MetaPage {
         assert!(block_number_is_valid(self.data.fsm));
         LinkedItemList::<FreeBlockNumber>::open(self.bman.relation_oid(), self.data.fsm)
     }
+
+    pub fn fsm_opt(&self) -> Option<LinkedItemList<FreeBlockNumber>> {
+        if !block_number_is_valid(self.data.fsm) {
+            return None;
+        }
+
+        Some(LinkedItemList::<FreeBlockNumber>::open(
+            self.bman.relation_oid(),
+            self.data.fsm,
+        ))
+    }
 }
 
 /// For actions that dirty the metadata page -- takes an exclusive lock on the metadata page
 /// and holds it until `MetaPageMut` is dropped.
 pub struct MetaPageMut {
-    buffer: BufferMut,
     bman: BufferManager,
 }
 
 impl MetaPageMut {
     pub fn new(relation_oid: pg_sys::Oid) -> Self {
         let mut bman = BufferManager::new(relation_oid);
-        let buffer = bman.get_buffer_mut(METADATA);
-        Self { buffer, bman }
+        Self { bman }
     }
 
     pub unsafe fn record_create_index_segment_ids<'a>(
@@ -204,7 +240,8 @@ impl MetaPageMut {
         writer.write(&segment_id_bytes)?;
         let segment_ids_list = writer.into_inner()?;
 
-        let mut page = self.buffer.page_mut();
+        let mut buffer = self.bman.get_buffer_mut(METADATA);
+        let mut page = buffer.page_mut();
         let metadata = page.contents_mut::<MetaPageData>();
         metadata.create_index_list = segment_ids_list.get_header_blockno();
 

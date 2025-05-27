@@ -147,7 +147,7 @@ unsafe fn merge_info(
 
     let mut result = Vec::new();
     for index in index_kind.partitions() {
-        let metadata = MetaPage::open(index.oid());
+        let metadata = MetaPage::open_or_init(index.oid());
         let merge_lock = metadata.acquire_merge_lock();
         let merge_entries = merge_lock.merge_list().list();
         result.extend(merge_entries.into_iter().flat_map(move |merge_entry| {
@@ -182,7 +182,7 @@ unsafe fn vacuum_info(
 
     let mut result = Vec::new();
     for index in index_kind.partitions() {
-        let metadata = MetaPage::open(index.oid());
+        let metadata = MetaPage::open_or_init(index.oid());
         let vacuum_list = metadata.vacuum_list().read_list();
         result.extend(
             vacuum_list
@@ -476,7 +476,7 @@ fn force_merge_raw_bytes(
 #[pg_extern]
 fn merge_lock_garbage_collect(index: PgRelation) -> SetOfIterator<'static, i32> {
     unsafe {
-        let metadata = MetaPage::open(index.oid());
+        let metadata = MetaPage::open_or_init(index.oid());
         let merge_lock = metadata.acquire_merge_lock();
         let mut merge_list = merge_lock.merge_list();
         let before = merge_list.list();

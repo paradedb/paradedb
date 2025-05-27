@@ -352,17 +352,23 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
     }
 
     pub unsafe fn pop(&mut self) -> Option<(T, pg_sys::Size)> {
-        let (blockno, mut buffer) = self.get_start_blockno_mut();
-        let mut page = buffer.page_mut();
-        let max_offset = page.max_offset_number();
+        let (blockno, _) = self.get_start_blockno();
+        if let Some(mut buffer) = self.bman.get_buffer_conditional(blockno) {
+            let mut page = buffer.page_mut();
+            let max_offset = page.max_offset_number();
 
-        if max_offset == pg_sys::InvalidOffsetNumber {
-            return None;
+            if max_offset == pg_sys::InvalidOffsetNumber {
+                return None;
+            }
+
+
+            let item = page.deserialize_item::<T>(max_offset);
+            page.mark_item_dead(max_offset);
+            page.delete_item(max_offset);
+            return item;
         }
 
-        let item = page.deserialize_item::<T>(max_offset);
-        page.delete_item(max_offset);
-        item
+        None
     }
 
     ///

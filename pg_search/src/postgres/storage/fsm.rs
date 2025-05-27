@@ -32,7 +32,15 @@ impl From<FreeBlockNumber> for PgItem {
 
 impl From<PgItem> for FreeBlockNumber {
     fn from(pg_item: PgItem) -> Self {
-        FreeBlockNumber(pg_item.0 as pg_sys::BlockNumber)
+        let bytes = unsafe {
+            std::slice::from_raw_parts(
+                pg_item.0 as *const u8,
+                std::mem::size_of::<pg_sys::BlockNumber>(),
+            )
+        };
+        FreeBlockNumber(pg_sys::BlockNumber::from_ne_bytes(
+            bytes.try_into().unwrap(),
+        ))
     }
 }
 

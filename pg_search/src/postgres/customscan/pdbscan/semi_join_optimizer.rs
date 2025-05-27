@@ -172,17 +172,101 @@ impl SemiJoinOptimizer {
         }
     }
 
-    /// Identify join relationships between relations
+    /// Identify join relationships using extracted join conditions
     unsafe fn identify_join_relationships(&mut self) {
-        warning!("ParadeDB: Identifying join relationships");
+        warning!("ParadeDB: Identifying join relationships from extracted join conditions");
 
-        // For the example query pattern, we know the relationships:
-        // documents.id = files.documentId
-        // files.id = pages.fileId
+        // Use the join conditions that were extracted from the JOIN ON clause
+        for join_condition in &self.predicates.join_conditions {
+            warning!(
+                "ParadeDB: Processing join condition: {}.{} = {}.{}",
+                join_condition.left_rti,
+                join_condition.left_column,
+                join_condition.right_rti,
+                join_condition.right_column
+            );
 
-        // In a production implementation, this would analyze the actual join conditions
-        // For now, we'll use hardcoded relationships for the common patterns
+            // Find the relation OIDs for the RTIs
+            let left_relid = self.find_relid_for_rti(join_condition.left_rti);
+            let right_relid = self.find_relid_for_rti(join_condition.right_rti);
 
+            if let (Some(left_relid), Some(right_relid)) = (left_relid, right_relid) {
+                // Create join relationship from the extracted condition
+                let relationship = JoinRelationship {
+                    source_relid: left_relid,
+                    target_relid: right_relid,
+                    source_key: join_condition.left_column.clone(),
+                    target_key: join_condition.right_column.clone(),
+                    join_selectivity: self.estimate_join_selectivity(left_relid, right_relid),
+                };
+
+                self.join_relationships.push(relationship);
+                warning!(
+                    "ParadeDB: Created join relationship: {} ({}.{}) -> {} ({}.{})",
+                    get_rel_name(left_relid),
+                    join_condition.left_rti,
+                    join_condition.left_column,
+                    get_rel_name(right_relid),
+                    join_condition.right_rti,
+                    join_condition.right_column
+                );
+
+                // Also create the reverse relationship for bidirectional lookup
+                let reverse_relationship = JoinRelationship {
+                    source_relid: right_relid,
+                    target_relid: left_relid,
+                    source_key: join_condition.right_column.clone(),
+                    target_key: join_condition.left_column.clone(),
+                    join_selectivity: self.estimate_join_selectivity(right_relid, left_relid),
+                };
+
+                self.join_relationships.push(reverse_relationship);
+                warning!(
+                    "ParadeDB: Created reverse join relationship: {} ({}.{}) -> {} ({}.{})",
+                    get_rel_name(right_relid),
+                    join_condition.right_rti,
+                    join_condition.right_column,
+                    get_rel_name(left_relid),
+                    join_condition.left_rti,
+                    join_condition.left_column
+                );
+            } else {
+                warning!(
+                    "ParadeDB: Could not find relation OIDs for RTIs {} and {}",
+                    join_condition.left_rti,
+                    join_condition.right_rti
+                );
+            }
+        }
+
+        // If no join conditions were extracted, fall back to analyzing predicates
+        if self.join_relationships.is_empty() {
+            warning!("ParadeDB: No join conditions found, attempting to infer relationships from predicates");
+            self.infer_relationships_from_predicates();
+        }
+    }
+
+    /// Find relation OID for a given RTI by looking through the predicates
+    fn find_relid_for_rti(&self, rti: pg_sys::Index) -> Option<pg_sys::Oid> {
+        // Check outer predicates
+        for pred in &self.predicates.outer_predicates {
+            if pred.rti == rti {
+                return Some(pred.relid);
+            }
+        }
+
+        // Check inner predicates
+        for pred in &self.predicates.inner_predicates {
+            if pred.rti == rti {
+                return Some(pred.relid);
+            }
+        }
+
+        None
+    }
+
+    /// Fallback method to infer relationships when no join conditions are available
+    unsafe fn infer_relationships_from_predicates(&mut self) {
         let outer_relids: Vec<pg_sys::Oid> = self
             .predicates
             .outer_predicates
@@ -196,7 +280,7 @@ impl SemiJoinOptimizer {
             .map(|p| p.relid)
             .collect();
 
-        // Create relationships between all combinations
+        // Create relationships between all combinations using schema analysis
         for &outer_relid in &outer_relids {
             for &inner_relid in &inner_relids {
                 if outer_relid != inner_relid {
@@ -204,9 +288,9 @@ impl SemiJoinOptimizer {
                     if let Some(rel) = relationship {
                         self.join_relationships.push(rel);
                         warning!(
-                            "ParadeDB: Found join relationship: {} -> {}",
-                            crate::postgres::customscan::pdbscan::get_rel_name(outer_relid),
-                            crate::postgres::customscan::pdbscan::get_rel_name(inner_relid)
+                            "ParadeDB: Inferred join relationship: {} -> {}",
+                            get_rel_name(outer_relid),
+                            get_rel_name(inner_relid)
                         );
                     }
                 }

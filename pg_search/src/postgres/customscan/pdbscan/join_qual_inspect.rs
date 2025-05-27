@@ -63,6 +63,10 @@ pub struct JoinCondition {
     pub left_rti: pg_sys::Index,
     /// Right side relation RTI  
     pub right_rti: pg_sys::Index,
+    /// Left side column name
+    pub left_column: String,
+    /// Right side column name
+    pub right_column: String,
     /// Join operator (e.g., equality)
     pub operator: pg_sys::Oid,
     /// Join condition type (e.g., "equality", "other")
@@ -160,9 +164,144 @@ unsafe fn analyze_join_clause(
         (*clause).type_
     );
 
-    // For now, we'll focus on simple cases
-    // More complex join analysis will be added in future iterations
+    // Extract join conditions from the clause
+    if let Some(join_condition) =
+        extract_join_condition_from_clause(root, clause, outerrel, innerrel)
+    {
+        let mut result = JoinSearchPredicates::empty();
+
+        warning!(
+            "ParadeDB: Extracted join condition: {}.{} = {}.{}",
+            join_condition.left_rti,
+            join_condition.left_column,
+            join_condition.right_rti,
+            join_condition.right_column
+        );
+
+        result.join_conditions.push(join_condition);
+
+        Some(result)
+    } else {
+        None
+    }
+}
+
+/// Extract join condition from a clause (e.g., ON d.id = f.document_id)
+unsafe fn extract_join_condition_from_clause(
+    root: *mut pg_sys::PlannerInfo,
+    clause: *mut pg_sys::Expr,
+    outerrel: *mut pg_sys::RelOptInfo,
+    innerrel: *mut pg_sys::RelOptInfo,
+) -> Option<JoinCondition> {
+    use crate::nodecast;
+
+    // Handle OpExpr (e.g., d.id = f.document_id)
+    if let Some(opexpr) = nodecast!(OpExpr, T_OpExpr, clause) {
+        let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
+
+        if args.len() == 2 {
+            let left_arg = args.get_ptr(0).unwrap();
+            let right_arg = args.get_ptr(1).unwrap();
+
+            // Extract variables from both sides
+            if let (Some(left_var), Some(right_var)) = (
+                extract_var_from_expr(left_arg),
+                extract_var_from_expr(right_arg),
+            ) {
+                // Determine which variable belongs to which relation
+                let left_rti = (*left_var).varno as pg_sys::Index;
+                let right_rti = (*right_var).varno as pg_sys::Index;
+
+                // Check if this is actually a join condition between our relations
+                if is_var_in_reloptinfo(left_rti, outerrel)
+                    || is_var_in_reloptinfo(left_rti, innerrel)
+                {
+                    if is_var_in_reloptinfo(right_rti, outerrel)
+                        || is_var_in_reloptinfo(right_rti, innerrel)
+                    {
+                        // Get column names from the variables
+                        let left_column = get_column_name_from_var(root, left_var);
+                        let right_column = get_column_name_from_var(root, right_var);
+
+                        // This is a valid join condition between our relations
+                        return Some(JoinCondition {
+                            left_rti,
+                            right_rti,
+                            left_column,
+                            right_column,
+                            operator: (*opexpr).opno,
+                            condition_type: "equality".to_string(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
     None
+}
+
+/// Extract a Var node from an expression, handling RelabelType wrappers
+unsafe fn extract_var_from_expr(expr: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {
+    use crate::nodecast;
+
+    // Direct Var
+    if let Some(var) = nodecast!(Var, T_Var, expr) {
+        return Some(var);
+    }
+
+    // Var wrapped in RelabelType
+    if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expr) {
+        if let Some(var) = nodecast!(Var, T_Var, (*relabel).arg) {
+            return Some(var);
+        }
+    }
+
+    None
+}
+
+/// Check if a variable's RTI is present in a RelOptInfo
+unsafe fn is_var_in_reloptinfo(rti: pg_sys::Index, reloptinfo: *mut pg_sys::RelOptInfo) -> bool {
+    if reloptinfo.is_null() {
+        return false;
+    }
+
+    let relids = (*reloptinfo).relids;
+    if relids.is_null() {
+        return false;
+    }
+
+    pg_sys::bms_is_member(rti as i32, relids)
+}
+
+/// Get column name from a Var node
+unsafe fn get_column_name_from_var(
+    root: *mut pg_sys::PlannerInfo,
+    var: *mut pg_sys::Var,
+) -> String {
+    let rti = (*var).varno as pg_sys::Index;
+    let attno = (*var).varattno;
+
+    // Get the RTE for this relation
+    let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
+    if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
+        let relid = (*rte).relid;
+
+        // Open the relation to get column name
+        let heaprel = pg_sys::relation_open(relid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+        if !heaprel.is_null() {
+            let tuple_desc = pgrx::PgTupleDesc::from_pg_unchecked((*heaprel).rd_att);
+            if let Some(attribute) = tuple_desc.get((attno - 1) as usize) {
+                let column_name = attribute.name().to_string();
+                pg_sys::relation_close(heaprel, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+                return column_name;
+            }
+            pg_sys::relation_close(heaprel, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+        }
+    }
+
+    // Fallback to generic name
+    format!("attr_{}", attno)
 }
 
 /// Extract search predicates from a single relation's restrict info

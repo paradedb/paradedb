@@ -31,6 +31,12 @@ static ENABLE_MIXED_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(
 /// Allows the user to enable or disable the custom join feature. Default is `false`.
 static ENABLE_CUSTOM_JOIN: GucSetting<bool> = GucSetting::<bool>::new(false);
 
+/// Allows the user to enable or disable semi-join optimization. Default is `true`.
+static ENABLE_SEMI_JOIN_OPTIMIZATION: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+/// Controls the debug logging level for join operations. Default is `false`.
+static ENABLE_JOIN_DEBUG_LOGGING: GucSetting<bool> = GucSetting::<bool>::new(false);
+
 /// The `PER_TUPLE_COST` is an arbitrary value that needs to be really high.  In fact, we default
 /// to one hundred million.
 ///
@@ -99,6 +105,24 @@ pub fn init() {
         "Enable custom join feature",
         "Enable the custom join feature for handling join queries on bm25 indexes",
         &ENABLE_CUSTOM_JOIN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        "paradedb.enable_semi_join_optimization",
+        "Enable semi-join optimization",
+        "Enable the semi-join optimization for handling join queries on bm25 indexes",
+        &ENABLE_SEMI_JOIN_OPTIMIZATION,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        "paradedb.enable_join_debug_logging",
+        "Enable join debug logging",
+        "Enable the join debug logging for handling join queries on bm25 indexes",
+        &ENABLE_JOIN_DEBUG_LOGGING,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -186,6 +210,14 @@ pub fn is_mixed_fast_field_exec_enabled() -> bool {
 
 pub fn is_custom_join_enabled() -> bool {
     ENABLE_CUSTOM_JOIN.get()
+}
+
+pub fn is_semi_join_optimization_enabled() -> bool {
+    ENABLE_SEMI_JOIN_OPTIMIZATION.get()
+}
+
+pub fn is_join_debug_logging_enabled() -> bool {
+    ENABLE_JOIN_DEBUG_LOGGING.get()
 }
 
 pub fn per_tuple_cost() -> f64 {

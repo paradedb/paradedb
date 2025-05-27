@@ -25,6 +25,7 @@ mod projections;
 mod pushdown;
 mod qual_inspect;
 mod scan_state;
+pub mod semi_join_optimizer;
 mod solve_expr;
 
 use crate::api::operator::{

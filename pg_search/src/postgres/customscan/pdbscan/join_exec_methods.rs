@@ -27,6 +27,9 @@ use crate::postgres::customscan::pdbscan::join_qual_inspect::{
     JoinSearchPredicates, RelationSearchPredicate,
 };
 use crate::postgres::customscan::pdbscan::privdat::{CompositeSide, JoinCompositeInfo};
+use crate::postgres::customscan::pdbscan::semi_join_optimizer::{
+    execute_semi_join_strategy, SemiJoinOptimizer, SemiJoinStrategy,
+};
 use crate::postgres::customscan::pdbscan::{get_rel_name, PdbScan};
 use crate::postgres::rel_get_bm25_index;
 use pgrx::{pg_sys, warning, FromDatum};
@@ -1404,64 +1407,141 @@ unsafe fn init_search_readers(
     }
 }
 
-/// Execute real searches on both relations
+/// Execute real searches on both relations with semi-join optimization
 unsafe fn execute_real_searches(
     state: &mut CustomScanStateWrapper<PdbScan>,
     predicates: &JoinSearchPredicates,
 ) {
-    warning!("ParadeDB: Executing real searches on join relations");
+    warning!("ParadeDB: Executing real searches on join relations with semi-join optimization");
 
     if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
-        // Execute searches on outer relation
-        let mut outer_results = Vec::new();
-        for predicate in &predicates.outer_predicates {
-            if predicate.uses_search_operator {
-                if let Some(search_reader) = join_state.search_readers.get(&predicate.relid) {
-                    let relation_name = get_rel_name(predicate.relid);
+        // Check if we can apply semi-join optimization
+        let can_optimize = predicates.outer_predicates.len() > 0
+            && predicates.inner_predicates.len() > 0
+            && predicates
+                .outer_predicates
+                .iter()
+                .any(|p| p.uses_search_operator)
+            && predicates
+                .inner_predicates
+                .iter()
+                .any(|p| p.uses_search_operator);
+
+        warning!("ParadeDB: Semi-join optimization check - can_optimize: {}, outer_preds: {}, inner_preds: {}", 
+                 can_optimize, predicates.outer_predicates.len(), predicates.inner_predicates.len());
+
+        if can_optimize {
+            warning!("ParadeDB: Applying semi-join optimization");
+
+            // Create semi-join optimizer
+            let mut optimizer = SemiJoinOptimizer::new(predicates.clone());
+            let strategies = optimizer.analyze_and_optimize();
+
+            warning!(
+                "ParadeDB: Semi-join optimizer created {} strategies",
+                strategies.len()
+            );
+
+            if !strategies.is_empty() {
+                warning!("ParadeDB: Found {} semi-join strategies", strategies.len());
+
+                // Execute the first strategy (most promising)
+                if let Some(optimized_results) = execute_semi_join_strategy(
+                    &strategies[0],
+                    &join_state.search_readers,
+                    predicates,
+                ) {
                     warning!(
-                        "ParadeDB: Executing search on outer relation {}",
-                        relation_name
+                        "ParadeDB: Semi-join optimization successful, got {} results",
+                        optimized_results.len()
                     );
 
-                    let results = execute_real_search(search_reader, predicate);
-                    outer_results.extend(results);
+                    // Determine which side the optimized results belong to
+                    match &strategies[0] {
+                        SemiJoinStrategy::SearchFilter { target_relid, .. }
+                        | SemiJoinStrategy::SortedArray { target_relid, .. }
+                        | SemiJoinStrategy::BloomFilter { target_relid, .. } => {
+                            // Check if target is outer or inner
+                            let is_outer_target = predicates
+                                .outer_predicates
+                                .iter()
+                                .any(|p| p.relid == *target_relid);
+
+                            if is_outer_target {
+                                join_state.outer_results = Some(optimized_results);
+                                // Execute normal search on inner
+                                join_state.inner_results = Some(execute_normal_search_for_side(
+                                    &join_state.search_readers,
+                                    &predicates.inner_predicates,
+                                ));
+                            } else {
+                                join_state.inner_results = Some(optimized_results);
+                                // Execute normal search on outer
+                                join_state.outer_results = Some(execute_normal_search_for_side(
+                                    &join_state.search_readers,
+                                    &predicates.outer_predicates,
+                                ));
+                            }
+                        }
+                    }
+
+                    join_state.outer_position = 0;
+                    join_state.inner_position = 0;
 
                     warning!(
-                        "ParadeDB: Found {} results for outer relation {}",
-                        outer_results.len(),
-                        relation_name
+                        "ParadeDB: Semi-join optimization completed - outer: {}, inner: {}",
+                        join_state
+                            .outer_results
+                            .as_ref()
+                            .map(|r| r.len())
+                            .unwrap_or(0),
+                        join_state
+                            .inner_results
+                            .as_ref()
+                            .map(|r| r.len())
+                            .unwrap_or(0)
                     );
+                    return;
+                } else {
+                    warning!("ParadeDB: Semi-join strategy execution returned None, falling back to standard search");
                 }
+            } else {
+                warning!(
+                    "ParadeDB: No semi-join strategies generated, falling back to standard search"
+                );
             }
+        } else {
+            warning!("ParadeDB: Semi-join optimization not applicable, using standard search");
         }
+
+        warning!("ParadeDB: Using standard search execution (no semi-join optimization)");
+
+        // Fallback to standard search execution
+        execute_standard_searches(state, predicates);
+    }
+}
+
+/// Execute standard searches without optimization
+unsafe fn execute_standard_searches(
+    state: &mut CustomScanStateWrapper<PdbScan>,
+    predicates: &JoinSearchPredicates,
+) {
+    if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
+        // Execute searches on outer relation
+        let outer_results = execute_normal_search_for_side(
+            &join_state.search_readers,
+            &predicates.outer_predicates,
+        );
 
         // Execute searches on inner relation
-        let mut inner_results = Vec::new();
-        for predicate in &predicates.inner_predicates {
-            if predicate.uses_search_operator {
-                if let Some(search_reader) = join_state.search_readers.get(&predicate.relid) {
-                    let relation_name = get_rel_name(predicate.relid);
-                    warning!(
-                        "ParadeDB: Executing search on inner relation {}",
-                        relation_name
-                    );
-
-                    let results = execute_real_search(search_reader, predicate);
-                    inner_results.extend(results);
-
-                    warning!(
-                        "ParadeDB: Found {} results for inner relation {}",
-                        inner_results.len(),
-                        relation_name
-                    );
-                }
-            }
-        }
+        let inner_results = execute_normal_search_for_side(
+            &join_state.search_readers,
+            &predicates.inner_predicates,
+        );
 
         // Store the search results - handle unilateral joins by generating table scan results
         join_state.outer_results = if outer_results.is_empty() {
             warning!("ParadeDB: No outer search results - generating table scan results for unilateral join");
-            // For unilateral joins, generate CTIDs for table scanning the non-search side
             Some(generate_table_scan_results(join_state.outer_relid))
         } else {
             Some(outer_results)
@@ -1469,7 +1549,6 @@ unsafe fn execute_real_searches(
 
         join_state.inner_results = if inner_results.is_empty() {
             warning!("ParadeDB: No inner search results - generating table scan results for unilateral join");
-            // For unilateral joins, generate CTIDs for table scanning the non-search side
             Some(generate_table_scan_results(join_state.inner_relid))
         } else {
             Some(inner_results)
@@ -1479,11 +1558,39 @@ unsafe fn execute_real_searches(
         join_state.inner_position = 0;
 
         warning!(
-            "ParadeDB: Completed real search execution - outer: {}, inner: {}",
+            "ParadeDB: Completed standard search execution - outer: {}, inner: {}",
             join_state.outer_results.as_ref().unwrap().len(),
             join_state.inner_results.as_ref().unwrap().len()
         );
     }
+}
+
+/// Execute normal search for a side (outer or inner)
+unsafe fn execute_normal_search_for_side(
+    search_readers: &HashMap<pg_sys::Oid, SearchIndexReader>,
+    predicates: &[RelationSearchPredicate],
+) -> Vec<(u64, f32)> {
+    let mut results = Vec::new();
+
+    for predicate in predicates {
+        if predicate.uses_search_operator {
+            if let Some(search_reader) = search_readers.get(&predicate.relid) {
+                let relation_name = get_rel_name(predicate.relid);
+                warning!("ParadeDB: Executing search on relation {}", relation_name);
+
+                let search_results = execute_real_search(search_reader, predicate);
+                results.extend(search_results);
+
+                warning!(
+                    "ParadeDB: Found {} results for relation {}",
+                    results.len(),
+                    relation_name
+                );
+            }
+        }
+    }
+
+    results
 }
 
 /// Execute a real BM25 search on a relation
@@ -3822,99 +3929,30 @@ unsafe fn execute_real_searches_safe(
 ) -> bool {
     warning!("ParadeDB: Executing real searches with safety checks");
 
-    if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
-        let mut outer_results = Vec::new();
-        let mut inner_results = Vec::new();
+    // Use panic handling to catch any errors in the semi-join optimization
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        execute_real_searches(state, predicates);
+    })) {
+        Ok(_) => {
+            warning!("ParadeDB: Semi-join optimized search execution completed successfully");
+            true
+        }
+        Err(_) => {
+            warning!("ParadeDB: Semi-join optimization panicked, falling back to standard search");
 
-        // Execute searches on outer relation with error handling
-        for predicate in &predicates.outer_predicates {
-            if predicate.uses_search_operator {
-                if let Some(search_reader) = join_state.search_readers.get(&predicate.relid) {
-                    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        execute_real_search(search_reader, predicate)
-                    })) {
-                        Ok(results) => {
-                            outer_results.extend(results);
-                            warning!(
-                                "ParadeDB: Successfully executed search on {}",
-                                predicate.relname
-                            );
-                        }
-                        Err(_) => {
-                            warning!(
-                                "ParadeDB: Search execution panicked for {}",
-                                predicate.relname
-                            );
-                            return false;
-                        }
-                    }
+            // Fallback to standard search execution
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                execute_standard_searches(state, predicates);
+            })) {
+                Ok(_) => {
+                    warning!("ParadeDB: Fallback standard search execution completed successfully");
+                    true
+                }
+                Err(_) => {
+                    warning!("ParadeDB: Both semi-join and standard search execution failed");
+                    false
                 }
             }
         }
-
-        // Execute searches on inner relation with error handling
-        for predicate in &predicates.inner_predicates {
-            if predicate.uses_search_operator {
-                if let Some(search_reader) = join_state.search_readers.get(&predicate.relid) {
-                    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        execute_real_search(search_reader, predicate)
-                    })) {
-                        Ok(results) => {
-                            inner_results.extend(results);
-                            warning!(
-                                "ParadeDB: Successfully executed search on {}",
-                                predicate.relname
-                            );
-                        }
-                        Err(_) => {
-                            warning!(
-                                "ParadeDB: Search execution panicked for {}",
-                                predicate.relname
-                            );
-                            return false;
-                        }
-                    }
-                }
-            }
-        }
-
-        // Store results - handle unilateral joins by generating table scan results
-        join_state.outer_results = if outer_results.is_empty() {
-            warning!("ParadeDB: No outer search results - generating table scan results for unilateral join");
-            // For unilateral joins, generate CTIDs for table scanning the non-search side
-            Some(generate_table_scan_results(join_state.outer_relid))
-        } else {
-            Some(outer_results)
-        };
-
-        join_state.inner_results = if inner_results.is_empty() {
-            warning!("ParadeDB: No inner search results - generating table scan results for unilateral join");
-            // For unilateral joins, generate CTIDs for table scanning the non-search side
-            Some(generate_table_scan_results(join_state.inner_relid))
-        } else {
-            Some(inner_results)
-        };
-
-        join_state.outer_position = 0;
-        join_state.inner_position = 0;
-
-        warning!(
-            "ParadeDB: Search execution completed - outer: {}, inner: {}",
-            join_state
-                .outer_results
-                .as_ref()
-                .map(|r| r.len())
-                .unwrap_or(0),
-            join_state
-                .inner_results
-                .as_ref()
-                .map(|r| r.len())
-                .unwrap_or(0)
-        );
-
-        true
-    } else {
-        warning!("ParadeDB: Real search execution failed - no join execution state");
-        false
     }
 }

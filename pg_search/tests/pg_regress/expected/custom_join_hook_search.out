@@ -60,6 +60,7 @@ FROM products p
 JOIN reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'performance' AND r.review_text @@@ 'excellent';
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["products"], inner relids: ["reviews"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation products (rti 1)
 WARNING:  ParadeDB: Checked relations ["products"] for BM25 indexes, found: true
 WARNING:  ParadeDB: Found BM25 index for relation reviews (rti 2)
@@ -76,7 +77,7 @@ WARNING:  ParadeDB: Extracting predicates for relation reviews (rti 2)
 WARNING:  ParadeDB: Extracted search query for reviews: uses_search_operator=true
 WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
 WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Join is feasible - outer feasible: true, inner feasible: true
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
 WARNING:  ParadeDB: Outer predicate for products - uses_search: true
 WARNING:  ParadeDB: Inner predicate for reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
@@ -84,6 +85,7 @@ WARNING:  ParadeDB: Storing join relation OIDs - outer: ["products"], inner: ["r
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["reviews"], inner relids: ["products"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation reviews (rti 2)
 WARNING:  ParadeDB: Checked relations ["reviews"] for BM25 indexes, found: true
 WARNING:  ParadeDB: Found BM25 index for relation products (rti 1)
@@ -100,7 +102,7 @@ WARNING:  ParadeDB: Extracting predicates for relation products (rti 1)
 WARNING:  ParadeDB: Extracted search query for products: uses_search_operator=true
 WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
 WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Join is feasible - outer feasible: true, inner feasible: true
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
 WARNING:  ParadeDB: Outer predicate for reviews - uses_search: true
 WARNING:  ParadeDB: Inner predicate for products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
@@ -122,7 +124,7 @@ WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_1'
 WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=3 -> 'join_attr_2'
 WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=4 -> 'join_attr_3'
 WARNING:  ParadeDB: Beginning custom scan for join node
-WARNING:  ParadeDB: Initializing join execution (simplified)
+WARNING:  ParadeDB: Initializing join execution with enhanced composite support
 WARNING:  ParadeDB: Using stored search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Join execution initialization complete
 WARNING:  ParadeDB: Executing join step
@@ -251,6 +253,7 @@ FROM products p
 JOIN reviews r ON p.id = r.product_id
 WHERE p.category @@@ 'Electronics';
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["products"], inner relids: ["reviews"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation products (rti 1)
 WARNING:  ParadeDB: Checked relations ["products"] for BM25 indexes, found: true
 WARNING:  ParadeDB: Found BM25 index for relation reviews (rti 2)
@@ -264,13 +267,14 @@ WARNING:  ParadeDB: Extracting predicates for relation products (rti 1)
 WARNING:  ParadeDB: Extracted search query for products: uses_search_operator=true
 WARNING:  ParadeDB: Extracted 1 outer predicates, 0 inner predicates, 0 join conditions
 WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 0, bilateral: false
-WARNING:  ParadeDB: Join is feasible - outer feasible: true, inner feasible: false
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
 WARNING:  ParadeDB: Outer predicate for products - uses_search: true
 WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["products"], inner: ["reviews"]
 WARNING:  ParadeDB: Join path estimates - rows: 2, startup_cost: 100.00, total_cost: 100.02
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["reviews"], inner relids: ["products"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation reviews (rti 2)
 WARNING:  ParadeDB: Checked relations ["reviews"] for BM25 indexes, found: true
 WARNING:  ParadeDB: Found BM25 index for relation products (rti 1)
@@ -284,7 +288,7 @@ WARNING:  ParadeDB: Extracting predicates for relation products (rti 1)
 WARNING:  ParadeDB: Extracted search query for products: uses_search_operator=true
 WARNING:  ParadeDB: Extracted 0 outer predicates, 1 inner predicates, 0 join conditions
 WARNING:  ParadeDB: Found search predicates - outer: 0, inner: 1, bilateral: false
-WARNING:  ParadeDB: Join is feasible - outer feasible: false, inner feasible: true
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
 WARNING:  ParadeDB: Inner predicate for products - uses_search: true
 WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["reviews"], inner: ["products"]
@@ -305,7 +309,7 @@ WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_1'
 WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=3 -> 'join_attr_2'
 WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=5 -> 'join_attr_3'
 WARNING:  ParadeDB: Beginning custom scan for join node
-WARNING:  ParadeDB: Initializing join execution (simplified)
+WARNING:  ParadeDB: Initializing join execution with enhanced composite support
 WARNING:  ParadeDB: Using stored search predicates - outer: 1, inner: 0, bilateral: false
 WARNING:  ParadeDB: Join execution initialization complete
 WARNING:  ParadeDB: Executing join step
@@ -441,6 +445,7 @@ FROM products p
 JOIN reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'wireless OR smartphone' AND r.review_text @@@ 'amazing OR perfect';
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["products"], inner relids: ["reviews"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation products (rti 1)
 WARNING:  ParadeDB: Checked relations ["products"] for BM25 indexes, found: true
 WARNING:  ParadeDB: Found BM25 index for relation reviews (rti 2)
@@ -457,7 +462,7 @@ WARNING:  ParadeDB: Extracting predicates for relation reviews (rti 2)
 WARNING:  ParadeDB: Extracted search query for reviews: uses_search_operator=true
 WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
 WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Join is feasible - outer feasible: true, inner feasible: true
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
 WARNING:  ParadeDB: Outer predicate for products - uses_search: true
 WARNING:  ParadeDB: Inner predicate for reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
@@ -465,6 +470,7 @@ WARNING:  ParadeDB: Storing join relation OIDs - outer: ["products"], inner: ["r
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["reviews"], inner relids: ["products"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation reviews (rti 2)
 WARNING:  ParadeDB: Checked relations ["reviews"] for BM25 indexes, found: true
 WARNING:  ParadeDB: Found BM25 index for relation products (rti 1)
@@ -481,7 +487,7 @@ WARNING:  ParadeDB: Extracting predicates for relation products (rti 1)
 WARNING:  ParadeDB: Extracted search query for products: uses_search_operator=true
 WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
 WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Join is feasible - outer feasible: true, inner feasible: true
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
 WARNING:  ParadeDB: Outer predicate for reviews - uses_search: true
 WARNING:  ParadeDB: Inner predicate for products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
@@ -503,7 +509,7 @@ WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_1'
 WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=4 -> 'join_attr_3'
 WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=3 -> 'join_attr_2'
 WARNING:  ParadeDB: Beginning custom scan for join node
-WARNING:  ParadeDB: Initializing join execution (simplified)
+WARNING:  ParadeDB: Initializing join execution with enhanced composite support
 WARNING:  ParadeDB: Using stored search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Join execution initialization complete
 WARNING:  ParadeDB: Executing join step
@@ -613,6 +619,7 @@ FROM products p
 JOIN reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop' AND r.rating >= 4;
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["products"], inner relids: ["reviews"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation products (rti 1)
 WARNING:  ParadeDB: Checked relations ["products"] for BM25 indexes, found: true
 WARNING:  ParadeDB: Found BM25 index for relation reviews (rti 2)
@@ -629,7 +636,7 @@ WARNING:  ParadeDB: Extracting predicates for relation reviews (rti 2)
 WARNING:  ParadeDB: Extracted search query for reviews: uses_search_operator=false
 WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
 WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Join is feasible - outer feasible: true, inner feasible: false
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
 WARNING:  ParadeDB: Outer predicate for products - uses_search: true
 WARNING:  ParadeDB: Inner predicate for reviews - uses_search: false
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
@@ -637,6 +644,7 @@ WARNING:  ParadeDB: Storing join relation OIDs - outer: ["products"], inner: ["r
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["reviews"], inner relids: ["products"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation reviews (rti 2)
 WARNING:  ParadeDB: Checked relations ["reviews"] for BM25 indexes, found: true
 WARNING:  ParadeDB: Found BM25 index for relation products (rti 1)
@@ -653,7 +661,7 @@ WARNING:  ParadeDB: Extracting predicates for relation products (rti 1)
 WARNING:  ParadeDB: Extracted search query for products: uses_search_operator=true
 WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
 WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Join is feasible - outer feasible: false, inner feasible: true
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
 WARNING:  ParadeDB: Outer predicate for reviews - uses_search: false
 WARNING:  ParadeDB: Inner predicate for products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
@@ -675,7 +683,7 @@ WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_1'
 WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=4 -> 'join_attr_2'
 WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=5 -> 'join_attr_3'
 WARNING:  ParadeDB: Beginning custom scan for join node
-WARNING:  ParadeDB: Initializing join execution (simplified)
+WARNING:  ParadeDB: Initializing join execution with enhanced composite support
 WARNING:  ParadeDB: Using stored search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Join execution initialization complete
 WARNING:  ParadeDB: Executing join step
@@ -791,6 +799,7 @@ FROM products p
 JOIN reviews r ON p.id = r.product_id
 WHERE p.id = 1;
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["products"], inner relids: ["reviews"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation products (rti 1)
 WARNING:  ParadeDB: Checked relations ["products"] for BM25 indexes, found: true
 WARNING:  ParadeDB: Found BM25 index for relation reviews (rti 2)
@@ -807,6 +816,7 @@ WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join con
 WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Skipping custom join - no search operators found (outer: false, inner: false)
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["reviews"], inner relids: ["products"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation reviews (rti 2)
 WARNING:  ParadeDB: Checked relations ["reviews"] for BM25 indexes, found: true
 WARNING:  ParadeDB: Found BM25 index for relation products (rti 1)

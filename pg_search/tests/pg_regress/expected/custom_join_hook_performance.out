@@ -73,6 +73,7 @@ FROM documents_perf d
 JOIN tags_perf t ON d.id = t.document_id
 WHERE d.content @@@ 'technology OR science' AND t.tag_value @@@ 'high OR medium';
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["documents_perf"], inner relids: ["tags_perf"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation documents_perf (rti 1)
 WARNING:  ParadeDB: Checked relations ["documents_perf"] for BM25 indexes, found: true
 WARNING:  ParadeDB: Found BM25 index for relation tags_perf (rti 2)
@@ -89,7 +90,7 @@ WARNING:  ParadeDB: Extracting predicates for relation tags_perf (rti 2)
 WARNING:  ParadeDB: Extracted search query for tags_perf: uses_search_operator=true
 WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
 WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Join is feasible - outer feasible: true, inner feasible: true
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
 WARNING:  ParadeDB: Outer predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
@@ -97,6 +98,7 @@ WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_perf"], inne
 WARNING:  ParadeDB: Join path estimates - rows: 134, startup_cost: 100.00, total_cost: 101.34
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["tags_perf"], inner relids: ["documents_perf"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation tags_perf (rti 2)
 WARNING:  ParadeDB: Checked relations ["tags_perf"] for BM25 indexes, found: true
 WARNING:  ParadeDB: Found BM25 index for relation documents_perf (rti 1)
@@ -113,7 +115,7 @@ WARNING:  ParadeDB: Extracting predicates for relation documents_perf (rti 1)
 WARNING:  ParadeDB: Extracted search query for documents_perf: uses_search_operator=true
 WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
 WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Join is feasible - outer feasible: true, inner feasible: true
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
 WARNING:  ParadeDB: Outer predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
@@ -129,7 +131,7 @@ WARNING:  ParadeDB: Stored outer relation OIDs: ["documents_perf"]
 WARNING:  ParadeDB: Stored inner relation OIDs: ["tags_perf"]
 WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
 WARNING:  ParadeDB: Beginning custom scan for join node
-WARNING:  ParadeDB: Initializing join execution (simplified)
+WARNING:  ParadeDB: Initializing join execution with enhanced composite support
 WARNING:  ParadeDB: Using stored search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Join execution initialization complete
 WARNING:  ParadeDB: Executing join step
@@ -12590,6 +12592,7 @@ JOIN tags_perf t ON d.id = t.document_id
 WHERE d.content @@@ 'innovation' AND t.tag_value @@@ 'high'
 LIMIT 5;
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["documents_perf"], inner relids: ["tags_perf"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation documents_perf (rti 1)
 WARNING:  ParadeDB: Checked relations ["documents_perf"] for BM25 indexes, found: true
 WARNING:  ParadeDB: Found BM25 index for relation tags_perf (rti 2)
@@ -12606,7 +12609,7 @@ WARNING:  ParadeDB: Extracting predicates for relation tags_perf (rti 2)
 WARNING:  ParadeDB: Extracted search query for tags_perf: uses_search_operator=true
 WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
 WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Join is feasible - outer feasible: true, inner feasible: true
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
 WARNING:  ParadeDB: Outer predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
@@ -12614,6 +12617,7 @@ WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_perf"], inne
 WARNING:  ParadeDB: Join path estimates - rows: 33, startup_cost: 100.00, total_cost: 100.33
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["tags_perf"], inner relids: ["documents_perf"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation tags_perf (rti 2)
 WARNING:  ParadeDB: Checked relations ["tags_perf"] for BM25 indexes, found: true
 WARNING:  ParadeDB: Found BM25 index for relation documents_perf (rti 1)
@@ -12630,7 +12634,7 @@ WARNING:  ParadeDB: Extracting predicates for relation documents_perf (rti 1)
 WARNING:  ParadeDB: Extracted search query for documents_perf: uses_search_operator=true
 WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
 WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Join is feasible - outer feasible: true, inner feasible: true
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
 WARNING:  ParadeDB: Outer predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
@@ -12652,7 +12656,7 @@ WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_1'
 WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=3 -> 'join_attr_2'
 WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=4 -> 'join_attr_3'
 WARNING:  ParadeDB: Beginning custom scan for join node
-WARNING:  ParadeDB: Initializing join execution (simplified)
+WARNING:  ParadeDB: Initializing join execution with enhanced composite support
 WARNING:  ParadeDB: Using stored search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Join execution initialization complete
 WARNING:  ParadeDB: Executing join step
@@ -15854,6 +15858,7 @@ FROM documents_perf d
 JOIN tags_perf t ON d.id = t.document_id
 WHERE d.author @@@ 'Author' AND t.tag_name @@@ 'category OR priority';
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["documents_perf"], inner relids: ["tags_perf"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation documents_perf (rti 1)
 WARNING:  ParadeDB: Checked relations ["documents_perf"] for BM25 indexes, found: true
 WARNING:  ParadeDB: Found BM25 index for relation tags_perf (rti 2)
@@ -15870,7 +15875,7 @@ WARNING:  ParadeDB: Extracting predicates for relation tags_perf (rti 2)
 WARNING:  ParadeDB: Extracted search query for tags_perf: uses_search_operator=true
 WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
 WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Join is feasible - outer feasible: true, inner feasible: true
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
 WARNING:  ParadeDB: Outer predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
@@ -15878,6 +15883,7 @@ WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_perf"], inne
 WARNING:  ParadeDB: Join path estimates - rows: 250, startup_cost: 100.00, total_cost: 102.50
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["tags_perf"], inner relids: ["documents_perf"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation tags_perf (rti 2)
 WARNING:  ParadeDB: Checked relations ["tags_perf"] for BM25 indexes, found: true
 WARNING:  ParadeDB: Found BM25 index for relation documents_perf (rti 1)
@@ -15894,7 +15900,7 @@ WARNING:  ParadeDB: Extracting predicates for relation documents_perf (rti 1)
 WARNING:  ParadeDB: Extracted search query for documents_perf: uses_search_operator=true
 WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
 WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Join is feasible - outer feasible: true, inner feasible: true
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
 WARNING:  ParadeDB: Outer predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
@@ -15910,7 +15916,7 @@ WARNING:  ParadeDB: Stored outer relation OIDs: ["documents_perf"]
 WARNING:  ParadeDB: Stored inner relation OIDs: ["tags_perf"]
 WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
 WARNING:  ParadeDB: Beginning custom scan for join node
-WARNING:  ParadeDB: Initializing join execution (simplified)
+WARNING:  ParadeDB: Initializing join execution with enhanced composite support
 WARNING:  ParadeDB: Using stored search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Join execution initialization complete
 WARNING:  ParadeDB: Executing join step
@@ -39140,6 +39146,7 @@ FROM documents_perf d
 JOIN tags_perf t ON d.id = t.document_id
 WHERE d.content @@@ 'nonexistent_term' AND t.tag_value @@@ 'impossible_value';
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["documents_perf"], inner relids: ["tags_perf"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation documents_perf (rti 1)
 WARNING:  ParadeDB: Checked relations ["documents_perf"] for BM25 indexes, found: true
 WARNING:  ParadeDB: Found BM25 index for relation tags_perf (rti 2)
@@ -39156,7 +39163,7 @@ WARNING:  ParadeDB: Extracting predicates for relation tags_perf (rti 2)
 WARNING:  ParadeDB: Extracted search query for tags_perf: uses_search_operator=true
 WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
 WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Join is feasible - outer feasible: true, inner feasible: true
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
 WARNING:  ParadeDB: Outer predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
@@ -39164,6 +39171,7 @@ WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_perf"], inne
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 100.00, total_cost: 100.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["tags_perf"], inner relids: ["documents_perf"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation tags_perf (rti 2)
 WARNING:  ParadeDB: Checked relations ["tags_perf"] for BM25 indexes, found: true
 WARNING:  ParadeDB: Found BM25 index for relation documents_perf (rti 1)
@@ -39180,7 +39188,7 @@ WARNING:  ParadeDB: Extracting predicates for relation documents_perf (rti 1)
 WARNING:  ParadeDB: Extracted search query for documents_perf: uses_search_operator=true
 WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
 WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Join is feasible - outer feasible: true, inner feasible: true
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
 WARNING:  ParadeDB: Outer predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
@@ -39200,7 +39208,7 @@ WARNING:  ParadeDB: Storing 2 variable mappings from planning phase
 WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_1'
 WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=4 -> 'join_attr_2'
 WARNING:  ParadeDB: Beginning custom scan for join node
-WARNING:  ParadeDB: Initializing join execution (simplified)
+WARNING:  ParadeDB: Initializing join execution with enhanced composite support
 WARNING:  ParadeDB: Using stored search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Join execution initialization complete
 WARNING:  ParadeDB: Executing join step
@@ -39314,6 +39322,7 @@ JOIN tags_perf t ON d.id = t.document_id
 WHERE d.title @@@ 'Document 1' AND t.tag_value @@@ 'high'
 LIMIT 1;
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["documents_perf"], inner relids: ["tags_perf"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation documents_perf (rti 1)
 WARNING:  ParadeDB: Checked relations ["documents_perf"] for BM25 indexes, found: true
 WARNING:  ParadeDB: Found BM25 index for relation tags_perf (rti 2)
@@ -39330,7 +39339,7 @@ WARNING:  ParadeDB: Extracting predicates for relation tags_perf (rti 2)
 WARNING:  ParadeDB: Extracted search query for tags_perf: uses_search_operator=true
 WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
 WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Join is feasible - outer feasible: true, inner feasible: true
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
 WARNING:  ParadeDB: Outer predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
@@ -39338,6 +39347,7 @@ WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_perf"], inne
 WARNING:  ParadeDB: Join path estimates - rows: 165, startup_cost: 100.00, total_cost: 101.65
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["tags_perf"], inner relids: ["documents_perf"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation tags_perf (rti 2)
 WARNING:  ParadeDB: Checked relations ["tags_perf"] for BM25 indexes, found: true
 WARNING:  ParadeDB: Found BM25 index for relation documents_perf (rti 1)
@@ -39354,7 +39364,7 @@ WARNING:  ParadeDB: Extracting predicates for relation documents_perf (rti 1)
 WARNING:  ParadeDB: Extracted search query for documents_perf: uses_search_operator=true
 WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
 WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Join is feasible - outer feasible: true, inner feasible: true
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
 WARNING:  ParadeDB: Outer predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
@@ -39376,7 +39386,7 @@ WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_1'
 WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=3 -> 'join_attr_3'
 WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=4 -> 'join_attr_2'
 WARNING:  ParadeDB: Beginning custom scan for join node
-WARNING:  ParadeDB: Initializing join execution (simplified)
+WARNING:  ParadeDB: Initializing join execution with enhanced composite support
 WARNING:  ParadeDB: Using stored search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Join execution initialization complete
 WARNING:  ParadeDB: Executing join step
@@ -40089,6 +40099,7 @@ FROM documents_perf d
 JOIN tags_perf t ON d.id = t.document_id
 WHERE d.content @@@ 'technology' AND t.tag_value @@@ 'high';
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["documents_perf"], inner relids: ["tags_perf"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation documents_perf (rti 1)
 WARNING:  ParadeDB: Checked relations ["documents_perf"] for BM25 indexes, found: true
 WARNING:  ParadeDB: Found BM25 index for relation tags_perf (rti 2)
@@ -40105,7 +40116,7 @@ WARNING:  ParadeDB: Extracting predicates for relation tags_perf (rti 2)
 WARNING:  ParadeDB: Extracted search query for tags_perf: uses_search_operator=true
 WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
 WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Join is feasible - outer feasible: true, inner feasible: true
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
 WARNING:  ParadeDB: Outer predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
@@ -40113,6 +40124,7 @@ WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_perf"], inne
 WARNING:  ParadeDB: Join path estimates - rows: 33, startup_cost: 100.00, total_cost: 100.33
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["tags_perf"], inner relids: ["documents_perf"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation tags_perf (rti 2)
 WARNING:  ParadeDB: Checked relations ["tags_perf"] for BM25 indexes, found: true
 WARNING:  ParadeDB: Found BM25 index for relation documents_perf (rti 1)
@@ -40129,7 +40141,7 @@ WARNING:  ParadeDB: Extracting predicates for relation documents_perf (rti 1)
 WARNING:  ParadeDB: Extracted search query for documents_perf: uses_search_operator=true
 WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
 WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Join is feasible - outer feasible: true, inner feasible: true
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
 WARNING:  ParadeDB: Outer predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
@@ -40149,7 +40161,7 @@ WARNING:  ParadeDB: Storing 2 variable mappings from planning phase
 WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_1'
 WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=4 -> 'join_attr_2'
 WARNING:  ParadeDB: Beginning custom scan for join node
-WARNING:  ParadeDB: Initializing join execution (simplified)
+WARNING:  ParadeDB: Initializing join execution with enhanced composite support
 WARNING:  ParadeDB: Using stored search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Join execution initialization complete
 ERROR:  called `Option::unwrap()` on a `None` value

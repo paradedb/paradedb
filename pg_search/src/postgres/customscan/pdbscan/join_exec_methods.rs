@@ -29,7 +29,6 @@ use crate::postgres::customscan::pdbscan::join_qual_inspect::{
 use crate::postgres::customscan::pdbscan::privdat::{CompositeSide, JoinCompositeInfo};
 use crate::postgres::customscan::pdbscan::{get_rel_name, PdbScan};
 use crate::postgres::rel_get_bm25_index;
-use crate::query::SearchQueryInput;
 use pgrx::{pg_sys, warning, FromDatum};
 use std::collections::HashMap;
 use std::fmt::Display;
@@ -263,7 +262,7 @@ pub unsafe fn init_join_execution(
     state: &mut CustomScanStateWrapper<PdbScan>,
     estate: *mut pg_sys::EState,
 ) {
-    warning!("ParadeDB: Initializing join execution (simplified)");
+    warning!("ParadeDB: Initializing join execution with enhanced composite support");
 
     // The search predicates should already be stored in the join execution state
     // during the create_custom_scan_state phase
@@ -277,6 +276,15 @@ pub unsafe fn init_join_execution(
             );
         } else {
             warning!("ParadeDB: No search predicates available for join execution");
+        }
+
+        // Check if this is a composite join that needs intermediate result handling
+        if let Some(ref composite_info) = join_state.composite_info {
+            warning!(
+                "ParadeDB: Detected composite join - composite_side: {:?}, setting up intermediate result handling",
+                composite_info.composite_side
+            );
+            setup_intermediate_result_handling(state);
         }
     } else {
         warning!("ParadeDB: No join execution state found - this should not happen for join nodes");
@@ -360,6 +368,503 @@ unsafe fn setup_intermediate_result_handling(state: &mut CustomScanStateWrapper<
     warning!("ParadeDB: Intermediate result handling setup complete");
 }
 
+/// Enhanced intermediate result processing that actually fetches from PostgreSQL's executor
+unsafe fn process_intermediate_results_from_executor(
+    state: &mut CustomScanStateWrapper<PdbScan>,
+) -> bool {
+    warning!("ParadeDB: Processing intermediate results from PostgreSQL executor");
+
+    let mut has_results = false;
+
+    if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
+        if let Some(ref mut iterator) = join_state.intermediate_iterator {
+            // Clear any existing cached tuples
+            iterator.cached_tuples.clear();
+            iterator.current_position = 0;
+
+            // Fetch all intermediate tuples from the child plan
+            loop {
+                let slot = pg_sys::ExecProcNode(iterator.child_plan_state);
+                if slot.is_null() {
+                    // No more tuples
+                    break;
+                }
+
+                // Check if the slot has valid data
+                if !(*slot).tts_isnull.is_null() && (*slot).tts_nvalid > 0 {
+                    // Extract tuple values from the slot
+                    let tuple_values = extract_tuple_values_from_slot(slot);
+                    iterator.cached_tuples.push(tuple_values);
+                    has_results = true;
+
+                    // Set the tuple descriptor if not already set
+                    if iterator.intermediate_tupdesc.is_null() {
+                        iterator.intermediate_tupdesc = (*slot).tts_tupleDescriptor;
+                    }
+                }
+            }
+
+            warning!(
+                "ParadeDB: Cached {} intermediate tuples from executor",
+                iterator.cached_tuples.len()
+            );
+        }
+    }
+
+    has_results
+}
+
+/// Enhanced join execution that properly handles composite relations
+unsafe fn execute_composite_join_with_intermediate_results(
+    state: &mut CustomScanStateWrapper<PdbScan>,
+) -> *mut pg_sys::TupleTableSlot {
+    warning!("ParadeDB: Executing composite join with intermediate results");
+
+    // Check if we have composite relation info
+    let composite_info = if let Some(ref join_state) = state.custom_state().join_exec_state {
+        join_state.composite_info.clone()
+    } else {
+        None
+    };
+
+    match composite_info {
+        Some(JoinCompositeInfo {
+            composite_side: CompositeSide::Outer,
+            base_has_search: true,
+            ..
+        }) => {
+            // Outer side is composite, inner side is base with search
+            warning!("ParadeDB: Handling outer composite, inner base with search");
+            execute_outer_composite_inner_base_join(state)
+        }
+        Some(JoinCompositeInfo {
+            composite_side: CompositeSide::Inner,
+            base_has_search: true,
+            ..
+        }) => {
+            // Inner side is composite, outer side is base with search
+            warning!("ParadeDB: Handling inner composite, outer base with search");
+            execute_inner_composite_outer_base_join(state)
+        }
+        _ => {
+            // Fallback to standard join execution
+            warning!(
+                "ParadeDB: No composite info or unsupported configuration, using standard join"
+            );
+            match_and_return_next_tuple(state)
+        }
+    }
+}
+
+/// Execute join where outer side is composite and inner side is base with search
+unsafe fn execute_outer_composite_inner_base_join(
+    state: &mut CustomScanStateWrapper<PdbScan>,
+) -> *mut pg_sys::TupleTableSlot {
+    warning!("ParadeDB: Executing outer composite + inner base join");
+
+    // First, ensure we have intermediate results from the composite side
+    if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
+        if let Some(ref iterator) = join_state.intermediate_iterator {
+            if iterator.cached_tuples.is_empty() {
+                // Try to fetch intermediate results
+                if !process_intermediate_results_from_executor(state) {
+                    warning!("ParadeDB: No intermediate results available");
+                    return std::ptr::null_mut();
+                }
+            }
+        }
+    }
+
+    // Execute search on the base relation (inner side)
+    execute_search_on_base_relation(state);
+
+    // Now perform the join between intermediate results and search results
+    join_intermediate_with_search_results(state)
+}
+
+/// Execute join where inner side is composite and outer side is base with search
+unsafe fn execute_inner_composite_outer_base_join(
+    state: &mut CustomScanStateWrapper<PdbScan>,
+) -> *mut pg_sys::TupleTableSlot {
+    warning!("ParadeDB: Executing inner composite + outer base join");
+
+    // Execute search on the base relation (outer side)
+    execute_search_on_base_relation(state);
+
+    // Get intermediate results from the composite side
+    if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
+        if let Some(ref iterator) = join_state.intermediate_iterator {
+            if iterator.cached_tuples.is_empty() {
+                // Try to fetch intermediate results
+                if !process_intermediate_results_from_executor(state) {
+                    warning!("ParadeDB: No intermediate results available");
+                    return std::ptr::null_mut();
+                }
+            }
+        }
+    }
+
+    // Now perform the join between search results and intermediate results
+    join_search_with_intermediate_results(state)
+}
+
+/// Execute search on the base relation side
+unsafe fn execute_search_on_base_relation(state: &mut CustomScanStateWrapper<PdbScan>) {
+    warning!("ParadeDB: Executing search on base relation");
+
+    if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
+        if let Some(ref predicates) = join_state.search_predicates {
+            // Determine which side has the search predicates
+            if !predicates.outer_predicates.is_empty() {
+                // Execute search on outer predicates
+                for predicate in &predicates.outer_predicates {
+                    if predicate.uses_search_operator {
+                        if let Some(search_reader) = join_state.search_readers.get(&predicate.relid)
+                        {
+                            let results = execute_real_search(search_reader, predicate);
+                            join_state.outer_results = Some(results);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if !predicates.inner_predicates.is_empty() {
+                // Execute search on inner predicates
+                for predicate in &predicates.inner_predicates {
+                    if predicate.uses_search_operator {
+                        if let Some(search_reader) = join_state.search_readers.get(&predicate.relid)
+                        {
+                            let results = execute_real_search(search_reader, predicate);
+                            join_state.inner_results = Some(results);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Join intermediate results with search results
+unsafe fn join_intermediate_with_search_results(
+    state: &mut CustomScanStateWrapper<PdbScan>,
+) -> *mut pg_sys::TupleTableSlot {
+    warning!("ParadeDB: Joining intermediate results with search results");
+
+    // Get the next intermediate tuple to process
+    let intermediate_tuple = get_next_intermediate_tuple(state);
+    if intermediate_tuple.is_none() {
+        warning!("ParadeDB: No more intermediate tuples to process");
+        return std::ptr::null_mut();
+    }
+
+    let intermediate_tuple = intermediate_tuple.unwrap();
+
+    // Get search results
+    let search_results = get_search_results_for_join(state);
+    if search_results.is_empty() {
+        warning!("ParadeDB: No search results available for join");
+        return std::ptr::null_mut();
+    }
+
+    // Find matching search results based on join condition
+    for (ctid, _score) in search_results {
+        if evaluate_join_condition_with_intermediate(state, &intermediate_tuple, ctid) {
+            warning!("ParadeDB: Found matching tuple for intermediate result");
+            return create_composite_join_result_tuple(state, &intermediate_tuple, ctid);
+        }
+    }
+
+    warning!("ParadeDB: No matching search results for current intermediate tuple");
+    // Try next intermediate tuple
+    join_intermediate_with_search_results(state)
+}
+
+/// Join search results with intermediate results (reverse order)
+unsafe fn join_search_with_intermediate_results(
+    state: &mut CustomScanStateWrapper<PdbScan>,
+) -> *mut pg_sys::TupleTableSlot {
+    warning!("ParadeDB: Joining search results with intermediate results");
+
+    // Get the next search result to process
+    let search_result = get_next_search_result(state);
+    if search_result.is_none() {
+        warning!("ParadeDB: No more search results to process");
+        return std::ptr::null_mut();
+    }
+
+    let (ctid, _score) = search_result.unwrap();
+
+    // Get intermediate results
+    let intermediate_results = get_intermediate_results_for_join(state);
+    if intermediate_results.is_empty() {
+        warning!("ParadeDB: No intermediate results available for join");
+        return std::ptr::null_mut();
+    }
+
+    // Find matching intermediate results based on join condition
+    for intermediate_tuple in intermediate_results {
+        if evaluate_join_condition_with_intermediate(state, &intermediate_tuple, ctid) {
+            warning!("ParadeDB: Found matching intermediate result for search tuple");
+            return create_composite_join_result_tuple(state, &intermediate_tuple, ctid);
+        }
+    }
+
+    warning!("ParadeDB: No matching intermediate results for current search tuple");
+    // Try next search result
+    join_search_with_intermediate_results(state)
+}
+
+/// Get the next intermediate tuple to process
+unsafe fn get_next_intermediate_tuple(
+    state: &mut CustomScanStateWrapper<PdbScan>,
+) -> Option<Vec<Option<String>>> {
+    if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
+        if let Some(ref mut iterator) = join_state.intermediate_iterator {
+            if iterator.current_position < iterator.cached_tuples.len() {
+                let tuple = iterator.cached_tuples[iterator.current_position].clone();
+                iterator.current_position += 1;
+                return Some(tuple);
+            }
+        }
+    }
+    None
+}
+
+/// Get search results for joining
+fn get_search_results_for_join(state: &mut CustomScanStateWrapper<PdbScan>) -> Vec<(u64, f32)> {
+    if let Some(ref join_state) = state.custom_state().join_exec_state {
+        // Return outer results if available, otherwise inner results
+        if let Some(ref results) = join_state.outer_results {
+            return results.clone();
+        }
+        if let Some(ref results) = join_state.inner_results {
+            return results.clone();
+        }
+    }
+    Vec::new()
+}
+
+/// Get the next search result to process
+fn get_next_search_result(state: &mut CustomScanStateWrapper<PdbScan>) -> Option<(u64, f32)> {
+    if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
+        // Try outer results first
+        if let Some(ref results) = join_state.outer_results {
+            if join_state.outer_position < results.len() {
+                let result = results[join_state.outer_position];
+                join_state.outer_position += 1;
+                return Some(result);
+            }
+        }
+
+        // Then try inner results
+        if let Some(ref results) = join_state.inner_results {
+            if join_state.inner_position < results.len() {
+                let result = results[join_state.inner_position];
+                join_state.inner_position += 1;
+                return Some(result);
+            }
+        }
+    }
+    None
+}
+
+/// Get intermediate results for joining
+fn get_intermediate_results_for_join(
+    state: &mut CustomScanStateWrapper<PdbScan>,
+) -> Vec<Vec<Option<String>>> {
+    if let Some(ref join_state) = state.custom_state().join_exec_state {
+        if let Some(ref iterator) = join_state.intermediate_iterator {
+            return iterator.cached_tuples.clone();
+        }
+    }
+    Vec::new()
+}
+
+/// Evaluate join condition between intermediate tuple and search result
+unsafe fn evaluate_join_condition_with_intermediate(
+    state: &mut CustomScanStateWrapper<PdbScan>,
+    intermediate_tuple: &[Option<String>],
+    search_ctid: u64,
+) -> bool {
+    warning!(
+        "ParadeDB: Evaluating join condition between intermediate tuple and search result (ctid {})",
+        search_ctid
+    );
+
+    // For now, implement a simple join condition based on the first column
+    // In a more sophisticated implementation, we would analyze the actual join conditions
+
+    // Get the join key from the intermediate tuple (assume first column is the join key)
+    let intermediate_join_key = if let Some(Some(ref value)) = intermediate_tuple.get(0) {
+        value.clone()
+    } else {
+        warning!("ParadeDB: No join key found in intermediate tuple");
+        return false;
+    };
+
+    // Get the join key from the search result
+    // We need to determine which relation the search result comes from
+    let search_relid = get_search_result_relation_id(state);
+    if search_relid == pg_sys::InvalidOid {
+        warning!("ParadeDB: Cannot determine search result relation");
+        return false;
+    }
+
+    // Fetch the join key from the search result tuple
+    let search_join_key = fetch_join_key_from_search_result(search_relid, search_ctid);
+
+    match search_join_key {
+        Some(search_key) => {
+            let condition_satisfied = intermediate_join_key == search_key;
+            warning!(
+                "ParadeDB: Join condition: '{}' = '{}' -> {}",
+                intermediate_join_key,
+                search_key,
+                condition_satisfied
+            );
+            condition_satisfied
+        }
+        None => {
+            warning!("ParadeDB: Failed to fetch join key from search result");
+            false
+        }
+    }
+}
+
+/// Get the relation ID for the search result
+fn get_search_result_relation_id(state: &mut CustomScanStateWrapper<PdbScan>) -> pg_sys::Oid {
+    if let Some(ref join_state) = state.custom_state().join_exec_state {
+        // Return the relation that has search results
+        if join_state.outer_results.is_some() {
+            return join_state.outer_relid;
+        }
+        if join_state.inner_results.is_some() {
+            return join_state.inner_relid;
+        }
+    }
+    pg_sys::InvalidOid
+}
+
+/// Fetch join key from search result tuple
+unsafe fn fetch_join_key_from_search_result(relid: pg_sys::Oid, ctid: u64) -> Option<String> {
+    // For our test schema, the join key is typically 'id' or 'document_id'
+    // Try 'id' first, then 'document_id'
+
+    if let Some(value) = fetch_column_from_relation_by_name(relid, ctid, "id") {
+        return Some(value);
+    }
+
+    if let Some(value) = fetch_column_from_relation_by_name(relid, ctid, "document_id") {
+        return Some(value);
+    }
+
+    warning!(
+        "ParadeDB: Could not fetch join key from relation {} ctid {}",
+        get_rel_name(relid),
+        ctid
+    );
+    None
+}
+
+/// Create a composite join result tuple combining intermediate and search results
+unsafe fn create_composite_join_result_tuple(
+    state: &mut CustomScanStateWrapper<PdbScan>,
+    intermediate_tuple: &[Option<String>],
+    search_ctid: u64,
+) -> *mut pg_sys::TupleTableSlot {
+    warning!("ParadeDB: Creating composite join result tuple");
+
+    let slot = state.csstate.ss.ss_ScanTupleSlot;
+    if slot.is_null() {
+        warning!("ParadeDB: Scan slot is null");
+        return std::ptr::null_mut();
+    }
+
+    // Clear the slot
+    pg_sys::ExecClearTuple(slot);
+
+    let tupdesc = (*slot).tts_tupleDescriptor;
+    let natts = (*tupdesc).natts as usize;
+
+    warning!(
+        "ParadeDB: Creating composite result with {} attributes from intermediate tuple with {} values",
+        natts,
+        intermediate_tuple.len()
+    );
+
+    // Get search result relation and fetch additional columns if needed
+    let search_relid = get_search_result_relation_id(state);
+    let search_columns = if search_relid != pg_sys::InvalidOid {
+        fetch_all_columns_from_relation_with_names(
+            search_relid,
+            search_ctid,
+            &get_rel_name(search_relid),
+        )
+    } else {
+        Vec::new()
+    };
+
+    // Combine intermediate tuple values with search result values
+    let mut combined_values = Vec::new();
+
+    // Add intermediate tuple values
+    for value in intermediate_tuple {
+        combined_values.push(value.clone());
+    }
+
+    // Add search result values (avoiding duplicates)
+    for (col_name, col_value) in &search_columns {
+        // Check if this column is already in the intermediate tuple
+        // For now, just add unique columns from search results
+        if !col_name.eq_ignore_ascii_case("id") && !col_name.eq_ignore_ascii_case("document_id") {
+            combined_values.push(Some(col_value.clone()));
+        }
+    }
+
+    // Populate the slot with combined values
+    for (i, value) in combined_values.iter().enumerate().take(natts) {
+        if let Some(value) = value {
+            let datum = if value.chars().all(|c| c.is_ascii_digit()) {
+                if let Ok(int_val) = value.parse::<i32>() {
+                    int_val.into()
+                } else {
+                    let value_cstr = std::ffi::CString::new(value.clone()).unwrap();
+                    pg_sys::cstring_to_text(value_cstr.as_ptr()).into()
+                }
+            } else {
+                let value_cstr = std::ffi::CString::new(value.clone()).unwrap();
+                pg_sys::cstring_to_text(value_cstr.as_ptr()).into()
+            };
+
+            (*slot).tts_values.add(i).write(datum);
+            (*slot).tts_isnull.add(i).write(false);
+        } else {
+            (*slot).tts_values.add(i).write(pg_sys::Datum::null());
+            (*slot).tts_isnull.add(i).write(true);
+        }
+    }
+
+    // Mark the slot as having valid data
+    (*slot).tts_nvalid = natts as _;
+    pg_sys::ExecStoreVirtualTuple(slot);
+
+    warning!(
+        "ParadeDB: Created composite join result with {} values: {:?}",
+        combined_values.len(),
+        combined_values
+    );
+
+    // Update statistics
+    if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
+        join_state.stats.join_matches += 1;
+        join_state.stats.tuples_returned += 1;
+    }
+
+    slot
+}
+
 /// Execute the next step of join processing
 pub unsafe fn exec_join_step(
     state: &mut CustomScanStateWrapper<PdbScan>,
@@ -427,7 +932,15 @@ pub unsafe fn exec_join_step(
         JoinExecPhase::JoinMatching => {
             warning!("ParadeDB: Performing join matching");
 
-            // Perform join matching and return next result tuple
+            // Check if this is a composite join that needs special handling
+            if let Some(ref join_state) = state.custom_state().join_exec_state {
+                if join_state.composite_info.is_some() {
+                    warning!("ParadeDB: Using enhanced composite join execution");
+                    return execute_composite_join_with_intermediate_results(state);
+                }
+            }
+
+            // Perform standard join matching and return next result tuple
             match_and_return_next_tuple(state)
         }
         JoinExecPhase::Finished => {

@@ -267,7 +267,6 @@ unsafe fn init_fixed_buffers(index_relation: &PgRelation) {
     merge_lock.init_page();
     drop(merge_lock);
 
-
     // Init cleanup lock buffer
     let mut cleanup_lock = bman.new_buffer();
     assert_eq!(cleanup_lock.number(), CLEANUP_LOCK);

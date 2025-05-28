@@ -18,34 +18,77 @@
 use crate::api::{AsCStr, Cardinality, Varno};
 use crate::api::{HashMap, HashSet};
 use crate::index::fast_fields_helper::WhichFastField;
-use crate::postgres::customscan::builders::custom_path::{OrderByStyle, SortDirection};
+use crate::postgres::customscan::builders::custom_path::SortDirection;
+use crate::postgres::customscan::pdbscan::join_qual_inspect::JoinSearchPredicates;
 use crate::postgres::customscan::pdbscan::ExecMethodType;
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::{pg_sys, PgList};
 use serde::{Deserialize, Serialize};
 
-#[derive(Default, Debug, Serialize, Deserialize)]
+/// Information about composite relations in a join
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct JoinCompositeInfo {
+    /// Which side has the composite relation
+    pub composite_side: CompositeSide,
+    /// Whether the base relation side has search predicates
+    pub base_has_search: bool,
+    /// Whether the composite side has any search predicates
+    pub composite_has_search: bool,
+}
+
+/// Which side of the join has composite relations
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub enum CompositeSide {
+    /// Outer side is composite, inner is base
+    Outer,
+    /// Inner side is composite, outer is base
+    Inner,
+    /// Neither side is composite (both are base relations)
+    None,
+}
+
+/// Which side of a unilateral join has a child plan for table scanning
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub enum UnilateralChildSide {
+    /// Outer side has child plan (inner side has search)
+    Outer,
+    /// Inner side has child plan (outer side has search)
+    Inner,
+}
+
+/// Private data for the custom scan
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct PrivateData {
     heaprelid: Option<pg_sys::Oid>,
     indexrelid: Option<pg_sys::Oid>,
     range_table_index: Option<pg_sys::Index>,
     query: Option<SearchQueryInput>,
     limit: Option<usize>,
+    segment_count: usize,
     sort_field: Option<String>,
     sort_direction: Option<SortDirection>,
+    exec_method_type: ExecMethodType,
     #[serde(with = "var_attname_lookup_serializer")]
     var_attname_lookup: Option<HashMap<(Varno, pg_sys::AttrNumber), String>>,
-    segment_count: usize,
-    // The fast fields which were identified during planning time as potentially being
-    // needed at execution time. In order for our planning-time-chosen ExecMethodType to be
-    // accurate, this must always be a superset of the fields extracted from the execution
-    // time target list.
-    planned_which_fast_fields: Option<HashSet<WhichFastField>>,
     target_list_len: Option<usize>,
+    planned_which_fast_fields: Option<HashSet<WhichFastField>>,
     referenced_columns_count: usize,
-    need_scores: bool,
-    exec_method_type: ExecMethodType,
+
+    /// Join search predicates for custom join execution
+    join_search_predicates: Option<JoinSearchPredicates>,
+
+    /// Outer relation OIDs for join execution (can be multiple for composite relations)
+    join_outer_relids: Vec<pg_sys::Oid>,
+
+    /// Inner relation OIDs for join execution (can be multiple for composite relations)
+    join_inner_relids: Vec<pg_sys::Oid>,
+
+    /// Information about composite relations in the join
+    join_composite_info: Option<JoinCompositeInfo>,
+
+    /// Which side has a child plan for unilateral joins
+    unilateral_child_plan_side: Option<UnilateralChildSide>,
 }
 
 mod var_attname_lookup_serializer {
@@ -53,11 +96,11 @@ mod var_attname_lookup_serializer {
 
     use serde::{de::Error, Deserializer, Serializer};
 
-    fn key_to_string(key: &(Varno, i16)) -> String {
+    fn key_to_string(key: &(Varno, pg_sys::AttrNumber)) -> String {
         format!("{},{}", key.0, key.1)
     }
 
-    fn key_from_string(s: &str) -> Result<(Varno, i16), String> {
+    fn key_from_string(s: &str) -> Result<(Varno, pg_sys::AttrNumber), String> {
         let mut parts = s.splitn(2, ',');
         let p1_str = parts
             .next()
@@ -70,14 +113,14 @@ mod var_attname_lookup_serializer {
             .parse::<Varno>()
             .map_err(|e| format!("Failed to parse first key part '{}': {}", p1_str, e))?;
         let p2 = p2_str
-            .parse::<i16>()
+            .parse::<pg_sys::AttrNumber>()
             .map_err(|e| format!("Failed to parse second key part '{}': {}", p2_str, e))?;
 
         Ok((p1, p2))
     }
 
     pub fn serialize<S>(
-        map_option: &Option<HashMap<(Varno, i16), String>>,
+        map_option: &Option<HashMap<(Varno, pg_sys::AttrNumber), String>>,
         serializer: S,
     ) -> Result<S::Ok, S::Error>
     where
@@ -97,7 +140,7 @@ mod var_attname_lookup_serializer {
     #[allow(clippy::type_complexity)]
     pub fn deserialize<'de, D>(
         deserializer: D,
-    ) -> Result<Option<HashMap<(Varno, i16), String>>, D::Error>
+    ) -> Result<Option<HashMap<(Varno, pg_sys::AttrNumber), String>>, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -173,12 +216,8 @@ impl PrivateData {
         self.sort_direction = sort_direction;
     }
 
-    pub fn set_sort_info(&mut self, style: &OrderByStyle) {
-        match &style {
-            OrderByStyle::Score(_) => {}
-            OrderByStyle::Field(_, name) => self.sort_field = Some(name.clone()),
-        }
-        self.sort_direction = Some(style.direction())
+    pub fn set_sort_field(&mut self, sort_field: String) {
+        self.sort_field = Some(sort_field);
     }
 
     pub fn set_var_attname_lookup(
@@ -211,8 +250,27 @@ impl PrivateData {
         self.referenced_columns_count = count;
     }
 
-    pub fn set_need_scores(&mut self, maybe: bool) {
-        self.need_scores = maybe;
+    pub fn set_join_search_predicates(
+        &mut self,
+        join_search_predicates: Option<JoinSearchPredicates>,
+    ) {
+        self.join_search_predicates = join_search_predicates;
+    }
+
+    pub fn set_join_outer_relids(&mut self, oids: Vec<pg_sys::Oid>) {
+        self.join_outer_relids = oids;
+    }
+
+    pub fn set_join_inner_relids(&mut self, oids: Vec<pg_sys::Oid>) {
+        self.join_inner_relids = oids;
+    }
+
+    pub fn set_join_composite_info(&mut self, info: Option<JoinCompositeInfo>) {
+        self.join_composite_info = info;
+    }
+
+    pub fn set_unilateral_child_plan_side(&mut self, side: Option<UnilateralChildSide>) {
+        self.unilateral_child_plan_side = side;
     }
 }
 
@@ -282,7 +340,39 @@ impl PrivateData {
         self.referenced_columns_count
     }
 
+    pub fn join_search_predicates(&self) -> &Option<JoinSearchPredicates> {
+        &self.join_search_predicates
+    }
+
     pub fn need_scores(&self) -> bool {
-        self.need_scores
+        // For now, return false as a default
+        // This can be enhanced later to check if scores are needed based on the query
+        false
+    }
+
+    pub fn join_outer_relids(&self) -> &Vec<pg_sys::Oid> {
+        &self.join_outer_relids
+    }
+
+    pub fn join_inner_relids(&self) -> &Vec<pg_sys::Oid> {
+        &self.join_inner_relids
+    }
+
+    /// Get the primary outer relation OID (first one for backward compatibility)
+    pub fn join_outer_relid(&self) -> Option<pg_sys::Oid> {
+        self.join_outer_relids.first().copied()
+    }
+
+    /// Get the primary inner relation OID (first one for backward compatibility)
+    pub fn join_inner_relid(&self) -> Option<pg_sys::Oid> {
+        self.join_inner_relids.first().copied()
+    }
+
+    pub fn join_composite_info(&self) -> &Option<JoinCompositeInfo> {
+        &self.join_composite_info
+    }
+
+    pub fn unilateral_child_plan_side(&self) -> &Option<UnilateralChildSide> {
+        &self.unilateral_child_plan_side
     }
 }

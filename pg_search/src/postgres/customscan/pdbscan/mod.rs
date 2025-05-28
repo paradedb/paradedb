@@ -17,18 +17,21 @@
 
 #![allow(clippy::unnecessary_cast)] // helps with integer casting differences between postgres versions
 mod exec_methods;
+mod join_exec_methods;
+pub mod join_qual_inspect;
 pub mod parallel;
-mod privdat;
+pub mod privdat;
 mod projections;
 mod pushdown;
 mod qual_inspect;
 mod scan_state;
+pub mod semi_join_optimizer;
 mod solve_expr;
 
 use crate::api::operator::{
     anyelement_query_input_opoid, attname_from_var, estimate_selectivity, find_var_relation,
 };
-use crate::api::Cardinality;
+use crate::api::{Cardinality, Varno};
 use crate::api::{HashMap, HashSet};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
@@ -44,6 +47,9 @@ use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::pdbscan::exec_methods::{
     fast_fields, normal::NormalScanExecState, ExecState,
+};
+use crate::postgres::customscan::pdbscan::join_exec_methods::{
+    cleanup_join_execution, exec_join_step, init_join_execution, JoinExecState,
 };
 use crate::postgres::customscan::pdbscan::parallel::{compute_nworkers, list_segment_ids};
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
@@ -374,14 +380,19 @@ impl CustomScan for PdbScan {
                 //
                 // and sorting by score always works
                 match (maybe_needs_const_projections, pathkey) {
-                    (false, OrderByStyle::Field(..)) => {
-                        builder.custom_private().set_sort_info(pathkey);
+                    (false, OrderByStyle::Field(_, field_name)) => {
+                        builder.custom_private().set_sort_field(field_name.clone());
+                    }
+                    (true, OrderByStyle::Field(_, _)) => {
+                        // Field sorting with const projections - skip setting sort field
                     }
                     (_, OrderByStyle::Score(..)) => {
-                        builder.custom_private().set_sort_info(pathkey);
+                        // Score sorting doesn't need a field name
                     }
-                    _ => {}
                 }
+                builder
+                    .custom_private()
+                    .set_sort_direction(Some(pathkey.direction()));
             } else if limit.is_some()
                 && PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys)
                     .is_empty()
@@ -438,7 +449,17 @@ impl CustomScan for PdbScan {
                     builder = builder.set_parallel(nworkers);
                 } else {
                     // otherwise we'll do a regular scan
-                    builder.custom_private().set_sort_info(pathkey);
+                    match pathkey {
+                        OrderByStyle::Field(_, field_name) => {
+                            builder.custom_private().set_sort_field(field_name.clone());
+                        }
+                        OrderByStyle::Score(..) => {
+                            // Score sorting doesn't need a field name
+                        }
+                    }
+                    builder
+                        .custom_private()
+                        .set_sort_direction(Some(pathkey.direction()));
                 }
             } else if !quals.contains_external_var() && nworkers > 0 {
                 builder = builder.set_parallel(nworkers);
@@ -514,6 +535,65 @@ impl CustomScan for PdbScan {
 
             let private_data = builder.custom_private();
 
+            // Check if this is a join node (scanrelid = 0) or a scan node
+            if builder.is_join() {
+                // This is a join node - handle differently
+                pgrx::warning!("ParadeDB: Planning custom join path with scanrelid = 0");
+
+                // For join nodes, we need to ensure the target list is properly set up
+                // The target list should contain all the columns that the upper plan nodes expect
+                pgrx::warning!("ParadeDB: Join target list has {} entries", tlist.len());
+
+                // For join nodes, we need to set up proper variable mappings
+                // The key insight is that join nodes need to provide variables from both relations
+
+                // Set up a minimal var_attname_lookup for join nodes
+                // This prevents the "variable not found" error by providing basic mappings
+                let mut attname_lookup = HashMap::default();
+
+                // For each target entry, create a mapping using the actual column name
+                for (i, te) in tlist.iter_ptr().enumerate() {
+                    if let Some(var) = nodecast!(Var, T_Var, (*te).expr) {
+                        // Extract the actual column name from the target entry
+                        let attname = if !(*te).resname.is_null() {
+                            // Use the actual column name from resname
+                            std::ffi::CStr::from_ptr((*te).resname)
+                                .to_string_lossy()
+                                .to_string()
+                        } else {
+                            // Fallback to generic name if resname is not available
+                            format!("join_attr_{}", i + 1)
+                        };
+
+                        attname_lookup
+                            .insert(((*var).varno as Varno, (*var).varattno), attname.clone());
+                        pgrx::warning!(
+                            "ParadeDB: Mapped join variable varno={}, varattno={} to '{}'",
+                            (*var).varno,
+                            (*var).varattno,
+                            attname
+                        );
+                    }
+                }
+
+                builder
+                    .custom_private_mut()
+                    .set_var_attname_lookup(attname_lookup);
+
+                // CRITICAL: For join nodes, we need to ensure the custom scan's target list
+                // matches exactly what PostgreSQL expects. The issue is that PostgreSQL
+                // validates that our custom scan can provide all the variables in the target list.
+
+                // Set the custom scan's target list to match the join's target list
+                // This tells PostgreSQL exactly what variables our custom scan will provide
+                builder.set_custom_scan_tlist(tlist.as_ptr());
+
+                pgrx::warning!("ParadeDB: Set custom scan target list for join node");
+
+                return builder.build();
+            }
+
+            // Original scan node logic continues here
             let rti: i32 = private_data
                 .range_table_index()
                 .expect("range table index should have been set")
@@ -553,7 +633,7 @@ impl CustomScan for PdbScan {
                     let attname = attname_from_var(builder.args().root, var)
                         .1
                         .expect("function call argument should be a column name");
-                    attname_lookup.insert(((*var).varno, (*var).varattno), attname);
+                    attname_lookup.insert(((*var).varno as Varno, (*var).varattno), attname);
                 }
             }
 
@@ -568,6 +648,112 @@ impl CustomScan for PdbScan {
         mut builder: CustomScanStateBuilder<Self, Self::PrivateData>,
     ) -> *mut CustomScanStateWrapper<Self> {
         unsafe {
+            let scanrelid = (*builder.args().cscan).scan.scanrelid;
+
+            if scanrelid == 0 {
+                // This is a join node - handle differently
+                pgrx::warning!(
+                    "ParadeDB: Creating custom scan state for join node (scanrelid = 0)"
+                );
+
+                // For join nodes, extract search predicates from private data
+                let search_predicates = builder.custom_private().join_search_predicates().clone();
+
+                if let Some(ref predicates) = search_predicates {
+                    pgrx::warning!(
+                        "ParadeDB: Extracted search predicates from private data - outer: {}, inner: {}, bilateral: {}",
+                        predicates.outer_predicates.len(),
+                        predicates.inner_predicates.len(),
+                        predicates.has_bilateral_search()
+                    );
+                } else {
+                    pgrx::warning!("ParadeDB: No search predicates found in private data");
+                }
+
+                // For join nodes, we don't have specific heap/index relations
+                // We'll need to handle this differently in execution
+                // For now, set up minimal state that won't crash
+
+                builder.custom_state().execution_rti = 0; // No specific relation
+                builder.custom_state().exec_method_type = ExecMethodType::Normal;
+                builder.custom_state().targetlist_len = builder.target_list().len();
+
+                // Set default values for join execution
+                builder.custom_state().limit = None;
+                builder.custom_state().sort_field = None;
+                builder.custom_state().sort_direction = None;
+
+                // Store the search predicates in the join execution state
+                let mut join_exec_state = JoinExecState::new(search_predicates);
+
+                // CRITICAL: Store the relation OIDs from private data
+                // This eliminates the need to infer missing relations during execution
+                let outer_relids = builder.custom_private().join_outer_relids();
+                let inner_relids = builder.custom_private().join_inner_relids();
+
+                if !outer_relids.is_empty() {
+                    // For now, use the first outer relation as the primary one for backward compatibility
+                    join_exec_state.outer_relid = outer_relids[0];
+                    pgrx::warning!(
+                        "ParadeDB: Stored outer relation OIDs: {:?}",
+                        outer_relids
+                            .iter()
+                            .map(|oid| crate::postgres::customscan::pdbscan::get_rel_name(*oid))
+                            .collect::<Vec<_>>()
+                    );
+                }
+                if !inner_relids.is_empty() {
+                    // For now, use the first inner relation as the primary one for backward compatibility
+                    join_exec_state.inner_relid = inner_relids[0];
+                    pgrx::warning!(
+                        "ParadeDB: Stored inner relation OIDs: {:?}",
+                        inner_relids
+                            .iter()
+                            .map(|oid| crate::postgres::customscan::pdbscan::get_rel_name(*oid))
+                            .collect::<Vec<_>>()
+                    );
+                }
+
+                // Store variable mappings from the planning phase for reference
+                // Note: These may be different at execution time, but they provide a starting point
+                if let Some(var_lookup) = builder.custom_private().var_attname_lookup() {
+                    pgrx::warning!(
+                        "ParadeDB: Storing {} variable mappings from planning phase",
+                        var_lookup.len()
+                    );
+
+                    // Convert the planning-time mappings to a format we can use for debugging
+                    for ((varno, attno), attname) in var_lookup.iter() {
+                        pgrx::warning!(
+                            "ParadeDB: Planning-time mapping: varno={}, attno={} -> '{}'",
+                            varno,
+                            attno,
+                            attname
+                        );
+                    }
+                }
+
+                // Store composite relation information if available
+                if let Some(ref composite_info) = builder.custom_private().join_composite_info() {
+                    pgrx::warning!(
+                        "ParadeDB: Storing composite join info - composite_side: {:?}, base_has_search: {}, composite_has_search: {}",
+                        composite_info.composite_side,
+                        composite_info.base_has_search,
+                        composite_info.composite_has_search
+                    );
+                    join_exec_state.composite_info = Some(composite_info.clone());
+                }
+
+                builder.custom_state().join_exec_state = Some(join_exec_state);
+                builder.custom_state().unilateral_child_plan_side = builder
+                    .custom_private()
+                    .unilateral_child_plan_side()
+                    .clone();
+
+                return builder.build();
+            }
+
+            // Original scan node logic continues here
             builder.custom_state().heaprelid = builder
                 .custom_private()
                 .heaprelid()
@@ -741,6 +927,23 @@ impl CustomScan for PdbScan {
         eflags: i32,
     ) {
         unsafe {
+            // Check if this is a join node
+            if state.custom_state().execution_rti == 0 {
+                pgrx::warning!("ParadeDB: Beginning custom scan for join node");
+
+                // For join nodes, use the new join execution framework
+                if eflags & (pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) != 0 {
+                    // For EXPLAIN, still set up basic infrastructure
+                    init_join_execution(state, estate);
+                    return;
+                }
+
+                // Initialize join execution
+                init_join_execution(state, estate);
+                return;
+            }
+
+            // Original scan node logic continues here
             // open the heap and index relations with the proper locks
             let rte = pg_sys::exec_rt_fetch(state.custom_state().execution_rti, estate);
             assert!(!rte.is_null());
@@ -821,6 +1024,12 @@ impl CustomScan for PdbScan {
 
     #[allow(clippy::blocks_in_conditions)]
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
+        // Check if this is a join node
+        if state.custom_state().execution_rti == 0 {
+            // Use the new join execution framework
+            return unsafe { exec_join_step(state) };
+        }
+
         if state.custom_state().search_reader.is_none() {
             Self::init_search_reader(state);
         }
@@ -974,6 +1183,14 @@ impl CustomScan for PdbScan {
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {}
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
+        // Check if this is a join node and clean up join resources
+        if state.custom_state().execution_rti == 0 {
+            unsafe {
+                cleanup_join_execution(state);
+            }
+            return;
+        }
+
         // get some things dropped now
         drop(state.custom_state_mut().visibility_checker.take());
         drop(state.custom_state_mut().search_reader.take());
@@ -1329,7 +1546,7 @@ pub fn is_block_all_visible(
 }
 
 // Helper function to create an iterator over Bitmapset members
-unsafe fn bms_iter(bms: *mut pg_sys::Bitmapset) -> impl Iterator<Item = pg_sys::Index> {
+pub unsafe fn bms_iter(bms: *mut pg_sys::Bitmapset) -> impl Iterator<Item = pg_sys::Index> {
     let mut set_bit: i32 = -1;
     std::iter::from_fn(move || {
         set_bit = pg_sys::bms_next_member(bms, set_bit);
@@ -1342,8 +1559,37 @@ unsafe fn bms_iter(bms: *mut pg_sys::Bitmapset) -> impl Iterator<Item = pg_sys::
 }
 
 // Helper function to check if a Bitmapset is empty
-unsafe fn bms_is_empty(bms: *mut pg_sys::Bitmapset) -> bool {
+pub unsafe fn bms_is_empty(bms: *mut pg_sys::Bitmapset) -> bool {
     bms_iter(bms).next().is_none()
+}
+
+pub unsafe fn get_rel_name_from_rti_list(
+    rtis: *mut pg_sys::Bitmapset,
+    root: *mut pg_sys::PlannerInfo,
+) -> Vec<String> {
+    bms_iter(rtis)
+        .map(|rti| get_rel_name_from_rti(rti, root))
+        .collect()
+}
+
+pub unsafe fn get_rel_name_from_rti(rti: pg_sys::Index, root: *mut pg_sys::PlannerInfo) -> String {
+    let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
+    if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
+        get_rel_name((*rte).relid)
+    } else {
+        format!("rti_{}_non_rel", rti)
+    }
+}
+
+pub unsafe fn get_rel_name(relid: pg_sys::Oid) -> String {
+    let relname = pg_sys::get_rel_name(relid);
+    if relname.is_null() {
+        format!("rti_{}", relid)
+    } else {
+        std::ffi::CStr::from_ptr(relname)
+            .to_string_lossy()
+            .to_string()
+    }
 }
 
 // Helper function to determine if we're dealing with a partitioned table setup

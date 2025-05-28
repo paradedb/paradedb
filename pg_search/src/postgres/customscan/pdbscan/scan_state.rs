@@ -20,6 +20,7 @@ use crate::api::Varno;
 use crate::index::reader::index::{SearchIndexReader, SearchResults};
 use crate::postgres::customscan::builders::custom_path::{ExecMethodType, SortDirection};
 use crate::postgres::customscan::pdbscan::exec_methods::ExecMethod;
+use crate::postgres::customscan::pdbscan::join_exec_methods::JoinExecState;
 use crate::postgres::customscan::pdbscan::projections::snippet::SnippetType;
 use crate::postgres::customscan::pdbscan::qual_inspect::Qual;
 use crate::postgres::customscan::CustomScanState;
@@ -33,6 +34,8 @@ use pgrx::{name_data_to_str, pg_sys, PgRelation, PgTupleDesc};
 use std::cell::UnsafeCell;
 use tantivy::snippet::SnippetGenerator;
 use tantivy::SegmentReader;
+
+use super::privdat::UnilateralChildSide;
 
 #[derive(Default)]
 pub struct PdbScanState {
@@ -93,6 +96,10 @@ pub struct PdbScanState {
     pub exec_method_type: ExecMethodType,
     exec_method: UnsafeCell<Box<dyn ExecMethod>>,
     exec_method_name: String,
+
+    /// Join execution state (only used for join nodes)
+    pub join_exec_state: Option<JoinExecState>,
+    pub unilateral_child_plan_side: Option<UnilateralChildSide>,
 }
 
 impl CustomScanState for PdbScanState {

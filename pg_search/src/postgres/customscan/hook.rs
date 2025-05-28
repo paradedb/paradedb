@@ -244,27 +244,30 @@ unsafe fn create_join_coordination_path<CS: CustomScan>(
 ) -> Option<*mut pg_sys::Path> {
     use pgrx::PgMemoryContexts;
 
-    // Extract relation mapping information
+    // Extract relation mapping information from both sides
     let mut relation_mapping = HashMap::default();
     let mut table_oids = Vec::new();
 
-    // Extract table OIDs from outer and inner relations
-    // For now, we'll extract the first relation from each relids set
-    let outer_oid = extract_table_oid_from_relids((*outerrel).relids);
-    let inner_oid = extract_table_oid_from_relids((*innerrel).relids);
-
-    if let Some(oid) = outer_oid {
+    // Extract all table OIDs and their RTIs from outer relation
+    let outer_relations = extract_all_table_info_from_relids(root, (*outerrel).relids);
+    for (oid, rti) in outer_relations {
         table_oids.push(oid);
-        // For now, use a placeholder RTI - we'll need to extract this properly
-        relation_mapping.insert(oid, 1);
-        pgrx::warning!("  Extracted outer table OID: {}", oid);
+        relation_mapping.insert(oid, rti);
+        pgrx::warning!("  Extracted outer table OID: {} (RTI: {})", oid, rti);
     }
 
-    if let Some(oid) = inner_oid {
+    // Extract all table OIDs and their RTIs from inner relation
+    let inner_relations = extract_all_table_info_from_relids(root, (*innerrel).relids);
+    for (oid, rti) in inner_relations {
         table_oids.push(oid);
-        // For now, use a placeholder RTI - we'll need to extract this properly
-        relation_mapping.insert(oid, 2);
-        pgrx::warning!("  Extracted inner table OID: {}", oid);
+        relation_mapping.insert(oid, rti);
+        pgrx::warning!("  Extracted inner table OID: {} (RTI: {})", oid, rti);
+    }
+
+    // Only proceed if we have tables with search predicates
+    if table_oids.is_empty() {
+        pgrx::warning!("  FAILED: No tables found in JOIN relations");
+        return None;
     }
 
     // Get LIMIT from root
@@ -343,20 +346,86 @@ unsafe fn create_join_coordination_path<CS: CustomScan>(
     Some(custom_path as *mut pg_sys::Path)
 }
 
-/// Extract table OID from a relids Bitmapset (gets the first relation)
-unsafe fn extract_table_oid_from_relids(relids: *mut pg_sys::Bitmapset) -> Option<pg_sys::Oid> {
+/// Extract all table OIDs and their RTIs from a relids Bitmapset
+/// This handles composite relations that may contain multiple tables from previous JOINs
+unsafe fn extract_all_table_info_from_relids(
+    root: *mut pg_sys::PlannerInfo,
+    relids: *mut pg_sys::Bitmapset,
+) -> Vec<(pg_sys::Oid, pg_sys::Index)> {
+    let mut table_info = Vec::new();
+
     if relids.is_null() {
+        return table_info;
+    }
+
+    // Iterate through all members of the bitmapset
+    let mut rti = -1;
+    loop {
+        rti = pg_sys::bms_next_member(relids, rti);
+        if rti < 0 {
+            break;
+        }
+
+        let rti_index = rti as pg_sys::Index;
+
+        // Get the table OID for this RTI
+        if let Some(table_oid) = get_table_oid_for_rti(root, rti_index) {
+            table_info.push((table_oid, rti_index));
+            pgrx::warning!("    Found table OID {} for RTI {}", table_oid, rti_index);
+        } else {
+            pgrx::warning!("    Could not find table OID for RTI {}", rti_index);
+        }
+    }
+
+    table_info
+}
+
+/// Get the table OID for a given range table index
+/// This properly maps RTI to the actual table OID by looking up the range table entry
+unsafe fn get_table_oid_for_rti(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+) -> Option<pg_sys::Oid> {
+    // Validate RTI bounds
+    if rti == 0 {
         return None;
     }
 
-    // Get the first member of the bitmapset
-    let first_rti = pg_sys::bms_next_member(relids, -1);
-    if first_rti < 0 {
+    // Get the range table
+    let rtable = (*(*root).parse).rtable;
+    let rtable_list = pgrx::PgList::<pg_sys::RangeTblEntry>::from_pg(rtable);
+
+    // RTI is 1-based, so convert to 0-based index
+    let rte_index = (rti - 1) as usize;
+
+    if rte_index >= rtable_list.len() {
+        pgrx::warning!(
+            "    RTI {} is out of bounds (rtable length: {})",
+            rti,
+            rtable_list.len()
+        );
         return None;
     }
 
-    // Convert i32 to u32 and then to Oid
-    Some((first_rti as u32).into())
+    // Get the RTE
+    if let Some(rte) = rtable_list.get_ptr(rte_index) {
+        // Only handle relation RTEs
+        if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
+            let table_oid = (*rte).relid;
+            pgrx::warning!("    RTI {} maps to table OID {}", rti, table_oid);
+            return Some(table_oid);
+        } else {
+            pgrx::warning!(
+                "    RTI {} is not a relation (rtekind: {:?})",
+                rti,
+                (*rte).rtekind
+            );
+        }
+    } else {
+        pgrx::warning!("    Could not get RTE for RTI {}", rti);
+    }
+
+    None
 }
 
 /// JOIN-specific custom path methods

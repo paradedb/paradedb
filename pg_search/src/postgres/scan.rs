@@ -143,7 +143,12 @@ pub extern "C-unwind" fn amrescan(
             )
         } else if let Some(segment_number) = parallel::maybe_claim_segment(scan) {
             // a parallel scan: got a segment to query
-            search_reader.search_segment(need_scores, segment_number, &search_query_input)
+            search_reader.search_segments(
+                need_scores,
+                [segment_number].into_iter(),
+                &search_query_input,
+                0,
+            )
         } else {
             // a parallel scan: no more segments to query
             SearchResults::None
@@ -334,10 +339,11 @@ pub unsafe extern "C-unwind" fn amgetbitmap(
 // if there's a segment to be claimed for parallel query execution, do that now
 unsafe fn search_next_segment(scan: IndexScanDesc, state: &mut Bm25ScanState) -> bool {
     if let Some(segment_number) = parallel::maybe_claim_segment(scan) {
-        state.results = state.reader.search_segment(
+        state.results = state.reader.search_segments(
             state.need_scores,
-            segment_number,
+            [segment_number].into_iter(),
             &state.search_query_input,
+            0,
         );
         return true;
     }

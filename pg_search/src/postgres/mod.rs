@@ -88,6 +88,7 @@ fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRouti
     amroutine.aminsert = Some(insert::aminsert);
     #[cfg(feature = "pg17")]
     {
+        amroutine.amcanbuildparallel = true;
         amroutine.aminsertcleanup = Some(insert::aminsertcleanup);
     }
     amroutine.ambulkdelete = Some(delete::ambulkdelete);

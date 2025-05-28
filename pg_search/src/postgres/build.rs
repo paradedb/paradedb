@@ -95,6 +95,10 @@ pub extern "C-unwind" fn ambuild(
     }
 
     let tuple_count = if crate::gucs::enable_parallel_index_build() {
+        if !heaprel.is_null() {
+            let nworkers = unsafe { compute_nworkers(&heap_relation, &index_relation) };
+            pgrx::info!("parallel index build with {} workers", nworkers);
+        }
         todo!("parallel index build");
     } else {
         do_heap_scan(index_info, &heap_relation, &index_relation)

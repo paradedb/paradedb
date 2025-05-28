@@ -239,65 +239,65 @@ impl ExecMethod for MixedFastFieldExecState {
                         let mut string_buf = self.inner.strbuf.take().unwrap_or_default();
 
                         // Process each column, converting fast field values to PostgreSQL datums
-                        for (i, (att, field_value)) in self
+                        for (i, ((att, field_value), which_fast_field)) in self
                             .inner
                             .tupdesc
                             .as_ref()
                             .unwrap()
                             .iter()
                             .zip(field_values.into_iter())
+                            .zip(which_fast_fields)
                             .enumerate()
                         {
-                            // Get attribute info if available
-                            let att_info = if i < tupdesc.len() {
-                                tupdesc.get(i)
-                            } else {
-                                None
-                            };
-
-                            let att_typid =
-                                att_info.map(|att| att.atttypid).unwrap_or(pg_sys::TEXTOID);
-
-                            // Try the optimized fast field path first
-                            match field_value.try_into_datum(PgOid::from(att_typid)) {
-                                Ok(Some(datum)) => {
-                                    datums[i] = datum;
-                                    isnull[i] = false;
-                                    continue;
+                            match which_fast_field {
+                                WhichFastField::Named(_, _) => {
+                                    // We extracted this field: convert it into a datum.
+                                    match field_value.try_into_datum(PgOid::from(att.atttypid)) {
+                                        Ok(Some(datum)) => {
+                                            datums[i] = datum;
+                                            isnull[i] = false;
+                                            continue;
+                                        }
+                                        Ok(None) => {
+                                            // Null datum.
+                                            continue;
+                                        }
+                                        Err(e) => {
+                                            panic!(
+                                                "Failed to convert to attribute type for \
+                                                {:?} and {which_fast_field:?}: {e}",
+                                                att.atttypid
+                                            );
+                                        }
+                                    }
                                 }
-                                Ok(None) => {
-                                    // Null datum.
-                                    continue;
-                                }
-                                Err(_) => {
-                                    // TODO: panic? Is the fallthrough below actually necessary?
+                                _ => {
+                                    // Fallback to ff_to_datum for other field types.
+                                    let mut str_opt = Some(string_buf);
+
+                                    match ff_to_datum(
+                                        (which_fast_field, i),
+                                        att.atttypid,
+                                        scored.bm25,
+                                        doc_address,
+                                        fast_fields,
+                                        &mut str_opt,
+                                        slot,
+                                    ) {
+                                        None => {
+                                            datums[i] = pg_sys::Datum::null();
+                                            isnull[i] = true;
+                                        }
+                                        Some(datum) => {
+                                            datums[i] = datum;
+                                            isnull[i] = false;
+                                        }
+                                    }
+
+                                    // Extract the string buffer back
+                                    string_buf = str_opt.unwrap_or_default();
                                 }
                             }
-
-                            // Fallback to standard ff_to_datum if optimized path didn't work
-                            let mut str_opt = Some(string_buf);
-
-                            match ff_to_datum(
-                                (&which_fast_fields[i], i),
-                                att.atttypid,
-                                scored.bm25,
-                                doc_address,
-                                fast_fields,
-                                &mut str_opt,
-                                slot,
-                            ) {
-                                None => {
-                                    datums[i] = pg_sys::Datum::null();
-                                    isnull[i] = true;
-                                }
-                                Some(datum) => {
-                                    datums[i] = datum;
-                                    isnull[i] = false;
-                                }
-                            }
-
-                            // Extract the string buffer back
-                            string_buf = str_opt.unwrap_or_default();
                         }
 
                         // Store the string buffer back for reuse
@@ -838,6 +838,8 @@ mod multi_field_collector {
 
             // Collect string fields
             for (string_column_idx, (_, str_column)) in self.string_columns.iter().enumerate() {
+                // TODO: This converts a null to the empty string.
+                // See https://github.com/paradedb/paradedb/issues/2619
                 let term_ord = str_column.term_ords(doc).next().unwrap_or(0);
                 self.string_results[string_column_idx].push((term_ord, scored, doc_address));
             }

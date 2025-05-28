@@ -381,6 +381,7 @@ mod term_ord_collector {
                 self.results.push((term_ord, scored, doc_address));
             } else {
                 // TODO: This converts a null to the empty string.
+                // See https://github.com/paradedb/paradedb/issues/2619
                 self.results.push((0, scored, doc_address));
             }
         }

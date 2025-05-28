@@ -89,20 +89,6 @@ impl FFHelper {
             .get_or_init(|| FFType::new(&entry.0, &entry.1))
             .as_i64(doc_address.doc_id)
     }
-
-    #[track_caller]
-    pub fn string(
-        &self,
-        field: FFIndex,
-        doc_address: DocAddress,
-        value: &mut String,
-    ) -> Option<()> {
-        let entry = &self.0[doc_address.segment_ord as usize][field];
-        entry
-            .2
-            .get_or_init(|| FFType::new(&entry.0, &entry.1))
-            .string(doc_address.doc_id, value)
-    }
 }
 
 /// Helper for working with different "fast field" types as if they're all one type

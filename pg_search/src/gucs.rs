@@ -71,6 +71,9 @@ static STATEMENT_PARALLELISM: GucSetting<i32> = GucSetting::<i32>::new(1);
 /// thread.  So if there's 10 threads and this value is 100MB, then a total of 1GB will be allocated.
 static STATEMENT_MEMORY_BUDGET: GucSetting<i32> = GucSetting::<i32>::new(1024);
 
+/// Should we enable parallel index build?
+static ENABLE_PARALLEL_INDEX_BUILD: GucSetting<bool> = GucSetting::<bool>::new(false);
+
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
@@ -182,6 +185,15 @@ pub fn init() {
         GucContext::Userset,
         GucFlags::UNIT_MB,
     );
+
+    GucRegistry::define_bool_guc(
+        "paradedb.enable_parallel_index_build",
+        "Enable parallel index build",
+        "Enable parallel index build",
+        &ENABLE_PARALLEL_INDEX_BUILD,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
 }
 
 pub fn enable_custom_scan() -> bool {
@@ -227,6 +239,10 @@ pub fn statement_parallelism() -> NonZeroUsize {
 
 pub fn statement_memory_budget() -> usize {
     adjust_budget(STATEMENT_MEMORY_BUDGET.get(), statement_parallelism())
+}
+
+pub fn enable_parallel_index_build() -> bool {
+    ENABLE_PARALLEL_INDEX_BUILD.get()
 }
 
 fn adjust_nthreads(nthreads: i32) -> NonZeroUsize {

@@ -94,7 +94,12 @@ pub extern "C-unwind" fn ambuild(
         }
     }
 
-    let tuple_count = do_heap_scan(index_info, &heap_relation, &index_relation);
+    let tuple_count = if crate::gucs::enable_parallel_index_build() {
+        todo!("parallel index build");
+    } else {
+        do_heap_scan(index_info, &heap_relation, &index_relation)
+    };
+
     unsafe { pg_sys::FlushRelationBuffers(indexrel) };
 
     let mut result = unsafe { PgBox::<pg_sys::IndexBuildResult>::alloc0() };

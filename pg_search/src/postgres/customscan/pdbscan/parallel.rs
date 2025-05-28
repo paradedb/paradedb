@@ -1,10 +1,10 @@
 use crate::api::Cardinality;
+use crate::api::HashSet;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::pdbscan::PdbScan;
 use crate::postgres::ParallelScanState;
 use pgrx::pg_sys::{self, shm_toc, ParallelContext, Size};
-use std::collections::HashSet;
 use std::os::raw::c_void;
 use tantivy::index::SegmentId;
 
@@ -17,19 +17,8 @@ impl ParallelQueryCapable for PdbScan {
             PdbScan::init_search_reader(state);
         }
 
-        let serialized_query = serde_json::to_vec(&state.custom_state().search_query_input)
-            .expect("should be able to serialize query");
-        state.custom_state_mut().serialized_query = serialized_query;
-
-        let segment_count = state
-            .custom_state()
-            .search_reader
-            .as_ref()
-            .expect("search reader must be initialized to estimate DSM size")
-            .segment_readers()
-            .len();
-
-        ParallelScanState::size_of(segment_count, &state.custom_state_mut().serialized_query)
+        let (segments, serialized_query) = state.custom_state().parallel_serialization_data();
+        ParallelScanState::size_of(segments.len(), &serialized_query)
     }
 
     fn initialize_dsm_custom_scan(
@@ -37,18 +26,12 @@ impl ParallelQueryCapable for PdbScan {
         pcxt: *mut ParallelContext,
         coordinate: *mut c_void,
     ) {
-        let pscan_state = coordinate.cast::<ParallelScanState>();
-        assert!(!pscan_state.is_null(), "coordinate is null");
+        let (segments, serialized_query) = state.custom_state().parallel_serialization_data();
 
         unsafe {
-            let segments = state
-                .custom_state()
-                .search_reader
-                .as_ref()
-                .expect("search_reader must be initialized to initialize DSM")
-                .segment_readers();
-            (*pscan_state).init(segments, &state.custom_state().serialized_query);
-
+            let pscan_state = coordinate.cast::<ParallelScanState>();
+            assert!(!pscan_state.is_null(), "coordinate is null");
+            (*pscan_state).init(segments, &serialized_query);
             state.custom_state_mut().parallel_state = Some(pscan_state);
         }
     }
@@ -76,7 +59,7 @@ impl ParallelQueryCapable for PdbScan {
                 .query()
                 .expect("should be able to serialize the query from the ParallelScanState")
             {
-                Some(query) => state.custom_state_mut().search_query_input = query,
+                Some(query) => state.custom_state_mut().set_base_search_query_input(query),
                 None => panic!("no query in ParallelScanState"),
             }
         }

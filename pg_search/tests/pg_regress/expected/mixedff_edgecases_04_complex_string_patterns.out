@@ -4,6 +4,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
 -- Drop any existing test tables from this group
 DROP TABLE IF EXISTS corner_case_test CASCADE;
 DROP TABLE IF EXISTS nullable_test CASCADE;
@@ -46,7 +47,7 @@ CREATE INDEX corner_case_search ON corner_case_test USING bm25 (
     numeric_fields = '{"extreme_large": {"fast": true}, "extreme_small": {"fast": true}, "float_value": {"fast": true}, "zero_value": {"fast": true}, "negative_value": {"fast": true}}',
     boolean_fields = '{"bool_field": {"fast": true}}'
 );
-psql:common/mixedff_edgecases_setup.sql:50: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_edgecases_setup.sql:51: WARNING:  the `raw` tokenizer is deprecated
 -- Insert extreme test data
 INSERT INTO corner_case_test (
     id, 
@@ -98,7 +99,7 @@ CREATE INDEX nullable_search ON nullable_test USING bm25 (
     text_fields = '{"string_field": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
     numeric_fields = '{"numeric_field": {"fast": true}}'
 );
-psql:common/mixedff_edgecases_setup.sql:105: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_edgecases_setup.sql:106: WARNING:  the `raw` tokenizer is deprecated
 INSERT INTO nullable_test (id, string_field, numeric_field, content) VALUES
 ('null1', NULL, NULL, 'null test case'),
 ('null2', 'not null', 42, 'null test case');
@@ -125,7 +126,7 @@ CREATE INDEX mixed_string_edge_search ON mixed_numeric_string_test USING bm25 (
     text_fields = '{"string_field1": {"tokenizer": {"type": "default"}, "fast": true}, "string_field2": {"tokenizer": {"type": "default"}, "fast": true}, "string_field3": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
     numeric_fields = '{"numeric_field1": {"fast": true}, "numeric_field2": {"fast": true}}'
 );
-psql:common/mixedff_edgecases_setup.sql:134: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_edgecases_setup.sql:135: WARNING:  the `raw` tokenizer is deprecated
 INSERT INTO mixed_numeric_string_test (id, numeric_field1, numeric_field2, string_field1, string_field2, string_field3, content) VALUES
 ('edge1', 1, 1, '', 'empty_first', 'test', 'edge case test'),
 ('edge2', 2, 2, 'special_chars_!@#$%^&*()', 'test', 'test', 'edge case test'),
@@ -145,13 +146,12 @@ ORDER BY id;
    ->  Custom Scan (ParadeDB Scan) on corner_case_test
          Table: corner_case_test
          Index: corner_case_search
-         Segment Count: 2
          Exec Method: MixedFastFieldExecState
          Fast Fields: empty_string, id, special_chars
          String Fast Fields: empty_string, id, special_chars
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"complex pattern","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(10 rows)
 
 -- Test query
 SELECT id, empty_string, special_chars 
@@ -173,6 +173,7 @@ DROP TABLE IF EXISTS mixed_numeric_string_test CASCADE;
 -- Reset parallel workers setting to default
 RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;
+RESET paradedb.enable_mixed_fast_field_exec;
 SELECT 'Edge cases tests cleanup complete' AS status; 
               status               
 -----------------------------------

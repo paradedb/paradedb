@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::{HashMap, HashSet};
 use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -30,91 +31,17 @@ use crate::postgres::utils::item_pointer_to_u64;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchFieldConfig;
 use crate::schema::SearchFieldName;
-use anyhow::bail;
 use anyhow::Result;
 use pgrx::prelude::*;
 use pgrx::JsonB;
 use pgrx::PgRelation;
-use rustc_hash::FxHashMap;
 use serde_json::Value;
-use std::collections::HashSet;
-
-#[allow(clippy::too_many_arguments)]
-#[pg_extern]
-fn format_create_bm25(
-    index_name: &str,
-    table_name: &str,
-    key_field: &str,
-    schema_name: default!(&str, "''"),
-    text_fields: default!(JsonB, "'{}'::jsonb"),
-    numeric_fields: default!(JsonB, "'{}'::jsonb"),
-    boolean_fields: default!(JsonB, "'{}'::jsonb"),
-    json_fields: default!(JsonB, "'{}'::jsonb"),
-    range_fields: default!(JsonB, "'{}'::jsonb"),
-    datetime_fields: default!(JsonB, "'{}'::jsonb"),
-    predicates: default!(&str, "''"),
-) -> Result<String> {
-    let mut column_names = vec![key_field.to_string()];
-    for fields in [
-        &text_fields,
-        &numeric_fields,
-        &boolean_fields,
-        &json_fields,
-        &range_fields,
-        &datetime_fields,
-    ] {
-        if let Value::Object(ref map) = fields.0 {
-            for key in map.keys() {
-                if key != key_field {
-                    column_names.push(spi::quote_identifier(key.clone()));
-                }
-            }
-        } else {
-            bail!("Expected a JSON object, received: {}", fields.0);
-        }
-    }
-
-    let column_names_csv = column_names
-        .clone()
-        .into_iter()
-        .filter(|name| name != key_field)
-        .collect::<Vec<String>>()
-        .join(", ");
-
-    let predicate_where = if !predicates.is_empty() {
-        format!("WHERE {}", predicates)
-    } else {
-        "".to_string()
-    };
-
-    let schema_prefix = if schema_name.is_empty() {
-        "".to_string()
-    } else {
-        format!("{}.", spi::quote_identifier(schema_name))
-    };
-
-    Ok(format!(
-        "CREATE INDEX {} ON {}{} USING bm25 ({}, {}) WITH (key_field={}, text_fields={}, numeric_fields={}, boolean_fields={}, json_fields={}, range_fields={}, datetime_fields={}) {};",
-        spi::quote_identifier(index_name),
-        schema_prefix,
-        spi::quote_identifier(table_name),
-        spi::quote_identifier(key_field),
-        column_names_csv,
-        spi::quote_literal(key_field),
-        spi::quote_literal(&serde_json::to_string(&text_fields)?),
-        spi::quote_literal(&serde_json::to_string(&numeric_fields)?),
-        spi::quote_literal(&serde_json::to_string(&boolean_fields)?),
-        spi::quote_literal(&serde_json::to_string(&json_fields)?),
-        spi::quote_literal(&serde_json::to_string(&range_fields)?),
-        spi::quote_literal(&serde_json::to_string(&datetime_fields)?),
-        predicate_where))
-}
 
 #[pg_extern]
 pub unsafe fn index_fields(index: PgRelation) -> anyhow::Result<JsonB> {
     let options = SearchIndexCreateOptions::from_relation(&index);
     let fields = options.get_all_fields(&index).collect::<Vec<_>>();
-    let name_and_config: FxHashMap<SearchFieldName, SearchFieldConfig> = fields
+    let name_and_config: HashMap<SearchFieldName, SearchFieldConfig> = fields
         .into_iter()
         .map(|(field_name, field_config, _)| (field_name, field_config))
         .collect();

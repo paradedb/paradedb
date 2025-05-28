@@ -49,7 +49,7 @@ impl ExecMethod for NumericFastFieldExecState {
                 self.inner.search_results = state.search_reader.as_ref().unwrap().search_segment(
                     state.need_scores(),
                     segment_id,
-                    &state.search_query_input,
+                    state.search_query_input(),
                 );
                 return true;
             }
@@ -65,7 +65,7 @@ impl ExecMethod for NumericFastFieldExecState {
             self.inner.search_results = state.search_reader.as_ref().unwrap().search(
                 state.need_scores(),
                 false,
-                &state.search_query_input,
+                state.search_query_input(),
                 state.limit,
             );
             self.inner.did_query = true;
@@ -73,7 +73,7 @@ impl ExecMethod for NumericFastFieldExecState {
         }
     }
 
-    fn internal_next(&mut self, _state: &mut PdbScanState) -> ExecState {
+    fn internal_next(&mut self, state: &mut PdbScanState) -> ExecState {
         unsafe {
             match self.inner.search_results.next() {
                 None => ExecState::Eof,

@@ -86,7 +86,7 @@ impl ExecMethod for NormalScanExecState {
                 self.search_results = state.search_reader.as_ref().unwrap().search_segment(
                     state.need_scores(),
                     segment_id,
-                    &state.search_query_input,
+                    state.search_query_input(),
                 );
                 return true;
             }
@@ -156,6 +156,7 @@ impl ExecMethod for NormalScanExecState {
 
     fn reset(&mut self, _state: &mut PdbScanState) {
         // Reset tracking state but don't clear search_results - that's handled by PdbScanState.reset()
+        self.did_query = false;
 
         // Reset the block visibility cache
         self.blockvis = (pg_sys::InvalidBlockNumber, false);
@@ -175,7 +176,7 @@ impl NormalScanExecState {
             .search(
                 state.need_scores(),
                 false,
-                &state.search_query_input,
+                state.search_query_input(),
                 state.limit,
             );
         self.did_query = true;

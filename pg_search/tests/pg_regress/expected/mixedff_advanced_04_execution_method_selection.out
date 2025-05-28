@@ -6,6 +6,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
 -- Drop any existing test tables from this group
 DROP TABLE IF EXISTS documents CASCADE;
 DROP TABLE IF EXISTS files CASCADE; 
@@ -37,7 +38,7 @@ CREATE INDEX mixed_test_search ON mixed_numeric_string_test USING bm25 (
     text_fields = '{"string_field1": {"tokenizer": {"type": "default"}, "fast": true}, "string_field2": {"tokenizer": {"type": "default"}, "fast": true}, "string_field3": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
     numeric_fields = '{"numeric_field1": {"fast": true}, "numeric_field2": {"fast": true}}'
 );
-psql:common/mixedff_advanced_setup.sql:39: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_advanced_setup.sql:40: WARNING:  the `raw` tokenizer is deprecated
 -- Insert test data
 INSERT INTO mixed_numeric_string_test (id, numeric_field1, numeric_field2, string_field1, string_field2, string_field3, content) VALUES
 ('mix1', 100, 10000, 'Apple', 'Red', 'Fruit', 'This is a red apple'),
@@ -108,7 +109,7 @@ CREATE INDEX documents_search ON documents USING bm25 (
     key_field = 'id',
     text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "parents": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
-psql:common/mixedff_advanced_setup.sql:115: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_advanced_setup.sql:116: WARNING:  the `raw` tokenizer is deprecated
 CREATE INDEX files_search ON files USING bm25 (
     id,
     documentId,
@@ -118,7 +119,7 @@ CREATE INDEX files_search ON files USING bm25 (
     key_field = 'id',
     text_fields = '{"documentid": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "file_path": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
-psql:common/mixedff_advanced_setup.sql:125: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_advanced_setup.sql:126: WARNING:  the `raw` tokenizer is deprecated
 CREATE INDEX pages_search ON pages USING bm25 (
     id,
     fileId,
@@ -129,7 +130,7 @@ CREATE INDEX pages_search ON pages USING bm25 (
     text_fields = '{"fileid": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
     numeric_fields = '{"page_number": {"fast": true}}'
 );
-psql:common/mixedff_advanced_setup.sql:136: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_advanced_setup.sql:137: WARNING:  the `raw` tokenizer is deprecated
 -- Insert sample data
 INSERT INTO documents (id, title, content, parents) VALUES
 ('doc1', 'Invoice 2023', 'This is an invoice for services rendered in 2023', 'Factures'),
@@ -233,7 +234,7 @@ CREATE INDEX conversion_search ON conversion_test USING bm25 (
     }',
     boolean_fields = '{"bool_from_int": {"fast": true}}'
 );
-psql:common/mixedff_advanced_setup.sql:250: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_advanced_setup.sql:251: WARNING:  the `raw` tokenizer is deprecated
 INSERT INTO conversion_test VALUES
 ('conv1', 32767, 2147483647, 9223372036854775807, 9999999.99, 3.402e38, 1.7976931348623157e308, true, '1988-04-29', 'conversion test'),
 ('conv2', -32768, -2147483648, -9223372036854775808, -9999999.99, -3.402e38, -1.7976931348623157e308, false, '1999-12-31', 'conversion test'),
@@ -356,13 +357,12 @@ ORDER BY text_field1, text_field2;
    ->  Custom Scan (ParadeDB Scan) on exec_method_test
          Table: exec_method_test
          Index: exec_method_idx
-         Segment Count: 1
          Exec Method: MixedFastFieldExecState
          Fast Fields: text_field1, text_field2
          String Fast Fields: text_field1, text_field2
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(10 rows)
 
 SELECT text_field1, text_field2
 FROM exec_method_test
@@ -435,14 +435,13 @@ ORDER BY text_field1, num_field1, num_field2;
    ->  Custom Scan (ParadeDB Scan) on exec_method_test
          Table: exec_method_test
          Index: exec_method_idx
-         Segment Count: 1
          Exec Method: MixedFastFieldExecState
          Fast Fields: text_field1, num_field1, num_field2
          String Fast Fields: text_field1
          Numeric Fast Fields: num_field1, num_field2
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"num_field1","lower_bound":{"excluded":10},"upper_bound":null,"is_datetime":false}}]}}
-(12 rows)
+(11 rows)
 
 SELECT text_field1, num_field1, num_field2
 FROM exec_method_test
@@ -505,14 +504,13 @@ ORDER BY text_field1, text_field2, num_field1, bool_field;
    ->  Custom Scan (ParadeDB Scan) on exec_method_test
          Table: exec_method_test
          Index: exec_method_idx
-         Segment Count: 1
          Exec Method: MixedFastFieldExecState
          Fast Fields: text_field1, text_field2, bool_field, num_field1
          String Fast Fields: text_field1, text_field2
          Numeric Fast Fields: bool_field, num_field1
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}},{"term":{"field":"bool_field","value":true,"is_datetime":false}}]}}
-(12 rows)
+(11 rows)
 
 SELECT text_field1, text_field2, num_field1, bool_field
 FROM exec_method_test
@@ -560,7 +558,6 @@ ORDER BY text_field1;
    ->  Custom Scan (ParadeDB Scan) on exec_method_test
          Table: exec_method_test
          Index: exec_method_idx
-         Segment Count: 1
          Exec Method: StringFastFieldExecState
          Fast Fields: text_field1
          String Agg Field: text_field1
@@ -568,7 +565,7 @@ ORDER BY text_field1;
             Sort Field: text_field1
             Sort Direction: asc
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}}
-(13 rows)
+(12 rows)
 
 SELECT text_field1
 FROM exec_method_test
@@ -641,12 +638,11 @@ ORDER BY num_field1, num_field2;
    ->  Custom Scan (ParadeDB Scan) on exec_method_test
          Table: exec_method_test
          Index: exec_method_idx
-         Segment Count: 1
          Exec Method: NumericFastFieldExecState
          Fast Fields: num_field1, num_field2
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"range":{"field":"num_field1","lower_bound":{"excluded":25},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}}]}}
-(10 rows)
+(9 rows)
 
 SELECT num_field1, num_field2
 FROM exec_method_test
@@ -694,11 +690,12 @@ ORDER BY text_field1, non_indexed_field;
    ->  Custom Scan (ParadeDB Scan) on exec_method_test
          Table: exec_method_test
          Index: exec_method_idx
-         Segment Count: 1
-         Exec Method: NormalScanExecState
+         Exec Method: StringFastFieldExecState
+         Fast Fields: text_field1
+         String Agg Field: text_field1
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}}
-(9 rows)
+(10 rows)
 
 SELECT text_field1, non_indexed_field
 FROM exec_method_test
@@ -771,14 +768,13 @@ ORDER BY text_field1, num_field1 DESC;
    ->  Custom Scan (ParadeDB Scan) on exec_method_test
          Table: exec_method_test
          Index: exec_method_idx
-         Segment Count: 1
          Exec Method: MixedFastFieldExecState
          Fast Fields: text_field1, num_field1
          String Fast Fields: text_field1
          Numeric Fast Fields: num_field1
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}}
-(12 rows)
+(11 rows)
 
 SELECT text_field1, num_field1
 FROM exec_method_test
@@ -854,14 +850,13 @@ ORDER BY text_field1, text_field2, num_field1, bool_field;
    ->  Custom Scan (ParadeDB Scan) on exec_method_test
          Table: exec_method_test
          Index: exec_method_idx
-         Segment Count: 1
          Exec Method: MixedFastFieldExecState
          Fast Fields: text_field1, text_field2, bool_field, num_field1
          String Fast Fields: text_field1, text_field2
          Numeric Fast Fields: bool_field, num_field1
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"text_field2","query_string":"Sample","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"num_field1","lower_bound":{"included":10},"upper_bound":null,"is_datetime":false}},{"range":{"field":"num_field1","lower_bound":null,"upper_bound":{"included":40},"is_datetime":false}},{"term":{"field":"bool_field","value":true,"is_datetime":false}}]}}
-(12 rows)
+(11 rows)
 
 SELECT text_field1, text_field2, num_field1, bool_field
 FROM exec_method_test
@@ -907,14 +902,13 @@ ORDER BY t.text_field1, t.num_field1;
    ->  Custom Scan (ParadeDB Scan) on exec_method_test
          Table: exec_method_test
          Index: exec_method_idx
-         Segment Count: 1
          Exec Method: MixedFastFieldExecState
          Fast Fields: text_field1, num_field1
          String Fast Fields: text_field1
          Numeric Fast Fields: num_field1
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"num_field1","lower_bound":{"excluded":10},"upper_bound":null,"is_datetime":false}},{"range":{"field":"num_field1","lower_bound":null,"upper_bound":{"excluded":30},"is_datetime":false}}]}}
-(12 rows)
+(11 rows)
 
 SELECT t.text_field1, t.num_field1
 FROM (
@@ -996,6 +990,7 @@ DROP TABLE IF EXISTS union_test_b CASCADE;
 -- Reset parallel workers setting to default
 RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;
+RESET paradedb.enable_mixed_fast_field_exec;
 SELECT 'Advanced features tests cleanup complete' AS status; 
                   status                  
 ------------------------------------------

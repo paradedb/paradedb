@@ -374,9 +374,14 @@ checksum = "89e25b6adfb930f02d1981565a6e5d9c547ac15a96606256d3b59040e5cd4ca3"
 
 [[package]]
 name = "benchmarks"
-version = "0.15.19"
+version = "0.15.20"
 dependencies = [
+ "anyhow",
  "clap",
+ "pretty_assertions",
+ "serde_json",
+ "sqlx",
+ "tokio",
 ]
 
 [[package]]
@@ -3009,7 +3014,7 @@ dependencies = [
 
 [[package]]
 name = "pg_search"
-version = "0.15.19"
+version = "0.15.20"
 dependencies = [
  "anyhow",
  "bincode 2.0.1",
@@ -3029,7 +3034,6 @@ dependencies = [
  "pgrx-tests",
  "proptest",
  "rand 0.9.1",
- "rayon",
  "rstest",
  "rustc-hash 2.1.1",
  "serde",
@@ -3038,6 +3042,7 @@ dependencies = [
  "strum",
  "tantivy",
  "thiserror 2.0.12",
+ "tinyvec",
  "tokenizers",
  "uuid",
  "vergen",
@@ -3472,6 +3477,17 @@ dependencies = [
  "rusty-fork",
  "tempfile",
  "unarray",
+]
+
+[[package]]
+name = "proptest-derive"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ee1c9ac207483d5e7db4940700de86a9aae46ef90c48b57f99fe7edb8345e49"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.101",
 ]
 
 [[package]]
@@ -4153,6 +4169,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
+name = "signal-hook-registry"
+version = "1.4.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9203b8055f63a2a00e2f593bb0510367fe707d7ff1e5c872de2f537b339e5410"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "signature"
 version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4801,11 +4826,12 @@ dependencies = [
 
 [[package]]
 name = "tests"
-version = "0.15.19"
+version = "0.15.20"
 dependencies = [
  "anyhow",
  "approx",
  "async-std",
+ "benchmarks",
  "bigdecimal",
  "bytes",
  "chrono",
@@ -4818,9 +4844,12 @@ dependencies = [
  "pgvector",
  "portpicker",
  "pretty_assertions",
+ "proptest",
+ "proptest-derive",
  "rand 0.9.1",
  "rayon",
  "rstest",
+ "rustc-hash 2.1.1",
  "serde",
  "serde_json",
  "soa_derive",
@@ -4935,7 +4964,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokenizers"
-version = "0.15.19"
+version = "0.15.20"
 dependencies = [
  "anyhow",
  "lindera",
@@ -4965,7 +4994,9 @@ dependencies = [
  "bytes",
  "libc",
  "mio",
+ "parking_lot",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2 0.5.9",
  "tokio-macros",
  "windows-sys 0.52.0",

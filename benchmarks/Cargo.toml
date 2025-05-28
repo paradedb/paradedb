@@ -5,3 +5,19 @@ edition = { workspace = true }
 
 [dependencies]
 clap = { version = "4.5.37", features = ["derive", "env"] }
+anyhow = "1.0"
+serde_json = "1.0"
+sqlx = { version = "0.8.5", features = [
+  "postgres",
+  "runtime-async-std",
+  "time",
+  "bigdecimal",
+  "uuid",
+  "chrono",
+] }
+pretty_assertions = "1.4.0"
+tokio = { version = "1.32", features = ["full"] }
+
+[lib]
+name = "paradedb"
+path = "src/lib.rs"

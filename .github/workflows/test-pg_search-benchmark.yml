@@ -43,7 +43,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: actions-rust-lang/setup-rust-toolchain@v1
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |
@@ -111,3 +111,14 @@ jobs:
               -H "Authorization: Bearer ${{ secrets.SLACK_OAUTH_TOKEN }}" \
               https://slack.com/api/files.upload
           done
+
+      - name: Notify Slack on Failure
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
+        run: |
+          GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          MESSAGE="<!here> \`test-pg_search-benchmark\` workflow failed in \`paradedb/paradedb\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
+          curl -X POST -H 'Content-type: application/json' \
+          --data "{\"text\": \"${MESSAGE}\"}" \
+          ${SLACK_WEBHOOK_URL}

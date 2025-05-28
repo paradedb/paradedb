@@ -19,11 +19,11 @@ pub mod mixed;
 pub mod numeric;
 pub mod string;
 
+use crate::api::HashSet;
 use crate::index::fast_fields_helper::{FFHelper, FastFieldType, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{SearchIndexReader, SearchIndexScore, SearchResults};
 use crate::nodecast;
-use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
@@ -33,19 +33,21 @@ use crate::schema::SearchIndexSchema;
 use itertools::Itertools;
 use pgrx::pg_sys::CustomScanState;
 use pgrx::{pg_sys, IntoDatum, PgList, PgOid, PgRelation, PgTupleDesc};
-use std::collections::HashSet;
+use tantivy::columnar::StrColumn;
+use tantivy::termdict::TermOrdinal;
 use tantivy::DocAddress;
 
 pub struct FastFieldExecState {
     heaprel: pg_sys::Relation,
     tupdesc: Option<PgTupleDesc<'static>>,
 
+    /// Execution time WhichFastFields.
+    which_fast_fields: Vec<WhichFastField>,
     ffhelper: FFHelper,
 
     slot: *mut pg_sys::TupleTableSlot,
     strbuf: Option<String>,
     vmbuff: pg_sys::Buffer,
-    which_fast_fields: Vec<WhichFastField>,
     search_results: SearchResults,
 
     // tracks our previous block visibility so we can elide checking again
@@ -71,12 +73,11 @@ impl FastFieldExecState {
         Self {
             heaprel: std::ptr::null_mut(),
             tupdesc: None,
-
+            which_fast_fields,
             ffhelper: Default::default(),
             slot: std::ptr::null_mut(),
             strbuf: Some(String::with_capacity(256)),
             vmbuff: pg_sys::InvalidBuffer as pg_sys::Buffer,
-            which_fast_fields,
             search_results: Default::default(),
             blockvis: (pg_sys::InvalidBlockNumber, false),
             did_query: false,
@@ -93,6 +94,7 @@ impl FastFieldExecState {
                 (*cstate).ss.ps.ps_ResultTupleDesc,
                 &pg_sys::TTSOpsVirtual,
             );
+            // Initialize the fast field helper
             self.ffhelper = FFHelper::with_fields(
                 state.search_reader.as_ref().unwrap(),
                 &self.which_fast_fields,
@@ -160,39 +162,28 @@ unsafe fn ff_to_datum(
     }
 }
 
-/// Count how many "fast fields" are requested to be used by the query, as described by the `builder` argument.
-pub unsafe fn count_fast_fields(
-    builder: &mut CustomPathBuilder<PrivateData>,
-    rti: pg_sys::Index,
-    table: &PgRelation,
-    schema: &SearchIndexSchema,
-    target_list: *mut pg_sys::List,
-    referenced_columns: &HashSet<pg_sys::AttrNumber>,
-) -> f64 {
-    let ff =
-        pullup_fast_fields(target_list, referenced_columns, schema, table, rti).unwrap_or_default();
-
-    builder.custom_private().set_maybe_ff(!ff.is_empty());
-    ff.iter().sorted().dedup().count() as f64
-}
-
 /// Find all the fields that can be used as "fast fields", categorize them as [`WhichFastField`]s,
 /// and return the list. If there are none, or one or more of the fields can't be used as a
 /// "fast field", we return [`None`].
 pub unsafe fn collect_fast_fields(
-    maybe_ff: bool,
     target_list: *mut pg_sys::List,
     referenced_columns: &HashSet<pg_sys::AttrNumber>,
     rti: pg_sys::Index,
     schema: &SearchIndexSchema,
     heaprel: &PgRelation,
-) -> Option<Vec<WhichFastField>> {
-    if maybe_ff {
-        let fast_fields = pullup_fast_fields(target_list, referenced_columns, schema, heaprel, rti);
-        fast_fields.filter(|fast_fields| !fast_fields.is_empty())
-    } else {
-        None
-    }
+    is_execution_time: bool,
+) -> Vec<WhichFastField> {
+    let fast_fields = pullup_fast_fields(
+        target_list,
+        referenced_columns,
+        schema,
+        heaprel,
+        rti,
+        is_execution_time,
+    );
+    fast_fields
+        .filter(|fast_fields| !fast_fields.is_empty())
+        .unwrap_or_default()
 }
 
 // Helper function to process an attribute number and add a fast field if appropriate
@@ -267,9 +258,10 @@ pub unsafe fn pullup_fast_fields(
     schema: &SearchIndexSchema,
     heaprel: &PgRelation,
     rti: pg_sys::Index,
+    is_execution_time: bool,
 ) -> Option<Vec<WhichFastField>> {
     let mut matches = Vec::new();
-    let mut processed_attnos = HashSet::new();
+    let mut processed_attnos = HashSet::default();
 
     let tupdesc = heaprel.tuple_desc();
 
@@ -284,8 +276,19 @@ pub unsafe fn pullup_fast_fields(
 
         if let Some(var) = nodecast!(Var, T_Var, (*te).expr) {
             if (*var).varno as i32 != rti as i32 {
-                // this TargetEntry's Var isn't from the same RangeTable as we were asked to inspect,
-                // so just skip it
+                // We expect all Vars in the target list to be from the same range table as the
+                // index we're searching, so if we see a Var from a different range table, we skip it.
+                if is_execution_time {
+                    // This is a sanity check to ensure that the target list is consistent with the
+                    // index we're searching. As we're not supporting JOINs and Projection, at
+                    // execution time (not planning time), we expect all Vars in the target list to
+                    // be from the same range table as the index we're searching.
+                    debug_assert_eq!(
+                        (*var).varno as i32,
+                        rti as i32,
+                        "Encountered a Var with a different range table index.",
+                    );
+                }
                 continue;
             }
             let attno = (*var).varattno as i32;
@@ -303,17 +306,36 @@ pub unsafe fn pullup_fast_fields(
         } else if uses_scores((*te).expr.cast(), score_funcoid(), rti) {
             matches.push(WhichFastField::Score);
             continue;
-        } else if pgrx::is_a((*te).expr.cast(), pg_sys::NodeTag::T_Aggref) {
-            matches.push(WhichFastField::Junk("agg".into()));
-            continue;
-        } else if nodecast!(Const, T_Const, (*te).expr).is_some() {
-            matches.push(WhichFastField::Junk("const".into()));
-            continue;
-        } else if nodecast!(WindowFunc, T_WindowFunc, (*te).expr).is_some() {
-            matches.push(WhichFastField::Junk("window".into()));
+        } else if pgrx::is_a((*te).expr.cast(), pg_sys::NodeTag::T_Aggref)
+            || nodecast!(Const, T_Const, (*te).expr).is_some()
+            || nodecast!(WindowFunc, T_WindowFunc, (*te).expr).is_some()
+        {
+            let create_resname = |base: &str, te: &pg_sys::TargetEntry| {
+                let restype = (*te.expr).type_;
+                let resno = te.resno;
+                let isjunk = te.resjunk;
+                format!(
+                    "{}(resno={}, restype={:?}, resjunk={})",
+                    base, resno, restype, isjunk
+                )
+            };
+            let resname = if (*te).resname.is_null() {
+                create_resname("NONAME", &*te)
+            } else {
+                unsafe {
+                    std::ffi::CStr::from_ptr((*te).resname)
+                        .to_str()
+                        .unwrap_or(create_resname("INVALID_NAME_STRING", &*te).as_str())
+                }
+                .to_string()
+            };
+
+            matches.push(WhichFastField::Junk(resname));
             continue;
         }
         // we only support Vars or our score function in the target list
+        // Other nodes (e.g., T_SubPlan, T_FuncExpr, T_OpExpr, T_CaseExpr, T_PlaceHolderVar, etc.)
+        // are not supported in FastFields yet
         return None;
     }
 
@@ -339,10 +361,7 @@ pub fn fast_field_capable_prereqs(privdata: &PrivateData) -> bool {
         return false;
     }
 
-    let which_fast_fields = privdata.which_fast_fields();
-    if which_fast_fields.is_none() {
-        return false;
-    }
+    let which_fast_fields = privdata.planned_which_fast_fields().as_ref().unwrap();
 
     if is_all_special_or_junk_fields(which_fast_fields) {
         // if all the fast fields we have are Junk fields, then we're not actually
@@ -352,7 +371,6 @@ pub fn fast_field_capable_prereqs(privdata: &PrivateData) -> bool {
 
     // Make sure all referenced columns are fast fields
     let referenced_columns_count = privdata.referenced_columns_count();
-    let which_fast_fields = which_fast_fields.as_ref().unwrap();
 
     // Count columns that we have fast fields for (excluding system/junk fields)
     let fast_field_column_count = which_fast_fields
@@ -363,31 +381,6 @@ pub fn fast_field_capable_prereqs(privdata: &PrivateData) -> bool {
     // If we're missing any columns, we can't use fast field execution
     if referenced_columns_count > fast_field_column_count {
         return false;
-    }
-
-    true
-}
-
-// Check if we can use the mixed fast field execution method
-pub fn is_mixed_fast_field_capable(privdata: &PrivateData) -> bool {
-    if !fast_field_capable_prereqs(privdata) {
-        return false;
-    }
-
-    // Normal mixed fast field detection logic
-    let which_fast_fields = privdata.which_fast_fields().as_ref().unwrap();
-
-    // Filter out junk and system fields for our analysis - we only care about real column fast fields
-    let field_types = which_fast_fields
-        .iter()
-        .filter_map(|ff| match ff {
-            WhichFastField::Named(name, ff_type) => Some((name.clone(), ff_type.clone())),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-
-    if field_types.is_empty() {
-        return false; // No named fast fields
     }
 
     true
@@ -408,7 +401,7 @@ pub fn is_string_agg_capable(privdata: &PrivateData) -> Option<String> {
         return None;
     }
 
-    let which_fast_fields = privdata.which_fast_fields().as_ref().unwrap();
+    let which_fast_fields = privdata.planned_which_fast_fields().as_ref().unwrap();
 
     let mut string_field = None;
     // Count the number of string fields
@@ -438,7 +431,7 @@ pub fn is_string_agg_capable(privdata: &PrivateData) -> Option<String> {
 
 // Check if we can use numeric fast field execution method
 pub fn is_numeric_fast_field_capable(privdata: &PrivateData) -> bool {
-    let which_fast_fields = privdata.which_fast_fields().as_ref().unwrap();
+    let which_fast_fields = privdata.planned_which_fast_fields().as_ref().unwrap();
     // Make sure we don't have any string fast fields
     for ff in which_fast_fields.iter() {
         if matches!(ff, WhichFastField::Named(_, FastFieldType::String)) {
@@ -448,8 +441,8 @@ pub fn is_numeric_fast_field_capable(privdata: &PrivateData) -> bool {
     true
 }
 
-pub fn is_all_special_or_junk_fields(which_fast_fields: &Option<Vec<WhichFastField>>) -> bool {
-    which_fast_fields.iter().flatten().all(|ff| {
+fn is_all_special_or_junk_fields(which_fast_fields: &HashSet<WhichFastField>) -> bool {
+    which_fast_fields.iter().all(|ff| {
         matches!(
             ff,
             WhichFastField::Junk(_)
@@ -532,6 +525,28 @@ pub fn estimate_cardinality(indexrel: &PgRelation, field: &str) -> Option<usize>
     )
 }
 
+/// Given a _sorted_ iterator over TermOrdinals, return a Vec of term values of the same length.
+pub fn sorted_ords_to_terms(
+    str_ff: &StrColumn,
+    term_ordinals: impl IntoIterator<Item = TermOrdinal>,
+) -> Vec<String> {
+    let mut terms = Vec::new();
+    let all_terms_found = str_ff
+        .dictionary()
+        .sorted_ords_to_term_cb(term_ordinals.into_iter(), |bytes| {
+            terms.push(
+                std::str::from_utf8(bytes)
+                    .expect("term should be valid utf8")
+                    .to_owned(),
+            );
+
+            Ok(())
+        })
+        .expect("term ord resolution should succeed");
+    assert!(all_terms_found, "Did not locate all terms.");
+    terms
+}
+
 /// Process attributes using fast fields, creating a mapping and populating the datum array.
 /// This function is shared between the string and numeric fast field implementations.
 #[allow(clippy::too_many_arguments)]
@@ -545,71 +560,17 @@ pub unsafe fn extract_data_from_fast_fields(
     doc_address: DocAddress,
     string_buffer: &mut Option<String>,
 ) {
-    // Build attribute to fast field mapping
-    let mut attr_to_ff_map = std::collections::HashMap::new();
-
-    // Step 1: First try to match named attributes by name
-    for i in 0..natts {
-        if let Some(att) = tupdesc.get(i) {
-            let att_name = att.name().to_lowercase();
-            // Skip empty named attributes - handle them later
-            if !att_name.is_empty() {
-                // Try to find fast field with matching name
-                if let Some(idx) = which_fast_fields.iter().position(|ff| {
-                    if let WhichFastField::Named(name, _) = ff {
-                        name.to_lowercase() == att_name
-                    } else {
-                        false
-                    }
-                }) {
-                    attr_to_ff_map.insert(i, idx);
-                    continue;
-                }
-            }
-        }
-    }
-
-    // Step 2: Position-based matching for any remaining attributes
-    let mut next_ff_idx = 0;
-
-    // Simple position-based mapping, assuming attributes and fast fields are in the same order
-    for i in 0..natts {
-        if !attr_to_ff_map.contains_key(&i) {
-            // Find next unused fast field index
-            while next_ff_idx < which_fast_fields.len()
-                && attr_to_ff_map.values().any(|&v| v == next_ff_idx)
-            {
-                next_ff_idx += 1;
-            }
-
-            if next_ff_idx < which_fast_fields.len() {
-                attr_to_ff_map.insert(i, next_ff_idx);
-                next_ff_idx += 1;
-            }
-        }
-    }
-
-    // Get pointers to datum and isnull arrays
     let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
     let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
 
-    // Process attributes using our mapping
-    for i in 0..natts {
-        // Ensure every attribute has a mapping
-        let &ff_idx = attr_to_ff_map
-            .get(&i)
-            .unwrap_or_else(|| panic!("Attribute at position {} has no fast field mapping", i));
-        assert!(
-            ff_idx < which_fast_fields.len(),
-            "Attribute at position {} maps to invalid fast field index {}",
-            i,
-            ff_idx
-        );
-        let which_fast_field = &which_fast_fields[ff_idx];
-        let att = tupdesc.get(i).unwrap();
+    #[rustfmt::skip]
+    debug_assert!(natts == which_fast_fields.len());
+
+    for (i, att) in tupdesc.iter().enumerate() {
+        let which_fast_field = &which_fast_fields[i];
 
         match ff_to_datum(
-            (which_fast_field, ff_idx),
+            (which_fast_field, i),
             att.atttypid,
             scored.bm25,
             doc_address,

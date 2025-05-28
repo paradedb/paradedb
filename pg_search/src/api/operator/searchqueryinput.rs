@@ -19,6 +19,7 @@ use super::{
     make_search_query_input_opexpr_node,
 };
 use crate::api::operator::{estimate_selectivity, find_var_relation, ReturnedNodePointer};
+use crate::api::{HashMap, HashSet};
 use crate::gucs::per_tuple_cost;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::MvccSatisfies;
@@ -32,7 +33,6 @@ use pgrx::{
     check_for_interrupts, pg_extern, pg_func_extra, pg_sys, AnyElement, FromDatum, Internal,
     PgList, PgOid, PgRelation,
 };
-use rustc_hash::{FxHashMap, FxHashSet};
 use std::ptr::NonNull;
 
 /// SQL API for allowing the user to specify the index to query.
@@ -62,8 +62,8 @@ pub fn with_index(index: PgRelation, query: SearchQueryInput) -> SearchQueryInpu
 
 #[derive(Default)]
 struct Cache {
-    search_readers: Mutex<FxHashMap<pg_sys::Oid, (SearchIndexReader, FFHelper)>>,
-    matches: Mutex<FxHashMap<(pg_sys::Oid, String), FxHashSet<TantivyValue>>>,
+    search_readers: Mutex<HashMap<pg_sys::Oid, (SearchIndexReader, FFHelper)>>,
+    matches: Mutex<HashMap<(pg_sys::Oid, String), HashSet<TantivyValue>>>,
 }
 
 #[pg_extern(immutable, parallel_safe, cost = 1000000000)]

@@ -19,13 +19,13 @@ mod anyenum;
 mod document;
 pub mod range;
 
+use crate::api::HashMap;
 use anyhow::{Context, Result};
 use derive_more::{AsRef, Display, From, Into};
 pub use document::*;
 use pgrx::{PgBuiltInOids, PgOid, PgRelation};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use tantivy::schema::{
     DateOptions, DateTimePrecision, Field, JsonObjectOptions, NumericOptions, Schema,
@@ -176,6 +176,8 @@ pub enum SearchFieldConfig {
         column: Option<String>,
     },
     Range {
+        #[serde(default = "default_as_true")]
+        fast: bool,
         #[serde(default)]
         column: Option<String>,
     },
@@ -347,7 +349,14 @@ impl SearchFieldConfig {
             None => Ok(None),
         }?;
 
-        Ok(SearchFieldConfig::Range { column })
+        let fast = match obj.get("fast") {
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("'fast' field should be a boolean")),
+            None => Ok(true),
+        }?;
+
+        Ok(SearchFieldConfig::Range { fast, column })
     }
 
     pub fn numeric_from_json(value: serde_json::Value) -> Result<Self> {
@@ -749,7 +758,7 @@ impl SearchIndexSchema {
     }
 
     fn build_lookup(search_fields: &[SearchField]) -> HashMap<SearchFieldName, usize> {
-        let mut lookup = HashMap::new();
+        let mut lookup = HashMap::default();
         search_fields
             .iter()
             .enumerate()
@@ -826,6 +835,7 @@ impl SearchIndexSchema {
             SearchFieldConfig::Numeric { fast: true, .. } => Some(()),
             SearchFieldConfig::Boolean { fast: true, .. } => Some(()),
             SearchFieldConfig::Date { fast: true, .. } => Some(()),
+            SearchFieldConfig::Range { fast: true, .. } => Some(()),
             _ => None,
         }
     }
@@ -833,7 +843,7 @@ impl SearchIndexSchema {
     /// A lookup from a Postgres column name to search fields that have
     /// marked it as their source column with the 'column' key.
     pub fn alias_lookup(&self) -> HashMap<String, Vec<&SearchField>> {
-        let mut lookup = HashMap::new();
+        let mut lookup = HashMap::default();
         for field in &self.fields {
             if let Some(column) = field.config.column() {
                 lookup

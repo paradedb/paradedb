@@ -29,6 +29,7 @@ use tantivy::schema::OwnedValue;
 #[derive(Debug, Clone)]
 pub enum Qual {
     All,
+    ExternalVar,
     OpExpr {
         var: *mut pg_sys::Var,
         opno: pg_sys::Oid,
@@ -85,6 +86,7 @@ impl Qual {
     pub fn contains_all(&self) -> bool {
         match self {
             Qual::All => true,
+            Qual::ExternalVar => false,
             Qual::OpExpr { .. } => false,
             Qual::Expr { .. } => false,
             Qual::PushdownExpr { .. } => false,
@@ -100,9 +102,29 @@ impl Qual {
         }
     }
 
+    pub fn contains_external_var(&self) -> bool {
+        match self {
+            Qual::All => false,
+            Qual::ExternalVar => true,
+            Qual::OpExpr { .. } => false,
+            Qual::Expr { .. } => false,
+            Qual::PushdownExpr { .. } => false,
+            Qual::PushdownVarEqTrue { .. } => false,
+            Qual::PushdownVarEqFalse { .. } => false,
+            Qual::PushdownVarIsTrue { .. } => false,
+            Qual::PushdownVarIsFalse { .. } => false,
+            Qual::PushdownIsNotNull { .. } => false,
+            Qual::ScoreExpr { .. } => false,
+            Qual::And(quals) => quals.iter().any(|q| q.contains_external_var()),
+            Qual::Or(quals) => quals.iter().any(|q| q.contains_external_var()),
+            Qual::Not(qual) => qual.contains_external_var(),
+        }
+    }
+
     pub unsafe fn contains_exec_param(&self) -> bool {
         match self {
             Qual::All => false,
+            Qual::ExternalVar => false,
             Qual::OpExpr { .. } => false,
             Qual::Expr { node, .. } => contains_exec_param(*node),
             Qual::PushdownExpr { .. } => false,
@@ -121,6 +143,7 @@ impl Qual {
     pub fn contains_exprs(&self) -> bool {
         match self {
             Qual::All => false,
+            Qual::ExternalVar => false,
             Qual::OpExpr { .. } => false,
             Qual::Expr { .. } => true,
             Qual::PushdownExpr { .. } => false,
@@ -139,6 +162,7 @@ impl Qual {
     pub fn contains_score_exprs(&self) -> bool {
         match self {
             Qual::All => false,
+            Qual::ExternalVar => false,
             Qual::OpExpr { .. } => false,
             Qual::Expr { .. } => false,
             Qual::PushdownExpr { .. } => false,
@@ -156,19 +180,11 @@ impl Qual {
 
     pub fn collect_exprs<'a>(&'a mut self, exprs: &mut Vec<&'a mut Qual>) {
         match self {
-            Qual::All => {}
-            Qual::OpExpr { .. } => {}
             Qual::Expr { .. } => exprs.push(self),
-            Qual::PushdownExpr { .. } => {}
-            Qual::PushdownVarEqTrue { .. } => {}
-            Qual::PushdownVarEqFalse { .. } => {}
-            Qual::PushdownVarIsTrue { .. } => {}
-            Qual::PushdownVarIsFalse { .. } => {}
-            Qual::PushdownIsNotNull { .. } => {}
-            Qual::ScoreExpr { .. } => {}
             Qual::And(quals) => quals.iter_mut().for_each(|q| q.collect_exprs(exprs)),
             Qual::Or(quals) => quals.iter_mut().for_each(|q| q.collect_exprs(exprs)),
             Qual::Not(qual) => qual.collect_exprs(exprs),
+            _ => {}
         }
     }
 }
@@ -177,10 +193,8 @@ impl From<&Qual> for SearchQueryInput {
     #[track_caller]
     fn from(value: &Qual) -> Self {
         match value {
-            Qual::All => SearchQueryInput::ConstScore {
-                query: Box::new(SearchQueryInput::All),
-                score: 0.0,
-            },
+            Qual::All => SearchQueryInput::All,
+            Qual::ExternalVar => SearchQueryInput::All,
             Qual::OpExpr { val, .. } => unsafe {
                 SearchQueryInput::from_datum((**val).constvalue, (**val).constisnull)
                     .expect("rhs of @@@ operator Qual must not be null")
@@ -336,6 +350,12 @@ impl From<&Qual> for SearchQueryInput {
                     Qual::PushdownVarEqFalse { field } => Self::from(&Qual::PushdownVarEqTrue {
                         field: field.clone(),
                     }),
+
+                    // If the Qual represents a placeholder to another Var elsewhere in the plan,
+                    // that means it's a JOIN of some kind and what we actually need to return, in its place,
+                    // is "all" rather than "NOT all"
+                    Qual::ExternalVar => SearchQueryInput::All,
+
                     // For other types of negation, use the standard Boolean query with must_not
                     // Note that when negating an IS operator (e.g., IS NOT TRUE), PostgreSQL handles
                     // NULL values differently than when negating equality operators
@@ -438,10 +458,14 @@ pub unsafe fn extract_quals(
         pg_sys::NodeTag::T_NullTest => {
             let nulltest = nodecast!(NullTest, T_NullTest, node)?;
             if let Some(field) = PushdownField::try_new(root, (*nulltest).arg.cast(), schema) {
-                if (*nulltest).nulltesttype == pg_sys::NullTestType::IS_NOT_NULL {
-                    Some(Qual::PushdownIsNotNull { field })
+                if schema.is_fast_field(field.attname()) {
+                    if (*nulltest).nulltesttype == pg_sys::NullTestType::IS_NOT_NULL {
+                        Some(Qual::PushdownIsNotNull { field })
+                    } else {
+                        Some(Qual::Not(Box::new(Qual::PushdownIsNotNull { field })))
+                    }
                 } else {
-                    Some(Qual::Not(Box::new(Qual::PushdownIsNotNull { field })))
+                    None
                 }
             } else {
                 None
@@ -555,8 +579,12 @@ unsafe fn var_opexpr(
     uses_our_operator: &mut bool,
     opexpr: *mut pg_sys::OpExpr,
     lhs: *mut pg_sys::Node,
-    rhs: *mut pg_sys::Node,
+    mut rhs: *mut pg_sys::Node,
 ) -> Option<Qual> {
+    while let Some(relabel_target) = nodecast!(RelabelType, T_RelabelType, rhs) {
+        rhs = (*relabel_target).arg.cast();
+    }
+
     let (var, const_) = (nodecast!(Var, T_Var, lhs)?, nodecast!(Const, T_Const, rhs));
 
     let is_our_operator = (*opexpr).opno == pdbopoid;
@@ -585,7 +613,7 @@ unsafe fn var_opexpr(
             if contains_var(rhs) {
                 // the rhs is (or contains) a Var too, which likely means its part of a join condition
                 // we choose to just select everything in this situation
-                return Some(Qual::All);
+                return Some(Qual::ExternalVar);
             } else {
                 // it doesn't use our operator.
                 // we'll try to convert it into a pushdown
@@ -610,7 +638,7 @@ unsafe fn var_opexpr(
             // the var comes from a different range table
             if matches!(ri_type, RestrictInfoType::Join) {
                 // and we're doing a join, so in this case we choose to just select everything
-                Some(Qual::All)
+                Some(Qual::ExternalVar)
             } else {
                 // the var comes from a different range table and we're not doing a join (how is that possible?!)
                 // so we don't do anything
@@ -712,10 +740,14 @@ mod tests {
     #[pg_test]
     fn test_all_variant() {
         let got = SearchQueryInput::from(&Qual::All);
-        let want = SearchQueryInput::ConstScore {
-            query: Box::new(SearchQueryInput::All),
-            score: 0.0,
-        };
+        let want = SearchQueryInput::All;
+        assert_eq!(got, want);
+    }
+
+    #[pg_test]
+    fn test_external_var_variant() {
+        let got = SearchQueryInput::from(&Qual::ExternalVar);
+        let want = SearchQueryInput::All;
         assert_eq!(got, want);
     }
 
@@ -821,9 +853,7 @@ mod tests {
     fn is_logical_equivalent(a: &Qual, b: &SearchQueryInput) -> bool {
         match (a, b) {
             // Match Qual::All with ConstScore
-            (Qual::All, SearchQueryInput::ConstScore { query, score }) => {
-                matches!(**query, SearchQueryInput::All) && *score == 0.0
-            }
+            (Qual::All, SearchQueryInput::All) => true,
 
             // Match boolean field TRUE cases
             (

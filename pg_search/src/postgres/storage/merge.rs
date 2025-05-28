@@ -295,7 +295,6 @@ impl MergeList {
                 recycled_entry.segment_ids_start_blockno,
             )
             .return_to_fsm();
-            pg_sys::IndexFreeSpaceMapVacuum(self.bman.bm25cache().indexrel());
         }
     }
 
@@ -348,7 +347,6 @@ impl MergeList {
             removed_entry.segment_ids_start_blockno,
         )
         .return_to_fsm();
-        pg_sys::IndexFreeSpaceMapVacuum(self.bman.bm25cache().indexrel());
         Ok(removed_entry)
     }
 }

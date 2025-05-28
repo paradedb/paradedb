@@ -356,7 +356,7 @@ fn fast_field_capable_prereqs(privdata: &PrivateData) -> bool {
 
     if is_all_special_or_junk_fields(which_fast_fields) {
         // if all the fast fields we have are Junk fields, then we're not actually
-        // projecting fast fields
+        // projecting fast fields, and we're better off using a Normal scan.
         return false;
     }
 
@@ -474,8 +474,10 @@ pub fn is_mixed_fast_field_capable(privdata: &PrivateData) -> bool {
     0 < named_field_count && named_field_count < gucs::mixed_fast_field_exec_column_threshold()
 }
 
-fn is_all_special_or_junk_fields(which_fast_fields: &HashSet<WhichFastField>) -> bool {
-    which_fast_fields.iter().all(|ff| {
+pub fn is_all_special_or_junk_fields<'a>(
+    which_fast_fields: impl IntoIterator<Item = &'a WhichFastField>,
+) -> bool {
+    which_fast_fields.into_iter().all(|ff| {
         matches!(
             ff,
             WhichFastField::Junk(_)

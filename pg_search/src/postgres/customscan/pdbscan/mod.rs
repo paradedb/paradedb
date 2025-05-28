@@ -1167,6 +1167,16 @@ fn compute_exec_which_fast_fields(
         )
     };
 
+    if fast_fields::is_all_special_or_junk_fields(&exec_which_fast_fields) {
+        // In some cases, enough columns are pruned between planning and execution that there
+        // is no point actually using fast fields, and we can fall back to `Normal`.
+        //
+        // TODO: In order to implement https://github.com/paradedb/paradedb/issues/2623, we will
+        // need to differentiate these cases, so that we can always emit the sort order that we
+        // claimed.
+        return None;
+    }
+
     let missing_fast_fields = exec_which_fast_fields
         .iter()
         .filter(|ff| !planned_which_fast_fields.contains(ff))
@@ -1422,9 +1432,9 @@ unsafe fn collect_maybe_fast_field_referenced_columns(
                 referenced_columns.insert((*var).varattno);
             }
         }
-        // NOTE: Unless we encounter the second type of fallback in `assign_exec_method`, then we
-        // can be reasonably confident that directly inspecting Vars is sufficient. We haven't seen
-        // it yet in the wild.
+        // NOTE: Unless we encounter the fallback in `compute_exec_which_fast_fields`, then we
+        // can be reasonably confident that directly inspecting Vars is sufficient. We haven't
+        // seen it yet in the wild.
     }
 
     referenced_columns

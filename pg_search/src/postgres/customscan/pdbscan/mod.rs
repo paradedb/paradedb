@@ -404,6 +404,7 @@ impl CustomScan for PdbScan {
             // TODO: Re-examine this `is_string_fast_field_capable` check after #2612 has landed,
             // as it should likely also be checking for `is_mixed_fast_field_capable` as well, and
             // should likely have different thresholds.
+            // See https://github.com/paradedb/paradedb/issues/2620
             if pathkey.is_some()
                 && !is_topn
                 && fast_fields::is_string_fast_field_capable(builder.custom_private()).is_some()

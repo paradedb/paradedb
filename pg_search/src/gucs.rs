@@ -226,7 +226,11 @@ pub fn log_create_index_progress() -> bool {
 }
 
 pub fn create_index_parallelism() -> NonZeroUsize {
-    adjust_nthreads(CREATE_INDEX_PARALLELISM.get())
+    if enable_parallel_index_build() {
+        unsafe { NonZeroUsize::new_unchecked(1) }
+    } else {
+        adjust_nthreads(CREATE_INDEX_PARALLELISM.get())
+    }
 }
 
 pub fn create_index_memory_budget() -> usize {

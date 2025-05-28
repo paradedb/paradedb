@@ -30,12 +30,15 @@ use crate::postgres::utils::{
 };
 use crate::schema::{SearchField, SearchFieldConfig};
 use anyhow::Result;
+use pgrx::pg_sys::AsPgCStr;
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::*;
 use std::ffi::CStr;
 use std::time::Instant;
 use tantivy::{Index, IndexSettings};
 use tokenizers::SearchTokenizer;
+
+const PARALLEL_KEY_SHARED_STATE: u64 = 0xA000000000000001;
 
 // For now just pass the count on the build callback state
 struct BuildState {
@@ -45,44 +48,41 @@ struct BuildState {
     writer: SearchIndexWriter,
     categorized_fields: Vec<(SearchField, CategorizedFieldData)>,
     key_field_name: String,
+    heap_relation: PgRelation,
+    index_relation: PgRelation,
+    leader: Option<ParallelBuildLeader>,
+}
+
+struct ParallelSharedState {
+    heap_oid: pg_sys::Oid,
+    index_oid: pg_sys::Oid,
+    is_concurrent: bool,
+    workers_done: pg_sys::ConditionVariable,
+    mutex: pg_sys::slock_t,
+    n_participants_done: i32,
+    reltuples: f64,
+}
+
+struct ParallelBuildLeader {
+    parallel_context: pg_sys::ParallelContext,
+    n_participant_tuple_sorts: i32,
+    shared: *mut ParallelSharedState,
+    snapshot: pg_sys::Snapshot,
 }
 
 impl BuildState {
-    fn new(indexrel: &PgRelation) -> Self {
+    fn new(relation_oid: pg_sys::Oid) -> Self {
+        let index_relation = unsafe { PgRelation::open(relation_oid) };
         let writer = SearchIndexWriter::open(
-            indexrel,
+            &index_relation,
             MvccSatisfies::Snapshot,
             WriterResources::CreateIndex,
         )
         .expect("build state: should be able to open a SearchIndexWriter");
 
-        let tupdesc = unsafe { PgTupleDesc::from_pg_unchecked(indexrel.rd_att) };
+        let tupdesc = unsafe { PgTupleDesc::from_pg_unchecked(index_relation.rd_att) };
         let categorized_fields = categorize_fields(&tupdesc, &writer.schema);
         let key_field_name = writer.schema.key_field().name.0;
-
-        // warn that the `raw` tokenizer is deprecated
-        for field in &writer.schema.fields {
-            #[allow(deprecated)]
-            if matches!(
-                field.config,
-                SearchFieldConfig::Text {
-                    tokenizer: SearchTokenizer::Raw(_),
-                    ..
-                } | SearchFieldConfig::Json {
-                    tokenizer: SearchTokenizer::Raw(_),
-                    ..
-                }
-            ) && field.name.0 != key_field_name
-            {
-                ErrorReport::new(
-                    PgSqlErrorCode::ERRCODE_WARNING_DEPRECATED_FEATURE,
-                    "the `raw` tokenizer is deprecated",
-                    function_name!(),
-                )
-                    .set_detail("the `raw` tokenizer is deprecated as it also lowercases and truncates the input and this is probably not what you want")
-                    .set_hint("use `keyword` instead").report(PgLogLevel::WARNING);
-            }
-        }
 
         BuildState {
             count: 0,
@@ -91,6 +91,11 @@ impl BuildState {
             writer,
             categorized_fields,
             key_field_name,
+            index_relation: index_relation.clone(),
+            heap_relation: index_relation
+                .heap_relation()
+                .expect("build state: index must have a heap relation"),
+            leader: None,
         }
     }
 }
@@ -135,7 +140,8 @@ pub extern "C-unwind" fn ambuild(
     let nworkers = unsafe { compute_nworkers(&heap_relation, &index_relation) };
     let tuple_count = if nworkers > 0 {
         pgrx::info!("parallel index build with {} workers", nworkers);
-
+        let mut state = BuildState::new(index_relation.oid());
+        unsafe { begin_parallel_index_build(&mut state, (*index_info).ii_Concurrent, nworkers) };
         todo!("parallel index build");
     } else {
         do_heap_scan(index_info, &heap_relation, &index_relation)
@@ -158,7 +164,7 @@ fn do_heap_scan<'a>(
     index_relation: &'a PgRelation,
 ) -> usize {
     unsafe {
-        let mut state = BuildState::new(index_relation);
+        let mut state = BuildState::new(index_relation.oid());
         pg_sys::IndexBuildHeapScan(
             heap_relation.as_ptr(),
             index_relation.as_ptr(),
@@ -335,4 +341,118 @@ unsafe fn relation_get_parallel_workers(relation: pg_sys::Relation, default: i32
     } else {
         default
     }
+}
+
+unsafe fn begin_parallel_index_build(
+    build_state: &mut BuildState,
+    is_concurrent: bool,
+    parallel_workers: i32,
+) {
+    pg_sys::EnterParallelMode();
+    assert!(parallel_workers > 0);
+
+    let parallel_context =
+        pg_sys::CreateParallelContext(c"bm25".as_ptr(), c"parallel_build_main".as_ptr(), parallel_workers);
+    let snapshot = if !is_concurrent {
+        &mut pg_sys::SnapshotAnyData
+    } else {
+        pg_sys::RegisterSnapshot(pg_sys::GetTransactionSnapshot())
+    };
+
+    let est_shared = parallel_estimate_shmem(build_state.heap_relation.as_ptr(), snapshot);
+    shm_toc_estimate_chunk(&mut (*parallel_context).estimator, est_shared);
+
+    // TODO: Add maintenance_work_mem and PARALLEL_KEY_QUERY_TEXT to shm_toc_estimate_chunk
+
+    // Exit parallel mode if no DSM segment is created
+    pg_sys::InitializeParallelDSM(parallel_context);
+    if (*parallel_context).seg.is_null() {
+        if is_mvcc_snapshot(snapshot) {
+            pg_sys::UnregisterSnapshot(snapshot);
+        }
+        pg_sys::DestroyParallelContext(parallel_context);
+        pg_sys::ExitParallelMode();
+        return;
+    }
+
+    let mut shared_state =
+        pg_sys::shm_toc_allocate((*parallel_context).toc, est_shared) as *mut ParallelSharedState;
+    (*shared_state).heap_oid = build_state.heap_relation.oid();
+    (*shared_state).index_oid = build_state.index_relation.oid();
+    (*shared_state).is_concurrent = is_concurrent;
+    pg_sys::ConditionVariableInit(&mut (*shared_state).workers_done);
+    pg_sys::SpinLockInit(&mut (*shared_state).mutex);
+    pg_sys::table_parallelscan_initialize(
+        build_state.heap_relation.as_ptr(),
+        parallel_table_scan_from_shared_state(shared_state),
+        snapshot,
+    );
+
+    // pg_sys::shm_toc_insert(
+    //     (*parallel_context).toc,
+    //     PARALLEL_KEY_SHARED_STATE,
+    //     shared_state,
+    // );
+
+    pg_sys::LaunchParallelWorkers(parallel_context);
+    let mut leader = ParallelBuildLeader {
+        parallel_context: *parallel_context,
+        n_participant_tuple_sorts: (*parallel_context).nworkers_launched,
+        shared: shared_state,
+        snapshot,
+    };
+
+    if (*parallel_context).nworkers_launched == 0 {
+        end_parallel_index_build(&mut leader);
+        return;
+    }
+
+    build_state.leader = Some(leader);
+
+    // TODO: Allow leader to participate
+
+    pg_sys::WaitForParallelWorkersToAttach(parallel_context);
+}
+
+unsafe extern "C-unwind" fn parallel_build_main(seg: pg_sys::dsm_segment, toc: pg_sys::shm_toc) {
+    todo!("parallel_build_main");
+}
+
+unsafe fn end_parallel_index_build(leader: *mut ParallelBuildLeader) {
+    pg_sys::WaitForParallelWorkersToFinish(&mut (*leader).parallel_context);
+
+    if is_mvcc_snapshot((*leader).snapshot) {
+        pg_sys::UnregisterSnapshot((*leader).snapshot);
+    }
+
+    pg_sys::DestroyParallelContext(&mut (*leader).parallel_context);
+    pg_sys::ExitParallelMode();
+}
+
+unsafe fn parallel_estimate_shmem(
+    relation: pg_sys::Relation,
+    snapshot: pg_sys::Snapshot,
+) -> pg_sys::Size {
+    pg_sys::table_parallelscan_estimate(relation, snapshot)
+        + crate::gucs::create_index_memory_budget()
+        + buffer_align(std::mem::size_of::<BuildState>())
+}
+
+unsafe fn buffer_align(len: usize) -> usize {
+    pg_sys::TYPEALIGN(pg_sys::ALIGNOF_BUFFER as usize, len)
+}
+
+unsafe fn shm_toc_estimate_chunk(e: *mut pg_sys::shm_toc_estimator, sz: usize) {
+    (*e).space_for_chunks = pg_sys::add_size((*e).space_for_chunks, buffer_align(sz));
+}
+
+unsafe fn parallel_table_scan_from_shared_state(
+    shared: *mut ParallelSharedState,
+) -> pg_sys::ParallelTableScanDesc {
+    let offset = buffer_align(std::mem::size_of::<ParallelSharedState>());
+    (shared as *mut u8).add(offset) as pg_sys::ParallelTableScanDesc
+}
+
+unsafe fn is_mvcc_snapshot(snapshot: pg_sys::Snapshot) -> bool {
+    (*snapshot).snapshot_type == pg_sys::SnapshotType::SNAPSHOT_MVCC || (*snapshot).snapshot_type == pg_sys::SnapshotType::SNAPSHOT_HISTORIC_MVCC
 }

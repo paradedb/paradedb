@@ -18,7 +18,7 @@ USING bm25 (id, description, category, rating, in_stock, created_at, metadata, w
 WITH (key_field='id');
 ```
 
-For details on configuring and tokenizing individual fields and data types, see the [Field Configuration](documentation/indexing/field_options) section.
+Note that the index's column list contains fields of type text, JSON, numeric, timestamp, and boolean. See the [Field Configuration](documentation/indexing/field_options) section for how to configure these fields.
 
 ## Syntax
 

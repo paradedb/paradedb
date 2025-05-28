@@ -21,14 +21,12 @@ use pgrx::{pg_sys, PgRelation};
 use tantivy::index::SegmentId;
 use tantivy::indexer::{NoMergePolicy, UserOperation};
 use tantivy::schema::Field;
-use tantivy::{
-    DocId, Index, IndexSettings, IndexWriter, Opstamp, SegmentMeta, TantivyDocument, TantivyError,
-};
+use tantivy::{DocId, Index, IndexWriter, Opstamp, SegmentMeta, TantivyDocument, TantivyError};
 use thiserror::Error;
 
 use crate::index::channel::{ChannelDirectory, ChannelRequestHandler};
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
-use crate::index::{get_index_schema, setup_tokenizers, WriterResources};
+use crate::index::{setup_tokenizers, WriterResources};
 use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::{
     postgres::types::TantivyValueError,
@@ -95,52 +93,6 @@ impl SearchIndexWriter {
             schema,
             handler,
             ctid_field,
-            insert_queue: Vec::with_capacity(MAX_INSERT_QUEUE_SIZE),
-            cnt: 0,
-        })
-    }
-
-    pub fn create_index(index_relation: &PgRelation) -> Result<Self> {
-        let schema = get_index_schema(index_relation)?;
-        let (parallelism, memory_budget) = WriterResources::CreateIndex.resources();
-
-        let (req_sender, req_receiver) = crossbeam::channel::bounded(1);
-        let channel_dir = ChannelDirectory::new(req_sender);
-        let mut handler =
-            MvccSatisfies::Snapshot.channel_request_handler(index_relation, req_receiver);
-
-        let mut index = {
-            let schema = schema.clone();
-            let settings = IndexSettings {
-                docstore_compress_dedicated_thread: false,
-                ..IndexSettings::default()
-            };
-
-            handler
-                .wait_for(move || {
-                    let index = Index::create(channel_dir, schema.schema.clone(), settings)?;
-                    tantivy::Result::Ok(index)
-                })
-                .expect("scoped thread should not fail")?
-        };
-        setup_tokenizers(&mut index, index_relation);
-
-        let writer = handler
-            .wait_for(move || {
-                let writer = index.writer_with_num_threads(parallelism.get(), memory_budget)?;
-                writer.set_merge_policy(Box::new(NoMergePolicy));
-                tantivy::Result::Ok(writer)
-            })
-            .expect("scoped thread should not fail")?;
-
-        let ctid_field = schema.schema.get_field("ctid")?;
-
-        Ok(Self {
-            indexrelid: index_relation.oid(),
-            writer,
-            schema,
-            ctid_field,
-            handler,
             insert_queue: Vec::with_capacity(MAX_INSERT_QUEUE_SIZE),
             cnt: 0,
         })

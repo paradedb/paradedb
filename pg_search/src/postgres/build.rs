@@ -15,11 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use anyhow::Result;
-use crate::index::get_index_schema;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::reader::index::SearchIndexReader;
 use crate::index::writer::index::SearchIndexWriter;
+use crate::index::{get_index_schema, WriterResources};
 use crate::postgres::storage::block::{
     SegmentMetaEntry, CLEANUP_LOCK, METADATA, SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
 };
@@ -30,6 +29,7 @@ use crate::postgres::utils::{
     categorize_fields, item_pointer_to_u64, row_to_search_document, CategorizedFieldData,
 };
 use crate::schema::{SearchField, SearchFieldConfig};
+use anyhow::Result;
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::*;
 use std::ffi::CStr;
@@ -48,7 +48,37 @@ struct BuildState {
 }
 
 impl BuildState {
-    fn new(indexrel: &PgRelation, writer: SearchIndexWriter) -> Self {
+    fn new(indexrel: &PgRelation) -> Self {
+        let writer = SearchIndexWriter::open(
+            indexrel,
+            MvccSatisfies::Snapshot,
+            WriterResources::CreateIndex,
+        )
+        .expect("build state: should be able to open a SearchIndexWriter");
+
+        // warn that the `raw` tokenizer is deprecated
+        for field in &writer.schema.fields {
+            #[allow(deprecated)]
+            if matches!(
+                field.config,
+                SearchFieldConfig::Text {
+                    tokenizer: SearchTokenizer::Raw(_),
+                    ..
+                } | SearchFieldConfig::Json {
+                    tokenizer: SearchTokenizer::Raw(_),
+                    ..
+                }
+            ) {
+                ErrorReport::new(
+                    PgSqlErrorCode::ERRCODE_WARNING_DEPRECATED_FEATURE,
+                    "the `raw` tokenizer is deprecated",
+                    function_name!(),
+                )
+                    .set_detail("the `raw` tokenizer is deprecated as it also lowercases and truncates the input and this is probably not what you want")
+                    .set_hint("use `keyword` instead").report(PgLogLevel::WARNING);
+            }
+        }
+
         let tupdesc = unsafe { PgTupleDesc::from_pg_unchecked(indexrel.rd_att) };
         let categorized_fields = categorize_fields(&tupdesc, &writer.schema);
         let key_field_name = writer.schema.key_field().name.0;
@@ -97,9 +127,14 @@ pub extern "C-unwind" fn ambuild(
         }
     }
 
+    // create the index
+    create_index(&index_relation).expect("failed to create index");
+
+    // populate the index
     let nworkers = unsafe { compute_nworkers(&heap_relation, &index_relation) };
     let tuple_count = if nworkers > 0 {
         pgrx::info!("parallel index build with {} workers", nworkers);
+
         todo!("parallel index build");
     } else {
         do_heap_scan(index_info, &heap_relation, &index_relation)
@@ -122,33 +157,7 @@ fn do_heap_scan<'a>(
     index_relation: &'a PgRelation,
 ) -> usize {
     unsafe {
-        let writer = SearchIndexWriter::create_index(index_relation)
-            .expect("do_heap_scan: should be able to open a SearchIndexWriter");
-
-        // warn that the `raw` tokenizer is deprecated
-        for field in &writer.schema.fields {
-            #[allow(deprecated)]
-            if matches!(
-                field.config,
-                SearchFieldConfig::Text {
-                    tokenizer: SearchTokenizer::Raw(_),
-                    ..
-                } | SearchFieldConfig::Json {
-                    tokenizer: SearchTokenizer::Raw(_),
-                    ..
-                }
-            ) {
-                ErrorReport::new(
-                    PgSqlErrorCode::ERRCODE_WARNING_DEPRECATED_FEATURE,
-                    "the `raw` tokenizer is deprecated",
-                    function_name!(),
-                )
-                    .set_detail("the `raw` tokenizer is deprecated as it also lowercases and truncates the input and this is probably not what you want")
-                    .set_hint("use `keyword` instead").report(PgLogLevel::WARNING);
-            }
-        }
-
-        let mut state = BuildState::new(index_relation, writer);
+        let mut state = BuildState::new(index_relation);
         pg_sys::IndexBuildHeapScan(
             heap_relation.as_ptr(),
             index_relation.as_ptr(),
@@ -291,8 +300,19 @@ unsafe fn init_fixed_buffers(index_relation: &PgRelation) {
     assert_eq!(segment_metas.header_blockno, SEGMENT_METAS_START);
 }
 
+fn create_index(index_relation: &PgRelation) -> Result<()> {
+    let schema = get_index_schema(index_relation)?;
+    let directory = MVCCDirectory::snapshot(index_relation.oid());
+    let settings = IndexSettings {
+        docstore_compress_dedicated_thread: false,
+        ..IndexSettings::default()
+    };
+    Index::create(directory, schema.into(), settings)?;
+    Ok(())
+}
+
 unsafe fn compute_nworkers(heap_relation: &PgRelation, index_relation: &PgRelation) -> i32 {
-    if crate::gucs::enable_parallel_index_build() {
+    if !crate::gucs::enable_parallel_index_build() {
         return 0;
     }
 
@@ -314,15 +334,4 @@ unsafe fn relation_get_parallel_workers(relation: pg_sys::Relation, default: i32
     } else {
         default
     }
-}
-
-fn create_index(index_relation: &PgRelation) -> Result<()> {
-    let schema = get_index_schema(index_relation)?;
-    let directory = MVCCDirectory::snapshot(index_relation.oid());
-    let settings = IndexSettings {
-        docstore_compress_dedicated_thread: false,
-        ..IndexSettings::default()
-    };
-    Index::create(directory, schema.into(), settings)?;
-    Ok(())
 }

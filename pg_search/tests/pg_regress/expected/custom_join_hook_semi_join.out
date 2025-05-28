@@ -49,14 +49,14 @@ WHERE p.description @@@ 'laptop' AND r.review_text @@@ 'performance';
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149453, index_oid=149470
+WARNING:  RTI 1 has BM25 index: table_oid=small_products, index_oid=small_products_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149462, index_oid=149471
+WARNING:  RTI 2 has BM25 index: table_oid=small_reviews, index_oid=small_reviews_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -82,14 +82,14 @@ WARNING:    CHOSEN: FastFieldNumeric
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 2 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149453, index_oid=149470
+WARNING:  RTI 1 has BM25 index: table_oid=small_products, index_oid=small_products_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149462, index_oid=149471
+WARNING:  RTI 2 has BM25 index: table_oid=small_reviews, index_oid=small_reviews_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -198,14 +198,14 @@ WHERE d.content @@@ 'technology' AND c.comment_text @@@ 'excellent';
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149473, index_oid=149490
+WARNING:  RTI 1 has BM25 index: table_oid=medium_docs, index_oid=medium_docs_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149482, index_oid=149491
+WARNING:  RTI 2 has BM25 index: table_oid=medium_comments, index_oid=medium_comments_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -231,14 +231,14 @@ WARNING:    CHOSEN: FastFieldNumeric
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 2 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149473, index_oid=149490
+WARNING:  RTI 1 has BM25 index: table_oid=medium_docs, index_oid=medium_docs_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149482, index_oid=149491
+WARNING:  RTI 2 has BM25 index: table_oid=medium_comments, index_oid=medium_comments_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -413,14 +413,14 @@ WHERE a.body @@@ 'artificial intelligence' AND t.tag_name @@@ 'machine-learning'
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149493, index_oid=149510
+WARNING:  RTI 1 has BM25 index: table_oid=large_articles, index_oid=large_articles_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149502, index_oid=149511
+WARNING:  RTI 2 has BM25 index: table_oid=large_tags, index_oid=large_tags_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -446,14 +446,14 @@ WARNING:    CHOSEN: FastFieldNumeric
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 2 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149493, index_oid=149510
+WARNING:  RTI 1 has BM25 index: table_oid=large_articles, index_oid=large_articles_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149502, index_oid=149511
+WARNING:  RTI 2 has BM25 index: table_oid=large_tags, index_oid=large_tags_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -507,14 +507,14 @@ WHERE p.description @@@ 'laptop' AND r.review_text @@@ 'performance';
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149453, index_oid=149470
+WARNING:  RTI 1 has BM25 index: table_oid=small_products, index_oid=small_products_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149462, index_oid=149471
+WARNING:  RTI 2 has BM25 index: table_oid=small_reviews, index_oid=small_reviews_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -540,14 +540,14 @@ WARNING:    CHOSEN: FastFieldNumeric
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 2 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149453, index_oid=149470
+WARNING:  RTI 1 has BM25 index: table_oid=small_products, index_oid=small_products_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149462, index_oid=149471
+WARNING:  RTI 2 has BM25 index: table_oid=small_reviews, index_oid=small_reviews_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -599,14 +599,14 @@ WHERE p.description @@@ 'laptop' AND r.review_text @@@ 'performance';
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149453, index_oid=149470
+WARNING:  RTI 1 has BM25 index: table_oid=small_products, index_oid=small_products_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149462, index_oid=149471
+WARNING:  RTI 2 has BM25 index: table_oid=small_reviews, index_oid=small_reviews_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -632,14 +632,14 @@ WARNING:    CHOSEN: FastFieldNumeric
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 2 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149453, index_oid=149470
+WARNING:  RTI 1 has BM25 index: table_oid=small_products, index_oid=small_products_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149462, index_oid=149471
+WARNING:  RTI 2 has BM25 index: table_oid=small_reviews, index_oid=small_reviews_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -690,14 +690,14 @@ WHERE p.description @@@ 'nonexistent' AND r.review_text @@@ 'impossible';
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149453, index_oid=149470
+WARNING:  RTI 1 has BM25 index: table_oid=small_products, index_oid=small_products_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149462, index_oid=149471
+WARNING:  RTI 2 has BM25 index: table_oid=small_reviews, index_oid=small_reviews_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -723,14 +723,14 @@ WARNING:    CHOSEN: FastFieldNumeric
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 2 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149453, index_oid=149470
+WARNING:  RTI 1 has BM25 index: table_oid=small_products, index_oid=small_products_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149462, index_oid=149471
+WARNING:  RTI 2 has BM25 index: table_oid=small_reviews, index_oid=small_reviews_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -781,14 +781,14 @@ LIMIT 1;
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149453, index_oid=149470
+WARNING:  RTI 1 has BM25 index: table_oid=small_products, index_oid=small_products_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149462, index_oid=149471
+WARNING:  RTI 2 has BM25 index: table_oid=small_reviews, index_oid=small_reviews_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -814,14 +814,14 @@ WARNING:    CHOSEN: FastFieldNumeric
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 2 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149453, index_oid=149470
+WARNING:  RTI 1 has BM25 index: table_oid=small_products, index_oid=small_products_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149462, index_oid=149471
+WARNING:  RTI 2 has BM25 index: table_oid=small_reviews, index_oid=small_reviews_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -851,13 +851,13 @@ WARNING:    outer_has_search: true
 WARNING:    inner_has_search: true
 WARNING:    has_limit: true
 WARNING:    CREATING JOIN COORDINATION PATH!
-WARNING:      RTI 1 maps to table OID 149453
-WARNING:      Found table OID 149453 for RTI 1
-WARNING:    Extracted outer table OID: 149453 (RTI: 1)
-WARNING:      RTI 2 maps to table OID 149462
-WARNING:      Found table OID 149462 for RTI 2
-WARNING:    Extracted inner table OID: 149462 (RTI: 2)
-WARNING:    JOIN private data: {"relation_mapping":{"149453":1,"149462":2},"table_oids":[149453,149462],"limit":1,"join_conditions":"placeholder_join_conditions"}
+WARNING:      RTI 1 maps to table OID small_products
+WARNING:      Found table OID small_products for RTI 1
+WARNING:    Extracted outer table OID: small_products (RTI: 1)
+WARNING:      RTI 2 maps to table OID small_reviews
+WARNING:      Found table OID small_reviews for RTI 2
+WARNING:    Extracted inner table OID: small_reviews (RTI: 2)
+WARNING:    JOIN private data: 2 tables, limit: Some(1)
 WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=1
 WARNING:    CustomPath created successfully
 WARNING:    SUCCESSFULLY CREATED JOIN COORDINATION PATH!
@@ -868,19 +868,20 @@ WARNING:    outer_has_search: true
 WARNING:    inner_has_search: true
 WARNING:    has_limit: true
 WARNING:    CREATING JOIN COORDINATION PATH!
-WARNING:      RTI 2 maps to table OID 149462
-WARNING:      Found table OID 149462 for RTI 2
-WARNING:    Extracted outer table OID: 149462 (RTI: 2)
-WARNING:      RTI 1 maps to table OID 149453
-WARNING:      Found table OID 149453 for RTI 1
-WARNING:    Extracted inner table OID: 149453 (RTI: 1)
-WARNING:    JOIN private data: {"relation_mapping":{"149453":1,"149462":2},"table_oids":[149462,149453],"limit":1,"join_conditions":"placeholder_join_conditions"}
+WARNING:      RTI 2 maps to table OID small_reviews
+WARNING:      Found table OID small_reviews for RTI 2
+WARNING:    Extracted outer table OID: small_reviews (RTI: 2)
+WARNING:      RTI 1 maps to table OID small_products
+WARNING:      Found table OID small_products for RTI 1
+WARNING:    Extracted inner table OID: small_products (RTI: 1)
+WARNING:    JOIN private data: 2 tables, limit: Some(1)
 WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=1
 WARNING:    CustomPath created successfully
 WARNING:    SUCCESSFULLY CREATED JOIN COORDINATION PATH!
 WARNING:  === PLANNING JOIN COORDINATION CUSTOM PATH ===
-WARNING:    rel relids: 0x7fa371d79390
+WARNING:    rel relids: ["small_products", "small_reviews"]
 WARNING:    tlist length: 2
+WARNING:    Using original target list for JOIN coordination plan
 WARNING:    Created CustomScan plan for JOIN coordination
 WARNING:    startup_cost: 1, total_cost: 10, rows: 1
 ERROR:  variable not found in subplan target list
@@ -892,14 +893,14 @@ WHERE d.content @@@ 'and' AND c.comment_text @@@ 'about';
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149473, index_oid=149490
+WARNING:  RTI 1 has BM25 index: table_oid=medium_docs, index_oid=medium_docs_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149482, index_oid=149491
+WARNING:  RTI 2 has BM25 index: table_oid=medium_comments, index_oid=medium_comments_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -925,14 +926,14 @@ WARNING:    CHOSEN: FastFieldNumeric
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 2 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149473, index_oid=149490
+WARNING:  RTI 1 has BM25 index: table_oid=medium_docs, index_oid=medium_docs_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149482, index_oid=149491
+WARNING:  RTI 2 has BM25 index: table_oid=medium_comments, index_oid=medium_comments_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -985,14 +986,14 @@ WHERE p.description @@@ 'wireless precision' AND r.review_text @@@ 'perfect dail
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149453, index_oid=149470
+WARNING:  RTI 1 has BM25 index: table_oid=small_products, index_oid=small_products_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149462, index_oid=149471
+WARNING:  RTI 2 has BM25 index: table_oid=small_reviews, index_oid=small_reviews_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -1018,14 +1019,14 @@ WARNING:    CHOSEN: FastFieldNumeric
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 2 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149453, index_oid=149470
+WARNING:  RTI 1 has BM25 index: table_oid=small_products, index_oid=small_products_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149462, index_oid=149471
+WARNING:  RTI 2 has BM25 index: table_oid=small_reviews, index_oid=small_reviews_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -1094,14 +1095,14 @@ WHERE d.content @@@ 'technology innovation' AND c.comment_text @@@ 'excellent an
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149473, index_oid=149490
+WARNING:  RTI 1 has BM25 index: table_oid=medium_docs, index_oid=medium_docs_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149482, index_oid=149491
+WARNING:  RTI 2 has BM25 index: table_oid=medium_comments, index_oid=medium_comments_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -1127,14 +1128,14 @@ WARNING:    CHOSEN: FastFieldNumeric
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 2 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149473, index_oid=149490
+WARNING:  RTI 1 has BM25 index: table_oid=medium_docs, index_oid=medium_docs_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149482, index_oid=149491
+WARNING:  RTI 2 has BM25 index: table_oid=medium_comments, index_oid=medium_comments_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -1205,14 +1206,14 @@ WHERE a.body @@@ 'machine learning applications' AND t.tag_name @@@ 'artificial-
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149493, index_oid=149510
+WARNING:  RTI 1 has BM25 index: table_oid=large_articles, index_oid=large_articles_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149502, index_oid=149511
+WARNING:  RTI 2 has BM25 index: table_oid=large_tags, index_oid=large_tags_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -1238,14 +1239,14 @@ WARNING:    CHOSEN: FastFieldNumeric
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 2 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149493, index_oid=149510
+WARNING:  RTI 1 has BM25 index: table_oid=large_articles, index_oid=large_articles_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149502, index_oid=149511
+WARNING:  RTI 2 has BM25 index: table_oid=large_tags, index_oid=large_tags_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -1310,20 +1311,19 @@ WARNING:    SKIPPING: No LIMIT clause
 -- Test 7: Performance comparison
 -- Measure execution time differences between strategies
 -- Time small dataset join (SearchFilter)
-\timing on
 SELECT COUNT(*) FROM small_products p JOIN small_reviews r ON p.id = r.product_id 
 WHERE p.description @@@ 'laptop' AND r.review_text @@@ 'performance';
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149453, index_oid=149470
+WARNING:  RTI 1 has BM25 index: table_oid=small_products, index_oid=small_products_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149462, index_oid=149471
+WARNING:  RTI 2 has BM25 index: table_oid=small_reviews, index_oid=small_reviews_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -1349,14 +1349,14 @@ WARNING:    CHOSEN: FastFieldNumeric
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 2 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149453, index_oid=149470
+WARNING:  RTI 1 has BM25 index: table_oid=small_products, index_oid=small_products_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149462, index_oid=149471
+WARNING:  RTI 2 has BM25 index: table_oid=small_reviews, index_oid=small_reviews_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -1398,23 +1398,20 @@ WARNING:    SKIPPING: No LIMIT clause
      1
 (1 row)
 
-Time: 23.856 ms
-\timing off
 -- Time medium dataset join (SortedArray)
-\timing on
 SELECT COUNT(*) FROM medium_docs d JOIN medium_comments c ON d.id = c.doc_id 
 WHERE d.content @@@ 'technology' AND c.comment_text @@@ 'excellent';
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149473, index_oid=149490
+WARNING:  RTI 1 has BM25 index: table_oid=medium_docs, index_oid=medium_docs_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149482, index_oid=149491
+WARNING:  RTI 2 has BM25 index: table_oid=medium_comments, index_oid=medium_comments_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -1440,14 +1437,14 @@ WARNING:    CHOSEN: FastFieldNumeric
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 2 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149473, index_oid=149490
+WARNING:  RTI 1 has BM25 index: table_oid=medium_docs, index_oid=medium_docs_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149482, index_oid=149491
+WARNING:  RTI 2 has BM25 index: table_oid=medium_comments, index_oid=medium_comments_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -1489,23 +1486,20 @@ WARNING:    SKIPPING: No LIMIT clause
      0
 (1 row)
 
-Time: 25.722 ms
-\timing off
 -- Time large dataset join (BloomFilter)
-\timing on
 SELECT COUNT(*) FROM large_articles a JOIN large_tags t ON a.id = t.article_id 
 WHERE a.body @@@ 'artificial intelligence' AND t.tag_name @@@ 'machine-learning';
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149493, index_oid=149510
+WARNING:  RTI 1 has BM25 index: table_oid=large_articles, index_oid=large_articles_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149502, index_oid=149511
+WARNING:  RTI 2 has BM25 index: table_oid=large_tags, index_oid=large_tags_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -1531,14 +1525,14 @@ WARNING:    CHOSEN: FastFieldNumeric
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 2 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149493, index_oid=149510
+WARNING:  RTI 1 has BM25 index: table_oid=large_articles, index_oid=large_articles_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149502, index_oid=149511
+WARNING:  RTI 2 has BM25 index: table_oid=large_tags, index_oid=large_tags_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -1580,8 +1574,6 @@ WARNING:    SKIPPING: No LIMIT clause
      0
 (1 row)
 
-Time: 34.905 ms
-\timing off
 -- Test 8: Filter pushdown validation
 -- Verify that filters are actually being pushed down to Tantivy
 -- Test with multiple filter keys
@@ -1593,14 +1585,14 @@ LIMIT 10;
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149493, index_oid=149510
+WARNING:  RTI 1 has BM25 index: table_oid=large_articles, index_oid=large_articles_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149502, index_oid=149511
+WARNING:  RTI 2 has BM25 index: table_oid=large_tags, index_oid=large_tags_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -1626,14 +1618,14 @@ WARNING:    CHOSEN: FastFieldNumeric
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 2 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149493, index_oid=149510
+WARNING:  RTI 1 has BM25 index: table_oid=large_articles, index_oid=large_articles_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149502, index_oid=149511
+WARNING:  RTI 2 has BM25 index: table_oid=large_tags, index_oid=large_tags_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -1663,14 +1655,14 @@ WARNING:    outer_has_search: true
 WARNING:    inner_has_search: true
 WARNING:    has_limit: true
 WARNING:    CREATING JOIN COORDINATION PATH!
-WARNING:      RTI 1 maps to table OID 149493
-WARNING:      Found table OID 149493 for RTI 1
-WARNING:    Extracted outer table OID: 149493 (RTI: 1)
-WARNING:      RTI 2 maps to table OID 149502
-WARNING:      Found table OID 149502 for RTI 2
-WARNING:    Extracted inner table OID: 149502 (RTI: 2)
-WARNING:    JOIN private data: {"relation_mapping":{"149502":2,"149493":1},"table_oids":[149493,149502],"limit":10,"join_conditions":"placeholder_join_conditions"}
-WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=90570.6
+WARNING:      RTI 1 maps to table OID large_articles
+WARNING:      Found table OID large_articles for RTI 1
+WARNING:    Extracted outer table OID: large_articles (RTI: 1)
+WARNING:      RTI 2 maps to table OID large_tags
+WARNING:      Found table OID large_tags for RTI 2
+WARNING:    Extracted inner table OID: large_tags (RTI: 2)
+WARNING:    JOIN private data: 2 tables, limit: Some(10)
+WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=89102.25
 WARNING:    CustomPath created successfully
 WARNING:    SUCCESSFULLY CREATED JOIN COORDINATION PATH!
 WARNING:  === JOIN PATHLIST CALLBACK ===
@@ -1680,21 +1672,22 @@ WARNING:    outer_has_search: true
 WARNING:    inner_has_search: true
 WARNING:    has_limit: true
 WARNING:    CREATING JOIN COORDINATION PATH!
-WARNING:      RTI 2 maps to table OID 149502
-WARNING:      Found table OID 149502 for RTI 2
-WARNING:    Extracted outer table OID: 149502 (RTI: 2)
-WARNING:      RTI 1 maps to table OID 149493
-WARNING:      Found table OID 149493 for RTI 1
-WARNING:    Extracted inner table OID: 149493 (RTI: 1)
-WARNING:    JOIN private data: {"relation_mapping":{"149493":1,"149502":2},"table_oids":[149502,149493],"limit":10,"join_conditions":"placeholder_join_conditions"}
-WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=90570.6
+WARNING:      RTI 2 maps to table OID large_tags
+WARNING:      Found table OID large_tags for RTI 2
+WARNING:    Extracted outer table OID: large_tags (RTI: 2)
+WARNING:      RTI 1 maps to table OID large_articles
+WARNING:      Found table OID large_articles for RTI 1
+WARNING:    Extracted inner table OID: large_articles (RTI: 1)
+WARNING:    JOIN private data: 2 tables, limit: Some(10)
+WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=89102.25
 WARNING:    CustomPath created successfully
 WARNING:    SUCCESSFULLY CREATED JOIN COORDINATION PATH!
 WARNING:  === PLANNING JOIN COORDINATION CUSTOM PATH ===
-WARNING:    rel relids: 0x7fa3880e1480
+WARNING:    rel relids: ["large_articles", "large_tags"]
 WARNING:    tlist length: 2
+WARNING:    Using original target list for JOIN coordination plan
 WARNING:    Created CustomScan plan for JOIN coordination
-WARNING:    startup_cost: 1, total_cost: 10, rows: 90570.6
+WARNING:    startup_cost: 1, total_cost: 10, rows: 89102.25
 ERROR:  variable not found in subplan target list
 -- Test with complex search predicates
 SELECT d.title, c.comment_text
@@ -1705,14 +1698,14 @@ LIMIT 5;
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149473, index_oid=149490
+WARNING:  RTI 1 has BM25 index: table_oid=medium_docs, index_oid=medium_docs_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149482, index_oid=149491
+WARNING:  RTI 2 has BM25 index: table_oid=medium_comments, index_oid=medium_comments_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -1738,14 +1731,14 @@ WARNING:    CHOSEN: FastFieldNumeric
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 2 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149473, index_oid=149490
+WARNING:  RTI 1 has BM25 index: table_oid=medium_docs, index_oid=medium_docs_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149482, index_oid=149491
+WARNING:  RTI 2 has BM25 index: table_oid=medium_comments, index_oid=medium_comments_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -1775,13 +1768,13 @@ WARNING:    outer_has_search: true
 WARNING:    inner_has_search: true
 WARNING:    has_limit: true
 WARNING:    CREATING JOIN COORDINATION PATH!
-WARNING:      RTI 1 maps to table OID 149473
-WARNING:      Found table OID 149473 for RTI 1
-WARNING:    Extracted outer table OID: 149473 (RTI: 1)
-WARNING:      RTI 2 maps to table OID 149482
-WARNING:      Found table OID 149482 for RTI 2
-WARNING:    Extracted inner table OID: 149482 (RTI: 2)
-WARNING:    JOIN private data: {"relation_mapping":{"149473":1,"149482":2},"table_oids":[149473,149482],"limit":5,"join_conditions":"placeholder_join_conditions"}
+WARNING:      RTI 1 maps to table OID medium_docs
+WARNING:      Found table OID medium_docs for RTI 1
+WARNING:    Extracted outer table OID: medium_docs (RTI: 1)
+WARNING:      RTI 2 maps to table OID medium_comments
+WARNING:      Found table OID medium_comments for RTI 2
+WARNING:    Extracted inner table OID: medium_comments (RTI: 2)
+WARNING:    JOIN private data: 2 tables, limit: Some(5)
 WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=4000
 WARNING:    CustomPath created successfully
 WARNING:    SUCCESSFULLY CREATED JOIN COORDINATION PATH!
@@ -1792,19 +1785,20 @@ WARNING:    outer_has_search: true
 WARNING:    inner_has_search: true
 WARNING:    has_limit: true
 WARNING:    CREATING JOIN COORDINATION PATH!
-WARNING:      RTI 2 maps to table OID 149482
-WARNING:      Found table OID 149482 for RTI 2
-WARNING:    Extracted outer table OID: 149482 (RTI: 2)
-WARNING:      RTI 1 maps to table OID 149473
-WARNING:      Found table OID 149473 for RTI 1
-WARNING:    Extracted inner table OID: 149473 (RTI: 1)
-WARNING:    JOIN private data: {"relation_mapping":{"149473":1,"149482":2},"table_oids":[149482,149473],"limit":5,"join_conditions":"placeholder_join_conditions"}
+WARNING:      RTI 2 maps to table OID medium_comments
+WARNING:      Found table OID medium_comments for RTI 2
+WARNING:    Extracted outer table OID: medium_comments (RTI: 2)
+WARNING:      RTI 1 maps to table OID medium_docs
+WARNING:      Found table OID medium_docs for RTI 1
+WARNING:    Extracted inner table OID: medium_docs (RTI: 1)
+WARNING:    JOIN private data: 2 tables, limit: Some(5)
 WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=4000
 WARNING:    CustomPath created successfully
 WARNING:    SUCCESSFULLY CREATED JOIN COORDINATION PATH!
 WARNING:  === PLANNING JOIN COORDINATION CUSTOM PATH ===
-WARNING:    rel relids: 0x7fa3880e13f0
+WARNING:    rel relids: ["medium_docs", "medium_comments"]
 WARNING:    tlist length: 2
+WARNING:    Using original target list for JOIN coordination plan
 WARNING:    Created CustomScan plan for JOIN coordination
 WARNING:    startup_cost: 1, total_cost: 10, rows: 4000
 ERROR:  variable not found in subplan target list

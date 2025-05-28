@@ -58,7 +58,7 @@ INSERT INTO test_files (doc_id, title) VALUES
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 1 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=150186, index_oid=150208
+WARNING:  RTI 1 has BM25 index: table_oid=test_docs, index_oid=test_docs_search_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -69,7 +69,7 @@ WARNING:  Setting multi-table info for RTI 1: multi_table=false, count=0, benefi
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 1 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=150186, index_oid=150208
+WARNING:  RTI 1 has BM25 index: table_oid=test_docs, index_oid=test_docs_search_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -79,7 +79,7 @@ WARNING:  === FINAL RESULT for RTI 1: is_multi_table=false, count=0, beneficial=
 WARNING:  Setting multi-table info for RTI 1: multi_table=false, count=0, beneficial=false
 -- Test: Multi-table query with search predicates and LIMIT
 -- This should trigger JOIN coordination if our logic is working
-EXPLAIN (ANALYZE, BUFFERS, VERBOSE)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT d.id, f.id
 FROM test_docs d
 JOIN test_files f ON d.id = f.doc_id
@@ -89,14 +89,14 @@ LIMIT 5;
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=150186, index_oid=150208
+WARNING:  RTI 1 has BM25 index: table_oid=test_docs, index_oid=test_docs_search_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=150195, index_oid=150209
+WARNING:  RTI 2 has BM25 index: table_oid=test_files, index_oid=test_files_search_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -122,14 +122,14 @@ WARNING:    CHOSEN: FastFieldNumeric
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 2 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=150186, index_oid=150208
+WARNING:  RTI 1 has BM25 index: table_oid=test_docs, index_oid=test_docs_search_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=150195, index_oid=150209
+WARNING:  RTI 2 has BM25 index: table_oid=test_files, index_oid=test_files_search_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -159,13 +159,13 @@ WARNING:    outer_has_search: true
 WARNING:    inner_has_search: true
 WARNING:    has_limit: true
 WARNING:    CREATING JOIN COORDINATION PATH!
-WARNING:      RTI 1 maps to table OID 150186
-WARNING:      Found table OID 150186 for RTI 1
-WARNING:    Extracted outer table OID: 150186 (RTI: 1)
-WARNING:      RTI 2 maps to table OID 150195
-WARNING:      Found table OID 150195 for RTI 2
-WARNING:    Extracted inner table OID: 150195 (RTI: 2)
-WARNING:    JOIN private data: {"relation_mapping":{"150186":1,"150195":2},"table_oids":[150186,150195],"limit":5}
+WARNING:      RTI 1 maps to table OID test_docs
+WARNING:      Found table OID test_docs for RTI 1
+WARNING:    Extracted outer table OID: test_docs (RTI: 1)
+WARNING:      RTI 2 maps to table OID test_files
+WARNING:      Found table OID test_files for RTI 2
+WARNING:    Extracted inner table OID: test_files (RTI: 2)
+WARNING:    JOIN private data: 2 tables, limit: Some(5)
 WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=1
 WARNING:    CustomPath created successfully
 WARNING:    SUCCESSFULLY CREATED JOIN COORDINATION PATH!
@@ -176,21 +176,22 @@ WARNING:    outer_has_search: true
 WARNING:    inner_has_search: true
 WARNING:    has_limit: true
 WARNING:    CREATING JOIN COORDINATION PATH!
-WARNING:      RTI 2 maps to table OID 150195
-WARNING:      Found table OID 150195 for RTI 2
-WARNING:    Extracted outer table OID: 150195 (RTI: 2)
-WARNING:      RTI 1 maps to table OID 150186
-WARNING:      Found table OID 150186 for RTI 1
-WARNING:    Extracted inner table OID: 150186 (RTI: 1)
-WARNING:    JOIN private data: {"relation_mapping":{"150186":1,"150195":2},"table_oids":[150195,150186],"limit":5}
+WARNING:      RTI 2 maps to table OID test_files
+WARNING:      Found table OID test_files for RTI 2
+WARNING:    Extracted outer table OID: test_files (RTI: 2)
+WARNING:      RTI 1 maps to table OID test_docs
+WARNING:      Found table OID test_docs for RTI 1
+WARNING:    Extracted inner table OID: test_docs (RTI: 1)
+WARNING:    JOIN private data: 2 tables, limit: Some(5)
 WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=1
 WARNING:    CustomPath created successfully
 WARNING:    SUCCESSFULLY CREATED JOIN COORDINATION PATH!
 WARNING:  === PLANNING JOIN COORDINATION CUSTOM PATH ===
-WARNING:    rel relids: 0x7fd84b0edc08
+WARNING:    rel relids: ["test_docs", "test_files"]
 WARNING:    tlist length: 2
-WARNING:    Failed to parse private data: Failed to parse private data JSON: EOF while parsing a value at line 1 column 0
-WARNING:    Creating fallback CustomScan plan
+WARNING:    Using original target list for JOIN coordination plan
+WARNING:    Created CustomScan plan for JOIN coordination
+WARNING:    startup_cost: 1, total_cost: 10, rows: 1
 ERROR:  variable not found in subplan target list
 -- Cleanup
 DROP TABLE test_files;

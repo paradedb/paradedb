@@ -19,6 +19,8 @@ use crate::api::HashMap;
 use crate::gucs;
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
+use crate::postgres::customscan::pdbscan::get_rel_name;
+use crate::postgres::customscan::pdbscan::get_rel_name_from_rti_list;
 use crate::postgres::customscan::CustomScan;
 use once_cell::sync::Lazy;
 use pgrx::{pg_guard, pg_sys, PgList, PgMemoryContexts};
@@ -26,7 +28,7 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::hash_map::Entry;
 
-/// JOIN-specific private data for storing relation mapping information
+/// JOIN coordination private data for PostgreSQL List serialization
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct JoinCoordinationPrivateData {
     /// Mapping of table OIDs to their range table indexes
@@ -252,7 +254,11 @@ unsafe fn create_join_coordination_path<CS: CustomScan>(
     for (oid, rti) in outer_relations {
         table_oids.push(oid);
         relation_mapping.insert(oid, rti);
-        pgrx::warning!("  Extracted outer table OID: {} (RTI: {})", oid, rti);
+        pgrx::warning!(
+            "  Extracted outer table OID: {} (RTI: {})",
+            get_rel_name(oid),
+            rti
+        );
     }
 
     // Extract all table OIDs and their RTIs from inner relation
@@ -260,7 +266,11 @@ unsafe fn create_join_coordination_path<CS: CustomScan>(
     for (oid, rti) in inner_relations {
         table_oids.push(oid);
         relation_mapping.insert(oid, rti);
-        pgrx::warning!("  Extracted inner table OID: {} (RTI: {})", oid, rti);
+        pgrx::warning!(
+            "  Extracted inner table OID: {} (RTI: {})",
+            get_rel_name(oid),
+            rti
+        );
     }
 
     // Only proceed if we have tables with search predicates
@@ -283,11 +293,18 @@ unsafe fn create_join_coordination_path<CS: CustomScan>(
         limit,
     };
 
-    // Serialize the private data
+    pgrx::warning!(
+        "  JOIN private data: {} tables, limit: {:?}",
+        table_oids.len(),
+        limit
+    );
+
+    // Serialize the private data as a PostgreSQL List
     let private_data_json =
         serde_json::to_string(&join_private_data).expect("Failed to serialize JOIN private data");
-
-    pgrx::warning!("  JOIN private data: {}", private_data_json);
+    let mut private_list = PgList::new();
+    private_list
+        .push(pg_sys::makeString(private_data_json.as_ptr() as *mut i8).cast::<pg_sys::Node>());
 
     // Calculate costs for our custom JOIN path
     // For now, use aggressive costing to ensure our path is selected
@@ -313,11 +330,6 @@ unsafe fn create_join_coordination_path<CS: CustomScan>(
         pgrx::warning!("  FAILED: Could not allocate CustomPath");
         return None;
     }
-
-    // Create private data as a PostgreSQL List containing a String node
-    let mut private_list = PgList::new();
-    private_list
-        .push(pg_sys::makeString(private_data_json.as_ptr() as *mut i8).cast::<pg_sys::Node>());
 
     // Initialize the Path portion
     (*custom_path).path.type_ = pg_sys::NodeTag::T_CustomPath;
@@ -369,7 +381,11 @@ unsafe fn extract_all_table_info_from_relids(
         // Get the table OID for this RTI
         if let Some(table_oid) = get_table_oid_for_rti(root, rti_index) {
             table_info.push((table_oid, rti_index));
-            pgrx::warning!("    Found table OID {} for RTI {}", table_oid, rti_index);
+            pgrx::warning!(
+                "    Found table OID {} for RTI {}",
+                get_rel_name(table_oid),
+                rti_index
+            );
         } else {
             pgrx::warning!("    Could not find table OID for RTI {}", rti_index);
         }
@@ -410,7 +426,11 @@ unsafe fn get_table_oid_for_rti(
         // Only handle relation RTEs
         if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
             let table_oid = (*rte).relid;
-            pgrx::warning!("    RTI {} maps to table OID {}", rti, table_oid);
+            pgrx::warning!(
+                "    RTI {} maps to table OID {}",
+                rti,
+                get_rel_name(table_oid)
+            );
             return Some(table_oid);
         } else {
             pgrx::warning!(
@@ -456,60 +476,33 @@ extern "C-unwind" fn plan_join_coordination_custom_path<CS: CustomScan>(
 ) -> *mut pg_sys::Plan {
     unsafe {
         pgrx::warning!("=== PLANNING JOIN COORDINATION CUSTOM PATH ===");
-        pgrx::warning!("  rel relids: {:?}", (*rel).relids);
+        pgrx::warning!(
+            "  rel relids: {:?}",
+            get_rel_name_from_rti_list((*rel).relids, root)
+        );
         pgrx::warning!(
             "  tlist length: {}",
             pgrx::PgList::<pg_sys::TargetEntry>::from_pg(tlist).len()
         );
 
-        // Parse the private data to get relation mapping
-        let join_private_data = match parse_join_private_data_from_path(best_path) {
-            Ok(data) => data,
-            Err(e) => {
-                pgrx::warning!("  Failed to parse private data: {}", e);
-                // Fall back to using original target list
-                return create_fallback_custom_scan::<CS>(best_path, tlist, custom_plans);
-            }
-        };
-
-        pgrx::warning!(
-            "  Parsed relation mapping: {} tables",
-            join_private_data.table_oids.len()
-        );
-
-        // Create a new target list that resolves variables for JOIN coordination
-        let resolved_tlist = match create_resolved_target_list(
-            root,
-            tlist,
-            &join_private_data.relation_mapping,
-            &join_private_data.table_oids,
-        ) {
-            Ok(tlist) => tlist,
-            Err(e) => {
-                pgrx::warning!("  Failed to create resolved target list: {}", e);
-                // Fall back to using original target list
-                return create_fallback_custom_scan::<CS>(best_path, tlist, custom_plans);
-            }
-        };
-
-        pgrx::warning!(
-            "  Created resolved target list with {} entries",
-            pgrx::PgList::<pg_sys::TargetEntry>::from_pg(resolved_tlist).len()
-        );
+        // Don't try to parse private data here - it will be available during execution
+        // The private data flows: CustomPath -> CustomScan -> execution automatically
+        pgrx::warning!("  Using original target list for JOIN coordination plan");
 
         // Create a CustomScan plan for JOIN coordination
         let mut planner_cxt = PgMemoryContexts::CurrentMemoryContext;
 
-        // Create the CustomScan structure with resolved target list
+        // Create the CustomScan structure with original target list
+        // PostgreSQL will handle the private data transfer automatically
         let custom_scan = pg_sys::CustomScan {
             flags: (*best_path).flags,
-            custom_private: (*best_path).custom_private,
+            custom_private: (*best_path).custom_private, // Private data flows through automatically
             custom_plans,
             methods: CS::custom_scan_methods(),
             scan: pg_sys::Scan {
                 plan: pg_sys::Plan {
                     type_: pg_sys::NodeTag::T_CustomScan,
-                    targetlist: resolved_tlist, // Use our resolved target list
+                    targetlist: tlist, // Use original target list for now
                     startup_cost: (*best_path).path.startup_cost,
                     total_cost: (*best_path).path.total_cost,
                     plan_rows: (*best_path).path.rows,
@@ -531,221 +524,6 @@ extern "C-unwind" fn plan_join_coordination_custom_path<CS: CustomScan>(
         );
 
         planner_cxt.leak_and_drop_on_delete(custom_scan).cast()
-    }
-}
-
-/// Create a fallback CustomScan plan when variable resolution fails
-unsafe fn create_fallback_custom_scan<CS: CustomScan>(
-    best_path: *mut pg_sys::CustomPath,
-    tlist: *mut pg_sys::List,
-    custom_plans: *mut pg_sys::List,
-) -> *mut pg_sys::Plan {
-    pgrx::warning!("  Creating fallback CustomScan plan");
-
-    let mut planner_cxt = PgMemoryContexts::CurrentMemoryContext;
-
-    let custom_scan = pg_sys::CustomScan {
-        flags: (*best_path).flags,
-        custom_private: (*best_path).custom_private,
-        custom_plans,
-        methods: CS::custom_scan_methods(),
-        scan: pg_sys::Scan {
-            plan: pg_sys::Plan {
-                type_: pg_sys::NodeTag::T_CustomScan,
-                targetlist: tlist, // Use original target list
-                startup_cost: (*best_path).path.startup_cost,
-                total_cost: (*best_path).path.total_cost,
-                plan_rows: (*best_path).path.rows,
-                parallel_aware: (*best_path).path.parallel_aware,
-                parallel_safe: (*best_path).path.parallel_safe,
-                ..Default::default()
-            },
-            scanrelid: 0, // JOIN scans don't have a single scanrelid
-        },
-        ..Default::default()
-    };
-
-    planner_cxt.leak_and_drop_on_delete(custom_scan).cast()
-}
-
-/// Parse JOIN private data from the custom path
-unsafe fn parse_join_private_data_from_path(
-    best_path: *mut pg_sys::CustomPath,
-) -> Result<JoinCoordinationPrivateData, String> {
-    let custom_private = (*best_path).custom_private;
-
-    if custom_private.is_null() {
-        return Err("No private data found in CustomPath".to_string());
-    }
-
-    let private_list = pgrx::PgList::<pg_sys::Node>::from_pg(custom_private);
-
-    if private_list.is_empty() {
-        return Err("Empty private data list in CustomPath".to_string());
-    }
-
-    // Get the first (and only) string node containing our JSON data
-    if let Some(string_node) = private_list.get_ptr(0) {
-        let json_str = std::ffi::CStr::from_ptr((*string_node.cast::<pg_sys::String>()).sval)
-            .to_str()
-            .map_err(|e| format!("Invalid UTF-8 in private data: {}", e))?;
-
-        let private_data: JoinCoordinationPrivateData = serde_json::from_str(json_str)
-            .map_err(|e| format!("Failed to parse private data JSON: {}", e))?;
-
-        Ok(private_data)
-    } else {
-        Err("Could not get string node from private data".to_string())
-    }
-}
-
-/// Create a resolved target list that maps variables from multiple tables to a unified output structure
-/// This handles the varno differences between planning and execution time
-unsafe fn create_resolved_target_list(
-    root: *mut pg_sys::PlannerInfo,
-    original_tlist: *mut pg_sys::List,
-    relation_mapping: &HashMap<pg_sys::Oid, pg_sys::Index>,
-    table_oids: &[pg_sys::Oid],
-) -> Result<*mut pg_sys::List, String> {
-    let original_entries = pgrx::PgList::<pg_sys::TargetEntry>::from_pg(original_tlist);
-    let mut resolved_entries = pgrx::PgList::new();
-
-    pgrx::warning!(
-        "  Creating resolved target list from {} original entries",
-        original_entries.len()
-    );
-
-    // Track variable mapping for execution time
-    let mut variable_mapping = HashMap::default();
-    let mut output_attno = 1;
-
-    for (i, te) in original_entries.iter_ptr().enumerate() {
-        pgrx::warning!("    Processing target entry {}: resno={}", i, (*te).resno);
-
-        // Create a new target entry for our resolved output
-        let new_te = pg_sys::copyObjectImpl(te.cast()).cast::<pg_sys::TargetEntry>();
-        (*new_te).resno = output_attno;
-
-        // Check if this is a Var that references one of our JOIN tables
-        if let Some(var) = nodecast!(Var, T_Var, (*te).expr) {
-            let var_table_oid = get_table_oid_for_varno(root, (*var).varno as pg_sys::Index)?;
-
-            pgrx::warning!(
-                "      Found Var: varno={}, varattno={}, table_oid={}",
-                (*var).varno,
-                (*var).varattno,
-                var_table_oid
-            );
-
-            // Check if this variable references one of our JOIN tables
-            if table_oids.contains(&var_table_oid) {
-                pgrx::warning!(
-                    "        Variable references JOIN table - creating resolved mapping"
-                );
-
-                // Create a new Var that will be resolved at execution time
-                // We'll use a sequential varno starting from 1 for our output structure
-                let resolved_var = pg_sys::copyObjectImpl(var.cast()).cast::<pg_sys::Var>();
-
-                // Map to our unified output structure
-                // For now, we'll use a simple mapping: first table = varno 1, second table = varno 2, etc.
-                let resolved_varno = table_oids
-                    .iter()
-                    .position(|&oid| oid == var_table_oid)
-                    .map(|pos| (pos + 1) as i32) // Convert to i32 for varno
-                    .ok_or_else(|| {
-                        format!("Table OID {} not found in table_oids", var_table_oid)
-                    })?;
-
-                (*resolved_var).varno = resolved_varno;
-                (*resolved_var).varnosyn = resolved_varno as pg_sys::Index;
-
-                // Store the mapping for execution time
-                variable_mapping.insert(
-                    (resolved_varno as pg_sys::Index, (*var).varattno),
-                    (var_table_oid, (*var).varattno),
-                );
-
-                (*new_te).expr = resolved_var.cast();
-
-                pgrx::warning!(
-                    "        Mapped to resolved varno={}, varattno={}",
-                    resolved_varno,
-                    (*var).varattno
-                );
-            } else {
-                pgrx::warning!("        Variable does not reference JOIN table - keeping original");
-                // Keep the original expression for non-JOIN variables
-            }
-        } else {
-            pgrx::warning!("      Not a Var expression - keeping original");
-            // Keep the original expression for non-Var expressions
-        }
-
-        resolved_entries.push(new_te);
-        output_attno += 1;
-    }
-
-    // Store the variable mapping in the private data for execution time
-    // For now, we'll log it - in a full implementation, we'd extend the private data structure
-    pgrx::warning!("  Variable mapping for execution:");
-    for ((resolved_varno, varattno), (table_oid, orig_varattno)) in &variable_mapping {
-        pgrx::warning!(
-            "    ({}, {}) -> table_oid={}, attno={}",
-            resolved_varno,
-            varattno,
-            table_oid,
-            orig_varattno
-        );
-    }
-
-    pgrx::warning!(
-        "  Successfully created resolved target list with {} entries",
-        resolved_entries.len()
-    );
-    Ok(resolved_entries.into_pg())
-}
-
-/// Get the table OID for a given varno by looking up the range table
-unsafe fn get_table_oid_for_varno(
-    root: *mut pg_sys::PlannerInfo,
-    varno: pg_sys::Index,
-) -> Result<pg_sys::Oid, String> {
-    // Validate varno bounds
-    if varno == 0 {
-        return Err("Invalid varno: 0".to_string());
-    }
-
-    // Get the range table
-    let rtable = (*(*root).parse).rtable;
-    let rtable_list = pgrx::PgList::<pg_sys::RangeTblEntry>::from_pg(rtable);
-
-    // varno is 1-based, so convert to 0-based index
-    let rte_index = (varno - 1) as usize;
-
-    if rte_index >= rtable_list.len() {
-        return Err(format!(
-            "varno {} is out of bounds (rtable length: {})",
-            varno,
-            rtable_list.len()
-        ));
-    }
-
-    // Get the RTE
-    if let Some(rte) = rtable_list.get_ptr(rte_index) {
-        // Only handle relation RTEs
-        if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
-            let table_oid = (*rte).relid;
-            return Ok(table_oid);
-        } else {
-            return Err(format!(
-                "varno {} is not a relation (rtekind: {:?})",
-                varno,
-                (*rte).rtekind
-            ));
-        }
-    } else {
-        return Err(format!("Could not get RTE for varno {}", varno));
     }
 }
 

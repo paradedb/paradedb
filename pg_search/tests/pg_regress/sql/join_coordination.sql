@@ -46,7 +46,7 @@ WHERE d.content @@@ 'SFR' AND f.filename @@@ 'collab12'
 LIMIT 5;
 
 -- Test 2: EXPLAIN to see if our custom path is created
-EXPLAIN (COSTS OFF, BUFFERS OFF) 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT d.id, f.id 
 FROM test_documents d 
 JOIN test_files f ON d.id = f.document_id

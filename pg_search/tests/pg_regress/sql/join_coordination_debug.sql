@@ -40,7 +40,7 @@ INSERT INTO test_files (doc_id, title) VALUES
 
 -- Test: Multi-table query with search predicates and LIMIT
 -- This should trigger JOIN coordination if our logic is working
-EXPLAIN (ANALYZE, BUFFERS, VERBOSE)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT d.id, f.id
 FROM test_docs d
 JOIN test_files f ON d.id = f.doc_id

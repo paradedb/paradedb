@@ -25,11 +25,40 @@ use crate::postgres::customscan::pdbscan::exec_methods::lazy_fields::{
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::schema::SearchIndexSchema;
-use pgrx::{pg_sys, PgList, PgRelation, PgTupleDesc};
+use pgrx::{pg_sys, PgList, PgRelation};
 use serde::{Deserialize, Serialize};
+use serde_json;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use tantivy::{DocAddress, Score};
+
+/// JOIN coordination private data for PostgreSQL List serialization
+/// This matches the structure created in hook.rs
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct JoinCoordinationPrivateData {
+    /// Mapping of table OIDs to their range table indexes
+    relation_mapping: HashMap<pg_sys::Oid, pg_sys::Index>,
+    /// List of table OIDs participating in the JOIN
+    table_oids: Vec<pg_sys::Oid>,
+    /// LIMIT value from the query
+    limit: Option<usize>,
+}
+
+impl From<*mut pg_sys::List> for JoinCoordinationPrivateData {
+    fn from(list: *mut pg_sys::List) -> Self {
+        unsafe {
+            let list = PgList::<pg_sys::Node>::from_pg(list);
+            let node = list
+                .get_ptr(0)
+                .expect("private data list should not be empty");
+            let json_str = std::ffi::CStr::from_ptr((*node.cast::<pg_sys::String>()).sval)
+                .to_str()
+                .expect("string node should be valid utf8");
+            serde_json::from_str(json_str)
+                .expect("JOIN coordination private data should be valid JSON")
+        }
+    }
+}
 
 /// Information about a table participating in the JOIN
 #[derive(Debug, Clone)]
@@ -115,20 +144,6 @@ impl JoinedResult {
     }
 }
 
-/// JOIN-specific private data for storing relation mapping information
-/// This matches the structure created in hook.rs
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct JoinCoordinationPrivateData {
-    /// Mapping of table OIDs to their range table indexes
-    relation_mapping: HashMap<pg_sys::Oid, pg_sys::Index>,
-    /// List of table OIDs participating in the JOIN
-    table_oids: Vec<pg_sys::Oid>,
-    /// LIMIT value from the query
-    limit: Option<usize>,
-    /// Serialized JOIN conditions for execution
-    join_conditions: String,
-}
-
 /// JOIN coordination execution state
 pub struct JoinCoordinationExecState {
     /// Tables participating in the JOIN
@@ -211,40 +226,28 @@ impl JoinCoordinationExecState {
                 return Err("No private data found in CustomScan plan".to_string());
             }
 
-            let private_list = PgList::<pg_sys::Node>::from_pg(custom_private);
+            // Use the framework's built-in deserialization
+            let private_data = JoinCoordinationPrivateData::from(custom_private);
 
-            if private_list.is_empty() {
-                return Err("Empty private data list in CustomScan plan".to_string());
-            }
+            pgrx::warning!(
+                "Parsing JOIN private data: {} tables, limit: {:?}",
+                private_data.table_oids.len(),
+                private_data.limit
+            );
 
-            // Get the first (and only) string node containing our JSON data
-            if let Some(string_node) = private_list.get_ptr(0) {
-                let json_str =
-                    std::ffi::CStr::from_ptr((*string_node.cast::<pg_sys::String>()).sval)
-                        .to_str()
-                        .map_err(|e| format!("Invalid UTF-8 in private data: {}", e))?;
+            // Store the parsed data
+            self.relation_mapping = private_data.relation_mapping.clone();
+            self.table_oids = private_data.table_oids.clone();
+            self.limit = private_data.limit;
+            self.private_data = Some(private_data);
 
-                pgrx::warning!("Parsing JOIN private data: {}", json_str);
+            pgrx::warning!(
+                "Successfully parsed private data: {} tables, limit: {:?}",
+                self.table_oids.len(),
+                self.limit
+            );
 
-                let private_data: JoinCoordinationPrivateData = serde_json::from_str(json_str)
-                    .map_err(|e| format!("Failed to parse private data JSON: {}", e))?;
-
-                pgrx::warning!(
-                    "Successfully parsed private data: {} tables, limit: {:?}",
-                    private_data.table_oids.len(),
-                    private_data.limit
-                );
-
-                // Store the parsed data
-                self.relation_mapping = private_data.relation_mapping.clone();
-                self.table_oids = private_data.table_oids.clone();
-                self.limit = private_data.limit;
-                self.private_data = Some(private_data);
-
-                Ok(())
-            } else {
-                Err("Could not get string node from private data".to_string())
-            }
+            Ok(())
         }
     }
 

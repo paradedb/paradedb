@@ -1498,7 +1498,7 @@ pub fn is_block_all_visible(
 }
 
 // Helper function to create an iterator over Bitmapset members
-unsafe fn bms_iter(bms: *mut pg_sys::Bitmapset) -> impl Iterator<Item = pg_sys::Index> {
+pub unsafe fn bms_iter(bms: *mut pg_sys::Bitmapset) -> impl Iterator<Item = pg_sys::Index> {
     let mut set_bit: i32 = -1;
     std::iter::from_fn(move || {
         set_bit = pg_sys::bms_next_member(bms, set_bit);
@@ -1511,8 +1511,37 @@ unsafe fn bms_iter(bms: *mut pg_sys::Bitmapset) -> impl Iterator<Item = pg_sys::
 }
 
 // Helper function to check if a Bitmapset is empty
-unsafe fn bms_is_empty(bms: *mut pg_sys::Bitmapset) -> bool {
+pub unsafe fn bms_is_empty(bms: *mut pg_sys::Bitmapset) -> bool {
     bms_iter(bms).next().is_none()
+}
+
+pub unsafe fn get_rel_name_from_rti_list(
+    rtis: *mut pg_sys::Bitmapset,
+    root: *mut pg_sys::PlannerInfo,
+) -> Vec<String> {
+    bms_iter(rtis)
+        .map(|rti| get_rel_name_from_rti(rti, root))
+        .collect()
+}
+
+pub unsafe fn get_rel_name_from_rti(rti: pg_sys::Index, root: *mut pg_sys::PlannerInfo) -> String {
+    let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
+    if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
+        get_rel_name((*rte).relid)
+    } else {
+        format!("rti_{}_non_rel", rti)
+    }
+}
+
+pub unsafe fn get_rel_name(relid: pg_sys::Oid) -> String {
+    let relname = pg_sys::get_rel_name(relid);
+    if relname.is_null() {
+        format!("rti_{}", relid)
+    } else {
+        std::ffi::CStr::from_ptr(relname)
+            .to_string_lossy()
+            .to_string()
+    }
 }
 
 // Helper function to determine if we're dealing with a partitioned table setup
@@ -1638,8 +1667,8 @@ unsafe fn analyze_multi_table_search_scenario(
             pgrx::warning!(
                 "RTI {} has BM25 index: table_oid={}, index_oid={}",
                 rti,
-                table.oid(),
-                bm25_index.oid()
+                get_rel_name(table.oid()),
+                get_rel_name(bm25_index.oid())
             );
 
             // Check if this table has search predicates by examining baserestrictinfo

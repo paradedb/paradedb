@@ -334,22 +334,16 @@ WHERE a.body @@@ 'machine learning applications' AND t.tag_name @@@ 'artificial-
 -- Measure execution time differences between strategies
 
 -- Time small dataset join (SearchFilter)
-\timing on
 SELECT COUNT(*) FROM small_products p JOIN small_reviews r ON p.id = r.product_id 
 WHERE p.description @@@ 'laptop' AND r.review_text @@@ 'performance';
-\timing off
 
 -- Time medium dataset join (SortedArray)
-\timing on
 SELECT COUNT(*) FROM medium_docs d JOIN medium_comments c ON d.id = c.doc_id 
 WHERE d.content @@@ 'technology' AND c.comment_text @@@ 'excellent';
-\timing off
 
 -- Time large dataset join (BloomFilter)
-\timing on
 SELECT COUNT(*) FROM large_articles a JOIN large_tags t ON a.id = t.article_id 
 WHERE a.body @@@ 'artificial intelligence' AND t.tag_name @@@ 'machine-learning';
-\timing off
 
 -- Test 8: Filter pushdown validation
 -- Verify that filters are actually being pushed down to Tantivy

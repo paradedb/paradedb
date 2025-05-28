@@ -67,14 +67,14 @@ INSERT INTO pages (file_id, page_number, content) VALUES
     (4, 1, 'Research findings and conclusions');
 
 -- Test 1: Single table query (should NOT use JOIN coordination)
-EXPLAIN (ANALYZE, BUFFERS, VERBOSE)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT d.id, d.title
 FROM documents d
 WHERE d.content @@@ 'technology'
 LIMIT 10;
 
 -- Test 2: Multi-table query with search predicates and LIMIT (should use JOIN coordination)
-EXPLAIN (ANALYZE, BUFFERS, VERBOSE)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT d.id, f.id, p.id
 FROM documents d
 JOIN files f ON d.id = f.document_id
@@ -85,7 +85,7 @@ WHERE d.content @@@ 'technology'
 LIMIT 10;
 
 -- Test 3: Multi-table query without LIMIT (should NOT use JOIN coordination)
-EXPLAIN (ANALYZE, BUFFERS, VERBOSE)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT d.id, f.id
 FROM documents d
 JOIN files f ON d.id = f.document_id
@@ -93,7 +93,7 @@ WHERE d.content @@@ 'technology'
   AND f.title @@@ 'report';
 
 -- Test 4: Multi-table query with only one search predicate (should NOT use JOIN coordination)
-EXPLAIN (ANALYZE, BUFFERS, VERBOSE)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT d.id, f.id
 FROM documents d
 JOIN files f ON d.id = f.document_id

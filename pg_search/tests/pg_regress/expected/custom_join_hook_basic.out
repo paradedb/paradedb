@@ -74,14 +74,14 @@ WHERE d.content @@@ 'technology' AND f.content @@@ 'file';
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149183, index_oid=149209
+WARNING:  RTI 1 has BM25 index: table_oid=documents_join_test, index_oid=documents_join_test_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149192, index_oid=149210
+WARNING:  RTI 2 has BM25 index: table_oid=files_join_test, index_oid=files_join_test_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -107,14 +107,14 @@ WARNING:    CHOSEN: FastFieldNumeric
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 2 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149183, index_oid=149209
+WARNING:  RTI 1 has BM25 index: table_oid=documents_join_test, index_oid=documents_join_test_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149192, index_oid=149210
+WARNING:  RTI 2 has BM25 index: table_oid=files_join_test, index_oid=files_join_test_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -164,14 +164,14 @@ WHERE d.id = 1;
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149183, index_oid=149209
+WARNING:  RTI 1 has BM25 index: table_oid=documents_join_test, index_oid=documents_join_test_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 has NO search operators
 WARNING:  RTI 1 has BM25 index but NO search predicates
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149192, index_oid=149210
+WARNING:  RTI 2 has BM25 index: table_oid=files_join_test, index_oid=files_join_test_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -184,14 +184,14 @@ WARNING:  Setting multi-table info for RTI 1: multi_table=false, count=0, benefi
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 2 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149183, index_oid=149209
+WARNING:  RTI 1 has BM25 index: table_oid=documents_join_test, index_oid=documents_join_test_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 has NO search operators
 WARNING:  RTI 1 has BM25 index but NO search predicates
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149192, index_oid=149210
+WARNING:  RTI 2 has BM25 index: table_oid=files_join_test, index_oid=files_join_test_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -226,14 +226,14 @@ WHERE d.content @@@ 'science';
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149183, index_oid=149209
+WARNING:  RTI 1 has BM25 index: table_oid=documents_join_test, index_oid=documents_join_test_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149192, index_oid=149210
+WARNING:  RTI 2 has BM25 index: table_oid=files_join_test, index_oid=files_join_test_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 0 base restrict info entries
 WARNING:    RTI 2 has NO search operators
@@ -280,14 +280,14 @@ WHERE d.content @@@ 'technology' AND f.content @@@ 'file';
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 5 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149183, index_oid=149209
+WARNING:  RTI 1 has BM25 index: table_oid=documents_join_test, index_oid=documents_join_test_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149192, index_oid=149210
+WARNING:  RTI 2 has BM25 index: table_oid=files_join_test, index_oid=files_join_test_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -296,7 +296,7 @@ WARNING:  RTI 2 HAS search predicates! Total count now: 2
 WARNING:  Examining RTI 3: rtekind = 2
 WARNING:  RTI 3 is not a relation, skipping
 WARNING:  Examining RTI 4: rtekind = 0
-WARNING:  RTI 4 has BM25 index: table_oid=149201, index_oid=149211
+WARNING:  RTI 4 has BM25 index: table_oid=authors_join_test, index_oid=authors_join_test_idx
 WARNING:    Checking search predicates for RTI 4
 WARNING:    RTI 4 has 0 base restrict info entries
 WARNING:    RTI 4 has NO search operators
@@ -321,14 +321,14 @@ WARNING:    CHOSEN: FastFieldNumeric
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 2 ===
 WARNING:  Range table has 5 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149183, index_oid=149209
+WARNING:  RTI 1 has BM25 index: table_oid=documents_join_test, index_oid=documents_join_test_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149192, index_oid=149210
+WARNING:  RTI 2 has BM25 index: table_oid=files_join_test, index_oid=files_join_test_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -337,7 +337,7 @@ WARNING:  RTI 2 HAS search predicates! Total count now: 2
 WARNING:  Examining RTI 3: rtekind = 2
 WARNING:  RTI 3 is not a relation, skipping
 WARNING:  Examining RTI 4: rtekind = 0
-WARNING:  RTI 4 has BM25 index: table_oid=149201, index_oid=149211
+WARNING:  RTI 4 has BM25 index: table_oid=authors_join_test, index_oid=authors_join_test_idx
 WARNING:    Checking search predicates for RTI 4
 WARNING:    RTI 4 has 0 base restrict info entries
 WARNING:    RTI 4 has NO search operators
@@ -447,14 +447,14 @@ WHERE d.content @@@ 'science' AND f.content @@@ 'file' AND a.bio @@@ 'research';
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 5 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149183, index_oid=149209
+WARNING:  RTI 1 has BM25 index: table_oid=documents_join_test, index_oid=documents_join_test_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149192, index_oid=149210
+WARNING:  RTI 2 has BM25 index: table_oid=files_join_test, index_oid=files_join_test_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -463,7 +463,7 @@ WARNING:  RTI 2 HAS search predicates! Total count now: 2
 WARNING:  Examining RTI 3: rtekind = 2
 WARNING:  RTI 3 is not a relation, skipping
 WARNING:  Examining RTI 4: rtekind = 0
-WARNING:  RTI 4 has BM25 index: table_oid=149201, index_oid=149211
+WARNING:  RTI 4 has BM25 index: table_oid=authors_join_test, index_oid=authors_join_test_idx
 WARNING:    Checking search predicates for RTI 4
 WARNING:    RTI 4 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -489,14 +489,14 @@ WARNING:    CHOSEN: FastFieldNumeric
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 2 ===
 WARNING:  Range table has 5 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149183, index_oid=149209
+WARNING:  RTI 1 has BM25 index: table_oid=documents_join_test, index_oid=documents_join_test_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149192, index_oid=149210
+WARNING:  RTI 2 has BM25 index: table_oid=files_join_test, index_oid=files_join_test_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -505,7 +505,7 @@ WARNING:  RTI 2 HAS search predicates! Total count now: 2
 WARNING:  Examining RTI 3: rtekind = 2
 WARNING:  RTI 3 is not a relation, skipping
 WARNING:  Examining RTI 4: rtekind = 0
-WARNING:  RTI 4 has BM25 index: table_oid=149201, index_oid=149211
+WARNING:  RTI 4 has BM25 index: table_oid=authors_join_test, index_oid=authors_join_test_idx
 WARNING:    Checking search predicates for RTI 4
 WARNING:    RTI 4 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -531,14 +531,14 @@ WARNING:    CHOSEN: FastFieldNumeric
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 4 ===
 WARNING:  Range table has 5 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149183, index_oid=149209
+WARNING:  RTI 1 has BM25 index: table_oid=documents_join_test, index_oid=documents_join_test_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149192, index_oid=149210
+WARNING:  RTI 2 has BM25 index: table_oid=files_join_test, index_oid=files_join_test_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -547,7 +547,7 @@ WARNING:  RTI 2 HAS search predicates! Total count now: 2
 WARNING:  Examining RTI 3: rtekind = 2
 WARNING:  RTI 3 is not a relation, skipping
 WARNING:  Examining RTI 4: rtekind = 0
-WARNING:  RTI 4 has BM25 index: table_oid=149201, index_oid=149211
+WARNING:  RTI 4 has BM25 index: table_oid=authors_join_test, index_oid=authors_join_test_idx
 WARNING:    Checking search predicates for RTI 4
 WARNING:    RTI 4 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -662,14 +662,14 @@ WHERE d.content @@@ 'research';
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 5 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=149183, index_oid=149209
+WARNING:  RTI 1 has BM25 index: table_oid=documents_join_test, index_oid=documents_join_test_idx
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=149192, index_oid=149210
+WARNING:  RTI 2 has BM25 index: table_oid=files_join_test, index_oid=files_join_test_idx
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 0 base restrict info entries
 WARNING:    RTI 2 has NO search operators
@@ -677,7 +677,7 @@ WARNING:  RTI 2 has BM25 index but NO search predicates
 WARNING:  Examining RTI 3: rtekind = 2
 WARNING:  RTI 3 is not a relation, skipping
 WARNING:  Examining RTI 4: rtekind = 0
-WARNING:  RTI 4 has BM25 index: table_oid=149201, index_oid=149211
+WARNING:  RTI 4 has BM25 index: table_oid=authors_join_test, index_oid=authors_join_test_idx
 WARNING:    Checking search predicates for RTI 4
 WARNING:    RTI 4 has 0 base restrict info entries
 WARNING:    RTI 4 has NO search operators

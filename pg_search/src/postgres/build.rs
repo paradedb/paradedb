@@ -53,7 +53,7 @@ struct BuildState {
     leader: Option<ParallelBuildLeader>,
 }
 
-struct ParallelSharedState {
+struct ParallelBuildSharedState {
     heap_oid: pg_sys::Oid,
     index_oid: pg_sys::Oid,
     is_concurrent: bool,
@@ -66,7 +66,7 @@ struct ParallelSharedState {
 struct ParallelBuildLeader {
     parallel_context: pg_sys::ParallelContext,
     n_participant_tuple_sorts: i32,
-    shared: *mut ParallelSharedState,
+    shared: *mut ParallelBuildSharedState,
     snapshot: pg_sys::Snapshot,
 }
 
@@ -142,7 +142,7 @@ pub extern "C-unwind" fn ambuild(
         pgrx::info!("parallel index build with {} workers", nworkers);
         let mut state = BuildState::new(index_relation.oid());
         unsafe { begin_parallel_index_build(&mut state, (*index_info).ii_Concurrent, nworkers) };
-        todo!("parallel index build");
+        todo!("parallel index build")
     } else {
         do_heap_scan(index_info, &heap_relation, &index_relation)
     };
@@ -376,10 +376,11 @@ unsafe fn begin_parallel_index_build(
     }
 
     let mut shared_state =
-        pg_sys::shm_toc_allocate((*parallel_context).toc, est_shared) as *mut ParallelSharedState;
+        pg_sys::shm_toc_allocate((*parallel_context).toc, est_shared) as *mut ParallelBuildSharedState;
     (*shared_state).heap_oid = build_state.heap_relation.oid();
     (*shared_state).index_oid = build_state.index_relation.oid();
     (*shared_state).is_concurrent = is_concurrent;
+
     pg_sys::ConditionVariableInit(&mut (*shared_state).workers_done);
     pg_sys::SpinLockInit(&mut (*shared_state).mutex);
     pg_sys::table_parallelscan_initialize(
@@ -388,13 +389,14 @@ unsafe fn begin_parallel_index_build(
         snapshot,
     );
 
-    // pg_sys::shm_toc_insert(
-    //     (*parallel_context).toc,
-    //     PARALLEL_KEY_SHARED_STATE,
-    //     shared_state,
-    // );
+    pg_sys::shm_toc_insert(
+        (*parallel_context).toc,
+        PARALLEL_KEY_SHARED_STATE,
+        shared_state as *mut std::os::raw::c_void,
+    );
 
     pg_sys::LaunchParallelWorkers(parallel_context);
+
     let mut leader = ParallelBuildLeader {
         parallel_context: *parallel_context,
         n_participant_tuple_sorts: (*parallel_context).nworkers_launched,
@@ -414,8 +416,21 @@ unsafe fn begin_parallel_index_build(
     pg_sys::WaitForParallelWorkersToAttach(parallel_context);
 }
 
-unsafe extern "C-unwind" fn parallel_build_main(seg: pg_sys::dsm_segment, toc: pg_sys::shm_toc) {
-    todo!("parallel_build_main");
+unsafe extern "C-unwind" fn parallel_build_main(seg: *mut pg_sys::dsm_segment, toc: *mut pg_sys::shm_toc) {
+    let shared_state = pg_sys::shm_toc_lookup(toc, PARALLEL_KEY_SHARED_STATE, false) as *mut ParallelBuildSharedState;
+    let (heap_lock, index_lock) = if !(*shared_state).is_concurrent {
+        (pg_sys::ShareLock, pg_sys::AccessExclusiveLock)
+    } else {
+        (pg_sys::ShareUpdateExclusiveLock, pg_sys::RowExclusiveLock)
+    };
+
+    let heap = pg_sys::table_open((*shared_state).heap_oid, heap_lock as i32);
+    let index = pg_sys::table_open((*shared_state).index_oid, index_lock as i32);
+
+    todo!("actually do the insert");
+
+    pg_sys::table_close(index, index_lock as i32);
+    pg_sys::table_close(heap, heap_lock as i32);
 }
 
 unsafe fn end_parallel_index_build(leader: *mut ParallelBuildLeader) {
@@ -447,9 +462,9 @@ unsafe fn shm_toc_estimate_chunk(e: *mut pg_sys::shm_toc_estimator, sz: usize) {
 }
 
 unsafe fn parallel_table_scan_from_shared_state(
-    shared: *mut ParallelSharedState,
+    shared: *mut ParallelBuildSharedState,
 ) -> pg_sys::ParallelTableScanDesc {
-    let offset = buffer_align(std::mem::size_of::<ParallelSharedState>());
+    let offset = buffer_align(std::mem::size_of::<ParallelBuildSharedState>());
     (shared as *mut u8).add(offset) as pg_sys::ParallelTableScanDesc
 }
 

@@ -273,10 +273,83 @@ unsafe fn create_join_coordination_path<CS: CustomScan>(
     (*custom_path).custom_paths = std::ptr::null_mut(); // No child paths
     (*custom_path).custom_restrictinfo = (*extra).restrictlist; // Store JOIN conditions
     (*custom_path).custom_private = std::ptr::null_mut(); // TODO: Store our private data
-    (*custom_path).methods = CS::custom_path_methods(); // Use our custom path methods
+    (*custom_path).methods = join_coordination_custom_path_methods::<CS>(); // Use JOIN-specific methods
 
     pgrx::warning!("  CustomPath created successfully");
     Some(custom_path as *mut pg_sys::Path)
+}
+
+/// JOIN-specific custom path methods
+/// These handle the planning of custom JOIN paths differently from regular table scans
+unsafe fn join_coordination_custom_path_methods<CS: CustomScan>() -> *const pg_sys::CustomPathMethods
+{
+    static mut METHODS: *mut pg_sys::CustomPathMethods = std::ptr::null_mut();
+
+    if METHODS.is_null() {
+        METHODS =
+            PgMemoryContexts::TopMemoryContext.leak_and_drop_on_delete(pg_sys::CustomPathMethods {
+                CustomName: CS::NAME.as_ptr(),
+                PlanCustomPath: Some(plan_join_coordination_custom_path::<CS>),
+                ReparameterizeCustomPathByChild: None, // Not needed for JOIN coordination
+            });
+    }
+    METHODS
+}
+
+/// Plan a custom JOIN coordination path
+/// This converts our custom JOIN path into an executable CustomScan plan
+#[pg_guard]
+extern "C-unwind" fn plan_join_coordination_custom_path<CS: CustomScan>(
+    root: *mut pg_sys::PlannerInfo,
+    rel: *mut pg_sys::RelOptInfo,
+    best_path: *mut pg_sys::CustomPath,
+    tlist: *mut pg_sys::List,
+    clauses: *mut pg_sys::List,
+    custom_plans: *mut pg_sys::List,
+) -> *mut pg_sys::Plan {
+    unsafe {
+        pgrx::warning!("=== PLANNING JOIN COORDINATION CUSTOM PATH ===");
+        pgrx::warning!("  rel relids: {:?}", (*rel).relids);
+        pgrx::warning!(
+            "  tlist length: {}",
+            pgrx::PgList::<pg_sys::TargetEntry>::from_pg(tlist).len()
+        );
+
+        // Create a CustomScan plan for JOIN coordination
+        let mut planner_cxt = PgMemoryContexts::CurrentMemoryContext;
+
+        // Create the CustomScan structure
+        let custom_scan = pg_sys::CustomScan {
+            flags: (*best_path).flags,
+            custom_private: (*best_path).custom_private,
+            custom_plans,
+            methods: CS::custom_scan_methods(),
+            scan: pg_sys::Scan {
+                plan: pg_sys::Plan {
+                    type_: pg_sys::NodeTag::T_CustomScan,
+                    targetlist: tlist,
+                    startup_cost: (*best_path).path.startup_cost,
+                    total_cost: (*best_path).path.total_cost,
+                    plan_rows: (*best_path).path.rows,
+                    parallel_aware: (*best_path).path.parallel_aware,
+                    parallel_safe: (*best_path).path.parallel_safe,
+                    ..Default::default()
+                },
+                scanrelid: 0, // JOIN scans don't have a single scanrelid
+            },
+            ..Default::default()
+        };
+
+        pgrx::warning!("  Created CustomScan plan for JOIN coordination");
+        pgrx::warning!(
+            "  startup_cost: {}, total_cost: {}, rows: {}",
+            custom_scan.scan.plan.startup_cost,
+            custom_scan.scan.plan.total_cost,
+            custom_scan.scan.plan.plan_rows
+        );
+
+        planner_cxt.leak_and_drop_on_delete(custom_scan).cast()
+    }
 }
 
 /// Check if a relation has search predicates (@@@ operators)

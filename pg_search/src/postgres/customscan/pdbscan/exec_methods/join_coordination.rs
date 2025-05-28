@@ -26,6 +26,7 @@ use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::schema::SearchIndexSchema;
 use pgrx::{pg_sys, PgList, PgRelation, PgTupleDesc};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use tantivy::{DocAddress, Score};
@@ -114,6 +115,20 @@ impl JoinedResult {
     }
 }
 
+/// JOIN-specific private data for storing relation mapping information
+/// This matches the structure created in hook.rs
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct JoinCoordinationPrivateData {
+    /// Mapping of table OIDs to their range table indexes
+    relation_mapping: HashMap<pg_sys::Oid, pg_sys::Index>,
+    /// List of table OIDs participating in the JOIN
+    table_oids: Vec<pg_sys::Oid>,
+    /// LIMIT value from the query
+    limit: Option<usize>,
+    /// Serialized JOIN conditions for execution
+    join_conditions: String,
+}
+
 /// JOIN coordination execution state
 pub struct JoinCoordinationExecState {
     /// Tables participating in the JOIN
@@ -144,6 +159,15 @@ pub struct JoinCoordinationExecState {
     total_search_results: usize,
     joined_results_count: usize,
     heap_accesses_saved: u64,
+
+    /// Parsed private data from the CustomScan plan
+    private_data: Option<JoinCoordinationPrivateData>,
+
+    /// Relation mapping for variable resolution
+    relation_mapping: HashMap<pg_sys::Oid, pg_sys::Index>,
+
+    /// Table OIDs participating in the JOIN
+    table_oids: Vec<pg_sys::Oid>,
 }
 
 impl Default for JoinCoordinationExecState {
@@ -160,6 +184,9 @@ impl Default for JoinCoordinationExecState {
             total_search_results: 0,
             joined_results_count: 0,
             heap_accesses_saved: 0,
+            private_data: None,
+            relation_mapping: HashMap::new(),
+            table_oids: Vec::new(),
         }
     }
 }
@@ -173,71 +200,154 @@ impl JoinCoordinationExecState {
         }
     }
 
-    /// Initialize JOIN tables from the query plan
-    /// This is a simplified version - real implementation would parse the JOIN tree
+    /// Parse private data from the CustomScan plan
+    /// This extracts the relation mapping and table information stored during planning
+    fn parse_private_data(&mut self, cstate: *mut pg_sys::CustomScanState) -> Result<(), String> {
+        unsafe {
+            let custom_private =
+                (*(*cstate).ss.ps.plan.cast::<pg_sys::CustomScan>()).custom_private;
+
+            if custom_private.is_null() {
+                return Err("No private data found in CustomScan plan".to_string());
+            }
+
+            let private_list = PgList::<pg_sys::Node>::from_pg(custom_private);
+
+            if private_list.is_empty() {
+                return Err("Empty private data list in CustomScan plan".to_string());
+            }
+
+            // Get the first (and only) string node containing our JSON data
+            if let Some(string_node) = private_list.get_ptr(0) {
+                let json_str =
+                    std::ffi::CStr::from_ptr((*string_node.cast::<pg_sys::String>()).sval)
+                        .to_str()
+                        .map_err(|e| format!("Invalid UTF-8 in private data: {}", e))?;
+
+                pgrx::warning!("Parsing JOIN private data: {}", json_str);
+
+                let private_data: JoinCoordinationPrivateData = serde_json::from_str(json_str)
+                    .map_err(|e| format!("Failed to parse private data JSON: {}", e))?;
+
+                pgrx::warning!(
+                    "Successfully parsed private data: {} tables, limit: {:?}",
+                    private_data.table_oids.len(),
+                    private_data.limit
+                );
+
+                // Store the parsed data
+                self.relation_mapping = private_data.relation_mapping.clone();
+                self.table_oids = private_data.table_oids.clone();
+                self.limit = private_data.limit;
+                self.private_data = Some(private_data);
+
+                Ok(())
+            } else {
+                Err("Could not get string node from private data".to_string())
+            }
+        }
+    }
+
+    /// Initialize JOIN tables from the parsed private data
+    /// This sets up access to all tables participating in the JOIN
     fn initialize_join_tables(
         &mut self,
         state: &mut PdbScanState,
         cstate: *mut pg_sys::CustomScanState,
-    ) {
+    ) -> Result<(), String> {
         unsafe {
-            // For now, we'll just handle the single table case as a starting point
-            // Real implementation would parse the JOIN tree and identify all participating tables
+            // First, parse the private data
+            self.parse_private_data(cstate)?;
 
-            let heaprel = state.heaprel.unwrap();
-            let indexrel = state.indexrel.unwrap();
+            pgrx::warning!("Initializing {} JOIN tables", self.table_oids.len());
 
-            let heaprel_pg = PgRelation::from_pg(heaprel);
-            let indexrel_pg = PgRelation::from_pg(indexrel);
+            // Open relations for each table in the JOIN
+            for table_oid in &self.table_oids {
+                pgrx::warning!("Opening relations for table OID: {}", table_oid);
 
-            // Create search index schema
-            let directory = crate::index::mvcc::MVCCDirectory::snapshot(indexrel_pg.oid());
-            let index = tantivy::Index::open(directory).expect("should be able to open index");
-            let schema = SearchIndexSchema::open(index.schema(), &indexrel_pg);
-
-            // Create table field map
-            let field_map = TableFieldMap::new(heaprel_pg.oid(), &heaprel_pg, &schema);
-
-            // Classify fields from target list
-            let target_list = (*(*cstate).ss.ps.plan).targetlist;
-            let target_entries = PgList::<pg_sys::TargetEntry>::from_pg(target_list);
-            let tupdesc = PgTupleDesc::from_pg_unchecked((*cstate).ss.ps.ps_ResultTupleDesc);
-
-            let mut fast_field_attnos = HashSet::new();
-            let mut non_fast_field_attnos = HashSet::new();
-
-            for te in target_entries.iter_ptr() {
-                if let Some(var) = crate::nodecast!(Var, T_Var, (*te).expr) {
-                    let attno = (*var).varattno;
-
-                    if let Some(att) = tupdesc.get((attno - 1) as usize) {
-                        if schema.is_fast_field(att.name()) {
-                            fast_field_attnos.insert(attno);
-                        } else {
-                            non_fast_field_attnos.insert(attno);
-                        }
-                    }
+                // Open heap relation
+                let heaprel = pg_sys::RelationIdGetRelation(*table_oid);
+                if heaprel.is_null() {
+                    return Err(format!(
+                        "Could not open heap relation for table OID: {}",
+                        table_oid
+                    ));
                 }
+
+                // Find the BM25 index for this table
+                let indexrel = self.find_bm25_index_for_table(*table_oid)?;
+
+                let heaprel_pg = PgRelation::from_pg(heaprel);
+                let indexrel_pg = PgRelation::from_pg(indexrel);
+
+                pgrx::warning!(
+                    "Opened heap relation: {} and index relation: {}",
+                    heaprel_pg.name(),
+                    indexrel_pg.name()
+                );
+
+                // Create search index schema
+                let directory = crate::index::mvcc::MVCCDirectory::snapshot(indexrel_pg.oid());
+                let index = tantivy::Index::open(directory)
+                    .map_err(|e| format!("Could not open Tantivy index: {}", e))?;
+                let schema = SearchIndexSchema::open(index.schema(), &indexrel_pg);
+
+                // Create table field map
+                let field_map = TableFieldMap::new(*table_oid, &heaprel_pg, &schema);
+
+                // For now, use placeholder values for search query and field classification
+                // Real implementation would extract these from the query plan
+                let join_table = JoinTable {
+                    table_oid: *table_oid,
+                    heaprel,
+                    indexrel,
+                    search_query: "placeholder".to_string(), // TODO: Extract from quals
+                    field_map,
+                    fast_field_attnos: HashSet::new(), // TODO: Extract from target list
+                    non_fast_field_attnos: HashSet::new(), // TODO: Extract from target list
+                };
+
+                self.join_tables.push(join_table);
+
+                // Initialize lazy loader for this table
+                self.lazy_loaders.insert(
+                    *table_oid,
+                    LazyFieldLoaderWithFallback::new(
+                        heaprel,
+                        FallbackStrategy::FallbackToEagerLoading,
+                    ),
+                );
+
+                pgrx::warning!("Successfully initialized table OID: {}", table_oid);
             }
 
-            // Create JOIN table entry
-            let join_table = JoinTable {
-                table_oid: heaprel_pg.oid(),
-                heaprel,
-                indexrel,
-                search_query: "placeholder".to_string(), // Real implementation would extract from quals
-                field_map,
-                fast_field_attnos,
-                non_fast_field_attnos,
-            };
-
-            self.join_tables.push(join_table);
-
-            // Initialize lazy loaders
-            self.lazy_loaders.insert(
-                heaprel_pg.oid(),
-                LazyFieldLoaderWithFallback::new(heaprel, FallbackStrategy::FallbackToEagerLoading),
+            pgrx::warning!(
+                "Successfully initialized all {} JOIN tables",
+                self.join_tables.len()
             );
+            Ok(())
+        }
+    }
+
+    /// Find the BM25 index for a given table OID
+    fn find_bm25_index_for_table(
+        &self,
+        table_oid: pg_sys::Oid,
+    ) -> Result<pg_sys::Relation, String> {
+        unsafe {
+            // Use the existing rel_get_bm25_index function
+            if let Some((_, bm25_index)) = crate::postgres::rel_get_bm25_index(table_oid) {
+                let indexrel = pg_sys::RelationIdGetRelation(bm25_index.oid());
+                if indexrel.is_null() {
+                    return Err(format!(
+                        "Could not open BM25 index relation for table OID: {}",
+                        table_oid
+                    ));
+                }
+                Ok(indexrel)
+            } else {
+                Err(format!("No BM25 index found for table OID: {}", table_oid))
+            }
         }
     }
 
@@ -466,13 +576,31 @@ impl JoinCoordinationExecState {
 impl ExecMethod for JoinCoordinationExecState {
     fn init(&mut self, state: &mut PdbScanState, cstate: *mut pg_sys::CustomScanState) {
         unsafe {
+            pgrx::warning!("=== INITIALIZING JOIN COORDINATION EXEC STATE ===");
+
             self.result_slot = pg_sys::MakeTupleTableSlot(
                 (*cstate).ss.ps.ps_ResultTupleDesc,
                 &pg_sys::TTSOpsVirtual,
             );
 
+            pgrx::warning!("Created result slot");
+
             // Initialize JOIN tables
-            self.initialize_join_tables(state, cstate);
+            match self.initialize_join_tables(state, cstate) {
+                Ok(()) => {
+                    pgrx::warning!(
+                        "Successfully initialized JOIN coordination with {} tables",
+                        self.join_tables.len()
+                    );
+                }
+                Err(e) => {
+                    pgrx::warning!("Failed to initialize JOIN coordination: {}", e);
+                    // For now, we'll continue with empty tables - this will cause the query to return no results
+                    // In production, we might want to fall back to a different execution method
+                }
+            }
+
+            pgrx::warning!("=== JOIN COORDINATION EXEC STATE INITIALIZATION COMPLETE ===");
         }
     }
 

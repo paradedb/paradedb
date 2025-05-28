@@ -54,6 +54,14 @@ pub struct PrivateData {
     multi_table_search_count: usize,
     /// Whether this query has JOIN conditions that could benefit from coordination
     has_beneficial_joins: bool,
+
+    // JOIN relation mapping (for JOIN coordination execution)
+    /// Mapping of table OIDs to their range table indexes for JOIN coordination
+    join_relation_mapping: Option<HashMap<pg_sys::Oid, pg_sys::Index>>,
+    /// List of table OIDs participating in the JOIN coordination
+    join_table_oids: Option<Vec<pg_sys::Oid>>,
+    /// JOIN conditions stored as restrictinfo list for execution
+    join_conditions: Option<String>, // Serialized JOIN conditions for execution
 }
 
 mod var_attname_lookup_serializer {
@@ -234,6 +242,21 @@ impl PrivateData {
     pub fn set_has_beneficial_joins(&mut self, has_beneficial_joins: bool) {
         self.has_beneficial_joins = has_beneficial_joins;
     }
+
+    pub fn set_join_relation_mapping(
+        &mut self,
+        join_relation_mapping: HashMap<pg_sys::Oid, pg_sys::Index>,
+    ) {
+        self.join_relation_mapping = Some(join_relation_mapping);
+    }
+
+    pub fn set_join_table_oids(&mut self, join_table_oids: Vec<pg_sys::Oid>) {
+        self.join_table_oids = Some(join_table_oids);
+    }
+
+    pub fn set_join_conditions(&mut self, join_conditions: String) {
+        self.join_conditions = Some(join_conditions);
+    }
 }
 
 //
@@ -316,5 +339,17 @@ impl PrivateData {
 
     pub fn has_beneficial_joins(&self) -> bool {
         self.has_beneficial_joins
+    }
+
+    pub fn join_relation_mapping(&self) -> &Option<HashMap<pg_sys::Oid, pg_sys::Index>> {
+        &self.join_relation_mapping
+    }
+
+    pub fn join_table_oids(&self) -> &Option<Vec<pg_sys::Oid>> {
+        &self.join_table_oids
+    }
+
+    pub fn join_conditions(&self) -> &Option<String> {
+        &self.join_conditions
     }
 }

@@ -20,8 +20,23 @@ use crate::gucs;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::postgres::customscan::CustomScan;
 use once_cell::sync::Lazy;
-use pgrx::{pg_guard, pg_sys, PgMemoryContexts};
+use pgrx::{pg_guard, pg_sys, PgList, PgMemoryContexts};
+use serde::{Deserialize, Serialize};
+use serde_json;
 use std::collections::hash_map::Entry;
+
+/// JOIN-specific private data for storing relation mapping information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct JoinCoordinationPrivateData {
+    /// Mapping of table OIDs to their range table indexes
+    relation_mapping: HashMap<pg_sys::Oid, pg_sys::Index>,
+    /// List of table OIDs participating in the JOIN
+    table_oids: Vec<pg_sys::Oid>,
+    /// LIMIT value from the query
+    limit: Option<usize>,
+    /// Serialized JOIN conditions for execution
+    join_conditions: String,
+}
 
 pub fn register_rel_pathlist<CS: CustomScan + 'static>(_: CS) {
     unsafe {
@@ -229,6 +244,50 @@ unsafe fn create_join_coordination_path<CS: CustomScan>(
 ) -> Option<*mut pg_sys::Path> {
     use pgrx::PgMemoryContexts;
 
+    // Extract relation mapping information
+    let mut relation_mapping = HashMap::default();
+    let mut table_oids = Vec::new();
+
+    // Extract table OIDs from outer and inner relations
+    // For now, we'll extract the first relation from each relids set
+    let outer_oid = extract_table_oid_from_relids((*outerrel).relids);
+    let inner_oid = extract_table_oid_from_relids((*innerrel).relids);
+
+    if let Some(oid) = outer_oid {
+        table_oids.push(oid);
+        // For now, use a placeholder RTI - we'll need to extract this properly
+        relation_mapping.insert(oid, 1);
+        pgrx::warning!("  Extracted outer table OID: {}", oid);
+    }
+
+    if let Some(oid) = inner_oid {
+        table_oids.push(oid);
+        // For now, use a placeholder RTI - we'll need to extract this properly
+        relation_mapping.insert(oid, 2);
+        pgrx::warning!("  Extracted inner table OID: {}", oid);
+    }
+
+    // Get LIMIT from root
+    let limit = if (*root).limit_tuples > -1.0 {
+        Some((*root).limit_tuples as usize)
+    } else {
+        None
+    };
+
+    // Create JOIN coordination private data
+    let join_private_data = JoinCoordinationPrivateData {
+        relation_mapping,
+        table_oids: table_oids.clone(),
+        limit,
+        join_conditions: "placeholder_join_conditions".to_string(), // TODO: Extract real conditions
+    };
+
+    // Serialize the private data
+    let private_data_json =
+        serde_json::to_string(&join_private_data).expect("Failed to serialize JOIN private data");
+
+    pgrx::warning!("  JOIN private data: {}", private_data_json);
+
     // Calculate costs for our custom JOIN path
     // For now, use aggressive costing to ensure our path is selected
     let startup_cost = 1.0; // Very low startup cost
@@ -254,6 +313,11 @@ unsafe fn create_join_coordination_path<CS: CustomScan>(
         return None;
     }
 
+    // Create private data as a PostgreSQL List containing a String node
+    let mut private_list = PgList::new();
+    private_list
+        .push(pg_sys::makeString(private_data_json.as_ptr() as *mut i8).cast::<pg_sys::Node>());
+
     // Initialize the Path portion
     (*custom_path).path.type_ = pg_sys::NodeTag::T_CustomPath;
     (*custom_path).path.pathtype = pg_sys::NodeTag::T_CustomScan;
@@ -272,11 +336,27 @@ unsafe fn create_join_coordination_path<CS: CustomScan>(
     (*custom_path).flags = 0; // No special flags for now
     (*custom_path).custom_paths = std::ptr::null_mut(); // No child paths
     (*custom_path).custom_restrictinfo = (*extra).restrictlist; // Store JOIN conditions
-    (*custom_path).custom_private = std::ptr::null_mut(); // TODO: Store our private data
+    (*custom_path).custom_private = private_list.into_pg(); // Store our JOIN private data
     (*custom_path).methods = join_coordination_custom_path_methods::<CS>(); // Use JOIN-specific methods
 
     pgrx::warning!("  CustomPath created successfully");
     Some(custom_path as *mut pg_sys::Path)
+}
+
+/// Extract table OID from a relids Bitmapset (gets the first relation)
+unsafe fn extract_table_oid_from_relids(relids: *mut pg_sys::Bitmapset) -> Option<pg_sys::Oid> {
+    if relids.is_null() {
+        return None;
+    }
+
+    // Get the first member of the bitmapset
+    let first_rti = pg_sys::bms_next_member(relids, -1);
+    if first_rti < 0 {
+        return None;
+    }
+
+    // Convert i32 to u32 and then to Oid
+    Some((first_rti as u32).into())
 }
 
 /// JOIN-specific custom path methods

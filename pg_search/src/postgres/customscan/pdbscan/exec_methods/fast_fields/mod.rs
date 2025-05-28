@@ -40,6 +40,8 @@ use tantivy::columnar::StrColumn;
 use tantivy::termdict::TermOrdinal;
 use tantivy::DocAddress;
 
+const NULL_TERM_ORDINAL: TermOrdinal = u64::MAX;
+
 pub struct FastFieldExecState {
     heaprel: pg_sys::Relation,
     tupdesc: Option<PgTupleDesc<'static>>,
@@ -558,11 +560,13 @@ pub fn estimate_cardinality(indexrel: &PgRelation, field: &str) -> Option<usize>
 
 /// Given a collection of values containing TermOrdinals for the given StrColumn, return an iterator
 /// which zips each value with the term for the TermOrdinal in ascending sorted order.
+///
+/// `NULL_TERM_ORDINAL` represents NULL, and will be emitted last in the sorted order.
 pub fn ords_to_sorted_terms<T>(
     str_ff: StrColumn,
     mut items: Vec<T>,
     ordinal_fn: impl Fn(&T) -> TermOrdinal,
-) -> impl Iterator<Item = (T, Rc<str>)> {
+) -> impl Iterator<Item = (T, Option<Rc<str>>)> {
     items.sort_unstable_by_key(&ordinal_fn);
 
     let mut bytes = Vec::new();
@@ -572,7 +576,7 @@ pub fn ords_to_sorted_terms<T>(
         .sstable_delta_reader_block(current_block_addr.clone())
         .expect("Failed to open term dictionary.");
     let mut current_ordinal = 0;
-    let mut previous_term: Option<(TermOrdinal, Rc<str>)> = None;
+    let mut previous_term: Option<(TermOrdinal, Option<Rc<str>>)> = None;
     let mut items = items.into_iter();
     std::iter::from_fn(move || {
         let item = items.next()?;
@@ -609,6 +613,11 @@ pub fn ords_to_sorted_terms<T>(
         for _ in current_ordinal..=ord {
             match current_sstable_delta_reader.advance() {
                 Ok(true) => {}
+                Ok(false) if ord == NULL_TERM_ORDINAL => {
+                    // NULL_TERM_ORDINAL sorts highest, so all remaining terms are None.
+                    previous_term = Some((ord, None));
+                    return Some((item, None));
+                }
                 Ok(false) => {
                     panic!("Term ordinal {ord} did not exist in the dictionary.");
                 }
@@ -621,9 +630,11 @@ pub fn ords_to_sorted_terms<T>(
         }
         current_ordinal = ord + 1;
 
-        let term: Rc<str> = std::str::from_utf8(&bytes)
-            .expect("term should be valid utf8")
-            .into();
+        let term: Option<Rc<str>> = Some(
+            std::str::from_utf8(&bytes)
+                .expect("term should be valid utf8")
+                .into(),
+        );
         previous_term = Some((ord, term.clone()));
         Some((item, term))
     })

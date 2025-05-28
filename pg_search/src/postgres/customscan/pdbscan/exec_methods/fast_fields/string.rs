@@ -220,7 +220,7 @@ impl Iterator for StringAggResults {
             let (str_ff, results) = self.per_segment.next()?;
             self.current_segment = Box::new(
                 ords_to_sorted_terms(str_ff, results, |(term_ordinal, _, _)| *term_ordinal)
-                    .map(|((_, scored, doc_address), term)| (scored, doc_address, Some(term))),
+                    .map(|((_, scored, doc_address), term)| (scored, doc_address, term)),
             );
         }
     }
@@ -313,11 +313,12 @@ impl StringAggSearcher<'_> {
 }
 
 mod term_ord_collector {
+    use crate::index::fast_fields_helper::FFType;
     use crate::index::reader::index::SearchIndexScore;
+    use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::NULL_TERM_ORDINAL;
+
     use tantivy::collector::{Collector, SegmentCollector};
     use tantivy::columnar::StrColumn;
-
-    use crate::index::fast_fields_helper::FFType;
     use tantivy::termdict::TermOrdinal;
     use tantivy::{DocAddress, DocId, Score, SegmentOrdinal, SegmentReader};
 
@@ -370,13 +371,11 @@ mod term_ord_collector {
             let doc_address = DocAddress::new(self.segment_ord, doc);
             let ctid = self.ctid_ff.as_u64(doc).expect("ctid should be present");
             let scored = SearchIndexScore::new(ctid, score);
-            if let Some(term_ord) = self.ff.term_ords(doc).next() {
-                self.results.push((term_ord, scored, doc_address));
-            } else {
-                // TODO: This converts a null to the empty string.
-                // See https://github.com/paradedb/paradedb/issues/2619
-                self.results.push((0, scored, doc_address));
-            }
+            self.results.push((
+                self.ff.term_ords(doc).next().unwrap_or(NULL_TERM_ORDINAL),
+                scored,
+                doc_address,
+            ));
         }
 
         fn harvest(self) -> Self::Fruit {

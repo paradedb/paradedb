@@ -434,7 +434,7 @@ impl MixedAggResults {
                     .entry(doc_addr)
                     .or_insert_with(|| (FieldValues::new(self.fields_len), score))
                     .0
-                    .set_string(field_idx, Some(term_value));
+                    .set_string(field_idx, term_value);
             }
         }
 
@@ -464,7 +464,7 @@ impl MixedAggResults {
                     let (mut field_values, score) = doc_fields
                         .remove(&doc_addr)
                         .unwrap_or_else(|| (FieldValues::new(fields_len), score));
-                    field_values.set_string(sort_field_idx, Some(term_value));
+                    field_values.set_string(sort_field_idx, term_value);
                     (score, doc_addr, field_values)
                 }),
             );
@@ -636,6 +636,7 @@ impl MixedAggSearcher<'_> {
 mod multi_field_collector {
     use crate::index::fast_fields_helper::{FFIndex, FFType, FastFieldType, WhichFastField};
     use crate::index::reader::index::SearchIndexScore;
+    use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::NULL_TERM_ORDINAL;
 
     use tantivy::collector::{Collector, SegmentCollector};
     use tantivy::columnar::StrColumn;
@@ -789,9 +790,10 @@ mod multi_field_collector {
 
             // Collect string fields
             for (string_column_idx, (_, str_column)) in self.string_columns.iter().enumerate() {
-                // TODO: This converts a null to the empty string.
-                // See https://github.com/paradedb/paradedb/issues/2619
-                let term_ord = str_column.term_ords(doc).next().unwrap_or(0);
+                let term_ord = str_column
+                    .term_ords(doc)
+                    .next()
+                    .unwrap_or(NULL_TERM_ORDINAL);
                 self.string_results[string_column_idx].push((term_ord, scored, doc_address));
             }
 

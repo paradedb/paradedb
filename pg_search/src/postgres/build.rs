@@ -285,3 +285,24 @@ unsafe fn init_fixed_buffers(index_relation: &PgRelation) {
     assert_eq!(settings.header_blockno, SETTINGS_START);
     assert_eq!(segment_metas.header_blockno, SEGMENT_METAS_START);
 }
+
+unsafe fn compute_nworkers(heap_relation: &PgRelation, index_relation: &PgRelation) -> i32 {
+    if pg_sys::plan_create_index_workers(heap_relation.oid(), index_relation.oid()) == 0 {
+        return 0;
+    }
+
+    let nworkers = relation_get_parallel_workers(heap_relation.as_ptr(), -1);
+    if nworkers != -1 {
+        return nworkers.min(pg_sys::max_parallel_maintenance_workers);
+    }
+
+    pg_sys::max_parallel_maintenance_workers
+}
+
+unsafe fn relation_get_parallel_workers(relation: pg_sys::Relation, defaultpw: i32) -> i32 {
+    if !(*relation).rd_options.is_null() {
+        (*(*relation).rd_options.cast::<pg_sys::StdRdOptions>()).parallel_workers
+    } else {
+        defaultpw
+    }
+}

@@ -30,8 +30,8 @@ use crate::postgres::utils::{
 };
 use crate::schema::{SearchField, SearchFieldConfig};
 use anyhow::Result;
-use pgrx::pg_sys::AsPgCStr;
 use pgrx::pg_sys::panic::ErrorReport;
+use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
 use std::ffi::CStr;
 use std::time::Instant;
@@ -351,8 +351,11 @@ unsafe fn begin_parallel_index_build(
     pg_sys::EnterParallelMode();
     assert!(parallel_workers > 0);
 
-    let parallel_context =
-        pg_sys::CreateParallelContext(c"bm25".as_ptr(), c"parallel_build_main".as_ptr(), parallel_workers);
+    let parallel_context = pg_sys::CreateParallelContext(
+        c"bm25".as_ptr(),
+        c"parallel_build_main".as_ptr(),
+        parallel_workers,
+    );
     let snapshot = if !is_concurrent {
         &mut pg_sys::SnapshotAnyData
     } else {
@@ -375,8 +378,8 @@ unsafe fn begin_parallel_index_build(
         return;
     }
 
-    let mut shared_state =
-        pg_sys::shm_toc_allocate((*parallel_context).toc, est_shared) as *mut ParallelBuildSharedState;
+    let mut shared_state = pg_sys::shm_toc_allocate((*parallel_context).toc, est_shared)
+        as *mut ParallelBuildSharedState;
     (*shared_state).heap_oid = build_state.heap_relation.oid();
     (*shared_state).index_oid = build_state.index_relation.oid();
     (*shared_state).is_concurrent = is_concurrent;
@@ -416,8 +419,12 @@ unsafe fn begin_parallel_index_build(
     pg_sys::WaitForParallelWorkersToAttach(parallel_context);
 }
 
-unsafe extern "C-unwind" fn parallel_build_main(seg: *mut pg_sys::dsm_segment, toc: *mut pg_sys::shm_toc) {
-    let shared_state = pg_sys::shm_toc_lookup(toc, PARALLEL_KEY_SHARED_STATE, false) as *mut ParallelBuildSharedState;
+unsafe extern "C-unwind" fn parallel_build_main(
+    seg: *mut pg_sys::dsm_segment,
+    toc: *mut pg_sys::shm_toc,
+) {
+    let shared_state = pg_sys::shm_toc_lookup(toc, PARALLEL_KEY_SHARED_STATE, false)
+        as *mut ParallelBuildSharedState;
     let (heap_lock, index_lock) = if !(*shared_state).is_concurrent {
         (pg_sys::ShareLock, pg_sys::AccessExclusiveLock)
     } else {
@@ -431,6 +438,18 @@ unsafe extern "C-unwind" fn parallel_build_main(seg: *mut pg_sys::dsm_segment, t
 
     pg_sys::table_close(index, index_lock as i32);
     pg_sys::table_close(heap, heap_lock as i32);
+}
+
+unsafe fn parallel_scan_and_insert(
+    heap: pg_sys::Relation,
+    index: pg_sys::Relation,
+    shared_state: *mut ParallelBuildSharedState,
+    progress: bool,
+) {
+    let mut index_info = pg_sys::BuildIndexInfo(index);
+    (*index_info).ii_Concurrent = (*shared_state).is_concurrent;
+
+    let build_state = BuildState::new((*shared_state).index_oid);
 }
 
 unsafe fn end_parallel_index_build(leader: *mut ParallelBuildLeader) {
@@ -469,5 +488,6 @@ unsafe fn parallel_table_scan_from_shared_state(
 }
 
 unsafe fn is_mvcc_snapshot(snapshot: pg_sys::Snapshot) -> bool {
-    (*snapshot).snapshot_type == pg_sys::SnapshotType::SNAPSHOT_MVCC || (*snapshot).snapshot_type == pg_sys::SnapshotType::SNAPSHOT_HISTORIC_MVCC
+    (*snapshot).snapshot_type == pg_sys::SnapshotType::SNAPSHOT_MVCC
+        || (*snapshot).snapshot_type == pg_sys::SnapshotType::SNAPSHOT_HISTORIC_MVCC
 }

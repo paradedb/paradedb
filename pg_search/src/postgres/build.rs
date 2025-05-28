@@ -56,6 +56,10 @@ impl BuildState {
         )
         .expect("build state: should be able to open a SearchIndexWriter");
 
+        let tupdesc = unsafe { PgTupleDesc::from_pg_unchecked(indexrel.rd_att) };
+        let categorized_fields = categorize_fields(&tupdesc, &writer.schema);
+        let key_field_name = writer.schema.key_field().name.0;
+
         // warn that the `raw` tokenizer is deprecated
         for field in &writer.schema.fields {
             #[allow(deprecated)]
@@ -68,7 +72,8 @@ impl BuildState {
                     tokenizer: SearchTokenizer::Raw(_),
                     ..
                 }
-            ) {
+            ) && field.name.0 != key_field_name
+            {
                 ErrorReport::new(
                     PgSqlErrorCode::ERRCODE_WARNING_DEPRECATED_FEATURE,
                     "the `raw` tokenizer is deprecated",
@@ -78,10 +83,6 @@ impl BuildState {
                     .set_hint("use `keyword` instead").report(PgLogLevel::WARNING);
             }
         }
-
-        let tupdesc = unsafe { PgTupleDesc::from_pg_unchecked(indexrel.rd_att) };
-        let categorized_fields = categorize_fields(&tupdesc, &writer.schema);
-        let key_field_name = writer.schema.key_field().name.0;
 
         BuildState {
             count: 0,

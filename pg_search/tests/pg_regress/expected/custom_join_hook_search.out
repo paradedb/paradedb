@@ -1,0 +1,435 @@
+-- Test search integration in custom joins
+-- This test focuses on validating search predicate extraction and execution
+-- Create the extension first
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Enable the custom join feature
+SET paradedb.enable_custom_join = true;
+-- Create test tables with more realistic data
+CREATE TABLE products (
+    id SERIAL PRIMARY KEY,
+    name TEXT,
+    description TEXT,
+    category TEXT
+);
+CREATE TABLE reviews (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER,
+    reviewer_name TEXT,
+    review_text TEXT,
+    rating INTEGER
+);
+-- Insert test data with search-friendly content
+INSERT INTO products (name, description, category) VALUES 
+    ('Laptop Pro', 'High-performance laptop with advanced features for professionals', 'Electronics'),
+    ('Wireless Mouse', 'Ergonomic wireless mouse with precision tracking', 'Electronics'),
+    ('Coffee Maker', 'Automatic coffee maker with programmable settings', 'Kitchen'),
+    ('Running Shoes', 'Lightweight running shoes with excellent cushioning', 'Sports'),
+    ('Smartphone X', 'Latest smartphone with cutting-edge technology', 'Electronics');
+INSERT INTO reviews (product_id, reviewer_name, review_text, rating) VALUES 
+    (1, 'John Doe', 'Excellent laptop with amazing performance and battery life', 5),
+    (1, 'Jane Smith', 'Great for professional work, highly recommended', 4),
+    (2, 'Bob Wilson', 'Perfect wireless mouse, very responsive and comfortable', 5),
+    (3, 'Alice Brown', 'Makes excellent coffee every morning, love the programmable features', 4),
+    (4, 'Charlie Davis', 'Best running shoes I have ever owned, great cushioning', 5),
+    (5, 'Eva Martinez', 'Amazing smartphone with incredible camera and performance', 5);
+-- Create BM25 indexes
+CREATE INDEX products_search_idx ON products USING bm25 (
+    id,
+    name,
+    description,
+    category
+) WITH (
+    key_field = 'id',
+    text_fields = '{"name": {"tokenizer": {"type": "default"}}, "description": {"tokenizer": {"type": "default"}}, "category": {"tokenizer": {"type": "default"}}}'
+);
+CREATE INDEX reviews_search_idx ON reviews USING bm25 (
+    id,
+    product_id,
+    reviewer_name,
+    review_text,
+    rating
+) WITH (
+    key_field = 'id',
+    numeric_fields = '{"product_id": {"fast": true}, "rating": {"fast": true}}',
+    text_fields = '{"reviewer_name": {"tokenizer": {"type": "default"}}, "review_text": {"tokenizer": {"type": "default"}}}'
+);
+-- Test 1: Bilateral search join (both sides have search predicates)
+-- This should trigger our custom join with real search predicates
+SELECT p.name, r.reviewer_name, r.review_text
+FROM products p
+JOIN reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'performance' AND r.review_text @@@ 'excellent';
+WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
+WARNING:  Range table has 3 entries
+WARNING:  Examining RTI 1: rtekind = 0
+WARNING:  RTI 1 has BM25 index: table_oid=149433, index_oid=149450
+WARNING:    Checking search predicates for RTI 1
+WARNING:    RTI 1 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 1 FOUND search operator in restrict info 0
+WARNING:  RTI 1 HAS search predicates! Total count now: 1
+WARNING:  Examining RTI 2: rtekind = 0
+WARNING:  RTI 2 has BM25 index: table_oid=149442, index_oid=149451
+WARNING:    Checking search predicates for RTI 2
+WARNING:    RTI 2 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 2 FOUND search operator in restrict info 0
+WARNING:  RTI 2 HAS search predicates! Total count now: 2
+WARNING:  Examining RTI 3: rtekind = 2
+WARNING:  RTI 3 is not a relation, skipping
+WARNING:  Found 2 tables with search predicates - marking as beneficial JOINs
+WARNING:  === FINAL RESULT for RTI 1: is_multi_table=true, count=2, beneficial=true ===
+WARNING:  Setting multi-table info for RTI 1: multi_table=true, count=2, beneficial=true
+WARNING:  === CHOOSING EXECUTION METHOD ===
+WARNING:    limit: None
+WARNING:    sort_direction: None
+WARNING:  === CHECKING JOIN COORDINATION ELIGIBILITY ===
+WARNING:    is_multi_table_search: true
+WARNING:    multi_table_search_count: 2
+WARNING:    has_limit: false
+WARNING:    limit_value: None
+WARNING:    has_beneficial_joins: true
+WARNING:    sort_direction: None
+WARNING:    DISABLED: JOIN coordination now handled at JOIN planning level
+WARNING:    CHOSEN: FastFieldNumeric
+WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 2 ===
+WARNING:  Range table has 3 entries
+WARNING:  Examining RTI 1: rtekind = 0
+WARNING:  RTI 1 has BM25 index: table_oid=149433, index_oid=149450
+WARNING:    Checking search predicates for RTI 1
+WARNING:    RTI 1 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 1 FOUND search operator in restrict info 0
+WARNING:  RTI 1 HAS search predicates! Total count now: 1
+WARNING:  Examining RTI 2: rtekind = 0
+WARNING:  RTI 2 has BM25 index: table_oid=149442, index_oid=149451
+WARNING:    Checking search predicates for RTI 2
+WARNING:    RTI 2 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 2 FOUND search operator in restrict info 0
+WARNING:  RTI 2 HAS search predicates! Total count now: 2
+WARNING:  Examining RTI 3: rtekind = 2
+WARNING:  RTI 3 is not a relation, skipping
+WARNING:  Found 2 tables with search predicates - marking as beneficial JOINs
+WARNING:  === FINAL RESULT for RTI 2: is_multi_table=true, count=2, beneficial=true ===
+WARNING:  Setting multi-table info for RTI 2: multi_table=true, count=2, beneficial=true
+WARNING:  === CHOOSING EXECUTION METHOD ===
+WARNING:    limit: None
+WARNING:    sort_direction: None
+WARNING:  === CHECKING JOIN COORDINATION ELIGIBILITY ===
+WARNING:    is_multi_table_search: true
+WARNING:    multi_table_search_count: 2
+WARNING:    has_limit: false
+WARNING:    limit_value: None
+WARNING:    has_beneficial_joins: true
+WARNING:    sort_direction: None
+WARNING:    DISABLED: JOIN coordination now handled at JOIN planning level
+WARNING:    CHOSEN: FastFieldNumeric
+WARNING:  === JOIN PATHLIST CALLBACK ===
+WARNING:    jointype: 0
+WARNING:    limit_tuples: -1
+WARNING:    outer_has_search: true
+WARNING:    inner_has_search: true
+WARNING:    has_limit: false
+WARNING:    SKIPPING: No LIMIT clause
+WARNING:  === JOIN PATHLIST CALLBACK ===
+WARNING:    jointype: 0
+WARNING:    limit_tuples: -1
+WARNING:    outer_has_search: true
+WARNING:    inner_has_search: true
+WARNING:    has_limit: false
+WARNING:    SKIPPING: No LIMIT clause
+    name    | reviewer_name |                        review_text                         
+------------+---------------+------------------------------------------------------------
+ Laptop Pro | John Doe      | Excellent laptop with amazing performance and battery life
+(1 row)
+
+-- Test 2: Single-sided search join (only one side has search predicate)
+SELECT p.name, r.reviewer_name, r.rating
+FROM products p
+JOIN reviews r ON p.id = r.product_id
+WHERE p.category @@@ 'Electronics';
+WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
+WARNING:  Range table has 3 entries
+WARNING:  Examining RTI 1: rtekind = 0
+WARNING:  RTI 1 has BM25 index: table_oid=149433, index_oid=149450
+WARNING:    Checking search predicates for RTI 1
+WARNING:    RTI 1 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 1 FOUND search operator in restrict info 0
+WARNING:  RTI 1 HAS search predicates! Total count now: 1
+WARNING:  Examining RTI 2: rtekind = 0
+WARNING:  RTI 2 has BM25 index: table_oid=149442, index_oid=149451
+WARNING:    Checking search predicates for RTI 2
+WARNING:    RTI 2 has 0 base restrict info entries
+WARNING:    RTI 2 has NO search operators
+WARNING:  RTI 2 has BM25 index but NO search predicates
+WARNING:  Examining RTI 3: rtekind = 2
+WARNING:  RTI 3 is not a relation, skipping
+WARNING:  === FINAL RESULT for RTI 1: is_multi_table=false, count=1, beneficial=false ===
+WARNING:  Setting multi-table info for RTI 1: multi_table=false, count=1, beneficial=false
+WARNING:  === CHOOSING EXECUTION METHOD ===
+WARNING:    limit: None
+WARNING:    sort_direction: None
+WARNING:  === CHECKING JOIN COORDINATION ELIGIBILITY ===
+WARNING:    is_multi_table_search: false
+WARNING:    multi_table_search_count: 1
+WARNING:    has_limit: false
+WARNING:    limit_value: None
+WARNING:    has_beneficial_joins: false
+WARNING:    sort_direction: None
+WARNING:    DISABLED: JOIN coordination now handled at JOIN planning level
+WARNING:    CHOSEN: FastFieldNumeric
+WARNING:  === JOIN PATHLIST CALLBACK ===
+WARNING:    jointype: 0
+WARNING:    limit_tuples: -1
+WARNING:    outer_has_search: true
+WARNING:    inner_has_search: false
+WARNING:    SKIPPING: Not both relations have search predicates
+WARNING:  === JOIN PATHLIST CALLBACK ===
+WARNING:    jointype: 0
+WARNING:    limit_tuples: -1
+WARNING:    outer_has_search: false
+WARNING:    inner_has_search: true
+WARNING:    SKIPPING: Not both relations have search predicates
+      name      | reviewer_name | rating 
+----------------+---------------+--------
+ Laptop Pro     | John Doe      |      5
+ Laptop Pro     | Jane Smith    |      4
+ Wireless Mouse | Bob Wilson    |      5
+ Smartphone X   | Eva Martinez  |      5
+(4 rows)
+
+-- Test 3: Complex search with multiple terms
+SELECT p.name, p.description, r.review_text
+FROM products p
+JOIN reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'wireless OR smartphone' AND r.review_text @@@ 'amazing OR perfect';
+WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
+WARNING:  Range table has 3 entries
+WARNING:  Examining RTI 1: rtekind = 0
+WARNING:  RTI 1 has BM25 index: table_oid=149433, index_oid=149450
+WARNING:    Checking search predicates for RTI 1
+WARNING:    RTI 1 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 1 FOUND search operator in restrict info 0
+WARNING:  RTI 1 HAS search predicates! Total count now: 1
+WARNING:  Examining RTI 2: rtekind = 0
+WARNING:  RTI 2 has BM25 index: table_oid=149442, index_oid=149451
+WARNING:    Checking search predicates for RTI 2
+WARNING:    RTI 2 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 2 FOUND search operator in restrict info 0
+WARNING:  RTI 2 HAS search predicates! Total count now: 2
+WARNING:  Examining RTI 3: rtekind = 2
+WARNING:  RTI 3 is not a relation, skipping
+WARNING:  Found 2 tables with search predicates - marking as beneficial JOINs
+WARNING:  === FINAL RESULT for RTI 1: is_multi_table=true, count=2, beneficial=true ===
+WARNING:  Setting multi-table info for RTI 1: multi_table=true, count=2, beneficial=true
+WARNING:  === CHOOSING EXECUTION METHOD ===
+WARNING:    limit: None
+WARNING:    sort_direction: None
+WARNING:  === CHECKING JOIN COORDINATION ELIGIBILITY ===
+WARNING:    is_multi_table_search: true
+WARNING:    multi_table_search_count: 2
+WARNING:    has_limit: false
+WARNING:    limit_value: None
+WARNING:    has_beneficial_joins: true
+WARNING:    sort_direction: None
+WARNING:    DISABLED: JOIN coordination now handled at JOIN planning level
+WARNING:    CHOSEN: FastFieldNumeric
+WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 2 ===
+WARNING:  Range table has 3 entries
+WARNING:  Examining RTI 1: rtekind = 0
+WARNING:  RTI 1 has BM25 index: table_oid=149433, index_oid=149450
+WARNING:    Checking search predicates for RTI 1
+WARNING:    RTI 1 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 1 FOUND search operator in restrict info 0
+WARNING:  RTI 1 HAS search predicates! Total count now: 1
+WARNING:  Examining RTI 2: rtekind = 0
+WARNING:  RTI 2 has BM25 index: table_oid=149442, index_oid=149451
+WARNING:    Checking search predicates for RTI 2
+WARNING:    RTI 2 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 2 FOUND search operator in restrict info 0
+WARNING:  RTI 2 HAS search predicates! Total count now: 2
+WARNING:  Examining RTI 3: rtekind = 2
+WARNING:  RTI 3 is not a relation, skipping
+WARNING:  Found 2 tables with search predicates - marking as beneficial JOINs
+WARNING:  === FINAL RESULT for RTI 2: is_multi_table=true, count=2, beneficial=true ===
+WARNING:  Setting multi-table info for RTI 2: multi_table=true, count=2, beneficial=true
+WARNING:  === CHOOSING EXECUTION METHOD ===
+WARNING:    limit: None
+WARNING:    sort_direction: None
+WARNING:  === CHECKING JOIN COORDINATION ELIGIBILITY ===
+WARNING:    is_multi_table_search: true
+WARNING:    multi_table_search_count: 2
+WARNING:    has_limit: false
+WARNING:    limit_value: None
+WARNING:    has_beneficial_joins: true
+WARNING:    sort_direction: None
+WARNING:    DISABLED: JOIN coordination now handled at JOIN planning level
+WARNING:    CHOSEN: FastFieldNumeric
+WARNING:  === JOIN PATHLIST CALLBACK ===
+WARNING:    jointype: 0
+WARNING:    limit_tuples: -1
+WARNING:    outer_has_search: true
+WARNING:    inner_has_search: true
+WARNING:    has_limit: false
+WARNING:    SKIPPING: No LIMIT clause
+WARNING:  === JOIN PATHLIST CALLBACK ===
+WARNING:    jointype: 0
+WARNING:    limit_tuples: -1
+WARNING:    outer_has_search: true
+WARNING:    inner_has_search: true
+WARNING:    has_limit: false
+WARNING:    SKIPPING: No LIMIT clause
+      name      |                   description                    |                        review_text                        
+----------------+--------------------------------------------------+-----------------------------------------------------------
+ Wireless Mouse | Ergonomic wireless mouse with precision tracking | Perfect wireless mouse, very responsive and comfortable
+ Smartphone X   | Latest smartphone with cutting-edge technology   | Amazing smartphone with incredible camera and performance
+(2 rows)
+
+-- Test 4: Search with numeric conditions (should still trigger custom join)
+SELECT p.name, r.review_text, r.rating
+FROM products p
+JOIN reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop' AND r.rating >= 4;
+WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
+WARNING:  Range table has 3 entries
+WARNING:  Examining RTI 1: rtekind = 0
+WARNING:  RTI 1 has BM25 index: table_oid=149433, index_oid=149450
+WARNING:    Checking search predicates for RTI 1
+WARNING:    RTI 1 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 1 FOUND search operator in restrict info 0
+WARNING:  RTI 1 HAS search predicates! Total count now: 1
+WARNING:  Examining RTI 2: rtekind = 0
+WARNING:  RTI 2 has BM25 index: table_oid=149442, index_oid=149451
+WARNING:    Checking search predicates for RTI 2
+WARNING:    RTI 2 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 2 has NO search operators
+WARNING:  RTI 2 has BM25 index but NO search predicates
+WARNING:  Examining RTI 3: rtekind = 2
+WARNING:  RTI 3 is not a relation, skipping
+WARNING:  === FINAL RESULT for RTI 1: is_multi_table=false, count=1, beneficial=false ===
+WARNING:  Setting multi-table info for RTI 1: multi_table=false, count=1, beneficial=false
+WARNING:  === CHOOSING EXECUTION METHOD ===
+WARNING:    limit: None
+WARNING:    sort_direction: None
+WARNING:  === CHECKING JOIN COORDINATION ELIGIBILITY ===
+WARNING:    is_multi_table_search: false
+WARNING:    multi_table_search_count: 1
+WARNING:    has_limit: false
+WARNING:    limit_value: None
+WARNING:    has_beneficial_joins: false
+WARNING:    sort_direction: None
+WARNING:    DISABLED: JOIN coordination now handled at JOIN planning level
+WARNING:    CHOSEN: FastFieldNumeric
+WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 2 ===
+WARNING:  Range table has 3 entries
+WARNING:  Examining RTI 1: rtekind = 0
+WARNING:  RTI 1 has BM25 index: table_oid=149433, index_oid=149450
+WARNING:    Checking search predicates for RTI 1
+WARNING:    RTI 1 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 1 FOUND search operator in restrict info 0
+WARNING:  RTI 1 HAS search predicates! Total count now: 1
+WARNING:  Examining RTI 2: rtekind = 0
+WARNING:  RTI 2 has BM25 index: table_oid=149442, index_oid=149451
+WARNING:    Checking search predicates for RTI 2
+WARNING:    RTI 2 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 2 has NO search operators
+WARNING:  RTI 2 has BM25 index but NO search predicates
+WARNING:  Examining RTI 3: rtekind = 2
+WARNING:  RTI 3 is not a relation, skipping
+WARNING:  === FINAL RESULT for RTI 2: is_multi_table=false, count=1, beneficial=false ===
+WARNING:  Setting multi-table info for RTI 2: multi_table=false, count=1, beneficial=false
+WARNING:  === JOIN PATHLIST CALLBACK ===
+WARNING:    jointype: 0
+WARNING:    limit_tuples: -1
+WARNING:    outer_has_search: true
+WARNING:    inner_has_search: false
+WARNING:    SKIPPING: Not both relations have search predicates
+WARNING:  === JOIN PATHLIST CALLBACK ===
+WARNING:    jointype: 0
+WARNING:    limit_tuples: -1
+WARNING:    outer_has_search: false
+WARNING:    inner_has_search: true
+WARNING:    SKIPPING: Not both relations have search predicates
+    name    |                        review_text                         | rating 
+------------+------------------------------------------------------------+--------
+ Laptop Pro | Excellent laptop with amazing performance and battery life |      5
+ Laptop Pro | Great for professional work, highly recommended            |      4
+(2 rows)
+
+-- Test 5: No search predicates (should use regular join)
+SELECT p.name, r.reviewer_name
+FROM products p
+JOIN reviews r ON p.id = r.product_id
+WHERE p.id = 1;
+WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
+WARNING:  Range table has 3 entries
+WARNING:  Examining RTI 1: rtekind = 0
+WARNING:  RTI 1 has BM25 index: table_oid=149433, index_oid=149450
+WARNING:    Checking search predicates for RTI 1
+WARNING:    RTI 1 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 1 has NO search operators
+WARNING:  RTI 1 has BM25 index but NO search predicates
+WARNING:  Examining RTI 2: rtekind = 0
+WARNING:  RTI 2 has BM25 index: table_oid=149442, index_oid=149451
+WARNING:    Checking search predicates for RTI 2
+WARNING:    RTI 2 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 2 has NO search operators
+WARNING:  RTI 2 has BM25 index but NO search predicates
+WARNING:  Examining RTI 3: rtekind = 2
+WARNING:  RTI 3 is not a relation, skipping
+WARNING:  === FINAL RESULT for RTI 1: is_multi_table=false, count=0, beneficial=false ===
+WARNING:  Setting multi-table info for RTI 1: multi_table=false, count=0, beneficial=false
+WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 2 ===
+WARNING:  Range table has 3 entries
+WARNING:  Examining RTI 1: rtekind = 0
+WARNING:  RTI 1 has BM25 index: table_oid=149433, index_oid=149450
+WARNING:    Checking search predicates for RTI 1
+WARNING:    RTI 1 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 1 has NO search operators
+WARNING:  RTI 1 has BM25 index but NO search predicates
+WARNING:  Examining RTI 2: rtekind = 0
+WARNING:  RTI 2 has BM25 index: table_oid=149442, index_oid=149451
+WARNING:    Checking search predicates for RTI 2
+WARNING:    RTI 2 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 2 has NO search operators
+WARNING:  RTI 2 has BM25 index but NO search predicates
+WARNING:  Examining RTI 3: rtekind = 2
+WARNING:  RTI 3 is not a relation, skipping
+WARNING:  === FINAL RESULT for RTI 2: is_multi_table=false, count=0, beneficial=false ===
+WARNING:  Setting multi-table info for RTI 2: multi_table=false, count=0, beneficial=false
+WARNING:  === JOIN PATHLIST CALLBACK ===
+WARNING:    jointype: 0
+WARNING:    limit_tuples: -1
+WARNING:    outer_has_search: false
+WARNING:    inner_has_search: false
+WARNING:    SKIPPING: Not both relations have search predicates
+WARNING:  === JOIN PATHLIST CALLBACK ===
+WARNING:    jointype: 0
+WARNING:    limit_tuples: -1
+WARNING:    outer_has_search: false
+WARNING:    inner_has_search: false
+WARNING:    SKIPPING: Not both relations have search predicates
+    name    | reviewer_name 
+------------+---------------
+ Laptop Pro | John Doe
+ Laptop Pro | Jane Smith
+(2 rows)
+
+-- Cleanup
+DROP TABLE products CASCADE;
+DROP TABLE reviews CASCADE;
+RESET paradedb.enable_custom_join; 

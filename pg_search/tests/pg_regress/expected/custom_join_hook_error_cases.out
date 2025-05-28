@@ -1,0 +1,760 @@
+-- Test error cases and edge conditions for custom join hook
+-- This test verifies proper error handling and edge case behavior
+-- Create the extension first
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Enable the custom join feature
+SET paradedb.enable_custom_join = true;
+-- Test 1: Empty tables
+CREATE TABLE empty_docs (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    content TEXT
+);
+CREATE TABLE empty_files (
+    id SERIAL PRIMARY KEY,
+    document_id INTEGER,
+    filename TEXT,
+    content TEXT
+);
+-- Create BM25 indexes on empty tables
+CREATE INDEX empty_docs_idx ON empty_docs USING bm25 (
+    id,
+    title,
+    content
+) WITH (
+    key_field = 'id',
+    text_fields = '{"title": {"tokenizer": {"type": "default"}}, "content": {"tokenizer": {"type": "default"}}}'
+);
+CREATE INDEX empty_files_idx ON empty_files USING bm25 (
+    id,
+    document_id,
+    filename,
+    content
+) WITH (
+    key_field = 'id',
+    numeric_fields = '{"document_id": {"fast": true}}',
+    text_fields = '{"filename": {"tokenizer": {"type": "default"}}, "content": {"tokenizer": {"type": "default"}}}'
+);
+-- Test join on empty tables
+SELECT d.id, d.title, f.filename
+FROM empty_docs d
+JOIN empty_files f ON d.id = f.document_id
+WHERE d.content @@@ 'nonexistent' AND f.content @@@ 'missing';
+WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
+WARNING:  Range table has 3 entries
+WARNING:  Examining RTI 1: rtekind = 0
+WARNING:  RTI 1 has BM25 index: table_oid=149213, index_oid=149230
+WARNING:    Checking search predicates for RTI 1
+WARNING:    RTI 1 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 1 FOUND search operator in restrict info 0
+WARNING:  RTI 1 HAS search predicates! Total count now: 1
+WARNING:  Examining RTI 2: rtekind = 0
+WARNING:  RTI 2 has BM25 index: table_oid=149222, index_oid=149231
+WARNING:    Checking search predicates for RTI 2
+WARNING:    RTI 2 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 2 FOUND search operator in restrict info 0
+WARNING:  RTI 2 HAS search predicates! Total count now: 2
+WARNING:  Examining RTI 3: rtekind = 2
+WARNING:  RTI 3 is not a relation, skipping
+WARNING:  Found 2 tables with search predicates - marking as beneficial JOINs
+WARNING:  === FINAL RESULT for RTI 1: is_multi_table=true, count=2, beneficial=true ===
+WARNING:  Setting multi-table info for RTI 1: multi_table=true, count=2, beneficial=true
+WARNING:  === CHOOSING EXECUTION METHOD ===
+WARNING:    limit: None
+WARNING:    sort_direction: None
+WARNING:  === CHECKING JOIN COORDINATION ELIGIBILITY ===
+WARNING:    is_multi_table_search: true
+WARNING:    multi_table_search_count: 2
+WARNING:    has_limit: false
+WARNING:    limit_value: None
+WARNING:    has_beneficial_joins: true
+WARNING:    sort_direction: None
+WARNING:    DISABLED: JOIN coordination now handled at JOIN planning level
+WARNING:    CHOSEN: FastFieldNumeric
+WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 2 ===
+WARNING:  Range table has 3 entries
+WARNING:  Examining RTI 1: rtekind = 0
+WARNING:  RTI 1 has BM25 index: table_oid=149213, index_oid=149230
+WARNING:    Checking search predicates for RTI 1
+WARNING:    RTI 1 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 1 FOUND search operator in restrict info 0
+WARNING:  RTI 1 HAS search predicates! Total count now: 1
+WARNING:  Examining RTI 2: rtekind = 0
+WARNING:  RTI 2 has BM25 index: table_oid=149222, index_oid=149231
+WARNING:    Checking search predicates for RTI 2
+WARNING:    RTI 2 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 2 FOUND search operator in restrict info 0
+WARNING:  RTI 2 HAS search predicates! Total count now: 2
+WARNING:  Examining RTI 3: rtekind = 2
+WARNING:  RTI 3 is not a relation, skipping
+WARNING:  Found 2 tables with search predicates - marking as beneficial JOINs
+WARNING:  === FINAL RESULT for RTI 2: is_multi_table=true, count=2, beneficial=true ===
+WARNING:  Setting multi-table info for RTI 2: multi_table=true, count=2, beneficial=true
+WARNING:  === CHOOSING EXECUTION METHOD ===
+WARNING:    limit: None
+WARNING:    sort_direction: None
+WARNING:  === CHECKING JOIN COORDINATION ELIGIBILITY ===
+WARNING:    is_multi_table_search: true
+WARNING:    multi_table_search_count: 2
+WARNING:    has_limit: false
+WARNING:    limit_value: None
+WARNING:    has_beneficial_joins: true
+WARNING:    sort_direction: None
+WARNING:    DISABLED: JOIN coordination now handled at JOIN planning level
+WARNING:    CHOSEN: FastFieldNumeric
+WARNING:  === JOIN PATHLIST CALLBACK ===
+WARNING:    jointype: 0
+WARNING:    limit_tuples: -1
+WARNING:    outer_has_search: true
+WARNING:    inner_has_search: true
+WARNING:    has_limit: false
+WARNING:    SKIPPING: No LIMIT clause
+WARNING:  === JOIN PATHLIST CALLBACK ===
+WARNING:    jointype: 0
+WARNING:    limit_tuples: -1
+WARNING:    outer_has_search: true
+WARNING:    inner_has_search: true
+WARNING:    has_limit: false
+WARNING:    SKIPPING: No LIMIT clause
+ id | title | filename 
+----+-------+----------
+(0 rows)
+
+-- Test 2: Tables with no matching search results
+CREATE TABLE no_match_docs (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    content TEXT
+);
+CREATE TABLE no_match_files (
+    id SERIAL PRIMARY KEY,
+    document_id INTEGER,
+    filename TEXT,
+    content TEXT
+);
+INSERT INTO no_match_docs (title, content) VALUES 
+    ('Doc 1', 'This document contains cats and dogs'),
+    ('Doc 2', 'This document contains birds and fish');
+INSERT INTO no_match_files (document_id, filename, content) VALUES 
+    (1, 'file1.txt', 'File about animals and pets'),
+    (2, 'file2.txt', 'File about wildlife and nature');
+CREATE INDEX no_match_docs_idx ON no_match_docs USING bm25 (
+    id,
+    title,
+    content
+) WITH (
+    key_field = 'id',
+    text_fields = '{"title": {"tokenizer": {"type": "default"}}, "content": {"tokenizer": {"type": "default"}}}'
+);
+CREATE INDEX no_match_files_idx ON no_match_files USING bm25 (
+    id,
+    document_id,
+    filename,
+    content
+) WITH (
+    key_field = 'id',
+    numeric_fields = '{"document_id": {"fast": true}}',
+    text_fields = '{"filename": {"tokenizer": {"type": "default"}}, "content": {"tokenizer": {"type": "default"}}}'
+);
+-- Test search with no matches
+SELECT d.id, d.title, f.filename
+FROM no_match_docs d
+JOIN no_match_files f ON d.id = f.document_id
+WHERE d.content @@@ 'robots' AND f.content @@@ 'spaceships';
+WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
+WARNING:  Range table has 3 entries
+WARNING:  Examining RTI 1: rtekind = 0
+WARNING:  RTI 1 has BM25 index: table_oid=149233, index_oid=149250
+WARNING:    Checking search predicates for RTI 1
+WARNING:    RTI 1 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 1 FOUND search operator in restrict info 0
+WARNING:  RTI 1 HAS search predicates! Total count now: 1
+WARNING:  Examining RTI 2: rtekind = 0
+WARNING:  RTI 2 has BM25 index: table_oid=149242, index_oid=149251
+WARNING:    Checking search predicates for RTI 2
+WARNING:    RTI 2 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 2 FOUND search operator in restrict info 0
+WARNING:  RTI 2 HAS search predicates! Total count now: 2
+WARNING:  Examining RTI 3: rtekind = 2
+WARNING:  RTI 3 is not a relation, skipping
+WARNING:  Found 2 tables with search predicates - marking as beneficial JOINs
+WARNING:  === FINAL RESULT for RTI 1: is_multi_table=true, count=2, beneficial=true ===
+WARNING:  Setting multi-table info for RTI 1: multi_table=true, count=2, beneficial=true
+WARNING:  === CHOOSING EXECUTION METHOD ===
+WARNING:    limit: None
+WARNING:    sort_direction: None
+WARNING:  === CHECKING JOIN COORDINATION ELIGIBILITY ===
+WARNING:    is_multi_table_search: true
+WARNING:    multi_table_search_count: 2
+WARNING:    has_limit: false
+WARNING:    limit_value: None
+WARNING:    has_beneficial_joins: true
+WARNING:    sort_direction: None
+WARNING:    DISABLED: JOIN coordination now handled at JOIN planning level
+WARNING:    CHOSEN: FastFieldNumeric
+WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 2 ===
+WARNING:  Range table has 3 entries
+WARNING:  Examining RTI 1: rtekind = 0
+WARNING:  RTI 1 has BM25 index: table_oid=149233, index_oid=149250
+WARNING:    Checking search predicates for RTI 1
+WARNING:    RTI 1 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 1 FOUND search operator in restrict info 0
+WARNING:  RTI 1 HAS search predicates! Total count now: 1
+WARNING:  Examining RTI 2: rtekind = 0
+WARNING:  RTI 2 has BM25 index: table_oid=149242, index_oid=149251
+WARNING:    Checking search predicates for RTI 2
+WARNING:    RTI 2 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 2 FOUND search operator in restrict info 0
+WARNING:  RTI 2 HAS search predicates! Total count now: 2
+WARNING:  Examining RTI 3: rtekind = 2
+WARNING:  RTI 3 is not a relation, skipping
+WARNING:  Found 2 tables with search predicates - marking as beneficial JOINs
+WARNING:  === FINAL RESULT for RTI 2: is_multi_table=true, count=2, beneficial=true ===
+WARNING:  Setting multi-table info for RTI 2: multi_table=true, count=2, beneficial=true
+WARNING:  === CHOOSING EXECUTION METHOD ===
+WARNING:    limit: None
+WARNING:    sort_direction: None
+WARNING:  === CHECKING JOIN COORDINATION ELIGIBILITY ===
+WARNING:    is_multi_table_search: true
+WARNING:    multi_table_search_count: 2
+WARNING:    has_limit: false
+WARNING:    limit_value: None
+WARNING:    has_beneficial_joins: true
+WARNING:    sort_direction: None
+WARNING:    DISABLED: JOIN coordination now handled at JOIN planning level
+WARNING:    CHOSEN: FastFieldNumeric
+WARNING:  === JOIN PATHLIST CALLBACK ===
+WARNING:    jointype: 0
+WARNING:    limit_tuples: -1
+WARNING:    outer_has_search: true
+WARNING:    inner_has_search: true
+WARNING:    has_limit: false
+WARNING:    SKIPPING: No LIMIT clause
+WARNING:  === JOIN PATHLIST CALLBACK ===
+WARNING:    jointype: 0
+WARNING:    limit_tuples: -1
+WARNING:    outer_has_search: true
+WARNING:    inner_has_search: true
+WARNING:    has_limit: false
+WARNING:    SKIPPING: No LIMIT clause
+ id | title | filename 
+----+-------+----------
+(0 rows)
+
+-- Test 3: Mismatched join keys (no join matches)
+CREATE TABLE mismatch_docs (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    content TEXT
+);
+CREATE TABLE mismatch_files (
+    id SERIAL PRIMARY KEY,
+    document_id INTEGER,
+    filename TEXT,
+    content TEXT
+);
+INSERT INTO mismatch_docs (title, content) VALUES 
+    ('Doc 1', 'Technology document'),
+    ('Doc 2', 'Science document');
+INSERT INTO mismatch_files (document_id, filename, content) VALUES 
+    (99, 'file1.txt', 'Technology file'),
+    (100, 'file2.txt', 'Science file');
+CREATE INDEX mismatch_docs_idx ON mismatch_docs USING bm25 (
+    id,
+    title,
+    content
+) WITH (
+    key_field = 'id',
+    text_fields = '{"title": {"tokenizer": {"type": "default"}}, "content": {"tokenizer": {"type": "default"}}}'
+);
+CREATE INDEX mismatch_files_idx ON mismatch_files USING bm25 (
+    id,
+    document_id,
+    filename,
+    content
+) WITH (
+    key_field = 'id',
+    numeric_fields = '{"document_id": {"fast": true}}',
+    text_fields = '{"filename": {"tokenizer": {"type": "default"}}, "content": {"tokenizer": {"type": "default"}}}'
+);
+-- Test join with mismatched keys
+SELECT d.id, d.title, f.filename
+FROM mismatch_docs d
+JOIN mismatch_files f ON d.id = f.document_id
+WHERE d.content @@@ 'technology' AND f.content @@@ 'file';
+WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
+WARNING:  Range table has 3 entries
+WARNING:  Examining RTI 1: rtekind = 0
+WARNING:  RTI 1 has BM25 index: table_oid=149253, index_oid=149270
+WARNING:    Checking search predicates for RTI 1
+WARNING:    RTI 1 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 1 FOUND search operator in restrict info 0
+WARNING:  RTI 1 HAS search predicates! Total count now: 1
+WARNING:  Examining RTI 2: rtekind = 0
+WARNING:  RTI 2 has BM25 index: table_oid=149262, index_oid=149271
+WARNING:    Checking search predicates for RTI 2
+WARNING:    RTI 2 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 2 FOUND search operator in restrict info 0
+WARNING:  RTI 2 HAS search predicates! Total count now: 2
+WARNING:  Examining RTI 3: rtekind = 2
+WARNING:  RTI 3 is not a relation, skipping
+WARNING:  Found 2 tables with search predicates - marking as beneficial JOINs
+WARNING:  === FINAL RESULT for RTI 1: is_multi_table=true, count=2, beneficial=true ===
+WARNING:  Setting multi-table info for RTI 1: multi_table=true, count=2, beneficial=true
+WARNING:  === CHOOSING EXECUTION METHOD ===
+WARNING:    limit: None
+WARNING:    sort_direction: None
+WARNING:  === CHECKING JOIN COORDINATION ELIGIBILITY ===
+WARNING:    is_multi_table_search: true
+WARNING:    multi_table_search_count: 2
+WARNING:    has_limit: false
+WARNING:    limit_value: None
+WARNING:    has_beneficial_joins: true
+WARNING:    sort_direction: None
+WARNING:    DISABLED: JOIN coordination now handled at JOIN planning level
+WARNING:    CHOSEN: FastFieldNumeric
+WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 2 ===
+WARNING:  Range table has 3 entries
+WARNING:  Examining RTI 1: rtekind = 0
+WARNING:  RTI 1 has BM25 index: table_oid=149253, index_oid=149270
+WARNING:    Checking search predicates for RTI 1
+WARNING:    RTI 1 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 1 FOUND search operator in restrict info 0
+WARNING:  RTI 1 HAS search predicates! Total count now: 1
+WARNING:  Examining RTI 2: rtekind = 0
+WARNING:  RTI 2 has BM25 index: table_oid=149262, index_oid=149271
+WARNING:    Checking search predicates for RTI 2
+WARNING:    RTI 2 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 2 FOUND search operator in restrict info 0
+WARNING:  RTI 2 HAS search predicates! Total count now: 2
+WARNING:  Examining RTI 3: rtekind = 2
+WARNING:  RTI 3 is not a relation, skipping
+WARNING:  Found 2 tables with search predicates - marking as beneficial JOINs
+WARNING:  === FINAL RESULT for RTI 2: is_multi_table=true, count=2, beneficial=true ===
+WARNING:  Setting multi-table info for RTI 2: multi_table=true, count=2, beneficial=true
+WARNING:  === CHOOSING EXECUTION METHOD ===
+WARNING:    limit: None
+WARNING:    sort_direction: None
+WARNING:  === CHECKING JOIN COORDINATION ELIGIBILITY ===
+WARNING:    is_multi_table_search: true
+WARNING:    multi_table_search_count: 2
+WARNING:    has_limit: false
+WARNING:    limit_value: None
+WARNING:    has_beneficial_joins: true
+WARNING:    sort_direction: None
+WARNING:    DISABLED: JOIN coordination now handled at JOIN planning level
+WARNING:    CHOSEN: FastFieldNumeric
+WARNING:  === JOIN PATHLIST CALLBACK ===
+WARNING:    jointype: 0
+WARNING:    limit_tuples: -1
+WARNING:    outer_has_search: true
+WARNING:    inner_has_search: true
+WARNING:    has_limit: false
+WARNING:    SKIPPING: No LIMIT clause
+WARNING:  === JOIN PATHLIST CALLBACK ===
+WARNING:    jointype: 0
+WARNING:    limit_tuples: -1
+WARNING:    outer_has_search: true
+WARNING:    inner_has_search: true
+WARNING:    has_limit: false
+WARNING:    SKIPPING: No LIMIT clause
+ id | title | filename 
+----+-------+----------
+(0 rows)
+
+-- Test 4: Large result sets (stress test)
+CREATE TABLE large_docs (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    content TEXT
+);
+CREATE TABLE large_files (
+    id SERIAL PRIMARY KEY,
+    document_id INTEGER,
+    filename TEXT,
+    content TEXT
+);
+-- Insert many rows to test performance
+INSERT INTO large_docs (title, content) 
+SELECT 
+    'Document ' || i,
+    'This is document number ' || i || ' with technology content'
+FROM generate_series(1, 100) i;
+INSERT INTO large_files (document_id, filename, content)
+SELECT 
+    (i % 100) + 1,
+    'file' || i || '.txt',
+    'This is file number ' || i || ' with technology content'
+FROM generate_series(1, 500) i;
+CREATE INDEX large_docs_idx ON large_docs USING bm25 (
+    id,
+    title,
+    content
+) WITH (
+    key_field = 'id',
+    text_fields = '{"title": {"tokenizer": {"type": "default"}}, "content": {"tokenizer": {"type": "default"}}}'
+);
+CREATE INDEX large_files_idx ON large_files USING bm25 (
+    id,
+    document_id,
+    filename,
+    content
+) WITH (
+    key_field = 'id',
+    numeric_fields = '{"document_id": {"fast": true}}',
+    text_fields = '{"filename": {"tokenizer": {"type": "default"}}, "content": {"tokenizer": {"type": "default"}}}'
+);
+-- Test large result set with LIMIT
+SELECT d.id, d.title, f.filename
+FROM large_docs d
+JOIN large_files f ON d.id = f.document_id
+WHERE d.content @@@ 'technology' AND f.content @@@ 'technology'
+LIMIT 10;
+WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
+WARNING:  Range table has 3 entries
+WARNING:  Examining RTI 1: rtekind = 0
+WARNING:  RTI 1 has BM25 index: table_oid=149273, index_oid=149290
+WARNING:    Checking search predicates for RTI 1
+WARNING:    RTI 1 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 1 FOUND search operator in restrict info 0
+WARNING:  RTI 1 HAS search predicates! Total count now: 1
+WARNING:  Examining RTI 2: rtekind = 0
+WARNING:  RTI 2 has BM25 index: table_oid=149282, index_oid=149291
+WARNING:    Checking search predicates for RTI 2
+WARNING:    RTI 2 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 2 FOUND search operator in restrict info 0
+WARNING:  RTI 2 HAS search predicates! Total count now: 2
+WARNING:  Examining RTI 3: rtekind = 2
+WARNING:  RTI 3 is not a relation, skipping
+WARNING:  Found 2 tables with search predicates - marking as beneficial JOINs
+WARNING:  === FINAL RESULT for RTI 1: is_multi_table=true, count=2, beneficial=true ===
+WARNING:  Setting multi-table info for RTI 1: multi_table=true, count=2, beneficial=true
+WARNING:  === CHOOSING EXECUTION METHOD ===
+WARNING:    limit: None
+WARNING:    sort_direction: None
+WARNING:  === CHECKING JOIN COORDINATION ELIGIBILITY ===
+WARNING:    is_multi_table_search: true
+WARNING:    multi_table_search_count: 2
+WARNING:    has_limit: false
+WARNING:    limit_value: None
+WARNING:    has_beneficial_joins: true
+WARNING:    sort_direction: None
+WARNING:    DISABLED: JOIN coordination now handled at JOIN planning level
+WARNING:    CHOSEN: FastFieldNumeric
+WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 2 ===
+WARNING:  Range table has 3 entries
+WARNING:  Examining RTI 1: rtekind = 0
+WARNING:  RTI 1 has BM25 index: table_oid=149273, index_oid=149290
+WARNING:    Checking search predicates for RTI 1
+WARNING:    RTI 1 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 1 FOUND search operator in restrict info 0
+WARNING:  RTI 1 HAS search predicates! Total count now: 1
+WARNING:  Examining RTI 2: rtekind = 0
+WARNING:  RTI 2 has BM25 index: table_oid=149282, index_oid=149291
+WARNING:    Checking search predicates for RTI 2
+WARNING:    RTI 2 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 2 FOUND search operator in restrict info 0
+WARNING:  RTI 2 HAS search predicates! Total count now: 2
+WARNING:  Examining RTI 3: rtekind = 2
+WARNING:  RTI 3 is not a relation, skipping
+WARNING:  Found 2 tables with search predicates - marking as beneficial JOINs
+WARNING:  === FINAL RESULT for RTI 2: is_multi_table=true, count=2, beneficial=true ===
+WARNING:  Setting multi-table info for RTI 2: multi_table=true, count=2, beneficial=true
+WARNING:  === CHOOSING EXECUTION METHOD ===
+WARNING:    limit: None
+WARNING:    sort_direction: None
+WARNING:  === CHECKING JOIN COORDINATION ELIGIBILITY ===
+WARNING:    is_multi_table_search: true
+WARNING:    multi_table_search_count: 2
+WARNING:    has_limit: false
+WARNING:    limit_value: None
+WARNING:    has_beneficial_joins: true
+WARNING:    sort_direction: None
+WARNING:    DISABLED: JOIN coordination now handled at JOIN planning level
+WARNING:    CHOSEN: FastFieldNumeric
+WARNING:  === JOIN PATHLIST CALLBACK ===
+WARNING:    jointype: 0
+WARNING:    limit_tuples: 10
+WARNING:    outer_has_search: true
+WARNING:    inner_has_search: true
+WARNING:    has_limit: true
+WARNING:    CREATING JOIN COORDINATION PATH!
+WARNING:      RTI 1 maps to table OID 149273
+WARNING:      Found table OID 149273 for RTI 1
+WARNING:    Extracted outer table OID: 149273 (RTI: 1)
+WARNING:      RTI 2 maps to table OID 149282
+WARNING:      Found table OID 149282 for RTI 2
+WARNING:    Extracted inner table OID: 149282 (RTI: 2)
+WARNING:    JOIN private data: {"relation_mapping":{"149273":1,"149282":2},"table_oids":[149273,149282],"limit":10,"join_conditions":"placeholder_join_conditions"}
+WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=500
+WARNING:    CustomPath created successfully
+WARNING:    SUCCESSFULLY CREATED JOIN COORDINATION PATH!
+WARNING:  === JOIN PATHLIST CALLBACK ===
+WARNING:    jointype: 0
+WARNING:    limit_tuples: 10
+WARNING:    outer_has_search: true
+WARNING:    inner_has_search: true
+WARNING:    has_limit: true
+WARNING:    CREATING JOIN COORDINATION PATH!
+WARNING:      RTI 2 maps to table OID 149282
+WARNING:      Found table OID 149282 for RTI 2
+WARNING:    Extracted outer table OID: 149282 (RTI: 2)
+WARNING:      RTI 1 maps to table OID 149273
+WARNING:      Found table OID 149273 for RTI 1
+WARNING:    Extracted inner table OID: 149273 (RTI: 1)
+WARNING:    JOIN private data: {"relation_mapping":{"149282":2,"149273":1},"table_oids":[149282,149273],"limit":10,"join_conditions":"placeholder_join_conditions"}
+WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=500
+WARNING:    CustomPath created successfully
+WARNING:    SUCCESSFULLY CREATED JOIN COORDINATION PATH!
+WARNING:  === PLANNING JOIN COORDINATION CUSTOM PATH ===
+WARNING:    rel relids: 0x7fa3780218c0
+WARNING:    tlist length: 3
+WARNING:    Created CustomScan plan for JOIN coordination
+WARNING:    startup_cost: 1, total_cost: 10, rows: 500
+ERROR:  variable not found in subplan target list
+-- Test 5: Complex search queries
+CREATE TABLE complex_docs (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    content TEXT
+);
+CREATE TABLE complex_files (
+    id SERIAL PRIMARY KEY,
+    document_id INTEGER,
+    filename TEXT,
+    content TEXT
+);
+INSERT INTO complex_docs (title, content) VALUES 
+    ('Advanced Technology', 'This document discusses advanced technology and artificial intelligence'),
+    ('Basic Science', 'This document covers basic science and research methods'),
+    ('Data Analysis', 'This document explains data analysis and machine learning');
+INSERT INTO complex_files (document_id, filename, content) VALUES 
+    (1, 'tech.txt', 'Advanced technology file with AI content'),
+    (2, 'science.txt', 'Basic science file with research data'),
+    (3, 'data.txt', 'Data analysis file with ML algorithms');
+CREATE INDEX complex_docs_idx ON complex_docs USING bm25 (
+    id,
+    title,
+    content
+) WITH (
+    key_field = 'id',
+    text_fields = '{"title": {"tokenizer": {"type": "default"}}, "content": {"tokenizer": {"type": "default"}}}'
+);
+CREATE INDEX complex_files_idx ON complex_files USING bm25 (
+    id,
+    document_id,
+    filename,
+    content
+) WITH (
+    key_field = 'id',
+    numeric_fields = '{"document_id": {"fast": true}}',
+    text_fields = '{"filename": {"tokenizer": {"type": "default"}}, "content": {"tokenizer": {"type": "default"}}}'
+);
+-- Test complex boolean queries
+SELECT d.id, d.title, f.filename
+FROM complex_docs d
+JOIN complex_files f ON d.id = f.document_id
+WHERE d.content @@@ 'technology AND artificial' AND f.content @@@ 'AI OR algorithms';
+WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
+WARNING:  Range table has 3 entries
+WARNING:  Examining RTI 1: rtekind = 0
+WARNING:  RTI 1 has BM25 index: table_oid=149293, index_oid=149310
+WARNING:    Checking search predicates for RTI 1
+WARNING:    RTI 1 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 1 FOUND search operator in restrict info 0
+WARNING:  RTI 1 HAS search predicates! Total count now: 1
+WARNING:  Examining RTI 2: rtekind = 0
+WARNING:  RTI 2 has BM25 index: table_oid=149302, index_oid=149311
+WARNING:    Checking search predicates for RTI 2
+WARNING:    RTI 2 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 2 FOUND search operator in restrict info 0
+WARNING:  RTI 2 HAS search predicates! Total count now: 2
+WARNING:  Examining RTI 3: rtekind = 2
+WARNING:  RTI 3 is not a relation, skipping
+WARNING:  Found 2 tables with search predicates - marking as beneficial JOINs
+WARNING:  === FINAL RESULT for RTI 1: is_multi_table=true, count=2, beneficial=true ===
+WARNING:  Setting multi-table info for RTI 1: multi_table=true, count=2, beneficial=true
+WARNING:  === CHOOSING EXECUTION METHOD ===
+WARNING:    limit: None
+WARNING:    sort_direction: None
+WARNING:  === CHECKING JOIN COORDINATION ELIGIBILITY ===
+WARNING:    is_multi_table_search: true
+WARNING:    multi_table_search_count: 2
+WARNING:    has_limit: false
+WARNING:    limit_value: None
+WARNING:    has_beneficial_joins: true
+WARNING:    sort_direction: None
+WARNING:    DISABLED: JOIN coordination now handled at JOIN planning level
+WARNING:    CHOSEN: FastFieldNumeric
+WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 2 ===
+WARNING:  Range table has 3 entries
+WARNING:  Examining RTI 1: rtekind = 0
+WARNING:  RTI 1 has BM25 index: table_oid=149293, index_oid=149310
+WARNING:    Checking search predicates for RTI 1
+WARNING:    RTI 1 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 1 FOUND search operator in restrict info 0
+WARNING:  RTI 1 HAS search predicates! Total count now: 1
+WARNING:  Examining RTI 2: rtekind = 0
+WARNING:  RTI 2 has BM25 index: table_oid=149302, index_oid=149311
+WARNING:    Checking search predicates for RTI 2
+WARNING:    RTI 2 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 2 FOUND search operator in restrict info 0
+WARNING:  RTI 2 HAS search predicates! Total count now: 2
+WARNING:  Examining RTI 3: rtekind = 2
+WARNING:  RTI 3 is not a relation, skipping
+WARNING:  Found 2 tables with search predicates - marking as beneficial JOINs
+WARNING:  === FINAL RESULT for RTI 2: is_multi_table=true, count=2, beneficial=true ===
+WARNING:  Setting multi-table info for RTI 2: multi_table=true, count=2, beneficial=true
+WARNING:  === CHOOSING EXECUTION METHOD ===
+WARNING:    limit: None
+WARNING:    sort_direction: None
+WARNING:  === CHECKING JOIN COORDINATION ELIGIBILITY ===
+WARNING:    is_multi_table_search: true
+WARNING:    multi_table_search_count: 2
+WARNING:    has_limit: false
+WARNING:    limit_value: None
+WARNING:    has_beneficial_joins: true
+WARNING:    sort_direction: None
+WARNING:    DISABLED: JOIN coordination now handled at JOIN planning level
+WARNING:    CHOSEN: FastFieldNumeric
+WARNING:  === JOIN PATHLIST CALLBACK ===
+WARNING:    jointype: 0
+WARNING:    limit_tuples: -1
+WARNING:    outer_has_search: true
+WARNING:    inner_has_search: true
+WARNING:    has_limit: false
+WARNING:    SKIPPING: No LIMIT clause
+WARNING:  === JOIN PATHLIST CALLBACK ===
+WARNING:    jointype: 0
+WARNING:    limit_tuples: -1
+WARNING:    outer_has_search: true
+WARNING:    inner_has_search: true
+WARNING:    has_limit: false
+WARNING:    SKIPPING: No LIMIT clause
+ id |        title        | filename 
+----+---------------------+----------
+  1 | Advanced Technology | tech.txt
+(1 row)
+
+-- Test phrase queries
+SELECT d.id, d.title, f.filename
+FROM complex_docs d
+JOIN complex_files f ON d.id = f.document_id
+WHERE d.content @@@ '"data analysis"' AND f.content @@@ '"ML algorithms"';
+WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
+WARNING:  Range table has 3 entries
+WARNING:  Examining RTI 1: rtekind = 0
+WARNING:  RTI 1 has BM25 index: table_oid=149293, index_oid=149310
+WARNING:    Checking search predicates for RTI 1
+WARNING:    RTI 1 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 1 FOUND search operator in restrict info 0
+WARNING:  RTI 1 HAS search predicates! Total count now: 1
+WARNING:  Examining RTI 2: rtekind = 0
+WARNING:  RTI 2 has BM25 index: table_oid=149302, index_oid=149311
+WARNING:    Checking search predicates for RTI 2
+WARNING:    RTI 2 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 2 FOUND search operator in restrict info 0
+WARNING:  RTI 2 HAS search predicates! Total count now: 2
+WARNING:  Examining RTI 3: rtekind = 2
+WARNING:  RTI 3 is not a relation, skipping
+WARNING:  Found 2 tables with search predicates - marking as beneficial JOINs
+WARNING:  === FINAL RESULT for RTI 1: is_multi_table=true, count=2, beneficial=true ===
+WARNING:  Setting multi-table info for RTI 1: multi_table=true, count=2, beneficial=true
+WARNING:  === CHOOSING EXECUTION METHOD ===
+WARNING:    limit: None
+WARNING:    sort_direction: None
+WARNING:  === CHECKING JOIN COORDINATION ELIGIBILITY ===
+WARNING:    is_multi_table_search: true
+WARNING:    multi_table_search_count: 2
+WARNING:    has_limit: false
+WARNING:    limit_value: None
+WARNING:    has_beneficial_joins: true
+WARNING:    sort_direction: None
+WARNING:    DISABLED: JOIN coordination now handled at JOIN planning level
+WARNING:    CHOSEN: FastFieldNumeric
+WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 2 ===
+WARNING:  Range table has 3 entries
+WARNING:  Examining RTI 1: rtekind = 0
+WARNING:  RTI 1 has BM25 index: table_oid=149293, index_oid=149310
+WARNING:    Checking search predicates for RTI 1
+WARNING:    RTI 1 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 1 FOUND search operator in restrict info 0
+WARNING:  RTI 1 HAS search predicates! Total count now: 1
+WARNING:  Examining RTI 2: rtekind = 0
+WARNING:  RTI 2 has BM25 index: table_oid=149302, index_oid=149311
+WARNING:    Checking search predicates for RTI 2
+WARNING:    RTI 2 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 2 FOUND search operator in restrict info 0
+WARNING:  RTI 2 HAS search predicates! Total count now: 2
+WARNING:  Examining RTI 3: rtekind = 2
+WARNING:  RTI 3 is not a relation, skipping
+WARNING:  Found 2 tables with search predicates - marking as beneficial JOINs
+WARNING:  === FINAL RESULT for RTI 2: is_multi_table=true, count=2, beneficial=true ===
+WARNING:  Setting multi-table info for RTI 2: multi_table=true, count=2, beneficial=true
+WARNING:  === CHOOSING EXECUTION METHOD ===
+WARNING:    limit: None
+WARNING:    sort_direction: None
+WARNING:  === CHECKING JOIN COORDINATION ELIGIBILITY ===
+WARNING:    is_multi_table_search: true
+WARNING:    multi_table_search_count: 2
+WARNING:    has_limit: false
+WARNING:    limit_value: None
+WARNING:    has_beneficial_joins: true
+WARNING:    sort_direction: None
+WARNING:    DISABLED: JOIN coordination now handled at JOIN planning level
+WARNING:    CHOSEN: FastFieldNumeric
+WARNING:  === JOIN PATHLIST CALLBACK ===
+WARNING:    jointype: 0
+WARNING:    limit_tuples: -1
+WARNING:    outer_has_search: true
+WARNING:    inner_has_search: true
+WARNING:    has_limit: false
+WARNING:    SKIPPING: No LIMIT clause
+WARNING:  === JOIN PATHLIST CALLBACK ===
+WARNING:    jointype: 0
+WARNING:    limit_tuples: -1
+WARNING:    outer_has_search: true
+WARNING:    inner_has_search: true
+WARNING:    has_limit: false
+WARNING:    SKIPPING: No LIMIT clause
+ id |     title     | filename 
+----+---------------+----------
+  3 | Data Analysis | data.txt
+(1 row)
+
+-- Cleanup
+DROP TABLE empty_docs CASCADE;
+DROP TABLE empty_files CASCADE;
+DROP TABLE no_match_docs CASCADE;
+DROP TABLE no_match_files CASCADE;
+DROP TABLE mismatch_docs CASCADE;
+DROP TABLE mismatch_files CASCADE;
+DROP TABLE large_docs CASCADE;
+DROP TABLE large_files CASCADE;
+DROP TABLE complex_docs CASCADE;
+DROP TABLE complex_files CASCADE;
+RESET paradedb.enable_custom_join; 

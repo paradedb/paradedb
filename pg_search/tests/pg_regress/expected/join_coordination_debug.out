@@ -16,11 +16,35 @@ CALL paradedb.create_bm25_test_table(
     table_name => 'test_docs',
     schema_name => 'public'
 );
+WARNING:  === JOIN PATHLIST CALLBACK ===
+WARNING:    jointype: 0
+WARNING:    limit_tuples: -1
+WARNING:    outer_has_search: false
+WARNING:    inner_has_search: false
+WARNING:    SKIPPING: Not both relations have search predicates
+WARNING:  === JOIN PATHLIST CALLBACK ===
+WARNING:    jointype: 0
+WARNING:    limit_tuples: -1
+WARNING:    outer_has_search: false
+WARNING:    inner_has_search: false
+WARNING:    SKIPPING: Not both relations have search predicates
 WARNING:  The table public.test_docs already exists, skipping.
 CALL paradedb.create_bm25_test_table(
     table_name => 'test_files',
     schema_name => 'public'
 );
+WARNING:  === JOIN PATHLIST CALLBACK ===
+WARNING:    jointype: 0
+WARNING:    limit_tuples: -1
+WARNING:    outer_has_search: false
+WARNING:    inner_has_search: false
+WARNING:    SKIPPING: Not both relations have search predicates
+WARNING:  === JOIN PATHLIST CALLBACK ===
+WARNING:    jointype: 0
+WARNING:    limit_tuples: -1
+WARNING:    outer_has_search: false
+WARNING:    inner_has_search: false
+WARNING:    SKIPPING: Not both relations have search predicates
 WARNING:  The table public.test_files already exists, skipping.
 CREATE INDEX test_docs_search_idx ON test_docs USING bm25 (id, content) WITH (key_field='id');
 CREATE INDEX test_files_search_idx ON test_files USING bm25 (id, doc_id, title) WITH (key_field='id');
@@ -31,6 +55,28 @@ INSERT INTO test_docs (content) VALUES
 INSERT INTO test_files (doc_id, title) VALUES
     (1, 'tech report'),
     (2, 'science report');
+WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
+WARNING:  Range table has 1 entries
+WARNING:  Examining RTI 1: rtekind = 0
+WARNING:  RTI 1 has BM25 index: table_oid=147259, index_oid=147281
+WARNING:    Checking search predicates for RTI 1
+WARNING:    RTI 1 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 1 has NO search operators
+WARNING:  RTI 1 has BM25 index but NO search predicates
+WARNING:  === FINAL RESULT for RTI 1: is_multi_table=false, count=0, beneficial=false ===
+WARNING:  Setting multi-table info for RTI 1: multi_table=false, count=0, beneficial=false
+WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
+WARNING:  Range table has 1 entries
+WARNING:  Examining RTI 1: rtekind = 0
+WARNING:  RTI 1 has BM25 index: table_oid=147259, index_oid=147281
+WARNING:    Checking search predicates for RTI 1
+WARNING:    RTI 1 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 1 has NO search operators
+WARNING:  RTI 1 has BM25 index but NO search predicates
+WARNING:  === FINAL RESULT for RTI 1: is_multi_table=false, count=0, beneficial=false ===
+WARNING:  Setting multi-table info for RTI 1: multi_table=false, count=0, beneficial=false
 -- Test: Multi-table query with search predicates and LIMIT
 -- This should trigger JOIN coordination if our logic is working
 EXPLAIN (ANALYZE, BUFFERS, VERBOSE)
@@ -40,62 +86,93 @@ JOIN test_files f ON d.id = f.doc_id
 WHERE d.content @@@ 'technology' 
   AND f.title @@@ 'report'
 LIMIT 5;
-                                                                                  QUERY PLAN                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=1020.02..1020.13 rows=1 width=8) (actual time=2.000..19.456 rows=1 loops=1)
-   Output: d.id, f.id
-   Buffers: shared hit=136
-   ->  Gather  (cost=1020.02..1020.13 rows=1 width=8) (actual time=1.999..19.454 rows=1 loops=1)
-         Output: d.id, f.id
-         Workers Planned: 1
-         Workers Launched: 1
-         Buffers: shared hit=136
-         ->  Parallel Hash Join  (cost=20.02..20.03 rows=1 width=8) (actual time=0.810..0.828 rows=0 loops=2)
-               Output: d.id, f.id
-               Inner Unique: true
-               Hash Cond: (f.doc_id = d.id)
-               Buffers: shared hit=110
-               Worker 0:  actual time=0.576..0.579 rows=0 loops=1
-                 Buffers: shared hit=62
-               ->  Parallel Custom Scan (ParadeDB Scan) on public.test_files f  (cost=10.00..10.01 rows=1 width=8) (actual time=0.315..0.326 rows=2 loops=1)
-                     Output: f.id, f.doc_id
-                     Table: test_files
-                     Index: test_files_search_idx
-                     Segment Count: 1
-                     Heap Fetches: 2
-                     Virtual Tuples: 0
-                     Invisible Tuples: 0
-                     Exec Method: NumericFastFieldExecState
-                     Fast Fields: doc_id, id
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"report","lenient":null,"conjunction_mode":null}}}}
-                     Human Readable Query: title:(report)
-                     Buffers: shared hit=24
-               ->  Parallel Hash  (cost=10.01..10.01 rows=1 width=4) (actual time=0.360..0.361 rows=0 loops=2)
-                     Output: d.id
-                     Buckets: 1024  Batches: 1  Memory Usage: 40kB
-                     Buffers: shared hit=24
-                     Worker 0:  actual time=0.025..0.025 rows=0 loops=1
-                     ->  Parallel Custom Scan (ParadeDB Scan) on public.test_docs d  (cost=10.00..10.01 rows=1 width=4) (actual time=0.676..0.687 rows=1 loops=1)
-                           Output: d.id
-                           Table: test_docs
-                           Index: test_docs_search_idx
-                           Segment Count: 1
-                           Heap Fetches: 1
-                           Virtual Tuples: 0
-                           Invisible Tuples: 0
-                           Exec Method: NumericFastFieldExecState
-                           Fast Fields: id
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-                           Human Readable Query: content:(technology)
-                           Buffers: shared hit=24
- Planning:
-   Buffers: shared hit=99
- Planning Time: 2.379 ms
- Execution Time: 20.156 ms
-(52 rows)
-
+WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
+WARNING:  Range table has 3 entries
+WARNING:  Examining RTI 1: rtekind = 0
+WARNING:  RTI 1 has BM25 index: table_oid=147259, index_oid=147281
+WARNING:    Checking search predicates for RTI 1
+WARNING:    RTI 1 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 1 FOUND search operator in restrict info 0
+WARNING:  RTI 1 HAS search predicates! Total count now: 1
+WARNING:  Examining RTI 2: rtekind = 0
+WARNING:  RTI 2 has BM25 index: table_oid=147268, index_oid=147282
+WARNING:    Checking search predicates for RTI 2
+WARNING:    RTI 2 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 2 FOUND search operator in restrict info 0
+WARNING:  RTI 2 HAS search predicates! Total count now: 2
+WARNING:  Examining RTI 3: rtekind = 2
+WARNING:  RTI 3 is not a relation, skipping
+WARNING:  Found 2 tables with search predicates - marking as beneficial JOINs
+WARNING:  === FINAL RESULT for RTI 1: is_multi_table=true, count=2, beneficial=true ===
+WARNING:  Setting multi-table info for RTI 1: multi_table=true, count=2, beneficial=true
+WARNING:  === CHOOSING EXECUTION METHOD ===
+WARNING:    limit: None
+WARNING:    sort_direction: None
+WARNING:  === CHECKING JOIN COORDINATION ELIGIBILITY ===
+WARNING:    is_multi_table_search: true
+WARNING:    multi_table_search_count: 2
+WARNING:    has_limit: false
+WARNING:    limit_value: None
+WARNING:    has_beneficial_joins: true
+WARNING:    sort_direction: None
+WARNING:    DISABLED: JOIN coordination now handled at JOIN planning level
+WARNING:    CHOSEN: FastFieldNumeric
+WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 2 ===
+WARNING:  Range table has 3 entries
+WARNING:  Examining RTI 1: rtekind = 0
+WARNING:  RTI 1 has BM25 index: table_oid=147259, index_oid=147281
+WARNING:    Checking search predicates for RTI 1
+WARNING:    RTI 1 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 1 FOUND search operator in restrict info 0
+WARNING:  RTI 1 HAS search predicates! Total count now: 1
+WARNING:  Examining RTI 2: rtekind = 0
+WARNING:  RTI 2 has BM25 index: table_oid=147268, index_oid=147282
+WARNING:    Checking search predicates for RTI 2
+WARNING:    RTI 2 has 1 base restrict info entries
+WARNING:      Checking restrict info 0
+WARNING:    RTI 2 FOUND search operator in restrict info 0
+WARNING:  RTI 2 HAS search predicates! Total count now: 2
+WARNING:  Examining RTI 3: rtekind = 2
+WARNING:  RTI 3 is not a relation, skipping
+WARNING:  Found 2 tables with search predicates - marking as beneficial JOINs
+WARNING:  === FINAL RESULT for RTI 2: is_multi_table=true, count=2, beneficial=true ===
+WARNING:  Setting multi-table info for RTI 2: multi_table=true, count=2, beneficial=true
+WARNING:  === CHOOSING EXECUTION METHOD ===
+WARNING:    limit: None
+WARNING:    sort_direction: None
+WARNING:  === CHECKING JOIN COORDINATION ELIGIBILITY ===
+WARNING:    is_multi_table_search: true
+WARNING:    multi_table_search_count: 2
+WARNING:    has_limit: false
+WARNING:    limit_value: None
+WARNING:    has_beneficial_joins: true
+WARNING:    sort_direction: None
+WARNING:    DISABLED: JOIN coordination now handled at JOIN planning level
+WARNING:    CHOSEN: FastFieldNumeric
+WARNING:  === JOIN PATHLIST CALLBACK ===
+WARNING:    jointype: 0
+WARNING:    limit_tuples: 5
+WARNING:    outer_has_search: true
+WARNING:    inner_has_search: true
+WARNING:    has_limit: true
+WARNING:    CREATING JOIN COORDINATION PATH!
+WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=1
+WARNING:    CustomPath created successfully
+WARNING:    SUCCESSFULLY CREATED JOIN COORDINATION PATH!
+WARNING:  === JOIN PATHLIST CALLBACK ===
+WARNING:    jointype: 0
+WARNING:    limit_tuples: 5
+WARNING:    outer_has_search: true
+WARNING:    inner_has_search: true
+WARNING:    has_limit: true
+WARNING:    CREATING JOIN COORDINATION PATH!
+WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=1
+WARNING:    CustomPath created successfully
+WARNING:    SUCCESSFULLY CREATED JOIN COORDINATION PATH!
+ERROR:  called `Option::unwrap()` on a `None` value
 -- Cleanup
 DROP TABLE test_files;
 DROP TABLE test_docs; 

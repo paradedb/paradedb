@@ -25,11 +25,15 @@ use std::collections::hash_map::Entry;
 
 pub fn register_rel_pathlist<CS: CustomScan + 'static>(_: CS) {
     unsafe {
-        static mut PREV_HOOKS: Lazy<HashMap<std::any::TypeId, pg_sys::set_rel_pathlist_hook_type>> =
-            Lazy::new(Default::default);
+        static mut PREV_REL_HOOKS: Lazy<
+            HashMap<std::any::TypeId, pg_sys::set_rel_pathlist_hook_type>,
+        > = Lazy::new(Default::default);
+        static mut PREV_JOIN_HOOKS: Lazy<
+            HashMap<std::any::TypeId, pg_sys::set_join_pathlist_hook_type>,
+        > = Lazy::new(Default::default);
 
         #[pg_guard]
-        extern "C-unwind" fn __priv_callback<CS: CustomScan + 'static>(
+        extern "C-unwind" fn __priv_rel_callback<CS: CustomScan + 'static>(
             root: *mut pg_sys::PlannerInfo,
             rel: *mut pg_sys::RelOptInfo,
             rti: pg_sys::Index,
@@ -37,7 +41,7 @@ pub fn register_rel_pathlist<CS: CustomScan + 'static>(_: CS) {
         ) {
             unsafe {
                 #[allow(static_mut_refs)]
-                if let Some(Some(prev_hook)) = PREV_HOOKS.get(&std::any::TypeId::of::<CS>()) {
+                if let Some(Some(prev_hook)) = PREV_REL_HOOKS.get(&std::any::TypeId::of::<CS>()) {
                     (*prev_hook)(root, rel, rti, rte);
                 }
 
@@ -45,13 +49,49 @@ pub fn register_rel_pathlist<CS: CustomScan + 'static>(_: CS) {
             }
         }
 
+        #[pg_guard]
+        extern "C-unwind" fn __priv_join_callback<CS: CustomScan + 'static>(
+            root: *mut pg_sys::PlannerInfo,
+            joinrel: *mut pg_sys::RelOptInfo,
+            outerrel: *mut pg_sys::RelOptInfo,
+            innerrel: *mut pg_sys::RelOptInfo,
+            jointype: pg_sys::JoinType::Type,
+            extra: *mut pg_sys::JoinPathExtraData,
+        ) {
+            unsafe {
+                #[allow(static_mut_refs)]
+                if let Some(Some(prev_hook)) = PREV_JOIN_HOOKS.get(&std::any::TypeId::of::<CS>()) {
+                    (*prev_hook)(root, joinrel, outerrel, innerrel, jointype, extra);
+                }
+
+                paradedb_join_pathlist_callback::<CS>(
+                    root, joinrel, outerrel, innerrel, jointype, extra,
+                );
+            }
+        }
+
+        // Register relation pathlist hook
         #[allow(static_mut_refs)]
-        match PREV_HOOKS.entry(std::any::TypeId::of::<CS>()) {
-            Entry::Occupied(_) => panic!("{} is already registered", std::any::type_name::<CS>()),
+        match PREV_REL_HOOKS.entry(std::any::TypeId::of::<CS>()) {
+            Entry::Occupied(_) => panic!(
+                "{} rel hook is already registered",
+                std::any::type_name::<CS>()
+            ),
             Entry::Vacant(entry) => entry.insert(pg_sys::set_rel_pathlist_hook),
         };
 
-        pg_sys::set_rel_pathlist_hook = Some(__priv_callback::<CS>);
+        // Register join pathlist hook
+        #[allow(static_mut_refs)]
+        match PREV_JOIN_HOOKS.entry(std::any::TypeId::of::<CS>()) {
+            Entry::Occupied(_) => panic!(
+                "{} join hook is already registered",
+                std::any::type_name::<CS>()
+            ),
+            Entry::Vacant(entry) => entry.insert(pg_sys::set_join_pathlist_hook),
+        };
+
+        pg_sys::set_rel_pathlist_hook = Some(__priv_rel_callback::<CS>);
+        pg_sys::set_join_pathlist_hook = Some(__priv_join_callback::<CS>);
 
         pg_sys::RegisterCustomScanMethods(CS::custom_scan_methods())
     }
@@ -111,5 +151,174 @@ pub extern "C-unwind" fn paradedb_rel_pathlist_callback<CS: CustomScan>(
             // add this path for consideration
             pg_sys::add_path(rel, custom_path.cast());
         }
+    }
+}
+
+/// JOIN pathlist callback for detecting multi-table search scenarios
+/// This is called during JOIN planning where we have access to:
+/// 1. Complete JOIN context (all tables involved)
+/// 2. LIMIT information (available at JOIN planning level)
+/// 3. JOIN conditions (passed as extra->restrictlist)
+#[pg_guard]
+pub extern "C-unwind" fn paradedb_join_pathlist_callback<CS: CustomScan>(
+    root: *mut pg_sys::PlannerInfo,
+    joinrel: *mut pg_sys::RelOptInfo,
+    outerrel: *mut pg_sys::RelOptInfo,
+    innerrel: *mut pg_sys::RelOptInfo,
+    jointype: pg_sys::JoinType::Type,
+    extra: *mut pg_sys::JoinPathExtraData,
+) {
+    unsafe {
+        if !gucs::enable_custom_scan() {
+            return;
+        }
+
+        // Only handle INNER JOINs for now
+        if jointype != pg_sys::JoinType::JOIN_INNER {
+            return;
+        }
+
+        pgrx::warning!("=== JOIN PATHLIST CALLBACK ===");
+        pgrx::warning!("  jointype: {:?}", jointype);
+        pgrx::warning!("  limit_tuples: {}", (*root).limit_tuples);
+
+        // Check if both outer and inner relations have search predicates
+        let outer_has_search = relation_has_search_predicates(outerrel);
+        let inner_has_search = relation_has_search_predicates(innerrel);
+
+        pgrx::warning!("  outer_has_search: {}", outer_has_search);
+        pgrx::warning!("  inner_has_search: {}", inner_has_search);
+
+        // Only proceed if both relations have search predicates
+        if !outer_has_search || !inner_has_search {
+            pgrx::warning!("  SKIPPING: Not both relations have search predicates");
+            return;
+        }
+
+        // Check if we have a LIMIT (now available at JOIN planning level!)
+        let has_limit = (*root).limit_tuples > -1.0;
+        pgrx::warning!("  has_limit: {}", has_limit);
+
+        if !has_limit {
+            pgrx::warning!("  SKIPPING: No LIMIT clause");
+            return;
+        }
+
+        pgrx::warning!("  CREATING JOIN COORDINATION PATH!");
+
+        // Create a custom JOIN path that uses our coordination logic
+        let custom_path =
+            create_join_coordination_path::<CS>(root, joinrel, outerrel, innerrel, extra);
+
+        if let Some(path) = custom_path {
+            pgrx::warning!("  SUCCESSFULLY CREATED JOIN COORDINATION PATH!");
+            pg_sys::add_path(joinrel, path);
+        } else {
+            pgrx::warning!("  FAILED TO CREATE JOIN COORDINATION PATH");
+        }
+    }
+}
+
+/// Create a custom JOIN coordination path
+unsafe fn create_join_coordination_path<CS: CustomScan>(
+    root: *mut pg_sys::PlannerInfo,
+    joinrel: *mut pg_sys::RelOptInfo,
+    outerrel: *mut pg_sys::RelOptInfo,
+    innerrel: *mut pg_sys::RelOptInfo,
+    extra: *mut pg_sys::JoinPathExtraData,
+) -> Option<*mut pg_sys::Path> {
+    use pgrx::PgMemoryContexts;
+
+    // Calculate costs for our custom JOIN path
+    // For now, use aggressive costing to ensure our path is selected
+    let startup_cost = 1.0; // Very low startup cost
+    let total_cost = 10.0; // Very low total cost to beat hash join
+
+    // Estimate rows - for now, use a conservative estimate
+    let rows = ((*outerrel).rows * (*innerrel).rows * 0.01).max(1.0); // 1% selectivity estimate
+
+    pgrx::warning!(
+        "  Creating custom path: startup_cost={}, total_cost={}, rows={}",
+        startup_cost,
+        total_cost,
+        rows
+    );
+
+    // Create a CustomPath structure
+    let custom_path_size = std::mem::size_of::<pg_sys::CustomPath>();
+    let custom_path =
+        PgMemoryContexts::CurrentMemoryContext.palloc0(custom_path_size) as *mut pg_sys::CustomPath;
+
+    if custom_path.is_null() {
+        pgrx::warning!("  FAILED: Could not allocate CustomPath");
+        return None;
+    }
+
+    // Initialize the Path portion
+    (*custom_path).path.type_ = pg_sys::NodeTag::T_CustomPath;
+    (*custom_path).path.pathtype = pg_sys::NodeTag::T_CustomScan;
+    (*custom_path).path.parent = joinrel;
+    (*custom_path).path.pathtarget = (*joinrel).reltarget;
+    (*custom_path).path.param_info = std::ptr::null_mut();
+    (*custom_path).path.parallel_aware = false;
+    (*custom_path).path.parallel_safe = true;
+    (*custom_path).path.parallel_workers = 0;
+    (*custom_path).path.rows = rows;
+    (*custom_path).path.startup_cost = startup_cost;
+    (*custom_path).path.total_cost = total_cost;
+    (*custom_path).path.pathkeys = std::ptr::null_mut(); // No ordering guaranteed
+
+    // Initialize CustomPath-specific fields
+    (*custom_path).flags = 0; // No special flags for now
+    (*custom_path).custom_paths = std::ptr::null_mut(); // No child paths
+    (*custom_path).custom_restrictinfo = (*extra).restrictlist; // Store JOIN conditions
+    (*custom_path).custom_private = std::ptr::null_mut(); // TODO: Store our private data
+    (*custom_path).methods = CS::custom_path_methods(); // Use our custom path methods
+
+    pgrx::warning!("  CustomPath created successfully");
+    Some(custom_path as *mut pg_sys::Path)
+}
+
+/// Check if a relation has search predicates (@@@ operators)
+unsafe fn relation_has_search_predicates(rel: *mut pg_sys::RelOptInfo) -> bool {
+    use pgrx::PgList;
+
+    // Check baserestrictinfo for search predicates
+    let restrict_info_list = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
+
+    for restrict_info in restrict_info_list.iter_ptr() {
+        if contains_search_operator_in_clause((*restrict_info).clause.cast()) {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// Check if a clause contains our search operator (@@@)
+unsafe fn contains_search_operator_in_clause(clause: *mut pg_sys::Node) -> bool {
+    use crate::api::operator::anyelement_query_input_opoid;
+
+    if clause.is_null() {
+        return false;
+    }
+
+    match (*clause).type_ {
+        pg_sys::NodeTag::T_OpExpr => {
+            let opexpr = clause as *mut pg_sys::OpExpr;
+            (*opexpr).opno == anyelement_query_input_opoid()
+        }
+        pg_sys::NodeTag::T_BoolExpr => {
+            let boolexpr = clause as *mut pg_sys::BoolExpr;
+            let args = pgrx::PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
+
+            for arg in args.iter_ptr() {
+                if contains_search_operator_in_clause(arg) {
+                    return true;
+                }
+            }
+            false
+        }
+        _ => false,
     }
 }

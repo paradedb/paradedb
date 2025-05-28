@@ -277,6 +277,14 @@ impl CustomScan for PdbScan {
             let (is_multi_table_search, multi_table_search_count, has_beneficial_joins) =
                 analyze_multi_table_search_scenario(root, rti);
 
+            pgrx::warning!(
+                "Setting multi-table info for RTI {}: multi_table={}, count={}, beneficial={}",
+                rti,
+                is_multi_table_search,
+                multi_table_search_count,
+                has_beneficial_joins
+            );
+
             builder
                 .custom_private()
                 .set_is_multi_table_search(is_multi_table_search);
@@ -1024,9 +1032,18 @@ impl CustomScan for PdbScan {
 /// these specialized [`ExecMethod`]s.
 ///
 fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
+    pgrx::warning!("=== CHOOSING EXECUTION METHOD ===");
+    pgrx::warning!("  limit: {:?}", privdata.limit());
+    pgrx::warning!("  sort_direction: {:?}", privdata.sort_direction());
+
     if let Some((limit, sort_direction)) = privdata.limit().zip(privdata.sort_direction()) {
         // having a valid limit and sort direction means we can do a TopN query
         // and TopN can do snippets
+        pgrx::warning!(
+            "  CHOSEN: TopN (limit={}, sort_direction={:?})",
+            limit,
+            sort_direction
+        );
         ExecMethodType::TopN {
             heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
             limit,
@@ -1035,6 +1052,7 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
         }
     } else if should_use_join_coordination(privdata) {
         // Use JOIN coordination for multi-table scenarios
+        pgrx::warning!("  CHOSEN: JoinCoordination");
         ExecMethodType::JoinCoordination {
             table_oids: vec![privdata.heaprelid().expect("heaprelid must be set")], // Placeholder for now
             limit: privdata.limit(),
@@ -1042,6 +1060,7 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
         }
     } else if should_use_lazy_field_execution(privdata) {
         // Use lazy field execution for queries with LIMIT and non-fast fields
+        pgrx::warning!("  CHOSEN: LazyField");
         ExecMethodType::LazyField {
             heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
             limit: privdata.limit(),
@@ -1051,6 +1070,7 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
         && gucs::is_fast_field_exec_enabled()
     {
         // Check for numeric-only fast fields first because they're more selective
+        pgrx::warning!("  CHOSEN: FastFieldNumeric");
         ExecMethodType::FastFieldNumeric {
             which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
         }
@@ -1058,6 +1078,7 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
         && gucs::is_fast_field_exec_enabled()
     {
         let field = fast_fields::is_string_agg_capable(privdata).unwrap();
+        pgrx::warning!("  CHOSEN: FastFieldString (field={})", field);
         ExecMethodType::FastFieldString {
             field,
             which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
@@ -1068,11 +1089,13 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
         // We'd suggest using MixedFastFieldExec as the last resort (default) at the planning
         // stage, but we will fall back to NormalExecState (in assign_exec_method) if we can't
         // execute using MixedFastFieldExec with the given fields and possibly expressions.
+        pgrx::warning!("  CHOSEN: FastFieldMixed");
         ExecMethodType::FastFieldMixed {
             which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
         }
     } else {
         // Fall back to normal execution
+        pgrx::warning!("  CHOSEN: Normal (fallback)");
         ExecMethodType::Normal
     }
 }
@@ -1084,32 +1107,68 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
 /// 2. We have a LIMIT clause (to benefit from early intersection)
 /// 3. The query involves JOINs that would benefit from search coordination
 fn should_use_join_coordination(privdata: &PrivateData) -> bool {
+    pgrx::warning!("=== CHECKING JOIN COORDINATION ELIGIBILITY ===");
+    pgrx::warning!(
+        "  is_multi_table_search: {}",
+        privdata.is_multi_table_search()
+    );
+    pgrx::warning!(
+        "  multi_table_search_count: {}",
+        privdata.multi_table_search_count()
+    );
+    pgrx::warning!("  has_limit: {}", privdata.limit().is_some());
+    pgrx::warning!("  limit_value: {:?}", privdata.limit());
+    pgrx::warning!(
+        "  has_beneficial_joins: {}",
+        privdata.has_beneficial_joins()
+    );
+    pgrx::warning!("  sort_direction: {:?}", privdata.sort_direction());
+
+    // TEMPORARILY DISABLED: We're now handling JOIN coordination at the JOIN level
+    // using set_join_pathlist_hook instead of individual table planning
+    pgrx::warning!("  DISABLED: JOIN coordination now handled at JOIN planning level");
+    return false;
+
     // Must be part of a multi-table search scenario
     if !privdata.is_multi_table_search() {
+        pgrx::warning!("  REJECTED: Not a multi-table search scenario");
         return false;
     }
 
     // Must have multiple tables with search predicates
     if privdata.multi_table_search_count() < 2 {
+        pgrx::warning!(
+            "  REJECTED: Less than 2 tables with search predicates (count={})",
+            privdata.multi_table_search_count()
+        );
         return false;
     }
 
+    // TEMPORARILY BYPASS LIMIT REQUIREMENT FOR TESTING
+    // The issue is that LIMIT isn't available during table planning - it's applied at query level
+    // TODO: Implement proper JOIN planning hook to access LIMIT information
+    pgrx::warning!("  TEMPORARILY BYPASSING LIMIT REQUIREMENT FOR TESTING");
+
     // Must have a LIMIT to benefit from early intersection
-    if privdata.limit().is_none() {
-        return false;
-    }
+    // if privdata.limit().is_none() {
+    //     pgrx::warning!("  REJECTED: No LIMIT clause");
+    //     return false;
+    // }
 
     // Must have beneficial JOINs (foreign key relationships, etc.)
     if !privdata.has_beneficial_joins() {
+        pgrx::warning!("  REJECTED: No beneficial JOINs");
         return false;
     }
 
     // Don't use JOIN coordination if TopN would be better for single table
     // (this shouldn't happen given the multi-table checks above, but be safe)
     if privdata.sort_direction().is_some() && privdata.multi_table_search_count() == 1 {
+        pgrx::warning!("  REJECTED: TopN would be better (has sort_direction and only 1 table)");
         return false;
     }
 
+    pgrx::warning!("  ACCEPTED: All conditions met for JOIN coordination!");
     true
 }
 
@@ -1548,6 +1607,11 @@ unsafe fn analyze_multi_table_search_scenario(
     root: *mut pg_sys::PlannerInfo,
     current_rti: pg_sys::Index,
 ) -> (bool, usize, bool) {
+    pgrx::warning!(
+        "=== JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI {} ===",
+        current_rti
+    );
+
     let mut tables_with_search_predicates = 0;
     let mut has_beneficial_joins = false;
 
@@ -1555,21 +1619,42 @@ unsafe fn analyze_multi_table_search_scenario(
     let rtable = (*(*root).parse).rtable;
     let rtable_list = PgList::<pg_sys::RangeTblEntry>::from_pg(rtable);
 
+    pgrx::warning!("Range table has {} entries", rtable_list.len());
+
     // Examine each RTE to find tables with search predicates
     for (index, rte) in rtable_list.iter_ptr().enumerate() {
         let rti = (index + 1) as pg_sys::Index; // RTI is 1-based
 
+        pgrx::warning!("Examining RTI {}: rtekind = {:?}", rti, (*rte).rtekind);
+
         // Skip non-relation RTEs
         if (*rte).rtekind != pg_sys::RTEKind::RTE_RELATION {
+            pgrx::warning!("RTI {} is not a relation, skipping", rti);
             continue;
         }
 
         // Check if this table has a BM25 index (required for search predicates)
-        if rel_get_bm25_index((*rte).relid).is_some() {
+        if let Some((table, bm25_index)) = rel_get_bm25_index((*rte).relid) {
+            pgrx::warning!(
+                "RTI {} has BM25 index: table_oid={}, index_oid={}",
+                rti,
+                table.oid(),
+                bm25_index.oid()
+            );
+
             // Check if this table has search predicates by examining baserestrictinfo
             if has_search_predicates_in_relation(root, rti) {
                 tables_with_search_predicates += 1;
+                pgrx::warning!(
+                    "RTI {} HAS search predicates! Total count now: {}",
+                    rti,
+                    tables_with_search_predicates
+                );
+            } else {
+                pgrx::warning!("RTI {} has BM25 index but NO search predicates", rti);
             }
+        } else {
+            pgrx::warning!("RTI {} does NOT have BM25 index", rti);
         }
     }
 
@@ -1578,9 +1663,21 @@ unsafe fn analyze_multi_table_search_scenario(
     // Real implementation would analyze foreign key relationships
     if tables_with_search_predicates >= 2 {
         has_beneficial_joins = true;
+        pgrx::warning!(
+            "Found {} tables with search predicates - marking as beneficial JOINs",
+            tables_with_search_predicates
+        );
     }
 
     let is_multi_table_search = tables_with_search_predicates >= 2;
+
+    pgrx::warning!(
+        "=== FINAL RESULT for RTI {}: is_multi_table={}, count={}, beneficial={} ===",
+        current_rti,
+        is_multi_table_search,
+        tables_with_search_predicates,
+        has_beneficial_joins
+    );
 
     (
         is_multi_table_search,
@@ -1594,17 +1691,26 @@ unsafe fn has_search_predicates_in_relation(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
 ) -> bool {
+    pgrx::warning!("  Checking search predicates for RTI {}", rti);
+
     // Get the RelOptInfo for this RTE
     if rti == 0 || rti >= (*root).simple_rel_array_size as pg_sys::Index {
+        pgrx::warning!(
+            "  RTI {} is out of bounds (array_size={})",
+            rti,
+            (*root).simple_rel_array_size
+        );
         return false;
     }
 
     if (*root).simple_rel_array.is_null() {
+        pgrx::warning!("  simple_rel_array is null for RTI {}", rti);
         return false;
     }
 
     let rel_info_ptr = *(*root).simple_rel_array.add(rti as usize);
     if rel_info_ptr.is_null() {
+        pgrx::warning!("  RelOptInfo is null for RTI {}", rti);
         return false;
     }
 
@@ -1613,12 +1719,21 @@ unsafe fn has_search_predicates_in_relation(
     // Check baserestrictinfo for search predicates
     let restrict_info_list = PgList::<pg_sys::RestrictInfo>::from_pg(rel_info.baserestrictinfo);
 
-    for restrict_info in restrict_info_list.iter_ptr() {
+    pgrx::warning!(
+        "  RTI {} has {} base restrict info entries",
+        rti,
+        restrict_info_list.len()
+    );
+
+    for (i, restrict_info) in restrict_info_list.iter_ptr().enumerate() {
+        pgrx::warning!("    Checking restrict info {}", i);
         if contains_search_operator((*restrict_info).clause.cast()) {
+            pgrx::warning!("  RTI {} FOUND search operator in restrict info {}", rti, i);
             return true;
         }
     }
 
+    pgrx::warning!("  RTI {} has NO search operators", rti);
     false
 }
 

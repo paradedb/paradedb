@@ -134,6 +134,16 @@ pub enum ExecMethodType {
     FastFieldMixed {
         which_fast_fields: HashSet<WhichFastField>,
     },
+    LazyField {
+        heaprelid: pg_sys::Oid,
+        limit: Option<usize>,
+        has_non_fast_fields: bool,
+    },
+    JoinCoordination {
+        table_oids: Vec<pg_sys::Oid>,
+        limit: Option<usize>,
+        has_multi_table_search: bool,
+    },
 }
 
 impl ExecMethodType {
@@ -147,6 +157,14 @@ impl ExecMethodType {
                 // TODO: To allow sorted output with parallel workers, we would need to partition
                 // our segments across the workers so that each worker emitted all of its results
                 // in sorted order.
+                true
+            }
+            ExecMethodType::LazyField { limit, .. } if nworkers == 0 && limit.is_some() => {
+                // LazyField with LIMIT can provide sorted output (by score)
+                true
+            }
+            ExecMethodType::JoinCoordination { limit, .. } if nworkers == 0 && limit.is_some() => {
+                // JoinCoordination with LIMIT can provide sorted output (by combined score)
                 true
             }
             _ => false,

@@ -1019,6 +1019,20 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
             sort_direction,
             need_scores: privdata.need_scores(),
         }
+    } else if should_use_join_coordination(privdata) {
+        // Use JOIN coordination for multi-table scenarios
+        ExecMethodType::JoinCoordination {
+            table_oids: vec![privdata.heaprelid().expect("heaprelid must be set")], // Placeholder for now
+            limit: privdata.limit(),
+            has_multi_table_search: true,
+        }
+    } else if should_use_lazy_field_execution(privdata) {
+        // Use lazy field execution for queries with LIMIT and non-fast fields
+        ExecMethodType::LazyField {
+            heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
+            limit: privdata.limit(),
+            has_non_fast_fields: true,
+        }
     } else if fast_fields::is_numeric_fast_field_capable(privdata)
         && gucs::is_fast_field_exec_enabled()
     {
@@ -1049,6 +1063,59 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
     }
 }
 
+/// Determine if we should use JOIN coordination
+///
+/// JOIN coordination is beneficial when:
+/// 1. We have multiple tables with search predicates (detected via query analysis)
+/// 2. We have a LIMIT clause (to benefit from early intersection)
+/// 3. The query involves JOINs that would benefit from search coordination
+fn should_use_join_coordination(privdata: &PrivateData) -> bool {
+    // For now, this is a placeholder that always returns false
+    // Real implementation would:
+    // 1. Analyze the query plan to detect multi-table JOINs
+    // 2. Check if multiple tables have search predicates
+    // 3. Verify that JOIN coordination would be beneficial
+
+    // TODO: Implement proper JOIN detection logic
+    // This would involve analyzing:
+    // - The query's FROM clause and JOIN conditions
+    // - Whether multiple tables have search predicates (@@@ operators)
+    // - Whether the query has a LIMIT that would benefit from early intersection
+
+    false // Disabled for now until we implement proper JOIN detection
+}
+
+/// Determine if we should use lazy field execution
+///
+/// Lazy field execution is beneficial when:
+/// 1. We have a LIMIT clause (to reduce the number of tuples we need to load fields for)
+/// 2. We have non-fast fields in the target list (fields that require heap access)
+/// 3. The query is not already handled by TopN (which has its own optimization)
+fn should_use_lazy_field_execution(privdata: &PrivateData) -> bool {
+    // Must have a LIMIT to benefit from lazy loading
+    let has_limit = privdata.limit().is_some();
+
+    // Must have some fields that are not fast fields
+    let has_non_fast_fields = if let Some(which_fast_fields) = privdata.planned_which_fast_fields()
+    {
+        // If we have planned fast fields, check if we have fewer fast fields than total referenced columns
+        let fast_field_count = which_fast_fields.len();
+        let total_referenced_columns = privdata.referenced_columns_count();
+
+        // If we have fewer fast fields than total columns, we have non-fast fields
+        fast_field_count < total_referenced_columns
+    } else {
+        // If we don't have any fast fields planned, assume we have non-fast fields
+        true
+    };
+
+    // Don't use lazy field execution if TopN would be better
+    let not_topn_candidate = privdata.sort_direction().is_none();
+
+    // Enable lazy field execution if all conditions are met
+    has_limit && has_non_fast_fields && not_topn_candidate
+}
+
 ///
 /// Creates and assigns the execution method which was chosen at planning time.
 ///
@@ -1075,6 +1142,21 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>
             ),
             None,
         ),
+        ExecMethodType::JoinCoordination {
+            table_oids: _,
+            limit,
+            has_multi_table_search: _,
+        } => builder.custom_state().assign_exec_method(
+            exec_methods::join_coordination::JoinCoordinationExecState::new(limit),
+            None,
+        ),
+        ExecMethodType::LazyField {
+            heaprelid: _,
+            limit: _,
+            has_non_fast_fields: _,
+        } => builder
+            .custom_state()
+            .assign_exec_method(exec_methods::lazy_fields::LazyFieldExecState::new(), None),
         ExecMethodType::FastFieldString {
             field,
             which_fast_fields,

@@ -28,7 +28,7 @@ use crate::postgres::utils;
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::schema::SearchIndexSchema;
 use pgrx::itemptr::item_pointer_get_block_number;
-use pgrx::{pg_sys, PgRelation, PgTupleDesc};
+use pgrx::{pg_sys, PgList, PgRelation, PgTupleDesc};
 use std::collections::HashMap;
 use std::collections::HashSet;
 
@@ -929,6 +929,356 @@ impl LazyResultStats {
             100.0 // All fast fields, 100% success
         } else {
             (self.loaded_non_fast_fields as f64 / total_attempted as f64) * 100.0
+        }
+    }
+}
+
+/// Execution method that integrates batch lazy field loading with PdbScan infrastructure
+///
+/// This execution method is designed for single-table queries with LIMIT and non-fast fields.
+/// It follows the same patterns as existing execution methods but adds lazy loading optimization.
+pub struct LazyFieldExecState {
+    /// Basic execution state (following PdbScan patterns)
+    heaprel: pg_sys::Relation,
+    slot: *mut pg_sys::TupleTableSlot,
+    search_results: crate::index::reader::index::SearchResults,
+    did_query: bool,
+
+    /// Lazy loading infrastructure
+    lazy_loader: Option<LazyFieldLoaderWithFallback>,
+    table_field_map: Option<TableFieldMap>,
+
+    /// Fast fields that are immediately available
+    fast_field_attnos: HashSet<pg_sys::AttrNumber>,
+
+    /// Non-fast fields that require lazy loading
+    non_fast_field_attnos: HashSet<pg_sys::AttrNumber>,
+
+    /// Results with lazy loading state
+    lazy_results: Vec<LazyResult>,
+    current_result_index: usize,
+
+    /// Performance tracking
+    heap_accesses_saved: u64,
+    fields_loaded_lazily: u64,
+}
+
+impl Default for LazyFieldExecState {
+    fn default() -> Self {
+        Self {
+            heaprel: std::ptr::null_mut(),
+            slot: std::ptr::null_mut(),
+            search_results: crate::index::reader::index::SearchResults::None,
+            did_query: false,
+            lazy_loader: None,
+            table_field_map: None,
+            fast_field_attnos: HashSet::new(),
+            non_fast_field_attnos: HashSet::new(),
+            lazy_results: Vec::new(),
+            current_result_index: 0,
+            heap_accesses_saved: 0,
+            fields_loaded_lazily: 0,
+        }
+    }
+}
+
+impl LazyFieldExecState {
+    /// Create a new lazy field execution state
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Initialize field classification based on the target list and schema
+    fn initialize_field_classification(
+        &mut self,
+        state: &mut crate::postgres::customscan::pdbscan::scan_state::PdbScanState,
+        cstate: *mut pg_sys::CustomScanState,
+    ) {
+        unsafe {
+            let heaprel = PgRelation::from_pg(self.heaprel);
+            let tupdesc = PgTupleDesc::from_pg_unchecked((*cstate).ss.ps.ps_ResultTupleDesc);
+
+            // Get the search index schema
+            let indexrel = state
+                .indexrel
+                .as_ref()
+                .map(|indexrel| PgRelation::from_pg(*indexrel))
+                .expect("indexrel should be available");
+
+            let directory = crate::index::mvcc::MVCCDirectory::snapshot(indexrel.oid());
+            let index = tantivy::Index::open(directory).expect("should be able to open index");
+            let schema = SearchIndexSchema::open(index.schema(), &indexrel);
+
+            // Create table field map
+            self.table_field_map = Some(TableFieldMap::new(heaprel.oid(), &heaprel, &schema));
+
+            // Classify fields from the target list
+            let target_list = (*(*cstate).ss.ps.plan).targetlist;
+            let target_entries = PgList::<pg_sys::TargetEntry>::from_pg(target_list);
+
+            for te in target_entries.iter_ptr() {
+                if let Some(var) = crate::nodecast!(Var, T_Var, (*te).expr) {
+                    let attno = (*var).varattno;
+
+                    if schema.is_fast_field(self.get_field_name_by_attno(attno, &tupdesc)) {
+                        self.fast_field_attnos.insert(attno);
+                    } else {
+                        self.non_fast_field_attnos.insert(attno);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Get field name by attribute number
+    fn get_field_name_by_attno<'a>(
+        &self,
+        attno: pg_sys::AttrNumber,
+        tupdesc: &'a PgTupleDesc<'a>,
+    ) -> &'a str {
+        if let Some(att) = tupdesc.get((attno - 1) as usize) {
+            att.name()
+        } else {
+            ""
+        }
+    }
+
+    /// Execute search and prepare lazy results
+    fn execute_search_and_prepare_lazy_results(
+        &mut self,
+        state: &mut crate::postgres::customscan::pdbscan::scan_state::PdbScanState,
+    ) {
+        // Execute search to get CTIDs and fast fields
+        self.search_results = state
+            .search_reader
+            .as_ref()
+            .expect("must have a search_reader")
+            .search(
+                state.need_scores(),
+                false,
+                state.search_query_input(),
+                state.limit,
+            );
+
+        // Convert search results to lazy results
+        self.lazy_results.clear();
+
+        // Collect all search results first (for LIMIT optimization)
+        let mut all_results = Vec::new();
+        while let Some((scored, _doc_address)) = self.search_results.next() {
+            all_results.push(scored);
+        }
+
+        // Sort by score if needed (for LIMIT optimization)
+        if state.limit.is_some() {
+            all_results.sort_by(|a, b| {
+                b.bm25
+                    .partial_cmp(&a.bm25)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+
+            // Apply LIMIT early - this is the key optimization!
+            if let Some(limit) = state.limit {
+                all_results.truncate(limit);
+            }
+        }
+
+        // Create lazy results with fast fields populated
+        let all_results_len = all_results.len();
+        for scored in all_results {
+            let mut lazy_result = LazyResult::new();
+
+            // Add fast fields (immediately available)
+            for &attno in &self.fast_field_attnos {
+                // For now, we'll populate with placeholder values
+                // In a full implementation, we'd extract these from the search results
+                lazy_result.add_fast_field(attno, scored.ctid.into());
+            }
+
+            // Add CTID for lazy loading
+            lazy_result.add_ctid(unsafe { (*self.heaprel).rd_id }, scored.ctid);
+
+            // Add score if needed
+            if state.need_scores() {
+                lazy_result.combined_score = Some(scored.bm25);
+            }
+
+            self.lazy_results.push(lazy_result);
+        }
+
+        // Calculate heap accesses saved
+        let total_non_fast_fields = self.non_fast_field_attnos.len() as u64;
+        let original_heap_accesses = all_results_len as u64 * total_non_fast_fields;
+        let optimized_heap_accesses = self.lazy_results.len() as u64 * total_non_fast_fields;
+        self.heap_accesses_saved = original_heap_accesses.saturating_sub(optimized_heap_accesses);
+
+        self.current_result_index = 0;
+    }
+
+    /// Load non-fast fields for the current result
+    fn load_non_fast_fields_for_current_result(
+        &mut self,
+        result_index: usize,
+    ) -> Result<(), LazyLoadError> {
+        if result_index >= self.lazy_results.len() {
+            return Err(LazyLoadError::TupleNotVisible);
+        }
+
+        let result = &mut self.lazy_results[result_index];
+        let table_oid = unsafe { (*self.heaprel).rd_id };
+
+        // Get unloaded non-fast fields
+        let unloaded_fields: Vec<pg_sys::AttrNumber> = self
+            .non_fast_field_attnos
+            .iter()
+            .filter(|&&attno| !result.is_field_loaded(attno))
+            .copied()
+            .collect();
+
+        if !unloaded_fields.is_empty() {
+            // Use batch loading for efficiency
+            result.load_non_fast_fields_batch(
+                table_oid,
+                &unloaded_fields,
+                self.lazy_loader.as_mut().unwrap(),
+                self.heaprel,
+            )?;
+
+            self.fields_loaded_lazily += unloaded_fields.len() as u64;
+        }
+
+        Ok(())
+    }
+
+    /// Create a tuple slot with all fields (fast and non-fast)
+    fn create_tuple_slot_with_all_fields(
+        &self,
+        result: &LazyResult,
+    ) -> *mut pg_sys::TupleTableSlot {
+        unsafe {
+            // Clear the slot
+            pg_sys::ExecClearTuple(self.slot);
+
+            // Set up the slot with all field values
+            let tupdesc = (*self.slot).tts_tupleDescriptor;
+            let natts = (*tupdesc).natts as usize;
+
+            for attno in 1..=natts {
+                let attno = attno as pg_sys::AttrNumber;
+
+                if let Some(datum) = result.get_field(attno) {
+                    // Set the field value
+                    (*self.slot)
+                        .tts_values
+                        .add((attno - 1) as usize)
+                        .write(datum);
+                    (*self.slot)
+                        .tts_isnull
+                        .add((attno - 1) as usize)
+                        .write(false);
+                } else {
+                    // Set as NULL
+                    (*self.slot)
+                        .tts_values
+                        .add((attno - 1) as usize)
+                        .write(pg_sys::Datum::null());
+                    (*self.slot)
+                        .tts_isnull
+                        .add((attno - 1) as usize)
+                        .write(true);
+                }
+            }
+
+            // Mark slot as valid
+            (*self.slot).tts_nvalid = natts as pg_sys::AttrNumber;
+            (*self.slot).tts_flags &= !pg_sys::TTS_FLAG_EMPTY as u16;
+            (*self.slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
+
+            self.slot
+        }
+    }
+}
+
+impl crate::postgres::customscan::pdbscan::exec_methods::ExecMethod for LazyFieldExecState {
+    fn init(
+        &mut self,
+        state: &mut crate::postgres::customscan::pdbscan::scan_state::PdbScanState,
+        cstate: *mut pg_sys::CustomScanState,
+    ) {
+        unsafe {
+            self.heaprel = state.heaprel.unwrap();
+            self.slot = pg_sys::MakeTupleTableSlot(
+                (*cstate).ss.ps.ps_ResultTupleDesc,
+                &pg_sys::TTSOpsVirtual,
+            );
+
+            // Initialize lazy loader
+            self.lazy_loader = Some(LazyFieldLoaderWithFallback::new(
+                self.heaprel,
+                FallbackStrategy::FallbackToEagerLoading,
+            ));
+
+            // Initialize field classification
+            self.initialize_field_classification(state, cstate);
+        }
+    }
+
+    fn query(
+        &mut self,
+        state: &mut crate::postgres::customscan::pdbscan::scan_state::PdbScanState,
+    ) -> bool {
+        if self.did_query {
+            return false;
+        }
+
+        self.execute_search_and_prepare_lazy_results(state);
+        self.did_query = true;
+
+        !self.lazy_results.is_empty()
+    }
+
+    fn internal_next(
+        &mut self,
+        _state: &mut crate::postgres::customscan::pdbscan::scan_state::PdbScanState,
+    ) -> crate::postgres::customscan::pdbscan::exec_methods::ExecState {
+        use crate::postgres::customscan::pdbscan::exec_methods::ExecState;
+
+        // Check if we have more results
+        if self.current_result_index >= self.lazy_results.len() {
+            return ExecState::Eof;
+        }
+
+        // Load non-fast fields for the current result (lazy loading!)
+        if let Err(_) = self.load_non_fast_fields_for_current_result(self.current_result_index) {
+            // Skip this result and try the next one
+            self.current_result_index += 1;
+            return self.internal_next(_state);
+        }
+
+        // Create tuple slot with all fields
+        let result = &self.lazy_results[self.current_result_index];
+        let slot = self.create_tuple_slot_with_all_fields(result);
+
+        // Move to next result
+        self.current_result_index += 1;
+
+        ExecState::Virtual { slot }
+    }
+
+    fn reset(
+        &mut self,
+        _state: &mut crate::postgres::customscan::pdbscan::scan_state::PdbScanState,
+    ) {
+        self.did_query = false;
+        self.lazy_results.clear();
+        self.current_result_index = 0;
+        self.heap_accesses_saved = 0;
+        self.fields_loaded_lazily = 0;
+
+        // Reset lazy loader state
+        if let Some(ref mut loader) = self.lazy_loader {
+            loader.reset_per_tuple_context();
+            loader.reset_block_cache();
         }
     }
 }

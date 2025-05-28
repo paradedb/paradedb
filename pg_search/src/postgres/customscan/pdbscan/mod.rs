@@ -273,6 +273,20 @@ impl CustomScan for PdbScan {
                 .custom_private()
                 .set_referenced_columns_count(referenced_columns.len());
 
+            // Analyze multi-table search scenario
+            let (is_multi_table_search, multi_table_search_count, has_beneficial_joins) =
+                analyze_multi_table_search_scenario(root, rti);
+
+            builder
+                .custom_private()
+                .set_is_multi_table_search(is_multi_table_search);
+            builder
+                .custom_private()
+                .set_multi_table_search_count(multi_table_search_count);
+            builder
+                .custom_private()
+                .set_has_beneficial_joins(has_beneficial_joins);
+
             let is_topn = limit.is_some() && pathkey.is_some();
 
             // When collecting which_fast_fields, analyze the entire set of referenced columns,
@@ -1070,19 +1084,33 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
 /// 2. We have a LIMIT clause (to benefit from early intersection)
 /// 3. The query involves JOINs that would benefit from search coordination
 fn should_use_join_coordination(privdata: &PrivateData) -> bool {
-    // For now, this is a placeholder that always returns false
-    // Real implementation would:
-    // 1. Analyze the query plan to detect multi-table JOINs
-    // 2. Check if multiple tables have search predicates
-    // 3. Verify that JOIN coordination would be beneficial
+    // Must be part of a multi-table search scenario
+    if !privdata.is_multi_table_search() {
+        return false;
+    }
 
-    // TODO: Implement proper JOIN detection logic
-    // This would involve analyzing:
-    // - The query's FROM clause and JOIN conditions
-    // - Whether multiple tables have search predicates (@@@ operators)
-    // - Whether the query has a LIMIT that would benefit from early intersection
+    // Must have multiple tables with search predicates
+    if privdata.multi_table_search_count() < 2 {
+        return false;
+    }
 
-    false // Disabled for now until we implement proper JOIN detection
+    // Must have a LIMIT to benefit from early intersection
+    if privdata.limit().is_none() {
+        return false;
+    }
+
+    // Must have beneficial JOINs (foreign key relationships, etc.)
+    if !privdata.has_beneficial_joins() {
+        return false;
+    }
+
+    // Don't use JOIN coordination if TopN would be better for single table
+    // (this shouldn't happen given the multi-table checks above, but be safe)
+    if privdata.sort_direction().is_some() && privdata.multi_table_search_count() == 1 {
+        return false;
+    }
+
+    true
 }
 
 /// Determine if we should use lazy field execution
@@ -1508,4 +1536,114 @@ unsafe fn collect_maybe_fast_field_referenced_columns(
     }
 
     referenced_columns
+}
+
+/// Analyze the query to detect multi-table search scenarios
+///
+/// This function examines the query plan to determine:
+/// 1. How many tables in the query have search predicates (@@@ operators)
+/// 2. Whether there are beneficial JOIN relationships
+/// 3. Whether this table is part of a multi-table search scenario
+unsafe fn analyze_multi_table_search_scenario(
+    root: *mut pg_sys::PlannerInfo,
+    current_rti: pg_sys::Index,
+) -> (bool, usize, bool) {
+    let mut tables_with_search_predicates = 0;
+    let mut has_beneficial_joins = false;
+
+    // Get the range table
+    let rtable = (*(*root).parse).rtable;
+    let rtable_list = PgList::<pg_sys::RangeTblEntry>::from_pg(rtable);
+
+    // Examine each RTE to find tables with search predicates
+    for (index, rte) in rtable_list.iter_ptr().enumerate() {
+        let rti = (index + 1) as pg_sys::Index; // RTI is 1-based
+
+        // Skip non-relation RTEs
+        if (*rte).rtekind != pg_sys::RTEKind::RTE_RELATION {
+            continue;
+        }
+
+        // Check if this table has a BM25 index (required for search predicates)
+        if rel_get_bm25_index((*rte).relid).is_some() {
+            // Check if this table has search predicates by examining baserestrictinfo
+            if has_search_predicates_in_relation(root, rti) {
+                tables_with_search_predicates += 1;
+            }
+        }
+    }
+
+    // Check for beneficial JOINs by examining JOIN conditions
+    // For now, we'll consider any multi-table scenario with a LIMIT as beneficial
+    // Real implementation would analyze foreign key relationships
+    if tables_with_search_predicates >= 2 {
+        has_beneficial_joins = true;
+    }
+
+    let is_multi_table_search = tables_with_search_predicates >= 2;
+
+    (
+        is_multi_table_search,
+        tables_with_search_predicates,
+        has_beneficial_joins,
+    )
+}
+
+/// Check if a relation has search predicates (@@@ operators)
+unsafe fn has_search_predicates_in_relation(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+) -> bool {
+    // Get the RelOptInfo for this RTE
+    if rti == 0 || rti >= (*root).simple_rel_array_size as pg_sys::Index {
+        return false;
+    }
+
+    if (*root).simple_rel_array.is_null() {
+        return false;
+    }
+
+    let rel_info_ptr = *(*root).simple_rel_array.add(rti as usize);
+    if rel_info_ptr.is_null() {
+        return false;
+    }
+
+    let rel_info = &*rel_info_ptr;
+
+    // Check baserestrictinfo for search predicates
+    let restrict_info_list = PgList::<pg_sys::RestrictInfo>::from_pg(rel_info.baserestrictinfo);
+
+    for restrict_info in restrict_info_list.iter_ptr() {
+        if contains_search_operator((*restrict_info).clause.cast()) {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// Check if a clause contains our search operator (@@@)
+unsafe fn contains_search_operator(clause: *mut pg_sys::Node) -> bool {
+    if clause.is_null() {
+        return false;
+    }
+
+    match (*clause).type_ {
+        pg_sys::NodeTag::T_OpExpr => {
+            let opexpr = clause as *mut pg_sys::OpExpr;
+            (*opexpr).opno == anyelement_query_input_opoid()
+        }
+        pg_sys::NodeTag::T_BoolExpr => {
+            let boolexpr = clause as *mut pg_sys::BoolExpr;
+            let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
+
+            for arg in args.iter_ptr() {
+                if contains_search_operator(arg) {
+                    return true;
+                }
+            }
+            false
+        }
+        _ => false,
+    }
 }

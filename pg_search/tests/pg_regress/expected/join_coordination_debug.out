@@ -1,0 +1,101 @@
+-- Debug test for JOIN coordination
+-- This test helps us understand why JOIN coordination is not being triggered
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Create simple test tables
+CREATE TABLE test_docs (
+    id SERIAL PRIMARY KEY,
+    content TEXT
+);
+CREATE TABLE test_files (
+    id SERIAL PRIMARY KEY,
+    doc_id INTEGER REFERENCES test_docs(id),
+    title TEXT
+);
+-- Create BM25 indexes
+CALL paradedb.create_bm25_test_table(
+    table_name => 'test_docs',
+    schema_name => 'public'
+);
+WARNING:  The table public.test_docs already exists, skipping.
+CALL paradedb.create_bm25_test_table(
+    table_name => 'test_files',
+    schema_name => 'public'
+);
+WARNING:  The table public.test_files already exists, skipping.
+CREATE INDEX test_docs_search_idx ON test_docs USING bm25 (id, content) WITH (key_field='id');
+CREATE INDEX test_files_search_idx ON test_files USING bm25 (id, doc_id, title) WITH (key_field='id');
+-- Insert test data
+INSERT INTO test_docs (content) VALUES
+    ('technology document'),
+    ('science document');
+INSERT INTO test_files (doc_id, title) VALUES
+    (1, 'tech report'),
+    (2, 'science report');
+-- Test: Multi-table query with search predicates and LIMIT
+-- This should trigger JOIN coordination if our logic is working
+EXPLAIN (ANALYZE, BUFFERS, VERBOSE)
+SELECT d.id, f.id
+FROM test_docs d
+JOIN test_files f ON d.id = f.doc_id
+WHERE d.content @@@ 'technology' 
+  AND f.title @@@ 'report'
+LIMIT 5;
+                                                                                  QUERY PLAN                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=1020.02..1020.13 rows=1 width=8) (actual time=2.000..19.456 rows=1 loops=1)
+   Output: d.id, f.id
+   Buffers: shared hit=136
+   ->  Gather  (cost=1020.02..1020.13 rows=1 width=8) (actual time=1.999..19.454 rows=1 loops=1)
+         Output: d.id, f.id
+         Workers Planned: 1
+         Workers Launched: 1
+         Buffers: shared hit=136
+         ->  Parallel Hash Join  (cost=20.02..20.03 rows=1 width=8) (actual time=0.810..0.828 rows=0 loops=2)
+               Output: d.id, f.id
+               Inner Unique: true
+               Hash Cond: (f.doc_id = d.id)
+               Buffers: shared hit=110
+               Worker 0:  actual time=0.576..0.579 rows=0 loops=1
+                 Buffers: shared hit=62
+               ->  Parallel Custom Scan (ParadeDB Scan) on public.test_files f  (cost=10.00..10.01 rows=1 width=8) (actual time=0.315..0.326 rows=2 loops=1)
+                     Output: f.id, f.doc_id
+                     Table: test_files
+                     Index: test_files_search_idx
+                     Segment Count: 1
+                     Heap Fetches: 2
+                     Virtual Tuples: 0
+                     Invisible Tuples: 0
+                     Exec Method: NumericFastFieldExecState
+                     Fast Fields: doc_id, id
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"report","lenient":null,"conjunction_mode":null}}}}
+                     Human Readable Query: title:(report)
+                     Buffers: shared hit=24
+               ->  Parallel Hash  (cost=10.01..10.01 rows=1 width=4) (actual time=0.360..0.361 rows=0 loops=2)
+                     Output: d.id
+                     Buckets: 1024  Batches: 1  Memory Usage: 40kB
+                     Buffers: shared hit=24
+                     Worker 0:  actual time=0.025..0.025 rows=0 loops=1
+                     ->  Parallel Custom Scan (ParadeDB Scan) on public.test_docs d  (cost=10.00..10.01 rows=1 width=4) (actual time=0.676..0.687 rows=1 loops=1)
+                           Output: d.id
+                           Table: test_docs
+                           Index: test_docs_search_idx
+                           Segment Count: 1
+                           Heap Fetches: 1
+                           Virtual Tuples: 0
+                           Invisible Tuples: 0
+                           Exec Method: NumericFastFieldExecState
+                           Fast Fields: id
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+                           Human Readable Query: content:(technology)
+                           Buffers: shared hit=24
+ Planning:
+   Buffers: shared hit=99
+ Planning Time: 2.379 ms
+ Execution Time: 20.156 ms
+(52 rows)
+
+-- Cleanup
+DROP TABLE test_files;
+DROP TABLE test_docs; 

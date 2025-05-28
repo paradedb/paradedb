@@ -1,0 +1,304 @@
+-- Test JOIN coordination execution method
+-- This test validates that the JOIN coordination execution method is selected
+-- for multi-table queries with search predicates and LIMIT clauses
+-- Create the extension first
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Create test tables with BM25 indexes
+CREATE TABLE documents (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    content TEXT
+);
+CREATE TABLE files (
+    id SERIAL PRIMARY KEY,
+    document_id INTEGER REFERENCES documents(id),
+    filename TEXT,
+    title TEXT
+);
+CREATE TABLE pages (
+    id SERIAL PRIMARY KEY,
+    file_id INTEGER REFERENCES files(id),
+    page_number INTEGER,
+    content TEXT
+);
+-- Create BM25 indexes
+CALL paradedb.create_bm25_test_table(
+    table_name => 'documents',
+    schema_name => 'public'
+);
+WARNING:  The table public.documents already exists, skipping.
+CALL paradedb.create_bm25_test_table(
+    table_name => 'files',
+    schema_name => 'public'
+);
+WARNING:  The table public.files already exists, skipping.
+CALL paradedb.create_bm25_test_table(
+    table_name => 'pages',
+    schema_name => 'public'
+);
+WARNING:  The table public.pages already exists, skipping.
+-- Create the actual BM25 indexes
+CREATE INDEX documents_search_idx ON documents USING bm25 (id, title, content) WITH (key_field='id');
+CREATE INDEX files_search_idx ON files USING bm25 (id, document_id, filename, title) WITH (key_field='id');
+CREATE INDEX pages_search_idx ON pages USING bm25 (id, file_id, page_number, content) WITH (key_field='id');
+-- Insert test data
+INSERT INTO documents (title, content) VALUES
+    ('Document 1', 'This is the first document about technology'),
+    ('Document 2', 'This is the second document about science'),
+    ('Document 3', 'This is the third document about research');
+INSERT INTO files (document_id, filename, title) VALUES
+    (1, 'file1.pdf', 'Technology Report'),
+    (1, 'file2.pdf', 'Tech Analysis'),
+    (2, 'file3.pdf', 'Science Paper'),
+    (3, 'file4.pdf', 'Research Notes');
+INSERT INTO pages (file_id, page_number, content) VALUES
+    (1, 1, 'Introduction to technology trends'),
+    (1, 2, 'Advanced technology concepts'),
+    (2, 1, 'Technology analysis methodology'),
+    (3, 1, 'Scientific research methods'),
+    (4, 1, 'Research findings and conclusions');
+-- Test 1: Single table query (should NOT use JOIN coordination)
+EXPLAIN (ANALYZE, BUFFERS, VERBOSE)
+SELECT d.id, d.title
+FROM documents d
+WHERE d.content @@@ 'technology'
+LIMIT 10;
+                                                                         QUERY PLAN                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=10.00..10.05 rows=10 width=36) (actual time=1.017..1.029 rows=1 loops=1)
+   Output: id, title
+   Buffers: shared hit=37
+   ->  Custom Scan (ParadeDB Scan) on public.documents d  (cost=10.00..10.05 rows=10 width=36) (actual time=1.016..1.026 rows=1 loops=1)
+         Output: id, title
+         Table: documents
+         Index: documents_search_idx
+         Segment Count: 1
+         Heap Fetches: 1
+         Virtual Tuples: 0
+         Invisible Tuples: 0
+         Exec Method: TopNScanExecState
+         Scores: false
+            Top N Limit: 10
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+         Human Readable Query: content:(technology)
+         Buffers: shared hit=37
+ Planning:
+   Buffers: shared hit=42
+ Planning Time: 1.646 ms
+ Execution Time: 1.661 ms
+(21 rows)
+
+-- Test 2: Multi-table query with search predicates and LIMIT (should use JOIN coordination)
+EXPLAIN (ANALYZE, BUFFERS, VERBOSE)
+SELECT d.id, f.id, p.id
+FROM documents d
+JOIN files f ON d.id = f.document_id
+JOIN pages p ON f.id = p.file_id
+WHERE d.content @@@ 'technology' 
+  AND f.title @@@ 'report'
+  AND p.content @@@ 'introduction'
+LIMIT 10;
+                                                                                   QUERY PLAN                                                                                    
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=1030.04..1030.15 rows=1 width=12) (actual time=4.099..25.781 rows=1 loops=1)
+   Output: d.id, f.id, p.id
+   Buffers: shared hit=173
+   ->  Gather  (cost=1030.04..1030.15 rows=1 width=12) (actual time=4.098..25.778 rows=1 loops=1)
+         Output: d.id, f.id, p.id
+         Workers Planned: 1
+         Workers Launched: 1
+         Buffers: shared hit=173
+         ->  Parallel Hash Join  (cost=30.04..30.05 rows=1 width=12) (actual time=0.919..0.945 rows=0 loops=2)
+               Output: d.id, f.id, p.id
+               Inner Unique: true
+               Hash Cond: (f.document_id = d.id)
+               Buffers: shared hit=134
+               Worker 0:  actual time=0.621..0.626 rows=0 loops=1
+                 Buffers: shared hit=62
+               ->  Parallel Hash Join  (cost=20.02..20.03 rows=1 width=12) (actual time=0.707..0.737 rows=1 loops=1)
+                     Output: f.id, f.document_id, p.id
+                     Inner Unique: true
+                     Hash Cond: (p.file_id = f.id)
+                     Buffers: shared hit=48
+                     ->  Parallel Custom Scan (ParadeDB Scan) on public.pages p  (cost=10.00..10.01 rows=1 width=8) (actual time=0.349..0.358 rows=1 loops=1)
+                           Output: p.id, p.file_id
+                           Table: pages
+                           Index: pages_search_idx
+                           Segment Count: 1
+                           Heap Fetches: 1
+                           Virtual Tuples: 0
+                           Invisible Tuples: 0
+                           Exec Method: NumericFastFieldExecState
+                           Fast Fields: file_id, id
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"introduction","lenient":null,"conjunction_mode":null}}}}
+                           Human Readable Query: content:(introduction)
+                           Buffers: shared hit=24
+                     ->  Parallel Hash  (cost=10.01..10.01 rows=1 width=8) (actual time=0.343..0.345 rows=1 loops=1)
+                           Output: f.id, f.document_id
+                           Buckets: 1024  Batches: 1  Memory Usage: 40kB
+                           Buffers: shared hit=24
+                           ->  Parallel Custom Scan (ParadeDB Scan) on public.files f  (cost=10.00..10.01 rows=1 width=8) (actual time=0.314..0.322 rows=1 loops=1)
+                                 Output: f.id, f.document_id
+                                 Table: files
+                                 Index: files_search_idx
+                                 Segment Count: 1
+                                 Heap Fetches: 1
+                                 Virtual Tuples: 0
+                                 Invisible Tuples: 0
+                                 Exec Method: NumericFastFieldExecState
+                                 Fast Fields: document_id, id
+                                 Scores: false
+                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"report","lenient":null,"conjunction_mode":null}}}}
+                                 Human Readable Query: title:(report)
+                                 Buffers: shared hit=24
+               ->  Parallel Hash  (cost=10.01..10.01 rows=1 width=4) (actual time=0.251..0.252 rows=0 loops=2)
+                     Output: d.id
+                     Buckets: 1024  Batches: 1  Memory Usage: 40kB
+                     Buffers: shared hit=24
+                     Worker 0:  actual time=0.034..0.034 rows=0 loops=1
+                     ->  Parallel Custom Scan (ParadeDB Scan) on public.documents d  (cost=10.00..10.01 rows=1 width=4) (actual time=0.437..0.459 rows=1 loops=1)
+                           Output: d.id
+                           Table: documents
+                           Index: documents_search_idx
+                           Segment Count: 1
+                           Heap Fetches: 1
+                           Virtual Tuples: 0
+                           Invisible Tuples: 0
+                           Exec Method: NumericFastFieldExecState
+                           Fast Fields: id
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+                           Human Readable Query: content:(technology)
+                           Buffers: shared hit=24
+ Planning:
+   Buffers: shared hit=79
+ Planning Time: 2.504 ms
+ Execution Time: 27.324 ms
+(75 rows)
+
+-- Test 3: Multi-table query without LIMIT (should NOT use JOIN coordination)
+EXPLAIN (ANALYZE, BUFFERS, VERBOSE)
+SELECT d.id, f.id
+FROM documents d
+JOIN files f ON d.id = f.document_id
+WHERE d.content @@@ 'technology' 
+  AND f.title @@@ 'report';
+                                                                               QUERY PLAN                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Gather  (cost=1020.02..1020.13 rows=1 width=8) (actual time=1.837..22.322 rows=1 loops=1)
+   Output: d.id, f.id
+   Workers Planned: 1
+   Workers Launched: 1
+   Buffers: shared hit=136
+   ->  Parallel Hash Join  (cost=20.02..20.03 rows=1 width=8) (actual time=0.887..0.908 rows=0 loops=2)
+         Output: d.id, f.id
+         Inner Unique: true
+         Hash Cond: (f.document_id = d.id)
+         Buffers: shared hit=110
+         Worker 0:  actual time=0.834..0.840 rows=0 loops=1
+           Buffers: shared hit=62
+         ->  Parallel Custom Scan (ParadeDB Scan) on public.files f  (cost=10.00..10.01 rows=1 width=8) (actual time=0.401..0.413 rows=1 loops=1)
+               Output: f.id, f.document_id
+               Table: files
+               Index: files_search_idx
+               Segment Count: 1
+               Heap Fetches: 1
+               Virtual Tuples: 0
+               Invisible Tuples: 0
+               Exec Method: NumericFastFieldExecState
+               Fast Fields: document_id, id
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"report","lenient":null,"conjunction_mode":null}}}}
+               Human Readable Query: title:(report)
+               Buffers: shared hit=24
+         ->  Parallel Hash  (cost=10.01..10.01 rows=1 width=4) (actual time=0.268..0.269 rows=0 loops=2)
+               Output: d.id
+               Buckets: 1024  Batches: 1  Memory Usage: 40kB
+               Buffers: shared hit=24
+               Worker 0:  actual time=0.035..0.035 rows=0 loops=1
+               ->  Parallel Custom Scan (ParadeDB Scan) on public.documents d  (cost=10.00..10.01 rows=1 width=4) (actual time=0.456..0.469 rows=1 loops=1)
+                     Output: d.id
+                     Table: documents
+                     Index: documents_search_idx
+                     Segment Count: 1
+                     Heap Fetches: 1
+                     Virtual Tuples: 0
+                     Invisible Tuples: 0
+                     Exec Method: NumericFastFieldExecState
+                     Fast Fields: id
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+                     Human Readable Query: content:(technology)
+                     Buffers: shared hit=24
+ Planning:
+   Buffers: shared hit=14
+ Planning Time: 1.634 ms
+ Execution Time: 23.145 ms
+(49 rows)
+
+-- Test 4: Multi-table query with only one search predicate (should NOT use JOIN coordination)
+EXPLAIN (ANALYZE, BUFFERS, VERBOSE)
+SELECT d.id, f.id
+FROM documents d
+JOIN files f ON d.id = f.document_id
+WHERE d.content @@@ 'technology'
+LIMIT 10;
+                                                                               QUERY PLAN                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=1010.00..1038.33 rows=1 width=8) (actual time=0.960..23.714 rows=2 loops=1)
+   Output: d.id, f.id
+   Buffers: shared hit=51
+   ->  Nested Loop  (cost=1010.00..1038.33 rows=1 width=8) (actual time=0.960..23.711 rows=2 loops=1)
+         Output: d.id, f.id
+         Join Filter: (d.id = f.document_id)
+         Rows Removed by Join Filter: 2
+         Buffers: shared hit=51
+         ->  Gather  (cost=1010.00..1010.11 rows=1 width=4) (actual time=0.947..23.696 rows=1 loops=1)
+               Output: d.id
+               Workers Planned: 1
+               Workers Launched: 1
+               Buffers: shared hit=50
+               ->  Parallel Custom Scan (ParadeDB Scan) on public.documents d  (cost=10.00..10.01 rows=1 width=4) (actual time=0.794..0.801 rows=0 loops=2)
+                     Output: d.id
+                     Table: documents
+                     Index: documents_search_idx
+                     Segment Count: 1
+                     Heap Fetches: 1
+                     Virtual Tuples: 0
+                     Invisible Tuples: 0
+                     Exec Method: NumericFastFieldExecState
+                     Fast Fields: id
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+                     Human Readable Query: content:(technology)
+                     Buffers: shared hit=37
+                     Worker 0:  actual time=1.139..1.141 rows=0 loops=1
+                       Buffers: shared hit=13
+         ->  Seq Scan on public.files f  (cost=0.00..18.10 rows=810 width=8) (actual time=0.009..0.010 rows=4 loops=1)
+               Output: f.id, f.document_id, f.filename, f.title
+               Buffers: shared hit=1
+ Planning:
+   Buffers: shared hit=7
+ Planning Time: 0.956 ms
+ Execution Time: 24.124 ms
+(36 rows)
+
+-- Test 5: Verify that results are correct
+SELECT d.title, f.filename, p.content
+FROM documents d
+JOIN files f ON d.id = f.document_id
+JOIN pages p ON f.id = p.file_id
+WHERE d.content @@@ 'technology' 
+  AND f.title @@@ 'report'
+  AND p.content @@@ 'introduction'
+LIMIT 10;
+   title    | filename  |              content              
+------------+-----------+-----------------------------------
+ Document 1 | file1.pdf | Introduction to technology trends
+(1 row)
+
+-- Cleanup
+DROP TABLE pages;
+DROP TABLE files;
+DROP TABLE documents; 

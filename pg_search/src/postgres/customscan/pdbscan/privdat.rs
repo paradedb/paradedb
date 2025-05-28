@@ -46,6 +46,14 @@ pub struct PrivateData {
     referenced_columns_count: usize,
     need_scores: bool,
     exec_method_type: ExecMethodType,
+
+    // JOIN coordination fields
+    /// Whether this table is part of a multi-table query with search predicates
+    is_multi_table_search: bool,
+    /// Total number of tables in the query that have search predicates
+    multi_table_search_count: usize,
+    /// Whether this query has JOIN conditions that could benefit from coordination
+    has_beneficial_joins: bool,
 }
 
 mod var_attname_lookup_serializer {
@@ -214,6 +222,18 @@ impl PrivateData {
     pub fn set_need_scores(&mut self, maybe: bool) {
         self.need_scores = maybe;
     }
+
+    pub fn set_is_multi_table_search(&mut self, is_multi_table_search: bool) {
+        self.is_multi_table_search = is_multi_table_search;
+    }
+
+    pub fn set_multi_table_search_count(&mut self, multi_table_search_count: usize) {
+        self.multi_table_search_count = multi_table_search_count;
+    }
+
+    pub fn set_has_beneficial_joins(&mut self, has_beneficial_joins: bool) {
+        self.has_beneficial_joins = has_beneficial_joins;
+    }
 }
 
 //
@@ -284,5 +304,17 @@ impl PrivateData {
 
     pub fn need_scores(&self) -> bool {
         self.need_scores
+    }
+
+    pub fn is_multi_table_search(&self) -> bool {
+        self.is_multi_table_search
+    }
+
+    pub fn multi_table_search_count(&self) -> usize {
+        self.multi_table_search_count
+    }
+
+    pub fn has_beneficial_joins(&self) -> bool {
+        self.has_beneficial_joins
     }
 }

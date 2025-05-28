@@ -24,7 +24,6 @@ use crate::postgres::customscan::pdbscan::exec_methods::lazy_fields::{
 };
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
-use crate::postgres::utils;
 use crate::schema::SearchIndexSchema;
 use pgrx::{pg_sys, PgList, PgRelation, PgTupleDesc};
 use std::collections::HashMap;

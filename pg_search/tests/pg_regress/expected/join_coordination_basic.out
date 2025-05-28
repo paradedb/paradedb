@@ -90,7 +90,7 @@ INSERT INTO files (document_id, filename, title) VALUES
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 1 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=148613, index_oid=148649
+WARNING:  RTI 1 has BM25 index: table_oid=150146, index_oid=150182
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -101,7 +101,7 @@ WARNING:  Setting multi-table info for RTI 1: multi_table=false, count=0, benefi
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 1 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=148613, index_oid=148649
+WARNING:  RTI 1 has BM25 index: table_oid=150146, index_oid=150182
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -112,7 +112,7 @@ WARNING:  Setting multi-table info for RTI 1: multi_table=false, count=0, benefi
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 1 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=148613, index_oid=148649
+WARNING:  RTI 1 has BM25 index: table_oid=150146, index_oid=150182
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -123,7 +123,7 @@ WARNING:  Setting multi-table info for RTI 1: multi_table=false, count=0, benefi
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 1 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=148613, index_oid=148649
+WARNING:  RTI 1 has BM25 index: table_oid=150146, index_oid=150182
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -140,7 +140,7 @@ INSERT INTO pages (file_id, page_number, content) VALUES
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 1 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=148622, index_oid=148650
+WARNING:  RTI 1 has BM25 index: table_oid=150155, index_oid=150183
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -151,7 +151,7 @@ WARNING:  Setting multi-table info for RTI 1: multi_table=false, count=0, benefi
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 1 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=148622, index_oid=148650
+WARNING:  RTI 1 has BM25 index: table_oid=150155, index_oid=150183
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -162,7 +162,7 @@ WARNING:  Setting multi-table info for RTI 1: multi_table=false, count=0, benefi
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 1 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=148622, index_oid=148650
+WARNING:  RTI 1 has BM25 index: table_oid=150155, index_oid=150183
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -173,7 +173,7 @@ WARNING:  Setting multi-table info for RTI 1: multi_table=false, count=0, benefi
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 1 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=148622, index_oid=148650
+WARNING:  RTI 1 has BM25 index: table_oid=150155, index_oid=150183
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -184,7 +184,7 @@ WARNING:  Setting multi-table info for RTI 1: multi_table=false, count=0, benefi
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 1 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=148622, index_oid=148650
+WARNING:  RTI 1 has BM25 index: table_oid=150155, index_oid=150183
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -201,7 +201,7 @@ LIMIT 10;
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 1 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=148613, index_oid=148649
+WARNING:  RTI 1 has BM25 index: table_oid=150146, index_oid=150182
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -215,10 +215,10 @@ WARNING:    sort_direction: Some(None)
 WARNING:    CHOSEN: TopN (limit=10, sort_direction=None)
                                                                          QUERY PLAN                                                                          
 -------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=10.00..10.05 rows=10 width=36) (actual time=0.863..0.874 rows=1 loops=1)
+ Limit  (cost=10.00..10.05 rows=10 width=36) (actual time=0.822..0.832 rows=1 loops=1)
    Output: id, title
    Buffers: shared hit=37
-   ->  Custom Scan (ParadeDB Scan) on public.documents d  (cost=10.00..10.05 rows=10 width=36) (actual time=0.862..0.873 rows=1 loops=1)
+   ->  Custom Scan (ParadeDB Scan) on public.documents d  (cost=10.00..10.05 rows=10 width=36) (actual time=0.821..0.831 rows=1 loops=1)
          Output: id, title
          Table: documents
          Index: documents_search_idx
@@ -233,9 +233,9 @@ WARNING:    CHOSEN: TopN (limit=10, sort_direction=None)
          Human Readable Query: content:(technology)
          Buffers: shared hit=37
  Planning:
-   Buffers: shared hit=42
- Planning Time: 1.587 ms
- Execution Time: 1.050 ms
+   Buffers: shared hit=36
+ Planning Time: 1.501 ms
+ Execution Time: 1.007 ms
 (21 rows)
 
 -- Test 2: Multi-table query with search predicates and LIMIT (should use JOIN coordination)
@@ -251,14 +251,14 @@ LIMIT 10;
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 5 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=148613, index_oid=148649
+WARNING:  RTI 1 has BM25 index: table_oid=150146, index_oid=150182
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=148622, index_oid=148650
+WARNING:  RTI 2 has BM25 index: table_oid=150155, index_oid=150183
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -267,7 +267,7 @@ WARNING:  RTI 2 HAS search predicates! Total count now: 2
 WARNING:  Examining RTI 3: rtekind = 2
 WARNING:  RTI 3 is not a relation, skipping
 WARNING:  Examining RTI 4: rtekind = 0
-WARNING:  RTI 4 has BM25 index: table_oid=148636, index_oid=148651
+WARNING:  RTI 4 has BM25 index: table_oid=150169, index_oid=150184
 WARNING:    Checking search predicates for RTI 4
 WARNING:    RTI 4 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -293,14 +293,14 @@ WARNING:    CHOSEN: FastFieldNumeric
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 2 ===
 WARNING:  Range table has 5 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=148613, index_oid=148649
+WARNING:  RTI 1 has BM25 index: table_oid=150146, index_oid=150182
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=148622, index_oid=148650
+WARNING:  RTI 2 has BM25 index: table_oid=150155, index_oid=150183
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -309,7 +309,7 @@ WARNING:  RTI 2 HAS search predicates! Total count now: 2
 WARNING:  Examining RTI 3: rtekind = 2
 WARNING:  RTI 3 is not a relation, skipping
 WARNING:  Examining RTI 4: rtekind = 0
-WARNING:  RTI 4 has BM25 index: table_oid=148636, index_oid=148651
+WARNING:  RTI 4 has BM25 index: table_oid=150169, index_oid=150184
 WARNING:    Checking search predicates for RTI 4
 WARNING:    RTI 4 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -335,14 +335,14 @@ WARNING:    CHOSEN: FastFieldNumeric
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 4 ===
 WARNING:  Range table has 5 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=148613, index_oid=148649
+WARNING:  RTI 1 has BM25 index: table_oid=150146, index_oid=150182
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=148622, index_oid=148650
+WARNING:  RTI 2 has BM25 index: table_oid=150155, index_oid=150183
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -351,7 +351,7 @@ WARNING:  RTI 2 HAS search predicates! Total count now: 2
 WARNING:  Examining RTI 3: rtekind = 2
 WARNING:  RTI 3 is not a relation, skipping
 WARNING:  Examining RTI 4: rtekind = 0
-WARNING:  RTI 4 has BM25 index: table_oid=148636, index_oid=148651
+WARNING:  RTI 4 has BM25 index: table_oid=150169, index_oid=150184
 WARNING:    Checking search predicates for RTI 4
 WARNING:    RTI 4 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -381,13 +381,13 @@ WARNING:    outer_has_search: true
 WARNING:    inner_has_search: true
 WARNING:    has_limit: true
 WARNING:    CREATING JOIN COORDINATION PATH!
-WARNING:      RTI 1 maps to table OID 148613
-WARNING:      Found table OID 148613 for RTI 1
-WARNING:    Extracted outer table OID: 148613 (RTI: 1)
-WARNING:      RTI 2 maps to table OID 148622
-WARNING:      Found table OID 148622 for RTI 2
-WARNING:    Extracted inner table OID: 148622 (RTI: 2)
-WARNING:    JOIN private data: {"relation_mapping":{"148622":2,"148613":1},"table_oids":[148613,148622],"limit":10,"join_conditions":"placeholder_join_conditions"}
+WARNING:      RTI 1 maps to table OID 150146
+WARNING:      Found table OID 150146 for RTI 1
+WARNING:    Extracted outer table OID: 150146 (RTI: 1)
+WARNING:      RTI 2 maps to table OID 150155
+WARNING:      Found table OID 150155 for RTI 2
+WARNING:    Extracted inner table OID: 150155 (RTI: 2)
+WARNING:    JOIN private data: {"relation_mapping":{"150146":1,"150155":2},"table_oids":[150146,150155],"limit":10}
 WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=1
 WARNING:    CustomPath created successfully
 WARNING:    SUCCESSFULLY CREATED JOIN COORDINATION PATH!
@@ -398,13 +398,13 @@ WARNING:    outer_has_search: true
 WARNING:    inner_has_search: true
 WARNING:    has_limit: true
 WARNING:    CREATING JOIN COORDINATION PATH!
-WARNING:      RTI 2 maps to table OID 148622
-WARNING:      Found table OID 148622 for RTI 2
-WARNING:    Extracted outer table OID: 148622 (RTI: 2)
-WARNING:      RTI 1 maps to table OID 148613
-WARNING:      Found table OID 148613 for RTI 1
-WARNING:    Extracted inner table OID: 148613 (RTI: 1)
-WARNING:    JOIN private data: {"relation_mapping":{"148613":1,"148622":2},"table_oids":[148622,148613],"limit":10,"join_conditions":"placeholder_join_conditions"}
+WARNING:      RTI 2 maps to table OID 150155
+WARNING:      Found table OID 150155 for RTI 2
+WARNING:    Extracted outer table OID: 150155 (RTI: 2)
+WARNING:      RTI 1 maps to table OID 150146
+WARNING:      Found table OID 150146 for RTI 1
+WARNING:    Extracted inner table OID: 150146 (RTI: 1)
+WARNING:    JOIN private data: {"relation_mapping":{"150146":1,"150155":2},"table_oids":[150155,150146],"limit":10}
 WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=1
 WARNING:    CustomPath created successfully
 WARNING:    SUCCESSFULLY CREATED JOIN COORDINATION PATH!
@@ -415,13 +415,13 @@ WARNING:    outer_has_search: true
 WARNING:    inner_has_search: true
 WARNING:    has_limit: true
 WARNING:    CREATING JOIN COORDINATION PATH!
-WARNING:      RTI 2 maps to table OID 148622
-WARNING:      Found table OID 148622 for RTI 2
-WARNING:    Extracted outer table OID: 148622 (RTI: 2)
-WARNING:      RTI 4 maps to table OID 148636
-WARNING:      Found table OID 148636 for RTI 4
-WARNING:    Extracted inner table OID: 148636 (RTI: 4)
-WARNING:    JOIN private data: {"relation_mapping":{"148636":4,"148622":2},"table_oids":[148622,148636],"limit":10,"join_conditions":"placeholder_join_conditions"}
+WARNING:      RTI 2 maps to table OID 150155
+WARNING:      Found table OID 150155 for RTI 2
+WARNING:    Extracted outer table OID: 150155 (RTI: 2)
+WARNING:      RTI 4 maps to table OID 150169
+WARNING:      Found table OID 150169 for RTI 4
+WARNING:    Extracted inner table OID: 150169 (RTI: 4)
+WARNING:    JOIN private data: {"relation_mapping":{"150169":4,"150155":2},"table_oids":[150155,150169],"limit":10}
 WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=1
 WARNING:    CustomPath created successfully
 WARNING:    SUCCESSFULLY CREATED JOIN COORDINATION PATH!
@@ -432,13 +432,13 @@ WARNING:    outer_has_search: true
 WARNING:    inner_has_search: true
 WARNING:    has_limit: true
 WARNING:    CREATING JOIN COORDINATION PATH!
-WARNING:      RTI 4 maps to table OID 148636
-WARNING:      Found table OID 148636 for RTI 4
-WARNING:    Extracted outer table OID: 148636 (RTI: 4)
-WARNING:      RTI 2 maps to table OID 148622
-WARNING:      Found table OID 148622 for RTI 2
-WARNING:    Extracted inner table OID: 148622 (RTI: 2)
-WARNING:    JOIN private data: {"relation_mapping":{"148622":2,"148636":4},"table_oids":[148636,148622],"limit":10,"join_conditions":"placeholder_join_conditions"}
+WARNING:      RTI 4 maps to table OID 150169
+WARNING:      Found table OID 150169 for RTI 4
+WARNING:    Extracted outer table OID: 150169 (RTI: 4)
+WARNING:      RTI 2 maps to table OID 150155
+WARNING:      Found table OID 150155 for RTI 2
+WARNING:    Extracted inner table OID: 150155 (RTI: 2)
+WARNING:    JOIN private data: {"relation_mapping":{"150169":4,"150155":2},"table_oids":[150169,150155],"limit":10}
 WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=1
 WARNING:    CustomPath created successfully
 WARNING:    SUCCESSFULLY CREATED JOIN COORDINATION PATH!
@@ -467,10 +467,10 @@ WARNING:    outer_has_search: true
 WARNING:    inner_has_search: false
 WARNING:    SKIPPING: Not both relations have search predicates
 WARNING:  === PLANNING JOIN COORDINATION CUSTOM PATH ===
-WARNING:    rel relids: 0x7fe112036500
+WARNING:    rel relids: 0x7fd84b0fe900
 WARNING:    tlist length: 2
-WARNING:    Created CustomScan plan for JOIN coordination
-WARNING:    startup_cost: 1, total_cost: 10, rows: 1
+WARNING:    Failed to parse private data: Failed to parse private data JSON: EOF while parsing a value at line 1 column 0
+WARNING:    Creating fallback CustomScan plan
 ERROR:  variable not found in subplan target list
 -- Test 3: Multi-table query without LIMIT (should NOT use JOIN coordination)
 EXPLAIN (ANALYZE, BUFFERS, VERBOSE)
@@ -482,14 +482,14 @@ WHERE d.content @@@ 'technology'
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=148613, index_oid=148649
+WARNING:  RTI 1 has BM25 index: table_oid=150146, index_oid=150182
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=148622, index_oid=148650
+WARNING:  RTI 2 has BM25 index: table_oid=150155, index_oid=150183
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -515,14 +515,14 @@ WARNING:    CHOSEN: FastFieldNumeric
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 2 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=148613, index_oid=148649
+WARNING:  RTI 1 has BM25 index: table_oid=150146, index_oid=150182
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=148622, index_oid=148650
+WARNING:  RTI 2 has BM25 index: table_oid=150155, index_oid=150183
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -561,19 +561,19 @@ WARNING:    has_limit: false
 WARNING:    SKIPPING: No LIMIT clause
                                                                                QUERY PLAN                                                                                
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Gather  (cost=1020.02..1020.13 rows=1 width=8) (actual time=1.573..18.325 rows=1 loops=1)
+ Gather  (cost=1020.02..1020.13 rows=1 width=8) (actual time=1.390..16.302 rows=1 loops=1)
    Output: d.id, f.id
    Workers Planned: 1
    Workers Launched: 1
    Buffers: shared hit=136
-   ->  Parallel Hash Join  (cost=20.02..20.03 rows=1 width=8) (actual time=0.637..0.651 rows=0 loops=2)
+   ->  Parallel Hash Join  (cost=20.02..20.03 rows=1 width=8) (actual time=0.561..0.574 rows=0 loops=2)
          Output: d.id, f.id
          Inner Unique: true
          Hash Cond: (f.document_id = d.id)
          Buffers: shared hit=110
-         Worker 0:  actual time=0.559..0.562 rows=0 loops=1
+         Worker 0:  actual time=0.478..0.482 rows=0 loops=1
            Buffers: shared hit=62
-         ->  Parallel Custom Scan (ParadeDB Scan) on public.files f  (cost=10.00..10.01 rows=1 width=8) (actual time=0.287..0.294 rows=1 loops=1)
+         ->  Parallel Custom Scan (ParadeDB Scan) on public.files f  (cost=10.00..10.01 rows=1 width=8) (actual time=0.282..0.289 rows=1 loops=1)
                Output: f.id, f.document_id
                Table: files
                Index: files_search_idx
@@ -587,12 +587,12 @@ WARNING:    SKIPPING: No LIMIT clause
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"report","lenient":null,"conjunction_mode":null}}}}
                Human Readable Query: title:(report)
                Buffers: shared hit=24
-         ->  Parallel Hash  (cost=10.01..10.01 rows=1 width=4) (actual time=0.208..0.209 rows=0 loops=2)
+         ->  Parallel Hash  (cost=10.01..10.01 rows=1 width=4) (actual time=0.174..0.174 rows=0 loops=2)
                Output: d.id
                Buckets: 1024  Batches: 1  Memory Usage: 40kB
                Buffers: shared hit=24
-               Worker 0:  actual time=0.019..0.019 rows=0 loops=1
-               ->  Parallel Custom Scan (ParadeDB Scan) on public.documents d  (cost=10.00..10.01 rows=1 width=4) (actual time=0.382..0.389 rows=1 loops=1)
+               Worker 0:  actual time=0.016..0.016 rows=0 loops=1
+               ->  Parallel Custom Scan (ParadeDB Scan) on public.documents d  (cost=10.00..10.01 rows=1 width=4) (actual time=0.318..0.325 rows=1 loops=1)
                      Output: d.id
                      Table: documents
                      Index: documents_search_idx
@@ -608,8 +608,8 @@ WARNING:    SKIPPING: No LIMIT clause
                      Buffers: shared hit=24
  Planning:
    Buffers: shared hit=14
- Planning Time: 3.715 ms
- Execution Time: 18.972 ms
+ Planning Time: 2.616 ms
+ Execution Time: 16.892 ms
 (49 rows)
 
 -- Test 4: Multi-table query with only one search predicate (should NOT use JOIN coordination)
@@ -622,14 +622,14 @@ LIMIT 10;
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 3 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=148613, index_oid=148649
+WARNING:  RTI 1 has BM25 index: table_oid=150146, index_oid=150182
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=148622, index_oid=148650
+WARNING:  RTI 2 has BM25 index: table_oid=150155, index_oid=150183
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 0 base restrict info entries
 WARNING:    RTI 2 has NO search operators
@@ -664,20 +664,20 @@ WARNING:    inner_has_search: true
 WARNING:    SKIPPING: Not both relations have search predicates
                                                                                QUERY PLAN                                                                                
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=1010.00..1038.33 rows=1 width=8) (actual time=0.826..17.233 rows=2 loops=1)
+ Limit  (cost=1010.00..1038.33 rows=1 width=8) (actual time=0.774..17.158 rows=2 loops=1)
    Output: d.id, f.id
    Buffers: shared hit=51
-   ->  Nested Loop  (cost=1010.00..1038.33 rows=1 width=8) (actual time=0.825..17.231 rows=2 loops=1)
+   ->  Nested Loop  (cost=1010.00..1038.33 rows=1 width=8) (actual time=0.773..17.156 rows=2 loops=1)
          Output: d.id, f.id
          Join Filter: (d.id = f.document_id)
          Rows Removed by Join Filter: 2
          Buffers: shared hit=51
-         ->  Gather  (cost=1010.00..1010.11 rows=1 width=4) (actual time=0.815..17.218 rows=1 loops=1)
+         ->  Gather  (cost=1010.00..1010.11 rows=1 width=4) (actual time=0.763..17.143 rows=1 loops=1)
                Output: d.id
                Workers Planned: 1
                Workers Launched: 1
                Buffers: shared hit=50
-               ->  Parallel Custom Scan (ParadeDB Scan) on public.documents d  (cost=10.00..10.01 rows=1 width=4) (actual time=0.568..0.574 rows=0 loops=2)
+               ->  Parallel Custom Scan (ParadeDB Scan) on public.documents d  (cost=10.00..10.01 rows=1 width=4) (actual time=0.553..0.559 rows=0 loops=2)
                      Output: d.id
                      Table: documents
                      Index: documents_search_idx
@@ -691,15 +691,15 @@ WARNING:    SKIPPING: Not both relations have search predicates
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
                      Human Readable Query: content:(technology)
                      Buffers: shared hit=37
-                     Worker 0:  actual time=0.754..0.756 rows=0 loops=1
+                     Worker 0:  actual time=0.749..0.752 rows=0 loops=1
                        Buffers: shared hit=13
-         ->  Seq Scan on public.files f  (cost=0.00..18.10 rows=810 width=8) (actual time=0.008..0.009 rows=4 loops=1)
+         ->  Seq Scan on public.files f  (cost=0.00..18.10 rows=810 width=8) (actual time=0.007..0.008 rows=4 loops=1)
                Output: f.id, f.document_id, f.filename, f.title
                Buffers: shared hit=1
  Planning:
    Buffers: shared hit=7
- Planning Time: 1.837 ms
- Execution Time: 17.565 ms
+ Planning Time: 1.588 ms
+ Execution Time: 17.478 ms
 (36 rows)
 
 -- Test 5: Verify that results are correct
@@ -714,14 +714,14 @@ LIMIT 10;
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 1 ===
 WARNING:  Range table has 5 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=148613, index_oid=148649
+WARNING:  RTI 1 has BM25 index: table_oid=150146, index_oid=150182
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=148622, index_oid=148650
+WARNING:  RTI 2 has BM25 index: table_oid=150155, index_oid=150183
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -730,7 +730,7 @@ WARNING:  RTI 2 HAS search predicates! Total count now: 2
 WARNING:  Examining RTI 3: rtekind = 2
 WARNING:  RTI 3 is not a relation, skipping
 WARNING:  Examining RTI 4: rtekind = 0
-WARNING:  RTI 4 has BM25 index: table_oid=148636, index_oid=148651
+WARNING:  RTI 4 has BM25 index: table_oid=150169, index_oid=150184
 WARNING:    Checking search predicates for RTI 4
 WARNING:    RTI 4 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -756,14 +756,14 @@ WARNING:    CHOSEN: FastFieldNumeric
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 2 ===
 WARNING:  Range table has 5 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=148613, index_oid=148649
+WARNING:  RTI 1 has BM25 index: table_oid=150146, index_oid=150182
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=148622, index_oid=148650
+WARNING:  RTI 2 has BM25 index: table_oid=150155, index_oid=150183
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -772,7 +772,7 @@ WARNING:  RTI 2 HAS search predicates! Total count now: 2
 WARNING:  Examining RTI 3: rtekind = 2
 WARNING:  RTI 3 is not a relation, skipping
 WARNING:  Examining RTI 4: rtekind = 0
-WARNING:  RTI 4 has BM25 index: table_oid=148636, index_oid=148651
+WARNING:  RTI 4 has BM25 index: table_oid=150169, index_oid=150184
 WARNING:    Checking search predicates for RTI 4
 WARNING:    RTI 4 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -798,14 +798,14 @@ WARNING:    CHOSEN: FastFieldNumeric
 WARNING:  === JOIN COORDINATION DEBUG: analyze_multi_table_search_scenario called for RTI 4 ===
 WARNING:  Range table has 5 entries
 WARNING:  Examining RTI 1: rtekind = 0
-WARNING:  RTI 1 has BM25 index: table_oid=148613, index_oid=148649
+WARNING:  RTI 1 has BM25 index: table_oid=150146, index_oid=150182
 WARNING:    Checking search predicates for RTI 1
 WARNING:    RTI 1 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
 WARNING:    RTI 1 FOUND search operator in restrict info 0
 WARNING:  RTI 1 HAS search predicates! Total count now: 1
 WARNING:  Examining RTI 2: rtekind = 0
-WARNING:  RTI 2 has BM25 index: table_oid=148622, index_oid=148650
+WARNING:  RTI 2 has BM25 index: table_oid=150155, index_oid=150183
 WARNING:    Checking search predicates for RTI 2
 WARNING:    RTI 2 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -814,7 +814,7 @@ WARNING:  RTI 2 HAS search predicates! Total count now: 2
 WARNING:  Examining RTI 3: rtekind = 2
 WARNING:  RTI 3 is not a relation, skipping
 WARNING:  Examining RTI 4: rtekind = 0
-WARNING:  RTI 4 has BM25 index: table_oid=148636, index_oid=148651
+WARNING:  RTI 4 has BM25 index: table_oid=150169, index_oid=150184
 WARNING:    Checking search predicates for RTI 4
 WARNING:    RTI 4 has 1 base restrict info entries
 WARNING:      Checking restrict info 0
@@ -844,13 +844,13 @@ WARNING:    outer_has_search: true
 WARNING:    inner_has_search: true
 WARNING:    has_limit: true
 WARNING:    CREATING JOIN COORDINATION PATH!
-WARNING:      RTI 1 maps to table OID 148613
-WARNING:      Found table OID 148613 for RTI 1
-WARNING:    Extracted outer table OID: 148613 (RTI: 1)
-WARNING:      RTI 2 maps to table OID 148622
-WARNING:      Found table OID 148622 for RTI 2
-WARNING:    Extracted inner table OID: 148622 (RTI: 2)
-WARNING:    JOIN private data: {"relation_mapping":{"148622":2,"148613":1},"table_oids":[148613,148622],"limit":10,"join_conditions":"placeholder_join_conditions"}
+WARNING:      RTI 1 maps to table OID 150146
+WARNING:      Found table OID 150146 for RTI 1
+WARNING:    Extracted outer table OID: 150146 (RTI: 1)
+WARNING:      RTI 2 maps to table OID 150155
+WARNING:      Found table OID 150155 for RTI 2
+WARNING:    Extracted inner table OID: 150155 (RTI: 2)
+WARNING:    JOIN private data: {"relation_mapping":{"150146":1,"150155":2},"table_oids":[150146,150155],"limit":10}
 WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=1
 WARNING:    CustomPath created successfully
 WARNING:    SUCCESSFULLY CREATED JOIN COORDINATION PATH!
@@ -861,13 +861,13 @@ WARNING:    outer_has_search: true
 WARNING:    inner_has_search: true
 WARNING:    has_limit: true
 WARNING:    CREATING JOIN COORDINATION PATH!
-WARNING:      RTI 2 maps to table OID 148622
-WARNING:      Found table OID 148622 for RTI 2
-WARNING:    Extracted outer table OID: 148622 (RTI: 2)
-WARNING:      RTI 1 maps to table OID 148613
-WARNING:      Found table OID 148613 for RTI 1
-WARNING:    Extracted inner table OID: 148613 (RTI: 1)
-WARNING:    JOIN private data: {"relation_mapping":{"148613":1,"148622":2},"table_oids":[148622,148613],"limit":10,"join_conditions":"placeholder_join_conditions"}
+WARNING:      RTI 2 maps to table OID 150155
+WARNING:      Found table OID 150155 for RTI 2
+WARNING:    Extracted outer table OID: 150155 (RTI: 2)
+WARNING:      RTI 1 maps to table OID 150146
+WARNING:      Found table OID 150146 for RTI 1
+WARNING:    Extracted inner table OID: 150146 (RTI: 1)
+WARNING:    JOIN private data: {"relation_mapping":{"150146":1,"150155":2},"table_oids":[150155,150146],"limit":10}
 WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=1
 WARNING:    CustomPath created successfully
 WARNING:    SUCCESSFULLY CREATED JOIN COORDINATION PATH!
@@ -878,13 +878,13 @@ WARNING:    outer_has_search: true
 WARNING:    inner_has_search: true
 WARNING:    has_limit: true
 WARNING:    CREATING JOIN COORDINATION PATH!
-WARNING:      RTI 2 maps to table OID 148622
-WARNING:      Found table OID 148622 for RTI 2
-WARNING:    Extracted outer table OID: 148622 (RTI: 2)
-WARNING:      RTI 4 maps to table OID 148636
-WARNING:      Found table OID 148636 for RTI 4
-WARNING:    Extracted inner table OID: 148636 (RTI: 4)
-WARNING:    JOIN private data: {"relation_mapping":{"148636":4,"148622":2},"table_oids":[148622,148636],"limit":10,"join_conditions":"placeholder_join_conditions"}
+WARNING:      RTI 2 maps to table OID 150155
+WARNING:      Found table OID 150155 for RTI 2
+WARNING:    Extracted outer table OID: 150155 (RTI: 2)
+WARNING:      RTI 4 maps to table OID 150169
+WARNING:      Found table OID 150169 for RTI 4
+WARNING:    Extracted inner table OID: 150169 (RTI: 4)
+WARNING:    JOIN private data: {"relation_mapping":{"150169":4,"150155":2},"table_oids":[150155,150169],"limit":10}
 WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=1
 WARNING:    CustomPath created successfully
 WARNING:    SUCCESSFULLY CREATED JOIN COORDINATION PATH!
@@ -895,13 +895,13 @@ WARNING:    outer_has_search: true
 WARNING:    inner_has_search: true
 WARNING:    has_limit: true
 WARNING:    CREATING JOIN COORDINATION PATH!
-WARNING:      RTI 4 maps to table OID 148636
-WARNING:      Found table OID 148636 for RTI 4
-WARNING:    Extracted outer table OID: 148636 (RTI: 4)
-WARNING:      RTI 2 maps to table OID 148622
-WARNING:      Found table OID 148622 for RTI 2
-WARNING:    Extracted inner table OID: 148622 (RTI: 2)
-WARNING:    JOIN private data: {"relation_mapping":{"148622":2,"148636":4},"table_oids":[148636,148622],"limit":10,"join_conditions":"placeholder_join_conditions"}
+WARNING:      RTI 4 maps to table OID 150169
+WARNING:      Found table OID 150169 for RTI 4
+WARNING:    Extracted outer table OID: 150169 (RTI: 4)
+WARNING:      RTI 2 maps to table OID 150155
+WARNING:      Found table OID 150155 for RTI 2
+WARNING:    Extracted inner table OID: 150155 (RTI: 2)
+WARNING:    JOIN private data: {"relation_mapping":{"150169":4,"150155":2},"table_oids":[150169,150155],"limit":10}
 WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=1
 WARNING:    CustomPath created successfully
 WARNING:    SUCCESSFULLY CREATED JOIN COORDINATION PATH!
@@ -930,10 +930,10 @@ WARNING:    outer_has_search: true
 WARNING:    inner_has_search: false
 WARNING:    SKIPPING: Not both relations have search predicates
 WARNING:  === PLANNING JOIN COORDINATION CUSTOM PATH ===
-WARNING:    rel relids: 0x7fe108075ad8
+WARNING:    rel relids: 0x7fd85027dad8
 WARNING:    tlist length: 3
-WARNING:    Created CustomScan plan for JOIN coordination
-WARNING:    startup_cost: 1, total_cost: 10, rows: 1
+WARNING:    Failed to parse private data: Failed to parse private data JSON: EOF while parsing a value at line 1 column 0
+WARNING:    Creating fallback CustomScan plan
 ERROR:  variable not found in subplan target list
 -- Cleanup
 DROP TABLE pages;

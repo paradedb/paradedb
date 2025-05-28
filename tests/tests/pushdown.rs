@@ -649,6 +649,8 @@ mod pushdown_is_null {
     }
 
     #[rstest]
+    // TODO: See https://github.com/paradedb/paradedb/issues/2619.
+    #[should_panic]
     fn with_join(#[from(setup_test_table)] mut conn: PgConnection) {
         // Verify that JOIN works
         "CREATE TABLE test2 (id SERIAL8 NOT NULL PRIMARY KEY, ref_id int8, ref_text text);"

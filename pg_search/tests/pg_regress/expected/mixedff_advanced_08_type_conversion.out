@@ -5,6 +5,9 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
 SET paradedb.enable_mixed_fast_field_exec = true;
+-- The `advanced` tests allow any number of columns to be used with fast fields, in order to test
+-- more permutations of selected columns.
+SET paradedb.mixed_fast_field_exec_column_threshold = 100;
 -- Drop any existing test tables from this group
 DROP TABLE IF EXISTS documents CASCADE;
 DROP TABLE IF EXISTS files CASCADE; 
@@ -36,7 +39,7 @@ CREATE INDEX mixed_test_search ON mixed_numeric_string_test USING bm25 (
     text_fields = '{"string_field1": {"tokenizer": {"type": "default"}, "fast": true}, "string_field2": {"tokenizer": {"type": "default"}, "fast": true}, "string_field3": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
     numeric_fields = '{"numeric_field1": {"fast": true}, "numeric_field2": {"fast": true}}'
 );
-psql:common/mixedff_advanced_setup.sql:40: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_advanced_setup.sql:43: WARNING:  the `raw` tokenizer is deprecated
 -- Insert test data
 INSERT INTO mixed_numeric_string_test (id, numeric_field1, numeric_field2, string_field1, string_field2, string_field3, content) VALUES
 ('mix1', 100, 10000, 'Apple', 'Red', 'Fruit', 'This is a red apple'),
@@ -107,7 +110,7 @@ CREATE INDEX documents_search ON documents USING bm25 (
     key_field = 'id',
     text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "parents": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
-psql:common/mixedff_advanced_setup.sql:116: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_advanced_setup.sql:119: WARNING:  the `raw` tokenizer is deprecated
 CREATE INDEX files_search ON files USING bm25 (
     id,
     documentId,
@@ -117,7 +120,7 @@ CREATE INDEX files_search ON files USING bm25 (
     key_field = 'id',
     text_fields = '{"documentid": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "file_path": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
-psql:common/mixedff_advanced_setup.sql:126: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_advanced_setup.sql:129: WARNING:  the `raw` tokenizer is deprecated
 CREATE INDEX pages_search ON pages USING bm25 (
     id,
     fileId,
@@ -128,7 +131,7 @@ CREATE INDEX pages_search ON pages USING bm25 (
     text_fields = '{"fileid": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
     numeric_fields = '{"page_number": {"fast": true}}'
 );
-psql:common/mixedff_advanced_setup.sql:137: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_advanced_setup.sql:140: WARNING:  the `raw` tokenizer is deprecated
 -- Insert sample data
 INSERT INTO documents (id, title, content, parents) VALUES
 ('doc1', 'Invoice 2023', 'This is an invoice for services rendered in 2023', 'Factures'),
@@ -232,7 +235,7 @@ CREATE INDEX conversion_search ON conversion_test USING bm25 (
     }',
     boolean_fields = '{"bool_from_int": {"fast": true}}'
 );
-psql:common/mixedff_advanced_setup.sql:251: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_advanced_setup.sql:254: WARNING:  the `raw` tokenizer is deprecated
 INSERT INTO conversion_test VALUES
 ('conv1', 32767, 2147483647, 9223372036854775807, 9999999.99, 3.402e38, 1.7976931348623157e308, true, '1988-04-29', 'conversion test'),
 ('conv2', -32768, -2147483648, -9223372036854775808, -9999999.99, -3.402e38, -1.7976931348623157e308, false, '1999-12-31', 'conversion test'),
@@ -459,6 +462,7 @@ DROP TABLE IF EXISTS union_test_b CASCADE;
 RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;
 RESET paradedb.enable_mixed_fast_field_exec;
+RESET paradedb.mixed_fast_field_exec_column_threshold;
 SELECT 'Advanced features tests cleanup complete' AS status; 
                   status                  
 ------------------------------------------

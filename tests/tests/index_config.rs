@@ -1010,10 +1010,11 @@ fn non_partitioned_no_order_by_limit_pushdown(mut conn: PgConnection) {
     .collect::<Vec<String>>()
     .join("\n");
 
-    // Verify NumericFastFieldExecState is used (not TopNScanExecState)
+    // Verify NormalScanExecState is used. We can't use TopN because there the limit occurs _after_
+    // the union. And we can't use fast fields, because there are non-fast fields.
     assert!(
-        explain_output.contains("NumericFastFieldExecState"),
-        "Expected NumericFastFieldExecState in the execution plan"
+        explain_output.contains("NormalScanExecState"),
+        "Expected NormalScanExecState in the execution plan"
     );
 
     assert!(

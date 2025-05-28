@@ -5,6 +5,9 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
 SET paradedb.enable_mixed_fast_field_exec = true;
+-- The `basic` tests allow any number of columns to be used with fast fields, in order to test
+-- more permutations of selected columns.
+SET paradedb.mixed_fast_field_exec_column_threshold = 100;
 -- Drop any existing test tables from this group
 DROP TABLE IF EXISTS mixed_numeric_string_test CASCADE;
 -- Create test table for mixed numeric/string testing
@@ -31,7 +34,7 @@ CREATE INDEX mixed_test_search ON mixed_numeric_string_test USING bm25 (
     text_fields = '{"string_field1": {"tokenizer": {"type": "default"}, "fast": true}, "string_field2": {"tokenizer": {"type": "default"}, "fast": true}, "string_field3": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
     numeric_fields = '{"numeric_field1": {"fast": true}, "numeric_field2": {"fast": true}}'
 );
-psql:common/mixedff_basic_setup.sql:34: WARNING:  the `raw` tokenizer is deprecated
+psql:common/mixedff_basic_setup.sql:38: WARNING:  the `raw` tokenizer is deprecated
 -- Insert sample data
 INSERT INTO mixed_numeric_string_test (id, numeric_field1, numeric_field2, string_field1, string_field2, string_field3, content) VALUES
 ('mix1', 100, 10000, 'Apple', 'Red', 'Fruit', 'This is a red apple'),
@@ -79,6 +82,7 @@ DROP TABLE IF EXISTS mixed_numeric_string_test CASCADE;
 RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;
 RESET paradedb.enable_mixed_fast_field_exec;
+RESET paradedb.mixed_fast_field_exec_column_threshold;
 SELECT 'Basic tests cleanup complete' AS status; 
             status            
 ------------------------------

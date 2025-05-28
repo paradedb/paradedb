@@ -217,7 +217,11 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: no_match_docs, inner: no_match_files
-WARNING:  ParadeDB: Found join keys via pattern matching: no_match_docs.id = no_match_files.document_id
+WARNING:  ParadeDB: Determining join keys for relations no_match_docs and no_match_files using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("no_match_docs"), RTI 2 to relid Some("no_match_files")
+WARNING:  ParadeDB: Found matching join condition: no_match_docs.id = no_match_files.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation no_match_docs with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation no_match_files with CTID 1
@@ -281,7 +285,11 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: no_match_docs, inner: no_match_files
-WARNING:  ParadeDB: Found join keys via pattern matching: no_match_docs.id = no_match_files.document_id
+WARNING:  ParadeDB: Determining join keys for relations no_match_docs and no_match_files using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("no_match_docs"), RTI 2 to relid Some("no_match_files")
+WARNING:  ParadeDB: Found matching join condition: no_match_docs.id = no_match_files.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation no_match_docs with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation no_match_files with CTID 2
@@ -290,7 +298,11 @@ WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: no_match_docs, inner: no_match_files
-WARNING:  ParadeDB: Found join keys via pattern matching: no_match_docs.id = no_match_files.document_id
+WARNING:  ParadeDB: Determining join keys for relations no_match_docs and no_match_files using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("no_match_docs"), RTI 2 to relid Some("no_match_files")
+WARNING:  ParadeDB: Found matching join condition: no_match_docs.id = no_match_files.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation no_match_docs with CTID 2
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation no_match_files with CTID 1
@@ -299,7 +311,11 @@ WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[0] (ctid 1) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: no_match_docs, inner: no_match_files
-WARNING:  ParadeDB: Found join keys via pattern matching: no_match_docs.id = no_match_files.document_id
+WARNING:  ParadeDB: Determining join keys for relations no_match_docs and no_match_files using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("no_match_docs"), RTI 2 to relid Some("no_match_files")
+WARNING:  ParadeDB: Found matching join condition: no_match_docs.id = no_match_files.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation no_match_docs with CTID 2
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation no_match_files with CTID 2
@@ -489,7 +505,11 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: mismatch_docs, inner: mismatch_files
-WARNING:  ParadeDB: Found join keys via pattern matching: mismatch_docs.id = mismatch_files.document_id
+WARNING:  ParadeDB: Determining join keys for relations mismatch_docs and mismatch_files using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("mismatch_docs"), RTI 2 to relid Some("mismatch_files")
+WARNING:  ParadeDB: Found matching join condition: mismatch_docs.id = mismatch_files.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation mismatch_docs with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation mismatch_files with CTID 1
@@ -498,7 +518,11 @@ WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [1]
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: mismatch_docs, inner: mismatch_files
-WARNING:  ParadeDB: Found join keys via pattern matching: mismatch_docs.id = mismatch_files.document_id
+WARNING:  ParadeDB: Determining join keys for relations mismatch_docs and mismatch_files using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("mismatch_docs"), RTI 2 to relid Some("mismatch_files")
+WARNING:  ParadeDB: Found matching join condition: mismatch_docs.id = mismatch_files.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation mismatch_docs with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation mismatch_files with CTID 2
@@ -507,7 +531,11 @@ WARNING:  ParadeDB: Iteration 2: outer[0] (ctid 1) × inner[1] (ctid 2) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: mismatch_docs, inner: mismatch_files
-WARNING:  ParadeDB: Found join keys via pattern matching: mismatch_docs.id = mismatch_files.document_id
+WARNING:  ParadeDB: Determining join keys for relations mismatch_docs and mismatch_files using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("mismatch_docs"), RTI 2 to relid Some("mismatch_files")
+WARNING:  ParadeDB: Found matching join condition: mismatch_docs.id = mismatch_files.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation mismatch_docs with CTID 2
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation mismatch_files with CTID 1
@@ -516,7 +544,11 @@ WARNING:  ParadeDB: Iteration 3: outer[1] (ctid 2) × inner[0] (ctid 1) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: mismatch_docs, inner: mismatch_files
-WARNING:  ParadeDB: Found join keys via pattern matching: mismatch_docs.id = mismatch_files.document_id
+WARNING:  ParadeDB: Determining join keys for relations mismatch_docs and mismatch_files using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("mismatch_docs"), RTI 2 to relid Some("mismatch_files")
+WARNING:  ParadeDB: Found matching join condition: mismatch_docs.id = mismatch_files.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation mismatch_docs with CTID 2
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation mismatch_files with CTID 2
@@ -659,7 +691,11 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: large_docs, inner: large_files
-WARNING:  ParadeDB: Found join keys via pattern matching: large_docs.id = large_files.document_id
+WARNING:  ParadeDB: Determining join keys for relations large_docs and large_files using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("large_docs"), RTI 2 to relid Some("large_files")
+WARNING:  ParadeDB: Found matching join condition: large_docs.id = large_files.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation large_docs with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation large_files with CTID 1
@@ -668,7 +704,11 @@ WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [1]
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: large_docs, inner: large_files
-WARNING:  ParadeDB: Found join keys via pattern matching: large_docs.id = large_files.document_id
+WARNING:  ParadeDB: Determining join keys for relations large_docs and large_files using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("large_docs"), RTI 2 to relid Some("large_files")
+WARNING:  ParadeDB: Found matching join condition: large_docs.id = large_files.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation large_docs with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation large_files with CTID 2
@@ -677,7 +717,11 @@ WARNING:  ParadeDB: Iteration 2: outer[0] (ctid 1) × inner[1] (ctid 2) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: large_docs, inner: large_files
-WARNING:  ParadeDB: Found join keys via pattern matching: large_docs.id = large_files.document_id
+WARNING:  ParadeDB: Determining join keys for relations large_docs and large_files using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("large_docs"), RTI 2 to relid Some("large_files")
+WARNING:  ParadeDB: Found matching join condition: large_docs.id = large_files.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation large_docs with CTID 2
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation large_files with CTID 1
@@ -741,7 +785,11 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: large_docs, inner: large_files
-WARNING:  ParadeDB: Found join keys via pattern matching: large_docs.id = large_files.document_id
+WARNING:  ParadeDB: Determining join keys for relations large_docs and large_files using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("large_docs"), RTI 2 to relid Some("large_files")
+WARNING:  ParadeDB: Found matching join condition: large_docs.id = large_files.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation large_docs with CTID 2
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation large_files with CTID 2
@@ -880,7 +928,11 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_docs, inner: complex_files
-WARNING:  ParadeDB: Found join keys via pattern matching: complex_docs.id = complex_files.document_id
+WARNING:  ParadeDB: Determining join keys for relations complex_docs and complex_files using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_docs"), RTI 2 to relid Some("complex_files")
+WARNING:  ParadeDB: Found matching join condition: complex_docs.id = complex_files.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_docs with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation complex_files with CTID 1
@@ -944,7 +996,11 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_docs, inner: complex_files
-WARNING:  ParadeDB: Found join keys via pattern matching: complex_docs.id = complex_files.document_id
+WARNING:  ParadeDB: Determining join keys for relations complex_docs and complex_files using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_docs"), RTI 2 to relid Some("complex_files")
+WARNING:  ParadeDB: Found matching join condition: complex_docs.id = complex_files.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_docs with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation complex_files with CTID 2
@@ -953,7 +1009,11 @@ WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_docs, inner: complex_files
-WARNING:  ParadeDB: Found join keys via pattern matching: complex_docs.id = complex_files.document_id
+WARNING:  ParadeDB: Determining join keys for relations complex_docs and complex_files using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_docs"), RTI 2 to relid Some("complex_files")
+WARNING:  ParadeDB: Found matching join condition: complex_docs.id = complex_files.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_docs with CTID 2
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation complex_files with CTID 1
@@ -962,7 +1022,11 @@ WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[0] (ctid 1) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_docs, inner: complex_files
-WARNING:  ParadeDB: Found join keys via pattern matching: complex_docs.id = complex_files.document_id
+WARNING:  ParadeDB: Determining join keys for relations complex_docs and complex_files using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_docs"), RTI 2 to relid Some("complex_files")
+WARNING:  ParadeDB: Found matching join condition: complex_docs.id = complex_files.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_docs with CTID 2
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation complex_files with CTID 2
@@ -1116,7 +1180,11 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_docs, inner: complex_files
-WARNING:  ParadeDB: Found join keys via pattern matching: complex_docs.id = complex_files.document_id
+WARNING:  ParadeDB: Determining join keys for relations complex_docs and complex_files using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_docs"), RTI 2 to relid Some("complex_files")
+WARNING:  ParadeDB: Found matching join condition: complex_docs.id = complex_files.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_docs with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation complex_files with CTID 1
@@ -1180,7 +1248,11 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_docs, inner: complex_files
-WARNING:  ParadeDB: Found join keys via pattern matching: complex_docs.id = complex_files.document_id
+WARNING:  ParadeDB: Determining join keys for relations complex_docs and complex_files using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_docs"), RTI 2 to relid Some("complex_files")
+WARNING:  ParadeDB: Found matching join condition: complex_docs.id = complex_files.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_docs with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation complex_files with CTID 2
@@ -1189,7 +1261,11 @@ WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_docs, inner: complex_files
-WARNING:  ParadeDB: Found join keys via pattern matching: complex_docs.id = complex_files.document_id
+WARNING:  ParadeDB: Determining join keys for relations complex_docs and complex_files using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_docs"), RTI 2 to relid Some("complex_files")
+WARNING:  ParadeDB: Found matching join condition: complex_docs.id = complex_files.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_docs with CTID 2
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation complex_files with CTID 1
@@ -1198,7 +1274,11 @@ WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[0] (ctid 1) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_docs, inner: complex_files
-WARNING:  ParadeDB: Found join keys via pattern matching: complex_docs.id = complex_files.document_id
+WARNING:  ParadeDB: Determining join keys for relations complex_docs and complex_files using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_docs"), RTI 2 to relid Some("complex_files")
+WARNING:  ParadeDB: Found matching join condition: complex_docs.id = complex_files.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_docs with CTID 2
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation complex_files with CTID 2

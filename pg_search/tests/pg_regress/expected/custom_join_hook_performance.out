@@ -146,7 +146,11 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Found join keys via pattern matching: documents_perf.id = tags_perf.document_id
+WARNING:  ParadeDB: Determining join keys for relations documents_perf and tags_perf using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("documents_perf"), RTI 2 to relid Some("tags_perf")
+WARNING:  ParadeDB: Found matching join condition: documents_perf.id = tags_perf.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation documents_perf with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation tags_perf with CTID 1
@@ -155,7 +159,11 @@ WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [1]
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Found join keys via pattern matching: documents_perf.id = tags_perf.document_id
+WARNING:  ParadeDB: Determining join keys for relations documents_perf and tags_perf using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("documents_perf"), RTI 2 to relid Some("tags_perf")
+WARNING:  ParadeDB: Found matching join condition: documents_perf.id = tags_perf.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation documents_perf with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation tags_perf with CTID 2
@@ -164,7 +172,11 @@ WARNING:  ParadeDB: Iteration 2: outer[0] (ctid 1) × inner[1] (ctid 2) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Found join keys via pattern matching: documents_perf.id = tags_perf.document_id
+WARNING:  ParadeDB: Determining join keys for relations documents_perf and tags_perf using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("documents_perf"), RTI 2 to relid Some("tags_perf")
+WARNING:  ParadeDB: Found matching join condition: documents_perf.id = tags_perf.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation documents_perf with CTID 2
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation tags_perf with CTID 1
@@ -199,7 +211,11 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Found join keys via pattern matching: documents_perf.id = tags_perf.document_id
+WARNING:  ParadeDB: Determining join keys for relations documents_perf and tags_perf using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("documents_perf"), RTI 2 to relid Some("tags_perf")
+WARNING:  ParadeDB: Found matching join condition: documents_perf.id = tags_perf.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation documents_perf with CTID 2
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation tags_perf with CTID 2
@@ -301,7 +317,11 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Found join keys via pattern matching: documents_perf.id = tags_perf.document_id
+WARNING:  ParadeDB: Determining join keys for relations documents_perf and tags_perf using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("documents_perf"), RTI 2 to relid Some("tags_perf")
+WARNING:  ParadeDB: Found matching join condition: documents_perf.id = tags_perf.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation documents_perf with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation tags_perf with CTID 1
@@ -310,7 +330,11 @@ WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [1]
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Found join keys via pattern matching: documents_perf.id = tags_perf.document_id
+WARNING:  ParadeDB: Determining join keys for relations documents_perf and tags_perf using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("documents_perf"), RTI 2 to relid Some("tags_perf")
+WARNING:  ParadeDB: Found matching join condition: documents_perf.id = tags_perf.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation documents_perf with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation tags_perf with CTID 2
@@ -319,7 +343,11 @@ WARNING:  ParadeDB: Iteration 2: outer[0] (ctid 1) × inner[1] (ctid 2) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Found join keys via pattern matching: documents_perf.id = tags_perf.document_id
+WARNING:  ParadeDB: Determining join keys for relations documents_perf and tags_perf using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("documents_perf"), RTI 2 to relid Some("tags_perf")
+WARNING:  ParadeDB: Found matching join condition: documents_perf.id = tags_perf.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation documents_perf with CTID 2
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation tags_perf with CTID 1
@@ -384,7 +412,11 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Found join keys via pattern matching: documents_perf.id = tags_perf.document_id
+WARNING:  ParadeDB: Determining join keys for relations documents_perf and tags_perf using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("documents_perf"), RTI 2 to relid Some("tags_perf")
+WARNING:  ParadeDB: Found matching join condition: documents_perf.id = tags_perf.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation documents_perf with CTID 2
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation tags_perf with CTID 2
@@ -479,7 +511,11 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Found join keys via pattern matching: documents_perf.id = tags_perf.document_id
+WARNING:  ParadeDB: Determining join keys for relations documents_perf and tags_perf using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("documents_perf"), RTI 2 to relid Some("tags_perf")
+WARNING:  ParadeDB: Found matching join condition: documents_perf.id = tags_perf.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation documents_perf with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation tags_perf with CTID 1
@@ -488,7 +524,11 @@ WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [1]
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Found join keys via pattern matching: documents_perf.id = tags_perf.document_id
+WARNING:  ParadeDB: Determining join keys for relations documents_perf and tags_perf using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("documents_perf"), RTI 2 to relid Some("tags_perf")
+WARNING:  ParadeDB: Found matching join condition: documents_perf.id = tags_perf.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation documents_perf with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation tags_perf with CTID 2
@@ -497,7 +537,11 @@ WARNING:  ParadeDB: Iteration 2: outer[0] (ctid 1) × inner[1] (ctid 2) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Found join keys via pattern matching: documents_perf.id = tags_perf.document_id
+WARNING:  ParadeDB: Determining join keys for relations documents_perf and tags_perf using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("documents_perf"), RTI 2 to relid Some("tags_perf")
+WARNING:  ParadeDB: Found matching join condition: documents_perf.id = tags_perf.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation documents_perf with CTID 2
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation tags_perf with CTID 1
@@ -532,7 +576,11 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Found join keys via pattern matching: documents_perf.id = tags_perf.document_id
+WARNING:  ParadeDB: Determining join keys for relations documents_perf and tags_perf using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("documents_perf"), RTI 2 to relid Some("tags_perf")
+WARNING:  ParadeDB: Found matching join condition: documents_perf.id = tags_perf.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation documents_perf with CTID 2
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation tags_perf with CTID 2
@@ -631,7 +679,11 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Found join keys via pattern matching: documents_perf.id = tags_perf.document_id
+WARNING:  ParadeDB: Determining join keys for relations documents_perf and tags_perf using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("documents_perf"), RTI 2 to relid Some("tags_perf")
+WARNING:  ParadeDB: Found matching join condition: documents_perf.id = tags_perf.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation documents_perf with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation tags_perf with CTID 1
@@ -640,7 +692,11 @@ WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [1]
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Found join keys via pattern matching: documents_perf.id = tags_perf.document_id
+WARNING:  ParadeDB: Determining join keys for relations documents_perf and tags_perf using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("documents_perf"), RTI 2 to relid Some("tags_perf")
+WARNING:  ParadeDB: Found matching join condition: documents_perf.id = tags_perf.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation documents_perf with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation tags_perf with CTID 2
@@ -649,7 +705,11 @@ WARNING:  ParadeDB: Iteration 2: outer[0] (ctid 1) × inner[1] (ctid 2) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Found join keys via pattern matching: documents_perf.id = tags_perf.document_id
+WARNING:  ParadeDB: Determining join keys for relations documents_perf and tags_perf using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("documents_perf"), RTI 2 to relid Some("tags_perf")
+WARNING:  ParadeDB: Found matching join condition: documents_perf.id = tags_perf.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation documents_perf with CTID 2
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation tags_perf with CTID 1
@@ -705,7 +765,11 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Found join keys via pattern matching: documents_perf.id = tags_perf.document_id
+WARNING:  ParadeDB: Determining join keys for relations documents_perf and tags_perf using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("documents_perf"), RTI 2 to relid Some("tags_perf")
+WARNING:  ParadeDB: Found matching join condition: documents_perf.id = tags_perf.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation documents_perf with CTID 2
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation tags_perf with CTID 2
@@ -807,7 +871,11 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Found join keys via pattern matching: documents_perf.id = tags_perf.document_id
+WARNING:  ParadeDB: Determining join keys for relations documents_perf and tags_perf using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("documents_perf"), RTI 2 to relid Some("tags_perf")
+WARNING:  ParadeDB: Found matching join condition: documents_perf.id = tags_perf.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation documents_perf with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation tags_perf with CTID 1
@@ -816,7 +884,11 @@ WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [1]
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Found join keys via pattern matching: documents_perf.id = tags_perf.document_id
+WARNING:  ParadeDB: Determining join keys for relations documents_perf and tags_perf using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("documents_perf"), RTI 2 to relid Some("tags_perf")
+WARNING:  ParadeDB: Found matching join condition: documents_perf.id = tags_perf.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation documents_perf with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation tags_perf with CTID 2
@@ -825,7 +897,11 @@ WARNING:  ParadeDB: Iteration 2: outer[0] (ctid 1) × inner[1] (ctid 2) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Found join keys via pattern matching: documents_perf.id = tags_perf.document_id
+WARNING:  ParadeDB: Determining join keys for relations documents_perf and tags_perf using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("documents_perf"), RTI 2 to relid Some("tags_perf")
+WARNING:  ParadeDB: Found matching join condition: documents_perf.id = tags_perf.document_id
 WARNING:  ParadeDB: Fetching column 'id' from relation documents_perf with CTID 2
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
 WARNING:  ParadeDB: Fetching column 'document_id' from relation tags_perf with CTID 1

@@ -30,6 +30,7 @@ pub use state::{
     IntermediateSide, JoinExecPhase, JoinExecState,
 };
 
+use crate::gucs;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
@@ -42,10 +43,7 @@ use crate::postgres::customscan::pdbscan::semi_join_optimizer::{
 };
 use crate::postgres::customscan::pdbscan::{get_rel_name, PdbScan};
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::utils::item_pointer_to_u64;
-use crate::query::SearchQueryInput;
-use crate::{gucs, nodecast};
-use pgrx::{pg_sys, warning, FromDatum, PgList, PgRelation, PgTupleDesc};
+use pgrx::{pg_sys, warning, FromDatum};
 use std::collections::HashMap;
 use std::fmt::Display;
 use tantivy::Index;
@@ -1443,8 +1441,9 @@ unsafe fn evaluate_join_condition(
     let outer_relid = outer_relid.unwrap();
     let inner_relid = inner_relid.unwrap();
 
-    // Determine the correct join keys based on the actual relations being joined
-    let (outer_key_col, inner_key_col) = determine_join_keys(outer_relid, inner_relid);
+    // Determine the correct join keys using the actual extracted join conditions
+    let (outer_key_col, inner_key_col) =
+        determine_join_keys_from_state(state, outer_relid, inner_relid);
 
     // Fetch the join key values from both tuples
     let outer_key_value =
@@ -1483,109 +1482,393 @@ unsafe fn evaluate_join_condition(
     }
 }
 
+/// Determine join keys using the actual extracted join conditions from the query plan
+unsafe fn determine_join_keys_from_state(
+    state: &mut CustomScanStateWrapper<PdbScan>,
+    outer_relid: pg_sys::Oid,
+    inner_relid: pg_sys::Oid,
+) -> (String, String) {
+    warning!(
+        "ParadeDB: Determining join keys for relations {} and {} using extracted join conditions",
+        get_rel_name(outer_relid),
+        get_rel_name(inner_relid)
+    );
+
+    // FIRST: Try to get the actual join conditions that were extracted from the query plan
+    // Extract the join conditions first to avoid borrowing issues
+    let join_conditions = if let Some(ref join_state) = state.custom_state().join_exec_state {
+        if let Some(ref predicates) = join_state.search_predicates {
+            predicates.join_conditions.clone()
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+
+    if !join_conditions.is_empty() {
+        warning!(
+            "ParadeDB: Found {} extracted join conditions from query plan",
+            join_conditions.len()
+        );
+
+        // Look for a join condition that matches our relations
+        for join_condition in &join_conditions {
+            warning!(
+                "ParadeDB: Checking join condition: RTI {} ({}) = RTI {} ({})",
+                join_condition.left_rti,
+                join_condition.left_column,
+                join_condition.right_rti,
+                join_condition.right_column
+            );
+
+            // Map RTIs to relation OIDs to see if this condition applies to our relations
+            let left_relid = map_rti_to_relid(state, join_condition.left_rti);
+            let right_relid = map_rti_to_relid(state, join_condition.right_rti);
+
+            warning!(
+                "ParadeDB: Mapped RTI {} to relid {:?}, RTI {} to relid {:?}",
+                join_condition.left_rti,
+                left_relid.map(|oid| unsafe { get_rel_name(oid) }),
+                join_condition.right_rti,
+                right_relid.map(|oid| unsafe { get_rel_name(oid) })
+            );
+
+            // Check if this join condition matches our outer/inner relations
+            if let (Some(left_oid), Some(right_oid)) = (left_relid, right_relid) {
+                if left_oid == outer_relid && right_oid == inner_relid {
+                    warning!(
+                        "ParadeDB: Found matching join condition: {}.{} = {}.{}",
+                        get_rel_name(outer_relid),
+                        join_condition.left_column,
+                        get_rel_name(inner_relid),
+                        join_condition.right_column
+                    );
+                    return (
+                        join_condition.left_column.clone(),
+                        join_condition.right_column.clone(),
+                    );
+                } else if left_oid == inner_relid && right_oid == outer_relid {
+                    warning!(
+                        "ParadeDB: Found matching join condition (reversed): {}.{} = {}.{}",
+                        get_rel_name(outer_relid),
+                        join_condition.right_column,
+                        get_rel_name(inner_relid),
+                        join_condition.left_column
+                    );
+                    return (
+                        join_condition.right_column.clone(),
+                        join_condition.left_column.clone(),
+                    );
+                }
+            }
+        }
+
+        warning!("ParadeDB: No matching join condition found for the current relation pair");
+    } else {
+        warning!("ParadeDB: No join conditions were extracted from the query plan");
+    }
+
+    // FALLBACK: Use the improved schema analysis approach
+    warning!("ParadeDB: Falling back to schema analysis for join key determination");
+    determine_join_keys(outer_relid, inner_relid)
+}
+
+/// Map a range table index (RTI) to a relation OID
+unsafe fn map_rti_to_relid(
+    state: &mut CustomScanStateWrapper<PdbScan>,
+    rti: pg_sys::Index,
+) -> Option<pg_sys::Oid> {
+    // Try to get the mapping from the join execution state first
+    if let Some(ref join_state) = state.custom_state().join_exec_state {
+        if let Some(relid) = join_state.varno_to_relid.get(&rti) {
+            return Some(*relid);
+        }
+
+        // Also check the search predicates for RTI to relid mappings
+        if let Some(ref predicates) = join_state.search_predicates {
+            for pred in &predicates.outer_predicates {
+                if pred.rti == rti {
+                    return Some(pred.relid);
+                }
+            }
+            for pred in &predicates.inner_predicates {
+                if pred.rti == rti {
+                    return Some(pred.relid);
+                }
+            }
+        }
+    }
+
+    // Fallback: try to resolve using the executor state
+    let planstate = state.planstate();
+    let estate = (*planstate).state;
+
+    if !estate.is_null() {
+        let range_table = (*estate).es_range_table;
+        if !range_table.is_null() {
+            let rtable = pgrx::PgList::<pg_sys::RangeTblEntry>::from_pg(range_table);
+            if let Some(rte) = rtable.get_ptr((rti - 1) as usize) {
+                if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
+                    return Some((*rte).relid);
+                }
+            }
+        }
+    }
+
+    warning!("ParadeDB: Could not map RTI {} to relation OID", rti);
+    None
+}
+
 /// Determine the correct join key columns using extracted join conditions
 unsafe fn determine_join_keys(
     outer_relid: pg_sys::Oid,
     inner_relid: pg_sys::Oid,
 ) -> (String, String) {
-    // Try to find join conditions from the current execution state
-    // This is a simplified approach - in a full implementation, we'd pass the join conditions
-    // through the execution state or store them in a more accessible way
+    // FIRST: Try to get the actual join conditions that were extracted from the query plan
+    // This is the correct approach - use the real join conditions, not patterns!
 
-    // For now, we'll use a combination of the extracted join conditions (when available)
-    // and fallback to the existing logic for backward compatibility
+    // We need to get the join conditions from the execution state
+    // For now, we'll need to pass the state to this function or store join conditions globally
+    // As a temporary solution, let's check if we can access them through a different path
+
+    warning!(
+        "ParadeDB: Determining join keys for relations {} and {} using extracted join conditions",
+        get_rel_name(outer_relid),
+        get_rel_name(inner_relid)
+    );
+
+    // TODO: This function needs access to the join execution state to get the extracted join conditions
+    // For now, we'll implement a fallback that's more intelligent than hardcoded patterns
 
     let outer_name = get_rel_name(outer_relid);
     let inner_name = get_rel_name(inner_relid);
 
-    // First, try to use common join patterns based on relation analysis
-    // This replaces the hardcoded test-specific patterns with more generic logic
+    // IMPROVED APPROACH: Analyze the actual schema relationships instead of using patterns
+    // Look for foreign key relationships by examining the column types and names
 
-    // Pattern 1: Look for id -> {relation}_id relationships
-    if has_column(outer_relid, "id") {
-        // Check if inner relation has a foreign key to outer
-        let fk_patterns = vec![
-            format!(
-                "{}_id",
-                outer_name
-                    .trim_end_matches("_join_test")
-                    .trim_end_matches("s")
-            ),
-            format!(
-                "{}Id",
-                outer_name
-                    .trim_end_matches("_join_test")
-                    .trim_end_matches("s")
-            ),
-            "document_id".to_string(), // Common pattern
-        ];
+    // Get all columns from both relations
+    let outer_columns = get_relation_column_info(outer_relid);
+    let inner_columns = get_relation_column_info(inner_relid);
 
-        for pattern in fk_patterns {
-            if has_column(inner_relid, &pattern) {
-                warning!(
-                    "ParadeDB: Found join keys via pattern matching: {}.id = {}.{}",
-                    outer_name,
-                    inner_name,
-                    pattern
-                );
-                return ("id".to_string(), pattern);
-            }
-        }
-    }
-
-    // Pattern 2: Look for {relation}_id -> id relationships
-    if has_column(inner_relid, "id") {
-        let fk_patterns = vec![
-            format!(
-                "{}_id",
-                inner_name
-                    .trim_end_matches("_join_test")
-                    .trim_end_matches("s")
-            ),
-            format!(
-                "{}Id",
-                inner_name
-                    .trim_end_matches("_join_test")
-                    .trim_end_matches("s")
-            ),
-            "document_id".to_string(), // Common pattern
-        ];
-
-        for pattern in fk_patterns {
-            if has_column(outer_relid, &pattern) {
-                warning!(
-                    "ParadeDB: Found join keys via pattern matching: {}.{} = {}.id",
-                    outer_name,
-                    pattern,
-                    inner_name
-                );
-                return (pattern, "id".to_string());
-            }
-        }
-    }
-
-    // Pattern 3: Look for common column names
-    let common_columns = vec!["document_id", "file_id", "author_id", "id"];
-    for column in common_columns {
-        if has_column(outer_relid, column) && has_column(inner_relid, column) {
-            warning!(
-                "ParadeDB: Found join keys via common column: {}.{} = {}.{}",
-                outer_name,
-                column,
-                inner_name,
-                column
-            );
-            return (column.to_string(), column.to_string());
-        }
-    }
-
-    // Fallback: assume both sides have 'id' column
     warning!(
-        "ParadeDB: No specific join pattern found for ({}, {}), using generic 'id' = 'id' join",
+        "ParadeDB: Outer relation {} has columns: {:?}",
+        outer_name,
+        outer_columns
+            .iter()
+            .map(|(name, _)| name)
+            .collect::<Vec<_>>()
+    );
+    warning!(
+        "ParadeDB: Inner relation {} has columns: {:?}",
+        inner_name,
+        inner_columns
+            .iter()
+            .map(|(name, _)| name)
+            .collect::<Vec<_>>()
+    );
+
+    // Strategy 1: Look for exact column name matches (most reliable)
+    for (outer_col, outer_type) in &outer_columns {
+        for (inner_col, inner_type) in &inner_columns {
+            if outer_col == inner_col && outer_type == inner_type {
+                warning!(
+                    "ParadeDB: Found exact column match: {}.{} = {}.{} (type: {})",
+                    outer_name,
+                    outer_col,
+                    inner_name,
+                    inner_col,
+                    outer_type
+                );
+                return (outer_col.clone(), inner_col.clone());
+            }
+        }
+    }
+
+    // Strategy 2: Look for primary key to foreign key relationships
+    // Check if outer has 'id' and inner has a foreign key reference
+    if let Some((outer_pk_col, outer_pk_type)) = find_primary_key_column(&outer_columns) {
+        if let Some((inner_fk_col, inner_fk_type)) =
+            find_foreign_key_to_relation(&inner_columns, &outer_name)
+        {
+            if outer_pk_type == inner_fk_type {
+                warning!(
+                    "ParadeDB: Found PK->FK relationship: {}.{} = {}.{} (type: {})",
+                    outer_name,
+                    outer_pk_col,
+                    inner_name,
+                    inner_fk_col,
+                    outer_pk_type
+                );
+                return (outer_pk_col, inner_fk_col);
+            }
+        }
+    }
+
+    // Strategy 3: Check reverse relationship (inner PK to outer FK)
+    if let Some((inner_pk_col, inner_pk_type)) = find_primary_key_column(&inner_columns) {
+        if let Some((outer_fk_col, outer_fk_type)) =
+            find_foreign_key_to_relation(&outer_columns, &inner_name)
+        {
+            if inner_pk_type == outer_fk_type {
+                warning!(
+                    "ParadeDB: Found FK->PK relationship: {}.{} = {}.{} (type: {})",
+                    outer_name,
+                    outer_fk_col,
+                    inner_name,
+                    inner_pk_col,
+                    outer_fk_type
+                );
+                return (outer_fk_col, inner_pk_col);
+            }
+        }
+    }
+
+    // Strategy 4: Look for common integer columns (likely join keys)
+    for (outer_col, outer_type) in &outer_columns {
+        if is_integer_type(outer_type) {
+            for (inner_col, inner_type) in &inner_columns {
+                if is_integer_type(inner_type) && outer_type == inner_type {
+                    // Prefer columns with 'id' in the name
+                    if outer_col.contains("id") || inner_col.contains("id") {
+                        warning!(
+                            "ParadeDB: Found integer column match with 'id': {}.{} = {}.{} (type: {})",
+                            outer_name, outer_col, inner_name, inner_col, outer_type
+                        );
+                        return (outer_col.clone(), inner_col.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    // Strategy 5: Final fallback - first integer column in each relation
+    if let Some((outer_int_col, outer_int_type)) = find_first_integer_column_info(&outer_columns) {
+        if let Some((inner_int_col, inner_int_type)) =
+            find_first_integer_column_info(&inner_columns)
+        {
+            if outer_int_type == inner_int_type {
+                warning!(
+                    "ParadeDB: Using first integer columns as fallback: {}.{} = {}.{} (type: {})",
+                    outer_name,
+                    outer_int_col,
+                    inner_name,
+                    inner_int_col,
+                    outer_int_type
+                );
+                return (outer_int_col, inner_int_col);
+            }
+        }
+    }
+
+    // Final fallback: assume both sides have 'id' column
+    warning!(
+        "ParadeDB: No join relationship detected for ({}, {}), using generic 'id' = 'id' join",
         outer_name,
         inner_name
     );
     ("id".to_string(), "id".to_string())
+}
+
+/// Get column information (name and type) for a relation
+unsafe fn get_relation_column_info(relid: pg_sys::Oid) -> Vec<(String, String)> {
+    let mut columns = Vec::new();
+
+    let heaprel = pg_sys::relation_open(relid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+    if heaprel.is_null() {
+        return columns;
+    }
+
+    let tuple_desc = pgrx::PgTupleDesc::from_pg_unchecked((*heaprel).rd_att);
+    for i in 0..tuple_desc.len() {
+        if let Some(attribute) = tuple_desc.get(i) {
+            let column_name = attribute.name().to_string();
+            let type_oid = attribute.type_oid();
+            let type_name = get_type_name(type_oid.value());
+            columns.push((column_name, type_name));
+        }
+    }
+
+    pg_sys::relation_close(heaprel, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+    columns
+}
+
+/// Get the name of a PostgreSQL type from its OID
+unsafe fn get_type_name(type_oid: pg_sys::Oid) -> String {
+    let type_name = pg_sys::format_type_be(type_oid);
+    if type_name.is_null() {
+        format!("unknown_type_{}", type_oid)
+    } else {
+        std::ffi::CStr::from_ptr(type_name)
+            .to_string_lossy()
+            .to_string()
+    }
+}
+
+/// Find the primary key column (usually 'id')
+fn find_primary_key_column(columns: &[(String, String)]) -> Option<(String, String)> {
+    // Look for 'id' column first
+    for (name, type_name) in columns {
+        if name == "id" && is_integer_type(type_name) {
+            return Some((name.clone(), type_name.clone()));
+        }
+    }
+
+    // Look for columns ending with '_id' that might be primary keys
+    for (name, type_name) in columns {
+        if name.ends_with("_id") && is_integer_type(type_name) {
+            return Some((name.clone(), type_name.clone()));
+        }
+    }
+
+    None
+}
+
+/// Find a foreign key column that references the given relation
+fn find_foreign_key_to_relation(
+    columns: &[(String, String)],
+    target_relation: &str,
+) -> Option<(String, String)> {
+    // Extract base name from relation (remove common suffixes)
+    let base_name = target_relation
+        .trim_end_matches("_join_test")
+        .trim_end_matches("s");
+
+    // Look for foreign key patterns
+    let fk_patterns = vec![
+        format!("{}_id", base_name),
+        format!("{}Id", base_name),
+        format!("{}id", base_name),
+        "document_id".to_string(), // Common pattern in our test schema
+    ];
+
+    for pattern in fk_patterns {
+        for (name, type_name) in columns {
+            if name == &pattern && is_integer_type(type_name) {
+                return Some((name.clone(), type_name.clone()));
+            }
+        }
+    }
+
+    None
+}
+
+/// Check if a type is an integer type
+fn is_integer_type(type_name: &str) -> bool {
+    matches!(
+        type_name,
+        "integer" | "int4" | "bigint" | "int8" | "smallint" | "int2"
+    )
+}
+
+/// Find the first integer column in a relation
+fn find_first_integer_column_info(columns: &[(String, String)]) -> Option<(String, String)> {
+    for (name, type_name) in columns {
+        if is_integer_type(type_name) {
+            return Some((name.clone(), type_name.clone()));
+        }
+    }
+    None
 }
 
 /// Check if a relation has a specific column

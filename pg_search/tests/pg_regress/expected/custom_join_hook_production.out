@@ -138,11 +138,15 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: mixed_types_docs, inner: mixed_types_reviews
-WARNING:  ParadeDB: Found join keys via common column: mixed_types_docs.id = mixed_types_reviews.id
+WARNING:  ParadeDB: Determining join keys for relations mixed_types_docs and mixed_types_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (doc_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("mixed_types_docs"), RTI 2 to relid Some("mixed_types_reviews")
+WARNING:  ParadeDB: Found matching join condition: mixed_types_docs.id = mixed_types_reviews.doc_id
 WARNING:  ParadeDB: Fetching column 'id' from relation mixed_types_docs with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation mixed_types_reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
+WARNING:  ParadeDB: Fetching column 'doc_id' from relation mixed_types_reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'doc_id' (attno 2) = Some("1")
 WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = true
 WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[0] after 1 evaluations
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
@@ -218,41 +222,27 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: mixed_types_docs, inner: mixed_types_reviews
-WARNING:  ParadeDB: Found join keys via common column: mixed_types_docs.id = mixed_types_reviews.id
+WARNING:  ParadeDB: Determining join keys for relations mixed_types_docs and mixed_types_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (doc_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("mixed_types_docs"), RTI 2 to relid Some("mixed_types_reviews")
+WARNING:  ParadeDB: Found matching join condition: mixed_types_docs.id = mixed_types_reviews.doc_id
 WARNING:  ParadeDB: Fetching column 'id' from relation mixed_types_docs with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation mixed_types_reviews with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: mixed_types_docs, inner: mixed_types_reviews
-WARNING:  ParadeDB: Found join keys via common column: mixed_types_docs.id = mixed_types_reviews.id
-WARNING:  ParadeDB: Fetching column 'id' from relation mixed_types_docs with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation mixed_types_reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[0] (ctid 1) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: mixed_types_docs, inner: mixed_types_reviews
-WARNING:  ParadeDB: Found join keys via common column: mixed_types_docs.id = mixed_types_reviews.id
-WARNING:  ParadeDB: Fetching column 'id' from relation mixed_types_docs with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation mixed_types_reviews with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Iteration 3: outer[1] (ctid 2) × inner[1] (ctid 2) = true
-WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[1] × inner[1] after 3 evaluations
-WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
+WARNING:  ParadeDB: Fetching column 'doc_id' from relation mixed_types_reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'doc_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = true
+WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[1] after 1 evaluations
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
 WARNING:  ParadeDB: Creating result tuple with 4 attributes
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: mixed_types_docs, inner: mixed_types_reviews
 WARNING:  ParadeDB: Fetching real heap tuple values from relations mixed_types_docs and mixed_types_reviews
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: mixed_types_docs, inner: mixed_types_reviews
 WARNING:  ParadeDB: Detected relations from predicates - outer: 'mixed_types_docs', inner: 'mixed_types_reviews'
-WARNING:  ParadeDB: Fetching all columns with names from relation mixed_types_docs with CTID 2
-WARNING:  ParadeDB: mixed_types_docs column 'id' = '2'
-WARNING:  ParadeDB: mixed_types_docs column 'title' = 'Document 2'
-WARNING:  ParadeDB: mixed_types_docs column 'content' = 'Science research and analysis'
+WARNING:  ParadeDB: Fetching all columns with names from relation mixed_types_docs with CTID 1
+WARNING:  ParadeDB: mixed_types_docs column 'id' = '1'
+WARNING:  ParadeDB: mixed_types_docs column 'title' = 'Document 1'
+WARNING:  ParadeDB: mixed_types_docs column 'content' = 'Technology content with innovation'
 WARNING:  ParadeDB: mixed_types_docs column 'created_at' = 'ERROR_TEXT_4'
 WARNING:  ParadeDB: mixed_types_docs column 'score' = 'ERROR_TEXT_5'
 WARNING:  ParadeDB: mixed_types_docs column 'is_published' = 'ERROR_TEXT_6'
@@ -307,18 +297,47 @@ WARNING:  ParadeDB: Resolved varnosyn 2 to relation mixed_types_reviews
 WARNING:  ParadeDB: varnosyn 2 resolved to relation mixed_types_reviews, attno 5
 WARNING:  ParadeDB: Relation mixed_types_reviews attno 5 -> column name 'rating'
 WARNING:  ParadeDB: Target entry 4 mapped to: RelationColumn(mixed_types_reviews,rating)
-WARNING:  ParadeDB: Mapped 4 out of 4 column values: [Some("Document 2"), Some("NULL"), Some("Good innovation coverage"), Some("4")]
+WARNING:  ParadeDB: Mapped 4 out of 4 column values: [Some("Document 1"), Some("NULL"), Some("Good innovation coverage"), Some("4")]
 WARNING:  ParadeDB: Converting '4' to integer 4
-WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Document 2"), Some("NULL"), Some("Good innovation coverage"), Some("4")]
+WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Document 1"), Some("NULL"), Some("Good innovation coverage"), Some("4")]
+WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
+WARNING:  ParadeDB: Executing join step in phase: JoinMatching
+WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 0/2
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: mixed_types_docs, inner: mixed_types_reviews
+WARNING:  ParadeDB: Determining join keys for relations mixed_types_docs and mixed_types_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (doc_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("mixed_types_docs"), RTI 2 to relid Some("mixed_types_reviews")
+WARNING:  ParadeDB: Found matching join condition: mixed_types_docs.id = mixed_types_reviews.doc_id
+WARNING:  ParadeDB: Fetching column 'id' from relation mixed_types_docs with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'doc_id' from relation mixed_types_reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'doc_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[1] (ctid 2) × inner[0] (ctid 1) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: mixed_types_docs, inner: mixed_types_reviews
+WARNING:  ParadeDB: Determining join keys for relations mixed_types_docs and mixed_types_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (doc_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("mixed_types_docs"), RTI 2 to relid Some("mixed_types_reviews")
+WARNING:  ParadeDB: Found matching join condition: mixed_types_docs.id = mixed_types_reviews.doc_id
+WARNING:  ParadeDB: Fetching column 'id' from relation mixed_types_docs with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'doc_id' from relation mixed_types_reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'doc_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[1] (ctid 2) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: All join combinations exhausted
-WARNING:  ParadeDB: Executing join step in phase: Finished
-WARNING:  ParadeDB: Join execution finished
+WARNING:  ParadeDB: Join execution finished after advancing position
 WARNING:  ParadeDB: Cleaning up join execution state
 WARNING:  ParadeDB: Join execution cleanup complete
    title    | reviewer_name |          review_text          | rating 
 ------------+---------------+-------------------------------+--------
  Document 1 | John Doe      | Excellent technology analysis |      5
- Document 2 | NULL          | Good innovation coverage      |      4
+ Document 1 | NULL          | Good innovation coverage      |      4
 (2 rows)
 
 -- Test 2: Complex join conditions with multiple predicates
@@ -456,11 +475,15 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
 WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = true
 WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[0] after 1 evaluations
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
@@ -543,44 +566,30 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[0] (ctid 1) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Iteration 3: outer[1] (ctid 2) × inner[1] (ctid 2) = true
-WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[1] × inner[1] after 3 evaluations
-WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = true
+WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[1] after 1 evaluations
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
 WARNING:  ParadeDB: Creating result tuple with 5 attributes
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
 WARNING:  ParadeDB: Fetching real heap tuple values from relations complex_products and complex_reviews
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
 WARNING:  ParadeDB: Detected relations from predicates - outer: 'complex_products', inner: 'complex_reviews'
-WARNING:  ParadeDB: Fetching all columns with names from relation complex_products with CTID 2
-WARNING:  ParadeDB: complex_products column 'id' = '2'
-WARNING:  ParadeDB: complex_products column 'name' = 'Wireless Headphones'
-WARNING:  ParadeDB: complex_products column 'description' = 'Premium noise-canceling headphones'
+WARNING:  ParadeDB: Fetching all columns with names from relation complex_products with CTID 1
+WARNING:  ParadeDB: complex_products column 'id' = '1'
+WARNING:  ParadeDB: complex_products column 'name' = 'Laptop Pro X1'
+WARNING:  ParadeDB: complex_products column 'description' = 'High-performance laptop with advanced features'
 WARNING:  ParadeDB: complex_products column 'category' = 'electronics'
 WARNING:  ParadeDB: complex_products column 'price' = 'ERROR_TEXT_5'
-WARNING:  ParadeDB: complex_products column 'manufacturer' = 'AudioTech'
+WARNING:  ParadeDB: complex_products column 'manufacturer' = 'TechCorp'
 WARNING:  ParadeDB: Successfully fetched 6 columns from complex_products relation
 WARNING:  ParadeDB: Fetching all columns with names from relation complex_reviews with CTID 2
 WARNING:  ParadeDB: complex_reviews column 'id' = '2'
@@ -639,18 +648,47 @@ WARNING:  ParadeDB: Resolved varnosyn 2 to relation complex_reviews
 WARNING:  ParadeDB: varnosyn 2 resolved to relation complex_reviews, attno 5
 WARNING:  ParadeDB: Relation complex_reviews attno 5 -> column name 'rating'
 WARNING:  ParadeDB: Target entry 5 mapped to: RelationColumn(complex_reviews,rating)
-WARNING:  ParadeDB: Mapped 5 out of 5 column values: [Some("Wireless Headphones"), Some("electronics"), Some("Great Build Quality"), Some("Solid construction and premium materials"), Some("4")]
+WARNING:  ParadeDB: Mapped 5 out of 5 column values: [Some("Laptop Pro X1"), Some("electronics"), Some("Great Build Quality"), Some("Solid construction and premium materials"), Some("4")]
 WARNING:  ParadeDB: Converting '4' to integer 4
-WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Wireless Headphones"), Some("electronics"), Some("Great Build Quality"), Some("Solid construction and premium materials"), Some("4")]
+WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Laptop Pro X1"), Some("electronics"), Some("Great Build Quality"), Some("Solid construction and premium materials"), Some("4")]
+WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
+WARNING:  ParadeDB: Executing join step in phase: JoinMatching
+WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 0/2
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[1] (ctid 2) × inner[0] (ctid 1) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[1] (ctid 2) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: All join combinations exhausted
-WARNING:  ParadeDB: Executing join step in phase: Finished
-WARNING:  ParadeDB: Join execution finished
+WARNING:  ParadeDB: Join execution finished after advancing position
 WARNING:  ParadeDB: Cleaning up join execution state
 WARNING:  ParadeDB: Join execution cleanup complete
-        name         |  category   |        title        |                              content                               | rating 
----------------------+-------------+---------------------+--------------------------------------------------------------------+--------
- Laptop Pro X1       | electronics | Amazing Performance | This laptop delivers exceptional performance for professional work |      5
- Wireless Headphones | electronics | Great Build Quality | Solid construction and premium materials                           |      4
+     name      |  category   |        title        |                              content                               | rating 
+---------------+-------------+---------------------+--------------------------------------------------------------------+--------
+ Laptop Pro X1 | electronics | Amazing Performance | This laptop delivers exceptional performance for professional work |      5
+ Laptop Pro X1 | electronics | Great Build Quality | Solid construction and premium materials                           |      4
 (2 rows)
 
 -- Test 3: Concurrent access simulation (multiple similar queries)
@@ -733,11 +771,15 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
 WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = true
 WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[0] after 1 evaluations
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
@@ -771,44 +813,30 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[0] (ctid 1) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Iteration 3: outer[1] (ctid 2) × inner[1] (ctid 2) = true
-WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[1] × inner[1] after 3 evaluations
-WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = true
+WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[1] after 1 evaluations
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
 WARNING:  ParadeDB: Creating result tuple with 0 attributes
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
 WARNING:  ParadeDB: Fetching real heap tuple values from relations complex_products and complex_reviews
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
 WARNING:  ParadeDB: Detected relations from predicates - outer: 'complex_products', inner: 'complex_reviews'
-WARNING:  ParadeDB: Fetching all columns with names from relation complex_products with CTID 2
-WARNING:  ParadeDB: complex_products column 'id' = '2'
-WARNING:  ParadeDB: complex_products column 'name' = 'Wireless Headphones'
-WARNING:  ParadeDB: complex_products column 'description' = 'Premium noise-canceling headphones'
+WARNING:  ParadeDB: Fetching all columns with names from relation complex_products with CTID 1
+WARNING:  ParadeDB: complex_products column 'id' = '1'
+WARNING:  ParadeDB: complex_products column 'name' = 'Laptop Pro X1'
+WARNING:  ParadeDB: complex_products column 'description' = 'High-performance laptop with advanced features'
 WARNING:  ParadeDB: complex_products column 'category' = 'electronics'
 WARNING:  ParadeDB: complex_products column 'price' = 'ERROR_TEXT_5'
-WARNING:  ParadeDB: complex_products column 'manufacturer' = 'AudioTech'
+WARNING:  ParadeDB: complex_products column 'manufacturer' = 'TechCorp'
 WARNING:  ParadeDB: Successfully fetched 6 columns from complex_products relation
 WARNING:  ParadeDB: Fetching all columns with names from relation complex_reviews with CTID 2
 WARNING:  ParadeDB: complex_reviews column 'id' = '2'
@@ -821,9 +849,38 @@ WARNING:  ParadeDB: Successfully fetched 6 columns from complex_reviews relation
 WARNING:  ParadeDB: Fetched 6 columns from outer relation, 6 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
+WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
+WARNING:  ParadeDB: Executing join step in phase: JoinMatching
+WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 0/2
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[1] (ctid 2) × inner[0] (ctid 1) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[1] (ctid 2) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: All join combinations exhausted
-WARNING:  ParadeDB: Executing join step in phase: Finished
-WARNING:  ParadeDB: Join execution finished
+WARNING:  ParadeDB: Join execution finished after advancing position
 WARNING:  ParadeDB: Cleaning up join execution state
 WARNING:  ParadeDB: Join execution cleanup complete
  concurrent_test_1 
@@ -909,11 +966,15 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
 WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = true
 WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[0] after 1 evaluations
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
@@ -947,44 +1008,30 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[0] (ctid 1) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Iteration 3: outer[1] (ctid 2) × inner[1] (ctid 2) = true
-WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[1] × inner[1] after 3 evaluations
-WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = true
+WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[1] after 1 evaluations
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
 WARNING:  ParadeDB: Creating result tuple with 0 attributes
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
 WARNING:  ParadeDB: Fetching real heap tuple values from relations complex_products and complex_reviews
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
 WARNING:  ParadeDB: Detected relations from predicates - outer: 'complex_products', inner: 'complex_reviews'
-WARNING:  ParadeDB: Fetching all columns with names from relation complex_products with CTID 2
-WARNING:  ParadeDB: complex_products column 'id' = '2'
-WARNING:  ParadeDB: complex_products column 'name' = 'Wireless Headphones'
-WARNING:  ParadeDB: complex_products column 'description' = 'Premium noise-canceling headphones'
+WARNING:  ParadeDB: Fetching all columns with names from relation complex_products with CTID 1
+WARNING:  ParadeDB: complex_products column 'id' = '1'
+WARNING:  ParadeDB: complex_products column 'name' = 'Laptop Pro X1'
+WARNING:  ParadeDB: complex_products column 'description' = 'High-performance laptop with advanced features'
 WARNING:  ParadeDB: complex_products column 'category' = 'electronics'
 WARNING:  ParadeDB: complex_products column 'price' = 'ERROR_TEXT_5'
-WARNING:  ParadeDB: complex_products column 'manufacturer' = 'AudioTech'
+WARNING:  ParadeDB: complex_products column 'manufacturer' = 'TechCorp'
 WARNING:  ParadeDB: Successfully fetched 6 columns from complex_products relation
 WARNING:  ParadeDB: Fetching all columns with names from relation complex_reviews with CTID 2
 WARNING:  ParadeDB: complex_reviews column 'id' = '2'
@@ -997,9 +1044,38 @@ WARNING:  ParadeDB: Successfully fetched 6 columns from complex_reviews relation
 WARNING:  ParadeDB: Fetched 6 columns from outer relation, 6 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
+WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
+WARNING:  ParadeDB: Executing join step in phase: JoinMatching
+WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 0/2
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[1] (ctid 2) × inner[0] (ctid 1) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[1] (ctid 2) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: All join combinations exhausted
-WARNING:  ParadeDB: Executing join step in phase: Finished
-WARNING:  ParadeDB: Join execution finished
+WARNING:  ParadeDB: Join execution finished after advancing position
 WARNING:  ParadeDB: Cleaning up join execution state
 WARNING:  ParadeDB: Join execution cleanup complete
  concurrent_test_2 
@@ -1085,11 +1161,15 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
 WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = true
 WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[0] after 1 evaluations
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
@@ -1123,44 +1203,30 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[0] (ctid 1) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Iteration 3: outer[1] (ctid 2) × inner[1] (ctid 2) = true
-WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[1] × inner[1] after 3 evaluations
-WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = true
+WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[1] after 1 evaluations
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
 WARNING:  ParadeDB: Creating result tuple with 0 attributes
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
 WARNING:  ParadeDB: Fetching real heap tuple values from relations complex_products and complex_reviews
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
 WARNING:  ParadeDB: Detected relations from predicates - outer: 'complex_products', inner: 'complex_reviews'
-WARNING:  ParadeDB: Fetching all columns with names from relation complex_products with CTID 2
-WARNING:  ParadeDB: complex_products column 'id' = '2'
-WARNING:  ParadeDB: complex_products column 'name' = 'Wireless Headphones'
-WARNING:  ParadeDB: complex_products column 'description' = 'Premium noise-canceling headphones'
+WARNING:  ParadeDB: Fetching all columns with names from relation complex_products with CTID 1
+WARNING:  ParadeDB: complex_products column 'id' = '1'
+WARNING:  ParadeDB: complex_products column 'name' = 'Laptop Pro X1'
+WARNING:  ParadeDB: complex_products column 'description' = 'High-performance laptop with advanced features'
 WARNING:  ParadeDB: complex_products column 'category' = 'electronics'
 WARNING:  ParadeDB: complex_products column 'price' = 'ERROR_TEXT_5'
-WARNING:  ParadeDB: complex_products column 'manufacturer' = 'AudioTech'
+WARNING:  ParadeDB: complex_products column 'manufacturer' = 'TechCorp'
 WARNING:  ParadeDB: Successfully fetched 6 columns from complex_products relation
 WARNING:  ParadeDB: Fetching all columns with names from relation complex_reviews with CTID 2
 WARNING:  ParadeDB: complex_reviews column 'id' = '2'
@@ -1173,9 +1239,38 @@ WARNING:  ParadeDB: Successfully fetched 6 columns from complex_reviews relation
 WARNING:  ParadeDB: Fetched 6 columns from outer relation, 6 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
+WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
+WARNING:  ParadeDB: Executing join step in phase: JoinMatching
+WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 0/2
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[1] (ctid 2) × inner[0] (ctid 1) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[1] (ctid 2) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: All join combinations exhausted
-WARNING:  ParadeDB: Executing join step in phase: Finished
-WARNING:  ParadeDB: Join execution finished
+WARNING:  ParadeDB: Join execution finished after advancing position
 WARNING:  ParadeDB: Cleaning up join execution state
 WARNING:  ParadeDB: Join execution cleanup complete
  concurrent_test_3 
@@ -1346,66 +1441,44 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: memory_test_docs, inner: memory_test_comments
-WARNING:  ParadeDB: Found join keys via common column: memory_test_docs.id = memory_test_comments.id
+WARNING:  ParadeDB: Determining join keys for relations memory_test_docs and memory_test_comments using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (doc_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("memory_test_docs"), RTI 2 to relid Some("memory_test_comments")
+WARNING:  ParadeDB: Found matching join condition: memory_test_docs.id = memory_test_comments.doc_id
 WARNING:  ParadeDB: Fetching column 'id' from relation memory_test_docs with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation memory_test_comments with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = true
-WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[0] after 1 evaluations
-WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
-WARNING:  ParadeDB: Creating result tuple with 0 attributes
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: memory_test_docs, inner: memory_test_comments
-WARNING:  ParadeDB: Fetching real heap tuple values from relations memory_test_docs and memory_test_comments
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: memory_test_docs, inner: memory_test_comments
-WARNING:  ParadeDB: Detected relations from predicates - outer: 'memory_test_docs', inner: 'memory_test_comments'
-WARNING:  ParadeDB: Fetching all columns with names from relation memory_test_docs with CTID 1
-WARNING:  ParadeDB: memory_test_docs column 'id' = '1'
-WARNING:  ParadeDB: memory_test_docs column 'title' = 'Document 652'
-WARNING:  ParadeDB: memory_test_docs column 'content' = 'Content with keywords: innovation research analysis development solution'
-WARNING:  ParadeDB: memory_test_docs column 'category' = 'science'
-WARNING:  ParadeDB: Successfully fetched 4 columns from memory_test_docs relation
-WARNING:  ParadeDB: Fetching all columns with names from relation memory_test_comments with CTID 1
-WARNING:  ParadeDB: memory_test_comments column 'id' = '1'
-WARNING:  ParadeDB: memory_test_comments column 'doc_id' = '2'
-WARNING:  ParadeDB: memory_test_comments column 'comment_text' = 'Comment about innovative solution'
-WARNING:  ParadeDB: memory_test_comments column 'author' = 'User2'
-WARNING:  ParadeDB: Successfully fetched 4 columns from memory_test_comments relation
-WARNING:  ParadeDB: Fetched 4 columns from outer relation, 4 from inner relation
-WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
-WARNING:  ParadeDB: Created join result tuple with real heap data: []
+WARNING:  ParadeDB: Fetching column 'doc_id' from relation memory_test_comments with CTID 1
+WARNING:  ParadeDB: Fetched column 'doc_id' (attno 2) = Some("2")
+WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [1]
-WARNING:  ParadeDB: Executing join step in phase: JoinMatching
-WARNING:  ParadeDB: In join matching phase
-WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 1/2
-WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: memory_test_docs, inner: memory_test_comments
-WARNING:  ParadeDB: Found join keys via common column: memory_test_docs.id = memory_test_comments.id
+WARNING:  ParadeDB: Determining join keys for relations memory_test_docs and memory_test_comments using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (doc_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("memory_test_docs"), RTI 2 to relid Some("memory_test_comments")
+WARNING:  ParadeDB: Found matching join condition: memory_test_docs.id = memory_test_comments.doc_id
 WARNING:  ParadeDB: Fetching column 'id' from relation memory_test_docs with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation memory_test_comments with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = false
+WARNING:  ParadeDB: Fetching column 'doc_id' from relation memory_test_comments with CTID 2
+WARNING:  ParadeDB: Fetched column 'doc_id' (attno 2) = Some("3")
+WARNING:  ParadeDB: Iteration 2: outer[0] (ctid 1) × inner[1] (ctid 2) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: memory_test_docs, inner: memory_test_comments
-WARNING:  ParadeDB: Found join keys via common column: memory_test_docs.id = memory_test_comments.id
+WARNING:  ParadeDB: Determining join keys for relations memory_test_docs and memory_test_comments using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (doc_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("memory_test_docs"), RTI 2 to relid Some("memory_test_comments")
+WARNING:  ParadeDB: Found matching join condition: memory_test_docs.id = memory_test_comments.doc_id
 WARNING:  ParadeDB: Fetching column 'id' from relation memory_test_docs with CTID 2
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation memory_test_comments with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[0] (ctid 1) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: memory_test_docs, inner: memory_test_comments
-WARNING:  ParadeDB: Found join keys via common column: memory_test_docs.id = memory_test_comments.id
-WARNING:  ParadeDB: Fetching column 'id' from relation memory_test_docs with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation memory_test_comments with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Iteration 3: outer[1] (ctid 2) × inner[1] (ctid 2) = true
-WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[1] × inner[1] after 3 evaluations
-WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
+WARNING:  ParadeDB: Fetching column 'doc_id' from relation memory_test_comments with CTID 1
+WARNING:  ParadeDB: Fetched column 'doc_id' (attno 2) = Some("2")
+WARNING:  ParadeDB: Iteration 3: outer[1] (ctid 2) × inner[0] (ctid 1) = true
+WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[1] × inner[0] after 3 evaluations
+WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[0]
 WARNING:  ParadeDB: Creating result tuple with 0 attributes
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: memory_test_docs, inner: memory_test_comments
 WARNING:  ParadeDB: Fetching real heap tuple values from relations memory_test_docs and memory_test_comments
@@ -1417,23 +1490,39 @@ WARNING:  ParadeDB: memory_test_docs column 'title' = 'Document 273'
 WARNING:  ParadeDB: memory_test_docs column 'content' = 'Content with keywords: innovation research analysis development solution'
 WARNING:  ParadeDB: memory_test_docs column 'category' = 'education'
 WARNING:  ParadeDB: Successfully fetched 4 columns from memory_test_docs relation
-WARNING:  ParadeDB: Fetching all columns with names from relation memory_test_comments with CTID 2
-WARNING:  ParadeDB: memory_test_comments column 'id' = '2'
-WARNING:  ParadeDB: memory_test_comments column 'doc_id' = '3'
-WARNING:  ParadeDB: memory_test_comments column 'comment_text' = 'Comment about thorough research'
-WARNING:  ParadeDB: memory_test_comments column 'author' = 'User3'
+WARNING:  ParadeDB: Fetching all columns with names from relation memory_test_comments with CTID 1
+WARNING:  ParadeDB: memory_test_comments column 'id' = '1'
+WARNING:  ParadeDB: memory_test_comments column 'doc_id' = '2'
+WARNING:  ParadeDB: memory_test_comments column 'comment_text' = 'Comment about innovative solution'
+WARNING:  ParadeDB: memory_test_comments column 'author' = 'User2'
 WARNING:  ParadeDB: Successfully fetched 4 columns from memory_test_comments relation
 WARNING:  ParadeDB: Fetched 4 columns from outer relation, 4 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
+WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
+WARNING:  ParadeDB: Executing join step in phase: JoinMatching
+WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 1/2
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: memory_test_docs, inner: memory_test_comments
+WARNING:  ParadeDB: Determining join keys for relations memory_test_docs and memory_test_comments using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (doc_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("memory_test_docs"), RTI 2 to relid Some("memory_test_comments")
+WARNING:  ParadeDB: Found matching join condition: memory_test_docs.id = memory_test_comments.doc_id
+WARNING:  ParadeDB: Fetching column 'id' from relation memory_test_docs with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'doc_id' from relation memory_test_comments with CTID 2
+WARNING:  ParadeDB: Fetched column 'doc_id' (attno 2) = Some("3")
+WARNING:  ParadeDB: Iteration 1: outer[1] (ctid 2) × inner[1] (ctid 2) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: All join combinations exhausted
-WARNING:  ParadeDB: Executing join step in phase: Finished
-WARNING:  ParadeDB: Join execution finished
+WARNING:  ParadeDB: Join execution finished after advancing position
 WARNING:  ParadeDB: Cleaning up join execution state
 WARNING:  ParadeDB: Join execution cleanup complete
  memory_pressure_test 
 ----------------------
-                    2
+                    1
 (1 row)
 
 -- Test 5: Error recovery scenarios
@@ -1516,11 +1605,15 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
 WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = true
 WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[0] after 1 evaluations
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
@@ -1554,44 +1647,30 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[0] (ctid 1) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Iteration 3: outer[1] (ctid 2) × inner[1] (ctid 2) = true
-WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[1] × inner[1] after 3 evaluations
-WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = true
+WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[1] after 1 evaluations
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
 WARNING:  ParadeDB: Creating result tuple with 0 attributes
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
 WARNING:  ParadeDB: Fetching real heap tuple values from relations complex_products and complex_reviews
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
 WARNING:  ParadeDB: Detected relations from predicates - outer: 'complex_products', inner: 'complex_reviews'
-WARNING:  ParadeDB: Fetching all columns with names from relation complex_products with CTID 2
-WARNING:  ParadeDB: complex_products column 'id' = '2'
-WARNING:  ParadeDB: complex_products column 'name' = 'Wireless Headphones'
-WARNING:  ParadeDB: complex_products column 'description' = 'Premium noise-canceling headphones'
+WARNING:  ParadeDB: Fetching all columns with names from relation complex_products with CTID 1
+WARNING:  ParadeDB: complex_products column 'id' = '1'
+WARNING:  ParadeDB: complex_products column 'name' = 'Laptop Pro X1'
+WARNING:  ParadeDB: complex_products column 'description' = 'High-performance laptop with advanced features'
 WARNING:  ParadeDB: complex_products column 'category' = 'electronics'
 WARNING:  ParadeDB: complex_products column 'price' = 'ERROR_TEXT_5'
-WARNING:  ParadeDB: complex_products column 'manufacturer' = 'AudioTech'
+WARNING:  ParadeDB: complex_products column 'manufacturer' = 'TechCorp'
 WARNING:  ParadeDB: Successfully fetched 6 columns from complex_products relation
 WARNING:  ParadeDB: Fetching all columns with names from relation complex_reviews with CTID 2
 WARNING:  ParadeDB: complex_reviews column 'id' = '2'
@@ -1604,9 +1683,38 @@ WARNING:  ParadeDB: Successfully fetched 6 columns from complex_reviews relation
 WARNING:  ParadeDB: Fetched 6 columns from outer relation, 6 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
+WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
+WARNING:  ParadeDB: Executing join step in phase: JoinMatching
+WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 0/2
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[1] (ctid 2) × inner[0] (ctid 1) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[1] (ctid 2) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: All join combinations exhausted
-WARNING:  ParadeDB: Executing join step in phase: Finished
-WARNING:  ParadeDB: Join execution finished
+WARNING:  ParadeDB: Join execution finished after advancing position
 WARNING:  ParadeDB: Cleaning up join execution state
 WARNING:  ParadeDB: Join execution cleanup complete
  invalid_join_test 
@@ -1694,11 +1802,15 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
 WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = true
 WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[0] after 1 evaluations
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
@@ -1732,44 +1844,30 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[0] (ctid 1) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Iteration 3: outer[1] (ctid 2) × inner[1] (ctid 2) = true
-WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[1] × inner[1] after 3 evaluations
-WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = true
+WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[1] after 1 evaluations
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
 WARNING:  ParadeDB: Creating result tuple with 0 attributes
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
 WARNING:  ParadeDB: Fetching real heap tuple values from relations complex_products and complex_reviews
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
 WARNING:  ParadeDB: Detected relations from predicates - outer: 'complex_products', inner: 'complex_reviews'
-WARNING:  ParadeDB: Fetching all columns with names from relation complex_products with CTID 2
-WARNING:  ParadeDB: complex_products column 'id' = '2'
-WARNING:  ParadeDB: complex_products column 'name' = 'Wireless Headphones'
-WARNING:  ParadeDB: complex_products column 'description' = 'Premium noise-canceling headphones'
+WARNING:  ParadeDB: Fetching all columns with names from relation complex_products with CTID 1
+WARNING:  ParadeDB: complex_products column 'id' = '1'
+WARNING:  ParadeDB: complex_products column 'name' = 'Laptop Pro X1'
+WARNING:  ParadeDB: complex_products column 'description' = 'High-performance laptop with advanced features'
 WARNING:  ParadeDB: complex_products column 'category' = 'electronics'
 WARNING:  ParadeDB: complex_products column 'price' = 'ERROR_TEXT_5'
-WARNING:  ParadeDB: complex_products column 'manufacturer' = 'AudioTech'
+WARNING:  ParadeDB: complex_products column 'manufacturer' = 'TechCorp'
 WARNING:  ParadeDB: Successfully fetched 6 columns from complex_products relation
 WARNING:  ParadeDB: Fetching all columns with names from relation complex_reviews with CTID 2
 WARNING:  ParadeDB: complex_reviews column 'id' = '2'
@@ -1782,9 +1880,38 @@ WARNING:  ParadeDB: Successfully fetched 6 columns from complex_reviews relation
 WARNING:  ParadeDB: Fetched 6 columns from outer relation, 6 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
+WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
+WARNING:  ParadeDB: Executing join step in phase: JoinMatching
+WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 0/2
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[1] (ctid 2) × inner[0] (ctid 1) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[1] (ctid 2) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: All join combinations exhausted
-WARNING:  ParadeDB: Executing join step in phase: Finished
-WARNING:  ParadeDB: Join execution finished
+WARNING:  ParadeDB: Join execution finished after advancing position
 WARNING:  ParadeDB: Cleaning up join execution state
 WARNING:  ParadeDB: Join execution cleanup complete
  long_search_test 
@@ -1913,11 +2040,15 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: encoding_test_docs, inner: encoding_test_reviews
-WARNING:  ParadeDB: Found join keys via common column: encoding_test_docs.id = encoding_test_reviews.id
+WARNING:  ParadeDB: Determining join keys for relations encoding_test_docs and encoding_test_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (doc_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("encoding_test_docs"), RTI 2 to relid Some("encoding_test_reviews")
+WARNING:  ParadeDB: Found matching join condition: encoding_test_docs.id = encoding_test_reviews.doc_id
 WARNING:  ParadeDB: Fetching column 'id' from relation encoding_test_docs with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation encoding_test_reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
+WARNING:  ParadeDB: Fetching column 'doc_id' from relation encoding_test_reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'doc_id' (attno 2) = Some("1")
 WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = true
 WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[0] after 1 evaluations
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
@@ -1966,29 +2097,41 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: encoding_test_docs, inner: encoding_test_reviews
-WARNING:  ParadeDB: Found join keys via common column: encoding_test_docs.id = encoding_test_reviews.id
+WARNING:  ParadeDB: Determining join keys for relations encoding_test_docs and encoding_test_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (doc_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("encoding_test_docs"), RTI 2 to relid Some("encoding_test_reviews")
+WARNING:  ParadeDB: Found matching join condition: encoding_test_docs.id = encoding_test_reviews.doc_id
 WARNING:  ParadeDB: Fetching column 'id' from relation encoding_test_docs with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation encoding_test_reviews with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'doc_id' from relation encoding_test_reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'doc_id' (attno 2) = Some("2")
 WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: encoding_test_docs, inner: encoding_test_reviews
-WARNING:  ParadeDB: Found join keys via common column: encoding_test_docs.id = encoding_test_reviews.id
+WARNING:  ParadeDB: Determining join keys for relations encoding_test_docs and encoding_test_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (doc_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("encoding_test_docs"), RTI 2 to relid Some("encoding_test_reviews")
+WARNING:  ParadeDB: Found matching join condition: encoding_test_docs.id = encoding_test_reviews.doc_id
 WARNING:  ParadeDB: Fetching column 'id' from relation encoding_test_docs with CTID 2
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation encoding_test_reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
+WARNING:  ParadeDB: Fetching column 'doc_id' from relation encoding_test_reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'doc_id' (attno 2) = Some("1")
 WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[0] (ctid 1) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: encoding_test_docs, inner: encoding_test_reviews
-WARNING:  ParadeDB: Found join keys via common column: encoding_test_docs.id = encoding_test_reviews.id
+WARNING:  ParadeDB: Determining join keys for relations encoding_test_docs and encoding_test_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (doc_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("encoding_test_docs"), RTI 2 to relid Some("encoding_test_reviews")
+WARNING:  ParadeDB: Found matching join condition: encoding_test_docs.id = encoding_test_reviews.doc_id
 WARNING:  ParadeDB: Fetching column 'id' from relation encoding_test_docs with CTID 2
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation encoding_test_reviews with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'doc_id' from relation encoding_test_reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'doc_id' (attno 2) = Some("2")
 WARNING:  ParadeDB: Iteration 3: outer[1] (ctid 2) × inner[1] (ctid 2) = true
 WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[1] × inner[1] after 3 evaluations
 WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
@@ -2119,11 +2262,15 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
 WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = true
 WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[0] after 1 evaluations
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
@@ -2157,44 +2304,30 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[0] (ctid 1) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Iteration 3: outer[1] (ctid 2) × inner[1] (ctid 2) = true
-WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[1] × inner[1] after 3 evaluations
-WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = true
+WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[1] after 1 evaluations
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
 WARNING:  ParadeDB: Creating result tuple with 0 attributes
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
 WARNING:  ParadeDB: Fetching real heap tuple values from relations complex_products and complex_reviews
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
 WARNING:  ParadeDB: Detected relations from predicates - outer: 'complex_products', inner: 'complex_reviews'
-WARNING:  ParadeDB: Fetching all columns with names from relation complex_products with CTID 2
-WARNING:  ParadeDB: complex_products column 'id' = '2'
-WARNING:  ParadeDB: complex_products column 'name' = 'Wireless Headphones'
-WARNING:  ParadeDB: complex_products column 'description' = 'Premium noise-canceling headphones'
+WARNING:  ParadeDB: Fetching all columns with names from relation complex_products with CTID 1
+WARNING:  ParadeDB: complex_products column 'id' = '1'
+WARNING:  ParadeDB: complex_products column 'name' = 'Laptop Pro X1'
+WARNING:  ParadeDB: complex_products column 'description' = 'High-performance laptop with advanced features'
 WARNING:  ParadeDB: complex_products column 'category' = 'electronics'
 WARNING:  ParadeDB: complex_products column 'price' = 'ERROR_TEXT_5'
-WARNING:  ParadeDB: complex_products column 'manufacturer' = 'AudioTech'
+WARNING:  ParadeDB: complex_products column 'manufacturer' = 'TechCorp'
 WARNING:  ParadeDB: Successfully fetched 6 columns from complex_products relation
 WARNING:  ParadeDB: Fetching all columns with names from relation complex_reviews with CTID 2
 WARNING:  ParadeDB: complex_reviews column 'id' = '2'
@@ -2207,9 +2340,38 @@ WARNING:  ParadeDB: Successfully fetched 6 columns from complex_reviews relation
 WARNING:  ParadeDB: Fetched 6 columns from outer relation, 6 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
+WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
+WARNING:  ParadeDB: Executing join step in phase: JoinMatching
+WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 0/2
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[1] (ctid 2) × inner[0] (ctid 1) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[1] (ctid 2) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: All join combinations exhausted
-WARNING:  ParadeDB: Executing join step in phase: Finished
-WARNING:  ParadeDB: Join execution finished
+WARNING:  ParadeDB: Join execution finished after advancing position
 WARNING:  ParadeDB: Cleaning up join execution state
 WARNING:  ParadeDB: Join execution cleanup complete
  count 
@@ -2292,11 +2454,15 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
 WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = true
 WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[0] after 1 evaluations
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
@@ -2330,44 +2496,30 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[0] (ctid 1) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Iteration 3: outer[1] (ctid 2) × inner[1] (ctid 2) = true
-WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[1] × inner[1] after 3 evaluations
-WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = true
+WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[1] after 1 evaluations
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
 WARNING:  ParadeDB: Creating result tuple with 0 attributes
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
 WARNING:  ParadeDB: Fetching real heap tuple values from relations complex_products and complex_reviews
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
 WARNING:  ParadeDB: Detected relations from predicates - outer: 'complex_products', inner: 'complex_reviews'
-WARNING:  ParadeDB: Fetching all columns with names from relation complex_products with CTID 2
-WARNING:  ParadeDB: complex_products column 'id' = '2'
-WARNING:  ParadeDB: complex_products column 'name' = 'Wireless Headphones'
-WARNING:  ParadeDB: complex_products column 'description' = 'Premium noise-canceling headphones'
+WARNING:  ParadeDB: Fetching all columns with names from relation complex_products with CTID 1
+WARNING:  ParadeDB: complex_products column 'id' = '1'
+WARNING:  ParadeDB: complex_products column 'name' = 'Laptop Pro X1'
+WARNING:  ParadeDB: complex_products column 'description' = 'High-performance laptop with advanced features'
 WARNING:  ParadeDB: complex_products column 'category' = 'electronics'
 WARNING:  ParadeDB: complex_products column 'price' = 'ERROR_TEXT_5'
-WARNING:  ParadeDB: complex_products column 'manufacturer' = 'AudioTech'
+WARNING:  ParadeDB: complex_products column 'manufacturer' = 'TechCorp'
 WARNING:  ParadeDB: Successfully fetched 6 columns from complex_products relation
 WARNING:  ParadeDB: Fetching all columns with names from relation complex_reviews with CTID 2
 WARNING:  ParadeDB: complex_reviews column 'id' = '2'
@@ -2380,9 +2532,38 @@ WARNING:  ParadeDB: Successfully fetched 6 columns from complex_reviews relation
 WARNING:  ParadeDB: Fetched 6 columns from outer relation, 6 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
+WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
+WARNING:  ParadeDB: Executing join step in phase: JoinMatching
+WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 0/2
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[1] (ctid 2) × inner[0] (ctid 1) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[1] (ctid 2) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: All join combinations exhausted
-WARNING:  ParadeDB: Executing join step in phase: Finished
-WARNING:  ParadeDB: Join execution finished
+WARNING:  ParadeDB: Join execution finished after advancing position
 WARNING:  ParadeDB: Cleaning up join execution state
 WARNING:  ParadeDB: Join execution cleanup complete
  count 
@@ -2465,11 +2646,15 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
 WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = true
 WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[0] after 1 evaluations
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
@@ -2503,44 +2688,30 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[0] (ctid 1) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Iteration 3: outer[1] (ctid 2) × inner[1] (ctid 2) = true
-WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[1] × inner[1] after 3 evaluations
-WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = true
+WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[1] after 1 evaluations
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
 WARNING:  ParadeDB: Creating result tuple with 0 attributes
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
 WARNING:  ParadeDB: Fetching real heap tuple values from relations complex_products and complex_reviews
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
 WARNING:  ParadeDB: Detected relations from predicates - outer: 'complex_products', inner: 'complex_reviews'
-WARNING:  ParadeDB: Fetching all columns with names from relation complex_products with CTID 2
-WARNING:  ParadeDB: complex_products column 'id' = '2'
-WARNING:  ParadeDB: complex_products column 'name' = 'Wireless Headphones'
-WARNING:  ParadeDB: complex_products column 'description' = 'Premium noise-canceling headphones'
+WARNING:  ParadeDB: Fetching all columns with names from relation complex_products with CTID 1
+WARNING:  ParadeDB: complex_products column 'id' = '1'
+WARNING:  ParadeDB: complex_products column 'name' = 'Laptop Pro X1'
+WARNING:  ParadeDB: complex_products column 'description' = 'High-performance laptop with advanced features'
 WARNING:  ParadeDB: complex_products column 'category' = 'electronics'
 WARNING:  ParadeDB: complex_products column 'price' = 'ERROR_TEXT_5'
-WARNING:  ParadeDB: complex_products column 'manufacturer' = 'AudioTech'
+WARNING:  ParadeDB: complex_products column 'manufacturer' = 'TechCorp'
 WARNING:  ParadeDB: Successfully fetched 6 columns from complex_products relation
 WARNING:  ParadeDB: Fetching all columns with names from relation complex_reviews with CTID 2
 WARNING:  ParadeDB: complex_reviews column 'id' = '2'
@@ -2553,9 +2724,38 @@ WARNING:  ParadeDB: Successfully fetched 6 columns from complex_reviews relation
 WARNING:  ParadeDB: Fetched 6 columns from outer relation, 6 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
+WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
+WARNING:  ParadeDB: Executing join step in phase: JoinMatching
+WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 0/2
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[1] (ctid 2) × inner[0] (ctid 1) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[1] (ctid 2) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: All join combinations exhausted
-WARNING:  ParadeDB: Executing join step in phase: Finished
-WARNING:  ParadeDB: Join execution finished
+WARNING:  ParadeDB: Join execution finished after advancing position
 WARNING:  ParadeDB: Cleaning up join execution state
 WARNING:  ParadeDB: Join execution cleanup complete
  count 
@@ -2638,11 +2838,15 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
 WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = true
 WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[0] after 1 evaluations
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
@@ -2676,44 +2880,30 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[0] (ctid 1) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Iteration 3: outer[1] (ctid 2) × inner[1] (ctid 2) = true
-WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[1] × inner[1] after 3 evaluations
-WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = true
+WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[1] after 1 evaluations
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
 WARNING:  ParadeDB: Creating result tuple with 0 attributes
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
 WARNING:  ParadeDB: Fetching real heap tuple values from relations complex_products and complex_reviews
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
 WARNING:  ParadeDB: Detected relations from predicates - outer: 'complex_products', inner: 'complex_reviews'
-WARNING:  ParadeDB: Fetching all columns with names from relation complex_products with CTID 2
-WARNING:  ParadeDB: complex_products column 'id' = '2'
-WARNING:  ParadeDB: complex_products column 'name' = 'Wireless Headphones'
-WARNING:  ParadeDB: complex_products column 'description' = 'Premium noise-canceling headphones'
+WARNING:  ParadeDB: Fetching all columns with names from relation complex_products with CTID 1
+WARNING:  ParadeDB: complex_products column 'id' = '1'
+WARNING:  ParadeDB: complex_products column 'name' = 'Laptop Pro X1'
+WARNING:  ParadeDB: complex_products column 'description' = 'High-performance laptop with advanced features'
 WARNING:  ParadeDB: complex_products column 'category' = 'electronics'
 WARNING:  ParadeDB: complex_products column 'price' = 'ERROR_TEXT_5'
-WARNING:  ParadeDB: complex_products column 'manufacturer' = 'AudioTech'
+WARNING:  ParadeDB: complex_products column 'manufacturer' = 'TechCorp'
 WARNING:  ParadeDB: Successfully fetched 6 columns from complex_products relation
 WARNING:  ParadeDB: Fetching all columns with names from relation complex_reviews with CTID 2
 WARNING:  ParadeDB: complex_reviews column 'id' = '2'
@@ -2726,9 +2916,38 @@ WARNING:  ParadeDB: Successfully fetched 6 columns from complex_reviews relation
 WARNING:  ParadeDB: Fetched 6 columns from outer relation, 6 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
+WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
+WARNING:  ParadeDB: Executing join step in phase: JoinMatching
+WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 0/2
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[1] (ctid 2) × inner[0] (ctid 1) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[1] (ctid 2) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: All join combinations exhausted
-WARNING:  ParadeDB: Executing join step in phase: Finished
-WARNING:  ParadeDB: Join execution finished
+WARNING:  ParadeDB: Join execution finished after advancing position
 WARNING:  ParadeDB: Cleaning up join execution state
 WARNING:  ParadeDB: Join execution cleanup complete
  count 
@@ -2811,11 +3030,15 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
 WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = true
 WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[0] after 1 evaluations
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
@@ -2849,44 +3072,30 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[0] (ctid 1) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Iteration 3: outer[1] (ctid 2) × inner[1] (ctid 2) = true
-WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[1] × inner[1] after 3 evaluations
-WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = true
+WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[1] after 1 evaluations
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
 WARNING:  ParadeDB: Creating result tuple with 0 attributes
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
 WARNING:  ParadeDB: Fetching real heap tuple values from relations complex_products and complex_reviews
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
 WARNING:  ParadeDB: Detected relations from predicates - outer: 'complex_products', inner: 'complex_reviews'
-WARNING:  ParadeDB: Fetching all columns with names from relation complex_products with CTID 2
-WARNING:  ParadeDB: complex_products column 'id' = '2'
-WARNING:  ParadeDB: complex_products column 'name' = 'Wireless Headphones'
-WARNING:  ParadeDB: complex_products column 'description' = 'Premium noise-canceling headphones'
+WARNING:  ParadeDB: Fetching all columns with names from relation complex_products with CTID 1
+WARNING:  ParadeDB: complex_products column 'id' = '1'
+WARNING:  ParadeDB: complex_products column 'name' = 'Laptop Pro X1'
+WARNING:  ParadeDB: complex_products column 'description' = 'High-performance laptop with advanced features'
 WARNING:  ParadeDB: complex_products column 'category' = 'electronics'
 WARNING:  ParadeDB: complex_products column 'price' = 'ERROR_TEXT_5'
-WARNING:  ParadeDB: complex_products column 'manufacturer' = 'AudioTech'
+WARNING:  ParadeDB: complex_products column 'manufacturer' = 'TechCorp'
 WARNING:  ParadeDB: Successfully fetched 6 columns from complex_products relation
 WARNING:  ParadeDB: Fetching all columns with names from relation complex_reviews with CTID 2
 WARNING:  ParadeDB: complex_reviews column 'id' = '2'
@@ -2899,9 +3108,38 @@ WARNING:  ParadeDB: Successfully fetched 6 columns from complex_reviews relation
 WARNING:  ParadeDB: Fetched 6 columns from outer relation, 6 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
+WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
+WARNING:  ParadeDB: Executing join step in phase: JoinMatching
+WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 0/2
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[1] (ctid 2) × inner[0] (ctid 1) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[1] (ctid 2) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: All join combinations exhausted
-WARNING:  ParadeDB: Executing join step in phase: Finished
-WARNING:  ParadeDB: Join execution finished
+WARNING:  ParadeDB: Join execution finished after advancing position
 WARNING:  ParadeDB: Cleaning up join execution state
 WARNING:  ParadeDB: Join execution cleanup complete
  count 
@@ -3001,11 +3239,15 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
 WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = true
 WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[0] after 1 evaluations
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
@@ -3071,44 +3313,30 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[0] (ctid 1) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Iteration 3: outer[1] (ctid 2) × inner[1] (ctid 2) = true
-WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[1] × inner[1] after 3 evaluations
-WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = true
+WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[1] after 1 evaluations
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
 WARNING:  ParadeDB: Creating result tuple with 3 attributes
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
 WARNING:  ParadeDB: Fetching real heap tuple values from relations complex_products and complex_reviews
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
 WARNING:  ParadeDB: Detected relations from predicates - outer: 'complex_products', inner: 'complex_reviews'
-WARNING:  ParadeDB: Fetching all columns with names from relation complex_products with CTID 2
-WARNING:  ParadeDB: complex_products column 'id' = '2'
-WARNING:  ParadeDB: complex_products column 'name' = 'Wireless Headphones'
-WARNING:  ParadeDB: complex_products column 'description' = 'Premium noise-canceling headphones'
+WARNING:  ParadeDB: Fetching all columns with names from relation complex_products with CTID 1
+WARNING:  ParadeDB: complex_products column 'id' = '1'
+WARNING:  ParadeDB: complex_products column 'name' = 'Laptop Pro X1'
+WARNING:  ParadeDB: complex_products column 'description' = 'High-performance laptop with advanced features'
 WARNING:  ParadeDB: complex_products column 'category' = 'electronics'
 WARNING:  ParadeDB: complex_products column 'price' = 'ERROR_TEXT_5'
-WARNING:  ParadeDB: complex_products column 'manufacturer' = 'AudioTech'
+WARNING:  ParadeDB: complex_products column 'manufacturer' = 'TechCorp'
 WARNING:  ParadeDB: Successfully fetched 6 columns from complex_products relation
 WARNING:  ParadeDB: Fetching all columns with names from relation complex_reviews with CTID 2
 WARNING:  ParadeDB: complex_reviews column 'id' = '2'
@@ -3153,9 +3381,38 @@ WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("electronics"), Some(
 WARNING:  ParadeDB: Converting '4' to integer 4
 WARNING:  ParadeDB: Converting '2' to integer 2
 WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("electronics"), Some("4"), Some("2")]
+WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
+WARNING:  ParadeDB: Executing join step in phase: JoinMatching
+WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 0/2
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[1] (ctid 2) × inner[0] (ctid 1) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[1] (ctid 2) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: All join combinations exhausted
-WARNING:  ParadeDB: Executing join step in phase: Finished
-WARNING:  ParadeDB: Join execution finished
+WARNING:  ParadeDB: Join execution finished after advancing position
 WARNING:  ParadeDB: Cleaning up join execution state
 WARNING:  ParadeDB: Join execution cleanup complete
   category   | product_count |     avg_rating     | review_count 
@@ -3243,11 +3500,15 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
 WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = true
 WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[0] after 1 evaluations
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
@@ -3281,44 +3542,30 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[0] (ctid 1) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Iteration 3: outer[1] (ctid 2) × inner[1] (ctid 2) = true
-WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[1] × inner[1] after 3 evaluations
-WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = true
+WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[1] after 1 evaluations
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
 WARNING:  ParadeDB: Creating result tuple with 0 attributes
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
 WARNING:  ParadeDB: Fetching real heap tuple values from relations complex_products and complex_reviews
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
 WARNING:  ParadeDB: Detected relations from predicates - outer: 'complex_products', inner: 'complex_reviews'
-WARNING:  ParadeDB: Fetching all columns with names from relation complex_products with CTID 2
-WARNING:  ParadeDB: complex_products column 'id' = '2'
-WARNING:  ParadeDB: complex_products column 'name' = 'Wireless Headphones'
-WARNING:  ParadeDB: complex_products column 'description' = 'Premium noise-canceling headphones'
+WARNING:  ParadeDB: Fetching all columns with names from relation complex_products with CTID 1
+WARNING:  ParadeDB: complex_products column 'id' = '1'
+WARNING:  ParadeDB: complex_products column 'name' = 'Laptop Pro X1'
+WARNING:  ParadeDB: complex_products column 'description' = 'High-performance laptop with advanced features'
 WARNING:  ParadeDB: complex_products column 'category' = 'electronics'
 WARNING:  ParadeDB: complex_products column 'price' = 'ERROR_TEXT_5'
-WARNING:  ParadeDB: complex_products column 'manufacturer' = 'AudioTech'
+WARNING:  ParadeDB: complex_products column 'manufacturer' = 'TechCorp'
 WARNING:  ParadeDB: Successfully fetched 6 columns from complex_products relation
 WARNING:  ParadeDB: Fetching all columns with names from relation complex_reviews with CTID 2
 WARNING:  ParadeDB: complex_reviews column 'id' = '2'
@@ -3331,9 +3578,38 @@ WARNING:  ParadeDB: Successfully fetched 6 columns from complex_reviews relation
 WARNING:  ParadeDB: Fetched 6 columns from outer relation, 6 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
+WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
+WARNING:  ParadeDB: Executing join step in phase: JoinMatching
+WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 0/2
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[1] (ctid 2) × inner[0] (ctid 1) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[1] (ctid 2) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: All join combinations exhausted
-WARNING:  ParadeDB: Executing join step in phase: Finished
-WARNING:  ParadeDB: Join execution finished
+WARNING:  ParadeDB: Join execution finished after advancing position
 WARNING:  ParadeDB: Cleaning up join execution state
 WARNING:  ParadeDB: Join execution cleanup complete
  empty_result_test 
@@ -3425,11 +3701,15 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
 WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = true
 WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[0] after 1 evaluations
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
@@ -3565,11 +3845,15 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
 WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = true
 WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[0] after 1 evaluations
 WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
@@ -3603,44 +3887,30 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[0] (ctid 1) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
-WARNING:  ParadeDB: Found join keys via common column: complex_products.id = complex_reviews.id
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'id' from relation complex_reviews with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Iteration 3: outer[1] (ctid 2) × inner[1] (ctid 2) = true
-WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[1] × inner[1] after 3 evaluations
-WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[1]
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = true
+WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[1] after 1 evaluations
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
 WARNING:  ParadeDB: Creating result tuple with 0 attributes
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
 WARNING:  ParadeDB: Fetching real heap tuple values from relations complex_products and complex_reviews
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
 WARNING:  ParadeDB: Detected relations from predicates - outer: 'complex_products', inner: 'complex_reviews'
-WARNING:  ParadeDB: Fetching all columns with names from relation complex_products with CTID 2
-WARNING:  ParadeDB: complex_products column 'id' = '2'
-WARNING:  ParadeDB: complex_products column 'name' = 'Wireless Headphones'
-WARNING:  ParadeDB: complex_products column 'description' = 'Premium noise-canceling headphones'
+WARNING:  ParadeDB: Fetching all columns with names from relation complex_products with CTID 1
+WARNING:  ParadeDB: complex_products column 'id' = '1'
+WARNING:  ParadeDB: complex_products column 'name' = 'Laptop Pro X1'
+WARNING:  ParadeDB: complex_products column 'description' = 'High-performance laptop with advanced features'
 WARNING:  ParadeDB: complex_products column 'category' = 'electronics'
 WARNING:  ParadeDB: complex_products column 'price' = 'ERROR_TEXT_5'
-WARNING:  ParadeDB: complex_products column 'manufacturer' = 'AudioTech'
+WARNING:  ParadeDB: complex_products column 'manufacturer' = 'TechCorp'
 WARNING:  ParadeDB: Successfully fetched 6 columns from complex_products relation
 WARNING:  ParadeDB: Fetching all columns with names from relation complex_reviews with CTID 2
 WARNING:  ParadeDB: complex_reviews column 'id' = '2'
@@ -3653,9 +3923,38 @@ WARNING:  ParadeDB: Successfully fetched 6 columns from complex_reviews relation
 WARNING:  ParadeDB: Fetched 6 columns from outer relation, 6 from inner relation
 WARNING:  ParadeDB: Mapped 0 out of 0 column values: []
 WARNING:  ParadeDB: Created join result tuple with real heap data: []
+WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
+WARNING:  ParadeDB: Executing join step in phase: JoinMatching
+WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 0/2
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[1] (ctid 2) × inner[0] (ctid 1) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: complex_products, inner: complex_reviews
+WARNING:  ParadeDB: Determining join keys for relations complex_products and complex_reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("complex_products"), RTI 2 to relid Some("complex_reviews")
+WARNING:  ParadeDB: Found matching join condition: complex_products.id = complex_reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation complex_products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation complex_reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[1] (ctid 2) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: All join combinations exhausted
-WARNING:  ParadeDB: Executing join step in phase: Finished
-WARNING:  ParadeDB: Join execution finished
+WARNING:  ParadeDB: Join execution finished after advancing position
 WARNING:  ParadeDB: Cleaning up join execution state
 WARNING:  ParadeDB: Join execution cleanup complete
  broad_result_test 

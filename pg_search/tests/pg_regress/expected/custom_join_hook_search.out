@@ -139,7 +139,11 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Found join keys via pattern matching: products.id = reviews.product_id
+WARNING:  ParadeDB: Determining join keys for relations products and reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("products"), RTI 2 to relid Some("reviews")
+WARNING:  ParadeDB: Found matching join condition: products.id = reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
 WARNING:  ParadeDB: Fetching column 'product_id' from relation reviews with CTID 1
@@ -204,7 +208,11 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Found join keys via pattern matching: products.id = reviews.product_id
+WARNING:  ParadeDB: Determining join keys for relations products and reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("products"), RTI 2 to relid Some("reviews")
+WARNING:  ParadeDB: Found matching join condition: products.id = reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
 WARNING:  ParadeDB: Fetching column 'product_id' from relation reviews with CTID 2
@@ -269,7 +277,11 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Found join keys via pattern matching: products.id = reviews.product_id
+WARNING:  ParadeDB: Determining join keys for relations products and reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("products"), RTI 2 to relid Some("reviews")
+WARNING:  ParadeDB: Found matching join condition: products.id = reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 2
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
 WARNING:  ParadeDB: Fetching column 'product_id' from relation reviews with CTID 1
@@ -278,7 +290,11 @@ WARNING:  ParadeDB: Iteration 1: outer[1] (ctid 2) × inner[0] (ctid 1) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Found join keys via pattern matching: products.id = reviews.product_id
+WARNING:  ParadeDB: Determining join keys for relations products and reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("products"), RTI 2 to relid Some("reviews")
+WARNING:  ParadeDB: Found matching join condition: products.id = reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 2
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
 WARNING:  ParadeDB: Fetching column 'product_id' from relation reviews with CTID 2
@@ -375,7 +391,11 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Found join keys via pattern matching: products.id = reviews.product_id
+WARNING:  ParadeDB: Determining join keys for relations products and reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("products"), RTI 2 to relid Some("reviews")
+WARNING:  ParadeDB: Found matching join condition: products.id = reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
 WARNING:  ParadeDB: Fetching column 'product_id' from relation reviews with CTID 1
@@ -441,7 +461,11 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Found join keys via pattern matching: products.id = reviews.product_id
+WARNING:  ParadeDB: Determining join keys for relations products and reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("products"), RTI 2 to relid Some("reviews")
+WARNING:  ParadeDB: Found matching join condition: products.id = reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
 WARNING:  ParadeDB: Fetching column 'product_id' from relation reviews with CTID 2
@@ -507,7 +531,11 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Found join keys via pattern matching: products.id = reviews.product_id
+WARNING:  ParadeDB: Determining join keys for relations products and reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("products"), RTI 2 to relid Some("reviews")
+WARNING:  ParadeDB: Found matching join condition: products.id = reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 2
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
 WARNING:  ParadeDB: Fetching column 'product_id' from relation reviews with CTID 1
@@ -516,7 +544,11 @@ WARNING:  ParadeDB: Iteration 1: outer[1] (ctid 2) × inner[0] (ctid 1) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Found join keys via pattern matching: products.id = reviews.product_id
+WARNING:  ParadeDB: Determining join keys for relations products and reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("products"), RTI 2 to relid Some("reviews")
+WARNING:  ParadeDB: Found matching join condition: products.id = reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 2
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
 WARNING:  ParadeDB: Fetching column 'product_id' from relation reviews with CTID 2
@@ -618,7 +650,11 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Found join keys via pattern matching: products.id = reviews.product_id
+WARNING:  ParadeDB: Determining join keys for relations products and reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("products"), RTI 2 to relid Some("reviews")
+WARNING:  ParadeDB: Found matching join condition: products.id = reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
 WARNING:  ParadeDB: Fetching column 'product_id' from relation reviews with CTID 1
@@ -683,7 +719,11 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Found join keys via pattern matching: products.id = reviews.product_id
+WARNING:  ParadeDB: Determining join keys for relations products and reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("products"), RTI 2 to relid Some("reviews")
+WARNING:  ParadeDB: Found matching join condition: products.id = reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
 WARNING:  ParadeDB: Fetching column 'product_id' from relation reviews with CTID 2
@@ -748,7 +788,11 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Found join keys via pattern matching: products.id = reviews.product_id
+WARNING:  ParadeDB: Determining join keys for relations products and reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("products"), RTI 2 to relid Some("reviews")
+WARNING:  ParadeDB: Found matching join condition: products.id = reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 2
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
 WARNING:  ParadeDB: Fetching column 'product_id' from relation reviews with CTID 1
@@ -757,7 +801,11 @@ WARNING:  ParadeDB: Iteration 1: outer[1] (ctid 2) × inner[0] (ctid 1) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Found join keys via pattern matching: products.id = reviews.product_id
+WARNING:  ParadeDB: Determining join keys for relations products and reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("products"), RTI 2 to relid Some("reviews")
+WARNING:  ParadeDB: Found matching join condition: products.id = reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 2
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
 WARNING:  ParadeDB: Fetching column 'product_id' from relation reviews with CTID 2
@@ -859,7 +907,11 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Found join keys via pattern matching: products.id = reviews.product_id
+WARNING:  ParadeDB: Determining join keys for relations products and reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("products"), RTI 2 to relid Some("reviews")
+WARNING:  ParadeDB: Found matching join condition: products.id = reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
 WARNING:  ParadeDB: Fetching column 'product_id' from relation reviews with CTID 1
@@ -925,7 +977,11 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Found join keys via pattern matching: products.id = reviews.product_id
+WARNING:  ParadeDB: Determining join keys for relations products and reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("products"), RTI 2 to relid Some("reviews")
+WARNING:  ParadeDB: Found matching join condition: products.id = reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 1
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
 WARNING:  ParadeDB: Fetching column 'product_id' from relation reviews with CTID 2
@@ -991,7 +1047,11 @@ WARNING:  ParadeDB: In join matching phase
 WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Found join keys via pattern matching: products.id = reviews.product_id
+WARNING:  ParadeDB: Determining join keys for relations products and reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("products"), RTI 2 to relid Some("reviews")
+WARNING:  ParadeDB: Found matching join condition: products.id = reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 2
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
 WARNING:  ParadeDB: Fetching column 'product_id' from relation reviews with CTID 1
@@ -1000,7 +1060,11 @@ WARNING:  ParadeDB: Iteration 1: outer[1] (ctid 2) × inner[0] (ctid 1) = false
 WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
 WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
-WARNING:  ParadeDB: Found join keys via pattern matching: products.id = reviews.product_id
+WARNING:  ParadeDB: Determining join keys for relations products and reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("products"), RTI 2 to relid Some("reviews")
+WARNING:  ParadeDB: Found matching join condition: products.id = reviews.product_id
 WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 2
 WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
 WARNING:  ParadeDB: Fetching column 'product_id' from relation reviews with CTID 2

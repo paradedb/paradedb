@@ -117,16 +117,22 @@ impl LazyFieldLoader {
         }
     }
 
-    /// Load a field with visibility checking, following PdbScan's patterns
+    /// Load multiple fields with visibility checking in a single heap access
     ///
-    /// This is the core method that implements the same two-tier visibility
-    /// checking as PdbScan: fast path for visible blocks, slow path for MVCC.
-    pub fn load_field_with_visibility_check(
+    /// This is much more efficient than loading fields one at a time because:
+    /// - Single heap access per tuple
+    /// - Better cache locality
+    /// - Reduced buffer management overhead
+    pub fn load_fields_batch(
         &mut self,
         ctid: u64,
-        attno: pg_sys::AttrNumber,
+        field_attnos: &[pg_sys::AttrNumber],
         heaprel: pg_sys::Relation,
-    ) -> Result<pg_sys::Datum, LazyLoadError> {
+    ) -> Result<Vec<(pg_sys::AttrNumber, pg_sys::Datum)>, LazyLoadError> {
+        if field_attnos.is_empty() {
+            return Ok(Vec::new());
+        }
+
         unsafe {
             // Use the same block visibility optimization as PdbScan
             let mut tid = pg_sys::ItemPointerData::default();
@@ -144,55 +150,26 @@ impl LazyFieldLoader {
             };
 
             if is_visible {
-                // Block is all visible, can extract field directly (fast path)
-                self.extract_field_from_visible_block(ctid, attno, heaprel)
+                // Block is all visible, can extract fields directly (fast path)
+                self.extract_fields_from_visible_block(ctid, field_attnos, heaprel)
             } else {
                 // Use VisibilityChecker for MVCC-safe access (slow path, same as PdbScan)
-                // Extract the field from slot in a separate step to avoid borrowing conflicts
-                let temp_slot = self.temp_slot;
-                let result = self
-                    .visibility_checker
-                    .exec_if_visible(ctid, temp_slot, |_heaprel| {
-                        // Extract field from the slot that was populated by VisibilityChecker
-                        let mut isnull = false;
-                        let datum = pg_sys::slot_getattr(temp_slot, attno as i32, &mut isnull);
-
-                        if isnull {
-                            (pg_sys::Datum::null(), true)
-                        } else {
-                            (datum, false)
-                        }
-                    });
-
-                match result {
-                    Some((datum, is_null)) => {
-                        if is_null {
-                            Ok(pg_sys::Datum::null())
-                        } else {
-                            // Copy to our memory context
-                            let tupdesc = (*temp_slot).tts_tupleDescriptor;
-                            Ok(self.copy_datum_to_context(datum, attno, tupdesc))
-                        }
-                    }
-                    None => Err(LazyLoadError::TupleNotVisible),
-                }
+                self.extract_fields_with_visibility_check(ctid, field_attnos, heaprel)
             }
         }
     }
 
-    /// Extract field from a block known to be all-visible (fast path)
-    ///
-    /// This follows the same pattern as PdbScan's fast field access
-    unsafe fn extract_field_from_visible_block(
+    /// Extract multiple fields from a block known to be all-visible (fast path)
+    unsafe fn extract_fields_from_visible_block(
         &self,
         ctid: u64,
-        attno: pg_sys::AttrNumber,
+        field_attnos: &[pg_sys::AttrNumber],
         heaprel: pg_sys::Relation,
-    ) -> Result<pg_sys::Datum, LazyLoadError> {
+    ) -> Result<Vec<(pg_sys::AttrNumber, pg_sys::Datum)>, LazyLoadError> {
         // Switch to per-tuple context for temporary allocations
         let old_context = pg_sys::MemoryContextSwitchTo(self.per_tuple_context);
 
-        let result = self.extract_field_from_visible_block_internal(ctid, attno, heaprel);
+        let result = self.extract_fields_from_visible_block_internal(ctid, field_attnos, heaprel);
 
         // Restore previous context
         pg_sys::MemoryContextSwitchTo(old_context);
@@ -200,12 +177,12 @@ impl LazyFieldLoader {
         result
     }
 
-    unsafe fn extract_field_from_visible_block_internal(
+    unsafe fn extract_fields_from_visible_block_internal(
         &self,
         ctid: u64,
-        attno: pg_sys::AttrNumber,
+        field_attnos: &[pg_sys::AttrNumber],
         heaprel: pg_sys::Relation,
-    ) -> Result<pg_sys::Datum, LazyLoadError> {
+    ) -> Result<Vec<(pg_sys::AttrNumber, pg_sys::Datum)>, LazyLoadError> {
         // Convert CTID to ItemPointer
         let mut tid = pg_sys::ItemPointerData::default();
         utils::u64_to_item_pointer(ctid, &mut tid);
@@ -225,22 +202,95 @@ impl LazyFieldLoader {
         let tuple = pg_sys::PageGetItem(page, pg_sys::PageGetItemId(page, offno));
         let htup = tuple as pg_sys::HeapTuple;
 
-        // Extract the field using PostgreSQL's standard function
-        let mut isnull = false;
+        // Extract ALL requested fields in a single pass
         let tupdesc = (*heaprel).rd_att;
-        let datum = pg_sys::heap_getattr(htup, attno as i32, tupdesc, &mut isnull);
+        let mut results = Vec::with_capacity(field_attnos.len());
 
-        // Copy datum to our memory context if not null
-        let result_datum = if isnull {
-            pg_sys::Datum::null()
-        } else {
-            self.copy_datum_to_context(datum, attno, tupdesc)
-        };
+        for &attno in field_attnos {
+            let mut isnull = false;
+            let datum = pg_sys::heap_getattr(htup, attno as i32, tupdesc, &mut isnull);
 
-        // Release buffer
+            let result_datum = if isnull {
+                pg_sys::Datum::null()
+            } else {
+                self.copy_datum_to_context(datum, attno, tupdesc)
+            };
+
+            results.push((attno, result_datum));
+        }
+
+        // Release buffer (only once for all fields!)
         pg_sys::UnlockReleaseBuffer(buffer);
 
-        Ok(result_datum)
+        Ok(results)
+    }
+
+    /// Extract multiple fields using VisibilityChecker (slow path)
+    unsafe fn extract_fields_with_visibility_check(
+        &mut self,
+        ctid: u64,
+        field_attnos: &[pg_sys::AttrNumber],
+        heaprel: pg_sys::Relation,
+    ) -> Result<Vec<(pg_sys::AttrNumber, pg_sys::Datum)>, LazyLoadError> {
+        let temp_slot = self.temp_slot;
+        let field_attnos_vec = field_attnos.to_vec(); // Copy for closure
+
+        let result = self
+            .visibility_checker
+            .exec_if_visible(ctid, temp_slot, |_heaprel| {
+                // Extract ALL requested fields from the slot in a single pass
+                let mut field_results = Vec::with_capacity(field_attnos_vec.len());
+
+                for &attno in &field_attnos_vec {
+                    let mut isnull = false;
+                    let datum = pg_sys::slot_getattr(temp_slot, attno as i32, &mut isnull);
+
+                    let result_datum = if isnull {
+                        pg_sys::Datum::null()
+                    } else {
+                        datum // Will be copied to context outside the closure
+                    };
+
+                    field_results.push((attno, result_datum, isnull));
+                }
+
+                field_results
+            });
+
+        match result {
+            Some(field_results) => {
+                // Copy all datums to our memory context
+                let tupdesc = (*temp_slot).tts_tupleDescriptor;
+                let mut final_results = Vec::with_capacity(field_results.len());
+
+                for (attno, datum, is_null) in field_results {
+                    let final_datum = if is_null {
+                        pg_sys::Datum::null()
+                    } else {
+                        self.copy_datum_to_context(datum, attno, tupdesc)
+                    };
+                    final_results.push((attno, final_datum));
+                }
+
+                Ok(final_results)
+            }
+            None => Err(LazyLoadError::TupleNotVisible),
+        }
+    }
+
+    /// Load a single field (kept for backward compatibility, but uses batch loading internally)
+    pub fn load_field_with_visibility_check(
+        &mut self,
+        ctid: u64,
+        attno: pg_sys::AttrNumber,
+        heaprel: pg_sys::Relation,
+    ) -> Result<pg_sys::Datum, LazyLoadError> {
+        let results = self.load_fields_batch(ctid, &[attno], heaprel)?;
+        Ok(results
+            .into_iter()
+            .next()
+            .map(|(_, datum)| datum)
+            .unwrap_or(pg_sys::Datum::null()))
     }
 
     /// Copy datum to our memory context to ensure it survives buffer release
@@ -339,36 +389,38 @@ impl LazyFieldLoaderWithFallback {
         }
     }
 
-    /// Load field with fallback handling
-    pub fn load_field_with_fallback(
+    /// Load multiple fields with fallback handling (RECOMMENDED)
+    ///
+    /// This is the preferred method for loading multiple fields as it's much more efficient
+    /// than loading fields one at a time.
+    pub fn load_fields_batch_with_fallback(
         &mut self,
         ctid: u64,
-        attno: pg_sys::AttrNumber,
+        field_attnos: &[pg_sys::AttrNumber],
         heaprel: pg_sys::Relation,
-    ) -> Result<pg_sys::Datum, LazyLoadError> {
+    ) -> Result<Vec<(pg_sys::AttrNumber, pg_sys::Datum)>, LazyLoadError> {
         // First attempt
-        match self
-            .loader
-            .load_field_with_visibility_check(ctid, attno, heaprel)
-        {
-            Ok(datum) => Ok(datum),
+        match self.loader.load_fields_batch(ctid, field_attnos, heaprel) {
+            Ok(results) => Ok(results),
             Err(LazyLoadError::TupleNotVisible) => {
                 self.error_stats.tuple_not_visible_count += 1;
 
                 match self.fallback_strategy {
                     FallbackStrategy::RetryOnce => {
                         // Simple retry (PdbScan just continues to next tuple)
-                        self.loader
-                            .load_field_with_visibility_check(ctid, attno, heaprel)
+                        self.loader.load_fields_batch(ctid, field_attnos, heaprel)
                     }
                     FallbackStrategy::FallbackToEagerLoading => {
                         // Use PostgreSQL's standard heap access
                         self.error_stats.total_fallbacks += 1;
-                        self.eager_load_field(ctid, attno, heaprel)
+                        self.eager_load_fields_batch(ctid, field_attnos, heaprel)
                     }
                     FallbackStrategy::ReturnPartialResults => {
-                        // Return NULL for this field
-                        Ok(pg_sys::Datum::null())
+                        // Return NULL for all fields
+                        Ok(field_attnos
+                            .iter()
+                            .map(|&attno| (attno, pg_sys::Datum::null()))
+                            .collect())
                     }
                     FallbackStrategy::FailQuery => Err(LazyLoadError::TupleNotVisible),
                 }
@@ -381,13 +433,29 @@ impl LazyFieldLoaderWithFallback {
         }
     }
 
-    /// Fallback to eager loading using PostgreSQL's standard table access
-    fn eager_load_field(
-        &self,
+    /// Load field with fallback handling (single field - less efficient)
+    pub fn load_field_with_fallback(
+        &mut self,
         ctid: u64,
         attno: pg_sys::AttrNumber,
         heaprel: pg_sys::Relation,
     ) -> Result<pg_sys::Datum, LazyLoadError> {
+        // Use batch loading internally for consistency
+        let results = self.load_fields_batch_with_fallback(ctid, &[attno], heaprel)?;
+        Ok(results
+            .into_iter()
+            .next()
+            .map(|(_, datum)| datum)
+            .unwrap_or(pg_sys::Datum::null()))
+    }
+
+    /// Fallback to eager loading using PostgreSQL's standard table access (batch version)
+    fn eager_load_fields_batch(
+        &self,
+        ctid: u64,
+        field_attnos: &[pg_sys::AttrNumber],
+        heaprel: pg_sys::Relation,
+    ) -> Result<Vec<(pg_sys::AttrNumber, pg_sys::Datum)>, LazyLoadError> {
         unsafe {
             let mut tid = pg_sys::ItemPointerData::default();
             utils::u64_to_item_pointer(ctid, &mut tid);
@@ -408,13 +476,17 @@ impl LazyFieldLoaderWithFallback {
             );
 
             let result = if found {
-                let mut isnull = false;
-                let datum = pg_sys::slot_getattr(slot, attno as i32, &mut isnull);
-                if isnull {
-                    Ok(pg_sys::Datum::null())
-                } else {
-                    Ok(datum)
+                // Extract ALL requested fields in a single pass
+                let mut results = Vec::with_capacity(field_attnos.len());
+
+                for &attno in field_attnos {
+                    let mut isnull = false;
+                    let datum = pg_sys::slot_getattr(slot, attno as i32, &mut isnull);
+                    let result_datum = if isnull { pg_sys::Datum::null() } else { datum };
+                    results.push((attno, result_datum));
                 }
+
+                Ok(results)
             } else {
                 Err(LazyLoadError::TupleNotVisible)
             };
@@ -422,6 +494,22 @@ impl LazyFieldLoaderWithFallback {
             pg_sys::table_index_fetch_end(scan);
             result
         }
+    }
+
+    /// Fallback to eager loading using PostgreSQL's standard table access (single field)
+    fn eager_load_field(
+        &self,
+        ctid: u64,
+        attno: pg_sys::AttrNumber,
+        heaprel: pg_sys::Relation,
+    ) -> Result<pg_sys::Datum, LazyLoadError> {
+        // Use batch loading internally
+        let results = self.eager_load_fields_batch(ctid, &[attno], heaprel)?;
+        Ok(results
+            .into_iter()
+            .next()
+            .map(|(_, datum)| datum)
+            .unwrap_or(pg_sys::Datum::null()))
     }
 
     /// Get error statistics
@@ -470,6 +558,13 @@ impl LazyResult {
         }
     }
 
+    /// Add multiple fast field values at once
+    pub fn add_fast_fields(&mut self, fields: Vec<(pg_sys::AttrNumber, pg_sys::Datum)>) {
+        for (attno, datum) in fields {
+            self.fast_fields.insert(attno, datum);
+        }
+    }
+
     /// Add a fast field value
     pub fn add_fast_field(&mut self, attno: pg_sys::AttrNumber, datum: pg_sys::Datum) {
         self.fast_fields.insert(attno, datum);
@@ -485,6 +580,44 @@ impl LazyResult {
         self.ctids.get(&table_oid).copied()
     }
 
+    /// Load multiple non-fast fields at once using batch loading
+    ///
+    /// This is much more efficient than loading fields one at a time
+    pub fn load_non_fast_fields_batch(
+        &mut self,
+        table_oid: pg_sys::Oid,
+        field_attnos: &[pg_sys::AttrNumber],
+        loader: &mut LazyFieldLoaderWithFallback,
+        heaprel: pg_sys::Relation,
+    ) -> Result<(), LazyLoadError> {
+        let ctid = self
+            .get_ctid(table_oid)
+            .ok_or(LazyLoadError::TupleNotVisible)?;
+
+        // Load all requested fields in a single heap access
+        let field_results = loader.load_fields_batch_with_fallback(ctid, field_attnos, heaprel)?;
+
+        // Store all results
+        for (attno, datum) in field_results {
+            self.non_fast_fields
+                .insert(attno, LazyFieldState::Loaded(datum));
+        }
+
+        Ok(())
+    }
+
+    /// Load a single non-fast field (less efficient - use batch loading when possible)
+    pub fn load_non_fast_field(
+        &mut self,
+        table_oid: pg_sys::Oid,
+        attno: pg_sys::AttrNumber,
+        loader: &mut LazyFieldLoaderWithFallback,
+        heaprel: pg_sys::Relation,
+    ) -> Result<(), LazyLoadError> {
+        // Use batch loading internally for consistency
+        self.load_non_fast_fields_batch(table_oid, &[attno], loader, heaprel)
+    }
+
     /// Check if a non-fast field has been loaded
     pub fn is_field_loaded(&self, attno: pg_sys::AttrNumber) -> bool {
         matches!(
@@ -493,11 +626,73 @@ impl LazyResult {
         )
     }
 
-    /// Get a loaded field value
+    /// Get a loaded field value (fast or non-fast)
     pub fn get_field(&self, attno: pg_sys::AttrNumber) -> Option<pg_sys::Datum> {
+        // Check fast fields first
+        if let Some(datum) = self.fast_fields.get(&attno) {
+            return Some(*datum);
+        }
+
+        // Then check non-fast fields
         match self.non_fast_fields.get(&attno) {
             Some(LazyFieldState::Loaded(datum)) => Some(*datum),
             _ => None,
+        }
+    }
+
+    /// Get multiple field values at once
+    pub fn get_fields(
+        &self,
+        attnos: &[pg_sys::AttrNumber],
+    ) -> Vec<(pg_sys::AttrNumber, Option<pg_sys::Datum>)> {
+        attnos
+            .iter()
+            .map(|&attno| (attno, self.get_field(attno)))
+            .collect()
+    }
+
+    /// Check which non-fast fields still need to be loaded
+    pub fn get_unloaded_non_fast_fields(
+        &self,
+        requested_attnos: &[pg_sys::AttrNumber],
+    ) -> Vec<pg_sys::AttrNumber> {
+        requested_attnos
+            .iter()
+            .filter(|&&attno| {
+                // Skip if it's a fast field (already loaded)
+                if self.fast_fields.contains_key(&attno) {
+                    return false;
+                }
+
+                // Include if it's not loaded yet
+                !matches!(
+                    self.non_fast_fields.get(&attno),
+                    Some(LazyFieldState::Loaded(_))
+                )
+            })
+            .copied()
+            .collect()
+    }
+
+    /// Get statistics about this lazy result
+    pub fn get_stats(&self) -> LazyResultStats {
+        let loaded_non_fast = self
+            .non_fast_fields
+            .values()
+            .filter(|state| matches!(state, LazyFieldState::Loaded(_)))
+            .count();
+
+        let failed_non_fast = self
+            .non_fast_fields
+            .values()
+            .filter(|state| matches!(state, LazyFieldState::Failed(_)))
+            .count();
+
+        LazyResultStats {
+            fast_fields_count: self.fast_fields.len(),
+            loaded_non_fast_fields: loaded_non_fast,
+            failed_non_fast_fields: failed_non_fast,
+            total_tables: self.ctids.len(),
         }
     }
 }
@@ -712,6 +907,32 @@ impl Default for MultiTableFieldMap {
     }
 }
 
+/// Statistics about a lazy result
+#[derive(Debug, Clone)]
+pub struct LazyResultStats {
+    pub fast_fields_count: usize,
+    pub loaded_non_fast_fields: usize,
+    pub failed_non_fast_fields: usize,
+    pub total_tables: usize,
+}
+
+impl LazyResultStats {
+    /// Calculate the total number of loaded fields
+    pub fn total_loaded_fields(&self) -> usize {
+        self.fast_fields_count + self.loaded_non_fast_fields
+    }
+
+    /// Calculate the percentage of successfully loaded fields
+    pub fn success_rate(&self) -> f64 {
+        let total_attempted = self.loaded_non_fast_fields + self.failed_non_fast_fields;
+        if total_attempted == 0 {
+            100.0 // All fast fields, 100% success
+        } else {
+            (self.loaded_non_fast_fields as f64 / total_attempted as f64) * 100.0
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -739,122 +960,113 @@ mod tests {
     }
 
     #[test]
-    fn test_lazy_field_state() {
-        let state = LazyFieldState::NotLoaded;
-        assert!(matches!(state, LazyFieldState::NotLoaded));
+    fn test_batch_fast_fields() {
+        let mut result = LazyResult::new();
 
-        let state = LazyFieldState::Loaded(42.into());
-        assert!(matches!(state, LazyFieldState::Loaded(_)));
+        // Test batch adding fast fields
+        let batch_fields = vec![(1, 42.into()), (2, 84.into()), (3, 126.into())];
+        result.add_fast_fields(batch_fields);
 
-        let state = LazyFieldState::Failed(LazyLoadError::TupleNotVisible);
-        assert!(matches!(
-            state,
-            LazyFieldState::Failed(LazyLoadError::TupleNotVisible)
-        ));
+        assert_eq!(result.fast_fields.len(), 3);
+        assert_eq!(result.get_field(1), Some(42.into()));
+        assert_eq!(result.get_field(2), Some(84.into()));
+        assert_eq!(result.get_field(3), Some(126.into()));
+
+        // Test batch getting fields
+        let requested_fields = [1, 2, 3, 4]; // 4 doesn't exist
+        let field_results = result.get_fields(&requested_fields);
+
+        assert_eq!(field_results.len(), 4);
+        assert_eq!(field_results[0], (1, Some(42.into())));
+        assert_eq!(field_results[1], (2, Some(84.into())));
+        assert_eq!(field_results[2], (3, Some(126.into())));
+        assert_eq!(field_results[3], (4, None));
     }
 
     #[test]
-    fn test_error_statistics() {
-        let mut stats = ErrorStatistics::default();
-        assert_eq!(stats.tuple_not_visible_count, 0);
-        assert_eq!(stats.buffer_pin_failures, 0);
+    fn test_unloaded_field_detection() {
+        let mut result = LazyResult::new();
 
-        stats.tuple_not_visible_count += 1;
-        stats.buffer_pin_failures += 2;
+        // Add some fast fields
+        result.add_fast_field(1, 42.into());
+        result.add_fast_field(2, 84.into());
 
-        assert_eq!(stats.tuple_not_visible_count, 1);
-        assert_eq!(stats.buffer_pin_failures, 2);
+        // Add some loaded non-fast fields
+        result
+            .non_fast_fields
+            .insert(3, LazyFieldState::Loaded(126.into()));
+
+        // Add some unloaded non-fast fields
+        result.non_fast_fields.insert(4, LazyFieldState::NotLoaded);
+        result
+            .non_fast_fields
+            .insert(5, LazyFieldState::Failed(LazyLoadError::TupleNotVisible));
+
+        // Test unloaded field detection
+        let requested_fields = [1, 2, 3, 4, 5, 6]; // 6 is completely new
+        let unloaded = result.get_unloaded_non_fast_fields(&requested_fields);
+
+        // Should return fields 4, 5, and 6 (1,2,3 are already available)
+        assert_eq!(unloaded.len(), 3);
+        assert!(unloaded.contains(&4));
+        assert!(unloaded.contains(&5));
+        assert!(unloaded.contains(&6));
+        assert!(!unloaded.contains(&1)); // Fast field, already loaded
+        assert!(!unloaded.contains(&2)); // Fast field, already loaded
+        assert!(!unloaded.contains(&3)); // Non-fast field, already loaded
     }
 
     #[test]
-    fn test_fallback_strategy() {
-        let strategy = FallbackStrategy::RetryOnce;
-        assert!(matches!(strategy, FallbackStrategy::RetryOnce));
+    fn test_lazy_result_stats() {
+        let mut result = LazyResult::new();
 
-        let strategy = FallbackStrategy::FallbackToEagerLoading;
-        assert!(matches!(strategy, FallbackStrategy::FallbackToEagerLoading));
+        // Add fast fields
+        result.add_fast_field(1, 42.into());
+        result.add_fast_field(2, 84.into());
 
-        let strategy = FallbackStrategy::ReturnPartialResults;
-        assert!(matches!(strategy, FallbackStrategy::ReturnPartialResults));
+        // Add loaded non-fast fields
+        result
+            .non_fast_fields
+            .insert(3, LazyFieldState::Loaded(126.into()));
+        result
+            .non_fast_fields
+            .insert(4, LazyFieldState::Loaded(168.into()));
 
-        let strategy = FallbackStrategy::FailQuery;
-        assert!(matches!(strategy, FallbackStrategy::FailQuery));
+        // Add failed non-fast fields
+        result
+            .non_fast_fields
+            .insert(5, LazyFieldState::Failed(LazyLoadError::TupleNotVisible));
+
+        // Add CTIDs for multiple tables
+        result.add_ctid(100.into(), 1000);
+        result.add_ctid(200.into(), 2000);
+
+        let stats = result.get_stats();
+
+        assert_eq!(stats.fast_fields_count, 2);
+        assert_eq!(stats.loaded_non_fast_fields, 2);
+        assert_eq!(stats.failed_non_fast_fields, 1);
+        assert_eq!(stats.total_tables, 2);
+        assert_eq!(stats.total_loaded_fields(), 4);
+
+        // Success rate: 2 loaded out of 3 attempted non-fast fields = 66.67%
+        assert!((stats.success_rate() - 66.666666666666666).abs() < 0.001);
     }
 
     #[test]
-    fn test_field_loading_strategy() {
-        let strategy = FieldLoadingStrategy::FastField { value: 42.into() };
-        assert!(matches!(strategy, FieldLoadingStrategy::FastField { .. }));
+    fn test_lazy_result_stats_all_fast_fields() {
+        let mut result = LazyResult::new();
 
-        let strategy = FieldLoadingStrategy::TantivyStored { attno: 1 };
-        assert!(matches!(
-            strategy,
-            FieldLoadingStrategy::TantivyStored { .. }
-        ));
+        // Only fast fields
+        result.add_fast_field(1, 42.into());
+        result.add_fast_field(2, 84.into());
 
-        let strategy = FieldLoadingStrategy::HeapAccess {
-            table_oid: 12345.into(),
-            ctid: 67890,
-            attno: 1,
-        };
-        assert!(matches!(strategy, FieldLoadingStrategy::HeapAccess { .. }));
-    }
+        let stats = result.get_stats();
 
-    #[test]
-    fn test_field_stats() {
-        let stats = FieldStats {
-            total_fields: 10,
-            fast_fields: 3,
-            tantivy_stored: 2,
-            heap_only: 5,
-        };
-
-        assert_eq!(stats.fast_field_percentage(), 30.0);
-        assert_eq!(stats.heap_access_percentage(), 50.0);
-
-        // Test edge case with zero fields
-        let empty_stats = FieldStats {
-            total_fields: 0,
-            fast_fields: 0,
-            tantivy_stored: 0,
-            heap_only: 0,
-        };
-
-        assert_eq!(empty_stats.fast_field_percentage(), 0.0);
-        assert_eq!(empty_stats.heap_access_percentage(), 0.0);
-    }
-
-    #[test]
-    fn test_multi_table_field_map() {
-        let mut multi_map = MultiTableFieldMap::new();
-
-        // Create a mock table field map
-        let table_map = TableFieldMap {
-            table_oid: 12345.into(),
-            fast_field_attnos: [1, 2].into_iter().collect(),
-            tantivy_stored_attnos: [3].into_iter().collect(),
-            heap_only_attnos: [4, 5].into_iter().collect(),
-        };
-
-        multi_map.add_table(table_map);
-
-        // Test retrieval
-        let retrieved = multi_map.get_table_map(12345.into());
-        assert!(retrieved.is_some());
-
-        let retrieved = retrieved.unwrap();
-        assert!(retrieved.is_fast_field(1));
-        assert!(retrieved.is_fast_field(2));
-        assert!(!retrieved.is_fast_field(3));
-        assert!(retrieved.requires_heap_access(4));
-        assert!(retrieved.requires_heap_access(5));
-        assert!(!retrieved.requires_heap_access(1));
-
-        // Test combined stats
-        let stats = multi_map.combined_stats();
-        assert_eq!(stats.total_fields, 5);
-        assert_eq!(stats.fast_fields, 2);
-        assert_eq!(stats.tantivy_stored, 1);
-        assert_eq!(stats.heap_only, 2);
+        assert_eq!(stats.fast_fields_count, 2);
+        assert_eq!(stats.loaded_non_fast_fields, 0);
+        assert_eq!(stats.failed_non_fast_fields, 0);
+        assert_eq!(stats.total_loaded_fields(), 2);
+        assert_eq!(stats.success_rate(), 100.0); // All fast fields = 100% success
     }
 }

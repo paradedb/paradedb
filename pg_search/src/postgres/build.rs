@@ -15,7 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::mvcc::MvccSatisfies;
+use anyhow::Result;
+use crate::index::get_index_schema;
+use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::reader::index::SearchIndexReader;
 use crate::index::writer::index::SearchIndexWriter;
 use crate::postgres::storage::block::{
@@ -32,6 +34,7 @@ use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::*;
 use std::ffi::CStr;
 use std::time::Instant;
+use tantivy::{Index, IndexSettings};
 use tokenizers::SearchTokenizer;
 
 // For now just pass the count on the build callback state
@@ -94,11 +97,9 @@ pub extern "C-unwind" fn ambuild(
         }
     }
 
-    let tuple_count = if crate::gucs::enable_parallel_index_build() {
-        if !heaprel.is_null() {
-            let nworkers = unsafe { compute_nworkers(&heap_relation, &index_relation) };
-            pgrx::info!("parallel index build with {} workers", nworkers);
-        }
+    let nworkers = unsafe { compute_nworkers(&heap_relation, &index_relation) };
+    let tuple_count = if nworkers > 0 {
+        pgrx::info!("parallel index build with {} workers", nworkers);
         todo!("parallel index build");
     } else {
         do_heap_scan(index_info, &heap_relation, &index_relation)
@@ -291,6 +292,10 @@ unsafe fn init_fixed_buffers(index_relation: &PgRelation) {
 }
 
 unsafe fn compute_nworkers(heap_relation: &PgRelation, index_relation: &PgRelation) -> i32 {
+    if crate::gucs::enable_parallel_index_build() {
+        return 0;
+    }
+
     if pg_sys::plan_create_index_workers(heap_relation.oid(), index_relation.oid()) == 0 {
         return 0;
     }
@@ -303,10 +308,21 @@ unsafe fn compute_nworkers(heap_relation: &PgRelation, index_relation: &PgRelati
     pg_sys::max_parallel_maintenance_workers
 }
 
-unsafe fn relation_get_parallel_workers(relation: pg_sys::Relation, defaultpw: i32) -> i32 {
+unsafe fn relation_get_parallel_workers(relation: pg_sys::Relation, default: i32) -> i32 {
     if !(*relation).rd_options.is_null() {
         (*(*relation).rd_options.cast::<pg_sys::StdRdOptions>()).parallel_workers
     } else {
-        defaultpw
+        default
     }
+}
+
+fn create_index(index_relation: &PgRelation) -> Result<()> {
+    let schema = get_index_schema(index_relation)?;
+    let directory = MVCCDirectory::snapshot(index_relation.oid());
+    let settings = IndexSettings {
+        docstore_compress_dedicated_thread: false,
+        ..IndexSettings::default()
+    };
+    Index::create(directory, schema.into(), settings)?;
+    Ok(())
 }

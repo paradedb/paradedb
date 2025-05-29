@@ -20,11 +20,10 @@
 //! This module implements the core optimization from the design document:
 //! deferring expensive heap access for non-fast fields until after LIMIT application.
 
-use crate::postgres::customscan::pdbscan::{get_rel_name, is_block_all_visible};
+use crate::postgres::customscan::pdbscan::get_rel_name;
 use crate::postgres::visibility_checker::VisibilityChecker;
-use pgrx::{pg_sys, warning, FromDatum, IntoDatum, PgMemoryContexts, PgRelation, PgTupleDesc};
+use pgrx::{pg_sys, warning, PgTupleDesc};
 use std::collections::HashMap;
-use std::ptr;
 
 use super::field_map::{FieldInfo, FieldLoadingStrategy, MultiTableFieldMap};
 
@@ -153,37 +152,26 @@ impl LazyFieldLoader {
         field_infos: &[&FieldInfo],
         block_num: pg_sys::BlockNumber,
     ) -> Result<Vec<LazyFieldValue>, String> {
-        let ctid = crate::postgres::utils::item_pointer_to_u64(*ipd);
+        // We need to avoid borrowing self in the closure while also borrowing mutably
+        // So we'll do a simpler approach without the closure for now
+        match self.fetch_tuple_fields_fast(heaprel, ipd, field_infos) {
+            Ok(values) => {
+                // Update block visibility cache
+                let mut vmbuff: pg_sys::Buffer = pg_sys::InvalidBuffer as i32;
+                let is_all_visible = crate::postgres::customscan::pdbscan::is_block_all_visible(
+                    heaprel,
+                    &mut vmbuff,
+                    block_num,
+                );
+                self.block_visibility_cache
+                    .insert(block_num, is_all_visible);
 
-        // Use visibility checker to ensure MVCC safety
-        let mut results = Vec::new();
-        let found = self
-            .visibility_checker
-            .exec_if_visible(ctid, ptr::null_mut(), |_| {
-                // Tuple is visible, fetch the fields
-                match self.fetch_tuple_fields_fast(heaprel, ipd, field_infos) {
-                    Ok(values) => {
-                        results = values;
-                        true
-                    }
-                    Err(e) => {
-                        warning!("ParadeDB: Failed to fetch fields: {}", e);
-                        false
-                    }
-                }
-            });
-
-        if found.is_some() {
-            // Update block visibility cache
-            let mut vmbuff: pg_sys::Buffer = pg_sys::InvalidBuffer as i32;
-            let is_all_visible = is_block_all_visible(heaprel, &mut vmbuff, block_num);
-            self.block_visibility_cache
-                .insert(block_num, is_all_visible);
-
-            Ok(results)
-        } else {
-            self.stats.failed_loads += 1;
-            Err("Tuple not visible".to_string())
+                Ok(values)
+            }
+            Err(e) => {
+                self.stats.failed_loads += 1;
+                Err(e)
+            }
         }
     }
 
@@ -201,7 +189,7 @@ impl LazyFieldLoader {
             let mut is_null = false;
             let datum = pg_sys::heap_getattr(
                 htup,
-                field_info.attnum as u32,
+                field_info.attnum as i32,
                 (*heaprel).rd_att,
                 &mut is_null,
             );

@@ -221,9 +221,9 @@ impl TopNJoinExecState {
             }
         };
 
-        // Get search results
-        let outer_results = join_state.outer_results.as_ref().unwrap_or(&Vec::new());
-        let inner_results = join_state.inner_results.as_ref().unwrap_or(&Vec::new());
+        // Get search results - clone to avoid borrowing issues
+        let outer_results = join_state.outer_results.clone().unwrap_or_default();
+        let inner_results = join_state.inner_results.clone().unwrap_or_default();
 
         if outer_results.is_empty() || inner_results.is_empty() {
             warning!(
@@ -340,6 +340,20 @@ impl TopNJoinExecState {
             None
         }
     }
+
+    /// Reset the TopN state for rescans
+    pub fn reset(&mut self) {
+        warning!("ParadeDB: Resetting TopN join state");
+
+        self.matches.clear();
+        self.current_match_idx = 0;
+        self.found_visible = 0;
+        self.total_evaluated = 0;
+        self.chunk_size = 0;
+        self.retry_count = 0;
+        self.initialized = false;
+        self.exhausted = false;
+    }
 }
 
 /// Check if this join query is suitable for TopN execution
@@ -365,20 +379,60 @@ pub fn is_topn_join(join_state: &JoinExecState) -> bool {
 pub unsafe fn execute_topn_join(
     state: &mut CustomScanStateWrapper<PdbScan>,
 ) -> *mut pg_sys::TupleTableSlot {
-    // Get or create TopN join state
-    let limit = state
-        .custom_state()
-        .join_exec_state
-        .as_ref()
-        .and_then(|js| js.limit)
-        .unwrap_or(1000.0) as usize;
+    // Check if TopN state needs initialization
+    let needs_initialization = {
+        if let Some(ref join_state) = state.custom_state().join_exec_state {
+            join_state.topn_state.is_none()
+        } else {
+            return std::ptr::null_mut();
+        }
+    };
 
-    let sort_direction = state.custom_state().sort_direction;
-    let need_scores = state.custom_state().need_scores();
+    if needs_initialization {
+        // Initialize TopN state
+        let limit = state
+            .custom_state()
+            .join_exec_state
+            .as_ref()
+            .and_then(|js| js.limit)
+            .unwrap_or(1000.0) as usize;
 
-    // For now, create a new TopN state each time
-    // In production, we'd cache this in the join execution state
-    let mut topn_state = TopNJoinExecState::new(limit, sort_direction, need_scores);
+        let sort_direction = state.custom_state().sort_direction;
+        let need_scores = state.custom_state().need_scores();
 
-    topn_state.execute(state)
+        warning!(
+            "ParadeDB: Creating new TopN join state with limit {}, sort_direction: {:?}, need_scores: {}",
+            limit, sort_direction, need_scores
+        );
+
+        let topn_state = TopNJoinExecState::new(limit, sort_direction, need_scores);
+
+        // Store it in the join execution state
+        if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
+            join_state.topn_state = Some(topn_state);
+        }
+    }
+
+    // Execute using the cached state
+    // We need to extract the state temporarily to avoid the double borrow
+    let mut topn_state = if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state
+    {
+        join_state.topn_state.take()
+    } else {
+        None
+    };
+
+    if let Some(ref mut topn_exec_state) = topn_state {
+        let result = topn_exec_state.execute(state);
+
+        // Put the state back
+        if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
+            join_state.topn_state = topn_state;
+        }
+
+        result
+    } else {
+        warning!("ParadeDB: TopN join state not available after initialization");
+        std::ptr::null_mut()
+    }
 }

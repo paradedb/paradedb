@@ -254,10 +254,13 @@ fn determine_loading_strategy(
                     return FieldLoadingStrategy::FastField(WhichFastField::Score);
                 }
             }
-            WhichFastField::Data { column_name, .. } => {
+            WhichFastField::Named(column_name, _) => {
                 if attname == column_name {
                     return FieldLoadingStrategy::FastField(ff.clone());
                 }
+            }
+            WhichFastField::Junk(_) => {
+                // Skip junk fields
             }
         }
     }
@@ -287,12 +290,11 @@ mod tests {
 
     #[test]
     fn test_field_classification() {
+        use crate::index::fast_fields_helper::FastFieldType;
+
         let fast_fields = HashSet::from([
             WhichFastField::Ctid,
-            WhichFastField::Data {
-                column_name: "id".to_string(),
-                is_json: false,
-            },
+            WhichFastField::Named("id".to_string(), FastFieldType::Numeric),
         ]);
 
         // Test fast field detection

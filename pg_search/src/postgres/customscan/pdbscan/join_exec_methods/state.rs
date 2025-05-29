@@ -110,6 +110,9 @@ pub struct JoinExecState {
 
     // Field map for lazy loading
     pub field_map: Option<super::field_map::MultiTableFieldMap>,
+
+    // TopN join execution state
+    pub topn_state: Option<super::top_n_join::TopNJoinExecState>,
 }
 
 /// Which side of the join has intermediate results
@@ -154,6 +157,7 @@ impl Default for JoinExecState {
             intermediate_iterator: None,
             limit: None,
             field_map: None,
+            topn_state: None,
         }
     }
 }
@@ -199,6 +203,13 @@ pub unsafe fn init_join_execution(
         let fallback_state = JoinExecState::default();
         state.custom_state_mut().join_exec_state = Some(fallback_state);
         return;
+    }
+
+    // Reset TopN state if it exists (for rescans)
+    if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
+        if let Some(ref mut topn_state) = join_state.topn_state {
+            topn_state.reset();
+        }
     }
 
     warning!("ParadeDB: Join execution initialization complete");
@@ -349,6 +360,8 @@ pub unsafe fn cleanup_join_execution(state: &mut CustomScanStateWrapper<PdbScan>
         join_state.outer_results = None;
         join_state.inner_results = None;
         join_state.varno_to_relid.clear();
+        join_state.field_map = None;
+        join_state.topn_state = None;
 
         warning!("ParadeDB: Join execution cleanup complete");
     }

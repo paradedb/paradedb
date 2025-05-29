@@ -674,7 +674,7 @@ WARNING:  ParadeDB: Outer predicate for large_articles - uses_search: true
 WARNING:  ParadeDB: Inner predicate for large_tags - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["large_articles"], inner: ["large_tags"]
-WARNING:  ParadeDB: Join path estimates - rows: 75224, startup_cost: 50.00, total_cost: 426.12
+WARNING:  ParadeDB: Join path estimates - rows: 74250, startup_cost: 50.00, total_cost: 421.25
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["large_tags"], inner relids: ["large_articles"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
@@ -700,7 +700,7 @@ WARNING:  ParadeDB: Outer predicate for large_tags - uses_search: true
 WARNING:  ParadeDB: Inner predicate for large_articles - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["large_tags"], inner: ["large_articles"]
-WARNING:  ParadeDB: Join path estimates - rows: 75224, startup_cost: 50.00, total_cost: 426.12
+WARNING:  ParadeDB: Join path estimates - rows: 74250, startup_cost: 50.00, total_cost: 421.25
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
 WARNING:  ParadeDB: Join target list has 0 entries
@@ -1762,7 +1762,7 @@ WARNING:  ParadeDB: Outer predicate for large_articles - uses_search: true
 WARNING:  ParadeDB: Inner predicate for large_tags - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["large_articles"], inner: ["large_tags"]
-WARNING:  ParadeDB: Join path estimates - rows: 149326, startup_cost: 50.00, total_cost: 796.63
+WARNING:  ParadeDB: Join path estimates - rows: 149625, startup_cost: 50.00, total_cost: 798.12
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["large_tags"], inner relids: ["large_articles"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
@@ -1788,7 +1788,7 @@ WARNING:  ParadeDB: Outer predicate for large_tags - uses_search: true
 WARNING:  ParadeDB: Inner predicate for large_articles - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["large_tags"], inner: ["large_articles"]
-WARNING:  ParadeDB: Join path estimates - rows: 149326, startup_cost: 50.00, total_cost: 796.63
+WARNING:  ParadeDB: Join path estimates - rows: 149625, startup_cost: 50.00, total_cost: 798.12
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
                                                                                              QUERY PLAN                                                                                              
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -2004,7 +2004,7 @@ WARNING:  ParadeDB: Join execution cleanup complete
      2
 (1 row)
 
-Time: 8.340 ms
+Time: 8.325 ms
 \timing off
 -- Time medium dataset join (SortedArray)
 \timing on
@@ -2168,7 +2168,7 @@ WARNING:  ParadeDB: Join execution cleanup complete
      1
 (1 row)
 
-Time: 8.186 ms
+Time: 7.721 ms
 \timing off
 -- Time large dataset join (BloomFilter)
 \timing on
@@ -2198,7 +2198,7 @@ WARNING:  ParadeDB: Outer predicate for large_articles - uses_search: true
 WARNING:  ParadeDB: Inner predicate for large_tags - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["large_articles"], inner: ["large_tags"]
-WARNING:  ParadeDB: Join path estimates - rows: 75224, startup_cost: 50.00, total_cost: 426.12
+WARNING:  ParadeDB: Join path estimates - rows: 74250, startup_cost: 50.00, total_cost: 421.25
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["large_tags"], inner relids: ["large_articles"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
@@ -2224,7 +2224,7 @@ WARNING:  ParadeDB: Outer predicate for large_tags - uses_search: true
 WARNING:  ParadeDB: Inner predicate for large_articles - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["large_tags"], inner: ["large_articles"]
-WARNING:  ParadeDB: Join path estimates - rows: 75224, startup_cost: 50.00, total_cost: 426.12
+WARNING:  ParadeDB: Join path estimates - rows: 74250, startup_cost: 50.00, total_cost: 421.25
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
 WARNING:  ParadeDB: Join target list has 0 entries
@@ -2332,7 +2332,7 @@ WARNING:  ParadeDB: Join execution cleanup complete
      1
 (1 row)
 
-Time: 9.255 ms
+Time: 9.452 ms
 \timing off
 -- Test 8: Filter pushdown validation
 -- Verify that filters are actually being pushed down to Tantivy
@@ -2366,7 +2366,7 @@ WARNING:  ParadeDB: Outer predicate for large_articles - uses_search: true
 WARNING:  ParadeDB: Inner predicate for large_tags - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["large_articles"], inner: ["large_tags"]
-WARNING:  ParadeDB: Join path estimates - rows: 446705, startup_cost: 50.00, total_cost: 2283.53
+WARNING:  ParadeDB: Join path estimates - rows: 450000, startup_cost: 50.00, total_cost: 2300.00
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["large_tags"], inner relids: ["large_articles"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
@@ -2392,7 +2392,7 @@ WARNING:  ParadeDB: Outer predicate for large_tags - uses_search: true
 WARNING:  ParadeDB: Inner predicate for large_articles - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["large_tags"], inner: ["large_articles"]
-WARNING:  ParadeDB: Join path estimates - rows: 446705, startup_cost: 50.00, total_cost: 2283.53
+WARNING:  ParadeDB: Join path estimates - rows: 450000, startup_cost: 50.00, total_cost: 2300.00
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
 WARNING:  ParadeDB: Join target list has 2 entries

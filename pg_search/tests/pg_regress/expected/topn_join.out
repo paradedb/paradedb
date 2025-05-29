@@ -1,6 +1,8 @@
 -- TopN Join Regression Tests
 -- Test the TopN join optimization for queries with LIMIT and ORDER BY
 \set ON_ERROR_STOP on
+-- Create the extension first
+CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_custom_join = true;
 SET paradedb.enable_topn_join_optimization = true;
 SET paradedb.enable_join_debug_logging = true;
@@ -146,6 +148,14 @@ WARNING:  ParadeDB: Outer predicate for topn_documents - uses_search: true
 WARNING:  ParadeDB: Inner predicate for topn_files - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["topn_documents"], inner: ["topn_files"]
+WARNING:  ParadeDB: Extracted expected target list with 6 expressions from joinrel->reltarget
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
+WARNING:  ParadeDB: Stored target expression: {PLACEHOLDERVAR :phexpr {FUNCEXPR :funcid 167783 :funcresulttype 700 :funcretset false :funcvariadic false :funcformat 0 :funccollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}) :location -1} :phrels (b 1) :phnullingrels (b) :phid 1 :phlevelsup 0}
+WARNING:  ParadeDB: Stored target expression: {PLACEHOLDERVAR :phexpr {FUNCEXPR :funcid 167783 :funcresulttype 700 :funcretset false :funcvariadic false :funcformat 0 :funccollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}) :location -1} :phrels (b 1) :phnullingrels (b) :phid 3 :phlevelsup 0}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 2 :location -1}
+WARNING:  ParadeDB: Stored target expression: {PLACEHOLDERVAR :phexpr {FUNCEXPR :funcid 167783 :funcresulttype 700 :funcretset false :funcvariadic false :funcformat 0 :funccollid 0 :inputcollid 0 :args ({VAR :varno 2 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 1 :location -1}) :location -1} :phrels (b 2) :phnullingrels (b) :phid 2 :phlevelsup 0}
+WARNING:  ParadeDB: Stored target expression: {PLACEHOLDERVAR :phexpr {FUNCEXPR :funcid 167783 :funcresulttype 700 :funcretset false :funcvariadic false :funcformat 0 :funccollid 0 :inputcollid 0 :args ({VAR :varno 2 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 1 :location -1}) :location -1} :phrels (b 2) :phnullingrels (b) :phid 4 :phlevelsup 0}
+WARNING:  ParadeDB: Stored 6 target expressions as strings
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["topn_files"], inner relids: ["topn_documents"]
@@ -172,9 +182,18 @@ WARNING:  ParadeDB: Outer predicate for topn_files - uses_search: true
 WARNING:  ParadeDB: Inner predicate for topn_documents - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["topn_files"], inner: ["topn_documents"]
+WARNING:  ParadeDB: Extracted expected target list with 6 expressions from joinrel->reltarget
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
+WARNING:  ParadeDB: Stored target expression: {PLACEHOLDERVAR :phexpr {FUNCEXPR :funcid 167783 :funcresulttype 700 :funcretset false :funcvariadic false :funcformat 0 :funccollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}) :location -1} :phrels (b 1) :phnullingrels (b) :phid 1 :phlevelsup 0}
+WARNING:  ParadeDB: Stored target expression: {PLACEHOLDERVAR :phexpr {FUNCEXPR :funcid 167783 :funcresulttype 700 :funcretset false :funcvariadic false :funcformat 0 :funccollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}) :location -1} :phrels (b 1) :phnullingrels (b) :phid 3 :phlevelsup 0}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 2 :location -1}
+WARNING:  ParadeDB: Stored target expression: {PLACEHOLDERVAR :phexpr {FUNCEXPR :funcid 167783 :funcresulttype 700 :funcretset false :funcvariadic false :funcformat 0 :funccollid 0 :inputcollid 0 :args ({VAR :varno 2 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 1 :location -1}) :location -1} :phrels (b 2) :phnullingrels (b) :phid 2 :phlevelsup 0}
+WARNING:  ParadeDB: Stored target expression: {PLACEHOLDERVAR :phexpr {FUNCEXPR :funcid 167783 :funcresulttype 700 :funcretset false :funcvariadic false :funcformat 0 :funccollid 0 :inputcollid 0 :args ({VAR :varno 2 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 1 :location -1}) :location -1} :phrels (b 2) :phnullingrels (b) :phid 4 :phlevelsup 0}
+WARNING:  ParadeDB: Stored 6 target expressions as strings
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
 WARNING:  ParadeDB: Join target list has 0 entries
+WARNING:  ParadeDB: PostgreSQL provided empty target list for join, creating minimal placeholder
 WARNING:  ParadeDB: Set custom scan target list for join node
 ERROR:  variable not found in subplan target list

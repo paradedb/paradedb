@@ -58,7 +58,7 @@ pub enum UnilateralChildSide {
 }
 
 /// Private data for the custom scan
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PrivateData {
     heaprelid: Option<pg_sys::Oid>,
     indexrelid: Option<pg_sys::Oid>,
@@ -89,6 +89,44 @@ pub struct PrivateData {
 
     /// Which side has a child plan for unilateral joins
     unilateral_child_plan_side: Option<UnilateralChildSide>,
+
+    /// Expected join target list from PostgreSQL's joinrel->reltarget
+    #[serde(skip)]
+    expected_join_targetlist: Option<*mut pg_sys::List>,
+
+    /// Serializable target list information for joins
+    expected_join_target_count: Option<usize>,
+
+    /// Serializable target expressions as strings for reconstruction
+    expected_join_target_expressions: Option<Vec<String>>,
+}
+
+impl Default for PrivateData {
+    fn default() -> Self {
+        Self {
+            heaprelid: None,
+            indexrelid: None,
+            range_table_index: None,
+            query: None,
+            limit: None,
+            sort_field: None,
+            sort_direction: None,
+            segment_count: 0,
+            exec_method_type: ExecMethodType::Normal,
+            planned_which_fast_fields: None,
+            referenced_columns_count: 0,
+            target_list_len: None,
+            var_attname_lookup: None,
+            join_search_predicates: None,
+            join_outer_relids: Vec::new(),
+            join_inner_relids: Vec::new(),
+            unilateral_child_plan_side: None,
+            expected_join_targetlist: None,
+            expected_join_target_count: None,
+            expected_join_target_expressions: None,
+            join_composite_info: None,
+        }
+    }
 }
 
 mod var_attname_lookup_serializer {
@@ -272,6 +310,18 @@ impl PrivateData {
     pub fn set_unilateral_child_plan_side(&mut self, side: Option<UnilateralChildSide>) {
         self.unilateral_child_plan_side = side;
     }
+
+    pub fn set_expected_join_targetlist(&mut self, targetlist: Option<*mut pg_sys::List>) {
+        self.expected_join_targetlist = targetlist;
+    }
+
+    pub fn set_expected_join_target_count(&mut self, count: Option<usize>) {
+        self.expected_join_target_count = count;
+    }
+
+    pub fn set_expected_join_target_expressions(&mut self, expressions: Option<Vec<String>>) {
+        self.expected_join_target_expressions = expressions;
+    }
 }
 
 //
@@ -374,5 +424,17 @@ impl PrivateData {
 
     pub fn unilateral_child_plan_side(&self) -> &Option<UnilateralChildSide> {
         &self.unilateral_child_plan_side
+    }
+
+    pub fn expected_join_targetlist(&self) -> Option<*mut pg_sys::List> {
+        self.expected_join_targetlist
+    }
+
+    pub fn expected_join_target_count(&self) -> Option<usize> {
+        self.expected_join_target_count
+    }
+
+    pub fn expected_join_target_expressions(&self) -> &Option<Vec<String>> {
+        &self.expected_join_target_expressions
     }
 }

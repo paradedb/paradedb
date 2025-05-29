@@ -27,8 +27,9 @@ use crate::postgres::customscan::pdbscan::privdat::{
 use crate::postgres::customscan::pdbscan::{bms_iter, get_rel_name, get_rel_name_from_rti_list};
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::rel_get_bm25_index;
+use crate::DEFAULT_STARTUP_COST;
 use once_cell::sync::Lazy;
-use pgrx::{pg_guard, pg_sys, warning, PgMemoryContexts};
+use pgrx::{pg_guard, pg_sys, warning, PgList, PgMemoryContexts};
 use std::collections::hash_map::Entry;
 
 pub fn register_rel_pathlist<CS: CustomScan + 'static>(_: CS) {
@@ -568,6 +569,46 @@ unsafe fn create_search_join_path<CS: CustomScan>(
     // Store ALL relation OIDs from each side (handles both base and composite relations)
     private_data.set_join_outer_relids(outer_relids);
     private_data.set_join_inner_relids(inner_relids);
+
+    // CRITICAL: Extract and store the expected target list from joinrel->reltarget
+    // This is what PostgreSQL expects us to produce
+    let expected_targetlist = (*(*joinrel).reltarget).exprs;
+    let target_count = if expected_targetlist.is_null() {
+        0
+    } else {
+        PgList::<pg_sys::Expr>::from_pg(expected_targetlist).len()
+    };
+    warning!(
+        "ParadeDB: Extracted expected target list with {} expressions from joinrel->reltarget",
+        target_count
+    );
+    private_data.set_expected_join_targetlist(Some(expected_targetlist));
+    private_data.set_expected_join_target_count(Some(target_count));
+
+    // Also store the expressions as serializable strings for reconstruction
+    if !expected_targetlist.is_null() {
+        let expected_exprs = PgList::<pg_sys::Expr>::from_pg(expected_targetlist);
+        let mut expr_strings = Vec::new();
+
+        for expr in expected_exprs.iter_ptr() {
+            // Convert expression to string representation using PostgreSQL's nodeToString
+            let expr_string = pg_sys::nodeToString(expr.cast());
+            if !expr_string.is_null() {
+                let expr_str = std::ffi::CStr::from_ptr(expr_string)
+                    .to_string_lossy()
+                    .to_string();
+                warning!("ParadeDB: Stored target expression: {}", expr_str);
+                expr_strings.push(expr_str);
+            }
+        }
+
+        let expr_count = expr_strings.len();
+        private_data.set_expected_join_target_expressions(Some(expr_strings));
+        warning!(
+            "ParadeDB: Stored {} target expressions as strings",
+            expr_count
+        );
+    }
 
     // For unilateral joins, determine which side needs table scanning
     if let Some(ref predicates) = search_predicates {

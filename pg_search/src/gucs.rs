@@ -136,7 +136,7 @@ pub fn init() {
     GucRegistry::define_bool_guc(
         "paradedb.enable_topn_join_optimization",
         "Enable TopN join optimization",
-        "Enable the TopN join optimization for handling join queries with LIMIT clauses",
+        "Enable the TopN join optimization for queries with LIMIT and ORDER BY clauses",
         &ENABLE_TOPN_JOIN_OPTIMIZATION,
         GucContext::Userset,
         GucFlags::default(),
@@ -145,7 +145,7 @@ pub fn init() {
     GucRegistry::define_bool_guc(
         "paradedb.enable_join_debug_logging",
         "Enable join debug logging",
-        "Enable the join debug logging for handling join queries on bm25 indexes",
+        "Enable the join debug logging for troubleshooting join execution",
         &ENABLE_JOIN_DEBUG_LOGGING,
         GucContext::Userset,
         GucFlags::default(),

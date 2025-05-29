@@ -537,63 +537,20 @@ impl CustomScan for PdbScan {
 
             // Check if this is a join node (scanrelid = 0) or a scan node
             if builder.is_join() {
-                // This is a join node - handle differently
-                pgrx::warning!("ParadeDB: Planning custom join path with scanrelid = 0");
+                // For now, let's NOT create custom scans for join nodes
+                // PostgreSQL's CustomScan mechanism seems to be designed for table scans, not joins
+                // Let PostgreSQL handle joins through its standard mechanism
+                pgrx::warning!("ParadeDB: Skipping custom scan creation for join node (scanrelid = 0) - letting PostgreSQL handle join optimization");
 
-                // For join nodes, we need to ensure the target list is properly set up
-                // The target list should contain all the columns that the upper plan nodes expect
-                pgrx::warning!("ParadeDB: Join target list has {} entries", tlist.len());
-
-                // For join nodes, we need to set up proper variable mappings
-                // The key insight is that join nodes need to provide variables from both relations
-
-                // Set up a minimal var_attname_lookup for join nodes
-                // This prevents the "variable not found" error by providing basic mappings
-                let mut attname_lookup = HashMap::default();
-
-                // For each target entry, create a mapping using the actual column name
-                for (i, te) in tlist.iter_ptr().enumerate() {
-                    if let Some(var) = nodecast!(Var, T_Var, (*te).expr) {
-                        // Extract the actual column name from the target entry
-                        let attname = if !(*te).resname.is_null() {
-                            // Use the actual column name from resname
-                            std::ffi::CStr::from_ptr((*te).resname)
-                                .to_string_lossy()
-                                .to_string()
-                        } else {
-                            // Fallback to generic name if resname is not available
-                            format!("join_attr_{}", i + 1)
-                        };
-
-                        attname_lookup
-                            .insert(((*var).varno as Varno, (*var).varattno), attname.clone());
-                        pgrx::warning!(
-                            "ParadeDB: Mapped join variable varno={}, varattno={} to '{}'",
-                            (*var).varno,
-                            (*var).varattno,
-                            attname
-                        );
-                    }
-                }
-
-                builder
-                    .custom_private_mut()
-                    .set_var_attname_lookup(attname_lookup);
-
-                // CRITICAL: For join nodes, we need to ensure the custom scan's target list
-                // matches exactly what PostgreSQL expects. The issue is that PostgreSQL
-                // validates that our custom scan can provide all the variables in the target list.
-
-                // Set the custom scan's target list to match the join's target list
-                // This tells PostgreSQL exactly what variables our custom scan will provide
-                builder.set_custom_scan_tlist(tlist.as_ptr());
-
-                pgrx::warning!("ParadeDB: Set custom scan target list for join node");
-
+                // We shouldn't reach here in normal execution since we should return None
+                // from rel_pathlist_callback for join scenarios, but if we do reach here,
+                // create a minimal scan that won't be used
+                let empty_tlist = PgList::<pg_sys::TargetEntry>::new();
+                builder.set_custom_scan_tlist(empty_tlist.as_ptr());
                 return builder.build();
             }
 
-            // Original scan node logic continues here
+            // Original scan node logic continues here for regular table scans
             let rti: i32 = private_data
                 .range_table_index()
                 .expect("range table index should have been set")

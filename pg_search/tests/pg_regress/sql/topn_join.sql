@@ -3,6 +3,9 @@
 
 \set ON_ERROR_STOP on
 
+-- Create the extension first
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
 SET paradedb.enable_custom_join = true;
 SET paradedb.enable_topn_join_optimization = true;
 SET paradedb.enable_join_debug_logging = true;

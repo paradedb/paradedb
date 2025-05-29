@@ -445,9 +445,7 @@ unsafe fn begin_parallel_index_build(
         );
     }
 
-    pgrx::log!("waiting for workers to attach");
     pg_sys::WaitForParallelWorkersToAttach(parallel_context);
-    pgrx::log!("workers attached");
 }
 
 #[no_mangle]
@@ -515,11 +513,6 @@ unsafe fn parallel_heap_scan(build_state: *mut BuildState) {
             pg_sys::SpinLockRelease(&mut (*shared_state).mutex);
             break;
         }
-        pgrx::log!(
-            "n_participants_done: {} need {}",
-            (*shared_state).n_participants_done,
-            n_participant_tuple_sorts
-        );
         pg_sys::SpinLockRelease(&mut (*shared_state).mutex);
         pg_sys::ConditionVariableSleep(
             &mut (*shared_state).workers_done,

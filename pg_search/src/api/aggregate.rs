@@ -20,7 +20,7 @@ use tantivy::index::SegmentId;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-pub struct ParallelAggregationState {
+struct ParallelAggregationState {
     indexrelid: pg_sys::Oid,
     total_segments: usize,
     solve_mvcc: bool,
@@ -43,17 +43,17 @@ pub struct ParallelAggregationState {
 impl ParallelState for ParallelAggregationState {}
 
 impl ParallelAggregationState {
-    pub fn set_launched_workers(&mut self, nlaunched: usize) {
+    fn set_launched_workers(&mut self, nlaunched: usize) {
         let _lock = self.mutex.acquire();
         self.nlaunched = nlaunched;
     }
 
-    pub fn launched_workers(&mut self) -> usize {
+    fn launched_workers(&mut self) -> usize {
         let _lock = self.mutex.acquire();
         self.nlaunched
     }
 
-    pub fn checkout_segment(&mut self) -> Option<SegmentId> {
+    fn checkout_segment(&mut self) -> Option<SegmentId> {
         let segment_ids = unsafe {
             let payload = self.payload.as_ptr();
             std::slice::from_raw_parts(
@@ -70,20 +70,20 @@ impl ParallelAggregationState {
         segment_ids.get(self.remaining_segments).copied()
     }
 
-    pub fn remaining_segments(&mut self) -> usize {
+    fn remaining_segments(&mut self) -> usize {
         let _lock = self.mutex.acquire();
         self.remaining_segments
     }
 
-    pub fn total_segments(&mut self) -> usize {
+    fn total_segments(&mut self) -> usize {
         self.total_segments
     }
 
-    pub fn solve_mvcc(&self) -> bool {
+    fn solve_mvcc(&self) -> bool {
         self.solve_mvcc
     }
 
-    pub fn agg_req_bytes(&self) -> &[u8] {
+    fn agg_req_bytes(&self) -> &[u8] {
         unsafe {
             let payload = self.payload.as_ptr();
             std::slice::from_raw_parts(
@@ -93,7 +93,7 @@ impl ParallelAggregationState {
         }
     }
 
-    pub fn query_bytes(&self) -> &[u8] {
+    fn query_bytes(&self) -> &[u8] {
         unsafe {
             let payload = self.payload.as_ptr();
             std::slice::from_raw_parts(
@@ -104,7 +104,7 @@ impl ParallelAggregationState {
     }
 }
 
-pub struct ParallelAggregation {
+struct ParallelAggregation {
     state: ParallelAggregationState,
     query_bytes: Vec<u8>,
     agg_req_bytes: Vec<u8>,
@@ -195,7 +195,7 @@ impl ParallelAggregation {
     }
 }
 
-pub struct ParallelAggregationWorker;
+struct ParallelAggregationWorker;
 
 impl ParallelAggregationWorker {
     fn checkout_segments(
@@ -335,6 +335,8 @@ pub fn aggregate(
             16384)
         .expect("should be able to launch parallel process");
 
+        // signal our workers with the number of workers actually launched
+        // they need this before they can begin checking out the correct segment counts
         let mut nlaunched = process.launched_workers();
         if pg_sys::parallel_leader_participation {
             nlaunched += 1;

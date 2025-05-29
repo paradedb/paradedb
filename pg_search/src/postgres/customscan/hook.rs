@@ -189,6 +189,11 @@ pub extern "C-unwind" fn paradedb_join_pathlist_callback<CS: CustomScan>(
             return;
         }
 
+        // Check if JOIN coordination is enabled
+        if !gucs::is_join_coordination_enabled() {
+            return;
+        }
+
         // Only handle INNER JOINs for now
         if jointype != pg_sys::JoinType::JOIN_INNER {
             return;

@@ -5,6 +5,9 @@
 -- Create the extension first
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
+-- Enable JOIN coordination GUC and verify it works
+SET paradedb.enable_join_coordination = true;
+
 -- Create test tables with BM25 indexes
 CREATE TABLE documents (
     id SERIAL PRIMARY KEY,
@@ -114,3 +117,5 @@ LIMIT 10;
 DROP TABLE pages;
 DROP TABLE files;
 DROP TABLE documents; 
+
+RESET paradedb.enable_join_coordination;

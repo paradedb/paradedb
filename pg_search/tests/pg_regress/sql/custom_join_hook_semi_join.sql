@@ -5,7 +5,7 @@
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
 -- Enable the custom join feature
-SET paradedb.enable_custom_join = true;
+SET paradedb.enable_join_coordination = true;
 
 -- Test 1: Small dataset - should use SearchFilter strategy
 CREATE TABLE small_products (
@@ -370,5 +370,5 @@ DROP TABLE medium_comments CASCADE;
 DROP TABLE large_articles CASCADE;
 DROP TABLE large_tags CASCADE;
 
-RESET paradedb.enable_custom_join;
+RESET paradedb.enable_join_coordination;
 RESET paradedb.enable_semi_join_optimization; 

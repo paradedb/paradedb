@@ -5,7 +5,7 @@
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
 -- Enable the custom join feature
-SET paradedb.enable_custom_join = true;
+SET paradedb.enable_join_coordination = true;
 
 -- Test 1: Different data types and NULL handling
 CREATE TABLE mixed_types_docs (
@@ -372,4 +372,4 @@ DROP TABLE memory_test_comments CASCADE;
 DROP TABLE encoding_test_docs CASCADE;
 DROP TABLE encoding_test_reviews CASCADE;
 
-RESET paradedb.enable_custom_join; 
+RESET paradedb.enable_join_coordination; 

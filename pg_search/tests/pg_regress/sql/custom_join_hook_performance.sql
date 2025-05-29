@@ -5,7 +5,7 @@
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
 -- Enable the custom join feature
-SET paradedb.enable_custom_join = true;
+SET paradedb.enable_join_coordination = true;
 
 -- Create test tables for performance testing
 CREATE TABLE documents_perf (
@@ -118,4 +118,4 @@ WHERE d.content @@@ 'technology' AND t.tag_value @@@ 'high';
 -- Cleanup
 DROP TABLE documents_perf CASCADE;
 DROP TABLE tags_perf CASCADE;
-RESET paradedb.enable_custom_join; 
+RESET paradedb.enable_join_coordination; 

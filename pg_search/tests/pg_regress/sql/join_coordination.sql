@@ -68,4 +68,49 @@ LIMIT 5;
 
 -- Cleanup
 DROP TABLE test_files;
+DROP TABLE test_documents;
+
+-- Test 5: Enable JOIN coordination GUC and verify it works
+SET paradedb.enable_join_coordination = true;
+
+-- Recreate tables for testing with GUC enabled
+CREATE TABLE test_documents (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    content TEXT NOT NULL
+);
+
+CREATE TABLE test_files (
+    id TEXT PRIMARY KEY,
+    document_id TEXT NOT NULL REFERENCES test_documents(id),
+    filename TEXT NOT NULL,
+    content TEXT NOT NULL
+);
+
+-- Create BM25 indexes
+CREATE INDEX test_documents_search ON test_documents 
+USING bm25 (id, title, content) WITH (key_field='id');
+
+CREATE INDEX test_files_search ON test_files 
+USING bm25 (id, document_id, filename, content) WITH (key_field='id');
+
+-- Insert test data
+INSERT INTO test_documents (id, title, content) VALUES
+('doc1', 'Test Document 1', 'This is a test document about SFR');
+
+INSERT INTO test_files (id, document_id, filename, content) VALUES
+('file1', 'doc1', 'collab12_report.txt', 'Collaboration report content');
+
+-- Test with JOIN coordination enabled - should trigger the JOIN pathlist callback
+SELECT d.id, f.id 
+FROM test_documents d 
+JOIN test_files f ON d.id = f.document_id
+WHERE d.content @@@ 'SFR' AND f.filename @@@ 'collab12'
+LIMIT 5;
+
+-- Reset GUC to default
+SET paradedb.enable_join_coordination = false;
+
+-- Cleanup
+DROP TABLE test_files;
 DROP TABLE test_documents; 

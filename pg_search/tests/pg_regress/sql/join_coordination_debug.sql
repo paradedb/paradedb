@@ -3,6 +3,9 @@
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
+-- Enable JOIN coordination GUC and verify it works
+SET paradedb.enable_join_coordination = true;
+
 -- Create simple test tables
 CREATE TABLE test_docs (
     id SERIAL PRIMARY KEY,
@@ -51,3 +54,5 @@ LIMIT 5;
 -- Cleanup
 DROP TABLE test_files;
 DROP TABLE test_docs; 
+
+RESET paradedb.enable_join_coordination;

@@ -5,7 +5,7 @@
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
 -- Enable the custom join feature
-SET paradedb.enable_custom_join = true;
+SET paradedb.enable_join_coordination = true;
 
 -- Test 1: Empty tables
 CREATE TABLE empty_docs (
@@ -267,4 +267,4 @@ DROP TABLE large_files CASCADE;
 DROP TABLE complex_docs CASCADE;
 DROP TABLE complex_files CASCADE;
 
-RESET paradedb.enable_custom_join; 
+RESET paradedb.enable_join_coordination; 

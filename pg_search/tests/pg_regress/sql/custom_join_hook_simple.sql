@@ -5,7 +5,7 @@
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
 -- Enable the custom join feature
-SET paradedb.enable_custom_join = true;
+SET paradedb.enable_join_coordination = true;
 
 -- Create simple test tables
 CREATE TABLE test_table_a (
@@ -35,4 +35,4 @@ WHERE a.id = 1;
 DROP TABLE test_table_a CASCADE;
 DROP TABLE test_table_b CASCADE; 
 
-RESET paradedb.enable_custom_join;
+RESET paradedb.enable_join_coordination;

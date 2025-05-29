@@ -1,6 +1,8 @@
 -- Debug test for JOIN coordination
 -- This test helps us understand why JOIN coordination is not being triggered
 CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Enable JOIN coordination GUC and verify it works
+SET paradedb.enable_join_coordination = true;
 -- Create simple test tables
 CREATE TABLE test_docs (
     id SERIAL PRIMARY KEY,
@@ -196,3 +198,4 @@ ERROR:  variable not found in subplan target list
 -- Cleanup
 DROP TABLE test_files;
 DROP TABLE test_docs; 
+RESET paradedb.enable_join_coordination;

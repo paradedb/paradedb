@@ -3,7 +3,7 @@
 -- Create the extension first
 CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Enable the custom join feature
-SET paradedb.enable_custom_join = true;
+SET paradedb.enable_join_coordination = true;
 -- Create test tables with more realistic data
 CREATE TABLE products (
     id SERIAL PRIMARY KEY,
@@ -432,4 +432,4 @@ WARNING:    SKIPPING: Not both relations have search predicates
 -- Cleanup
 DROP TABLE products CASCADE;
 DROP TABLE reviews CASCADE;
-RESET paradedb.enable_custom_join; 
+RESET paradedb.enable_join_coordination; 

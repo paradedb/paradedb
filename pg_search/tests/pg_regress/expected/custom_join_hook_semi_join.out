@@ -3,7 +3,7 @@
 -- Create the extension first
 CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Enable the custom join feature
-SET paradedb.enable_custom_join = true;
+SET paradedb.enable_join_coordination = true;
 -- Test 1: Small dataset - should use SearchFilter strategy
 CREATE TABLE small_products (
     id SERIAL PRIMARY KEY,
@@ -1662,7 +1662,7 @@ WARNING:      RTI 2 maps to table OID large_tags
 WARNING:      Found table OID large_tags for RTI 2
 WARNING:    Extracted inner table OID: large_tags (RTI: 2)
 WARNING:    JOIN private data: 2 tables, limit: Some(10)
-WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=89102.25
+WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=89550
 WARNING:    CustomPath created successfully
 WARNING:    SUCCESSFULLY CREATED JOIN COORDINATION PATH!
 WARNING:  === JOIN PATHLIST CALLBACK ===
@@ -1679,7 +1679,7 @@ WARNING:      RTI 1 maps to table OID large_articles
 WARNING:      Found table OID large_articles for RTI 1
 WARNING:    Extracted inner table OID: large_articles (RTI: 1)
 WARNING:    JOIN private data: 2 tables, limit: Some(10)
-WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=89102.25
+WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=89550
 WARNING:    CustomPath created successfully
 WARNING:    SUCCESSFULLY CREATED JOIN COORDINATION PATH!
 WARNING:  === PLANNING JOIN COORDINATION CUSTOM PATH ===
@@ -1687,7 +1687,7 @@ WARNING:    rel relids: ["large_articles", "large_tags"]
 WARNING:    tlist length: 2
 WARNING:    Using original target list for JOIN coordination plan
 WARNING:    Created CustomScan plan for JOIN coordination
-WARNING:    startup_cost: 1, total_cost: 10, rows: 89102.25
+WARNING:    startup_cost: 1, total_cost: 10, rows: 89550
 ERROR:  variable not found in subplan target list
 -- Test with complex search predicates
 SELECT d.title, c.comment_text
@@ -1809,5 +1809,5 @@ DROP TABLE medium_docs CASCADE;
 DROP TABLE medium_comments CASCADE;
 DROP TABLE large_articles CASCADE;
 DROP TABLE large_tags CASCADE;
-RESET paradedb.enable_custom_join;
+RESET paradedb.enable_join_coordination;
 RESET paradedb.enable_semi_join_optimization; 

@@ -5,7 +5,7 @@
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
 -- Enable the custom join feature
-SET paradedb.enable_custom_join = true;
+SET paradedb.enable_join_coordination = true;
 
 -- Create test tables with more realistic data
 CREATE TABLE products (
@@ -96,4 +96,4 @@ WHERE p.id = 1;
 -- Cleanup
 DROP TABLE products CASCADE;
 DROP TABLE reviews CASCADE;
-RESET paradedb.enable_custom_join; 
+RESET paradedb.enable_join_coordination; 

@@ -28,6 +28,9 @@ static ENABLE_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(true);
 /// Allows the user to enable or disable the MixedFastFieldExecState executor. Default is `false`.
 static ENABLE_MIXED_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(false);
 
+/// Allows the user to enable or disable JOIN coordination for multi-table search optimization. Default is `false`.
+static ENABLE_JOIN_COORDINATION: GucSetting<bool> = GucSetting::<bool>::new(false);
+
 /// The `PER_TUPLE_COST` is an arbitrary value that needs to be really high.  In fact, we default
 /// to one hundred million.
 ///
@@ -87,6 +90,15 @@ pub fn init() {
         "Enable MixedFastFieldExecState executor",
         "Enable the MixedFastFieldExecState executor for handling multiple string fast fields or mixed string/numeric fast fields",
         &ENABLE_MIXED_FAST_FIELD_EXEC,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        "paradedb.enable_join_coordination",
+        "Enable JOIN coordination for multi-table search optimization",
+        "Enable the JOIN coordination executor for handling multi-table search optimization",
+        &ENABLE_JOIN_COORDINATION,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -170,6 +182,10 @@ pub fn is_fast_field_exec_enabled() -> bool {
 
 pub fn is_mixed_fast_field_exec_enabled() -> bool {
     ENABLE_MIXED_FAST_FIELD_EXEC.get()
+}
+
+pub fn is_join_coordination_enabled() -> bool {
+    ENABLE_JOIN_COORDINATION.get()
 }
 
 pub fn per_tuple_cost() -> f64 {

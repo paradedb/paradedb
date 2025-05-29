@@ -5,7 +5,7 @@
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
 -- Enable the custom join feature
-SET paradedb.enable_custom_join = true;
+SET paradedb.enable_join_coordination = true;
 
 -- Create test tables with BM25 indexes
 CREATE TABLE documents_join_test (
@@ -123,4 +123,4 @@ DROP TABLE documents_join_test CASCADE;
 DROP TABLE files_join_test CASCADE;
 DROP TABLE authors_join_test CASCADE;
 
-RESET paradedb.enable_custom_join;
+RESET paradedb.enable_join_coordination;

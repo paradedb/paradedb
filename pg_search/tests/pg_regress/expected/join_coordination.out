@@ -497,12 +497,16 @@ WARNING:    Extracted outer table OID: test_documents (RTI: 1)
 WARNING:      RTI 2 maps to table OID test_files
 WARNING:      Found table OID test_files for RTI 2
 WARNING:    Extracted inner table OID: test_files (RTI: 2)
+WARNING:      RTI 1 maps to table OID test_documents
+WARNING:      RTI 2 maps to table OID test_files
+WARNING:    Extracted JOIN condition: test_documents[1] = test_files[2]
+WARNING:    Extracted 1 JOIN conditions
 WARNING:    JOIN private data: 2 tables, limit: Some(5)
-WARNING:    Serialized JSON: {"relation_mapping":{"163801":1,"163808":2},"table_oids":[163801,163808],"limit":5}
-WARNING:    Created persistent string at: 0x7fbd4800c590
-WARNING:    Created string node: 0x7fbd4800c620
+WARNING:    Serialized JSON: {"relation_mapping":{"164132":2,"164125":1},"table_oids":[164125,164132],"limit":5,"join_conditions":[{"left":[164125,1],"right":[164132,2],"opno":98}]}
+WARNING:    Created persistent string at: 0x7ff6d014c628
+WARNING:    Created string node: 0x7ff6d014c738
 WARNING:    Added node to list, list length: 1
-WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=1
+WARNING:    Creating custom path: startup_cost=20, total_cost=1.6, rows=1
 WARNING:    CustomPath created successfully with joinrel.reltarget
 WARNING:    SUCCESSFULLY CREATED JOIN COORDINATION PATH!
 WARNING:  === JOIN PATHLIST CALLBACK ===
@@ -518,12 +522,16 @@ WARNING:    Extracted outer table OID: test_files (RTI: 2)
 WARNING:      RTI 1 maps to table OID test_documents
 WARNING:      Found table OID test_documents for RTI 1
 WARNING:    Extracted inner table OID: test_documents (RTI: 1)
+WARNING:      RTI 1 maps to table OID test_documents
+WARNING:      RTI 2 maps to table OID test_files
+WARNING:    Extracted JOIN condition: test_documents[1] = test_files[2]
+WARNING:    Extracted 1 JOIN conditions
 WARNING:    JOIN private data: 2 tables, limit: Some(5)
-WARNING:    Serialized JSON: {"relation_mapping":{"163801":1,"163808":2},"table_oids":[163808,163801],"limit":5}
-WARNING:    Created persistent string at: 0x7fbd4800e950
-WARNING:    Created string node: 0x7fbd4800e9e0
+WARNING:    Serialized JSON: {"relation_mapping":{"164132":2,"164125":1},"table_oids":[164132,164125],"limit":5,"join_conditions":[{"left":[164125,1],"right":[164132,2],"opno":98}]}
+WARNING:    Created persistent string at: 0x7ff6d014eb00
+WARNING:    Created string node: 0x7ff6d014ec10
 WARNING:    Added node to list, list length: 1
-WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=1
+WARNING:    Creating custom path: startup_cost=20, total_cost=1.6, rows=1
 WARNING:    CustomPath created successfully with joinrel.reltarget
 WARNING:    SUCCESSFULLY CREATED JOIN COORDINATION PATH!
 WARNING:  === PLANNING JOIN COORDINATION CUSTOM PATH ===
@@ -532,7 +540,7 @@ WARNING:    tlist length: 2
 WARNING:    Private data: 2 tables, limit: Some(5)
 WARNING:    Using joinrel target list with 2 expressions
 WARNING:    Created CustomScan plan for JOIN coordination
-WARNING:    startup_cost: 1, total_cost: 10, rows: 1
+WARNING:    startup_cost: 20, total_cost: 1.6, rows: 1
 ERROR:  variable not found in subplan target list
 -- Reset GUC to default
 SET paradedb.enable_join_coordination = false;

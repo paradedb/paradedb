@@ -1544,6 +1544,17 @@ pub unsafe fn get_rel_name(relid: pg_sys::Oid) -> String {
     }
 }
 
+pub unsafe fn get_opname(opno: pg_sys::Oid) -> String {
+    let opname = pg_sys::get_opname(opno);
+    if opname.is_null() {
+        format!("op_{}", opno)
+    } else {
+        std::ffi::CStr::from_ptr(opname)
+            .to_string_lossy()
+            .to_string()
+    }
+}
+
 // Helper function to determine if we're dealing with a partitioned table setup
 unsafe fn is_partitioned_table_setup(
     root: *mut pg_sys::PlannerInfo,

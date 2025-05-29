@@ -376,12 +376,16 @@ WARNING:    Extracted outer table OID: documents (RTI: 1)
 WARNING:      RTI 2 maps to table OID files
 WARNING:      Found table OID files for RTI 2
 WARNING:    Extracted inner table OID: files (RTI: 2)
+WARNING:      RTI 1 maps to table OID documents
+WARNING:      RTI 2 maps to table OID files
+WARNING:    Extracted JOIN condition: documents[1] = files[2]
+WARNING:    Extracted 1 JOIN conditions
 WARNING:    JOIN private data: 2 tables, limit: Some(10)
-WARNING:    Serialized JSON: {"relation_mapping":{"163823":1,"163832":2},"table_oids":[163823,163832],"limit":10}
-WARNING:    Created persistent string at: 0x7fbd52815ab0
-WARNING:    Created string node: 0x7fbd52815b40
+WARNING:    Serialized JSON: {"relation_mapping":{"164156":2,"164147":1},"table_oids":[164147,164156],"limit":10,"join_conditions":[{"left":[164147,1],"right":[164156,2],"opno":96}]}
+WARNING:    Created persistent string at: 0x7ff6f9817138
+WARNING:    Created string node: 0x7ff6f9817248
 WARNING:    Added node to list, list length: 1
-WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=1
+WARNING:    Creating custom path: startup_cost=20, total_cost=1.6, rows=1
 WARNING:    CustomPath created successfully with joinrel.reltarget
 WARNING:    SUCCESSFULLY CREATED JOIN COORDINATION PATH!
 WARNING:  === JOIN PATHLIST CALLBACK ===
@@ -397,12 +401,16 @@ WARNING:    Extracted outer table OID: files (RTI: 2)
 WARNING:      RTI 1 maps to table OID documents
 WARNING:      Found table OID documents for RTI 1
 WARNING:    Extracted inner table OID: documents (RTI: 1)
+WARNING:      RTI 1 maps to table OID documents
+WARNING:      RTI 2 maps to table OID files
+WARNING:    Extracted JOIN condition: documents[1] = files[2]
+WARNING:    Extracted 1 JOIN conditions
 WARNING:    JOIN private data: 2 tables, limit: Some(10)
-WARNING:    Serialized JSON: {"relation_mapping":{"163823":1,"163832":2},"table_oids":[163832,163823],"limit":10}
-WARNING:    Created persistent string at: 0x7fbd528182c8
-WARNING:    Created string node: 0x7fbd52818358
+WARNING:    Serialized JSON: {"relation_mapping":{"164156":2,"164147":1},"table_oids":[164156,164147],"limit":10,"join_conditions":[{"left":[164147,1],"right":[164156,2],"opno":96}]}
+WARNING:    Created persistent string at: 0x7ff6d9011840
+WARNING:    Created string node: 0x7ff6d9011950
 WARNING:    Added node to list, list length: 1
-WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=1
+WARNING:    Creating custom path: startup_cost=20, total_cost=1.6, rows=1
 WARNING:    CustomPath created successfully with joinrel.reltarget
 WARNING:    SUCCESSFULLY CREATED JOIN COORDINATION PATH!
 WARNING:  === JOIN PATHLIST CALLBACK ===
@@ -418,12 +426,16 @@ WARNING:    Extracted outer table OID: files (RTI: 2)
 WARNING:      RTI 4 maps to table OID pages
 WARNING:      Found table OID pages for RTI 4
 WARNING:    Extracted inner table OID: pages (RTI: 4)
+WARNING:      RTI 2 maps to table OID files
+WARNING:      RTI 4 maps to table OID pages
+WARNING:    Extracted JOIN condition: files[1] = pages[2]
+WARNING:    Extracted 1 JOIN conditions
 WARNING:    JOIN private data: 2 tables, limit: Some(10)
-WARNING:    Serialized JSON: {"relation_mapping":{"163846":4,"163832":2},"table_oids":[163832,163846],"limit":10}
-WARNING:    Created persistent string at: 0x7fbd5281ada0
-WARNING:    Created string node: 0x7fbd5281ae30
+WARNING:    Serialized JSON: {"relation_mapping":{"164156":2,"164170":4},"table_oids":[164156,164170],"limit":10,"join_conditions":[{"left":[164156,1],"right":[164170,2],"opno":96}]}
+WARNING:    Created persistent string at: 0x7ff6d903b208
+WARNING:    Created string node: 0x7ff6d903b318
 WARNING:    Added node to list, list length: 1
-WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=1
+WARNING:    Creating custom path: startup_cost=20, total_cost=1.6, rows=1
 WARNING:    CustomPath created successfully with joinrel.reltarget
 WARNING:    SUCCESSFULLY CREATED JOIN COORDINATION PATH!
 WARNING:  === JOIN PATHLIST CALLBACK ===
@@ -439,12 +451,16 @@ WARNING:    Extracted outer table OID: pages (RTI: 4)
 WARNING:      RTI 2 maps to table OID files
 WARNING:      Found table OID files for RTI 2
 WARNING:    Extracted inner table OID: files (RTI: 2)
+WARNING:      RTI 2 maps to table OID files
+WARNING:      RTI 4 maps to table OID pages
+WARNING:    Extracted JOIN condition: files[1] = pages[2]
+WARNING:    Extracted 1 JOIN conditions
 WARNING:    JOIN private data: 2 tables, limit: Some(10)
-WARNING:    Serialized JSON: {"relation_mapping":{"163846":4,"163832":2},"table_oids":[163846,163832],"limit":10}
-WARNING:    Created persistent string at: 0x7fbd5281d158
-WARNING:    Created string node: 0x7fbd5281d1e8
+WARNING:    Serialized JSON: {"relation_mapping":{"164156":2,"164170":4},"table_oids":[164170,164156],"limit":10,"join_conditions":[{"left":[164156,1],"right":[164170,2],"opno":96}]}
+WARNING:    Created persistent string at: 0x7ff6d903d6b8
+WARNING:    Created string node: 0x7ff6d903d7c8
 WARNING:    Added node to list, list length: 1
-WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=1
+WARNING:    Creating custom path: startup_cost=20, total_cost=1.6, rows=1
 WARNING:    CustomPath created successfully with joinrel.reltarget
 WARNING:    SUCCESSFULLY CREATED JOIN COORDINATION PATH!
 WARNING:  === JOIN PATHLIST CALLBACK ===
@@ -477,7 +493,7 @@ WARNING:    tlist length: 2
 WARNING:    Private data: 2 tables, limit: Some(10)
 WARNING:    Using joinrel target list with 2 expressions
 WARNING:    Created CustomScan plan for JOIN coordination
-WARNING:    startup_cost: 1, total_cost: 10, rows: 1
+WARNING:    startup_cost: 20, total_cost: 1.6, rows: 1
 ERROR:  variable not found in subplan target list
 -- Test 3: Multi-table query without LIMIT (should NOT use JOIN coordination)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -804,12 +820,16 @@ WARNING:    Extracted outer table OID: documents (RTI: 1)
 WARNING:      RTI 2 maps to table OID files
 WARNING:      Found table OID files for RTI 2
 WARNING:    Extracted inner table OID: files (RTI: 2)
+WARNING:      RTI 1 maps to table OID documents
+WARNING:      RTI 2 maps to table OID files
+WARNING:    Extracted JOIN condition: documents[1] = files[2]
+WARNING:    Extracted 1 JOIN conditions
 WARNING:    JOIN private data: 2 tables, limit: Some(10)
-WARNING:    Serialized JSON: {"relation_mapping":{"163823":1,"163832":2},"table_oids":[163823,163832],"limit":10}
-WARNING:    Created persistent string at: 0x7fbd68020680
-WARNING:    Created string node: 0x7fbd68020710
+WARNING:    Serialized JSON: {"relation_mapping":{"164156":2,"164147":1},"table_oids":[164147,164156],"limit":10,"join_conditions":[{"left":[164147,1],"right":[164156,2],"opno":96}]}
+WARNING:    Created persistent string at: 0x7ff698020708
+WARNING:    Created string node: 0x7ff698020818
 WARNING:    Added node to list, list length: 1
-WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=1
+WARNING:    Creating custom path: startup_cost=20, total_cost=1.6, rows=1
 WARNING:    CustomPath created successfully with joinrel.reltarget
 WARNING:    SUCCESSFULLY CREATED JOIN COORDINATION PATH!
 WARNING:  === JOIN PATHLIST CALLBACK ===
@@ -825,12 +845,16 @@ WARNING:    Extracted outer table OID: files (RTI: 2)
 WARNING:      RTI 1 maps to table OID documents
 WARNING:      Found table OID documents for RTI 1
 WARNING:    Extracted inner table OID: documents (RTI: 1)
+WARNING:      RTI 1 maps to table OID documents
+WARNING:      RTI 2 maps to table OID files
+WARNING:    Extracted JOIN condition: documents[1] = files[2]
+WARNING:    Extracted 1 JOIN conditions
 WARNING:    JOIN private data: 2 tables, limit: Some(10)
-WARNING:    Serialized JSON: {"relation_mapping":{"163823":1,"163832":2},"table_oids":[163832,163823],"limit":10}
-WARNING:    Created persistent string at: 0x7fbd68022a28
-WARNING:    Created string node: 0x7fbd68022ab8
+WARNING:    Serialized JSON: {"relation_mapping":{"164156":2,"164147":1},"table_oids":[164156,164147],"limit":10,"join_conditions":[{"left":[164147,1],"right":[164156,2],"opno":96}]}
+WARNING:    Created persistent string at: 0x7ff698022bb8
+WARNING:    Created string node: 0x7ff698022cc8
 WARNING:    Added node to list, list length: 1
-WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=1
+WARNING:    Creating custom path: startup_cost=20, total_cost=1.6, rows=1
 WARNING:    CustomPath created successfully with joinrel.reltarget
 WARNING:    SUCCESSFULLY CREATED JOIN COORDINATION PATH!
 WARNING:  === JOIN PATHLIST CALLBACK ===
@@ -846,12 +870,16 @@ WARNING:    Extracted outer table OID: files (RTI: 2)
 WARNING:      RTI 4 maps to table OID pages
 WARNING:      Found table OID pages for RTI 4
 WARNING:    Extracted inner table OID: pages (RTI: 4)
+WARNING:      RTI 2 maps to table OID files
+WARNING:      RTI 4 maps to table OID pages
+WARNING:    Extracted JOIN condition: files[1] = pages[2]
+WARNING:    Extracted 1 JOIN conditions
 WARNING:    JOIN private data: 2 tables, limit: Some(10)
-WARNING:    Serialized JSON: {"relation_mapping":{"163846":4,"163832":2},"table_oids":[163832,163846],"limit":10}
-WARNING:    Created persistent string at: 0x7fbd680254d8
-WARNING:    Created string node: 0x7fbd68025568
+WARNING:    Serialized JSON: {"relation_mapping":{"164156":2,"164170":4},"table_oids":[164156,164170],"limit":10,"join_conditions":[{"left":[164156,1],"right":[164170,2],"opno":96}]}
+WARNING:    Created persistent string at: 0x7ff698025760
+WARNING:    Created string node: 0x7ff698025870
 WARNING:    Added node to list, list length: 1
-WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=1
+WARNING:    Creating custom path: startup_cost=20, total_cost=1.6, rows=1
 WARNING:    CustomPath created successfully with joinrel.reltarget
 WARNING:    SUCCESSFULLY CREATED JOIN COORDINATION PATH!
 WARNING:  === JOIN PATHLIST CALLBACK ===
@@ -867,12 +895,16 @@ WARNING:    Extracted outer table OID: pages (RTI: 4)
 WARNING:      RTI 2 maps to table OID files
 WARNING:      Found table OID files for RTI 2
 WARNING:    Extracted inner table OID: files (RTI: 2)
+WARNING:      RTI 2 maps to table OID files
+WARNING:      RTI 4 maps to table OID pages
+WARNING:    Extracted JOIN condition: files[1] = pages[2]
+WARNING:    Extracted 1 JOIN conditions
 WARNING:    JOIN private data: 2 tables, limit: Some(10)
-WARNING:    Serialized JSON: {"relation_mapping":{"163846":4,"163832":2},"table_oids":[163846,163832],"limit":10}
-WARNING:    Created persistent string at: 0x7fbd68027868
-WARNING:    Created string node: 0x7fbd680278f8
+WARNING:    Serialized JSON: {"relation_mapping":{"164156":2,"164170":4},"table_oids":[164170,164156],"limit":10,"join_conditions":[{"left":[164156,1],"right":[164170,2],"opno":96}]}
+WARNING:    Created persistent string at: 0x7ff698027be8
+WARNING:    Created string node: 0x7ff698027cf8
 WARNING:    Added node to list, list length: 1
-WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=1
+WARNING:    Creating custom path: startup_cost=20, total_cost=1.6, rows=1
 WARNING:    CustomPath created successfully with joinrel.reltarget
 WARNING:    SUCCESSFULLY CREATED JOIN COORDINATION PATH!
 WARNING:  === JOIN PATHLIST CALLBACK ===
@@ -905,7 +937,7 @@ WARNING:    tlist length: 3
 WARNING:    Private data: 2 tables, limit: Some(10)
 WARNING:    Using joinrel target list with 3 expressions
 WARNING:    Created CustomScan plan for JOIN coordination
-WARNING:    startup_cost: 1, total_cost: 10, rows: 1
+WARNING:    startup_cost: 20, total_cost: 1.6, rows: 1
 ERROR:  variable not found in subplan target list
 -- Cleanup
 DROP TABLE pages;

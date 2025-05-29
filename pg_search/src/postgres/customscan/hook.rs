@@ -19,6 +19,7 @@ use crate::api::HashMap;
 use crate::gucs;
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
+use crate::postgres::customscan::pdbscan::get_opname;
 use crate::postgres::customscan::pdbscan::get_rel_name;
 use crate::postgres::customscan::pdbscan::get_rel_name_from_rti_list;
 use crate::postgres::customscan::CustomScan;
@@ -37,6 +38,19 @@ struct JoinCoordinationPrivateData {
     table_oids: Vec<pg_sys::Oid>,
     /// LIMIT value from the query
     limit: Option<usize>,
+    /// JOIN conditions extracted from restrictlist (serialized)
+    join_conditions: Vec<JoinCondition>,
+}
+
+/// Represents a JOIN condition between two tables
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct JoinCondition {
+    /// Left side: (table_oid, column_attno)
+    left: (pg_sys::Oid, pg_sys::AttrNumber),
+    /// Right side: (table_oid, column_attno)
+    right: (pg_sys::Oid, pg_sys::AttrNumber),
+    /// Operator OID
+    opno: pg_sys::Oid,
 }
 
 impl From<*mut pg_sys::List> for JoinCoordinationPrivateData {
@@ -215,6 +229,12 @@ pub extern "C-unwind" fn paradedb_join_pathlist_callback<CS: CustomScan>(
             return;
         }
 
+        // TODO: Future JOIN types that could be supported:
+        // - JOIN_SEMI: Perfect for EXISTS queries with search predicates
+        // - JOIN_ANTI: For NOT EXISTS queries
+        // - JOIN_LEFT: Would need to preserve all outer rows
+        // These would require different intersection/coordination logic
+
         pgrx::warning!("=== JOIN PATHLIST CALLBACK ===");
         pgrx::warning!("  jointype: {:?}", jointype);
         pgrx::warning!("  limit_tuples: {}", (*root).limit_tuples);
@@ -307,11 +327,16 @@ unsafe fn create_join_coordination_path<CS: CustomScan>(
         None
     };
 
+    // Extract JOIN conditions from restrictlist
+    let join_conditions = extract_join_conditions(root, (*extra).restrictlist);
+    pgrx::warning!("  Extracted {} JOIN conditions", join_conditions.len());
+
     // Create simplified JOIN coordination private data (no variable mapping)
     let join_private_data = JoinCoordinationPrivateData {
         relation_mapping,
         table_oids: table_oids.clone(),
         limit,
+        join_conditions,
     };
 
     pgrx::warning!(
@@ -344,12 +369,31 @@ unsafe fn create_join_coordination_path<CS: CustomScan>(
     pgrx::warning!("  Added node to list, list length: {}", private_list.len());
 
     // Calculate costs for our custom JOIN path
-    // For now, use aggressive costing to ensure our path is selected
-    let startup_cost = 1.0; // Very low startup cost
-    let total_cost = 10.0; // Very low total cost to beat hash join
+    // Base costs on search operations and early termination benefits
+    let search_startup_cost = 10.0; // Cost to initialize search
+    let per_tuple_search_cost = 0.1; // Cost per search result
 
-    // Estimate rows - for now, use a conservative estimate
-    let rows = ((*outerrel).rows * (*innerrel).rows * 0.01).max(1.0); // 1% selectivity estimate
+    // With LIMIT, we can terminate early after finding enough matches
+    let expected_matches = if let Some(limit_val) = limit {
+        (limit_val as f64).min((*outerrel).rows * (*innerrel).rows * 0.01)
+    } else {
+        (*outerrel).rows * (*innerrel).rows * 0.01
+    };
+
+    // Cost benefit: We only need to examine enough tuples to satisfy LIMIT
+    let startup_cost = search_startup_cost * 2.0; // Two search operations
+    let run_cost = expected_matches * per_tuple_search_cost;
+    let total_cost = startup_cost + run_cost;
+
+    // Ensure we beat regular hash join for LIMIT queries
+    let hash_join_cost = (*outerrel).rows + (*innerrel).rows;
+    let total_cost = if limit.is_some() && total_cost < hash_join_cost * 0.5 {
+        total_cost
+    } else {
+        hash_join_cost * 0.8 // Still prefer our approach but not as aggressively
+    };
+
+    let rows = expected_matches.max(1.0);
 
     pgrx::warning!(
         "  Creating custom path: startup_cost={}, total_cost={}, rows={}",
@@ -631,4 +675,61 @@ unsafe fn contains_search_operator_in_clause(clause: *mut pg_sys::Node) -> bool 
         }
         _ => false,
     }
+}
+
+/// Extract JOIN conditions from restrictlist
+unsafe fn extract_join_conditions(
+    root: *mut pg_sys::PlannerInfo,
+    restrictlist: *mut pg_sys::List,
+) -> Vec<JoinCondition> {
+    let mut join_conditions = Vec::new();
+
+    if restrictlist.is_null() {
+        return join_conditions;
+    }
+
+    let restrict_infos = PgList::<pg_sys::RestrictInfo>::from_pg(restrictlist);
+
+    for restrict_info in restrict_infos.iter_ptr() {
+        let clause = (*restrict_info).clause;
+
+        // Check if this is an OpExpr (e.g., d.id = f.document_id)
+        if let Some(opexpr) = nodecast!(OpExpr, T_OpExpr, clause) {
+            let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
+
+            if args.len() == 2 {
+                // Extract left and right Vars
+                let left_node = args.get_ptr(0).unwrap();
+                let right_node = args.get_ptr(1).unwrap();
+
+                if let (Some(left_var), Some(right_var)) = (
+                    nodecast!(Var, T_Var, left_node),
+                    nodecast!(Var, T_Var, right_node),
+                ) {
+                    // Get table OIDs for each varno
+                    if let (Some(left_oid), Some(right_oid)) = (
+                        get_table_oid_for_varno(root, (*left_var).varno as pg_sys::Index),
+                        get_table_oid_for_varno(root, (*right_var).varno as pg_sys::Index),
+                    ) {
+                        join_conditions.push(JoinCondition {
+                            left: (left_oid, (*left_var).varattno),
+                            right: (right_oid, (*right_var).varattno),
+                            opno: (*opexpr).opno,
+                        });
+
+                        pgrx::warning!(
+                            "  Extracted JOIN condition: {}[{}] {} {}[{}]",
+                            get_rel_name(left_oid),
+                            (*left_var).varattno,
+                            get_opname((*opexpr).opno),
+                            get_rel_name(right_oid),
+                            (*right_var).varattno
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    join_conditions
 }

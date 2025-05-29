@@ -35,6 +35,18 @@ impl SimpleProductsTable {
     pub fn setup() -> String {
         SIMPLE_PRODUCTS_TABLE_SETUP.into()
     }
+
+    pub fn setup_multi_segment() -> String {
+        // Inserting one additional row will get us an additional segment.
+        format!(
+            r#"{SIMPLE_PRODUCTS_TABLE_SETUP}
+            INSERT INTO paradedb.bm25_search
+              (description, category, rating, in_stock, metadata, created_at, last_updated_date)
+            VALUES
+              ('Product with mixed array', 'Electronics', 5, true, '{{"attributes": ["fast", 4, true]}}', now(), current_date);
+            "#
+        )
+    }
 }
 
 static SIMPLE_PRODUCTS_TABLE_SETUP: &str = r#"

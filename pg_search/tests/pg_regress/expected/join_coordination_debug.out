@@ -168,9 +168,9 @@ WARNING:      RTI 2 maps to table OID test_files
 WARNING:      Found table OID test_files for RTI 2
 WARNING:    Extracted inner table OID: test_files (RTI: 2)
 WARNING:    JOIN private data: 2 tables, limit: Some(5)
-WARNING:    Serialized JSON: {"relation_mapping":{"155462":2,"155453":1},"table_oids":[155453,155462],"limit":5}
-WARNING:    Created persistent string at: 0x7fad7a84cc70
-WARNING:    Created string node: 0x7fad7a84cd00
+WARNING:    Serialized JSON: {"relation_mapping":{"163863":1,"163872":2},"table_oids":[163863,163872],"limit":5}
+WARNING:    Created persistent string at: 0x7fbd72819e70
+WARNING:    Created string node: 0x7fbd72819f00
 WARNING:    Added node to list, list length: 1
 WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=1
 WARNING:    CustomPath created successfully with joinrel.reltarget
@@ -189,9 +189,9 @@ WARNING:      RTI 1 maps to table OID test_docs
 WARNING:      Found table OID test_docs for RTI 1
 WARNING:    Extracted inner table OID: test_docs (RTI: 1)
 WARNING:    JOIN private data: 2 tables, limit: Some(5)
-WARNING:    Serialized JSON: {"relation_mapping":{"155462":2,"155453":1},"table_oids":[155462,155453],"limit":5}
-WARNING:    Created persistent string at: 0x7fad7a84f268
-WARNING:    Created string node: 0x7fad7a84f2f8
+WARNING:    Serialized JSON: {"relation_mapping":{"163872":2,"163863":1},"table_oids":[163872,163863],"limit":5}
+WARNING:    Created persistent string at: 0x7fbd7281c468
+WARNING:    Created string node: 0x7fbd7281c4f8
 WARNING:    Added node to list, list length: 1
 WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=1
 WARNING:    CustomPath created successfully with joinrel.reltarget

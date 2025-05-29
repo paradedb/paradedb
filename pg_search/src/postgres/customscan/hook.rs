@@ -540,6 +540,10 @@ extern "C-unwind" fn plan_join_coordination_custom_path<CS: CustomScan>(
             existing_private_data.limit
         );
 
+        // For now, we won't create child plans - let PostgreSQL handle variable resolution
+        // through its normal mechanisms. The key is that our CustomScan execution must
+        // properly produce all the required columns.
+
         // CRITICAL: Use joinrel's target instead of creating our own
         // The joinrel already has the correct reltarget that includes columns from both relations
         let join_target_list = (*(*rel).reltarget).exprs;
@@ -555,7 +559,7 @@ extern "C-unwind" fn plan_join_coordination_custom_path<CS: CustomScan>(
         let custom_scan = pg_sys::CustomScan {
             flags: (*best_path).flags,
             custom_private: (*best_path).custom_private, // Use existing private data as-is
-            custom_plans,
+            custom_plans: custom_plans, // Use the custom_plans passed in (may be null)
             methods: CS::custom_scan_methods(),
             scan: pg_sys::Scan {
                 plan: pg_sys::Plan {

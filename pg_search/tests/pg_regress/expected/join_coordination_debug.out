@@ -168,8 +168,12 @@ WARNING:      RTI 2 maps to table OID test_files
 WARNING:      Found table OID test_files for RTI 2
 WARNING:    Extracted inner table OID: test_files (RTI: 2)
 WARNING:    JOIN private data: 2 tables, limit: Some(5)
+WARNING:    Serialized JSON: {"relation_mapping":{"155462":2,"155453":1},"table_oids":[155453,155462],"limit":5}
+WARNING:    Created persistent string at: 0x7fad7a84cc70
+WARNING:    Created string node: 0x7fad7a84cd00
+WARNING:    Added node to list, list length: 1
 WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=1
-WARNING:    CustomPath created successfully
+WARNING:    CustomPath created successfully with joinrel.reltarget
 WARNING:    SUCCESSFULLY CREATED JOIN COORDINATION PATH!
 WARNING:  === JOIN PATHLIST CALLBACK ===
 WARNING:    jointype: 0
@@ -185,13 +189,18 @@ WARNING:      RTI 1 maps to table OID test_docs
 WARNING:      Found table OID test_docs for RTI 1
 WARNING:    Extracted inner table OID: test_docs (RTI: 1)
 WARNING:    JOIN private data: 2 tables, limit: Some(5)
+WARNING:    Serialized JSON: {"relation_mapping":{"155462":2,"155453":1},"table_oids":[155462,155453],"limit":5}
+WARNING:    Created persistent string at: 0x7fad7a84f268
+WARNING:    Created string node: 0x7fad7a84f2f8
+WARNING:    Added node to list, list length: 1
 WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=1
-WARNING:    CustomPath created successfully
+WARNING:    CustomPath created successfully with joinrel.reltarget
 WARNING:    SUCCESSFULLY CREATED JOIN COORDINATION PATH!
 WARNING:  === PLANNING JOIN COORDINATION CUSTOM PATH ===
 WARNING:    rel relids: ["test_docs", "test_files"]
 WARNING:    tlist length: 2
-WARNING:    Using original target list for JOIN coordination plan
+WARNING:    Private data: 2 tables, limit: Some(5)
+WARNING:    Using joinrel target list with 2 expressions
 WARNING:    Created CustomScan plan for JOIN coordination
 WARNING:    startup_cost: 1, total_cost: 10, rows: 1
 ERROR:  variable not found in subplan target list

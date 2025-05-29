@@ -39,6 +39,22 @@ struct JoinCoordinationPrivateData {
     limit: Option<usize>,
 }
 
+impl From<*mut pg_sys::List> for JoinCoordinationPrivateData {
+    fn from(list: *mut pg_sys::List) -> Self {
+        unsafe {
+            let list = PgList::<pg_sys::Node>::from_pg(list);
+            let node = list
+                .get_ptr(0)
+                .expect("private data list should not be empty");
+            let json_str = std::ffi::CStr::from_ptr((*node.cast::<pg_sys::String>()).sval)
+                .to_str()
+                .expect("string node should be valid utf8");
+            serde_json::from_str(json_str)
+                .expect("JOIN coordination private data should be valid JSON")
+        }
+    }
+}
+
 pub fn register_rel_pathlist<CS: CustomScan + 'static>(_: CS) {
     unsafe {
         static mut PREV_REL_HOOKS: Lazy<
@@ -291,7 +307,7 @@ unsafe fn create_join_coordination_path<CS: CustomScan>(
         None
     };
 
-    // Create JOIN coordination private data
+    // Create simplified JOIN coordination private data (no variable mapping)
     let join_private_data = JoinCoordinationPrivateData {
         relation_mapping,
         table_oids: table_oids.clone(),
@@ -307,9 +323,25 @@ unsafe fn create_join_coordination_path<CS: CustomScan>(
     // Serialize the private data as a PostgreSQL List
     let private_data_json =
         serde_json::to_string(&join_private_data).expect("Failed to serialize JOIN private data");
+    pgrx::warning!("  Serialized JSON: {}", private_data_json);
+
     let mut private_list = PgList::new();
-    private_list
-        .push(pg_sys::makeString(private_data_json.as_ptr() as *mut i8).cast::<pg_sys::Node>());
+
+    // Use PostgreSQL's memory allocation to ensure the string persists
+    let json_len = private_data_json.len() + 1; // +1 for null terminator
+    let json_ptr = unsafe {
+        let ptr = PgMemoryContexts::CurrentMemoryContext.palloc(json_len) as *mut u8;
+        std::ptr::copy_nonoverlapping(private_data_json.as_ptr(), ptr, private_data_json.len());
+        ptr.add(private_data_json.len()).write(0); // null terminator
+        ptr as *mut i8
+    };
+    pgrx::warning!("  Created persistent string at: {:p}", json_ptr);
+
+    let string_node = pg_sys::makeString(json_ptr);
+    pgrx::warning!("  Created string node: {:p}", string_node);
+
+    private_list.push(string_node.cast::<pg_sys::Node>());
+    pgrx::warning!("  Added node to list, list length: {}", private_list.len());
 
     // Calculate costs for our custom JOIN path
     // For now, use aggressive costing to ensure our path is selected
@@ -340,6 +372,7 @@ unsafe fn create_join_coordination_path<CS: CustomScan>(
     (*custom_path).path.type_ = pg_sys::NodeTag::T_CustomPath;
     (*custom_path).path.pathtype = pg_sys::NodeTag::T_CustomScan;
     (*custom_path).path.parent = joinrel;
+    // CRITICAL: For join nodes, use the joinrel's reltarget which already has the correct columns
     (*custom_path).path.pathtarget = (*joinrel).reltarget;
     (*custom_path).path.param_info = std::ptr::null_mut();
     (*custom_path).path.parallel_aware = false;
@@ -357,7 +390,7 @@ unsafe fn create_join_coordination_path<CS: CustomScan>(
     (*custom_path).custom_private = private_list.into_pg(); // Store our JOIN private data
     (*custom_path).methods = join_coordination_custom_path_methods::<CS>(); // Use JOIN-specific methods
 
-    pgrx::warning!("  CustomPath created successfully");
+    pgrx::warning!("  CustomPath created successfully with joinrel.reltarget");
     Some(custom_path as *mut pg_sys::Path)
 }
 
@@ -451,6 +484,15 @@ unsafe fn get_table_oid_for_rti(
     None
 }
 
+/// Get the table OID for a given varno (by looking up the corresponding RTI)
+unsafe fn get_table_oid_for_varno(
+    root: *mut pg_sys::PlannerInfo,
+    varno: pg_sys::Index,
+) -> Option<pg_sys::Oid> {
+    // varno corresponds to RTI in the range table
+    get_table_oid_for_rti(root, varno)
+}
+
 /// JOIN-specific custom path methods
 /// These handle the planning of custom JOIN paths differently from regular table scans
 unsafe fn join_coordination_custom_path_methods<CS: CustomScan>() -> *const pg_sys::CustomPathMethods
@@ -490,24 +532,35 @@ extern "C-unwind" fn plan_join_coordination_custom_path<CS: CustomScan>(
             pgrx::PgList::<pg_sys::TargetEntry>::from_pg(tlist).len()
         );
 
-        // Don't try to parse private data here - it will be available during execution
-        // The private data flows: CustomPath -> CustomScan -> execution automatically
-        pgrx::warning!("  Using original target list for JOIN coordination plan");
+        // Parse the existing private data to get our table mapping
+        let existing_private_data = JoinCoordinationPrivateData::from((*best_path).custom_private);
+        pgrx::warning!(
+            "  Private data: {} tables, limit: {:?}",
+            existing_private_data.table_oids.len(),
+            existing_private_data.limit
+        );
+
+        // CRITICAL: Use joinrel's target instead of creating our own
+        // The joinrel already has the correct reltarget that includes columns from both relations
+        let join_target_list = (*(*rel).reltarget).exprs;
+
+        pgrx::warning!(
+            "  Using joinrel target list with {} expressions",
+            pgrx::PgList::<pg_sys::Expr>::from_pg(join_target_list).len()
+        );
 
         // Create a CustomScan plan for JOIN coordination
         let mut planner_cxt = PgMemoryContexts::CurrentMemoryContext;
 
-        // Create the CustomScan structure with original target list
-        // PostgreSQL will handle the private data transfer automatically
         let custom_scan = pg_sys::CustomScan {
             flags: (*best_path).flags,
-            custom_private: (*best_path).custom_private, // Private data flows through automatically
+            custom_private: (*best_path).custom_private, // Use existing private data as-is
             custom_plans,
             methods: CS::custom_scan_methods(),
             scan: pg_sys::Scan {
                 plan: pg_sys::Plan {
                     type_: pg_sys::NodeTag::T_CustomScan,
-                    targetlist: tlist, // Use original target list for now
+                    targetlist: tlist, // Use the target list provided by PostgreSQL
                     startup_cost: (*best_path).path.startup_cost,
                     total_cost: (*best_path).path.total_cost,
                     plan_rows: (*best_path).path.rows,

@@ -498,8 +498,12 @@ WARNING:      RTI 2 maps to table OID test_files
 WARNING:      Found table OID test_files for RTI 2
 WARNING:    Extracted inner table OID: test_files (RTI: 2)
 WARNING:    JOIN private data: 2 tables, limit: Some(5)
+WARNING:    Serialized JSON: {"relation_mapping":{"155391":1,"155398":2},"table_oids":[155391,155398],"limit":5}
+WARNING:    Created persistent string at: 0x7fada088c590
+WARNING:    Created string node: 0x7fada088c620
+WARNING:    Added node to list, list length: 1
 WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=1
-WARNING:    CustomPath created successfully
+WARNING:    CustomPath created successfully with joinrel.reltarget
 WARNING:    SUCCESSFULLY CREATED JOIN COORDINATION PATH!
 WARNING:  === JOIN PATHLIST CALLBACK ===
 WARNING:    jointype: 0
@@ -515,13 +519,18 @@ WARNING:      RTI 1 maps to table OID test_documents
 WARNING:      Found table OID test_documents for RTI 1
 WARNING:    Extracted inner table OID: test_documents (RTI: 1)
 WARNING:    JOIN private data: 2 tables, limit: Some(5)
+WARNING:    Serialized JSON: {"relation_mapping":{"155391":1,"155398":2},"table_oids":[155398,155391],"limit":5}
+WARNING:    Created persistent string at: 0x7fada088e950
+WARNING:    Created string node: 0x7fada088e9e0
+WARNING:    Added node to list, list length: 1
 WARNING:    Creating custom path: startup_cost=1, total_cost=10, rows=1
-WARNING:    CustomPath created successfully
+WARNING:    CustomPath created successfully with joinrel.reltarget
 WARNING:    SUCCESSFULLY CREATED JOIN COORDINATION PATH!
 WARNING:  === PLANNING JOIN COORDINATION CUSTOM PATH ===
 WARNING:    rel relids: ["test_documents", "test_files"]
 WARNING:    tlist length: 2
-WARNING:    Using original target list for JOIN coordination plan
+WARNING:    Private data: 2 tables, limit: Some(5)
+WARNING:    Using joinrel target list with 2 expressions
 WARNING:    Created CustomScan plan for JOIN coordination
 WARNING:    startup_cost: 1, total_cost: 10, rows: 1
 ERROR:  variable not found in subplan target list

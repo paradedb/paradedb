@@ -505,72 +505,37 @@ impl JoinCoordinationExecState {
             // Clear the slot
             pg_sys::ExecClearTuple(self.result_slot);
 
-            // For now, just handle single table case
-            // Real implementation would project fields from all tables
+            let tupdesc = (*self.result_slot).tts_tupleDescriptor;
+            let natts = (*tupdesc).natts as usize;
 
-            if let Some(join_table) = self.join_tables.first() {
-                if let Some(table_result) = joined_result.table_results.get(&join_table.table_oid) {
-                    let tupdesc = (*self.result_slot).tts_tupleDescriptor;
-                    let natts = (*tupdesc).natts as usize;
+            pgrx::warning!("Creating result tuple with {} attributes", natts);
 
-                    for attno in 1..=natts {
-                        let attno = attno as pg_sys::AttrNumber;
+            // For now, create a simple placeholder result
+            // In a full implementation, we would need to properly map the JOIN results
+            // to the output tuple based on PostgreSQL's target list
+            // This is complex and should use PostgreSQL's normal projection mechanisms
 
-                        // Check fast fields first
-                        if let Some(datum) = table_result.fast_fields.get(&attno) {
-                            (*self.result_slot)
-                                .tts_values
-                                .add((attno - 1) as usize)
-                                .write(*datum);
-                            (*self.result_slot)
-                                .tts_isnull
-                                .add((attno - 1) as usize)
-                                .write(false);
-                        }
-                        // Then check lazy loaded fields
-                        else if let Some(lazy_result) =
-                            joined_result.lazy_results.get(&join_table.table_oid)
-                        {
-                            if let Some(datum) = lazy_result.get_field(attno) {
-                                (*self.result_slot)
-                                    .tts_values
-                                    .add((attno - 1) as usize)
-                                    .write(datum);
-                                (*self.result_slot)
-                                    .tts_isnull
-                                    .add((attno - 1) as usize)
-                                    .write(false);
-                            } else {
-                                (*self.result_slot)
-                                    .tts_values
-                                    .add((attno - 1) as usize)
-                                    .write(pg_sys::Datum::null());
-                                (*self.result_slot)
-                                    .tts_isnull
-                                    .add((attno - 1) as usize)
-                                    .write(true);
-                            }
-                        }
-                        // Default to NULL
-                        else {
-                            (*self.result_slot)
-                                .tts_values
-                                .add((attno - 1) as usize)
-                                .write(pg_sys::Datum::null());
-                            (*self.result_slot)
-                                .tts_isnull
-                                .add((attno - 1) as usize)
-                                .write(true);
-                        }
-                    }
-
-                    // Mark slot as valid
-                    (*self.result_slot).tts_nvalid = natts as pg_sys::AttrNumber;
-                    (*self.result_slot).tts_flags &= !pg_sys::TTS_FLAG_EMPTY as u16;
-                    (*self.result_slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
-                }
+            // Initialize all attributes to NULL first
+            for attno in 1..=natts {
+                (*self.result_slot)
+                    .tts_values
+                    .add((attno - 1) as usize)
+                    .write(pg_sys::Datum::null());
+                (*self.result_slot)
+                    .tts_isnull
+                    .add((attno - 1) as usize)
+                    .write(true);
             }
 
+            // Mark slot as valid but empty for now
+            (*self.result_slot).tts_nvalid = natts as pg_sys::AttrNumber;
+            (*self.result_slot).tts_flags &= !pg_sys::TTS_FLAG_EMPTY as u16;
+            (*self.result_slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
+
+            pgrx::warning!(
+                "Created placeholder result tuple slot with {} attributes",
+                natts
+            );
             self.result_slot
         }
     }

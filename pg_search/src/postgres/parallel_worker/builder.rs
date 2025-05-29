@@ -32,6 +32,13 @@ impl ParallelProcessBuilder {
         mq_size: usize,
     ) -> Option<ParallelProcessLauncher<S>> {
         unsafe {
+            let mut nworkers = nworkers
+                .min(pg_sys::max_worker_processes as _)
+                .min(pg_sys::max_parallel_workers_per_gather as _)
+                .min(pg_sys::max_parallel_workers as _);
+            if pg_sys::parallel_leader_participation && nworkers == 0 {
+                nworkers += 1;
+            }
             let mq_size = MAXALIGN_DOWN(mq_size);
             let fn_name = CString::new(fn_name).unwrap();
             let nstate_bytes = process.size_of_state();
@@ -63,7 +70,7 @@ impl ParallelProcessBuilder {
 
             // let the ParallelProcess initialize its state into the allocated shared memory space
             let state_address = pg_sys::shm_toc_allocate((*pcxt.as_ptr()).toc, nstate_bytes);
-            process.init_shared_state(state_address);
+            process.init_shm_state(state_address);
             pg_sys::shm_toc_insert(
                 (*pcxt.as_ptr()).toc,
                 TocKeys::SharedState.into(),
@@ -87,7 +94,7 @@ impl ParallelProcessBuilder {
             Some(ParallelProcessLauncher {
                 pcxt,
                 mq_handles: mq_receivers,
-                shared_state: NonNull::new(state_address as *mut S).unwrap(),
+                shm_state: NonNull::new(state_address as *mut S).unwrap(),
             })
         }
     }
@@ -95,7 +102,7 @@ impl ParallelProcessBuilder {
 
 pub struct ParallelProcessLauncher<S> {
     pcxt: NonNull<pg_sys::ParallelContext>,
-    shared_state: NonNull<S>,
+    shm_state: NonNull<S>,
     mq_handles: Vec<MessageQueueReceiver>,
 }
 
@@ -104,13 +111,23 @@ impl<S: Copy> ParallelProcessLauncher<S> {
         unsafe {
             let pcxt = self.pcxt.as_ptr();
             pg_sys::LaunchParallelWorkers(pcxt);
-            if (*self.pcxt.as_ptr()).nworkers_launched == 0 {
-                // no workers launched
-                pg_sys::DestroyParallelContext(pcxt);
-                pg_sys::ExitParallelMode();
-                return None;
+
+            // if workers were launched
+            if (*pcxt).nworkers_launched > 0
+
+                // or none were launched because caller didn't ask for any, but the leader is supposed to participate
+                || ((*pcxt).nworkers_launched == 0
+                && (*pcxt).nworkers == 1
+                && pg_sys::parallel_leader_participation)
+            {
+                // then we have a valid parallel process machine
+                return Some(ParallelProcessAttach { launcher: self });
             }
-            Some(ParallelProcessAttach { launcher: self })
+
+            // no workers launched
+            pg_sys::DestroyParallelContext(pcxt);
+            pg_sys::ExitParallelMode();
+            None
         }
     }
 }
@@ -140,12 +157,12 @@ impl<S> ParallelProcessFinish<S> {
         unsafe { (*self.launcher.pcxt.as_ptr()).nworkers_launched as usize }
     }
 
-    pub fn shared_state(&self) -> &S {
-        unsafe { &*self.launcher.shared_state.as_ptr() }
+    pub fn shm_state(&self) -> &S {
+        unsafe { &*self.launcher.shm_state.as_ptr() }
     }
 
-    pub fn shared_state_mut(&mut self) -> &mut S {
-        unsafe { &mut *self.launcher.shared_state.as_ptr() }
+    pub fn shm_state_mut(&mut self) -> &mut S {
+        unsafe { &mut *self.launcher.shm_state.as_ptr() }
     }
 
     pub fn recv(&self) -> Option<Vec<(usize, Vec<u8>)>> {

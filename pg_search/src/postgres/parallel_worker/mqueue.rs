@@ -1,3 +1,5 @@
+use std::error::Error;
+use std::fmt::{Display, Formatter};
 // Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
@@ -58,6 +60,35 @@ impl MessageQueueHandle {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
+pub enum MessageQueueSendError {
+    Detached,
+    WouldBlock,
+    Unknown(pg_sys::shm_mq_result::Type),
+}
+
+impl Display for MessageQueueSendError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MessageQueueSendError::Detached => write!(f, "queue is detached"),
+            MessageQueueSendError::WouldBlock => write!(f, "queue is full"),
+            MessageQueueSendError::Unknown(other) => write!(f, "unknown error code: {other}"),
+        }
+    }
+}
+
+impl Error for MessageQueueSendError {}
+
+impl From<pg_sys::shm_mq_result::Type> for MessageQueueSendError {
+    fn from(value: pg_sys::shm_mq_result::Type) -> Self {
+        match value {
+            pg_sys::shm_mq_result::SHM_MQ_WOULD_BLOCK => Self::WouldBlock,
+            pg_sys::shm_mq_result::SHM_MQ_DETACHED => Self::Detached,
+            other => Self::Unknown(other),
+        }
+    }
+}
+
 pub struct MessageQueueSender {
     handle: MessageQueueHandle,
 }
@@ -72,7 +103,7 @@ impl MessageQueueSender {
         }
     }
 
-    pub fn send<B: AsRef<[u8]>>(&self, msg: B) -> Result<(), pg_sys::shm_mq_result::Type> {
+    pub fn send<B: AsRef<[u8]>>(&self, msg: B) -> Result<(), MessageQueueSendError> {
         unsafe {
             let msg = msg.as_ref();
             let result = pg_sys::shm_mq_send(
@@ -85,12 +116,12 @@ impl MessageQueueSender {
 
             match result {
                 pg_sys::shm_mq_result::SHM_MQ_SUCCESS => Ok(()),
-                other => Err(other),
+                other => Err(MessageQueueSendError::from(other)),
             }
         }
     }
 
-    pub fn try_send(&self, msg: &[u8]) -> Result<Option<()>, pg_sys::shm_mq_result::Type> {
+    pub fn try_send(&self, msg: &[u8]) -> Result<Option<()>, MessageQueueSendError> {
         unsafe {
             let result = pg_sys::shm_mq_send(
                 self.handle.as_ptr(),
@@ -103,8 +134,37 @@ impl MessageQueueSender {
             match result {
                 pg_sys::shm_mq_result::SHM_MQ_SUCCESS => Ok(Some(())),
                 pg_sys::shm_mq_result::SHM_MQ_WOULD_BLOCK => Ok(None),
-                other => Err(other),
+                other => Err(MessageQueueSendError::from(other)),
             }
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum MessageQueueRecvError {
+    Detached,
+    WouldBlock,
+    Unknown(pg_sys::shm_mq_result::Type),
+}
+
+impl Display for MessageQueueRecvError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MessageQueueRecvError::Detached => write!(f, "queue is detached"),
+            MessageQueueRecvError::WouldBlock => write!(f, "queue is full"),
+            MessageQueueRecvError::Unknown(other) => write!(f, "unknown error code: {other}"),
+        }
+    }
+}
+
+impl Error for MessageQueueRecvError {}
+
+impl From<pg_sys::shm_mq_result::Type> for MessageQueueRecvError {
+    fn from(value: pg_sys::shm_mq_result::Type) -> Self {
+        match value {
+            pg_sys::shm_mq_result::SHM_MQ_WOULD_BLOCK => Self::WouldBlock,
+            pg_sys::shm_mq_result::SHM_MQ_DETACHED => Self::Detached,
+            other => Self::Unknown(other),
         }
     }
 }
@@ -127,7 +187,7 @@ impl MessageQueueReceiver {
         }
     }
 
-    pub fn recv(&self) -> Result<Vec<u8>, pg_sys::shm_mq_result::Type> {
+    pub fn recv(&self) -> Result<Vec<u8>, MessageQueueRecvError> {
         unsafe {
             let mut len = 0usize;
             let mut msg = std::ptr::null_mut();
@@ -138,12 +198,12 @@ impl MessageQueueReceiver {
                     let result = Ok(std::slice::from_raw_parts(msg as *mut u8, len).to_vec());
                     result
                 }
-                other => Err(other),
+                other => Err(MessageQueueRecvError::from(other)),
             }
         }
     }
 
-    pub fn try_recv(&self) -> Result<Option<Vec<u8>>, pg_sys::shm_mq_result::Type> {
+    pub fn try_recv(&self) -> Result<Option<Vec<u8>>, MessageQueueRecvError> {
         unsafe {
             let mut len = 0usize;
             let mut msg = std::ptr::null_mut();
@@ -157,7 +217,7 @@ impl MessageQueueReceiver {
                     result
                 }
                 pg_sys::shm_mq_result::SHM_MQ_WOULD_BLOCK => Ok(None),
-                other => Err(other),
+                other => Err(MessageQueueRecvError::from(other)),
             }
         }
     }

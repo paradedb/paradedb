@@ -41,12 +41,16 @@ pub trait ParallelState {}
 pub trait ParallelProcess {
     fn size_of_state(&self) -> usize;
 
-    unsafe fn init_shared_state(&self, shared_state: *mut std::ffi::c_void);
+    unsafe fn init_shm_state(&self, dest: *mut std::ffi::c_void);
 }
 
 pub trait ParallelWorker {
     type State;
-    unsafe fn run(shared_state: &mut Self::State, mq_sender: &MessageQueueSender);
+    fn run(
+        shm_state: &mut Self::State,
+        mq_sender: &MessageQueueSender,
+        worker_number: i32,
+    ) -> anyhow::Result<()>;
 }
 
 /// This macro facilitates the creation and execution of a parallel process within the PostgreSQL environment using the `pgx` framework.
@@ -105,7 +109,7 @@ pub trait ParallelWorker {
 /// impl ParallelWorker for MyWorker {
 ///     type State = MyParallelState;
 ///
-///     fn run(state: &mut Self::State, mq_sender: &MessageQueueSender) {
+///     fn run(state: &mut Self::State, mq_sender: &MessageQueueSender, worker_number: i32) {
 ///         pgrx::warning!("junk={}", state.junk);
 ///     }
 /// }
@@ -119,9 +123,9 @@ pub trait ParallelWorker {
 ///         size_of::<MyParallelState>()
 ///     }
 ///
-///     unsafe fn init_shared_state(&self, shared_state: *mut c_void) {
+///     unsafe fn init_shm_state(&self, dest: *mut c_void) {
 ///         unsafe {
-///             std::ptr::copy_nonoverlapping(addr_of!(self.state) as *c_void, shared_state, self.size_of_state());
+///             std::ptr::copy_nonoverlapping(addr_of!(self.state) as *c_void, dest, self.size_of_state());
 ///         }
 ///     }
 /// }
@@ -184,9 +188,9 @@ macro_rules! launch_parallel_process {
                     );
 
                 let state = &mut *state_ptr.cast::<$parallel_state_type>();
-                <$parallel_worker_type as $crate::postgres::parallel_worker::ParallelWorker>::run(
-                    state, &mq_sender,
-                )
+                let _ = <$parallel_worker_type as $crate::postgres::parallel_worker::ParallelWorker>::run(
+                    state, &mq_sender, unsafe { pgrx::pg_sys::ParallelWorkerNumber }
+                ).unwrap_or_else(|e| ::std::panic::panic_any(e));
             }
         }
 
@@ -212,7 +216,7 @@ pub unsafe fn generic_parallel_worker_entry_point(
     toc: *mut pg_sys::shm_toc,
     mq_size: usize,
 ) -> (*mut std::ffi::c_void, MessageQueueSender) {
-    let shared_state = get_toc_entry(toc, TocKeys::SharedState)
+    let shm_state = get_toc_entry(toc, TocKeys::SharedState)
         .map(|value| value.as_ptr())
         .expect("worker state should exist in toc");
     let mqueues_base = get_toc_entry(toc, TocKeys::MessageQueues)
@@ -225,7 +229,7 @@ pub unsafe fn generic_parallel_worker_entry_point(
         .cast::<pg_sys::shm_mq>();
 
     let mq_sender = MessageQueueSender::new(seg, mq);
-    (shared_state, mq_sender)
+    (shm_state, mq_sender)
 }
 
 #[inline(always)]

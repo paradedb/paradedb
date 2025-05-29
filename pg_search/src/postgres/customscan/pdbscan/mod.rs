@@ -402,8 +402,8 @@ impl CustomScan for PdbScan {
             };
 
             // TODO: Re-examine this `is_string_fast_field_capable` check after #2612 has landed,
-            // as it should likely also be checking for `is_mixed_fast_field_capable` as well, and
-            // should likely have different thresholds.
+            // as it should likely be checking for `is_mixed_fast_field_capable` as well, and
+            // should probably have different thresholds.
             // See https://github.com/paradedb/paradedb/issues/2620
             if pathkey.is_some()
                 && !is_topn
@@ -454,11 +454,7 @@ impl CustomScan for PdbScan {
 
             // Once we have chosen an execution method type, we have a final determination of the
             // properties of the output, and can make claims about whether it is sorted.
-            if builder
-                .custom_private()
-                .exec_method_type()
-                .is_sorted(nworkers)
-            {
+            if builder.custom_private().exec_method_type().is_sorted() {
                 if let Some(pathkey) = pathkey.as_ref() {
                     builder = builder.add_path_key(pathkey);
                 }

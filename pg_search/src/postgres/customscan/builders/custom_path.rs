@@ -141,14 +141,11 @@ impl ExecMethodType {
     /// Returns true if this execution method will emit results in sorted order with the given
     /// number of workers.
     ///
-    pub fn is_sorted(&self, nworkers: usize) -> bool {
+    pub fn is_sorted(&self) -> bool {
         match self {
-            ExecMethodType::TopN { .. } if nworkers == 0 => {
-                // TODO: To allow sorted output with parallel workers, we would need to partition
-                // our segments across the workers so that each worker emitted all of its results
-                // in sorted order.
-                true
-            }
+            ExecMethodType::TopN { .. } => true,
+            // See https://github.com/paradedb/paradedb/issues/2623 about enabling sorted orders for
+            // String and Mixed.
             _ => false,
         }
     }

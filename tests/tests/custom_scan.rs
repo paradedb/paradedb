@@ -702,9 +702,9 @@ fn parallel_custom_scan_with_jsonb_issue2432(mut conn: PgConnection) {
         limit 10;
     "#.fetch_one::<(serde_json::Value, )>(&mut conn);
 
-    eprintln!("{plan}");
+    eprintln!("{plan:#?}");
     let node = plan
-        .pointer("/0/Plan/Plans/0/Plans/0/Plans/0/Parallel Aware")
+        .pointer("/0/Plan/Plans/0/Plans/0/Parallel Aware")
         .unwrap();
     let parallel_aware = node
         .as_bool()

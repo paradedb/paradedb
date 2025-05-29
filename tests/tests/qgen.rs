@@ -19,6 +19,7 @@ mod fixtures;
 
 use crate::fixtures::querygen::arb_joins_and_wheres;
 use crate::fixtures::querygen::joingen::JoinType;
+use crate::fixtures::querygen::pagegen::arb_paging_exprs;
 use crate::fixtures::querygen::wheregen::arb_wheres;
 
 use fixtures::*;
@@ -81,6 +82,15 @@ ANALYZE;
     setup_sql
 }
 
+fn explain(query: impl AsRef<str>, conn: &mut PgConnection) -> String {
+    format!("EXPLAIN ANALYZE {}", query.as_ref())
+        .fetch::<(String,)>(conn)
+        .into_iter()
+        .map(|(s,)| s)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 ///
 /// Tests all JoinTypes against small tables (which are particularly important for joins which
 /// result in e.g. the cartesian product).
@@ -123,7 +133,7 @@ async fn generated_joins_small(database: Db) {
             "\npg:\n  {}\nbm25:\n  {}\nexplain:\n{}\n",
             pg,
             bm25,
-            format!("EXPLAIN {bm25}").fetch::<(String,)>(&mut pool.pull()).into_iter().map(|(s,)| s).collect::<Vec<_>>().join("\n"),
+            explain(&bm25, &mut pool.pull()),
         );
     });
 }
@@ -178,7 +188,7 @@ async fn generated_joins_large_limit(database: Db) {
             "\npg:\n  {}\nbm25:\n  {}\nexplain:\n{}\n",
             pg,
             bm25,
-            format!("EXPLAIN {bm25}").fetch::<(String,)>(&mut pool.pull()).into_iter().map(|(s,)| s).collect::<Vec<_>>().join("\n"),
+            explain(&bm25, &mut pool.pull()),
         );
     });
 }
@@ -192,19 +202,68 @@ async fn generated_single_relation(database: Db) {
     );
 
     let table_name = "users";
-    generated_queries_setup(&mut pool.pull(), &[(table_name, 10)]);
+    let setup_sql = generated_queries_setup(&mut pool.pull(), &[(table_name, 10)]);
+    eprintln!("{setup_sql}");
 
     proptest!(|(
         where_expr in arb_wheres(
             vec![table_name],
             vec![("name", "bob"), ("color", "blue"), ("age", "20")]
         ),
+        paging_exprs in arb_paging_exprs(table_name, None, vec!["name", "color", "age"]),
     )| {
-        let where_clause = where_expr.to_sql(" = ");
-        let pg = format!("SELECT COUNT(*) FROM {table_name} WHERE {where_clause}");
-        let bm25 = format!(
-            "SELECT COUNT(*) FROM {table_name} WHERE ({where_clause}) AND id @@@ paradedb.all()"
-        ); // force a pushdown
+        let pg = format!("SELECT id FROM {table_name} WHERE {} {paging_exprs}", where_expr.to_sql(" = "));
+        let bm25 = format!("SELECT id FROM {table_name} WHERE {} {paging_exprs}", where_expr.to_sql("@@@"));
+
+        let pg_res = (&pg).fetch::<(i64,)>(&mut pool.pull());
+        let bm25_res = (&bm25).fetch::<(i64,)>(&mut pool.pull());
+        prop_assert_eq!(
+            pg_res.len(),
+            bm25_res.len(),
+            "\npg:\n  {:?}\nbm25:\n  {:?}\nexplain:\n{}\n",
+            pg,
+            bm25,
+            explain(&bm25, &mut pool.pull()),
+        );
+    });
+}
+
+#[rstest]
+#[tokio::test]
+async fn generated_subquery(database: Db) {
+    let pool = MutexObjectPool::<PgConnection>::new(
+        move || block_on(async { database.connection().await }),
+        |_| {},
+    );
+
+    let outer_table_name = "products";
+    let inner_table_name = "orders";
+    let setup_sql = generated_queries_setup(
+        &mut pool.pull(),
+        &[(outer_table_name, 10), (inner_table_name, 10)],
+    );
+    eprintln!("{setup_sql}");
+
+    proptest!(|(
+        outer_where_expr in arb_wheres(
+            vec![outer_table_name],
+            vec![("name", "bob"), ("color", "blue"), ("age", "20")]
+        ),
+        inner_where_expr in arb_wheres(
+            vec![inner_table_name],
+            vec![("name", "bob"), ("color", "blue"), ("age", "20")]
+        ),
+        subquery_column in proptest::sample::select(&["name", "color", "age"]),
+        paging_exprs in arb_paging_exprs(inner_table_name, Some("id"), vec!["name", "color", "age"]),
+    )| {
+        let pg = format!("SELECT COUNT(*) FROM {outer_table_name} \
+            WHERE {outer_table_name}.{subquery_column} IN (\
+                SELECT {subquery_column} FROM {inner_table_name} WHERE {} {paging_exprs}\
+            ) AND {}", inner_where_expr.to_sql(" = "), outer_where_expr.to_sql(" = "));
+        let bm25 = format!("SELECT COUNT(*) FROM {outer_table_name} \
+            WHERE {outer_table_name}.{subquery_column} IN (\
+                SELECT {subquery_column} FROM {inner_table_name} WHERE {} {paging_exprs}\
+            ) AND {}", inner_where_expr.to_sql("@@@"), outer_where_expr.to_sql("@@@"));
 
         let (pg_cnt,) = (&pg).fetch_one::<(i64,)>(&mut pool.pull());
         let (bm25_cnt,) = (&bm25).fetch_one::<(i64,)>(&mut pool.pull());
@@ -214,7 +273,7 @@ async fn generated_single_relation(database: Db) {
             "\npg:\n  {}\nbm25:\n  {}\nexplain:\n{}\n",
             pg,
             bm25,
-            format!("EXPLAIN {bm25}").fetch::<(String,)>(&mut pool.pull()).into_iter().map(|(s,)| s).collect::<Vec<_>>().join("\n"),
+            explain(&bm25, &mut pool.pull()),
         );
     });
 }

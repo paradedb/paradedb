@@ -11,7 +11,6 @@ CREATE TABLE products (
     description TEXT,
     category TEXT
 );
-ERROR:  relation "products" already exists
 CREATE TABLE reviews (
     id SERIAL PRIMARY KEY,
     product_id INTEGER,
@@ -26,7 +25,6 @@ INSERT INTO products (name, description, category) VALUES
     ('Coffee Maker', 'Automatic coffee maker with programmable settings', 'Kitchen'),
     ('Running Shoes', 'Lightweight running shoes with excellent cushioning', 'Sports'),
     ('Smartphone X', 'Latest smartphone with cutting-edge technology', 'Electronics');
-ERROR:  column "description" of relation "products" does not exist at character 29
 INSERT INTO reviews (product_id, reviewer_name, review_text, rating) VALUES 
     (1, 'John Doe', 'Excellent laptop with amazing performance and battery life', 5),
     (1, 'Jane Smith', 'Great for professional work, highly recommended', 4),
@@ -44,7 +42,6 @@ CREATE INDEX products_search_idx ON products USING bm25 (
     key_field = 'id',
     text_fields = '{"name": {"tokenizer": {"type": "default"}}, "description": {"tokenizer": {"type": "default"}}, "category": {"tokenizer": {"type": "default"}}}'
 );
-ERROR:  column "description" does not exist
 CREATE INDEX reviews_search_idx ON reviews USING bm25 (
     id,
     product_id,
@@ -62,25 +59,1068 @@ SELECT p.name, r.reviewer_name, r.review_text
 FROM products p
 JOIN reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'performance' AND r.review_text @@@ 'excellent';
-ERROR:  column p.description does not exist at character 107
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["products"], inner relids: ["reviews"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
+WARNING:  ParadeDB: Found BM25 index for relation products (rti 1)
+WARNING:  ParadeDB: Checked relations ["products"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Found BM25 index for relation reviews (rti 2)
+WARNING:  ParadeDB: Checked relations ["reviews"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Join feasibility check - outer has BM25: true, inner has BM25: true
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Extracted join condition: 1.id = 2.product_id
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation products (rti 1)
+WARNING:  ParadeDB: Extracted search query for products: uses_search_operator=true
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation reviews (rti 2)
+WARNING:  ParadeDB: Extracted search query for reviews: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 1 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
+WARNING:  ParadeDB: Outer predicate for products - uses_search: true
+WARNING:  ParadeDB: Inner predicate for reviews - uses_search: true
+WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["products"], inner: ["reviews"]
+WARNING:  ParadeDB: Extracted expected target list with 3 expressions from joinrel->reltarget
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}
+WARNING:  ParadeDB: Stored 3 target expressions as strings
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["reviews"], inner relids: ["products"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
+WARNING:  ParadeDB: Found BM25 index for relation reviews (rti 2)
+WARNING:  ParadeDB: Checked relations ["reviews"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Found BM25 index for relation products (rti 1)
+WARNING:  ParadeDB: Checked relations ["products"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Join feasibility check - outer has BM25: true, inner has BM25: true
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Extracted join condition: 1.id = 2.product_id
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation reviews (rti 2)
+WARNING:  ParadeDB: Extracted search query for reviews: uses_search_operator=true
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation products (rti 1)
+WARNING:  ParadeDB: Extracted search query for products: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 1 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
+WARNING:  ParadeDB: Outer predicate for reviews - uses_search: true
+WARNING:  ParadeDB: Inner predicate for products - uses_search: true
+WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["reviews"], inner: ["products"]
+WARNING:  ParadeDB: Extracted expected target list with 3 expressions from joinrel->reltarget
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}
+WARNING:  ParadeDB: Stored 3 target expressions as strings
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
+WARNING:  ParadeDB: Join target list has 3 entries
+WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'join_attr_1'
+WARNING:  ParadeDB: Mapped join variable varno=2, varattno=3 to 'join_attr_2'
+WARNING:  ParadeDB: Mapped join variable varno=2, varattno=4 to 'join_attr_3'
+WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
+WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Stored outer relation OIDs: ["products"]
+WARNING:  ParadeDB: Stored inner relation OIDs: ["reviews"]
+WARNING:  ParadeDB: Storing 3 variable mappings from planning phase
+WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_1'
+WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=3 -> 'join_attr_2'
+WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=4 -> 'join_attr_3'
+WARNING:  ParadeDB: Beginning custom scan for join node
+WARNING:  ParadeDB: Initializing join execution
+WARNING:  ParadeDB: Join execution initialization complete
+WARNING:  ParadeDB: Executing join step in phase: NotStarted
+WARNING:  ParadeDB: Starting join execution
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1
+WARNING:  ParadeDB: Outer predicate 0: relation=products, uses_search=true
+WARNING:  ParadeDB: Inner predicate 0: relation=reviews, uses_search=true
+WARNING:  ParadeDB: Initialized mock results - outer: 2, inner: 2
+WARNING:  ParadeDB: Executing join step in phase: JoinMatching
+WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Determining join keys for relations products and reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("products"), RTI 2 to relid Some("reviews")
+WARNING:  ParadeDB: Found matching join condition: products.id = reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 1
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = true
+WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[0] after 1 evaluations
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Fetching real heap tuple values from relations products and reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Detected relations from predicates - outer: 'products', inner: 'reviews'
+WARNING:  ParadeDB: Fetching all columns with names from relation products with CTID 1
+WARNING:  ParadeDB: products column 'id' = '1'
+WARNING:  ParadeDB: products column 'name' = 'Laptop Pro'
+WARNING:  ParadeDB: products column 'description' = 'High-performance laptop with advanced features for professionals'
+WARNING:  ParadeDB: products column 'category' = 'Electronics'
+WARNING:  ParadeDB: Successfully fetched 4 columns from products relation
+WARNING:  ParadeDB: Fetching all columns with names from relation reviews with CTID 1
+WARNING:  ParadeDB: reviews column 'id' = '1'
+WARNING:  ParadeDB: reviews column 'product_id' = '1'
+WARNING:  ParadeDB: reviews column 'reviewer_name' = 'John Doe'
+WARNING:  ParadeDB: reviews column 'review_text' = 'Excellent laptop with amazing performance and battery life'
+WARNING:  ParadeDB: reviews column 'rating' = '5'
+WARNING:  ParadeDB: Successfully fetched 5 columns from reviews relation
+WARNING:  ParadeDB: Fetched 4 columns from outer relation, 5 from inner relation
+WARNING:  ParadeDB: Analyzing 3 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}"),)))]
+WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation products
+WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "products")]
+WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
+WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Resolved varnosyn 1 to relation products
+WARNING:  ParadeDB: varnosyn 1 resolved to relation products, attno 2
+WARNING:  ParadeDB: Relation products attno 2 -> column name 'name'
+WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn(products,name)
+WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
+WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 2, varattnosyn: 3
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 3
+WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 3 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Resolved varnosyn 2 to relation reviews
+WARNING:  ParadeDB: varnosyn 2 resolved to relation reviews, attno 3
+WARNING:  ParadeDB: Relation reviews attno 3 -> column name 'reviewer_name'
+WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn(reviews,reviewer_name)
+WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
+WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 4
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 4
+WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 4 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Resolved varnosyn 2 to relation reviews
+WARNING:  ParadeDB: varnosyn 2 resolved to relation reviews, attno 4
+WARNING:  ParadeDB: Relation reviews attno 4 -> column name 'review_text'
+WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn(reviews,review_text)
+WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Laptop Pro"), Some("John Doe"), Some("Excellent laptop with amazing performance and battery life")]
+WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Laptop Pro"), Some("John Doe"), Some("Excellent laptop with amazing performance and battery life")]
+WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [1]
+WARNING:  ParadeDB: Executing join step in phase: JoinMatching
+WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 1/2
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Determining join keys for relations products and reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("products"), RTI 2 to relid Some("reviews")
+WARNING:  ParadeDB: Found matching join condition: products.id = reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 1
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = true
+WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[1] after 1 evaluations
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Fetching real heap tuple values from relations products and reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Detected relations from predicates - outer: 'products', inner: 'reviews'
+WARNING:  ParadeDB: Fetching all columns with names from relation products with CTID 1
+WARNING:  ParadeDB: products column 'id' = '1'
+WARNING:  ParadeDB: products column 'name' = 'Laptop Pro'
+WARNING:  ParadeDB: products column 'description' = 'High-performance laptop with advanced features for professionals'
+WARNING:  ParadeDB: products column 'category' = 'Electronics'
+WARNING:  ParadeDB: Successfully fetched 4 columns from products relation
+WARNING:  ParadeDB: Fetching all columns with names from relation reviews with CTID 2
+WARNING:  ParadeDB: reviews column 'id' = '2'
+WARNING:  ParadeDB: reviews column 'product_id' = '1'
+WARNING:  ParadeDB: reviews column 'reviewer_name' = 'Jane Smith'
+WARNING:  ParadeDB: reviews column 'review_text' = 'Great for professional work, highly recommended'
+WARNING:  ParadeDB: reviews column 'rating' = '4'
+WARNING:  ParadeDB: Successfully fetched 5 columns from reviews relation
+WARNING:  ParadeDB: Fetched 4 columns from outer relation, 5 from inner relation
+WARNING:  ParadeDB: Analyzing 3 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}"),)))]
+WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation products
+WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "products")]
+WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
+WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Resolved varnosyn 1 to relation products
+WARNING:  ParadeDB: varnosyn 1 resolved to relation products, attno 2
+WARNING:  ParadeDB: Relation products attno 2 -> column name 'name'
+WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn(products,name)
+WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
+WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 2, varattnosyn: 3
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 3
+WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 3 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Resolved varnosyn 2 to relation reviews
+WARNING:  ParadeDB: varnosyn 2 resolved to relation reviews, attno 3
+WARNING:  ParadeDB: Relation reviews attno 3 -> column name 'reviewer_name'
+WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn(reviews,reviewer_name)
+WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
+WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 4
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 4
+WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 4 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Resolved varnosyn 2 to relation reviews
+WARNING:  ParadeDB: varnosyn 2 resolved to relation reviews, attno 4
+WARNING:  ParadeDB: Relation reviews attno 4 -> column name 'review_text'
+WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn(reviews,review_text)
+WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Laptop Pro"), Some("Jane Smith"), Some("Great for professional work, highly recommended")]
+WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Laptop Pro"), Some("Jane Smith"), Some("Great for professional work, highly recommended")]
+WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
+WARNING:  ParadeDB: Executing join step in phase: JoinMatching
+WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 0/2
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Determining join keys for relations products and reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("products"), RTI 2 to relid Some("reviews")
+WARNING:  ParadeDB: Found matching join condition: products.id = reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[1] (ctid 2) × inner[0] (ctid 1) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Determining join keys for relations products and reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("products"), RTI 2 to relid Some("reviews")
+WARNING:  ParadeDB: Found matching join condition: products.id = reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[1] (ctid 2) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: All join combinations exhausted
+WARNING:  ParadeDB: Join execution finished after advancing position
+WARNING:  ParadeDB: Cleaning up join execution state
+WARNING:  ParadeDB: Join execution cleanup complete
+    name    | reviewer_name |                        review_text                         
+------------+---------------+------------------------------------------------------------
+ Laptop Pro | John Doe      | Excellent laptop with amazing performance and battery life
+ Laptop Pro | Jane Smith    | Great for professional work, highly recommended
+(2 rows)
+
 -- Test 2: Single-sided search join (only one side has search predicate)
 SELECT p.name, r.reviewer_name, r.rating
 FROM products p
 JOIN reviews r ON p.id = r.product_id
 WHERE p.category @@@ 'Electronics';
-ERROR:  column p.category does not exist at character 102
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["products"], inner relids: ["reviews"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
+WARNING:  ParadeDB: Found BM25 index for relation products (rti 1)
+WARNING:  ParadeDB: Checked relations ["products"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Found BM25 index for relation reviews (rti 2)
+WARNING:  ParadeDB: Checked relations ["reviews"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Join feasibility check - outer has BM25: true, inner has BM25: true
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Extracted join condition: 1.id = 2.product_id
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation products (rti 1)
+WARNING:  ParadeDB: Extracted search query for products: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 0 inner predicates, 1 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 0, bilateral: false
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
+WARNING:  ParadeDB: Outer predicate for products - uses_search: true
+WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["products"], inner: ["reviews"]
+WARNING:  ParadeDB: Extracted expected target list with 3 expressions from joinrel->reltarget
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 5 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 5 :location -1}
+WARNING:  ParadeDB: Stored 3 target expressions as strings
+WARNING:  ParadeDB: Unilateral join - outer has search, inner needs table scan
+WARNING:  ParadeDB: Join path estimates - rows: 2, startup_cost: 75.00, total_cost: 75.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["reviews"], inner relids: ["products"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
+WARNING:  ParadeDB: Found BM25 index for relation reviews (rti 2)
+WARNING:  ParadeDB: Checked relations ["reviews"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Found BM25 index for relation products (rti 1)
+WARNING:  ParadeDB: Checked relations ["products"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Join feasibility check - outer has BM25: true, inner has BM25: true
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Extracted join condition: 1.id = 2.product_id
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation products (rti 1)
+WARNING:  ParadeDB: Extracted search query for products: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 0 outer predicates, 1 inner predicates, 1 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 0, inner: 1, bilateral: false
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
+WARNING:  ParadeDB: Inner predicate for products - uses_search: true
+WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["reviews"], inner: ["products"]
+WARNING:  ParadeDB: Extracted expected target list with 3 expressions from joinrel->reltarget
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 5 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 5 :location -1}
+WARNING:  ParadeDB: Stored 3 target expressions as strings
+WARNING:  ParadeDB: Unilateral join - inner has search, outer needs table scan
+WARNING:  ParadeDB: Join path estimates - rows: 2, startup_cost: 75.00, total_cost: 75.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
+WARNING:  ParadeDB: Join target list has 3 entries
+WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'join_attr_1'
+WARNING:  ParadeDB: Mapped join variable varno=2, varattno=3 to 'join_attr_2'
+WARNING:  ParadeDB: Mapped join variable varno=2, varattno=5 to 'join_attr_3'
+WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
+WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 0, bilateral: false
+WARNING:  ParadeDB: Stored outer relation OIDs: ["products"]
+WARNING:  ParadeDB: Stored inner relation OIDs: ["reviews"]
+WARNING:  ParadeDB: Storing 3 variable mappings from planning phase
+WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_1'
+WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=3 -> 'join_attr_2'
+WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=5 -> 'join_attr_3'
+WARNING:  ParadeDB: Beginning custom scan for join node
+WARNING:  ParadeDB: Initializing join execution
+WARNING:  ParadeDB: Join execution initialization complete
+WARNING:  ParadeDB: Executing join step in phase: NotStarted
+WARNING:  ParadeDB: Starting join execution
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 0
+WARNING:  ParadeDB: Outer predicate 0: relation=products, uses_search=true
+WARNING:  ParadeDB: Initialized mock results - outer: 2, inner: 2
+WARNING:  ParadeDB: Executing join step in phase: JoinMatching
+WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Determining join keys for relations products and reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("products"), RTI 2 to relid Some("reviews")
+WARNING:  ParadeDB: Found matching join condition: products.id = reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 1
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = true
+WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[0] after 1 evaluations
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Fetching real heap tuple values from relations products and reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Detected relations from predicates - outer: 'products', inner: 'reviews'
+WARNING:  ParadeDB: Fetching all columns with names from relation products with CTID 1
+WARNING:  ParadeDB: products column 'id' = '1'
+WARNING:  ParadeDB: products column 'name' = 'Laptop Pro'
+WARNING:  ParadeDB: products column 'description' = 'High-performance laptop with advanced features for professionals'
+WARNING:  ParadeDB: products column 'category' = 'Electronics'
+WARNING:  ParadeDB: Successfully fetched 4 columns from products relation
+WARNING:  ParadeDB: Fetching all columns with names from relation reviews with CTID 1
+WARNING:  ParadeDB: reviews column 'id' = '1'
+WARNING:  ParadeDB: reviews column 'product_id' = '1'
+WARNING:  ParadeDB: reviews column 'reviewer_name' = 'John Doe'
+WARNING:  ParadeDB: reviews column 'review_text' = 'Excellent laptop with amazing performance and battery life'
+WARNING:  ParadeDB: reviews column 'rating' = '5'
+WARNING:  ParadeDB: Successfully fetched 5 columns from reviews relation
+WARNING:  ParadeDB: Fetched 4 columns from outer relation, 5 from inner relation
+WARNING:  ParadeDB: Analyzing 3 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 5 :location -1}"),)))]
+WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation products
+WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "products")]
+WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
+WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Resolved varnosyn 1 to relation products
+WARNING:  ParadeDB: varnosyn 1 resolved to relation products, attno 2
+WARNING:  ParadeDB: Relation products attno 2 -> column name 'name'
+WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn(products,name)
+WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
+WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 2, varattnosyn: 3
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 3
+WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 3 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Resolved varnosyn 2 to relation reviews
+WARNING:  ParadeDB: varnosyn 2 resolved to relation reviews, attno 3
+WARNING:  ParadeDB: Relation reviews attno 3 -> column name 'reviewer_name'
+WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn(reviews,reviewer_name)
+WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
+WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 5
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 5
+WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 5 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Resolved varnosyn 2 to relation reviews
+WARNING:  ParadeDB: varnosyn 2 resolved to relation reviews, attno 5
+WARNING:  ParadeDB: Relation reviews attno 5 -> column name 'rating'
+WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn(reviews,rating)
+WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Laptop Pro"), Some("John Doe"), Some("5")]
+WARNING:  ParadeDB: Converting '5' to integer 5
+WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Laptop Pro"), Some("John Doe"), Some("5")]
+WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [1]
+WARNING:  ParadeDB: Executing join step in phase: JoinMatching
+WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 1/2
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Determining join keys for relations products and reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("products"), RTI 2 to relid Some("reviews")
+WARNING:  ParadeDB: Found matching join condition: products.id = reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 1
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = true
+WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[1] after 1 evaluations
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Fetching real heap tuple values from relations products and reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Detected relations from predicates - outer: 'products', inner: 'reviews'
+WARNING:  ParadeDB: Fetching all columns with names from relation products with CTID 1
+WARNING:  ParadeDB: products column 'id' = '1'
+WARNING:  ParadeDB: products column 'name' = 'Laptop Pro'
+WARNING:  ParadeDB: products column 'description' = 'High-performance laptop with advanced features for professionals'
+WARNING:  ParadeDB: products column 'category' = 'Electronics'
+WARNING:  ParadeDB: Successfully fetched 4 columns from products relation
+WARNING:  ParadeDB: Fetching all columns with names from relation reviews with CTID 2
+WARNING:  ParadeDB: reviews column 'id' = '2'
+WARNING:  ParadeDB: reviews column 'product_id' = '1'
+WARNING:  ParadeDB: reviews column 'reviewer_name' = 'Jane Smith'
+WARNING:  ParadeDB: reviews column 'review_text' = 'Great for professional work, highly recommended'
+WARNING:  ParadeDB: reviews column 'rating' = '4'
+WARNING:  ParadeDB: Successfully fetched 5 columns from reviews relation
+WARNING:  ParadeDB: Fetched 4 columns from outer relation, 5 from inner relation
+WARNING:  ParadeDB: Analyzing 3 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 5 :location -1}"),)))]
+WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation products
+WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "products")]
+WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
+WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Resolved varnosyn 1 to relation products
+WARNING:  ParadeDB: varnosyn 1 resolved to relation products, attno 2
+WARNING:  ParadeDB: Relation products attno 2 -> column name 'name'
+WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn(products,name)
+WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
+WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 2, varattnosyn: 3
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 3
+WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 3 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Resolved varnosyn 2 to relation reviews
+WARNING:  ParadeDB: varnosyn 2 resolved to relation reviews, attno 3
+WARNING:  ParadeDB: Relation reviews attno 3 -> column name 'reviewer_name'
+WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn(reviews,reviewer_name)
+WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
+WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 5
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 5
+WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 5 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Resolved varnosyn 2 to relation reviews
+WARNING:  ParadeDB: varnosyn 2 resolved to relation reviews, attno 5
+WARNING:  ParadeDB: Relation reviews attno 5 -> column name 'rating'
+WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn(reviews,rating)
+WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Laptop Pro"), Some("Jane Smith"), Some("4")]
+WARNING:  ParadeDB: Converting '4' to integer 4
+WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Laptop Pro"), Some("Jane Smith"), Some("4")]
+WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
+WARNING:  ParadeDB: Executing join step in phase: JoinMatching
+WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 0/2
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Determining join keys for relations products and reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("products"), RTI 2 to relid Some("reviews")
+WARNING:  ParadeDB: Found matching join condition: products.id = reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[1] (ctid 2) × inner[0] (ctid 1) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Determining join keys for relations products and reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("products"), RTI 2 to relid Some("reviews")
+WARNING:  ParadeDB: Found matching join condition: products.id = reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[1] (ctid 2) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: All join combinations exhausted
+WARNING:  ParadeDB: Join execution finished after advancing position
+WARNING:  ParadeDB: Cleaning up join execution state
+WARNING:  ParadeDB: Join execution cleanup complete
+    name    | reviewer_name | rating 
+------------+---------------+--------
+ Laptop Pro | John Doe      |      5
+ Laptop Pro | Jane Smith    |      4
+(2 rows)
+
 -- Test 3: Complex search with multiple terms
 SELECT p.name, p.description, r.review_text
 FROM products p
 JOIN reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'wireless OR smartphone' AND r.review_text @@@ 'amazing OR perfect';
-ERROR:  column p.description does not exist at character 16
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["products"], inner relids: ["reviews"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
+WARNING:  ParadeDB: Found BM25 index for relation products (rti 1)
+WARNING:  ParadeDB: Checked relations ["products"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Found BM25 index for relation reviews (rti 2)
+WARNING:  ParadeDB: Checked relations ["reviews"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Join feasibility check - outer has BM25: true, inner has BM25: true
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Extracted join condition: 1.id = 2.product_id
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation products (rti 1)
+WARNING:  ParadeDB: Extracted search query for products: uses_search_operator=true
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation reviews (rti 2)
+WARNING:  ParadeDB: Extracted search query for reviews: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 1 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
+WARNING:  ParadeDB: Outer predicate for products - uses_search: true
+WARNING:  ParadeDB: Inner predicate for reviews - uses_search: true
+WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["products"], inner: ["reviews"]
+WARNING:  ParadeDB: Extracted expected target list with 3 expressions from joinrel->reltarget
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 3 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}
+WARNING:  ParadeDB: Stored 3 target expressions as strings
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["reviews"], inner relids: ["products"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
+WARNING:  ParadeDB: Found BM25 index for relation reviews (rti 2)
+WARNING:  ParadeDB: Checked relations ["reviews"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Found BM25 index for relation products (rti 1)
+WARNING:  ParadeDB: Checked relations ["products"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Join feasibility check - outer has BM25: true, inner has BM25: true
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Extracted join condition: 1.id = 2.product_id
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation reviews (rti 2)
+WARNING:  ParadeDB: Extracted search query for reviews: uses_search_operator=true
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation products (rti 1)
+WARNING:  ParadeDB: Extracted search query for products: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 1 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
+WARNING:  ParadeDB: Outer predicate for reviews - uses_search: true
+WARNING:  ParadeDB: Inner predicate for products - uses_search: true
+WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["reviews"], inner: ["products"]
+WARNING:  ParadeDB: Extracted expected target list with 3 expressions from joinrel->reltarget
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 3 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}
+WARNING:  ParadeDB: Stored 3 target expressions as strings
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
+WARNING:  ParadeDB: Join target list has 3 entries
+WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'join_attr_1'
+WARNING:  ParadeDB: Mapped join variable varno=1, varattno=3 to 'join_attr_2'
+WARNING:  ParadeDB: Mapped join variable varno=2, varattno=4 to 'join_attr_3'
+WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
+WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Stored outer relation OIDs: ["products"]
+WARNING:  ParadeDB: Stored inner relation OIDs: ["reviews"]
+WARNING:  ParadeDB: Storing 3 variable mappings from planning phase
+WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_1'
+WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=4 -> 'join_attr_3'
+WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=3 -> 'join_attr_2'
+WARNING:  ParadeDB: Beginning custom scan for join node
+WARNING:  ParadeDB: Initializing join execution
+WARNING:  ParadeDB: Join execution initialization complete
+WARNING:  ParadeDB: Executing join step in phase: NotStarted
+WARNING:  ParadeDB: Starting join execution
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1
+WARNING:  ParadeDB: Outer predicate 0: relation=products, uses_search=true
+WARNING:  ParadeDB: Inner predicate 0: relation=reviews, uses_search=true
+WARNING:  ParadeDB: Initialized mock results - outer: 2, inner: 2
+WARNING:  ParadeDB: Executing join step in phase: JoinMatching
+WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Determining join keys for relations products and reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("products"), RTI 2 to relid Some("reviews")
+WARNING:  ParadeDB: Found matching join condition: products.id = reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 1
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = true
+WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[0] after 1 evaluations
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Fetching real heap tuple values from relations products and reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Detected relations from predicates - outer: 'products', inner: 'reviews'
+WARNING:  ParadeDB: Fetching all columns with names from relation products with CTID 1
+WARNING:  ParadeDB: products column 'id' = '1'
+WARNING:  ParadeDB: products column 'name' = 'Laptop Pro'
+WARNING:  ParadeDB: products column 'description' = 'High-performance laptop with advanced features for professionals'
+WARNING:  ParadeDB: products column 'category' = 'Electronics'
+WARNING:  ParadeDB: Successfully fetched 4 columns from products relation
+WARNING:  ParadeDB: Fetching all columns with names from relation reviews with CTID 1
+WARNING:  ParadeDB: reviews column 'id' = '1'
+WARNING:  ParadeDB: reviews column 'product_id' = '1'
+WARNING:  ParadeDB: reviews column 'reviewer_name' = 'John Doe'
+WARNING:  ParadeDB: reviews column 'review_text' = 'Excellent laptop with amazing performance and battery life'
+WARNING:  ParadeDB: reviews column 'rating' = '5'
+WARNING:  ParadeDB: Successfully fetched 5 columns from reviews relation
+WARNING:  ParadeDB: Fetched 4 columns from outer relation, 5 from inner relation
+WARNING:  ParadeDB: Analyzing 3 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 3 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}"),)))]
+WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation products
+WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "products")]
+WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
+WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Resolved varnosyn 1 to relation products
+WARNING:  ParadeDB: varnosyn 1 resolved to relation products, attno 2
+WARNING:  ParadeDB: Relation products attno 2 -> column name 'name'
+WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn(products,name)
+WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
+WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 1, varattnosyn: 3
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 3
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 3 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Resolved varnosyn 1 to relation products
+WARNING:  ParadeDB: varnosyn 1 resolved to relation products, attno 3
+WARNING:  ParadeDB: Relation products attno 3 -> column name 'description'
+WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn(products,description)
+WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
+WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 4
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 4
+WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 4 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Resolved varnosyn 2 to relation reviews
+WARNING:  ParadeDB: varnosyn 2 resolved to relation reviews, attno 4
+WARNING:  ParadeDB: Relation reviews attno 4 -> column name 'review_text'
+WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn(reviews,review_text)
+WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Laptop Pro"), Some("High-performance laptop with advanced features for professionals"), Some("Excellent laptop with amazing performance and battery life")]
+WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Laptop Pro"), Some("High-performance laptop with advanced features for professionals"), Some("Excellent laptop with amazing performance and battery life")]
+WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [1]
+WARNING:  ParadeDB: Executing join step in phase: JoinMatching
+WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 1/2
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Determining join keys for relations products and reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("products"), RTI 2 to relid Some("reviews")
+WARNING:  ParadeDB: Found matching join condition: products.id = reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 1
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = true
+WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[1] after 1 evaluations
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Fetching real heap tuple values from relations products and reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Detected relations from predicates - outer: 'products', inner: 'reviews'
+WARNING:  ParadeDB: Fetching all columns with names from relation products with CTID 1
+WARNING:  ParadeDB: products column 'id' = '1'
+WARNING:  ParadeDB: products column 'name' = 'Laptop Pro'
+WARNING:  ParadeDB: products column 'description' = 'High-performance laptop with advanced features for professionals'
+WARNING:  ParadeDB: products column 'category' = 'Electronics'
+WARNING:  ParadeDB: Successfully fetched 4 columns from products relation
+WARNING:  ParadeDB: Fetching all columns with names from relation reviews with CTID 2
+WARNING:  ParadeDB: reviews column 'id' = '2'
+WARNING:  ParadeDB: reviews column 'product_id' = '1'
+WARNING:  ParadeDB: reviews column 'reviewer_name' = 'Jane Smith'
+WARNING:  ParadeDB: reviews column 'review_text' = 'Great for professional work, highly recommended'
+WARNING:  ParadeDB: reviews column 'rating' = '4'
+WARNING:  ParadeDB: Successfully fetched 5 columns from reviews relation
+WARNING:  ParadeDB: Fetched 4 columns from outer relation, 5 from inner relation
+WARNING:  ParadeDB: Analyzing 3 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 3 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}"),)))]
+WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation products
+WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "products")]
+WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
+WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Resolved varnosyn 1 to relation products
+WARNING:  ParadeDB: varnosyn 1 resolved to relation products, attno 2
+WARNING:  ParadeDB: Relation products attno 2 -> column name 'name'
+WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn(products,name)
+WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
+WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 1, varattnosyn: 3
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 3
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 3 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Resolved varnosyn 1 to relation products
+WARNING:  ParadeDB: varnosyn 1 resolved to relation products, attno 3
+WARNING:  ParadeDB: Relation products attno 3 -> column name 'description'
+WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn(products,description)
+WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
+WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 4
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 4
+WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 4 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Resolved varnosyn 2 to relation reviews
+WARNING:  ParadeDB: varnosyn 2 resolved to relation reviews, attno 4
+WARNING:  ParadeDB: Relation reviews attno 4 -> column name 'review_text'
+WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn(reviews,review_text)
+WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Laptop Pro"), Some("High-performance laptop with advanced features for professionals"), Some("Great for professional work, highly recommended")]
+WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Laptop Pro"), Some("High-performance laptop with advanced features for professionals"), Some("Great for professional work, highly recommended")]
+WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
+WARNING:  ParadeDB: Executing join step in phase: JoinMatching
+WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 0/2
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Determining join keys for relations products and reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("products"), RTI 2 to relid Some("reviews")
+WARNING:  ParadeDB: Found matching join condition: products.id = reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[1] (ctid 2) × inner[0] (ctid 1) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Determining join keys for relations products and reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("products"), RTI 2 to relid Some("reviews")
+WARNING:  ParadeDB: Found matching join condition: products.id = reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[1] (ctid 2) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: All join combinations exhausted
+WARNING:  ParadeDB: Join execution finished after advancing position
+WARNING:  ParadeDB: Cleaning up join execution state
+WARNING:  ParadeDB: Join execution cleanup complete
+    name    |                           description                            |                        review_text                         
+------------+------------------------------------------------------------------+------------------------------------------------------------
+ Laptop Pro | High-performance laptop with advanced features for professionals | Excellent laptop with amazing performance and battery life
+ Laptop Pro | High-performance laptop with advanced features for professionals | Great for professional work, highly recommended
+(2 rows)
+
 -- Test 4: Search with numeric conditions (should still trigger custom join)
 SELECT p.name, r.review_text, r.rating
 FROM products p
 JOIN reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop' AND r.rating >= 4;
-ERROR:  column p.description does not exist at character 100
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["products"], inner relids: ["reviews"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
+WARNING:  ParadeDB: Found BM25 index for relation products (rti 1)
+WARNING:  ParadeDB: Checked relations ["products"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Found BM25 index for relation reviews (rti 2)
+WARNING:  ParadeDB: Checked relations ["reviews"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Join feasibility check - outer has BM25: true, inner has BM25: true
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Extracted join condition: 1.id = 2.product_id
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation products (rti 1)
+WARNING:  ParadeDB: Extracted search query for products: uses_search_operator=true
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation reviews (rti 2)
+WARNING:  ParadeDB: Extracted search query for reviews: uses_search_operator=false
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 1 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
+WARNING:  ParadeDB: Outer predicate for products - uses_search: true
+WARNING:  ParadeDB: Inner predicate for reviews - uses_search: false
+WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["products"], inner: ["reviews"]
+WARNING:  ParadeDB: Extracted expected target list with 3 expressions from joinrel->reltarget
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 5 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 5 :location -1}
+WARNING:  ParadeDB: Stored 3 target expressions as strings
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["reviews"], inner relids: ["products"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
+WARNING:  ParadeDB: Found BM25 index for relation reviews (rti 2)
+WARNING:  ParadeDB: Checked relations ["reviews"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Found BM25 index for relation products (rti 1)
+WARNING:  ParadeDB: Checked relations ["products"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Join feasibility check - outer has BM25: true, inner has BM25: true
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Extracted join condition: 1.id = 2.product_id
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation reviews (rti 2)
+WARNING:  ParadeDB: Extracted search query for reviews: uses_search_operator=false
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation products (rti 1)
+WARNING:  ParadeDB: Extracted search query for products: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 1 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
+WARNING:  ParadeDB: Outer predicate for reviews - uses_search: false
+WARNING:  ParadeDB: Inner predicate for products - uses_search: true
+WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["reviews"], inner: ["products"]
+WARNING:  ParadeDB: Extracted expected target list with 3 expressions from joinrel->reltarget
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 5 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 5 :location -1}
+WARNING:  ParadeDB: Stored 3 target expressions as strings
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
+WARNING:  ParadeDB: Join target list has 3 entries
+WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'join_attr_1'
+WARNING:  ParadeDB: Mapped join variable varno=2, varattno=4 to 'join_attr_2'
+WARNING:  ParadeDB: Mapped join variable varno=2, varattno=5 to 'join_attr_3'
+WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
+WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Stored outer relation OIDs: ["products"]
+WARNING:  ParadeDB: Stored inner relation OIDs: ["reviews"]
+WARNING:  ParadeDB: Storing 3 variable mappings from planning phase
+WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_1'
+WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=4 -> 'join_attr_2'
+WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=5 -> 'join_attr_3'
+WARNING:  ParadeDB: Beginning custom scan for join node
+WARNING:  ParadeDB: Initializing join execution
+WARNING:  ParadeDB: Join execution initialization complete
+WARNING:  ParadeDB: Executing join step in phase: NotStarted
+WARNING:  ParadeDB: Starting join execution
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1
+WARNING:  ParadeDB: Outer predicate 0: relation=products, uses_search=true
+WARNING:  ParadeDB: Inner predicate 0: relation=reviews, uses_search=false
+WARNING:  ParadeDB: Initialized mock results - outer: 2, inner: 2
+WARNING:  ParadeDB: Executing join step in phase: JoinMatching
+WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Determining join keys for relations products and reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("products"), RTI 2 to relid Some("reviews")
+WARNING:  ParadeDB: Found matching join condition: products.id = reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 1
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = true
+WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[0] after 1 evaluations
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Fetching real heap tuple values from relations products and reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Detected relations from predicates - outer: 'products', inner: 'reviews'
+WARNING:  ParadeDB: Fetching all columns with names from relation products with CTID 1
+WARNING:  ParadeDB: products column 'id' = '1'
+WARNING:  ParadeDB: products column 'name' = 'Laptop Pro'
+WARNING:  ParadeDB: products column 'description' = 'High-performance laptop with advanced features for professionals'
+WARNING:  ParadeDB: products column 'category' = 'Electronics'
+WARNING:  ParadeDB: Successfully fetched 4 columns from products relation
+WARNING:  ParadeDB: Fetching all columns with names from relation reviews with CTID 1
+WARNING:  ParadeDB: reviews column 'id' = '1'
+WARNING:  ParadeDB: reviews column 'product_id' = '1'
+WARNING:  ParadeDB: reviews column 'reviewer_name' = 'John Doe'
+WARNING:  ParadeDB: reviews column 'review_text' = 'Excellent laptop with amazing performance and battery life'
+WARNING:  ParadeDB: reviews column 'rating' = '5'
+WARNING:  ParadeDB: Successfully fetched 5 columns from reviews relation
+WARNING:  ParadeDB: Fetched 4 columns from outer relation, 5 from inner relation
+WARNING:  ParadeDB: Analyzing 3 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 5 :location -1}"),)))]
+WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation products
+WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "products")]
+WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
+WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Resolved varnosyn 1 to relation products
+WARNING:  ParadeDB: varnosyn 1 resolved to relation products, attno 2
+WARNING:  ParadeDB: Relation products attno 2 -> column name 'name'
+WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn(products,name)
+WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
+WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 2, varattnosyn: 4
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 4
+WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 4 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Resolved varnosyn 2 to relation reviews
+WARNING:  ParadeDB: varnosyn 2 resolved to relation reviews, attno 4
+WARNING:  ParadeDB: Relation reviews attno 4 -> column name 'review_text'
+WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn(reviews,review_text)
+WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
+WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 5
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 5
+WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 5 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Resolved varnosyn 2 to relation reviews
+WARNING:  ParadeDB: varnosyn 2 resolved to relation reviews, attno 5
+WARNING:  ParadeDB: Relation reviews attno 5 -> column name 'rating'
+WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn(reviews,rating)
+WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Laptop Pro"), Some("Excellent laptop with amazing performance and battery life"), Some("5")]
+WARNING:  ParadeDB: Converting '5' to integer 5
+WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Laptop Pro"), Some("Excellent laptop with amazing performance and battery life"), Some("5")]
+WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [1]
+WARNING:  ParadeDB: Executing join step in phase: JoinMatching
+WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 1/2
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Determining join keys for relations products and reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("products"), RTI 2 to relid Some("reviews")
+WARNING:  ParadeDB: Found matching join condition: products.id = reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 1
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = true
+WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[1] after 1 evaluations
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
+WARNING:  ParadeDB: Creating result tuple with 3 attributes
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Fetching real heap tuple values from relations products and reviews
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Detected relations from predicates - outer: 'products', inner: 'reviews'
+WARNING:  ParadeDB: Fetching all columns with names from relation products with CTID 1
+WARNING:  ParadeDB: products column 'id' = '1'
+WARNING:  ParadeDB: products column 'name' = 'Laptop Pro'
+WARNING:  ParadeDB: products column 'description' = 'High-performance laptop with advanced features for professionals'
+WARNING:  ParadeDB: products column 'category' = 'Electronics'
+WARNING:  ParadeDB: Successfully fetched 4 columns from products relation
+WARNING:  ParadeDB: Fetching all columns with names from relation reviews with CTID 2
+WARNING:  ParadeDB: reviews column 'id' = '2'
+WARNING:  ParadeDB: reviews column 'product_id' = '1'
+WARNING:  ParadeDB: reviews column 'reviewer_name' = 'Jane Smith'
+WARNING:  ParadeDB: reviews column 'review_text' = 'Great for professional work, highly recommended'
+WARNING:  ParadeDB: reviews column 'rating' = '4'
+WARNING:  ParadeDB: Successfully fetched 5 columns from reviews relation
+WARNING:  ParadeDB: Fetched 4 columns from outer relation, 5 from inner relation
+WARNING:  ParadeDB: Analyzing 3 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 5 :location -1}"),)))]
+WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation products
+WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "products")]
+WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
+WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Resolved varnosyn 1 to relation products
+WARNING:  ParadeDB: varnosyn 1 resolved to relation products, attno 2
+WARNING:  ParadeDB: Relation products attno 2 -> column name 'name'
+WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn(products,name)
+WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
+WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 2, varattnosyn: 4
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 4
+WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 4 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Resolved varnosyn 2 to relation reviews
+WARNING:  ParadeDB: varnosyn 2 resolved to relation reviews, attno 4
+WARNING:  ParadeDB: Relation reviews attno 4 -> column name 'review_text'
+WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn(reviews,review_text)
+WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
+WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 5
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 5
+WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 5 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Resolved varnosyn 2 to relation reviews
+WARNING:  ParadeDB: varnosyn 2 resolved to relation reviews, attno 5
+WARNING:  ParadeDB: Relation reviews attno 5 -> column name 'rating'
+WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn(reviews,rating)
+WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Laptop Pro"), Some("Great for professional work, highly recommended"), Some("4")]
+WARNING:  ParadeDB: Converting '4' to integer 4
+WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Laptop Pro"), Some("Great for professional work, highly recommended"), Some("4")]
+WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
+WARNING:  ParadeDB: Executing join step in phase: JoinMatching
+WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 0/2
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Determining join keys for relations products and reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("products"), RTI 2 to relid Some("reviews")
+WARNING:  ParadeDB: Found matching join condition: products.id = reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation reviews with CTID 1
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 1: outer[1] (ctid 2) × inner[0] (ctid 1) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: products, inner: reviews
+WARNING:  ParadeDB: Determining join keys for relations products and reviews using extracted join conditions
+WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
+WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
+WARNING:  ParadeDB: Mapped RTI 1 to relid Some("products"), RTI 2 to relid Some("reviews")
+WARNING:  ParadeDB: Found matching join condition: products.id = reviews.product_id
+WARNING:  ParadeDB: Fetching column 'id' from relation products with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'product_id' from relation reviews with CTID 2
+WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
+WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[1] (ctid 2) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: All join combinations exhausted
+WARNING:  ParadeDB: Join execution finished after advancing position
+WARNING:  ParadeDB: Cleaning up join execution state
+WARNING:  ParadeDB: Join execution cleanup complete
+    name    |                        review_text                         | rating 
+------------+------------------------------------------------------------+--------
+ Laptop Pro | Excellent laptop with amazing performance and battery life |      5
+ Laptop Pro | Great for professional work, highly recommended            |      4
+(2 rows)
+
 -- Test 5: No search predicates (should use regular join)
 SELECT p.name, r.reviewer_name
 FROM products p
@@ -120,10 +1160,10 @@ WARNING:  ParadeDB: Extracted search query for products: uses_search_operator=fa
 WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
 WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Skipping custom join - no search operators found (outer: false, inner: false)
- name | reviewer_name 
-------+---------------
- bob  | John Doe
- bob  | Jane Smith
+    name    | reviewer_name 
+------------+---------------
+ Laptop Pro | John Doe
+ Laptop Pro | Jane Smith
 (2 rows)
 
 -- Cleanup

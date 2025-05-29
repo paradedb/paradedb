@@ -96,6 +96,7 @@ WARNING:  ParadeDB: Outer predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_perf"], inner: ["tags_perf"]
+WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
 WARNING:  ParadeDB: Join path estimates - rows: 67, startup_cost: 50.00, total_cost: 50.34
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["tags_perf"], inner relids: ["documents_perf"]
@@ -122,6 +123,7 @@ WARNING:  ParadeDB: Outer predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["tags_perf"], inner: ["documents_perf"]
+WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
 WARNING:  ParadeDB: Join path estimates - rows: 67, startup_cost: 50.00, total_cost: 50.34
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
@@ -261,6 +263,11 @@ WARNING:  ParadeDB: Outer predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_perf"], inner: ["tags_perf"]
+WARNING:  ParadeDB: Extracted expected target list with 3 expressions from joinrel->reltarget
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}
+WARNING:  ParadeDB: Stored 3 target expressions as strings
 WARNING:  ParadeDB: Join path estimates - rows: 16, startup_cost: 50.00, total_cost: 50.08
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["tags_perf"], inner relids: ["documents_perf"]
@@ -287,6 +294,11 @@ WARNING:  ParadeDB: Outer predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["tags_perf"], inner: ["documents_perf"]
+WARNING:  ParadeDB: Extracted expected target list with 3 expressions from joinrel->reltarget
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}
+WARNING:  ParadeDB: Stored 3 target expressions as strings
 WARNING:  ParadeDB: Join path estimates - rows: 16, startup_cost: 50.00, total_cost: 50.08
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
@@ -461,6 +473,7 @@ WARNING:  ParadeDB: Outer predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_perf"], inner: ["tags_perf"]
+WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
 WARNING:  ParadeDB: Join path estimates - rows: 125, startup_cost: 50.00, total_cost: 50.62
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["tags_perf"], inner relids: ["documents_perf"]
@@ -487,6 +500,7 @@ WARNING:  ParadeDB: Outer predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["tags_perf"], inner: ["documents_perf"]
+WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
 WARNING:  ParadeDB: Join path estimates - rows: 125, startup_cost: 50.00, total_cost: 50.62
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
@@ -625,6 +639,10 @@ WARNING:  ParadeDB: Outer predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_perf"], inner: ["tags_perf"]
+WARNING:  ParadeDB: Extracted expected target list with 2 expressions from joinrel->reltarget
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}
+WARNING:  ParadeDB: Stored 2 target expressions as strings
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["tags_perf"], inner relids: ["documents_perf"]
@@ -651,6 +669,10 @@ WARNING:  ParadeDB: Outer predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["tags_perf"], inner: ["documents_perf"]
+WARNING:  ParadeDB: Extracted expected target list with 2 expressions from joinrel->reltarget
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}
+WARNING:  ParadeDB: Stored 2 target expressions as strings
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
@@ -815,6 +837,11 @@ WARNING:  ParadeDB: Outer predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_perf"], inner: ["tags_perf"]
+WARNING:  ParadeDB: Extracted expected target list with 3 expressions from joinrel->reltarget
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 4 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
+WARNING:  ParadeDB: Stored 3 target expressions as strings
 WARNING:  ParadeDB: Join path estimates - rows: 82, startup_cost: 50.00, total_cost: 50.41
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["tags_perf"], inner relids: ["documents_perf"]
@@ -841,6 +868,11 @@ WARNING:  ParadeDB: Outer predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["tags_perf"], inner: ["documents_perf"]
+WARNING:  ParadeDB: Extracted expected target list with 3 expressions from joinrel->reltarget
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 4 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
+WARNING:  ParadeDB: Stored 3 target expressions as strings
 WARNING:  ParadeDB: Join path estimates - rows: 82, startup_cost: 50.00, total_cost: 50.41
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
@@ -998,6 +1030,10 @@ WARNING:  ParadeDB: Outer predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_perf"], inner: ["tags_perf"]
+WARNING:  ParadeDB: Extracted expected target list with 2 expressions from joinrel->reltarget
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}
+WARNING:  ParadeDB: Stored 2 target expressions as strings
 WARNING:  ParadeDB: Join path estimates - rows: 16, startup_cost: 50.00, total_cost: 50.08
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["tags_perf"], inner relids: ["documents_perf"]
@@ -1024,6 +1060,10 @@ WARNING:  ParadeDB: Outer predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["tags_perf"], inner: ["documents_perf"]
+WARNING:  ParadeDB: Extracted expected target list with 2 expressions from joinrel->reltarget
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}
+WARNING:  ParadeDB: Stored 2 target expressions as strings
 WARNING:  ParadeDB: Join path estimates - rows: 16, startup_cost: 50.00, total_cost: 50.08
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0

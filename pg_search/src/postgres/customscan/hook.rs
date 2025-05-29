@@ -566,10 +566,25 @@ unsafe fn create_search_join_path<CS: CustomScan>(
             .collect::<Vec<_>>()
     );
 
+    warning!("ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========");
+    warning!(
+        "ParadeDB: Creating custom join path for jointype: {}, outer: {:?}, inner: {:?}",
+        jointype as i32,
+        outer_relids
+            .iter()
+            .map(|oid| unsafe { get_rel_name(*oid) })
+            .collect::<Vec<_>>(),
+        inner_relids
+            .iter()
+            .map(|oid| unsafe { get_rel_name(*oid) })
+            .collect::<Vec<_>>()
+    );
+
     // Store ALL relation OIDs from each side (handles both base and composite relations)
     private_data.set_join_outer_relids(outer_relids);
     private_data.set_join_inner_relids(inner_relids);
 
+    warning!("ParadeDB: ========== STAGE 2: TARGET LIST EXTRACTION ==========");
     // CRITICAL: Extract and store the expected target list from joinrel->reltarget
     // This is what PostgreSQL expects us to produce
     let expected_targetlist = (*(*joinrel).reltarget).exprs;
@@ -579,25 +594,30 @@ unsafe fn create_search_join_path<CS: CustomScan>(
         PgList::<pg_sys::Expr>::from_pg(expected_targetlist).len()
     };
     warning!(
-        "ParadeDB: Extracted expected target list with {} expressions from joinrel->reltarget",
-        target_count
+        "ParadeDB: Extracted expected target list with {} expressions from joinrel->reltarget (pointer: {:p})",
+        target_count, expected_targetlist
     );
-    private_data.set_expected_join_targetlist(Some(expected_targetlist));
-    private_data.set_expected_join_target_count(Some(target_count));
 
-    // Also store the expressions as serializable strings for reconstruction
-    if !expected_targetlist.is_null() {
+    if target_count > 0 {
+        warning!(
+            "ParadeDB: TARGET LIST HAS {} EXPRESSIONS - storing for later use",
+            target_count
+        );
+        private_data.set_expected_join_targetlist(Some(expected_targetlist));
+        private_data.set_expected_join_target_count(Some(target_count));
+
+        // Also store the expressions as serializable strings for reconstruction
         let expected_exprs = PgList::<pg_sys::Expr>::from_pg(expected_targetlist);
         let mut expr_strings = Vec::new();
 
-        for expr in expected_exprs.iter_ptr() {
+        for (i, expr) in expected_exprs.iter_ptr().enumerate() {
             // Convert expression to string representation using PostgreSQL's nodeToString
             let expr_string = pg_sys::nodeToString(expr.cast());
             if !expr_string.is_null() {
                 let expr_str = std::ffi::CStr::from_ptr(expr_string)
                     .to_string_lossy()
                     .to_string();
-                warning!("ParadeDB: Stored target expression: {}", expr_str);
+                warning!("ParadeDB: TARGET EXPR {}: {}", i + 1, expr_str);
                 expr_strings.push(expr_str);
             }
         }
@@ -605,10 +625,15 @@ unsafe fn create_search_join_path<CS: CustomScan>(
         let expr_count = expr_strings.len();
         private_data.set_expected_join_target_expressions(Some(expr_strings));
         warning!(
-            "ParadeDB: Stored {} target expressions as strings",
+            "ParadeDB: Stored {} target expressions as strings for serialization",
             expr_count
         );
+    } else {
+        warning!("ParadeDB: TARGET LIST IS EMPTY - this might cause issues later");
+        private_data.set_expected_join_target_count(Some(0));
     }
+
+    warning!("ParadeDB: ========== STAGE 3: PATH COST ESTIMATION ==========");
 
     // For unilateral joins, determine which side needs table scanning
     if let Some(ref predicates) = search_predicates {

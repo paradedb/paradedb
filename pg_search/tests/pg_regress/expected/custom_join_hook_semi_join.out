@@ -70,6 +70,11 @@ WARNING:  ParadeDB: Outer predicate for small_products - uses_search: true
 WARNING:  ParadeDB: Inner predicate for small_reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["small_products"], inner: ["small_reviews"]
+WARNING:  ParadeDB: Extracted expected target list with 3 expressions from joinrel->reltarget
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 4 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}
+WARNING:  ParadeDB: Stored 3 target expressions as strings
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["small_reviews"], inner relids: ["small_products"]
@@ -96,6 +101,11 @@ WARNING:  ParadeDB: Outer predicate for small_reviews - uses_search: true
 WARNING:  ParadeDB: Inner predicate for small_products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["small_reviews"], inner: ["small_products"]
+WARNING:  ParadeDB: Extracted expected target list with 3 expressions from joinrel->reltarget
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 4 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}
+WARNING:  ParadeDB: Stored 3 target expressions as strings
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
@@ -386,6 +396,7 @@ WARNING:  ParadeDB: Outer predicate for medium_docs - uses_search: true
 WARNING:  ParadeDB: Inner predicate for medium_comments - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["medium_docs"], inner: ["medium_comments"]
+WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
 WARNING:  ParadeDB: Join path estimates - rows: 10000, startup_cost: 50.00, total_cost: 100.00
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["medium_comments"], inner relids: ["medium_docs"]
@@ -412,6 +423,7 @@ WARNING:  ParadeDB: Outer predicate for medium_comments - uses_search: true
 WARNING:  ParadeDB: Inner predicate for medium_docs - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["medium_comments"], inner: ["medium_docs"]
+WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
 WARNING:  ParadeDB: Join path estimates - rows: 10000, startup_cost: 50.00, total_cost: 100.00
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
@@ -674,7 +686,8 @@ WARNING:  ParadeDB: Outer predicate for large_articles - uses_search: true
 WARNING:  ParadeDB: Inner predicate for large_tags - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["large_articles"], inner: ["large_tags"]
-WARNING:  ParadeDB: Join path estimates - rows: 74250, startup_cost: 50.00, total_cost: 421.25
+WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: Join path estimates - rows: 75777, startup_cost: 50.00, total_cost: 428.88
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["large_tags"], inner relids: ["large_articles"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
@@ -700,7 +713,8 @@ WARNING:  ParadeDB: Outer predicate for large_tags - uses_search: true
 WARNING:  ParadeDB: Inner predicate for large_articles - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["large_tags"], inner: ["large_articles"]
-WARNING:  ParadeDB: Join path estimates - rows: 74250, startup_cost: 50.00, total_cost: 421.25
+WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: Join path estimates - rows: 75777, startup_cost: 50.00, total_cost: 428.88
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
 WARNING:  ParadeDB: Join target list has 0 entries
@@ -841,6 +855,7 @@ WARNING:  ParadeDB: Outer predicate for small_products - uses_search: true
 WARNING:  ParadeDB: Inner predicate for small_reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["small_products"], inner: ["small_reviews"]
+WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["small_reviews"], inner relids: ["small_products"]
@@ -867,6 +882,7 @@ WARNING:  ParadeDB: Outer predicate for small_reviews - uses_search: true
 WARNING:  ParadeDB: Inner predicate for small_products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["small_reviews"], inner: ["small_products"]
+WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
@@ -1031,6 +1047,7 @@ WARNING:  ParadeDB: Outer predicate for small_products - uses_search: true
 WARNING:  ParadeDB: Inner predicate for small_reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["small_products"], inner: ["small_reviews"]
+WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["small_reviews"], inner relids: ["small_products"]
@@ -1057,6 +1074,7 @@ WARNING:  ParadeDB: Outer predicate for small_reviews - uses_search: true
 WARNING:  ParadeDB: Inner predicate for small_products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["small_reviews"], inner: ["small_products"]
+WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
@@ -1220,6 +1238,7 @@ WARNING:  ParadeDB: Outer predicate for small_products - uses_search: true
 WARNING:  ParadeDB: Inner predicate for small_reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["small_products"], inner: ["small_reviews"]
+WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["small_reviews"], inner relids: ["small_products"]
@@ -1246,6 +1265,7 @@ WARNING:  ParadeDB: Outer predicate for small_reviews - uses_search: true
 WARNING:  ParadeDB: Inner predicate for small_products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["small_reviews"], inner: ["small_products"]
+WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
@@ -1409,6 +1429,10 @@ WARNING:  ParadeDB: Outer predicate for small_products - uses_search: true
 WARNING:  ParadeDB: Inner predicate for small_reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["small_products"], inner: ["small_reviews"]
+WARNING:  ParadeDB: Extracted expected target list with 2 expressions from joinrel->reltarget
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
+WARNING:  ParadeDB: Stored 2 target expressions as strings
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["small_reviews"], inner relids: ["small_products"]
@@ -1435,6 +1459,10 @@ WARNING:  ParadeDB: Outer predicate for small_reviews - uses_search: true
 WARNING:  ParadeDB: Inner predicate for small_products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["small_reviews"], inner: ["small_products"]
+WARNING:  ParadeDB: Extracted expected target list with 2 expressions from joinrel->reltarget
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
+WARNING:  ParadeDB: Stored 2 target expressions as strings
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
@@ -1553,6 +1581,7 @@ WARNING:  ParadeDB: Outer predicate for medium_docs - uses_search: true
 WARNING:  ParadeDB: Inner predicate for medium_comments - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["medium_docs"], inner: ["medium_comments"]
+WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
 WARNING:  ParadeDB: Join path estimates - rows: 500000, startup_cost: 50.00, total_cost: 2550.00
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["medium_comments"], inner relids: ["medium_docs"]
@@ -1579,6 +1608,7 @@ WARNING:  ParadeDB: Outer predicate for medium_comments - uses_search: true
 WARNING:  ParadeDB: Inner predicate for medium_docs - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["medium_comments"], inner: ["medium_docs"]
+WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
 WARNING:  ParadeDB: Join path estimates - rows: 500000, startup_cost: 50.00, total_cost: 2550.00
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
  broad_search_count 
@@ -1618,6 +1648,10 @@ WARNING:  ParadeDB: Outer predicate for small_products - uses_search: true
 WARNING:  ParadeDB: Inner predicate for small_reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["small_products"], inner: ["small_reviews"]
+WARNING:  ParadeDB: Extracted expected target list with 2 expressions from joinrel->reltarget
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 4 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}
+WARNING:  ParadeDB: Stored 2 target expressions as strings
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["small_reviews"], inner relids: ["small_products"]
@@ -1644,6 +1678,10 @@ WARNING:  ParadeDB: Outer predicate for small_reviews - uses_search: true
 WARNING:  ParadeDB: Inner predicate for small_products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["small_reviews"], inner: ["small_products"]
+WARNING:  ParadeDB: Extracted expected target list with 2 expressions from joinrel->reltarget
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 4 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}
+WARNING:  ParadeDB: Stored 2 target expressions as strings
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
@@ -1692,6 +1730,7 @@ WARNING:  ParadeDB: Outer predicate for medium_docs - uses_search: true
 WARNING:  ParadeDB: Inner predicate for medium_comments - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["medium_docs"], inner: ["medium_comments"]
+WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
 WARNING:  ParadeDB: Join path estimates - rows: 10000, startup_cost: 50.00, total_cost: 100.00
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["medium_comments"], inner relids: ["medium_docs"]
@@ -1718,6 +1757,7 @@ WARNING:  ParadeDB: Outer predicate for medium_comments - uses_search: true
 WARNING:  ParadeDB: Inner predicate for medium_docs - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["medium_comments"], inner: ["medium_docs"]
+WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
 WARNING:  ParadeDB: Join path estimates - rows: 10000, startup_cost: 50.00, total_cost: 100.00
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
@@ -1762,7 +1802,8 @@ WARNING:  ParadeDB: Outer predicate for large_articles - uses_search: true
 WARNING:  ParadeDB: Inner predicate for large_tags - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["large_articles"], inner: ["large_tags"]
-WARNING:  ParadeDB: Join path estimates - rows: 149625, startup_cost: 50.00, total_cost: 798.12
+WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: Join path estimates - rows: 149326, startup_cost: 50.00, total_cost: 796.63
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["large_tags"], inner relids: ["large_articles"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
@@ -1788,7 +1829,8 @@ WARNING:  ParadeDB: Outer predicate for large_tags - uses_search: true
 WARNING:  ParadeDB: Inner predicate for large_articles - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["large_tags"], inner: ["large_articles"]
-WARNING:  ParadeDB: Join path estimates - rows: 149625, startup_cost: 50.00, total_cost: 798.12
+WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: Join path estimates - rows: 149326, startup_cost: 50.00, total_cost: 796.63
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
                                                                                              QUERY PLAN                                                                                              
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -1845,6 +1887,7 @@ WARNING:  ParadeDB: Outer predicate for small_products - uses_search: true
 WARNING:  ParadeDB: Inner predicate for small_reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["small_products"], inner: ["small_reviews"]
+WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["small_reviews"], inner relids: ["small_products"]
@@ -1871,6 +1914,7 @@ WARNING:  ParadeDB: Outer predicate for small_reviews - uses_search: true
 WARNING:  ParadeDB: Inner predicate for small_products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["small_reviews"], inner: ["small_products"]
+WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
@@ -2004,7 +2048,7 @@ WARNING:  ParadeDB: Join execution cleanup complete
      2
 (1 row)
 
-Time: 8.325 ms
+Time: 8.071 ms
 \timing off
 -- Time medium dataset join (SortedArray)
 \timing on
@@ -2034,6 +2078,7 @@ WARNING:  ParadeDB: Outer predicate for medium_docs - uses_search: true
 WARNING:  ParadeDB: Inner predicate for medium_comments - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["medium_docs"], inner: ["medium_comments"]
+WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
 WARNING:  ParadeDB: Join path estimates - rows: 10000, startup_cost: 50.00, total_cost: 100.00
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["medium_comments"], inner relids: ["medium_docs"]
@@ -2060,6 +2105,7 @@ WARNING:  ParadeDB: Outer predicate for medium_comments - uses_search: true
 WARNING:  ParadeDB: Inner predicate for medium_docs - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["medium_comments"], inner: ["medium_docs"]
+WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
 WARNING:  ParadeDB: Join path estimates - rows: 10000, startup_cost: 50.00, total_cost: 100.00
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
@@ -2168,7 +2214,7 @@ WARNING:  ParadeDB: Join execution cleanup complete
      1
 (1 row)
 
-Time: 7.721 ms
+Time: 6.997 ms
 \timing off
 -- Time large dataset join (BloomFilter)
 \timing on
@@ -2198,7 +2244,8 @@ WARNING:  ParadeDB: Outer predicate for large_articles - uses_search: true
 WARNING:  ParadeDB: Inner predicate for large_tags - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["large_articles"], inner: ["large_tags"]
-WARNING:  ParadeDB: Join path estimates - rows: 74250, startup_cost: 50.00, total_cost: 421.25
+WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: Join path estimates - rows: 75777, startup_cost: 50.00, total_cost: 428.88
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["large_tags"], inner relids: ["large_articles"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
@@ -2224,7 +2271,8 @@ WARNING:  ParadeDB: Outer predicate for large_tags - uses_search: true
 WARNING:  ParadeDB: Inner predicate for large_articles - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["large_tags"], inner: ["large_articles"]
-WARNING:  ParadeDB: Join path estimates - rows: 74250, startup_cost: 50.00, total_cost: 421.25
+WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: Join path estimates - rows: 75777, startup_cost: 50.00, total_cost: 428.88
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
 WARNING:  ParadeDB: Join target list has 0 entries
@@ -2332,7 +2380,7 @@ WARNING:  ParadeDB: Join execution cleanup complete
      1
 (1 row)
 
-Time: 9.452 ms
+Time: 7.810 ms
 \timing off
 -- Test 8: Filter pushdown validation
 -- Verify that filters are actually being pushed down to Tantivy
@@ -2366,7 +2414,11 @@ WARNING:  ParadeDB: Outer predicate for large_articles - uses_search: true
 WARNING:  ParadeDB: Inner predicate for large_tags - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["large_articles"], inner: ["large_tags"]
-WARNING:  ParadeDB: Join path estimates - rows: 450000, startup_cost: 50.00, total_cost: 2300.00
+WARNING:  ParadeDB: Extracted expected target list with 2 expressions from joinrel->reltarget
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
+WARNING:  ParadeDB: Stored 2 target expressions as strings
+WARNING:  ParadeDB: Join path estimates - rows: 448347, startup_cost: 50.00, total_cost: 2291.74
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["large_tags"], inner relids: ["large_articles"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
@@ -2392,7 +2444,11 @@ WARNING:  ParadeDB: Outer predicate for large_tags - uses_search: true
 WARNING:  ParadeDB: Inner predicate for large_articles - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["large_tags"], inner: ["large_articles"]
-WARNING:  ParadeDB: Join path estimates - rows: 450000, startup_cost: 50.00, total_cost: 2300.00
+WARNING:  ParadeDB: Extracted expected target list with 2 expressions from joinrel->reltarget
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
+WARNING:  ParadeDB: Stored 2 target expressions as strings
+WARNING:  ParadeDB: Join path estimates - rows: 448347, startup_cost: 50.00, total_cost: 2291.74
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
 WARNING:  ParadeDB: Join target list has 2 entries
@@ -2555,6 +2611,10 @@ WARNING:  ParadeDB: Outer predicate for medium_docs - uses_search: true
 WARNING:  ParadeDB: Inner predicate for medium_comments - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["medium_docs"], inner: ["medium_comments"]
+WARNING:  ParadeDB: Extracted expected target list with 2 expressions from joinrel->reltarget
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
+WARNING:  ParadeDB: Stored 2 target expressions as strings
 WARNING:  ParadeDB: Join path estimates - rows: 20000, startup_cost: 50.00, total_cost: 150.00
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["medium_comments"], inner relids: ["medium_docs"]
@@ -2581,6 +2641,10 @@ WARNING:  ParadeDB: Outer predicate for medium_comments - uses_search: true
 WARNING:  ParadeDB: Inner predicate for medium_docs - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["medium_comments"], inner: ["medium_docs"]
+WARNING:  ParadeDB: Extracted expected target list with 2 expressions from joinrel->reltarget
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
+WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
+WARNING:  ParadeDB: Stored 2 target expressions as strings
 WARNING:  ParadeDB: Join path estimates - rows: 20000, startup_cost: 50.00, total_cost: 150.00
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0

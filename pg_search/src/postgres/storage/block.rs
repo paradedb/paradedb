@@ -26,7 +26,7 @@ use std::slice::from_raw_parts;
 use tantivy::index::{SegmentComponent, SegmentId};
 use tantivy::Opstamp;
 
-pub const MERGE_LOCK: pg_sys::BlockNumber = 0;
+pub const METADATA: pg_sys::BlockNumber = 0;
 pub const CLEANUP_LOCK: pg_sys::BlockNumber = 1;
 pub const SCHEMA_START: pg_sys::BlockNumber = 2;
 pub const SETTINGS_START: pg_sys::BlockNumber = 4;
@@ -35,7 +35,7 @@ pub const SEGMENT_METAS_START: pg_sys::BlockNumber = 6;
 // keep this sorted, please
 // and update it if a new hardcoded block number is added in the future
 pub const FIXED_BLOCK_NUMBERS: [pg_sys::BlockNumber; 5] = [
-    MERGE_LOCK,
+    METADATA,
     CLEANUP_LOCK,
     SCHEMA_START,
     SETTINGS_START,
@@ -433,4 +433,8 @@ pub const fn bm25_max_free_space() -> usize {
             - pg_sys::MAXALIGN(size_of::<BM25PageSpecialData>())
             - pg_sys::MAXALIGN(offset_of!(pg_sys::PageHeaderData, pd_linp))
     }
+}
+
+pub fn block_number_is_valid(block_number: pg_sys::BlockNumber) -> bool {
+    block_number != 0 && block_number != pg_sys::InvalidBlockNumber
 }

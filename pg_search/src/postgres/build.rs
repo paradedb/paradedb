@@ -535,9 +535,9 @@ unsafe fn record_create_index_segment_ids(index_relation: &PgRelation) {
     let reader = SearchIndexReader::open(index_relation, MvccSatisfies::Snapshot)
         .expect("do_heap_scan: should be able to open a SearchIndexReader");
 
-    // record the segment ids created in the merge lock
-    let merge_lock = MergeLock::init(index_relation.oid());
-    merge_lock
+    // record the segment ids created by ambuild
+    let metadata = MetaPageMut::new(index_relation.oid());
+    metadata
         .record_create_index_segment_ids(reader.segment_ids().iter())
         .expect("do_heap_scan: should be able to record segment ids in merge lock");
 }

@@ -15,38 +15,50 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::HashMap;
-use crate::index::fast_fields_helper::WhichFastField;
+use std::rc::Rc;
+
+use crate::index::fast_fields_helper::{FFIndex, WhichFastField};
 use crate::index::reader::index::{SearchIndexReader, SearchIndexScore, SearchResults};
-use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::FastFieldExecState;
+use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::{
+    non_string_ff_to_datum, ords_to_sorted_terms, FastFieldExecState,
+};
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
+use crate::postgres::customscan::pdbscan::fast_fields::StrColumn;
 use crate::postgres::customscan::pdbscan::is_block_all_visible;
 use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::query::SearchQueryInput;
-use parking_lot::Mutex;
+
 use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::pg_sys;
 use pgrx::pg_sys::CustomScanState;
-use rayon::prelude::*;
-use std::collections::BTreeMap;
+use pgrx::IntoDatum;
 use tantivy::collector::Collector;
 use tantivy::index::SegmentId;
 use tantivy::query::Query;
+use tantivy::termdict::TermOrdinal;
 use tantivy::{DocAddress, Executor, SegmentOrdinal};
 
 pub struct StringFastFieldExecState {
     inner: FastFieldExecState,
     search_results: StringAggResults,
     field: String,
+    field_idx: FFIndex,
 }
 
 impl StringFastFieldExecState {
     pub fn new(field: String, which_fast_fields: Vec<WhichFastField>) -> Self {
+        let field_idx = which_fast_fields
+            .iter()
+            .position(|wff| matches!(wff, WhichFastField::Named(name, _) if name == &field))
+            .unwrap_or_else(|| {
+                panic!("No string fast field named {field} in {which_fast_fields:?}")
+            });
         Self {
             inner: FastFieldExecState::new(which_fast_fields),
-            search_results: StringAggResults::None,
+            search_results: StringAggResults::new(vec![]),
             field,
+            field_idx,
         }
     }
 }
@@ -86,15 +98,10 @@ impl ExecMethod for StringFastFieldExecState {
     }
 
     fn internal_next(&mut self, state: &mut PdbScanState) -> ExecState {
-        if matches!(self.search_results, StringAggResults::None) {
-            return ExecState::Eof;
-        }
-
         unsafe {
-            // SAFETY:  .next() can't be called with self.search_results being set to Some(...)
             match self.search_results.next() {
                 None => ExecState::Eof,
-                Some((scored, doc_address, mut term)) => {
+                Some((scored, doc_address, term)) => {
                     let slot = self.inner.slot;
                     let natts = (*(*slot).tts_tupleDescriptor).natts as usize;
 
@@ -123,18 +130,35 @@ impl ExecMethod for StringFastFieldExecState {
                         (*slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
                         (*slot).tts_nvalid = natts as _;
 
-                        // Use the shared extract_data_from_fast_fields function
                         let tupdesc = self.inner.tupdesc.as_ref().unwrap();
-                        crate::postgres::customscan::pdbscan::exec_methods::fast_fields::extract_data_from_fast_fields(
-                            natts,
-                            tupdesc,
-                            &self.inner.which_fast_fields,
-                            &mut self.inner.ffhelper,
-                            slot,
-                            scored,
-                            doc_address,
-                            &mut term,
-                        );
+                        let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
+                        let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
+
+                        for (i, att) in tupdesc.iter().enumerate() {
+                            if i == self.field_idx {
+                                isnull[i] = term.is_null();
+                                datums[i] = term;
+                                continue;
+                            }
+
+                            match non_string_ff_to_datum(
+                                (&self.inner.which_fast_fields[i], i),
+                                att.atttypid,
+                                scored.bm25,
+                                doc_address,
+                                &mut self.inner.ffhelper,
+                                slot,
+                            ) {
+                                None => {
+                                    datums[i] = pg_sys::Datum::null();
+                                    isnull[i] = true;
+                                }
+                                Some(datum) => {
+                                    datums[i] = datum;
+                                    isnull[i] = false;
+                                }
+                            }
+                        }
 
                         ExecState::Virtual { slot }
                     } else {
@@ -155,36 +179,49 @@ impl ExecMethod for StringFastFieldExecState {
     }
 }
 
-type SearchResultsIter = std::vec::IntoIter<(SearchIndexScore, DocAddress)>;
-type BatchedResultsIter = std::vec::IntoIter<(Option<String>, SearchResultsIter)>;
-type MergedResultsMap = BTreeMap<Option<String>, Vec<(SearchIndexScore, DocAddress)>>;
-#[derive(Default)]
-enum StringAggResults {
-    #[default]
-    None,
-    Batched {
-        current: (Option<String>, SearchResultsIter),
-        set: BatchedResultsIter,
-    },
-    SingleSegment(crossbeam::channel::IntoIter<(SearchIndexScore, DocAddress, Option<String>)>),
+/// The result of searching one segment: a column, and vec of matches with TermOrdinals for that
+/// column.
+type SegmentResult = (StrColumn, Vec<(TermOrdinal, SearchIndexScore, DocAddress)>);
+
+struct StringAggResults {
+    /// Per-segment results which have yet to be emitted.
+    per_segment: std::vec::IntoIter<SegmentResult>,
+    /// An iterator for the current segment.
+    current_segment: Box<dyn Iterator<Item = (SearchIndexScore, DocAddress, Option<Rc<str>>)>>,
+}
+
+impl StringAggResults {
+    #[allow(clippy::type_complexity)]
+    fn new(per_segment: Vec<SegmentResult>) -> Self {
+        Self {
+            per_segment: per_segment.into_iter(),
+            current_segment: Box::new(std::iter::empty()),
+        }
+    }
 }
 
 impl Iterator for StringAggResults {
-    type Item = (SearchIndexScore, DocAddress, Option<String>);
+    type Item = (SearchIndexScore, DocAddress, pg_sys::Datum);
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            StringAggResults::None => None,
-            StringAggResults::Batched { current, set } => loop {
-                if let Some(next) = current.1.next() {
-                    return Some((next.0, next.1, current.0.clone()));
-                } else if let Some(next_set) = set.next() {
-                    *current = next_set;
-                } else {
-                    return None;
-                }
-            },
-            StringAggResults::SingleSegment(iter) => iter.next(),
+        loop {
+            // See if there are more results from the current segment.
+            if let Some((score, doc_address, term)) = self.current_segment.next() {
+                let datum = term
+                    .map(|term| {
+                        term.into_datum()
+                            .expect("String fast field must be a datum.")
+                    })
+                    .unwrap_or_else(pg_sys::Datum::null);
+                return Some((score, doc_address, datum));
+            }
+
+            // Get results from the next segment, if any.
+            let (str_ff, results) = self.per_segment.next()?;
+            self.current_segment = Box::new(
+                ords_to_sorted_terms(str_ff, results, |(term_ordinal, _, _)| *term_ordinal)
+                    .map(|((_, scored, doc_address), term)| (scored, doc_address, term)),
+            );
         }
     }
 }
@@ -225,62 +262,7 @@ impl StringAggSearcher<'_> {
             )
             .expect("failed to search");
 
-        let field = field.to_string();
-        let searcher = self.0.searcher().clone();
-
-        let merged: Mutex<MergedResultsMap> = Mutex::new(BTreeMap::new());
-
-        results
-            .into_par_iter()
-            .for_each(|(str_ff, segment_results)| {
-                let keys = segment_results.keys().cloned().collect::<Vec<_>>();
-                let segment_values: Vec<_> = segment_results.into_iter().collect();
-                let mut values_iter = segment_values.into_iter();
-                let mut resolved = HashMap::default();
-                str_ff
-                    .dictionary()
-                    .sorted_ords_to_term_cb(keys.into_iter(), |bytes| {
-                        let term = std::str::from_utf8(bytes)
-                            .expect("term should be valid utf8")
-                            .to_string();
-
-                        resolved.insert(
-                            term,
-                            values_iter.next().unwrap_or_else(|| panic!("internal error: don't have the same number of TermOrd keys and values")).1,
-                        );
-
-                        Ok(())
-                    })
-                    .expect("term ord resolution should succeed");
-
-                let mut null_results = Vec::new();
-                if str_ff.num_terms() == 0 {
-                    if let Some(next_value) = values_iter.next() {
-                        null_results.push(next_value);
-                        // Collect any additional remaining values
-                        null_results.extend(values_iter);
-                    }
-                }
-                let mut guard = merged.lock();
-                for (term, mut results) in resolved {
-                    guard.entry(Some(term)).or_default().append(&mut results);
-                }
-
-                for (_, mut results) in null_results {
-                    guard.entry(None).or_default().append(&mut results);
-                }
-            });
-
-        let set = merged
-            .into_inner()
-            .into_iter()
-            .map(|(term, docs)| (term, docs.into_iter()))
-            .collect::<Vec<_>>()
-            .into_iter();
-        StringAggResults::Batched {
-            current: (None, vec![].into_iter()),
-            set,
-        }
+        StringAggResults::new(results)
     }
 
     pub fn string_agg_by_segment(
@@ -318,7 +300,7 @@ impl StringAggSearcher<'_> {
             })
             .expect("weight should be constructable");
 
-        let (str_ff, results) = collector
+        let results = collector
             .collect_segment(
                 weight.as_ref(),
                 segment_ord as SegmentOrdinal,
@@ -326,55 +308,17 @@ impl StringAggSearcher<'_> {
             )
             .expect("single segment collection should succeed");
 
-        let field = field.to_string();
-        let searcher = self.0.searcher().clone();
-        let dictionary = str_ff.dictionary();
-        let term_ords = results.keys().cloned().collect::<Vec<_>>();
-        let mut results = results.into_iter();
-        let (sender, receiver) = crossbeam::channel::unbounded();
-        dictionary
-            .sorted_ords_to_term_cb(term_ords.into_iter(), |bytes| {
-                let term = std::str::from_utf8(bytes)
-                    .expect("term should be valid utf8")
-                    .to_string();
-
-                let (_, values) = results.next().unwrap_or_else(|| {
-                    panic!("internal error: don't have the same number of TermOrd keys and values")
-                });
-                for (scored, doc_address) in values {
-                    sender
-                        .send((scored, doc_address, Some(term.clone())))
-                        .map_err(|_| {
-                            std::io::Error::new(std::io::ErrorKind::Other, "failed to send term")
-                        })?;
-                }
-
-                Ok(())
-            })
-            .expect("term ord lookup should succeed");
-
-        if dictionary.num_terms() == 0 && results.len() > 0 {
-            let (_, values) = results.next().unwrap_or_else(|| {
-                panic!("internal error: don't have the same number of TermOrd keys and values")
-            });
-            for (scored, doc_address) in values {
-                let _ = sender.send((scored, doc_address, None)).map_err(|_| {
-                    std::io::Error::new(std::io::ErrorKind::Other, "failed to send term")
-                });
-            }
-        }
-
-        StringAggResults::SingleSegment(receiver.into_iter())
+        StringAggResults::new(vec![results])
     }
 }
 
 mod term_ord_collector {
+    use crate::index::fast_fields_helper::FFType;
     use crate::index::reader::index::SearchIndexScore;
-    use std::collections::BTreeMap;
+    use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::NULL_TERM_ORDINAL;
+
     use tantivy::collector::{Collector, SegmentCollector};
     use tantivy::columnar::StrColumn;
-
-    use crate::index::fast_fields_helper::FFType;
     use tantivy::termdict::TermOrdinal;
     use tantivy::{DocAddress, DocId, Score, SegmentOrdinal, SegmentReader};
 
@@ -384,10 +328,7 @@ mod term_ord_collector {
     }
 
     impl Collector for TermOrdCollector {
-        type Fruit = Vec<(
-            StrColumn,
-            BTreeMap<TermOrdinal, Vec<(SearchIndexScore, DocAddress)>>,
-        )>;
+        type Fruit = Vec<super::SegmentResult>;
         type Child = TermOrdSegmentCollector;
 
         fn for_segment(
@@ -418,32 +359,23 @@ mod term_ord_collector {
 
     pub struct TermOrdSegmentCollector {
         pub ff: StrColumn,
-        pub results: BTreeMap<TermOrdinal, Vec<(SearchIndexScore, DocAddress)>>,
+        pub results: Vec<(TermOrdinal, SearchIndexScore, DocAddress)>,
         pub segment_ord: SegmentOrdinal,
         ctid_ff: FFType,
     }
 
     impl SegmentCollector for TermOrdSegmentCollector {
-        type Fruit = (
-            StrColumn,
-            BTreeMap<TermOrdinal, Vec<(SearchIndexScore, DocAddress)>>,
-        );
+        type Fruit = super::SegmentResult;
 
         fn collect(&mut self, doc: DocId, score: Score) {
             let doc_address = DocAddress::new(self.segment_ord, doc);
             let ctid = self.ctid_ff.as_u64(doc).expect("ctid should be present");
             let scored = SearchIndexScore::new(ctid, score);
-            if let Some(term_ord) = self.ff.term_ords(doc).next() {
-                self.results
-                    .entry(term_ord)
-                    .or_default()
-                    .push((scored, doc_address));
-            } else {
-                self.results
-                    .entry(0)
-                    .or_default()
-                    .push((scored, doc_address));
-            }
+            self.results.push((
+                self.ff.term_ords(doc).next().unwrap_or(NULL_TERM_ORDINAL),
+                scored,
+                doc_address,
+            ));
         }
 
         fn harvest(self) -> Self::Fruit {

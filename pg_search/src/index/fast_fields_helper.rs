@@ -25,6 +25,9 @@ use tantivy::fastfield::{Column, FastFieldReaders};
 use tantivy::schema::OwnedValue;
 use tantivy::{DocAddress, DocId};
 
+/// A fast-field index position value.
+pub type FFIndex = usize;
+
 type FastFieldReadersCache = Vec<Vec<(FastFieldReaders, String, OnceLock<FFType>)>>;
 /// A helper for tracking specific "fast field" readers from a [`SearchIndexReader`] reference
 ///
@@ -68,7 +71,7 @@ impl FFHelper {
     }
 
     #[track_caller]
-    pub fn value(&self, field: usize, doc_address: DocAddress) -> Option<TantivyValue> {
+    pub fn value(&self, field: FFIndex, doc_address: DocAddress) -> Option<TantivyValue> {
         let entry = &self.0[doc_address.segment_ord as usize][field];
         Some(
             entry
@@ -79,25 +82,17 @@ impl FFHelper {
     }
 
     #[track_caller]
-    pub fn i64(&self, field: usize, doc_address: DocAddress) -> Option<i64> {
+    pub fn i64(&self, field: FFIndex, doc_address: DocAddress) -> Option<i64> {
         let entry = &self.0[doc_address.segment_ord as usize][field];
         entry
             .2
             .get_or_init(|| FFType::new(&entry.0, &entry.1))
             .as_i64(doc_address.doc_id)
     }
-
-    #[track_caller]
-    pub fn string(&self, field: usize, doc_address: DocAddress, value: &mut String) -> Option<()> {
-        let entry = &self.0[doc_address.segment_ord as usize][field];
-        entry
-            .2
-            .get_or_init(|| FFType::new(&entry.0, &entry.1))
-            .string(doc_address.doc_id, value)
-    }
 }
 
 /// Helper for working with different "fast field" types as if they're all one type
+#[derive(Debug)]
 pub enum FFType {
     Junk,
     Text(StrColumn),

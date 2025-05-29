@@ -22,7 +22,8 @@ use tantivy::index::SegmentId;
 use tantivy::indexer::{AddOperation, NoMergePolicy, SegmentWriter, UserOperation};
 use tantivy::schema::Field;
 use tantivy::{
-    DocId, Index, IndexWriter, Opstamp, Segment, SegmentMeta, TantivyDocument, TantivyError,
+    Directory, DocId, Index, IndexMeta, IndexWriter, Opstamp, Segment, SegmentMeta,
+    TantivyDocument, TantivyError,
 };
 use thiserror::Error;
 
@@ -160,18 +161,17 @@ impl SearchIndexWriter {
     }
 }
 
-pub struct SerialSegmentWriter {
+/// Unlike Tantivy's IndexWriter, the SerialIndexWriter does not spin up any threads.
+/// Everything happens in the foreground, making it ideal for Postgres.
+pub struct SerialIndexWriter {
     ctid_field: Field,
-
-    // keep all these private -- leaking them to the public API would allow callers to
-    // mis-use the IndexWriter in particular.
     current_segment: Option<(Segment, SegmentWriter)>,
-    cnt: usize,
     memory_budget: usize,
     index: Index,
+    new_metas: Vec<SegmentMeta>,
 }
 
-impl SerialSegmentWriter {
+impl SerialIndexWriter {
     pub fn open(index_relation: &PgRelation, memory_budget: usize) -> Result<Self> {
         let directory = MVCCDirectory::snapshot(index_relation.oid());
         let mut index = Index::open(directory)?;
@@ -182,15 +182,14 @@ impl SerialSegmentWriter {
 
         Ok(Self {
             ctid_field,
-            current_segment: None,
-            cnt: 0,
             memory_budget,
             index,
+            current_segment: Default::default(),
+            new_metas: Default::default(),
         })
     }
 
     pub fn insert(&mut self, document: SearchDocument, ctid: u64) -> Result<()> {
-        self.cnt += 1;
         let mut tantivy_document: TantivyDocument = document.into();
         tantivy_document.add_u64(self.ctid_field, ctid);
 
@@ -200,7 +199,6 @@ impl SerialSegmentWriter {
             self.current_segment = Some((new_segment, new_writer));
         }
 
-        // TODO: Consider batching these
         self.current_segment
             .as_mut()
             .unwrap()
@@ -212,14 +210,25 @@ impl SerialSegmentWriter {
 
         if self.memory_budget <= self.current_segment.as_ref().unwrap().1.mem_usage() {
             self.finalize_segment()?;
-            // TODO: Save new metas
         }
 
         Ok(())
     }
 
     pub fn commit(mut self) -> Result<()> {
-        self.finalize_segment()
+        self.finalize_segment()?;
+
+        // Save new metas
+        let current_metas = self.index.load_metas()?;
+        let current_segments = current_metas.clone().segments;
+        let new_metas = IndexMeta {
+            segments: [self.new_metas, current_segments].concat(),
+            ..current_metas.clone()
+        };
+        self.index
+            .directory()
+            .save_metas(&new_metas, &current_metas, &mut ())?;
+        Ok(())
     }
 
     fn finalize_segment(&mut self) -> Result<()> {
@@ -229,7 +238,8 @@ impl SerialSegmentWriter {
             .expect("commit: segment writer should be present");
         let max_doc = writer.max_doc();
         writer.finalize()?;
-        let _segment = segment.with_max_doc(max_doc);
+        let segment = segment.with_max_doc(max_doc);
+        self.new_metas.push(segment.meta().clone());
         Ok(())
     }
 }

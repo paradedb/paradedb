@@ -17,7 +17,7 @@
 
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::reader::index::SearchIndexReader;
-use crate::index::writer::index::SerialSegmentWriter;
+use crate::index::writer::index::SerialIndexWriter;
 use crate::index::{get_index_schema, WriterResources};
 use crate::postgres::storage::block::{
     SegmentMetaEntry, CLEANUP_LOCK, METADATA, SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
@@ -45,7 +45,7 @@ struct BuildState {
     reltuples: usize,
     per_row_context: PgMemoryContexts,
     start: Instant,
-    writer: Option<SerialSegmentWriter>,
+    writer: Option<SerialIndexWriter>,
     categorized_fields: Vec<(SearchField, CategorizedFieldData)>,
     key_field_name: String,
     heap_relation: pg_sys::Relation,
@@ -74,7 +74,7 @@ impl BuildState {
     fn new(relation_oid: pg_sys::Oid) -> Self {
         let index_relation = unsafe { PgRelation::open(relation_oid) };
         let (_, memory_budget) = WriterResources::CreateIndex.resources();
-        let writer = SerialSegmentWriter::open(&index_relation, memory_budget)
+        let writer = SerialIndexWriter::open(&index_relation, memory_budget)
             .expect("build state: should be able to open writer");
 
         let tupdesc = unsafe { PgTupleDesc::from_pg_unchecked(index_relation.rd_att) };
@@ -140,15 +140,13 @@ pub extern "C-unwind" fn ambuild(
     let nworkers = unsafe { compute_nworkers(&heap_relation, &index_relation) };
     let mut build_state = BuildState::new(index_relation.oid());
 
-    pgrx::info!("nworkers: {}", nworkers);
-
     if nworkers > 0 {
         unsafe {
             begin_parallel_index_build(&mut build_state, (*index_info).ii_Concurrent, nworkers);
             parallel_heap_scan(&mut build_state);
         }
     } else {
-        do_heap_scan(
+        serial_scan_and_insert(
             index_info,
             &heap_relation,
             &index_relation,
@@ -156,11 +154,15 @@ pub extern "C-unwind" fn ambuild(
         );
     };
 
-    if !build_state.leader.is_null() && nworkers > 0 {
-        unsafe { end_parallel_index_build(build_state.leader) };
+    unsafe {
+        if !build_state.leader.is_null() && nworkers > 0 {
+            end_parallel_index_build(build_state.leader);
+        }
+        // store number of segments created in metadata
+        record_create_index_segment_ids(&index_relation);
+        // flush the index relation buffers
+        pg_sys::FlushRelationBuffers(indexrel);
     }
-
-    unsafe { pg_sys::FlushRelationBuffers(indexrel) };
 
     let mut result = unsafe { PgBox::<pg_sys::IndexBuildResult>::alloc0() };
     result.heap_tuples = build_state.reltuples as f64;
@@ -171,7 +173,7 @@ pub extern "C-unwind" fn ambuild(
 #[pg_guard]
 pub extern "C-unwind" fn ambuildempty(_index_relation: pg_sys::Relation) {}
 
-fn do_heap_scan<'a>(
+fn serial_scan_and_insert<'a>(
     index_info: *mut pg_sys::IndexInfo,
     heap_relation: &'a PgRelation,
     index_relation: &'a PgRelation,
@@ -189,19 +191,9 @@ fn do_heap_scan<'a>(
         build_state
             .writer
             .take()
-            .expect("do_heap_scan: writer should exist by now")
+            .expect("commit: writer should exist by now")
             .commit()
             .unwrap_or_else(|e| panic!("failed to commit new tantivy index: {e}"));
-
-        // store number of segments created in metadata
-        let reader = SearchIndexReader::open(index_relation, MvccSatisfies::Snapshot)
-            .expect("do_heap_scan: should be able to open a SearchIndexReader");
-
-        // record the segment ids created in the merge lock
-        let metadata = MetaPageMut::new(index_relation.oid());
-        metadata
-            .record_create_index_segment_ids(reader.segment_ids().iter())
-            .expect("do_heap_scan: should be able to record segment ids in merge lock");
     }
 }
 
@@ -382,8 +374,6 @@ unsafe fn begin_parallel_index_build(
     shm_toc_estimate_chunk(&mut (*parallel_context).estimator, est_shared);
     shm_toc_estimate_keys(&mut (*parallel_context).estimator, 1);
 
-    // TODO: Add maintenance_work_mem and PARALLEL_KEY_QUERY_TEXT to shm_toc_estimate_chunk
-
     // Exit parallel mode if no DSM segment is created
     pg_sys::InitializeParallelDSM(parallel_context);
     if (*parallel_context).seg.is_null() {
@@ -493,6 +483,13 @@ unsafe fn parallel_scan_and_insert(
         scan,
     );
 
+    build_state
+        .writer
+        .take()
+        .expect("commit: writer should exist by now")
+        .commit()
+        .unwrap_or_else(|e| panic!("failed to commit new tantivy index: {e}"));
+
     pg_sys::SpinLockAcquire(&mut (*shared_state).mutex);
     (*shared_state).n_participants_done += 1;
     (*shared_state).reltuples += reltuples;
@@ -532,6 +529,17 @@ unsafe fn end_parallel_index_build(leader: *mut ParallelBuildLeader) {
 
     pg_sys::DestroyParallelContext((*leader).parallel_context);
     pg_sys::ExitParallelMode();
+}
+
+unsafe fn record_create_index_segment_ids(index_relation: &PgRelation) {
+    let reader = SearchIndexReader::open(index_relation, MvccSatisfies::Snapshot)
+        .expect("do_heap_scan: should be able to open a SearchIndexReader");
+
+    // record the segment ids created in the merge lock
+    let merge_lock = MergeLock::init(index_relation.oid());
+    merge_lock
+        .record_create_index_segment_ids(reader.segment_ids().iter())
+        .expect("do_heap_scan: should be able to record segment ids in merge lock");
 }
 
 unsafe fn parallel_estimate_shmem(

@@ -65,7 +65,7 @@ struct ParallelBuildSharedState {
 
 struct ParallelBuildLeader {
     parallel_context: *mut pg_sys::ParallelContext,
-    n_participant_tuple_sorts: i32,
+    n_participants: i32,
     shared: *mut ParallelBuildSharedState,
     snapshot: pg_sys::Snapshot,
 }
@@ -143,7 +143,7 @@ pub extern "C-unwind" fn ambuild(
     if nworkers > 0 {
         unsafe {
             begin_parallel_index_build(&mut build_state, (*index_info).ii_Concurrent, nworkers);
-            parallel_heap_scan(&mut build_state);
+            wait_for_participants(&mut build_state);
         }
     } else {
         serial_scan_and_insert(
@@ -410,12 +410,12 @@ unsafe fn begin_parallel_index_build(
     let leader =
         pg_sys::palloc0(std::mem::size_of::<ParallelBuildLeader>()) as *mut ParallelBuildLeader;
     (*leader).parallel_context = parallel_context;
-    (*leader).n_participant_tuple_sorts = (*parallel_context).nworkers_launched;
+    (*leader).n_participants = (*parallel_context).nworkers_launched;
     (*leader).shared = shared_state;
     (*leader).snapshot = snapshot;
 
     if LEADER_PARTICIPATES {
-        (*leader).n_participant_tuple_sorts += 1;
+        (*leader).n_participants += 1;
     }
 
     if (*parallel_context).nworkers_launched == 0 {
@@ -498,14 +498,14 @@ unsafe fn parallel_scan_and_insert(
     pg_sys::ConditionVariableSignal(&mut (*shared_state).workers_done);
 }
 
-unsafe fn parallel_heap_scan(build_state: *mut BuildState) {
+unsafe fn wait_for_participants(build_state: *mut BuildState) {
     let leader = (*build_state).leader;
     let shared_state = (*leader).shared;
-    let n_participant_tuple_sorts = (*leader).n_participant_tuple_sorts;
+    let n_participants = (*leader).n_participants;
 
     loop {
         pg_sys::SpinLockAcquire(&mut (*shared_state).mutex);
-        if (*shared_state).n_participants_done == n_participant_tuple_sorts {
+        if (*shared_state).n_participants_done == n_participants {
             (*build_state).reltuples = (*shared_state).reltuples as usize;
             pg_sys::SpinLockRelease(&mut (*shared_state).mutex);
             break;

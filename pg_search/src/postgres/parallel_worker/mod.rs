@@ -41,6 +41,11 @@ pub trait ParallelState {}
 pub trait ParallelProcess {
     fn size_of_state(&self) -> usize;
 
+    /// # Safety
+    ///
+    /// This function is unsafe because we cannot ensure the `dest` pointer being provided is what
+    /// your implementation wants.  It's on you to make sure you've defined things properly when
+    /// calling the `launch_parallel_process!()` macro
     unsafe fn init_shm_state(&self, dest: *mut std::ffi::c_void);
 }
 

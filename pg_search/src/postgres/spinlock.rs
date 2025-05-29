@@ -21,6 +21,13 @@ use std::ptr::addr_of_mut;
 #[repr(transparent)]
 pub struct Spinlock(pg_sys::slock_t);
 
+impl Default for Spinlock {
+    #[inline(always)]
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Spinlock {
     #[inline(always)]
     pub fn new() -> Self {

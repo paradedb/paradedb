@@ -70,11 +70,6 @@ impl ParallelAggregationState {
         segment_ids.get(self.remaining_segments).copied()
     }
 
-    fn remaining_segments(&mut self) -> usize {
-        let _lock = self.mutex.acquire();
-        self.remaining_segments
-    }
-
     fn total_segments(&mut self) -> usize {
         self.total_segments
     }
@@ -86,20 +81,14 @@ impl ParallelAggregationState {
     fn agg_req_bytes(&self) -> &[u8] {
         unsafe {
             let payload = self.payload.as_ptr();
-            std::slice::from_raw_parts(
-                payload.add(self.agg_req_offset.0) as *const u8,
-                self.agg_req_offset.1,
-            )
+            std::slice::from_raw_parts(payload.add(self.agg_req_offset.0), self.agg_req_offset.1)
         }
     }
 
     fn query_bytes(&self) -> &[u8] {
         unsafe {
             let payload = self.payload.as_ptr();
-            std::slice::from_raw_parts(
-                payload.add(self.query_offset.0) as *const u8,
-                self.query_offset.1,
-            )
+            std::slice::from_raw_parts(payload.add(self.query_offset.0), self.query_offset.1)
         }
     }
 }

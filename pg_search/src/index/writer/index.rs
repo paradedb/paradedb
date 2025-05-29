@@ -19,9 +19,12 @@ use crate::api::{HashMap, HashSet};
 use anyhow::Result;
 use pgrx::{pg_sys, PgRelation};
 use tantivy::index::SegmentId;
-use tantivy::indexer::{NoMergePolicy, UserOperation};
+use tantivy::indexer::{NoMergePolicy, SegmentWriter, AddOperation, UserOperation};
 use tantivy::schema::Field;
-use tantivy::{DocId, Index, IndexWriter, Opstamp, SegmentMeta, TantivyDocument, TantivyError};
+use tantivy::{
+    DocId, Index, IndexWriter, Opstamp, Segment, SegmentMeta, SingleSegmentIndexWriter,
+    TantivyDocument, TantivyError,
+};
 use thiserror::Error;
 
 use crate::index::channel::{ChannelDirectory, ChannelRequestHandler};
@@ -155,6 +158,72 @@ impl SearchIndexWriter {
         self.handler
             .wait_for(move || writer.run(insert_queue))
             .expect("spawned thread should not fail")
+    }
+}
+
+pub struct SerialSegmentWriter {
+    indexrelid: pg_sys::Oid,
+    ctid_field: Field,
+
+    // keep all these private -- leaking them to the public API would allow callers to
+    // mis-use the IndexWriter in particular.
+    current_segment: Option<(Segment, SegmentWriter)>,
+    insert_queue: Vec<UserOperation>,
+    cnt: usize,
+    resources: WriterResources,
+    index: Index,
+}
+
+impl SerialSegmentWriter {
+    pub fn open(
+        index_relation: &PgRelation,
+        directory_type: MvccSatisfies,
+        resources: WriterResources,
+    ) -> Result<Self> {
+        let directory = MVCCDirectory::snapshot(index_relation.oid());
+        let mut index = Index::open(directory)?;
+        let schema = SearchIndexSchema::open(index.schema(), index_relation);
+
+        setup_tokenizers(&mut index, index_relation);
+        let ctid_field = schema.schema.get_field("ctid")?;
+
+        Ok(Self {
+            indexrelid: index_relation.oid(),
+            ctid_field,
+            current_segment: None,
+            insert_queue: Vec::with_capacity(MAX_INSERT_QUEUE_SIZE),
+            cnt: 0,
+            resources,
+            index,
+        })
+    }
+
+    pub fn insert(&mut self, document: SearchDocument, ctid: u64) -> Result<()> {
+        self.cnt += 1;
+        let mut tantivy_document: TantivyDocument = document.into();
+        tantivy_document.add_u64(self.ctid_field, ctid);
+
+        // TODO: Consider batching these
+        self.current_segment
+            .as_mut()
+            .unwrap()
+            .1
+            .add_document(AddOperation {
+                opstamp: 0,
+                document: tantivy_document,
+            });
+
+        if self.memory_budget() <= self.current_segment.as_ref().unwrap().1.mem_usage() {
+            let (segment, writer) = self.current_segment.take().unwrap();
+            todo!("finalize segment, save new metas");
+        }
+
+        Ok(())
+    }
+
+    fn memory_budget(&self) -> usize {
+        let (_, memory_budget) = self.resources.resources();
+        memory_budget
     }
 }
 

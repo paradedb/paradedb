@@ -381,9 +381,9 @@ WARNING:      RTI 2 maps to table OID files
 WARNING:    Extracted JOIN condition: documents[1] = files[2]
 WARNING:    Extracted 1 JOIN conditions
 WARNING:    JOIN private data: 2 tables, limit: Some(10)
-WARNING:    Serialized JSON: {"relation_mapping":{"164156":2,"164147":1},"table_oids":[164147,164156],"limit":10,"join_conditions":[{"left":[164147,1],"right":[164156,2],"opno":96}]}
-WARNING:    Created persistent string at: 0x7ff6f9817138
-WARNING:    Created string node: 0x7ff6f9817248
+WARNING:    Serialized JSON: {"relation_mapping":{"164255":1,"164264":2},"table_oids":[164255,164264],"limit":10,"join_conditions":[{"left":[164255,1],"right":[164264,2],"opno":96}]}
+WARNING:    Created persistent string at: 0x7fbe1685bb38
+WARNING:    Created string node: 0x7fbe1685bc48
 WARNING:    Added node to list, list length: 1
 WARNING:    Creating custom path: startup_cost=20, total_cost=1.6, rows=1
 WARNING:    CustomPath created successfully with joinrel.reltarget
@@ -406,9 +406,9 @@ WARNING:      RTI 2 maps to table OID files
 WARNING:    Extracted JOIN condition: documents[1] = files[2]
 WARNING:    Extracted 1 JOIN conditions
 WARNING:    JOIN private data: 2 tables, limit: Some(10)
-WARNING:    Serialized JSON: {"relation_mapping":{"164156":2,"164147":1},"table_oids":[164156,164147],"limit":10,"join_conditions":[{"left":[164147,1],"right":[164156,2],"opno":96}]}
-WARNING:    Created persistent string at: 0x7ff6d9011840
-WARNING:    Created string node: 0x7ff6d9011950
+WARNING:    Serialized JSON: {"relation_mapping":{"164255":1,"164264":2},"table_oids":[164264,164255],"limit":10,"join_conditions":[{"left":[164255,1],"right":[164264,2],"opno":96}]}
+WARNING:    Created persistent string at: 0x7fbe1685e040
+WARNING:    Created string node: 0x7fbe1685e150
 WARNING:    Added node to list, list length: 1
 WARNING:    Creating custom path: startup_cost=20, total_cost=1.6, rows=1
 WARNING:    CustomPath created successfully with joinrel.reltarget
@@ -431,9 +431,9 @@ WARNING:      RTI 4 maps to table OID pages
 WARNING:    Extracted JOIN condition: files[1] = pages[2]
 WARNING:    Extracted 1 JOIN conditions
 WARNING:    JOIN private data: 2 tables, limit: Some(10)
-WARNING:    Serialized JSON: {"relation_mapping":{"164156":2,"164170":4},"table_oids":[164156,164170],"limit":10,"join_conditions":[{"left":[164156,1],"right":[164170,2],"opno":96}]}
-WARNING:    Created persistent string at: 0x7ff6d903b208
-WARNING:    Created string node: 0x7ff6d903b318
+WARNING:    Serialized JSON: {"relation_mapping":{"164278":4,"164264":2},"table_oids":[164264,164278],"limit":10,"join_conditions":[{"left":[164264,1],"right":[164278,2],"opno":96}]}
+WARNING:    Created persistent string at: 0x7fbe16860a08
+WARNING:    Created string node: 0x7fbe16860b18
 WARNING:    Added node to list, list length: 1
 WARNING:    Creating custom path: startup_cost=20, total_cost=1.6, rows=1
 WARNING:    CustomPath created successfully with joinrel.reltarget
@@ -456,9 +456,9 @@ WARNING:      RTI 4 maps to table OID pages
 WARNING:    Extracted JOIN condition: files[1] = pages[2]
 WARNING:    Extracted 1 JOIN conditions
 WARNING:    JOIN private data: 2 tables, limit: Some(10)
-WARNING:    Serialized JSON: {"relation_mapping":{"164156":2,"164170":4},"table_oids":[164170,164156],"limit":10,"join_conditions":[{"left":[164156,1],"right":[164170,2],"opno":96}]}
-WARNING:    Created persistent string at: 0x7ff6d903d6b8
-WARNING:    Created string node: 0x7ff6d903d7c8
+WARNING:    Serialized JSON: {"relation_mapping":{"164278":4,"164264":2},"table_oids":[164278,164264],"limit":10,"join_conditions":[{"left":[164264,1],"right":[164278,2],"opno":96}]}
+WARNING:    Created persistent string at: 0x7fbe16862eb8
+WARNING:    Created string node: 0x7fbe16862fc8
 WARNING:    Added node to list, list length: 1
 WARNING:    Creating custom path: startup_cost=20, total_cost=1.6, rows=1
 WARNING:    CustomPath created successfully with joinrel.reltarget
@@ -494,7 +494,8 @@ WARNING:    Private data: 2 tables, limit: Some(10)
 WARNING:    Using joinrel target list with 2 expressions
 WARNING:    Created CustomScan plan for JOIN coordination
 WARNING:    startup_cost: 20, total_cost: 1.6, rows: 1
-ERROR:  variable not found in subplan target list
+WARNING:    CRITICAL: Set custom_scan_tlist to define output columns
+ERROR:  called `Result::unwrap()` on an `Err` value: Error("invalid type: sequence, expected a string", line: 1, column: 102)
 -- Test 3: Multi-table query without LIMIT (should NOT use JOIN coordination)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT d.id, f.id
@@ -825,9 +826,9 @@ WARNING:      RTI 2 maps to table OID files
 WARNING:    Extracted JOIN condition: documents[1] = files[2]
 WARNING:    Extracted 1 JOIN conditions
 WARNING:    JOIN private data: 2 tables, limit: Some(10)
-WARNING:    Serialized JSON: {"relation_mapping":{"164156":2,"164147":1},"table_oids":[164147,164156],"limit":10,"join_conditions":[{"left":[164147,1],"right":[164156,2],"opno":96}]}
-WARNING:    Created persistent string at: 0x7ff698020708
-WARNING:    Created string node: 0x7ff698020818
+WARNING:    Serialized JSON: {"relation_mapping":{"164255":1,"164264":2},"table_oids":[164255,164264],"limit":10,"join_conditions":[{"left":[164255,1],"right":[164264,2],"opno":96}]}
+WARNING:    Created persistent string at: 0x7fbe280e8708
+WARNING:    Created string node: 0x7fbe280e8818
 WARNING:    Added node to list, list length: 1
 WARNING:    Creating custom path: startup_cost=20, total_cost=1.6, rows=1
 WARNING:    CustomPath created successfully with joinrel.reltarget
@@ -850,9 +851,9 @@ WARNING:      RTI 2 maps to table OID files
 WARNING:    Extracted JOIN condition: documents[1] = files[2]
 WARNING:    Extracted 1 JOIN conditions
 WARNING:    JOIN private data: 2 tables, limit: Some(10)
-WARNING:    Serialized JSON: {"relation_mapping":{"164156":2,"164147":1},"table_oids":[164156,164147],"limit":10,"join_conditions":[{"left":[164147,1],"right":[164156,2],"opno":96}]}
-WARNING:    Created persistent string at: 0x7ff698022bb8
-WARNING:    Created string node: 0x7ff698022cc8
+WARNING:    Serialized JSON: {"relation_mapping":{"164255":1,"164264":2},"table_oids":[164264,164255],"limit":10,"join_conditions":[{"left":[164255,1],"right":[164264,2],"opno":96}]}
+WARNING:    Created persistent string at: 0x7fbe280eabb8
+WARNING:    Created string node: 0x7fbe280eacc8
 WARNING:    Added node to list, list length: 1
 WARNING:    Creating custom path: startup_cost=20, total_cost=1.6, rows=1
 WARNING:    CustomPath created successfully with joinrel.reltarget
@@ -875,9 +876,9 @@ WARNING:      RTI 4 maps to table OID pages
 WARNING:    Extracted JOIN condition: files[1] = pages[2]
 WARNING:    Extracted 1 JOIN conditions
 WARNING:    JOIN private data: 2 tables, limit: Some(10)
-WARNING:    Serialized JSON: {"relation_mapping":{"164156":2,"164170":4},"table_oids":[164156,164170],"limit":10,"join_conditions":[{"left":[164156,1],"right":[164170,2],"opno":96}]}
-WARNING:    Created persistent string at: 0x7ff698025760
-WARNING:    Created string node: 0x7ff698025870
+WARNING:    Serialized JSON: {"relation_mapping":{"164278":4,"164264":2},"table_oids":[164264,164278],"limit":10,"join_conditions":[{"left":[164264,1],"right":[164278,2],"opno":96}]}
+WARNING:    Created persistent string at: 0x7fbe280ed760
+WARNING:    Created string node: 0x7fbe280ed870
 WARNING:    Added node to list, list length: 1
 WARNING:    Creating custom path: startup_cost=20, total_cost=1.6, rows=1
 WARNING:    CustomPath created successfully with joinrel.reltarget
@@ -900,9 +901,9 @@ WARNING:      RTI 4 maps to table OID pages
 WARNING:    Extracted JOIN condition: files[1] = pages[2]
 WARNING:    Extracted 1 JOIN conditions
 WARNING:    JOIN private data: 2 tables, limit: Some(10)
-WARNING:    Serialized JSON: {"relation_mapping":{"164156":2,"164170":4},"table_oids":[164170,164156],"limit":10,"join_conditions":[{"left":[164156,1],"right":[164170,2],"opno":96}]}
-WARNING:    Created persistent string at: 0x7ff698027be8
-WARNING:    Created string node: 0x7ff698027cf8
+WARNING:    Serialized JSON: {"relation_mapping":{"164278":4,"164264":2},"table_oids":[164278,164264],"limit":10,"join_conditions":[{"left":[164264,1],"right":[164278,2],"opno":96}]}
+WARNING:    Created persistent string at: 0x7fbe280efbe8
+WARNING:    Created string node: 0x7fbe280efcf8
 WARNING:    Added node to list, list length: 1
 WARNING:    Creating custom path: startup_cost=20, total_cost=1.6, rows=1
 WARNING:    CustomPath created successfully with joinrel.reltarget
@@ -938,7 +939,8 @@ WARNING:    Private data: 2 tables, limit: Some(10)
 WARNING:    Using joinrel target list with 3 expressions
 WARNING:    Created CustomScan plan for JOIN coordination
 WARNING:    startup_cost: 20, total_cost: 1.6, rows: 1
-ERROR:  variable not found in subplan target list
+WARNING:    CRITICAL: Set custom_scan_tlist to define output columns
+ERROR:  called `Result::unwrap()` on an `Err` value: Error("invalid type: sequence, expected a string", line: 1, column: 102)
 -- Cleanup
 DROP TABLE pages;
 DROP TABLE files;

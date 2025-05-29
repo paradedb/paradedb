@@ -172,9 +172,9 @@ WARNING:      RTI 2 maps to table OID test_files
 WARNING:    Extracted JOIN condition: test_docs[1] = test_files[2]
 WARNING:    Extracted 1 JOIN conditions
 WARNING:    JOIN private data: 2 tables, limit: Some(5)
-WARNING:    Serialized JSON: {"relation_mapping":{"164187":1,"164196":2},"table_oids":[164187,164196],"limit":5,"join_conditions":[{"left":[164187,1],"right":[164196,2],"opno":96}]}
-WARNING:    Created persistent string at: 0x7ff6e88c4f08
-WARNING:    Created string node: 0x7ff6e88c5018
+WARNING:    Serialized JSON: {"relation_mapping":{"164295":1,"164304":2},"table_oids":[164295,164304],"limit":5,"join_conditions":[{"left":[164295,1],"right":[164304,2],"opno":96}]}
+WARNING:    Created persistent string at: 0x7fbe368e3108
+WARNING:    Created string node: 0x7fbe368e3218
 WARNING:    Added node to list, list length: 1
 WARNING:    Creating custom path: startup_cost=20, total_cost=1.6, rows=1
 WARNING:    CustomPath created successfully with joinrel.reltarget
@@ -197,9 +197,9 @@ WARNING:      RTI 2 maps to table OID test_files
 WARNING:    Extracted JOIN condition: test_docs[1] = test_files[2]
 WARNING:    Extracted 1 JOIN conditions
 WARNING:    JOIN private data: 2 tables, limit: Some(5)
-WARNING:    Serialized JSON: {"relation_mapping":{"164187":1,"164196":2},"table_oids":[164196,164187],"limit":5,"join_conditions":[{"left":[164187,1],"right":[164196,2],"opno":96}]}
-WARNING:    Created persistent string at: 0x7ff6e88c7628
-WARNING:    Created string node: 0x7ff6e88c7738
+WARNING:    Serialized JSON: {"relation_mapping":{"164295":1,"164304":2},"table_oids":[164304,164295],"limit":5,"join_conditions":[{"left":[164295,1],"right":[164304,2],"opno":96}]}
+WARNING:    Created persistent string at: 0x7fbe368e5828
+WARNING:    Created string node: 0x7fbe368e5938
 WARNING:    Added node to list, list length: 1
 WARNING:    Creating custom path: startup_cost=20, total_cost=1.6, rows=1
 WARNING:    CustomPath created successfully with joinrel.reltarget
@@ -211,7 +211,8 @@ WARNING:    Private data: 2 tables, limit: Some(5)
 WARNING:    Using joinrel target list with 2 expressions
 WARNING:    Created CustomScan plan for JOIN coordination
 WARNING:    startup_cost: 20, total_cost: 1.6, rows: 1
-ERROR:  variable not found in subplan target list
+WARNING:    CRITICAL: Set custom_scan_tlist to define output columns
+ERROR:  called `Result::unwrap()` on an `Err` value: Error("invalid type: sequence, expected a string", line: 1, column: 101)
 -- Cleanup
 DROP TABLE test_files;
 DROP TABLE test_docs; 

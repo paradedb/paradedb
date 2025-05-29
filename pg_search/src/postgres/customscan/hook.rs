@@ -604,6 +604,7 @@ extern "C-unwind" fn plan_join_coordination_custom_path<CS: CustomScan>(
             flags: (*best_path).flags,
             custom_private: (*best_path).custom_private, // Use existing private data as-is
             custom_plans: custom_plans, // Use the custom_plans passed in (may be null)
+            custom_scan_tlist: tlist, // CRITICAL: Set custom_scan_tlist to tell PostgreSQL what we'll provide
             methods: CS::custom_scan_methods(),
             scan: pg_sys::Scan {
                 plan: pg_sys::Plan {
@@ -628,6 +629,7 @@ extern "C-unwind" fn plan_join_coordination_custom_path<CS: CustomScan>(
             custom_scan.scan.plan.total_cost,
             custom_scan.scan.plan.plan_rows
         );
+        pgrx::warning!("  CRITICAL: Set custom_scan_tlist to define output columns");
 
         planner_cxt.leak_and_drop_on_delete(custom_scan).cast()
     }

@@ -502,9 +502,9 @@ WARNING:      RTI 2 maps to table OID test_files
 WARNING:    Extracted JOIN condition: test_documents[1] = test_files[2]
 WARNING:    Extracted 1 JOIN conditions
 WARNING:    JOIN private data: 2 tables, limit: Some(5)
-WARNING:    Serialized JSON: {"relation_mapping":{"164132":2,"164125":1},"table_oids":[164125,164132],"limit":5,"join_conditions":[{"left":[164125,1],"right":[164132,2],"opno":98}]}
-WARNING:    Created persistent string at: 0x7ff6d014c628
-WARNING:    Created string node: 0x7ff6d014c738
+WARNING:    Serialized JSON: {"relation_mapping":{"164233":1,"164240":2},"table_oids":[164233,164240],"limit":5,"join_conditions":[{"left":[164233,1],"right":[164240,2],"opno":98}]}
+WARNING:    Created persistent string at: 0x7fbe080ac628
+WARNING:    Created string node: 0x7fbe080ac738
 WARNING:    Added node to list, list length: 1
 WARNING:    Creating custom path: startup_cost=20, total_cost=1.6, rows=1
 WARNING:    CustomPath created successfully with joinrel.reltarget
@@ -527,9 +527,9 @@ WARNING:      RTI 2 maps to table OID test_files
 WARNING:    Extracted JOIN condition: test_documents[1] = test_files[2]
 WARNING:    Extracted 1 JOIN conditions
 WARNING:    JOIN private data: 2 tables, limit: Some(5)
-WARNING:    Serialized JSON: {"relation_mapping":{"164132":2,"164125":1},"table_oids":[164132,164125],"limit":5,"join_conditions":[{"left":[164125,1],"right":[164132,2],"opno":98}]}
-WARNING:    Created persistent string at: 0x7ff6d014eb00
-WARNING:    Created string node: 0x7ff6d014ec10
+WARNING:    Serialized JSON: {"relation_mapping":{"164233":1,"164240":2},"table_oids":[164240,164233],"limit":5,"join_conditions":[{"left":[164233,1],"right":[164240,2],"opno":98}]}
+WARNING:    Created persistent string at: 0x7fbe080aeb00
+WARNING:    Created string node: 0x7fbe080aec10
 WARNING:    Added node to list, list length: 1
 WARNING:    Creating custom path: startup_cost=20, total_cost=1.6, rows=1
 WARNING:    CustomPath created successfully with joinrel.reltarget
@@ -541,7 +541,8 @@ WARNING:    Private data: 2 tables, limit: Some(5)
 WARNING:    Using joinrel target list with 2 expressions
 WARNING:    Created CustomScan plan for JOIN coordination
 WARNING:    startup_cost: 20, total_cost: 1.6, rows: 1
-ERROR:  variable not found in subplan target list
+WARNING:    CRITICAL: Set custom_scan_tlist to define output columns
+ERROR:  called `Result::unwrap()` on an `Err` value: Error("invalid type: sequence, expected a string", line: 1, column: 101)
 -- Reset GUC to default
 SET paradedb.enable_join_coordination = false;
 -- Cleanup

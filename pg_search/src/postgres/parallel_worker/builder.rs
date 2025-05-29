@@ -14,6 +14,7 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
+
 use crate::postgres::parallel_worker::mqueue::MessageQueueReceiver;
 use crate::postgres::parallel_worker::{
     estimate_chunk, estimate_keys, ParallelProcess, TocKeys, MAXALIGN_DOWN,
@@ -157,6 +158,7 @@ impl<S> ParallelProcessFinish<S> {
         unsafe { (*self.launcher.pcxt.as_ptr()).nworkers_launched as usize }
     }
 
+    #[allow(dead_code)]
     pub fn shm_state(&self) -> &S {
         unsafe { &*self.launcher.shm_state.as_ptr() }
     }

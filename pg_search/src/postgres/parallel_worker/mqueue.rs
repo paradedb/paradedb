@@ -1,5 +1,3 @@
-use std::error::Error;
-use std::fmt::{Display, Formatter};
 // Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
@@ -16,7 +14,10 @@ use std::fmt::{Display, Formatter};
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
+
 use pgrx::pg_sys;
+use std::error::Error;
+use std::fmt::{Display, Formatter};
 use std::ptr::NonNull;
 
 struct MessageQueueHandle {
@@ -121,6 +122,7 @@ impl MessageQueueSender {
         }
     }
 
+    #[allow(dead_code)]
     pub fn try_send(&self, msg: &[u8]) -> Result<Option<()>, MessageQueueSendError> {
         unsafe {
             let result = pg_sys::shm_mq_send(

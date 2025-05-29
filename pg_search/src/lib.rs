@@ -19,7 +19,7 @@
 mod api;
 mod bootstrap;
 mod index;
-pub mod postgres;
+mod postgres;
 mod query;
 mod schema;
 

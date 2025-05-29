@@ -17,7 +17,7 @@
 
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::reader::index::SearchIndexReader;
-use crate::index::writer::index::SearchIndexWriter;
+use crate::index::writer::index::SerialSegmentWriter;
 use crate::index::{get_index_schema, WriterResources};
 use crate::postgres::storage::block::{
     SegmentMetaEntry, CLEANUP_LOCK, METADATA, SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
@@ -28,25 +28,24 @@ use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use crate::postgres::utils::{
     categorize_fields, item_pointer_to_u64, row_to_search_document, CategorizedFieldData,
 };
-use crate::schema::{SearchField, SearchFieldConfig};
+use crate::schema::document::SearchDocument;
+use crate::schema::SearchField;
 use anyhow::Result;
-use pgrx::pg_sys::panic::ErrorReport;
-use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
 use std::ffi::CStr;
 use std::os::raw::c_void;
 use std::time::Instant;
 use tantivy::{Index, IndexSettings};
-use tokenizers::SearchTokenizer;
 
 const PARALLEL_KEY_SHARED_STATE: u64 = 0xA000000000000001;
+const LEADER_PARTICIPATES: bool = true;
 
 // For now just pass the count on the build callback state
 struct BuildState {
     reltuples: usize,
     per_row_context: PgMemoryContexts,
     start: Instant,
-    writer: Option<SearchIndexWriter>,
+    writer: Option<SerialSegmentWriter>,
     categorized_fields: Vec<(SearchField, CategorizedFieldData)>,
     key_field_name: String,
     heap_relation: pg_sys::Relation,
@@ -74,16 +73,15 @@ struct ParallelBuildLeader {
 impl BuildState {
     fn new(relation_oid: pg_sys::Oid) -> Self {
         let index_relation = unsafe { PgRelation::open(relation_oid) };
-        let writer = SearchIndexWriter::open(
-            &index_relation,
-            MvccSatisfies::Snapshot,
-            WriterResources::CreateIndex,
-        )
-        .expect("build state: should be able to open a SearchIndexWriter");
+        let (_, memory_budget) = WriterResources::CreateIndex.resources();
+        let writer = SerialSegmentWriter::open(&index_relation, memory_budget)
+            .expect("build state: should be able to open writer");
 
         let tupdesc = unsafe { PgTupleDesc::from_pg_unchecked(index_relation.rd_att) };
-        let categorized_fields = categorize_fields(&tupdesc, &writer.schema);
-        let key_field_name = writer.schema.key_field().name.0;
+        let schema = get_index_schema(&index_relation)
+            .expect("build state: should be able to get index schema");
+        let categorized_fields = categorize_fields(&tupdesc, &schema);
+        let key_field_name = schema.key_field().name.0;
 
         BuildState {
             reltuples: 0,
@@ -188,7 +186,7 @@ fn do_heap_scan<'a>(
             build_state,
         );
 
-        (*build_state)
+        build_state
             .writer
             .take()
             .expect("do_heap_scan: writer should exist by now")
@@ -237,7 +235,7 @@ unsafe extern "C-unwind" fn build_callback(
     // the call to reset().
     unsafe {
         build_state.per_row_context.switch_to(|cxt| {
-            let mut search_document = writer.schema.new_document();
+            let mut search_document = SearchDocument { doc: tantivy::TantivyDocument::new() };
 
             row_to_search_document(
                 values,
@@ -252,12 +250,12 @@ unsafe extern "C-unwind" fn build_callback(
                         CStr::from_ptr((*(*indexrel).rd_rel).relname.data.as_ptr()).to_string_lossy()
                     );
                 });
+
             writer
                 .insert(search_document, item_pointer_to_u64(*ctid))
                 .unwrap_or_else(|err| {
                     panic!("error inserting document during build callback.  See Postgres log for more information: {err:?}")
                 });
-
             cxt.reset();
         });
 
@@ -369,15 +367,13 @@ unsafe fn begin_parallel_index_build(
     pg_sys::EnterParallelMode();
     assert!(parallel_workers > 0);
 
-    let leader_participates = false;
-
     let parallel_context = pg_sys::CreateParallelContext(
         c"pg_search".as_ptr(),
         c"parallel_build_main".as_ptr(),
         parallel_workers,
     );
     let snapshot = if !is_concurrent {
-        &mut pg_sys::SnapshotAnyData
+        &raw mut pg_sys::SnapshotAnyData
     } else {
         pg_sys::RegisterSnapshot(pg_sys::GetTransactionSnapshot())
     };
@@ -399,7 +395,7 @@ unsafe fn begin_parallel_index_build(
         return;
     }
 
-    let mut shared_state = pg_sys::shm_toc_allocate((*parallel_context).toc, est_shared)
+    let shared_state = pg_sys::shm_toc_allocate((*parallel_context).toc, est_shared)
         as *mut ParallelBuildSharedState;
     (*shared_state).heap_oid = (*build_state.heap_relation).rd_id;
     (*shared_state).index_oid = (*build_state.index_relation).rd_id;
@@ -421,14 +417,14 @@ unsafe fn begin_parallel_index_build(
 
     pg_sys::LaunchParallelWorkers(parallel_context);
 
-    let mut leader =
+    let leader =
         pg_sys::palloc0(std::mem::size_of::<ParallelBuildLeader>()) as *mut ParallelBuildLeader;
     (*leader).parallel_context = parallel_context;
     (*leader).n_participant_tuple_sorts = (*parallel_context).nworkers_launched;
     (*leader).shared = shared_state;
     (*leader).snapshot = snapshot;
 
-    if leader_participates {
+    if LEADER_PARTICIPATES {
         (*leader).n_participant_tuple_sorts += 1;
     }
 
@@ -440,7 +436,7 @@ unsafe fn begin_parallel_index_build(
     build_state.leader = leader;
 
     // Leader joins the parallel build
-    if leader_participates {
+    if LEADER_PARTICIPATES {
         parallel_scan_and_insert(
             build_state.heap_relation,
             build_state.index_relation,
@@ -456,7 +452,7 @@ unsafe fn begin_parallel_index_build(
 
 #[no_mangle]
 unsafe extern "C-unwind" fn parallel_build_main(
-    seg: *mut pg_sys::dsm_segment,
+    _seg: *mut pg_sys::dsm_segment,
     toc: *mut pg_sys::shm_toc,
 ) {
     let shared_state = pg_sys::shm_toc_lookup(toc, PARALLEL_KEY_SHARED_STATE, false)
@@ -482,8 +478,7 @@ unsafe fn parallel_scan_and_insert(
     shared_state: *mut ParallelBuildSharedState,
     progress: bool,
 ) {
-    pgrx::log!("parallel_scan_and_insert");
-    let mut index_info = pg_sys::BuildIndexInfo(index);
+    let index_info = pg_sys::BuildIndexInfo(index);
     (*index_info).ii_Concurrent = (*shared_state).is_concurrent;
 
     let mut build_state = BuildState::new((*shared_state).index_oid);
@@ -500,28 +495,22 @@ unsafe fn parallel_scan_and_insert(
         scan,
     );
 
-    pgrx::log!("parallel_scan_and_insert: waiting for lock");
     pg_sys::SpinLockAcquire(&mut (*shared_state).mutex);
-    pgrx::log!("parallel_scan_and_insert: got lock");
     (*shared_state).n_participants_done += 1;
     (*shared_state).reltuples += reltuples;
     pg_sys::SpinLockRelease(&mut (*shared_state).mutex);
 
     pg_sys::ConditionVariableSignal(&mut (*shared_state).workers_done);
-    pgrx::log!("parallel_scan_and_insert: signaled");
 }
 
 unsafe fn parallel_heap_scan(build_state: *mut BuildState) {
-    let mut leader = (*build_state).leader;
+    let leader = (*build_state).leader;
     let shared_state = (*leader).shared;
     let n_participant_tuple_sorts = (*leader).n_participant_tuple_sorts;
 
     loop {
-        pgrx::log!("parallel_heap_scan: waiting for lock");
         pg_sys::SpinLockAcquire(&mut (*shared_state).mutex);
-        pgrx::log!("parallel_heap_scan: got lock");
         if (*shared_state).n_participants_done == n_participant_tuple_sorts {
-            pgrx::log!("parallel_heap_scan: all workers done");
             (*build_state).reltuples = (*shared_state).reltuples as usize;
             pg_sys::SpinLockRelease(&mut (*shared_state).mutex);
             break;
@@ -541,14 +530,8 @@ unsafe fn parallel_heap_scan(build_state: *mut BuildState) {
     pg_sys::ConditionVariableCancelSleep();
 }
 
-#[pg_guard]
-unsafe extern "C-unwind" fn end_parallel_index_build(leader: *mut ParallelBuildLeader) {
-    pgrx::log!(
-        "waiting for workers to finish, context is null {:?}",
-        (*leader).parallel_context.is_null()
-    );
+unsafe fn end_parallel_index_build(leader: *mut ParallelBuildLeader) {
     pg_sys::WaitForParallelWorkersToFinish((*leader).parallel_context);
-    pgrx::log!("workers finished");
 
     if is_mvcc_snapshot((*leader).snapshot) {
         pg_sys::UnregisterSnapshot((*leader).snapshot);
@@ -556,7 +539,6 @@ unsafe extern "C-unwind" fn end_parallel_index_build(leader: *mut ParallelBuildL
 
     pg_sys::DestroyParallelContext((*leader).parallel_context);
     pg_sys::ExitParallelMode();
-    pgrx::log!("parallel index build ended");
 }
 
 unsafe fn parallel_estimate_shmem(

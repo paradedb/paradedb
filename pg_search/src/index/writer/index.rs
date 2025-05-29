@@ -19,11 +19,10 @@ use crate::api::{HashMap, HashSet};
 use anyhow::Result;
 use pgrx::{pg_sys, PgRelation};
 use tantivy::index::SegmentId;
-use tantivy::indexer::{NoMergePolicy, SegmentWriter, AddOperation, UserOperation};
+use tantivy::indexer::{AddOperation, NoMergePolicy, SegmentWriter, UserOperation};
 use tantivy::schema::Field;
 use tantivy::{
-    DocId, Index, IndexWriter, Opstamp, Segment, SegmentMeta, SingleSegmentIndexWriter,
-    TantivyDocument, TantivyError,
+    DocId, Index, IndexWriter, Opstamp, Segment, SegmentMeta, TantivyDocument, TantivyError,
 };
 use thiserror::Error;
 
@@ -162,24 +161,18 @@ impl SearchIndexWriter {
 }
 
 pub struct SerialSegmentWriter {
-    indexrelid: pg_sys::Oid,
     ctid_field: Field,
 
     // keep all these private -- leaking them to the public API would allow callers to
     // mis-use the IndexWriter in particular.
     current_segment: Option<(Segment, SegmentWriter)>,
-    insert_queue: Vec<UserOperation>,
     cnt: usize,
-    resources: WriterResources,
+    memory_budget: usize,
     index: Index,
 }
 
 impl SerialSegmentWriter {
-    pub fn open(
-        index_relation: &PgRelation,
-        directory_type: MvccSatisfies,
-        resources: WriterResources,
-    ) -> Result<Self> {
+    pub fn open(index_relation: &PgRelation, memory_budget: usize) -> Result<Self> {
         let directory = MVCCDirectory::snapshot(index_relation.oid());
         let mut index = Index::open(directory)?;
         let schema = SearchIndexSchema::open(index.schema(), index_relation);
@@ -188,12 +181,10 @@ impl SerialSegmentWriter {
         let ctid_field = schema.schema.get_field("ctid")?;
 
         Ok(Self {
-            indexrelid: index_relation.oid(),
             ctid_field,
             current_segment: None,
-            insert_queue: Vec::with_capacity(MAX_INSERT_QUEUE_SIZE),
             cnt: 0,
-            resources,
+            memory_budget,
             index,
         })
     }
@@ -203,6 +194,12 @@ impl SerialSegmentWriter {
         let mut tantivy_document: TantivyDocument = document.into();
         tantivy_document.add_u64(self.ctid_field, ctid);
 
+        if self.current_segment.is_none() {
+            let new_segment = self.index.new_segment();
+            let new_writer = SegmentWriter::for_segment(self.memory_budget, new_segment.clone())?;
+            self.current_segment = Some((new_segment, new_writer));
+        }
+
         // TODO: Consider batching these
         self.current_segment
             .as_mut()
@@ -211,19 +208,29 @@ impl SerialSegmentWriter {
             .add_document(AddOperation {
                 opstamp: 0,
                 document: tantivy_document,
-            });
+            })?;
 
-        if self.memory_budget() <= self.current_segment.as_ref().unwrap().1.mem_usage() {
-            let (segment, writer) = self.current_segment.take().unwrap();
-            todo!("finalize segment, save new metas");
+        if self.memory_budget <= self.current_segment.as_ref().unwrap().1.mem_usage() {
+            self.finalize_segment()?;
+            // TODO: Save new metas
         }
 
         Ok(())
     }
 
-    fn memory_budget(&self) -> usize {
-        let (_, memory_budget) = self.resources.resources();
-        memory_budget
+    pub fn commit(mut self) -> Result<()> {
+        self.finalize_segment()
+    }
+
+    fn finalize_segment(&mut self) -> Result<()> {
+        let (segment, writer) = self
+            .current_segment
+            .take()
+            .expect("commit: segment writer should be present");
+        let max_doc = writer.max_doc();
+        writer.finalize()?;
+        let _segment = segment.with_max_doc(max_doc);
+        Ok(())
     }
 }
 

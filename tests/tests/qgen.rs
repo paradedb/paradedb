@@ -17,8 +17,11 @@
 
 mod fixtures;
 
+use std::fmt::Debug;
+
 use crate::fixtures::querygen::arb_joins_and_wheres;
 use crate::fixtures::querygen::joingen::JoinType;
+use crate::fixtures::querygen::pagegen::arb_paging_exprs;
 use crate::fixtures::querygen::wheregen::arb_wheres;
 
 use fixtures::*;
@@ -83,6 +86,65 @@ ANALYZE;
     setup_sql
 }
 
+/// Run the given pg and bm25 queries on the given connection, and compare their results across a
+/// variety of configurations of the extension.
+///
+/// TODO: The configurations of the extension in the loop below could in theory also be proptested
+/// properties: if performance becomes a concern, we should lift them out, and apply them using the
+/// proptest properties instead.
+fn compare<R, F>(
+    pg_query: String,
+    bm25_query: String,
+    conn: &mut PgConnection,
+    run_query: F,
+) -> Result<(), TestCaseError>
+where
+    R: Eq + Debug,
+    F: Fn(&str, &mut PgConnection) -> R,
+{
+    // the postgres query is always run with the paradedb custom scan turned off
+    // this ensures we get the actual, known-to-be-correct result from Postgres'
+    // plan, and not from ours where we did some kind of pushdown
+    r#"
+        RESET max_parallel_workers;
+        SET enable_seqscan TO ON;
+        SET enable_indexscan TO ON;
+        SET paradedb.enable_custom_scan TO OFF;
+    "#
+    .execute(conn);
+
+    let pg_result = run_query(&pg_query, conn);
+
+    // and for the "bm25" query, we run it a number of times with more and more scan types disabled,
+    // always ensuring that paradedb's custom scan is turned on
+    "SET paradedb.enable_custom_scan TO ON;".execute(conn);
+    for scan_type in [
+        "SET enable_seqscan TO OFF",
+        "SET enable_indexscan TO OFF",
+        "SET max_parallel_workers TO 0",
+    ] {
+        scan_type.execute(conn);
+
+        let bm25_result = run_query(&bm25_query, conn);
+        prop_assert_eq!(
+            &pg_result,
+            &bm25_result,
+            "\nscan_type={}\npg:\n  {}\nbm25:\n  {}\nexplain:\n{}\n",
+            scan_type,
+            pg_query,
+            bm25_query,
+            format!("EXPLAIN ANALYZE {bm25_query}")
+                .fetch::<(String,)>(conn)
+                .into_iter()
+                .map(|(s,)| s)
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+    }
+
+    Ok(())
+}
+
 ///
 /// Tests all JoinTypes against small tables (which are particularly important for joins which
 /// result in e.g. the cartesian product).
@@ -114,40 +176,12 @@ async fn generated_joins_small(database: Db) {
 
         let from = format!("SELECT COUNT(*) {join_clause} ");
 
-        let pg = format!("{from} WHERE {}", where_expr.to_sql(" = "));
-        let bm25 = format!("{from} WHERE {}", where_expr.to_sql("@@@"));
-
-        let conn = &mut pool.pull();
-
-        // the postgres query is always run with the paradedb custom scan turned off
-        // this ensures we get the actual, known-to-be-correct result from Postgres'
-        // plan, and not from ours where we did some kind of pushdown
-        r#"
-            RESET max_parallel_workers;
-            SET enable_seqscan TO ON;
-            SET enable_indexscan TO ON;
-            SET paradedb.enable_custom_scan TO OFF;
-        "#.execute(conn);
-        let (pg_cnt,) = (&pg).fetch_one::<(i64,)>(conn);
-
-
-        // and for the "bm25" query, we run it a number of times with more and more scan types disabled,
-        // always ensuring that paradedb's custom scan is turned on
-        "SET paradedb.enable_custom_scan TO ON;".execute(conn);
-        for scan_type in ["SET enable_seqscan TO OFF", "SET enable_indexscan TO OFF", "SET max_parallel_workers TO 0"] {
-            scan_type.execute(conn);
-
-            let (bm25_cnt,) = (&bm25).fetch_one::<(i64,)>(conn);
-            prop_assert_eq!(
-                pg_cnt,
-                bm25_cnt,
-                "\nscan_type={}\npg:\n  {}\nbm25:\n  {}\nexplain:\n{}\n",
-                scan_type,
-                pg,
-                bm25,
-                format!("EXPLAIN {bm25}").fetch::<(String,)>(conn).into_iter().map(|(s,)| s).collect::<Vec<_>>().join("\n"),
-            );
-        }
+        compare(
+            format!("{from} WHERE {}", where_expr.to_sql(" = ")),
+            format!("{from} WHERE {}", where_expr.to_sql("@@@")),
+            &mut pool.pull(),
+            |query, conn| query.fetch_one::<(i64,)>(conn).0,
+        )?;
     });
 }
 
@@ -189,39 +223,12 @@ async fn generated_joins_large_limit(database: Db) {
                 .join(", ");
         let from = format!("SELECT {target_list} {join_clause} ");
 
-        let pg = format!("{from} WHERE {} LIMIT 10;", where_expr.to_sql(" = "));
-        let bm25 = format!("{from} WHERE {} LIMIT 10;", where_expr.to_sql("@@@"));
-
-        let conn = &mut pool.pull();
-
-        // the postgres query is always run with the paradedb custom scan turned off
-        // this ensures we get the actual, known-to-be-correct result from Postgres'
-        // plan, and not from ours where we did some kind of pushdown
-        r#"
-            RESET max_parallel_workers;
-            SET enable_seqscan TO ON;
-            SET enable_indexscan TO ON;
-            SET paradedb.enable_custom_scan TO OFF;
-        "#.execute(conn);        
-        // Because we use a generated target list, we fetch as dynamic to allow for comparison.
-        let pg_rows = (&pg).fetch_dynamic(conn);
-
-        // and for the "bm25" query, we run it a number of times with more and more scan types disabled,
-        // always ensuring that paradedb's custom scan is turned on
-        "SET paradedb.enable_custom_scan TO ON;".execute(conn);
-        for scan_type in ["SET enable_seqscan TO OFF", "SET enable_indexscan TO OFF", "SET max_parallel_workers TO 0"] {
-            scan_type.execute(conn);
-
-            let bm25_rows = (&bm25).fetch_dynamic(conn);
-            prop_assert_eq!(
-                pg_rows.len(),
-                bm25_rows.len(),
-                "\npg:\n  {}\nbm25:\n  {}\nexplain:\n{}\n",
-                pg,
-                bm25,
-                format!("EXPLAIN {bm25}").fetch::<(String,)>(conn).into_iter().map(|(s,)| s).collect::<Vec<_>>().join("\n"),
-            );
-        }
+        compare(
+            format!("{from} WHERE {} LIMIT 10;", where_expr.to_sql(" = ")),
+            format!("{from} WHERE {} LIMIT 10;", where_expr.to_sql("@@@")),
+            &mut pool.pull(),
+            |query, conn| query.fetch_dynamic(conn).len(),
+        )?;
     });
 }
 
@@ -234,7 +241,8 @@ async fn generated_single_relation(database: Db) {
     );
 
     let table_name = "users";
-    generated_queries_setup(&mut pool.pull(), &[(table_name, 10)]);
+    let setup_sql = generated_queries_setup(&mut pool.pull(), &[(table_name, 10)]);
+    eprintln!("{setup_sql}");
 
     proptest!(|(
         where_expr in arb_wheres(
@@ -242,21 +250,94 @@ async fn generated_single_relation(database: Db) {
             vec![("name", "bob"), ("color", "blue"), ("age", "20")]
         ),
     )| {
-        let where_clause = where_expr.to_sql(" = ");
-        let pg = format!("SELECT COUNT(*) FROM {table_name} WHERE {where_clause}");
-        let bm25 = format!(
-            "SELECT COUNT(*) FROM {table_name} WHERE ({where_clause}) AND id @@@ paradedb.all()"
-        ); // force a pushdown
+        compare(
+            format!("SELECT id FROM {table_name} WHERE {}", where_expr.to_sql(" = ")),
+            format!("SELECT id FROM {table_name} WHERE {}", where_expr.to_sql("@@@")),
+            &mut pool.pull(),
+            |query, conn| {
+                let mut rows = query.fetch::<(i64,)>(conn);
+                rows.sort();
+                rows
+            }
+        )?;
+    });
+}
 
-        let (pg_cnt,) = (&pg).fetch_one::<(i64,)>(&mut pool.pull());
-        let (bm25_cnt,) = (&bm25).fetch_one::<(i64,)>(&mut pool.pull());
-        prop_assert_eq!(
-            pg_cnt,
-            bm25_cnt,
-            "\npg:\n  {}\nbm25:\n  {}\nexplain:\n{}\n",
+#[rstest]
+#[tokio::test]
+async fn generated_paging(database: Db) {
+    let pool = MutexObjectPool::<PgConnection>::new(
+        move || block_on(async { database.connection().await }),
+        |_| {},
+    );
+
+    let table_name = "users";
+    let setup_sql = generated_queries_setup(&mut pool.pull(), &[(table_name, 10)]);
+    eprintln!("{setup_sql}");
+
+    proptest!(|(
+        where_expr in arb_wheres(vec![table_name], vec![("name", "bob")]),
+        paging_exprs in arb_paging_exprs(table_name, "id", vec!["name", "color", "age"]),
+    )| {
+        compare(
+            format!("SELECT id FROM {table_name} WHERE {} {paging_exprs}", where_expr.to_sql(" = ")),
+            format!("SELECT id FROM {table_name} WHERE {} {paging_exprs}", where_expr.to_sql("@@@")),
+            &mut pool.pull(),
+            |query, conn| query.fetch::<(i64,)>(conn),
+        )?;
+    });
+}
+
+#[rstest]
+#[tokio::test]
+async fn generated_subquery(database: Db) {
+    let pool = MutexObjectPool::<PgConnection>::new(
+        move || block_on(async { database.connection().await }),
+        |_| {},
+    );
+
+    let outer_table_name = "products";
+    let inner_table_name = "orders";
+    let setup_sql = generated_queries_setup(
+        &mut pool.pull(),
+        &[(outer_table_name, 10), (inner_table_name, 10)],
+    );
+    eprintln!("{setup_sql}");
+
+    proptest!(|(
+        outer_where_expr in arb_wheres(
+            vec![outer_table_name],
+            vec![("name", "bob"), ("color", "blue"), ("age", "20")]
+        ),
+        inner_where_expr in arb_wheres(
+            vec![inner_table_name],
+            vec![("name", "bob"), ("color", "blue"), ("age", "20")]
+        ),
+        subquery_column in proptest::sample::select(&["name", "color", "age"]),
+        paging_exprs in arb_paging_exprs(inner_table_name, "id", vec!["name", "color", "age"]),
+    )| {
+        let pg = format!(
+            "SELECT COUNT(*) FROM {outer_table_name} \
+            WHERE {outer_table_name}.{subquery_column} IN (\
+                SELECT {subquery_column} FROM {inner_table_name} WHERE {} {paging_exprs}\
+            ) AND {}",
+            inner_where_expr.to_sql(" = "),
+            outer_where_expr.to_sql(" = "),
+        );
+        let bm25 = format!(
+            "SELECT COUNT(*) FROM {outer_table_name} \
+            WHERE {outer_table_name}.{subquery_column} IN (\
+                SELECT {subquery_column} FROM {inner_table_name} WHERE {} {paging_exprs}\
+            ) AND {}",
+            inner_where_expr.to_sql("@@@"),
+            outer_where_expr.to_sql("@@@"),
+        );
+
+        compare(
             pg,
             bm25,
-            format!("EXPLAIN {bm25}").fetch::<(String,)>(&mut pool.pull()).into_iter().map(|(s,)| s).collect::<Vec<_>>().join("\n"),
-        );
+            &mut pool.pull(),
+            |query, conn| query.fetch_one::<(i64,)>(conn),
+        )?;
     });
 }

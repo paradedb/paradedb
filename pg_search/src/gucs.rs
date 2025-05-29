@@ -34,6 +34,9 @@ static ENABLE_CUSTOM_JOIN: GucSetting<bool> = GucSetting::<bool>::new(false);
 /// Allows the user to enable or disable semi-join optimization. Default is `true`.
 static ENABLE_SEMI_JOIN_OPTIMIZATION: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+/// Allows the user to enable or disable lazy join field loading. Default is `false`.
+static ENABLE_LAZY_JOIN_LOADING: GucSetting<bool> = GucSetting::<bool>::new(false);
+
 /// Controls the debug logging level for join operations. Default is `false`.
 static ENABLE_JOIN_DEBUG_LOGGING: GucSetting<bool> = GucSetting::<bool>::new(false);
 
@@ -114,6 +117,15 @@ pub fn init() {
         "Enable semi-join optimization",
         "Enable the semi-join optimization for handling join queries on bm25 indexes",
         &ENABLE_SEMI_JOIN_OPTIMIZATION,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        "paradedb.enable_lazy_join_loading",
+        "Enable lazy join field loading",
+        "Enable the lazy field loading optimization for join queries with LIMIT clauses",
+        &ENABLE_LAZY_JOIN_LOADING,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -214,6 +226,10 @@ pub fn is_custom_join_enabled() -> bool {
 
 pub fn is_semi_join_optimization_enabled() -> bool {
     ENABLE_SEMI_JOIN_OPTIMIZATION.get()
+}
+
+pub fn is_lazy_join_loading_enabled() -> bool {
+    ENABLE_LAZY_JOIN_LOADING.get()
 }
 
 pub fn is_join_debug_logging_enabled() -> bool {

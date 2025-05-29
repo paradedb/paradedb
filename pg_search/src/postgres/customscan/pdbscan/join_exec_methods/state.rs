@@ -104,6 +104,12 @@ pub struct JoinExecState {
     pub has_intermediate_input: bool,
     pub intermediate_side: Option<IntermediateSide>,
     pub intermediate_iterator: Option<IntermediateResultIterator>,
+
+    // Query limit (for lazy loading optimization)
+    pub limit: Option<f64>,
+
+    // Field map for lazy loading
+    pub field_map: Option<super::field_map::MultiTableFieldMap>,
 }
 
 /// Which side of the join has intermediate results
@@ -146,6 +152,8 @@ impl Default for JoinExecState {
             has_intermediate_input: false,
             intermediate_side: None,
             intermediate_iterator: None,
+            limit: None,
+            field_map: None,
         }
     }
 }
@@ -276,6 +284,18 @@ pub unsafe fn exec_join_step(
         JoinExecPhase::JoinMatching => {
             warning!("ParadeDB: In join matching phase");
 
+            // Check if we should use lazy join execution
+            if crate::gucs::is_lazy_join_loading_enabled() {
+                // Check if this query is suitable for lazy loading
+                if let Some(ref join_state) = state.custom_state().join_exec_state {
+                    if join_state.is_search_join() {
+                        warning!("ParadeDB: Checking if lazy join execution is beneficial");
+                        // Use lazy join execution if appropriate
+                        return super::lazy_join::execute_lazy_join(state);
+                    }
+                }
+            }
+
             // Log current positions
             if let Some(ref join_state) = state.custom_state().join_exec_state {
                 let outer_len = join_state
@@ -297,6 +317,7 @@ pub unsafe fn exec_join_step(
                 );
             }
 
+            // Fall back to standard join execution
             super::match_and_return_next_tuple(state)
         }
         JoinExecPhase::Finished => {

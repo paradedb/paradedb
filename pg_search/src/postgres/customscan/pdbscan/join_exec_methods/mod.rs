@@ -20,8 +20,14 @@
 //! This module breaks down the join execution functionality into logical components:
 //! - `state`: Join execution state management
 //! - `heap_access`: Heap tuple fetching and data access
+//! - `field_map`: Field classification for fast vs non-fast fields
+//! - `lazy_loader`: Batch-optimized lazy field loading
+//! - `lazy_join`: Optimized join execution with lazy loading
 
+pub mod field_map;
 pub mod heap_access;
+pub mod lazy_join;
+pub mod lazy_loader;
 pub mod state;
 
 // Re-export the main public interface from state module

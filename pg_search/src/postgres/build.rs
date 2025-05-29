@@ -34,6 +34,7 @@ use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
 use std::ffi::CStr;
+use std::os::raw::c_void;
 use std::time::Instant;
 use tantivy::{Index, IndexSettings};
 use tokenizers::SearchTokenizer;
@@ -42,15 +43,15 @@ const PARALLEL_KEY_SHARED_STATE: u64 = 0xA000000000000001;
 
 // For now just pass the count on the build callback state
 struct BuildState {
-    count: usize,
+    reltuples: usize,
     per_row_context: PgMemoryContexts,
     start: Instant,
-    writer: SearchIndexWriter,
+    writer: Option<SearchIndexWriter>,
     categorized_fields: Vec<(SearchField, CategorizedFieldData)>,
     key_field_name: String,
-    heap_relation: PgRelation,
-    index_relation: PgRelation,
-    leader: Option<ParallelBuildLeader>,
+    heap_relation: pg_sys::Relation,
+    index_relation: pg_sys::Relation,
+    leader: *mut ParallelBuildLeader,
 }
 
 struct ParallelBuildSharedState {
@@ -64,7 +65,7 @@ struct ParallelBuildSharedState {
 }
 
 struct ParallelBuildLeader {
-    parallel_context: pg_sys::ParallelContext,
+    parallel_context: *mut pg_sys::ParallelContext,
     n_participant_tuple_sorts: i32,
     shared: *mut ParallelBuildSharedState,
     snapshot: pg_sys::Snapshot,
@@ -85,17 +86,18 @@ impl BuildState {
         let key_field_name = writer.schema.key_field().name.0;
 
         BuildState {
-            count: 0,
+            reltuples: 0,
             per_row_context: PgMemoryContexts::new("pg_search ambuild context"),
             start: Instant::now(),
-            writer,
+            writer: Some(writer),
             categorized_fields,
             key_field_name,
-            index_relation: index_relation.clone(),
+            index_relation: index_relation.as_ptr(),
             heap_relation: index_relation
                 .heap_relation()
-                .expect("build state: index must have a heap relation"),
-            leader: None,
+                .expect("build state: index must have a heap relation")
+                .as_ptr(),
+            leader: std::ptr::null_mut(),
         }
     }
 }
@@ -138,20 +140,37 @@ pub extern "C-unwind" fn ambuild(
 
     // populate the index
     let nworkers = unsafe { compute_nworkers(&heap_relation, &index_relation) };
-    let tuple_count = if nworkers > 0 {
-        pgrx::info!("parallel index build with {} workers", nworkers);
-        let mut state = BuildState::new(index_relation.oid());
-        unsafe { begin_parallel_index_build(&mut state, (*index_info).ii_Concurrent, nworkers) };
-        todo!("parallel index build")
+    let mut build_state = BuildState::new(index_relation.oid());
+
+    pgrx::info!("nworkers: {}", nworkers);
+
+    if nworkers > 0 {
+        unsafe {
+            begin_parallel_index_build(&mut build_state, (*index_info).ii_Concurrent, nworkers);
+            parallel_heap_scan(&mut build_state);
+        }
     } else {
-        do_heap_scan(index_info, &heap_relation, &index_relation)
+        pgrx::info!("doing heap scan");
+        do_heap_scan(
+            index_info,
+            &heap_relation,
+            &index_relation,
+            &mut build_state,
+        );
+        pgrx::info!("heap scan done");
     };
 
     unsafe { pg_sys::FlushRelationBuffers(indexrel) };
 
+    if !build_state.leader.is_null() && nworkers > 0 {
+        pgrx::log!("ending parallel index build");
+        unsafe { end_parallel_index_build(build_state.leader) };
+        pgrx::log!("parallel index build ended");
+    }
+
     let mut result = unsafe { PgBox::<pg_sys::IndexBuildResult>::alloc0() };
-    result.heap_tuples = tuple_count as f64;
-    result.index_tuples = tuple_count as f64;
+    result.heap_tuples = build_state.reltuples as f64;
+    result.index_tuples = build_state.reltuples as f64;
     result.into_pg()
 }
 
@@ -162,19 +181,21 @@ fn do_heap_scan<'a>(
     index_info: *mut pg_sys::IndexInfo,
     heap_relation: &'a PgRelation,
     index_relation: &'a PgRelation,
-) -> usize {
+    build_state: &'a mut BuildState,
+) {
     unsafe {
-        let mut state = BuildState::new(index_relation.oid());
         pg_sys::IndexBuildHeapScan(
             heap_relation.as_ptr(),
             index_relation.as_ptr(),
             index_info,
             Some(build_callback),
-            &mut state,
+            build_state,
         );
 
-        state
+        (*build_state)
             .writer
+            .take()
+            .expect("do_heap_scan: writer should exist by now")
             .commit()
             .unwrap_or_else(|e| panic!("failed to commit new tantivy index: {e}"));
 
@@ -187,8 +208,6 @@ fn do_heap_scan<'a>(
         metadata
             .record_create_index_segment_ids(reader.segment_ids().iter())
             .expect("do_heap_scan: should be able to record segment ids in merge lock");
-
-        state.count
     }
 }
 
@@ -199,7 +218,7 @@ unsafe extern "C-unwind" fn build_callback(
     values: *mut pg_sys::Datum,
     isnull: *mut bool,
     _tuple_is_alive: bool,
-    state: *mut std::os::raw::c_void,
+    state: *mut c_void,
 ) {
     check_for_interrupts!();
     let build_state = (state as *mut BuildState)
@@ -208,7 +227,7 @@ unsafe extern "C-unwind" fn build_callback(
 
     let categorized_fields = &build_state.categorized_fields;
     let key_field_name = &build_state.key_field_name;
-    let writer = &mut build_state.writer;
+    let writer = &mut build_state.writer.as_mut().expect("build_callback:writer should exist by now");
     // In the block below, we switch to the memory context we've defined on our build
     // state, resetting it before and after. We do this because we're looking up a
     // PgTupleDesc... which is supposed to free the corresponding Postgres memory when it
@@ -245,14 +264,14 @@ unsafe extern "C-unwind" fn build_callback(
 
         // important to count the number of items we've indexed for proper statistics updates,
         // especially after CREATE INDEX has finished
-        build_state.count += 1;
+        build_state.reltuples += 1;
 
-        if crate::gucs::log_create_index_progress() && build_state.count % 100_000 == 0 {
+        if crate::gucs::log_create_index_progress() && build_state.reltuples % 100_000 == 0 {
             let secs = build_state.start.elapsed().as_secs_f64();
-            let rate = build_state.count as f64 / secs;
+            let rate = build_state.reltuples as f64 / secs;
             pgrx::log!(
                 "processed {} rows in {secs:.2} seconds ({rate:.2} per second)",
-                build_state.count,
+                build_state.reltuples,
             );
         }
     }
@@ -352,7 +371,7 @@ unsafe fn begin_parallel_index_build(
     assert!(parallel_workers > 0);
 
     let parallel_context = pg_sys::CreateParallelContext(
-        c"bm25".as_ptr(),
+        c"pg_search".as_ptr(),
         c"parallel_build_main".as_ptr(),
         parallel_workers,
     );
@@ -362,7 +381,7 @@ unsafe fn begin_parallel_index_build(
         pg_sys::RegisterSnapshot(pg_sys::GetTransactionSnapshot())
     };
 
-    let est_shared = parallel_estimate_shmem(build_state.heap_relation.as_ptr(), snapshot);
+    let est_shared = parallel_estimate_shmem(build_state.heap_relation, snapshot);
     shm_toc_estimate_chunk(&mut (*parallel_context).estimator, est_shared);
 
     // TODO: Add maintenance_work_mem and PARALLEL_KEY_QUERY_TEXT to shm_toc_estimate_chunk
@@ -380,14 +399,14 @@ unsafe fn begin_parallel_index_build(
 
     let mut shared_state = pg_sys::shm_toc_allocate((*parallel_context).toc, est_shared)
         as *mut ParallelBuildSharedState;
-    (*shared_state).heap_oid = build_state.heap_relation.oid();
-    (*shared_state).index_oid = build_state.index_relation.oid();
+    (*shared_state).heap_oid = (*build_state.heap_relation).rd_id;
+    (*shared_state).index_oid = (*build_state.index_relation).rd_id;
     (*shared_state).is_concurrent = is_concurrent;
 
     pg_sys::ConditionVariableInit(&mut (*shared_state).workers_done);
     pg_sys::SpinLockInit(&mut (*shared_state).mutex);
     pg_sys::table_parallelscan_initialize(
-        build_state.heap_relation.as_ptr(),
+        build_state.heap_relation,
         parallel_table_scan_from_shared_state(shared_state),
         snapshot,
     );
@@ -395,13 +414,13 @@ unsafe fn begin_parallel_index_build(
     pg_sys::shm_toc_insert(
         (*parallel_context).toc,
         PARALLEL_KEY_SHARED_STATE,
-        shared_state as *mut std::os::raw::c_void,
+        shared_state as *mut c_void,
     );
 
     pg_sys::LaunchParallelWorkers(parallel_context);
 
     let mut leader = ParallelBuildLeader {
-        parallel_context: *parallel_context,
+        parallel_context,
         n_participant_tuple_sorts: (*parallel_context).nworkers_launched,
         shared: shared_state,
         snapshot,
@@ -412,13 +431,24 @@ unsafe fn begin_parallel_index_build(
         return;
     }
 
-    build_state.leader = Some(leader);
+    pgrx::log!("launched {} workers", (*parallel_context).nworkers_launched);
 
-    // TODO: Allow leader to participate
+    build_state.leader = &mut leader;
 
+    // Leader joins the parallel build
+    // parallel_scan_and_insert(
+    //     build_state.heap_relation,
+    //     build_state.index_relation,
+    //     shared_state,
+    //     true,
+    // );
+
+    pgrx::log!("waiting for workers to attach");
     pg_sys::WaitForParallelWorkersToAttach(parallel_context);
+    pgrx::log!("workers attached");
 }
 
+#[no_mangle]
 unsafe extern "C-unwind" fn parallel_build_main(
     seg: *mut pg_sys::dsm_segment,
     toc: *mut pg_sys::shm_toc,
@@ -432,11 +462,11 @@ unsafe extern "C-unwind" fn parallel_build_main(
     };
 
     let heap = pg_sys::table_open((*shared_state).heap_oid, heap_lock as i32);
-    let index = pg_sys::table_open((*shared_state).index_oid, index_lock as i32);
+    let index = pg_sys::index_open((*shared_state).index_oid, index_lock as i32);
 
-    todo!("actually do the insert");
+    parallel_scan_and_insert(heap, index, shared_state, false);
 
-    pg_sys::table_close(index, index_lock as i32);
+    pg_sys::index_close(index, index_lock as i32);
     pg_sys::table_close(heap, heap_lock as i32);
 }
 
@@ -446,21 +476,73 @@ unsafe fn parallel_scan_and_insert(
     shared_state: *mut ParallelBuildSharedState,
     progress: bool,
 ) {
+    pgrx::log!("parallel_scan_and_insert");
     let mut index_info = pg_sys::BuildIndexInfo(index);
     (*index_info).ii_Concurrent = (*shared_state).is_concurrent;
 
-    let build_state = BuildState::new((*shared_state).index_oid);
+    let mut build_state = BuildState::new((*shared_state).index_oid);
+    let scan =
+        pg_sys::table_beginscan_parallel(heap, parallel_table_scan_from_shared_state(shared_state));
+    let reltuples = pg_sys::table_index_build_scan(
+        heap,
+        index,
+        index_info,
+        true,
+        progress,
+        Some(build_callback),
+        &mut build_state as *mut _ as *mut c_void,
+        scan,
+    );
+
+    pgrx::log!("parallel_scan_and_insert: waiting for lock");
+    pg_sys::SpinLockAcquire(&mut (*shared_state).mutex);
+    pgrx::log!("parallel_scan_and_insert: got lock");
+    (*shared_state).n_participants_done += 1;
+    (*shared_state).reltuples += reltuples;
+    pg_sys::SpinLockRelease(&mut (*shared_state).mutex);
+
+    pg_sys::ConditionVariableSignal(&mut (*shared_state).workers_done);
+    pgrx::log!("parallel_scan_and_insert: signaled");
+}
+
+unsafe fn parallel_heap_scan(build_state: *mut BuildState) {
+    let mut leader = (*build_state).leader;
+    let shared_state = (*leader).shared;
+    let n_participant_tuple_sorts = (*leader).n_participant_tuple_sorts;
+
+    loop {
+        pgrx::log!("parallel_heap_scan: waiting for lock");
+        pg_sys::SpinLockAcquire(&mut (*shared_state).mutex);
+        pgrx::log!("parallel_heap_scan: got lock");
+        if (*shared_state).n_participants_done == n_participant_tuple_sorts {
+            pgrx::log!("parallel_heap_scan: all workers done");
+            (*build_state).reltuples = (*shared_state).reltuples as usize;
+            pg_sys::SpinLockRelease(&mut (*shared_state).mutex);
+            break;
+        }
+        pgrx::log!("n_participants_done: {} need {}", (*shared_state).n_participants_done, n_participant_tuple_sorts);
+        pg_sys::SpinLockRelease(&mut (*shared_state).mutex);
+        pg_sys::ConditionVariableSleep(
+            &mut (*shared_state).workers_done,
+            pg_sys::WaitEventIPC::WAIT_EVENT_PARALLEL_CREATE_INDEX_SCAN,
+        );
+    }
+
+    pg_sys::ConditionVariableCancelSleep();
 }
 
 unsafe fn end_parallel_index_build(leader: *mut ParallelBuildLeader) {
-    pg_sys::WaitForParallelWorkersToFinish(&mut (*leader).parallel_context);
+    pgrx::log!("waiting for workers to finish");
+    // pg_sys::WaitForParallelWorkersToFinish((*leader).parallel_context);
+    pgrx::log!("workers finished");
 
     if is_mvcc_snapshot((*leader).snapshot) {
         pg_sys::UnregisterSnapshot((*leader).snapshot);
     }
 
-    pg_sys::DestroyParallelContext(&mut (*leader).parallel_context);
+    pg_sys::DestroyParallelContext((*leader).parallel_context);
     pg_sys::ExitParallelMode();
+    pgrx::log!("parallel index build ended");
 }
 
 unsafe fn parallel_estimate_shmem(

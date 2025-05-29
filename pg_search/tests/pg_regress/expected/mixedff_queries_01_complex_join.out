@@ -113,6 +113,27 @@ JOIN files f ON d.id = f.documentId
 JOIN pages p ON p.fileId = f.id
 WHERE d.parents @@@ 'Factures' AND f.title @@@ 'Receipt' AND p.content @@@ 'Socienty'
 ORDER BY d.id, f.id, p.id;
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = false
+WARNING:  ParadeDB: No join search predicates found in private data
+WARNING:  ParadeDB: ========== SCAN NODE PLANNING ==========
+WARNING:  ParadeDB: Planning regular scan node
+WARNING:  ParadeDB: Completed scan node planning
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = false
+WARNING:  ParadeDB: No join search predicates found in private data
+WARNING:  ParadeDB: ========== SCAN NODE PLANNING ==========
+WARNING:  ParadeDB: Planning regular scan node
+WARNING:  ParadeDB: Completed scan node planning
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = false
+WARNING:  ParadeDB: No join search predicates found in private data
+WARNING:  ParadeDB: ========== SCAN NODE PLANNING ==========
+WARNING:  ParadeDB: Planning regular scan node
+WARNING:  ParadeDB: Completed scan node planning
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
                                                                                  QUERY PLAN                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Incremental Sort
@@ -160,6 +181,27 @@ JOIN files f ON d.id = f.documentId
 JOIN pages p ON p.fileId = f.id
 WHERE d.parents @@@ 'Factures' AND f.title @@@ 'Receipt' AND p.content @@@ 'Socienty'
 ORDER BY d.id, f.id, p.id;
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = false
+WARNING:  ParadeDB: No join search predicates found in private data
+WARNING:  ParadeDB: ========== SCAN NODE PLANNING ==========
+WARNING:  ParadeDB: Planning regular scan node
+WARNING:  ParadeDB: Completed scan node planning
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = false
+WARNING:  ParadeDB: No join search predicates found in private data
+WARNING:  ParadeDB: ========== SCAN NODE PLANNING ==========
+WARNING:  ParadeDB: Planning regular scan node
+WARNING:  ParadeDB: Completed scan node planning
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = false
+WARNING:  ParadeDB: No join search predicates found in private data
+WARNING:  ParadeDB: ========== SCAN NODE PLANNING ==========
+WARNING:  ParadeDB: Planning regular scan node
+WARNING:  ParadeDB: Completed scan node planning
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
   id  | parents  |  title  |     file_path      | fileid | page_number 
 ------+----------+---------+--------------------+--------+-------------
  doc2 | Factures | Receipt | /receipts/2023.pdf | file3  |           1
@@ -173,6 +215,27 @@ JOIN pages ON pages.fileId = files.id
 WHERE documents.parents @@@ 'Factures' AND files.title @@@ 'Receipt' AND pages.content @@@ 'Socienty'
 ORDER BY pages.fileId, pages.page_number
 LIMIT 10;
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = false
+WARNING:  ParadeDB: No join search predicates found in private data
+WARNING:  ParadeDB: ========== SCAN NODE PLANNING ==========
+WARNING:  ParadeDB: Planning regular scan node
+WARNING:  ParadeDB: Completed scan node planning
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = false
+WARNING:  ParadeDB: No join search predicates found in private data
+WARNING:  ParadeDB: ========== SCAN NODE PLANNING ==========
+WARNING:  ParadeDB: Planning regular scan node
+WARNING:  ParadeDB: Completed scan node planning
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = false
+WARNING:  ParadeDB: No join search predicates found in private data
+WARNING:  ParadeDB: ========== SCAN NODE PLANNING ==========
+WARNING:  ParadeDB: Planning regular scan node
+WARNING:  ParadeDB: Completed scan node planning
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
  fileid | page_number |                       content                       
 --------+-------------+-----------------------------------------------------
  file3  |           1 | Page 1 of Receipt with Socienty General information
@@ -186,6 +249,27 @@ JOIN pages ON pages.fileId = files.id
 WHERE documents.parents @@@ 'Factures' AND files.title @@@ 'Receipt' AND pages.content @@@ 'Socienty'
 ORDER BY pages.fileId, pages.page_number
 LIMIT 10;
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = false
+WARNING:  ParadeDB: No join search predicates found in private data
+WARNING:  ParadeDB: ========== SCAN NODE PLANNING ==========
+WARNING:  ParadeDB: Planning regular scan node
+WARNING:  ParadeDB: Completed scan node planning
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = false
+WARNING:  ParadeDB: No join search predicates found in private data
+WARNING:  ParadeDB: ========== SCAN NODE PLANNING ==========
+WARNING:  ParadeDB: Planning regular scan node
+WARNING:  ParadeDB: Completed scan node planning
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = false
+WARNING:  ParadeDB: No join search predicates found in private data
+WARNING:  ParadeDB: ========== SCAN NODE PLANNING ==========
+WARNING:  ParadeDB: Planning regular scan node
+WARNING:  ParadeDB: Completed scan node planning
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
                                                                                     QUERY PLAN                                                                                     
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -314,6 +398,27 @@ JOIN pages ON pages.fileId = files.id
 WHERE documents.parents @@@ 'Factures' AND files.title @@@ 'Receipt' AND pages.content @@@ 'Socienty'
 ORDER BY pages.fileId, pages.page_number
 LIMIT 10;
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = false
+WARNING:  ParadeDB: No join search predicates found in private data
+WARNING:  ParadeDB: ========== SCAN NODE PLANNING ==========
+WARNING:  ParadeDB: Planning regular scan node
+WARNING:  ParadeDB: Completed scan node planning
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = false
+WARNING:  ParadeDB: No join search predicates found in private data
+WARNING:  ParadeDB: ========== SCAN NODE PLANNING ==========
+WARNING:  ParadeDB: Planning regular scan node
+WARNING:  ParadeDB: Completed scan node planning
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = false
+WARNING:  ParadeDB: No join search predicates found in private data
+WARNING:  ParadeDB: ========== SCAN NODE PLANNING ==========
+WARNING:  ParadeDB: Planning regular scan node
+WARNING:  ParadeDB: Completed scan node planning
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
                 fileid                | page_number | content  
 --------------------------------------+-------------+----------
  00013e85-a019-3497-52d2-88612aee8785 |          26 | Socienty
@@ -335,6 +440,27 @@ JOIN files ON documents.id = files.documentId
 JOIN pages ON pages.fileId = files.id
 WHERE documents.parents @@@ 'Factures' AND files.title @@@ 'Receipt' AND pages.content @@@ 'Socienty'
 LIMIT 10;
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = false
+WARNING:  ParadeDB: No join search predicates found in private data
+WARNING:  ParadeDB: ========== SCAN NODE PLANNING ==========
+WARNING:  ParadeDB: Planning regular scan node
+WARNING:  ParadeDB: Completed scan node planning
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = false
+WARNING:  ParadeDB: No join search predicates found in private data
+WARNING:  ParadeDB: ========== SCAN NODE PLANNING ==========
+WARNING:  ParadeDB: Planning regular scan node
+WARNING:  ParadeDB: Completed scan node planning
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = false
+WARNING:  ParadeDB: No join search predicates found in private data
+WARNING:  ParadeDB: ========== SCAN NODE PLANNING ==========
+WARNING:  ParadeDB: Planning regular scan node
+WARNING:  ParadeDB: Completed scan node planning
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
                                                                                 QUERY PLAN                                                                                
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit

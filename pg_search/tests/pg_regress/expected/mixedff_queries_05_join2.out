@@ -207,6 +207,13 @@ SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.
 vacuum;
 SET paradedb.enable_mixed_fast_field_exec = false;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color @@@ 'blue') AND (users.name @@@ 'bob') LIMIT 10;
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = false
+WARNING:  ParadeDB: No join search predicates found in private data
+WARNING:  ParadeDB: ========== SCAN NODE PLANNING ==========
+WARNING:  ParadeDB: Planning regular scan node
+WARNING:  ParadeDB: Completed scan node planning
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
                                                                                                                                                  QUERY PLAN                                                                                                                                                  
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -224,6 +231,13 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN 
 (12 rows)
 
 SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color @@@ 'blue') AND (users.name @@@ 'bob') LIMIT 10;
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = false
+WARNING:  ParadeDB: No join search predicates found in private data
+WARNING:  ParadeDB: ========== SCAN NODE PLANNING ==========
+WARNING:  ParadeDB: Planning regular scan node
+WARNING:  ParadeDB: Completed scan node planning
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
  color 
 -------
  blue
@@ -231,6 +245,13 @@ SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.
 
 SET paradedb.enable_mixed_fast_field_exec = true;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color @@@ 'blue') AND (users.name @@@ 'bob') LIMIT 10;
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = false
+WARNING:  ParadeDB: No join search predicates found in private data
+WARNING:  ParadeDB: ========== SCAN NODE PLANNING ==========
+WARNING:  ParadeDB: Planning regular scan node
+WARNING:  ParadeDB: Completed scan node planning
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
                                                                                                                                                  QUERY PLAN                                                                                                                                                  
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -251,6 +272,13 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN 
 (15 rows)
 
 SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color @@@ 'blue') AND (users.name @@@ 'bob') LIMIT 10;
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = false
+WARNING:  ParadeDB: No join search predicates found in private data
+WARNING:  ParadeDB: ========== SCAN NODE PLANNING ==========
+WARNING:  ParadeDB: Planning regular scan node
+WARNING:  ParadeDB: Completed scan node planning
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
  color 
 -------
  blue

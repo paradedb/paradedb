@@ -531,17 +531,9 @@ impl CustomScan for PdbScan {
             builder.is_join()
         );
 
-        let private_data = builder.custom_private();
-        pgrx::warning!(
-            "ParadeDB: Private data - expected_join_target_count = {:?}",
-            private_data.expected_join_target_count()
-        );
-
         // Store values from private_data before doing mutable operations
-        let join_search_predicates = private_data.join_search_predicates().clone();
-        let expected_join_targetlist = private_data.expected_join_targetlist();
-        let expected_join_target_count = private_data.expected_join_target_count();
-        let range_table_index = private_data.range_table_index();
+        let join_search_predicates = builder.custom_private().join_search_predicates().clone();
+        let range_table_index = builder.custom_private().range_table_index();
 
         // Check if we have stored join search predicates
         if let Some(ref search_predicates) = join_search_predicates {
@@ -567,124 +559,21 @@ impl CustomScan for PdbScan {
                 pgrx::warning!("ParadeDB: ========== JOIN NODE PLANNING ==========");
                 pgrx::warning!("ParadeDB: Planning custom join path with scanrelid = 0");
 
-                // CRITICAL: Use PostgreSQL's expected target list from path creation stage
-                if let Some(expected_targetlist) = expected_join_targetlist {
-                    pgrx::warning!("ParadeDB: ========== USING STORED TARGET LIST ==========");
-                    pgrx::warning!(
-                        "ParadeDB: Using PostgreSQL's expected target list from joinrel->reltarget (pointer: {:p})",
-                        expected_targetlist
-                    );
+                // For join nodes, PostgreSQL provides us with the appropriate target list
+                // We don't need to reconstruct it - just use what we're given
+                pgrx::warning!(
+                    "ParadeDB: Using PostgreSQL's provided target list with {} entries",
+                    tlist.len()
+                );
 
-                    let expected_exprs = PgList::<pg_sys::Expr>::from_pg(expected_targetlist);
-                    pgrx::warning!(
-                        "ParadeDB: Expected expressions count: {}",
-                        expected_exprs.len()
-                    );
+                // Create a simple attribute name lookup for joins (mostly for debugging)
+                let attname_lookup = HashMap::default();
+                builder
+                    .custom_private_mut()
+                    .set_var_attname_lookup(attname_lookup);
 
-                    // Create target list directly from PostgreSQL's expected expressions
-                    let mut join_tlist = PgList::<pg_sys::TargetEntry>::new();
-                    let attname_lookup = HashMap::default();
-
-                    // Add each expected expression as a target entry
-                    for (i, expr) in expected_exprs.iter_ptr().enumerate() {
-                        let resno = (i + 1) as i16;
-                        pgrx::warning!(
-                            "ParadeDB: Adding expected expression {} to target list as resno {}",
-                            i + 1,
-                            resno
-                        );
-
-                        // Create a target entry using the original expression
-                        let te = pg_sys::makeTargetEntry(
-                            expr.cast(),
-                            resno,
-                            pg_sys::pstrdup(
-                                std::ffi::CString::new(format!("join_expr_{}", resno))
-                                    .unwrap()
-                                    .as_ptr(),
-                            ),
-                            false, // resjunk = false for actual output columns
-                        );
-
-                        join_tlist.push(te);
-                        pgrx::warning!(
-                            "ParadeDB: Added expected expression {} as resno {}",
-                            i + 1,
-                            resno
-                        );
-                    }
-
-                    // Store variable mappings for debugging
-                    builder
-                        .custom_private_mut()
-                        .set_var_attname_lookup(attname_lookup);
-                    builder.set_custom_scan_tlist(join_tlist.as_ptr());
-
-                    pgrx::warning!("ParadeDB: ========== JOIN TARGET LIST COMPLETE ==========");
-                    pgrx::warning!("ParadeDB: Created join target list with {} entries from PostgreSQL's expected expressions", join_tlist.len());
-                } else if let Some(target_count) = expected_join_target_count {
-                    pgrx::warning!("ParadeDB: ========== FALLBACK PLANNING ==========");
-                    pgrx::warning!(
-                        "ParadeDB: Expected target list pointer lost, using serialized count: {}",
-                        target_count
-                    );
-
-                    // Create minimal target list using the stored count
-                    let mut join_tlist = PgList::<pg_sys::TargetEntry>::new();
-                    let attname_lookup = HashMap::default();
-
-                    for i in 1..=target_count {
-                        let dummy_expr = pg_sys::makeVar(
-                            1, // varno - use first relation
-                            i as pg_sys::AttrNumber,
-                            pg_sys::TEXTOID,    // dummy type
-                            -1,                 // typmod
-                            pg_sys::InvalidOid, // collation
-                            0,                  // varlevelsup
-                        );
-
-                        let te = pg_sys::makeTargetEntry(
-                            dummy_expr.cast(),
-                            i as i16,
-                            pg_sys::pstrdup(
-                                std::ffi::CString::new(format!("fallback_col_{}", i))
-                                    .unwrap()
-                                    .as_ptr(),
-                            ),
-                            false,
-                        );
-
-                        join_tlist.push(te);
-                        pgrx::warning!("ParadeDB: Added fallback column {} as resno {}", i, i);
-                    }
-
-                    builder
-                        .custom_private_mut()
-                        .set_var_attname_lookup(attname_lookup);
-                    builder.set_custom_scan_tlist(join_tlist.as_ptr());
-
-                    pgrx::warning!(
-                        "ParadeDB: Created fallback target list with {} entries",
-                        join_tlist.len()
-                    );
-                } else {
-                    pgrx::warning!("ParadeDB: ========== ERROR: NO TARGET LIST INFO ==========");
-                    pgrx::warning!(
-                        "ParadeDB: No expected target list pointer and no count available!"
-                    );
-                    pgrx::warning!("ParadeDB: This indicates a serialization issue between path creation and planning");
-
-                    // Create empty target list as last resort
-                    let empty_tlist = PgList::<pg_sys::TargetEntry>::new();
-                    let empty_attname_lookup = HashMap::default();
-
-                    builder
-                        .custom_private_mut()
-                        .set_var_attname_lookup(empty_attname_lookup);
-                    builder.set_custom_scan_tlist(empty_tlist.as_ptr());
-
-                    pgrx::warning!("ParadeDB: Set empty target list as emergency fallback");
-                }
+                // Use the target list as provided by PostgreSQL
+                builder.set_custom_scan_tlist(tlist.as_ptr());
 
                 pgrx::warning!("ParadeDB: ========== JOIN PLANNING COMPLETE ==========");
             } else {

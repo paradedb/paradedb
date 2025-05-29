@@ -95,11 +95,9 @@ WARNING:  ParadeDB: Outer predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Inner predicate for files_join_test - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_join_test"], inner: ["files_join_test"]
-WARNING:  ParadeDB: Extracted expected target list with 3 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored 3 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["documents_join_test"], inner: ["files_join_test"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["files_join_test"], inner relids: ["documents_join_test"]
@@ -126,27 +124,24 @@ WARNING:  ParadeDB: Outer predicate for files_join_test - uses_search: true
 WARNING:  ParadeDB: Inner predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["files_join_test"], inner: ["documents_join_test"]
-WARNING:  ParadeDB: Extracted expected target list with 3 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored 3 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["files_join_test"], inner: ["documents_join_test"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = true
+WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Join target list has 3 entries
-WARNING:  ParadeDB: Mapped join variable varno=1, varattno=1 to 'join_attr_1'
-WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'join_attr_2'
-WARNING:  ParadeDB: Mapped join variable varno=2, varattno=3 to 'join_attr_3'
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 3 entries
+WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Stored outer relation OIDs: ["documents_join_test"]
 WARNING:  ParadeDB: Stored inner relation OIDs: ["files_join_test"]
-WARNING:  ParadeDB: Storing 3 variable mappings from planning phase
-WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=1 -> 'join_attr_1'
-WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_2'
-WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=3 -> 'join_attr_3'
+WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
 WARNING:  ParadeDB: Join execution initialization complete
@@ -398,11 +393,9 @@ WARNING:  ParadeDB: Outer predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_join_test"], inner: ["files_join_test"]
-WARNING:  ParadeDB: Extracted expected target list with 3 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored 3 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["documents_join_test"], inner: ["files_join_test"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Unilateral join - outer has search, inner needs table scan
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -427,28 +420,25 @@ WARNING:  ParadeDB: Inner predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["files_join_test"], inner: ["documents_join_test"]
-WARNING:  ParadeDB: Extracted expected target list with 3 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored 3 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["files_join_test"], inner: ["documents_join_test"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Unilateral join - inner has search, outer needs table scan
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = true
+WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 0, bilateral: false
+WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Join target list has 3 entries
-WARNING:  ParadeDB: Mapped join variable varno=1, varattno=1 to 'join_attr_1'
-WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'join_attr_2'
-WARNING:  ParadeDB: Mapped join variable varno=2, varattno=3 to 'join_attr_3'
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 3 entries
+WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 0, bilateral: false
 WARNING:  ParadeDB: Stored outer relation OIDs: ["documents_join_test"]
 WARNING:  ParadeDB: Stored inner relation OIDs: ["files_join_test"]
-WARNING:  ParadeDB: Storing 3 variable mappings from planning phase
-WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=1 -> 'join_attr_1'
-WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_2'
-WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=3 -> 'join_attr_3'
+WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
 WARNING:  ParadeDB: Join execution initialization complete
@@ -659,12 +649,9 @@ WARNING:  ParadeDB: Outer predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Inner predicate for files_join_test - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_join_test"], inner: ["files_join_test"]
-WARNING:  ParadeDB: Extracted expected target list with 4 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 2 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored 4 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["documents_join_test"], inner: ["files_join_test"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["files_join_test"], inner relids: ["documents_join_test"]
@@ -691,12 +678,9 @@ WARNING:  ParadeDB: Outer predicate for files_join_test - uses_search: true
 WARNING:  ParadeDB: Inner predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["files_join_test"], inner: ["documents_join_test"]
-WARNING:  ParadeDB: Extracted expected target list with 4 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 2 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored 4 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["files_join_test"], inner: ["documents_join_test"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["documents_join_test"], inner relids: ["authors_join_test"]
@@ -720,12 +704,9 @@ WARNING:  ParadeDB: Outer predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_join_test"], inner: ["authors_join_test"]
-WARNING:  ParadeDB: Extracted expected target list with 4 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 4 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 4 :varattno 2 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored 4 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["documents_join_test"], inner: ["authors_join_test"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Unilateral join - outer has search, inner needs table scan
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -750,12 +731,9 @@ WARNING:  ParadeDB: Inner predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_join_test"], inner: ["documents_join_test"]
-WARNING:  ParadeDB: Extracted expected target list with 4 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 4 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 4 :varattno 2 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored 4 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["authors_join_test"], inner: ["documents_join_test"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Unilateral join - inner has search, outer needs table scan
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -780,12 +758,9 @@ WARNING:  ParadeDB: Outer predicate for files_join_test - uses_search: true
 WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["files_join_test"], inner: ["authors_join_test"]
-WARNING:  ParadeDB: Extracted expected target list with 4 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 2 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 4 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 4 :varattno 2 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored 4 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["files_join_test"], inner: ["authors_join_test"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Unilateral join - outer has search, inner needs table scan
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -810,12 +785,9 @@ WARNING:  ParadeDB: Inner predicate for files_join_test - uses_search: true
 WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_join_test"], inner: ["files_join_test"]
-WARNING:  ParadeDB: Extracted expected target list with 4 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 2 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 4 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 4 :varattno 2 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored 4 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["authors_join_test"], inner: ["files_join_test"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Unilateral join - inner has search, outer needs table scan
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -843,22 +815,19 @@ WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: [
 WARNING:  ParadeDB: Outer side is base, inner is composite - checking feasibility
 WARNING:  ParadeDB: Composite joins not yet supported - intermediate result access not implemented
 WARNING:  ParadeDB: Rejecting composite join to allow PostgreSQL's optimized default processing
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = true
+WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Join target list has 4 entries
-WARNING:  ParadeDB: Mapped join variable varno=1, varattno=1 to 'join_attr_1'
-WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'join_attr_2'
-WARNING:  ParadeDB: Mapped join variable varno=2, varattno=3 to 'join_attr_3'
-WARNING:  ParadeDB: Mapped join variable varno=2, varattno=2 to 'join_attr_4'
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 4 entries
+WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Stored outer relation OIDs: ["documents_join_test"]
 WARNING:  ParadeDB: Stored inner relation OIDs: ["files_join_test"]
-WARNING:  ParadeDB: Storing 4 variable mappings from planning phase
-WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=1 -> 'join_attr_1'
-WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=2 -> 'join_attr_4'
-WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_2'
-WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=3 -> 'join_attr_3'
+WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
 WARNING:  ParadeDB: Join execution initialization complete
@@ -1090,12 +1059,9 @@ WARNING:  ParadeDB: Outer predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Inner predicate for files_join_test - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_join_test"], inner: ["files_join_test"]
-WARNING:  ParadeDB: Extracted expected target list with 4 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 2 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored 4 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["documents_join_test"], inner: ["files_join_test"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["files_join_test"], inner relids: ["documents_join_test"]
@@ -1122,12 +1088,9 @@ WARNING:  ParadeDB: Outer predicate for files_join_test - uses_search: true
 WARNING:  ParadeDB: Inner predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["files_join_test"], inner: ["documents_join_test"]
-WARNING:  ParadeDB: Extracted expected target list with 4 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 2 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored 4 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["files_join_test"], inner: ["documents_join_test"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["documents_join_test"], inner relids: ["authors_join_test"]
@@ -1154,12 +1117,9 @@ WARNING:  ParadeDB: Outer predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Inner predicate for authors_join_test - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_join_test"], inner: ["authors_join_test"]
-WARNING:  ParadeDB: Extracted expected target list with 4 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 4 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 4 :varattno 2 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored 4 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["documents_join_test"], inner: ["authors_join_test"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["authors_join_test"], inner relids: ["documents_join_test"]
@@ -1186,12 +1146,9 @@ WARNING:  ParadeDB: Outer predicate for authors_join_test - uses_search: true
 WARNING:  ParadeDB: Inner predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_join_test"], inner: ["documents_join_test"]
-WARNING:  ParadeDB: Extracted expected target list with 4 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 4 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 4 :varattno 2 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored 4 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["authors_join_test"], inner: ["documents_join_test"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["files_join_test"], inner relids: ["authors_join_test"]
@@ -1218,12 +1175,9 @@ WARNING:  ParadeDB: Outer predicate for files_join_test - uses_search: true
 WARNING:  ParadeDB: Inner predicate for authors_join_test - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["files_join_test"], inner: ["authors_join_test"]
-WARNING:  ParadeDB: Extracted expected target list with 4 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 2 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 4 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 4 :varattno 2 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored 4 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["files_join_test"], inner: ["authors_join_test"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["authors_join_test"], inner relids: ["files_join_test"]
@@ -1250,12 +1204,9 @@ WARNING:  ParadeDB: Outer predicate for authors_join_test - uses_search: true
 WARNING:  ParadeDB: Inner predicate for files_join_test - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_join_test"], inner: ["files_join_test"]
-WARNING:  ParadeDB: Extracted expected target list with 4 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 2 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 4 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 4 :varattno 2 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored 4 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["authors_join_test"], inner: ["files_join_test"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["documents_join_test", "files_join_test"], inner relids: ["authors_join_test"]
@@ -1282,6 +1233,27 @@ WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: [
 WARNING:  ParadeDB: Outer side is base, inner is composite - checking feasibility
 WARNING:  ParadeDB: Composite joins not yet supported - intermediate result access not implemented
 WARNING:  ParadeDB: Rejecting composite join to allow PostgreSQL's optimized default processing
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = false
+WARNING:  ParadeDB: No join search predicates found in private data
+WARNING:  ParadeDB: ========== SCAN NODE PLANNING ==========
+WARNING:  ParadeDB: Planning regular scan node
+WARNING:  ParadeDB: Completed scan node planning
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = false
+WARNING:  ParadeDB: No join search predicates found in private data
+WARNING:  ParadeDB: ========== SCAN NODE PLANNING ==========
+WARNING:  ParadeDB: Planning regular scan node
+WARNING:  ParadeDB: Completed scan node planning
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = false
+WARNING:  ParadeDB: No join search predicates found in private data
+WARNING:  ParadeDB: ========== SCAN NODE PLANNING ==========
+WARNING:  ParadeDB: Planning regular scan node
+WARNING:  ParadeDB: Completed scan node planning
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
  id |   title    | filename  | author_name 
 ----+------------+-----------+-------------
   2 | Document 2 | file2.txt | Jane Doe
@@ -1314,12 +1286,9 @@ WARNING:  ParadeDB: Outer predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_join_test"], inner: ["files_join_test"]
-WARNING:  ParadeDB: Extracted expected target list with 4 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 2 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored 4 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["documents_join_test"], inner: ["files_join_test"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Unilateral join - outer has search, inner needs table scan
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -1344,12 +1313,9 @@ WARNING:  ParadeDB: Inner predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["files_join_test"], inner: ["documents_join_test"]
-WARNING:  ParadeDB: Extracted expected target list with 4 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 2 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored 4 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["files_join_test"], inner: ["documents_join_test"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Unilateral join - inner has search, outer needs table scan
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -1374,12 +1340,9 @@ WARNING:  ParadeDB: Outer predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_join_test"], inner: ["authors_join_test"]
-WARNING:  ParadeDB: Extracted expected target list with 4 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 4 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 4 :varattno 2 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored 4 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["documents_join_test"], inner: ["authors_join_test"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Unilateral join - outer has search, inner needs table scan
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -1404,12 +1367,9 @@ WARNING:  ParadeDB: Inner predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_join_test"], inner: ["documents_join_test"]
-WARNING:  ParadeDB: Extracted expected target list with 4 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 4 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 4 :varattno 2 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored 4 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["authors_join_test"], inner: ["documents_join_test"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Unilateral join - inner has search, outer needs table scan
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -1463,22 +1423,19 @@ WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: [
 WARNING:  ParadeDB: Outer side is base, inner is composite - checking feasibility
 WARNING:  ParadeDB: Composite joins not yet supported - intermediate result access not implemented
 WARNING:  ParadeDB: Rejecting composite join to allow PostgreSQL's optimized default processing
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = true
+WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 0, bilateral: false
+WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Join target list has 4 entries
-WARNING:  ParadeDB: Mapped join variable varno=1, varattno=1 to 'join_attr_1'
-WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'join_attr_2'
-WARNING:  ParadeDB: Mapped join variable varno=2, varattno=3 to 'join_attr_3'
-WARNING:  ParadeDB: Mapped join variable varno=2, varattno=2 to 'join_attr_4'
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 4 entries
+WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 0, bilateral: false
 WARNING:  ParadeDB: Stored outer relation OIDs: ["documents_join_test"]
 WARNING:  ParadeDB: Stored inner relation OIDs: ["files_join_test"]
-WARNING:  ParadeDB: Storing 4 variable mappings from planning phase
-WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=1 -> 'join_attr_1'
-WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=2 -> 'join_attr_4'
-WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_2'
-WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=3 -> 'join_attr_3'
+WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
 WARNING:  ParadeDB: Join execution initialization complete

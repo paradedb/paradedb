@@ -80,12 +80,9 @@ WARNING:  ParadeDB: Outer predicate for mixed_types_docs - uses_search: true
 WARNING:  ParadeDB: Inner predicate for mixed_types_reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["mixed_types_docs"], inner: ["mixed_types_reviews"]
-WARNING:  ParadeDB: Extracted expected target list with 4 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 5 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 5 :location -1}
-WARNING:  ParadeDB: Stored 4 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["mixed_types_docs"], inner: ["mixed_types_reviews"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["mixed_types_reviews"], inner relids: ["mixed_types_docs"]
@@ -112,30 +109,24 @@ WARNING:  ParadeDB: Outer predicate for mixed_types_reviews - uses_search: true
 WARNING:  ParadeDB: Inner predicate for mixed_types_docs - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["mixed_types_reviews"], inner: ["mixed_types_docs"]
-WARNING:  ParadeDB: Extracted expected target list with 4 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 5 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 5 :location -1}
-WARNING:  ParadeDB: Stored 4 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["mixed_types_reviews"], inner: ["mixed_types_docs"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = true
+WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Join target list has 4 entries
-WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'join_attr_1'
-WARNING:  ParadeDB: Mapped join variable varno=2, varattno=3 to 'join_attr_2'
-WARNING:  ParadeDB: Mapped join variable varno=2, varattno=4 to 'join_attr_3'
-WARNING:  ParadeDB: Mapped join variable varno=2, varattno=5 to 'join_attr_4'
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 4 entries
+WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Stored outer relation OIDs: ["mixed_types_docs"]
 WARNING:  ParadeDB: Stored inner relation OIDs: ["mixed_types_reviews"]
-WARNING:  ParadeDB: Storing 4 variable mappings from planning phase
-WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=4 -> 'join_attr_3'
-WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=5 -> 'join_attr_4'
-WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_1'
-WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=3 -> 'join_attr_2'
+WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
 WARNING:  ParadeDB: Join execution initialization complete
@@ -427,13 +418,9 @@ WARNING:  ParadeDB: Outer predicate for complex_products - uses_search: true
 WARNING:  ParadeDB: Inner predicate for complex_reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["complex_products"], inner: ["complex_reviews"]
-WARNING:  ParadeDB: Extracted expected target list with 5 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 4 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 5 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 5 :location -1}
-WARNING:  ParadeDB: Stored 5 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["complex_products"], inner: ["complex_reviews"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["complex_reviews"], inner relids: ["complex_products"]
@@ -460,33 +447,24 @@ WARNING:  ParadeDB: Outer predicate for complex_reviews - uses_search: true
 WARNING:  ParadeDB: Inner predicate for complex_products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["complex_reviews"], inner: ["complex_products"]
-WARNING:  ParadeDB: Extracted expected target list with 5 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 4 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 5 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 5 :location -1}
-WARNING:  ParadeDB: Stored 5 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["complex_reviews"], inner: ["complex_products"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = true
+WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Join target list has 5 entries
-WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'join_attr_1'
-WARNING:  ParadeDB: Mapped join variable varno=1, varattno=4 to 'join_attr_2'
-WARNING:  ParadeDB: Mapped join variable varno=2, varattno=3 to 'join_attr_3'
-WARNING:  ParadeDB: Mapped join variable varno=2, varattno=4 to 'join_attr_4'
-WARNING:  ParadeDB: Mapped join variable varno=2, varattno=5 to 'join_attr_5'
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 5 entries
+WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Stored outer relation OIDs: ["complex_products"]
 WARNING:  ParadeDB: Stored inner relation OIDs: ["complex_reviews"]
-WARNING:  ParadeDB: Storing 5 variable mappings from planning phase
-WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=4 -> 'join_attr_4'
-WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=4 -> 'join_attr_2'
-WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_1'
-WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=3 -> 'join_attr_3'
-WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=5 -> 'join_attr_5'
+WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
 WARNING:  ParadeDB: Join execution initialization complete
@@ -747,7 +725,9 @@ WARNING:  ParadeDB: Outer predicate for complex_products - uses_search: true
 WARNING:  ParadeDB: Inner predicate for complex_reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["complex_products"], inner: ["complex_reviews"]
-WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["complex_products"], inner: ["complex_reviews"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["complex_reviews"], inner relids: ["complex_products"]
@@ -774,12 +754,19 @@ WARNING:  ParadeDB: Outer predicate for complex_reviews - uses_search: true
 WARNING:  ParadeDB: Inner predicate for complex_products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["complex_reviews"], inner: ["complex_products"]
-WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["complex_reviews"], inner: ["complex_products"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = true
+WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Join target list has 0 entries
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries
+WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Stored outer relation OIDs: ["complex_products"]
@@ -944,7 +931,9 @@ WARNING:  ParadeDB: Outer predicate for complex_products - uses_search: true
 WARNING:  ParadeDB: Inner predicate for complex_reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["complex_products"], inner: ["complex_reviews"]
-WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["complex_products"], inner: ["complex_reviews"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["complex_reviews"], inner relids: ["complex_products"]
@@ -971,12 +960,19 @@ WARNING:  ParadeDB: Outer predicate for complex_reviews - uses_search: true
 WARNING:  ParadeDB: Inner predicate for complex_products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["complex_reviews"], inner: ["complex_products"]
-WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["complex_reviews"], inner: ["complex_products"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = true
+WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Join target list has 0 entries
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries
+WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Stored outer relation OIDs: ["complex_products"]
@@ -1141,7 +1137,9 @@ WARNING:  ParadeDB: Outer predicate for complex_products - uses_search: true
 WARNING:  ParadeDB: Inner predicate for complex_reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["complex_products"], inner: ["complex_reviews"]
-WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["complex_products"], inner: ["complex_reviews"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["complex_reviews"], inner relids: ["complex_products"]
@@ -1168,12 +1166,19 @@ WARNING:  ParadeDB: Outer predicate for complex_reviews - uses_search: true
 WARNING:  ParadeDB: Inner predicate for complex_products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["complex_reviews"], inner: ["complex_products"]
-WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["complex_reviews"], inner: ["complex_products"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = true
+WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Join target list has 0 entries
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries
+WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Stored outer relation OIDs: ["complex_products"]
@@ -1423,7 +1428,9 @@ WARNING:  ParadeDB: Outer predicate for memory_test_docs - uses_search: true
 WARNING:  ParadeDB: Inner predicate for memory_test_comments - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["memory_test_docs"], inner: ["memory_test_comments"]
-WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["memory_test_docs"], inner: ["memory_test_comments"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 37500, startup_cost: 50.00, total_cost: 237.50
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["memory_test_comments"], inner relids: ["memory_test_docs"]
@@ -1450,12 +1457,19 @@ WARNING:  ParadeDB: Outer predicate for memory_test_comments - uses_search: true
 WARNING:  ParadeDB: Inner predicate for memory_test_docs - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["memory_test_comments"], inner: ["memory_test_docs"]
-WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["memory_test_comments"], inner: ["memory_test_docs"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 37500, startup_cost: 50.00, total_cost: 237.50
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = true
+WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Join target list has 0 entries
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries
+WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Stored outer relation OIDs: ["memory_test_docs"]
@@ -1589,7 +1603,9 @@ WARNING:  ParadeDB: Outer predicate for complex_products - uses_search: true
 WARNING:  ParadeDB: Inner predicate for complex_reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["complex_products"], inner: ["complex_reviews"]
-WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["complex_products"], inner: ["complex_reviews"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["complex_reviews"], inner relids: ["complex_products"]
@@ -1616,12 +1632,19 @@ WARNING:  ParadeDB: Outer predicate for complex_reviews - uses_search: true
 WARNING:  ParadeDB: Inner predicate for complex_products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["complex_reviews"], inner: ["complex_products"]
-WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["complex_reviews"], inner: ["complex_products"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = true
+WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Join target list has 0 entries
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries
+WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Stored outer relation OIDs: ["complex_products"]
@@ -1788,7 +1811,9 @@ WARNING:  ParadeDB: Outer predicate for complex_products - uses_search: true
 WARNING:  ParadeDB: Inner predicate for complex_reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["complex_products"], inner: ["complex_reviews"]
-WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["complex_products"], inner: ["complex_reviews"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["complex_reviews"], inner relids: ["complex_products"]
@@ -1815,12 +1840,19 @@ WARNING:  ParadeDB: Outer predicate for complex_reviews - uses_search: true
 WARNING:  ParadeDB: Inner predicate for complex_products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["complex_reviews"], inner: ["complex_products"]
-WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["complex_reviews"], inner: ["complex_products"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = true
+WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Join target list has 0 entries
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries
+WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Stored outer relation OIDs: ["complex_products"]
@@ -2024,10 +2056,9 @@ WARNING:  ParadeDB: Outer predicate for encoding_test_docs - uses_search: true
 WARNING:  ParadeDB: Inner predicate for encoding_test_reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["encoding_test_docs"], inner: ["encoding_test_reviews"]
-WARNING:  ParadeDB: Extracted expected target list with 2 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored 2 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["encoding_test_docs"], inner: ["encoding_test_reviews"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["encoding_test_reviews"], inner relids: ["encoding_test_docs"]
@@ -2054,24 +2085,24 @@ WARNING:  ParadeDB: Outer predicate for encoding_test_reviews - uses_search: tru
 WARNING:  ParadeDB: Inner predicate for encoding_test_docs - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["encoding_test_reviews"], inner: ["encoding_test_docs"]
-WARNING:  ParadeDB: Extracted expected target list with 2 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored 2 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["encoding_test_reviews"], inner: ["encoding_test_docs"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = true
+WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Join target list has 2 entries
-WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'join_attr_1'
-WARNING:  ParadeDB: Mapped join variable varno=2, varattno=3 to 'join_attr_2'
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 2 entries
+WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Stored outer relation OIDs: ["encoding_test_docs"]
 WARNING:  ParadeDB: Stored inner relation OIDs: ["encoding_test_reviews"]
-WARNING:  ParadeDB: Storing 2 variable mappings from planning phase
-WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_1'
-WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=3 -> 'join_attr_2'
+WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
 WARNING:  ParadeDB: Join execution initialization complete
@@ -2258,7 +2289,9 @@ WARNING:  ParadeDB: Outer predicate for complex_products - uses_search: true
 WARNING:  ParadeDB: Inner predicate for complex_reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["complex_products"], inner: ["complex_reviews"]
-WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["complex_products"], inner: ["complex_reviews"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["complex_reviews"], inner relids: ["complex_products"]
@@ -2285,12 +2318,19 @@ WARNING:  ParadeDB: Outer predicate for complex_reviews - uses_search: true
 WARNING:  ParadeDB: Inner predicate for complex_products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["complex_reviews"], inner: ["complex_products"]
-WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["complex_reviews"], inner: ["complex_products"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = true
+WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Join target list has 0 entries
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries
+WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Stored outer relation OIDs: ["complex_products"]
@@ -2452,7 +2492,9 @@ WARNING:  ParadeDB: Outer predicate for complex_products - uses_search: true
 WARNING:  ParadeDB: Inner predicate for complex_reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["complex_products"], inner: ["complex_reviews"]
-WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["complex_products"], inner: ["complex_reviews"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["complex_reviews"], inner relids: ["complex_products"]
@@ -2479,12 +2521,19 @@ WARNING:  ParadeDB: Outer predicate for complex_reviews - uses_search: true
 WARNING:  ParadeDB: Inner predicate for complex_products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["complex_reviews"], inner: ["complex_products"]
-WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["complex_reviews"], inner: ["complex_products"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = true
+WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Join target list has 0 entries
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries
+WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Stored outer relation OIDs: ["complex_products"]
@@ -2646,7 +2695,9 @@ WARNING:  ParadeDB: Outer predicate for complex_products - uses_search: true
 WARNING:  ParadeDB: Inner predicate for complex_reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["complex_products"], inner: ["complex_reviews"]
-WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["complex_products"], inner: ["complex_reviews"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["complex_reviews"], inner relids: ["complex_products"]
@@ -2673,12 +2724,19 @@ WARNING:  ParadeDB: Outer predicate for complex_reviews - uses_search: true
 WARNING:  ParadeDB: Inner predicate for complex_products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["complex_reviews"], inner: ["complex_products"]
-WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["complex_reviews"], inner: ["complex_products"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = true
+WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Join target list has 0 entries
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries
+WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Stored outer relation OIDs: ["complex_products"]
@@ -2840,7 +2898,9 @@ WARNING:  ParadeDB: Outer predicate for complex_products - uses_search: true
 WARNING:  ParadeDB: Inner predicate for complex_reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["complex_products"], inner: ["complex_reviews"]
-WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["complex_products"], inner: ["complex_reviews"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["complex_reviews"], inner relids: ["complex_products"]
@@ -2867,12 +2927,19 @@ WARNING:  ParadeDB: Outer predicate for complex_reviews - uses_search: true
 WARNING:  ParadeDB: Inner predicate for complex_products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["complex_reviews"], inner: ["complex_products"]
-WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["complex_reviews"], inner: ["complex_products"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = true
+WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Join target list has 0 entries
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries
+WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Stored outer relation OIDs: ["complex_products"]
@@ -3034,7 +3101,9 @@ WARNING:  ParadeDB: Outer predicate for complex_products - uses_search: true
 WARNING:  ParadeDB: Inner predicate for complex_reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["complex_products"], inner: ["complex_reviews"]
-WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["complex_products"], inner: ["complex_reviews"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["complex_reviews"], inner relids: ["complex_products"]
@@ -3061,12 +3130,19 @@ WARNING:  ParadeDB: Outer predicate for complex_reviews - uses_search: true
 WARNING:  ParadeDB: Inner predicate for complex_products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["complex_reviews"], inner: ["complex_products"]
-WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["complex_reviews"], inner: ["complex_products"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = true
+WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Join target list has 0 entries
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries
+WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Stored outer relation OIDs: ["complex_products"]
@@ -3239,11 +3315,9 @@ WARNING:  ParadeDB: Outer predicate for complex_products - uses_search: true
 WARNING:  ParadeDB: Inner predicate for complex_reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["complex_products"], inner: ["complex_reviews"]
-WARNING:  ParadeDB: Extracted expected target list with 3 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 4 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 5 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 5 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 1 :location -1}
-WARNING:  ParadeDB: Stored 3 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["complex_products"], inner: ["complex_reviews"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["complex_reviews"], inner relids: ["complex_products"]
@@ -3270,27 +3344,24 @@ WARNING:  ParadeDB: Outer predicate for complex_reviews - uses_search: true
 WARNING:  ParadeDB: Inner predicate for complex_products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["complex_reviews"], inner: ["complex_products"]
-WARNING:  ParadeDB: Extracted expected target list with 3 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 4 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 5 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 5 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 1 :location -1}
-WARNING:  ParadeDB: Stored 3 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["complex_reviews"], inner: ["complex_products"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = true
+WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Join target list has 3 entries
-WARNING:  ParadeDB: Mapped join variable varno=1, varattno=4 to 'join_attr_1'
-WARNING:  ParadeDB: Mapped join variable varno=2, varattno=5 to 'join_attr_2'
-WARNING:  ParadeDB: Mapped join variable varno=2, varattno=1 to 'join_attr_3'
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 3 entries
+WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Stored outer relation OIDs: ["complex_products"]
 WARNING:  ParadeDB: Stored inner relation OIDs: ["complex_reviews"]
-WARNING:  ParadeDB: Storing 3 variable mappings from planning phase
-WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=4 -> 'join_attr_1'
-WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=1 -> 'join_attr_3'
-WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=5 -> 'join_attr_2'
+WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
 WARNING:  ParadeDB: Join execution initialization complete
@@ -3516,7 +3587,9 @@ WARNING:  ParadeDB: Outer predicate for complex_products - uses_search: true
 WARNING:  ParadeDB: Inner predicate for complex_reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["complex_products"], inner: ["complex_reviews"]
-WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["complex_products"], inner: ["complex_reviews"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["complex_reviews"], inner relids: ["complex_products"]
@@ -3543,12 +3616,19 @@ WARNING:  ParadeDB: Outer predicate for complex_reviews - uses_search: true
 WARNING:  ParadeDB: Inner predicate for complex_products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["complex_reviews"], inner: ["complex_products"]
-WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["complex_reviews"], inner: ["complex_products"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = true
+WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Join target list has 0 entries
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries
+WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Stored outer relation OIDs: ["complex_products"]
@@ -3715,10 +3795,9 @@ WARNING:  ParadeDB: Outer predicate for complex_products - uses_search: true
 WARNING:  ParadeDB: Inner predicate for complex_reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["complex_products"], inner: ["complex_reviews"]
-WARNING:  ParadeDB: Extracted expected target list with 2 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored 2 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["complex_products"], inner: ["complex_reviews"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["complex_reviews"], inner relids: ["complex_products"]
@@ -3745,24 +3824,24 @@ WARNING:  ParadeDB: Outer predicate for complex_reviews - uses_search: true
 WARNING:  ParadeDB: Inner predicate for complex_products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["complex_reviews"], inner: ["complex_products"]
-WARNING:  ParadeDB: Extracted expected target list with 2 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored 2 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["complex_reviews"], inner: ["complex_products"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = true
+WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Join target list has 2 entries
-WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'join_attr_1'
-WARNING:  ParadeDB: Mapped join variable varno=2, varattno=3 to 'join_attr_2'
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 2 entries
+WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Stored outer relation OIDs: ["complex_products"]
 WARNING:  ParadeDB: Stored inner relation OIDs: ["complex_reviews"]
-WARNING:  ParadeDB: Storing 2 variable mappings from planning phase
-WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_1'
-WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=3 -> 'join_attr_2'
+WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
 WARNING:  ParadeDB: Join execution initialization complete
@@ -3871,7 +3950,9 @@ WARNING:  ParadeDB: Outer predicate for complex_products - uses_search: true
 WARNING:  ParadeDB: Inner predicate for complex_reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["complex_products"], inner: ["complex_reviews"]
-WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["complex_products"], inner: ["complex_reviews"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["complex_reviews"], inner relids: ["complex_products"]
@@ -3898,12 +3979,19 @@ WARNING:  ParadeDB: Outer predicate for complex_reviews - uses_search: true
 WARNING:  ParadeDB: Inner predicate for complex_products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["complex_reviews"], inner: ["complex_products"]
-WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["complex_reviews"], inner: ["complex_products"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = true
+WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Join target list has 0 entries
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries
+WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Stored outer relation OIDs: ["complex_products"]
@@ -4070,10 +4158,9 @@ WARNING:  ParadeDB: Outer predicate for complex_products - uses_search: true
 WARNING:  ParadeDB: Inner predicate for complex_reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["complex_products"], inner: ["complex_reviews"]
-WARNING:  ParadeDB: Extracted expected target list with 2 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored 2 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["complex_products"], inner: ["complex_reviews"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["complex_reviews"], inner relids: ["complex_products"]
@@ -4100,24 +4187,24 @@ WARNING:  ParadeDB: Outer predicate for complex_reviews - uses_search: true
 WARNING:  ParadeDB: Inner predicate for complex_products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["complex_reviews"], inner: ["complex_products"]
-WARNING:  ParadeDB: Extracted expected target list with 2 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored 2 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["complex_reviews"], inner: ["complex_products"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = true
+WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Join target list has 2 entries
-WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'join_attr_1'
-WARNING:  ParadeDB: Mapped join variable varno=2, varattno=3 to 'join_attr_2'
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 2 entries
+WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Stored outer relation OIDs: ["complex_products"]
 WARNING:  ParadeDB: Stored inner relation OIDs: ["complex_reviews"]
-WARNING:  ParadeDB: Storing 2 variable mappings from planning phase
-WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_1'
-WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=3 -> 'join_attr_2'
+WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
 WARNING:  ParadeDB: Join execution initialization complete
@@ -4151,7 +4238,9 @@ WARNING:  ParadeDB: Outer predicate for memory_test_docs - uses_search: true
 WARNING:  ParadeDB: Inner predicate for memory_test_comments - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["memory_test_docs"], inner: ["memory_test_comments"]
-WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["memory_test_docs"], inner: ["memory_test_comments"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 37500, startup_cost: 50.00, total_cost: 237.50
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["memory_test_comments"], inner relids: ["memory_test_docs"]
@@ -4178,12 +4267,19 @@ WARNING:  ParadeDB: Outer predicate for memory_test_comments - uses_search: true
 WARNING:  ParadeDB: Inner predicate for memory_test_docs - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["memory_test_comments"], inner: ["memory_test_docs"]
-WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["memory_test_comments"], inner: ["memory_test_docs"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 37500, startup_cost: 50.00, total_cost: 237.50
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = true
+WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Join target list has 0 entries
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries
+WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Stored outer relation OIDs: ["memory_test_docs"]

@@ -96,7 +96,9 @@ WARNING:  ParadeDB: Outer predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_perf"], inner: ["tags_perf"]
-WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["documents_perf"], inner: ["tags_perf"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 67, startup_cost: 50.00, total_cost: 50.34
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["tags_perf"], inner relids: ["documents_perf"]
@@ -123,12 +125,19 @@ WARNING:  ParadeDB: Outer predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["tags_perf"], inner: ["documents_perf"]
-WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["tags_perf"], inner: ["documents_perf"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 67, startup_cost: 50.00, total_cost: 50.34
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = true
+WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Join target list has 0 entries
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries
+WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Stored outer relation OIDs: ["documents_perf"]
@@ -263,11 +272,9 @@ WARNING:  ParadeDB: Outer predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_perf"], inner: ["tags_perf"]
-WARNING:  ParadeDB: Extracted expected target list with 3 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}
-WARNING:  ParadeDB: Stored 3 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["documents_perf"], inner: ["tags_perf"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 16, startup_cost: 50.00, total_cost: 50.08
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["tags_perf"], inner relids: ["documents_perf"]
@@ -294,27 +301,24 @@ WARNING:  ParadeDB: Outer predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["tags_perf"], inner: ["documents_perf"]
-WARNING:  ParadeDB: Extracted expected target list with 3 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}
-WARNING:  ParadeDB: Stored 3 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["tags_perf"], inner: ["documents_perf"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 16, startup_cost: 50.00, total_cost: 50.08
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = true
+WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Join target list has 3 entries
-WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'join_attr_1'
-WARNING:  ParadeDB: Mapped join variable varno=2, varattno=3 to 'join_attr_2'
-WARNING:  ParadeDB: Mapped join variable varno=2, varattno=4 to 'join_attr_3'
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 3 entries
+WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Stored outer relation OIDs: ["documents_perf"]
 WARNING:  ParadeDB: Stored inner relation OIDs: ["tags_perf"]
-WARNING:  ParadeDB: Storing 3 variable mappings from planning phase
-WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_1'
-WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=3 -> 'join_attr_2'
-WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=4 -> 'join_attr_3'
+WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
 WARNING:  ParadeDB: Join execution initialization complete
@@ -473,7 +477,9 @@ WARNING:  ParadeDB: Outer predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_perf"], inner: ["tags_perf"]
-WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["documents_perf"], inner: ["tags_perf"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 125, startup_cost: 50.00, total_cost: 50.62
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["tags_perf"], inner relids: ["documents_perf"]
@@ -500,12 +506,19 @@ WARNING:  ParadeDB: Outer predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["tags_perf"], inner: ["documents_perf"]
-WARNING:  ParadeDB: Extracted expected target list with 0 expressions from joinrel->reltarget
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["tags_perf"], inner: ["documents_perf"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 125, startup_cost: 50.00, total_cost: 50.62
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = true
+WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Join target list has 0 entries
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries
+WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Stored outer relation OIDs: ["documents_perf"]
@@ -639,10 +652,9 @@ WARNING:  ParadeDB: Outer predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_perf"], inner: ["tags_perf"]
-WARNING:  ParadeDB: Extracted expected target list with 2 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}
-WARNING:  ParadeDB: Stored 2 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["documents_perf"], inner: ["tags_perf"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["tags_perf"], inner relids: ["documents_perf"]
@@ -669,24 +681,24 @@ WARNING:  ParadeDB: Outer predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["tags_perf"], inner: ["documents_perf"]
-WARNING:  ParadeDB: Extracted expected target list with 2 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}
-WARNING:  ParadeDB: Stored 2 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["tags_perf"], inner: ["documents_perf"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = true
+WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Join target list has 2 entries
-WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'join_attr_1'
-WARNING:  ParadeDB: Mapped join variable varno=2, varattno=4 to 'join_attr_2'
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 2 entries
+WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Stored outer relation OIDs: ["documents_perf"]
 WARNING:  ParadeDB: Stored inner relation OIDs: ["tags_perf"]
-WARNING:  ParadeDB: Storing 2 variable mappings from planning phase
-WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_1'
-WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=4 -> 'join_attr_2'
+WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
 WARNING:  ParadeDB: Join execution initialization complete
@@ -837,11 +849,9 @@ WARNING:  ParadeDB: Outer predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_perf"], inner: ["tags_perf"]
-WARNING:  ParadeDB: Extracted expected target list with 3 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 4 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored 3 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["documents_perf"], inner: ["tags_perf"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 82, startup_cost: 50.00, total_cost: 50.41
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["tags_perf"], inner relids: ["documents_perf"]
@@ -868,27 +878,24 @@ WARNING:  ParadeDB: Outer predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["tags_perf"], inner: ["documents_perf"]
-WARNING:  ParadeDB: Extracted expected target list with 3 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 4 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}
-WARNING:  ParadeDB: Stored 3 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["tags_perf"], inner: ["documents_perf"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 82, startup_cost: 50.00, total_cost: 50.41
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = true
+WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Join target list has 3 entries
-WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'join_attr_1'
-WARNING:  ParadeDB: Mapped join variable varno=1, varattno=4 to 'join_attr_2'
-WARNING:  ParadeDB: Mapped join variable varno=2, varattno=3 to 'join_attr_3'
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 3 entries
+WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Stored outer relation OIDs: ["documents_perf"]
 WARNING:  ParadeDB: Stored inner relation OIDs: ["tags_perf"]
-WARNING:  ParadeDB: Storing 3 variable mappings from planning phase
-WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_1'
-WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=3 -> 'join_attr_3'
-WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=4 -> 'join_attr_2'
+WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
 WARNING:  ParadeDB: Join execution initialization complete
@@ -1030,10 +1037,9 @@ WARNING:  ParadeDB: Outer predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_perf"], inner: ["tags_perf"]
-WARNING:  ParadeDB: Extracted expected target list with 2 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}
-WARNING:  ParadeDB: Stored 2 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["documents_perf"], inner: ["tags_perf"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 16, startup_cost: 50.00, total_cost: 50.08
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["tags_perf"], inner relids: ["documents_perf"]
@@ -1060,24 +1066,24 @@ WARNING:  ParadeDB: Outer predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Inner predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["tags_perf"], inner: ["documents_perf"]
-WARNING:  ParadeDB: Extracted expected target list with 2 expressions from joinrel->reltarget
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: Stored target expression: {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}
-WARNING:  ParadeDB: Stored 2 target expressions as strings
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["tags_perf"], inner: ["documents_perf"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 16, startup_cost: 50.00, total_cost: 50.08
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = true
+WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Join target list has 2 entries
-WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'join_attr_1'
-WARNING:  ParadeDB: Mapped join variable varno=2, varattno=4 to 'join_attr_2'
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 2 entries
+WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Stored outer relation OIDs: ["documents_perf"]
 WARNING:  ParadeDB: Stored inner relation OIDs: ["tags_perf"]
-WARNING:  ParadeDB: Storing 2 variable mappings from planning phase
-WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_1'
-WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=4 -> 'join_attr_2'
+WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
 WARNING:  ParadeDB: Join execution initialization complete

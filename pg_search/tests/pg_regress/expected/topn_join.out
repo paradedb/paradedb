@@ -150,17 +150,7 @@ WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["topn_documents"], inner: ["topn_files"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
 WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["topn_documents"], inner: ["topn_files"]
-WARNING:  ParadeDB: ========== STAGE 2: TARGET LIST EXTRACTION ==========
-WARNING:  ParadeDB: Extracted expected target list with 6 expressions from joinrel->reltarget (pointer: 0x7ff5a001e048)
-WARNING:  ParadeDB: TARGET LIST HAS 6 EXPRESSIONS - storing for later use
-WARNING:  ParadeDB: TARGET EXPR 1: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: TARGET EXPR 2: {PLACEHOLDERVAR :phexpr {FUNCEXPR :funcid 171623 :funcresulttype 700 :funcretset false :funcvariadic false :funcformat 0 :funccollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}) :location -1} :phrels (b 1) :phnullingrels (b) :phid 1 :phlevelsup 0}
-WARNING:  ParadeDB: TARGET EXPR 3: {PLACEHOLDERVAR :phexpr {FUNCEXPR :funcid 171623 :funcresulttype 700 :funcretset false :funcvariadic false :funcformat 0 :funccollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}) :location -1} :phrels (b 1) :phnullingrels (b) :phid 3 :phlevelsup 0}
-WARNING:  ParadeDB: TARGET EXPR 4: {VAR :varno 2 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: TARGET EXPR 5: {PLACEHOLDERVAR :phexpr {FUNCEXPR :funcid 171623 :funcresulttype 700 :funcretset false :funcvariadic false :funcformat 0 :funccollid 0 :inputcollid 0 :args ({VAR :varno 2 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 1 :location -1}) :location -1} :phrels (b 2) :phnullingrels (b) :phid 2 :phlevelsup 0}
-WARNING:  ParadeDB: TARGET EXPR 6: {PLACEHOLDERVAR :phexpr {FUNCEXPR :funcid 171623 :funcresulttype 700 :funcretset false :funcvariadic false :funcformat 0 :funccollid 0 :inputcollid 0 :args ({VAR :varno 2 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 1 :location -1}) :location -1} :phrels (b 2) :phnullingrels (b) :phid 4 :phlevelsup 0}
-WARNING:  ParadeDB: Stored 6 target expressions as strings for serialization
-WARNING:  ParadeDB: ========== STAGE 3: PATH COST ESTIMATION ==========
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["topn_files"], inner relids: ["topn_documents"]
@@ -189,34 +179,15 @@ WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["topn_files"], inner: ["topn_documents"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
 WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["topn_files"], inner: ["topn_documents"]
-WARNING:  ParadeDB: ========== STAGE 2: TARGET LIST EXTRACTION ==========
-WARNING:  ParadeDB: Extracted expected target list with 6 expressions from joinrel->reltarget (pointer: 0x7ff5a001e048)
-WARNING:  ParadeDB: TARGET LIST HAS 6 EXPRESSIONS - storing for later use
-WARNING:  ParadeDB: TARGET EXPR 1: {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: TARGET EXPR 2: {PLACEHOLDERVAR :phexpr {FUNCEXPR :funcid 171623 :funcresulttype 700 :funcretset false :funcvariadic false :funcformat 0 :funccollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}) :location -1} :phrels (b 1) :phnullingrels (b) :phid 1 :phlevelsup 0}
-WARNING:  ParadeDB: TARGET EXPR 3: {PLACEHOLDERVAR :phexpr {FUNCEXPR :funcid 171623 :funcresulttype 700 :funcretset false :funcvariadic false :funcformat 0 :funccollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}) :location -1} :phrels (b 1) :phnullingrels (b) :phid 3 :phlevelsup 0}
-WARNING:  ParadeDB: TARGET EXPR 4: {VAR :varno 2 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 2 :location -1}
-WARNING:  ParadeDB: TARGET EXPR 5: {PLACEHOLDERVAR :phexpr {FUNCEXPR :funcid 171623 :funcresulttype 700 :funcretset false :funcvariadic false :funcformat 0 :funccollid 0 :inputcollid 0 :args ({VAR :varno 2 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 1 :location -1}) :location -1} :phrels (b 2) :phnullingrels (b) :phid 2 :phlevelsup 0}
-WARNING:  ParadeDB: TARGET EXPR 6: {PLACEHOLDERVAR :phexpr {FUNCEXPR :funcid 171623 :funcresulttype 700 :funcretset false :funcvariadic false :funcformat 0 :funccollid 0 :inputcollid 0 :args ({VAR :varno 2 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 1 :location -1}) :location -1} :phrels (b 2) :phnullingrels (b) :phid 4 :phlevelsup 0}
-WARNING:  ParadeDB: Stored 6 target expressions as strings for serialization
-WARNING:  ParadeDB: ========== STAGE 3: PATH COST ESTIMATION ==========
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
 WARNING:  ParadeDB: plan_custom_path called - is_join = true
-WARNING:  ParadeDB: Private data - expected_join_target_count = Some(6)
 WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: ========== FALLBACK PLANNING ==========
-WARNING:  ParadeDB: Expected target list pointer lost, using serialized count: 6
-WARNING:  ParadeDB: Added fallback column 1 as resno 1
-WARNING:  ParadeDB: Added fallback column 2 as resno 2
-WARNING:  ParadeDB: Added fallback column 3 as resno 3
-WARNING:  ParadeDB: Added fallback column 4 as resno 4
-WARNING:  ParadeDB: Added fallback column 5 as resno 5
-WARNING:  ParadeDB: Added fallback column 6 as resno 6
-WARNING:  ParadeDB: Created fallback target list with 6 entries
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries
 WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
 WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
 ERROR:  variable not found in subplan target list

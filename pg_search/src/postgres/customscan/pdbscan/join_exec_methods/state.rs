@@ -284,6 +284,14 @@ pub unsafe fn exec_join_step(
         JoinExecPhase::JoinMatching => {
             warning!("ParadeDB: In join matching phase");
 
+            // Check if this is a TopN join query
+            if let Some(ref join_state) = state.custom_state().join_exec_state {
+                if super::top_n_join::is_topn_join(join_state) {
+                    warning!("ParadeDB: Detected TopN join query, using optimized execution");
+                    return super::top_n_join::execute_topn_join(state);
+                }
+            }
+
             // Check if we should use lazy join execution
             if crate::gucs::is_lazy_join_loading_enabled() {
                 // Check if this query is suitable for lazy loading

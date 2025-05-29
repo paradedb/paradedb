@@ -23,12 +23,14 @@
 //! - `field_map`: Field classification for fast vs non-fast fields
 //! - `lazy_loader`: Batch-optimized lazy field loading
 //! - `lazy_join`: Optimized join execution with lazy loading
+//! - `top_n_join`: TopN join execution for queries with LIMIT and ORDER BY
 
 pub mod field_map;
 pub mod heap_access;
 pub mod lazy_join;
 pub mod lazy_loader;
 pub mod state;
+pub mod top_n_join;
 
 // Re-export the main public interface from state module
 pub use state::{

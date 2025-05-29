@@ -253,12 +253,11 @@ impl ParallelAggregationWorker {
         worker_number: i32,
     ) -> anyhow::Result<IntermediateAggregationResults> {
         let segment_ids = ParallelAggregationWorker::checkout_segments(state, worker_number);
-        pgrx::warning!("worker #{worker_number} has {} segments", segment_ids.len());
-        let indexrel =
-            unsafe { PgRelation::with_lock(state.indexrelid, pg_sys::AccessShareLock as _) };
-
         let query = serde_json::from_slice::<SearchQueryInput>(state.query_bytes())?;
         let agg_req = serde_json::from_slice::<Aggregations>(state.agg_req_bytes())?;
+
+        let indexrel =
+            unsafe { PgRelation::with_lock(state.indexrelid, pg_sys::AccessShareLock as _) };
         let reader =
             SearchIndexReader::open(&indexrel, MvccSatisfies::ParallelWorker(segment_ids))?;
 

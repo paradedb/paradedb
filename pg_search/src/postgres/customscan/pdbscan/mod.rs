@@ -133,7 +133,7 @@ impl PdbScan {
                     .custom_state()
                     .search_reader
                     .as_ref()
-                    .unwrap()
+                    .expect("search_reader should be Some")
                     .snippet_generator(
                         snippet_type.field(),
                         state.custom_state().search_query_input(),
@@ -328,7 +328,10 @@ impl CustomScan for PdbScan {
             };
             let query = SearchQueryInput::from(&quals);
             let norm_selec = if restrict_info.len() == 1 {
-                (*restrict_info.get_ptr(0).unwrap()).norm_selec
+                (*restrict_info
+                    .get_ptr(0)
+                    .expect("restrict_info should be Some"))
+                .norm_selec
             } else {
                 UNASSIGNED_SELECTIVITY
             };
@@ -372,7 +375,7 @@ impl CustomScan for PdbScan {
             );
 
             if is_topn && pathkey.is_some() {
-                let pathkey = pathkey.as_ref().unwrap();
+                let pathkey = pathkey.as_ref().expect("pathkey should be Some");
                 // sorting by a field only works if we're not doing const projections
                 // the reason for this is that tantivy can't do both scoring and ordering by
                 // a fast field at the same time.
@@ -416,7 +419,7 @@ impl CustomScan for PdbScan {
                 && fast_fields::is_string_agg_capable_with_prereqs(builder.custom_private())
                     .is_some()
             {
-                let pathkey = pathkey.as_ref().unwrap();
+                let pathkey = pathkey.as_ref().expect("pathkey should be Some");
 
                 // we're going to do a StringAgg, and it may or may not be more efficient to use
                 // parallel queries, depending on the cardinality of what we're going to select
@@ -543,6 +546,24 @@ impl CustomScan for PdbScan {
                 // The target list should contain all the columns that the upper plan nodes expect
                 pgrx::warning!("ParadeDB: Join target list has {} entries", tlist.len());
 
+                // If the target list is empty, try to use processed_tlist from root
+                if tlist.is_empty() && !(*builder.args().root).processed_tlist.is_null() {
+                    let processed_tlist = PgList::<pg_sys::TargetEntry>::from_pg(
+                        (*builder.args().root).processed_tlist,
+                    );
+                    pgrx::warning!(
+                        "ParadeDB: Using processed_tlist instead (has {} entries)",
+                        processed_tlist.len()
+                    );
+
+                    // Copy the processed target list entries
+                    for te in processed_tlist.iter_ptr() {
+                        let te_copy =
+                            pg_sys::copyObjectImpl(te.cast()).cast::<pg_sys::TargetEntry>();
+                        tlist.push(te_copy);
+                    }
+                }
+
                 // For join nodes, we need to set up proper variable mappings
                 // The key insight is that join nodes need to provide variables from both relations
 
@@ -583,11 +604,27 @@ impl CustomScan for PdbScan {
                 // matches exactly what PostgreSQL expects. The issue is that PostgreSQL
                 // validates that our custom scan can provide all the variables in the target list.
 
-                // Set the custom scan's target list to match the join's target list
-                // This tells PostgreSQL exactly what variables our custom scan will provide
-                builder.set_custom_scan_tlist(tlist.as_ptr());
+                // Only set the custom scan's target list if we have entries
+                if !tlist.is_empty() {
+                    // Set the custom scan's target list to match the join's target list
+                    // This tells PostgreSQL exactly what variables our custom scan will provide
+                    builder.set_custom_scan_tlist(tlist.as_ptr());
+                    pgrx::warning!("ParadeDB: Set custom scan target list for join node");
+                } else {
+                    pgrx::warning!(
+                        "ParadeDB: WARNING - Join target list is still empty, may cause issues"
+                    );
+                    // In this case, we might need to construct a minimal target list
+                    // based on the search predicates or other available information
 
-                pgrx::warning!("ParadeDB: Set custom scan target list for join node");
+                    // As a last resort, we could try to infer what columns are needed
+                    // from the join search predicates
+                    if let Some(predicates) = builder.custom_private().join_search_predicates() {
+                        pgrx::warning!("ParadeDB: Attempting to construct minimal target list from join predicates");
+                        // This is a placeholder - in a real implementation, we'd need to
+                        // analyze the predicates and construct appropriate target entries
+                    }
+                }
 
                 return builder.build();
             }
@@ -629,10 +666,28 @@ impl CustomScan for PdbScan {
 
                     // track a triplet of (varno, varattno, attname) as 3 individual
                     // entries in the `attname_lookup` List
-                    let attname = attname_from_var(builder.args().root, var)
-                        .1
-                        .expect("function call argument should be a column name");
-                    attname_lookup.insert(((*var).varno as Varno, (*var).varattno), attname);
+                    let attname_result = attname_from_var(builder.args().root, var);
+
+                    // For join nodes, attname_from_var might return None if the variable has
+                    // a special varno (like OUTER_VAR, INNER_VAR, INDEX_VAR)
+                    // In these cases, we'll skip adding it to the lookup table
+                    match attname_result.1 {
+                        Some(attname) => {
+                            attname_lookup
+                                .insert(((*var).varno as Varno, (*var).varattno), attname);
+                        }
+                        None => {
+                            pgrx::warning!(
+                                "ParadeDB: Could not determine attribute name for var with varno={}, varattno={} - likely a join-transformed variable",
+                                (*var).varno,
+                                (*var).varattno
+                            );
+                            // For join-transformed variables, we'll use a generic name
+                            let generic_name = format!("var_{}_{}", (*var).varno, (*var).varattno);
+                            attname_lookup
+                                .insert(((*var).varno as Varno, (*var).varattno), generic_name);
+                        }
+                    }
                 }
             }
 
@@ -753,14 +808,20 @@ impl CustomScan for PdbScan {
             }
 
             // Original scan node logic continues here
-            builder.custom_state().heaprelid = builder
-                .custom_private()
-                .heaprelid()
-                .expect("heaprelid should have a value");
-            builder.custom_state().indexrelid = builder
-                .custom_private()
-                .indexrelid()
-                .expect("indexrelid should have a value");
+            builder.custom_state().heaprelid = match builder.custom_private().heaprelid() {
+                Some(relid) => relid,
+                None => {
+                    pgrx::warning!("ParadeDB: No heaprelid found for scan node");
+                    return std::ptr::null_mut();
+                }
+            };
+            builder.custom_state().indexrelid = match builder.custom_private().indexrelid() {
+                Some(relid) => relid,
+                None => {
+                    pgrx::warning!("ParadeDB: No indexrelid found for scan node");
+                    return std::ptr::null_mut();
+                }
+            };
 
             builder.custom_state().execution_rti =
                 (*builder.args().cscan).scan.scanrelid as pg_sys::Index;
@@ -776,22 +837,35 @@ impl CustomScan for PdbScan {
             builder.custom_state().sort_direction = builder.custom_private().sort_direction();
 
             // store our query into our custom state too
-            let base_query = builder
-                .custom_private()
-                .query()
-                .clone()
-                .expect("should have a SearchQueryInput");
+            let base_query = match builder.custom_private().query().clone() {
+                Some(query) => query,
+                None => {
+                    pgrx::warning!("ParadeDB: No search query found for scan node");
+                    return std::ptr::null_mut();
+                }
+            };
             builder
                 .custom_state()
                 .set_base_search_query_input(base_query);
 
             builder.custom_state().segment_count = builder.custom_private().segment_count();
-            builder.custom_state().var_attname_lookup = builder
+
+            // Get the var_attname_lookup, which should always be present for scan nodes
+            // but we'll handle the None case defensively
+            builder.custom_state().var_attname_lookup = match builder
                 .custom_private()
                 .var_attname_lookup()
                 .as_ref()
                 .cloned()
-                .expect("should have an attribute name lookup");
+            {
+                Some(lookup) => lookup,
+                None => {
+                    pgrx::warning!(
+                        "ParadeDB: No var_attname_lookup found for scan node, using empty HashMap"
+                    );
+                    HashMap::default()
+                }
+            };
 
             let score_funcoid = score_funcoid();
             let snippet_funcoid = snippet_funcoid();
@@ -807,10 +881,14 @@ impl CustomScan for PdbScan {
             );
 
             let node = builder.target_list().as_ptr().cast();
-            builder.custom_state().planning_rti = builder
-                .custom_private()
-                .range_table_index()
-                .expect("range table index should have been set");
+            builder.custom_state().planning_rti = match builder.custom_private().range_table_index()
+            {
+                Some(rti) => rti,
+                None => {
+                    pgrx::warning!("ParadeDB: No range table index found for scan node");
+                    return std::ptr::null_mut();
+                }
+            };
             builder.custom_state().snippet_generators = uses_snippets(
                 builder.custom_state().planning_rti,
                 &builder.custom_state().var_attname_lookup,
@@ -833,6 +911,7 @@ impl CustomScan for PdbScan {
         ancestors: *mut pg_sys::List,
         explainer: &mut Explainer,
     ) {
+        pgrx::warning!("ParadeDB: Explaining custom scan");
         explainer.add_text("Table", state.custom_state().heaprelname());
         explainer.add_text("Index", state.custom_state().indexrelname());
         if explainer.is_costs() {
@@ -870,7 +949,7 @@ impl CustomScan for PdbScan {
                 .exec_method_name()
                 .split("::")
                 .last()
-                .unwrap(),
+                .expect("exec_method_name should be Some"),
         );
         exec_methods::fast_fields::explain(state, explainer);
 
@@ -928,15 +1007,6 @@ impl CustomScan for PdbScan {
         unsafe {
             // Check if this is a join node
             if state.custom_state().execution_rti == 0 {
-                pgrx::warning!("ParadeDB: Beginning custom scan for join node");
-
-                // For join nodes, use the new join execution framework
-                if eflags & (pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) != 0 {
-                    // For EXPLAIN, still set up basic infrastructure
-                    init_join_execution(state, estate);
-                    return;
-                }
-
                 // Initialize join execution
                 init_join_execution(state, estate);
                 return;
@@ -1023,6 +1093,7 @@ impl CustomScan for PdbScan {
 
     #[allow(clippy::blocks_in_conditions)]
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
+        pgrx::warning!("ParadeDB: Executing custom scan");
         // Check if this is a join node
         if state.custom_state().execution_rti == 0 {
             // Use the new join execution framework
@@ -1093,7 +1164,8 @@ impl CustomScan for PdbScan {
                                     .custom_state()
                                     .const_score_node
                                     .expect("const_score_node should be set");
-                                (*const_score_node).constvalue = score.into_datum().unwrap();
+                                (*const_score_node).constvalue =
+                                    score.into_datum().expect("score should be Some");
                                 (*const_score_node).constisnull = false;
                             }
 
@@ -1111,8 +1183,9 @@ impl CustomScan for PdbScan {
                                                 for const_ in const_snippet_nodes {
                                                     match &snippet {
                                                         Some(text) => {
-                                                            (**const_).constvalue =
-                                                                text.into_datum().unwrap();
+                                                            (**const_).constvalue = text
+                                                                .into_datum()
+                                                                .expect("text should be Some");
                                                             (**const_).constisnull = false;
                                                         }
                                                         None => {
@@ -1134,7 +1207,7 @@ impl CustomScan for PdbScan {
                                                             (**const_).constvalue = positions
                                                                 .clone()
                                                                 .into_datum()
-                                                                .unwrap();
+                                                                .expect("positions should be Some");
                                                             (**const_).constisnull = false;
                                                         }
                                                         None => {
@@ -1229,26 +1302,39 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
     if let Some((limit, sort_direction)) = privdata.limit().zip(privdata.sort_direction()) {
         // having a valid limit and sort direction means we can do a TopN query
         // and TopN can do snippets
-        ExecMethodType::TopN {
-            heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
-            limit,
-            sort_direction,
-            need_scores: privdata.need_scores(),
+        // But we need a valid heaprelid for TopN execution
+        if let Some(heaprelid) = privdata.heaprelid() {
+            ExecMethodType::TopN {
+                heaprelid,
+                limit,
+                sort_direction,
+                need_scores: privdata.need_scores(),
+            }
+        } else {
+            // Fall back to normal execution if we don't have a heaprelid
+            ExecMethodType::Normal
         }
     } else if fast_fields::is_numeric_fast_field_capable(privdata)
         && gucs::is_fast_field_exec_enabled()
     {
         // Check for numeric-only fast fields first because they're more selective
-        ExecMethodType::FastFieldNumeric {
-            which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
+        // Only use fast field execution if we have the planned fast fields
+        if let Some(which_fast_fields) = privdata.planned_which_fast_fields().clone() {
+            ExecMethodType::FastFieldNumeric { which_fast_fields }
+        } else {
+            ExecMethodType::Normal
         }
     } else if fast_fields::is_string_agg_capable(privdata).is_some()
         && gucs::is_fast_field_exec_enabled()
     {
-        let field = fast_fields::is_string_agg_capable(privdata).unwrap();
-        ExecMethodType::FastFieldString {
-            field,
-            which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
+        let field = fast_fields::is_string_agg_capable(privdata);
+        // Only use string fast field execution if we have both the field and planned fast fields
+        match (field, privdata.planned_which_fast_fields().clone()) {
+            (Some(field), Some(which_fast_fields)) => ExecMethodType::FastFieldString {
+                field,
+                which_fast_fields,
+            },
+            _ => ExecMethodType::Normal,
         }
     } else if gucs::is_mixed_fast_field_exec_enabled() {
         // Use MixedFastFieldExec if enabled
@@ -1256,8 +1342,10 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
         // We'd suggest using MixedFastFieldExec as the last resort (default) at the planning
         // stage, but we will fall back to NormalExecState (in assign_exec_method) if we can't
         // execute using MixedFastFieldExec with the given fields and possibly expressions.
-        ExecMethodType::FastFieldMixed {
-            which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
+        if let Some(which_fast_fields) = privdata.planned_which_fast_fields().clone() {
+            ExecMethodType::FastFieldMixed { which_fast_fields }
+        } else {
+            ExecMethodType::Normal
         }
     } else {
         // Fall back to normal execution
@@ -1504,13 +1592,15 @@ unsafe fn is_lower_func(node: *mut pg_sys::Node, rti: i32) -> Option<*mut pg_sys
             args.len() == 1,
             "`lower(text)` function must have 1 argument"
         );
-        if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {
+        if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).expect("args should be Some")) {
             if (*var).varno as i32 == rti as i32 {
                 return Some(var);
             }
-        } else if let Some(relabel) =
-            nodecast!(RelabelType, T_RelabelType, args.get_ptr(0).unwrap())
-        {
+        } else if let Some(relabel) = nodecast!(
+            RelabelType,
+            T_RelabelType,
+            args.get_ptr(0).expect("args should be Some")
+        ) {
             if let Some(var) = nodecast!(Var, T_Var, (*relabel).arg) {
                 if (*var).varno as i32 == rti as i32 {
                     return Some(var);

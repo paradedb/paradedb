@@ -207,6 +207,12 @@ SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.
 vacuum;
 SET paradedb.enable_mixed_fast_field_exec = false;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color @@@ 'blue') AND (users.name @@@ 'bob') LIMIT 10;
+WARNING:  ParadeDB: Explaining custom scan
+WARNING:  ParadeDB: Explaining custom scan: table
+WARNING:  ParadeDB: Explaining custom scan: index
+WARNING:  ParadeDB: Explaining custom scan: analyze
+WARNING:  ParadeDB: Explaining custom scan: exec_method
+WARNING:  ParadeDB: Explaining custom scan: limit
                                                                                                                                                  QUERY PLAN                                                                                                                                                  
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -224,6 +230,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN 
 (12 rows)
 
 SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color @@@ 'blue') AND (users.name @@@ 'bob') LIMIT 10;
+WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Executing custom scan
  color 
 -------
  blue
@@ -231,6 +239,12 @@ SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.
 
 SET paradedb.enable_mixed_fast_field_exec = true;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color @@@ 'blue') AND (users.name @@@ 'bob') LIMIT 10;
+WARNING:  ParadeDB: Explaining custom scan
+WARNING:  ParadeDB: Explaining custom scan: table
+WARNING:  ParadeDB: Explaining custom scan: index
+WARNING:  ParadeDB: Explaining custom scan: analyze
+WARNING:  ParadeDB: Explaining custom scan: exec_method
+WARNING:  ParadeDB: Explaining custom scan: limit
                                                                                                                                                  QUERY PLAN                                                                                                                                                  
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -251,6 +265,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN 
 (15 rows)
 
 SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color @@@ 'blue') AND (users.name @@@ 'bob') LIMIT 10;
+WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Executing custom scan
  color 
 -------
  blue

@@ -729,7 +729,7 @@ unsafe fn join_intermediate_with_search_results(
         return std::ptr::null_mut();
     }
 
-    let intermediate_tuple = intermediate_tuple.unwrap();
+    let intermediate_tuple = intermediate_tuple.expect("intermediate_tuple should be Some");
 
     // Get search results
     let search_results = get_search_results_for_join(state);
@@ -764,7 +764,7 @@ unsafe fn join_search_with_intermediate_results(
         return std::ptr::null_mut();
     }
 
-    let (ctid, _score) = search_result.unwrap();
+    let (ctid, _score) = search_result.expect("search_result should be Some");
 
     // Get intermediate results
     let intermediate_results = get_intermediate_results_for_join(state);
@@ -1000,11 +1000,13 @@ unsafe fn create_composite_join_result_tuple(
                 if let Ok(int_val) = value.parse::<i32>() {
                     int_val.into()
                 } else {
-                    let value_cstr = std::ffi::CString::new(value.clone()).unwrap();
+                    let value_cstr =
+                        std::ffi::CString::new(value.clone()).expect("value_cstr should be Some");
                     pg_sys::cstring_to_text(value_cstr.as_ptr()).into()
                 }
             } else {
-                let value_cstr = std::ffi::CString::new(value.clone()).unwrap();
+                let value_cstr =
+                    std::ffi::CString::new(value.clone()).expect("value_cstr should be Some");
                 pg_sys::cstring_to_text(value_cstr.as_ptr()).into()
             };
 
@@ -1039,6 +1041,7 @@ unsafe fn create_composite_join_result_tuple(
 pub unsafe fn exec_join_step(
     state: &mut CustomScanStateWrapper<PdbScan>,
 ) -> *mut pg_sys::TupleTableSlot {
+    pgrx::warning!("ParadeDB: Executing join step");
     // PRODUCTION HARDENING: Validate state before execution
     if state.custom_state().join_exec_state.is_none() {
         warning!("ParadeDB: CRITICAL ERROR - Join execution state not initialized");
@@ -1478,10 +1481,21 @@ unsafe fn execute_real_searches(
         join_state.outer_position = 0;
         join_state.inner_position = 0;
 
+        let outer_count = join_state
+            .outer_results
+            .as_ref()
+            .map(|r| r.len())
+            .unwrap_or(0);
+        let inner_count = join_state
+            .inner_results
+            .as_ref()
+            .map(|r| r.len())
+            .unwrap_or(0);
+
         warning!(
             "ParadeDB: Completed real search execution - outer: {}, inner: {}",
-            join_state.outer_results.as_ref().unwrap().len(),
-            join_state.inner_results.as_ref().unwrap().len()
+            outer_count,
+            inner_count
         );
     }
 }
@@ -1708,8 +1722,21 @@ unsafe fn evaluate_join_condition(
         return false;
     }
 
-    let outer_relid = outer_relid.unwrap();
-    let inner_relid = inner_relid.unwrap();
+    let outer_relid = match outer_relid {
+        Some(oid) => oid,
+        None => {
+            warning!("ParadeDB: Cannot evaluate join condition - outer relation OID is None");
+            return false;
+        }
+    };
+
+    let inner_relid = match inner_relid {
+        Some(oid) => oid,
+        None => {
+            warning!("ParadeDB: Cannot evaluate join condition - inner relation OID is None");
+            return false;
+        }
+    };
 
     // Determine the correct join keys based on the actual relations being joined
     let (outer_key_col, inner_key_col) = determine_join_keys(outer_relid, inner_relid);
@@ -1892,7 +1919,8 @@ unsafe fn create_intermediate_join_result_tuple(
     // In a more sophisticated implementation, we would properly join with search results
     for i in 0..natts.min(intermediate_tuple.len()) {
         if let Some(ref value) = intermediate_tuple[i] {
-            let value_cstr = std::ffi::CString::new(value.clone()).unwrap();
+            let value_cstr =
+                std::ffi::CString::new(value.clone()).expect("value_cstr should be Some");
             let text_datum = pg_sys::cstring_to_text(value_cstr.as_ptr());
             (*scan_slot).tts_values.add(i).write(text_datum.into());
             (*scan_slot).tts_isnull.add(i).write(false);
@@ -1977,12 +2005,14 @@ unsafe fn create_join_result_tuple(
                     int_val.into()
                 } else {
                     // Fallback to text if parsing fails
-                    let value_cstr = std::ffi::CString::new(value.clone()).unwrap();
+                    let value_cstr =
+                        std::ffi::CString::new(value.clone()).expect("value_cstr should be Some");
                     pg_sys::cstring_to_text(value_cstr.as_ptr()).into()
                 }
             } else {
                 // Treat as text
-                let value_cstr = std::ffi::CString::new(value.clone()).unwrap();
+                let value_cstr =
+                    std::ffi::CString::new(value.clone()).expect("value_cstr should be Some");
                 pg_sys::cstring_to_text(value_cstr.as_ptr()).into()
             };
 
@@ -2563,7 +2593,7 @@ unsafe fn determine_fallback_mapping_from_target_name(
                 col_name
             );
             return ColumnMapping::RelationColumn {
-                relid: outer_relid.unwrap(),
+                relid: outer_relid.expect("outer_relid should be Some"),
                 column_name: col_name.clone(),
             };
         }
@@ -2583,7 +2613,7 @@ unsafe fn determine_fallback_mapping_from_target_name(
                 col_name
             );
             return ColumnMapping::RelationColumn {
-                relid: inner_relid.unwrap(),
+                relid: inner_relid.expect("inner_relid should be Some"),
                 column_name: col_name.clone(),
             };
         }
@@ -2611,7 +2641,7 @@ unsafe fn determine_fallback_mapping_from_target_name(
                 name_col
             );
             return ColumnMapping::RelationColumn {
-                relid: outer_relid.unwrap(),
+                relid: outer_relid.expect("outer_relid should be Some"),
                 column_name: name_col.clone(),
             };
         }
@@ -2638,7 +2668,7 @@ unsafe fn determine_fallback_mapping_from_target_name(
                 review_col
             );
             return ColumnMapping::RelationColumn {
-                relid: inner_relid.unwrap(),
+                relid: inner_relid.expect("inner_relid should be Some"),
                 column_name: review_col.clone(),
             };
         }
@@ -2655,7 +2685,7 @@ unsafe fn determine_fallback_mapping_from_target_name(
             fallback_col
         );
         ColumnMapping::RelationColumn {
-            relid: outer_relid.unwrap(),
+            relid: outer_relid.expect("outer_relid should be Some"),
             column_name: fallback_col.clone(),
         }
     } else if !inner_columns.is_empty() && inner_relid.is_some() {
@@ -2668,7 +2698,7 @@ unsafe fn determine_fallback_mapping_from_target_name(
             fallback_col
         );
         ColumnMapping::RelationColumn {
-            relid: inner_relid.unwrap(),
+            relid: inner_relid.expect("inner_relid should be Some"),
             column_name: fallback_col.clone(),
         }
     } else {
@@ -3535,7 +3565,7 @@ unsafe fn create_join_tuple_descriptor(
     for i in 0..actual_len {
         let attnum = (i + 1) as pg_sys::AttrNumber;
         let attname = format!("join_col_{}", attnum);
-        let attname_cstr = std::ffi::CString::new(attname).unwrap();
+        let attname_cstr = std::ffi::CString::new(attname).expect("attname_cstr should be Some");
 
         pg_sys::TupleDescInitEntry(
             tupdesc,

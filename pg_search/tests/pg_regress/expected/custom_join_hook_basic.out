@@ -135,11 +135,12 @@ WARNING:  ParadeDB: Storing 3 variable mappings from planning phase
 WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=1 -> 'join_attr_1'
 WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_2'
 WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=3 -> 'join_attr_3'
-WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing production-ready join execution
 WARNING:  ParadeDB: Join configuration - outer predicates: 1 (search: 1), inner predicates: 1 (search: 1), bilateral: true
 WARNING:  ParadeDB: Relation validation - outer: documents_join_test (valid: true), inner: files_join_test (valid: true)
 WARNING:  ParadeDB: Join execution initialization completed successfully
+WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 1/4 - Initializing join execution
 WARNING:  ParadeDB: Prerequisites validation passed - ready for join execution
 WARNING:  ParadeDB: Initializing search execution with safety checks
@@ -157,10 +158,13 @@ WARNING:  ParadeDB: Real search on files_join_test returned 3 results
 WARNING:  ParadeDB: Successfully executed search on files_join_test
 WARNING:  ParadeDB: Search execution completed - outer: 1, inner: 3
 WARNING:  ParadeDB: Search execution initialization completed successfully
+WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 2/4 - Executing outer relation search
 WARNING:  ParadeDB: Outer search completed - 1 results
+WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 3/4 - Executing inner relation search
 WARNING:  ParadeDB: Inner search completed - 3 results
+WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
@@ -222,6 +226,8 @@ WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn(files_join_test,fil
 WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("1"), Some("Document 1"), Some("file1.txt")]
 WARNING:  ParadeDB: Converting '1' to integer 1
 WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("1"), Some("Document 1"), Some("file1.txt")]
+WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
@@ -365,11 +371,12 @@ WARNING:  ParadeDB: Storing 3 variable mappings from planning phase
 WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=1 -> 'join_attr_1'
 WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_2'
 WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=3 -> 'join_attr_3'
-WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing production-ready join execution
 WARNING:  ParadeDB: Join configuration - outer predicates: 1 (search: 1), inner predicates: 0 (search: 0), bilateral: false
 WARNING:  ParadeDB: Relation validation - outer: documents_join_test (valid: true), inner: files_join_test (valid: true)
 WARNING:  ParadeDB: Join execution initialization completed successfully
+WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 1/4 - Initializing join execution
 WARNING:  ParadeDB: Prerequisites validation passed - ready for join execution
 WARNING:  ParadeDB: Initializing search execution with safety checks
@@ -387,10 +394,13 @@ WARNING:  ParadeDB: Relation files_join_test has 1 pages
 WARNING:  ParadeDB: Generated 3 table scan results for relation files_join_test
 WARNING:  ParadeDB: Search execution completed - outer: 1, inner: 3
 WARNING:  ParadeDB: Search execution initialization completed successfully
+WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 2/4 - Executing outer relation search
 WARNING:  ParadeDB: Outer search completed - 1 results
+WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 3/4 - Executing inner relation search
 WARNING:  ParadeDB: Inner search completed - 3 results
+WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
@@ -460,6 +470,8 @@ WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn(files_join_test,fil
 WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("2"), Some("Document 2"), Some("file2.txt")]
 WARNING:  ParadeDB: Converting '2' to integer 2
 WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("2"), Some("Document 2"), Some("file2.txt")]
+WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
@@ -674,11 +686,12 @@ WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=1 -> 'join_attr_1'
 WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=2 -> 'join_attr_4'
 WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_2'
 WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=3 -> 'join_attr_3'
-WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing production-ready join execution
 WARNING:  ParadeDB: Join configuration - outer predicates: 1 (search: 1), inner predicates: 1 (search: 1), bilateral: true
 WARNING:  ParadeDB: Relation validation - outer: documents_join_test (valid: true), inner: files_join_test (valid: true)
 WARNING:  ParadeDB: Join execution initialization completed successfully
+WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 1/4 - Initializing join execution
 WARNING:  ParadeDB: Prerequisites validation passed - ready for join execution
 WARNING:  ParadeDB: Initializing search execution with safety checks
@@ -696,10 +709,13 @@ WARNING:  ParadeDB: Real search on files_join_test returned 3 results
 WARNING:  ParadeDB: Successfully executed search on files_join_test
 WARNING:  ParadeDB: Search execution completed - outer: 1, inner: 3
 WARNING:  ParadeDB: Search execution initialization completed successfully
+WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 2/4 - Executing outer relation search
 WARNING:  ParadeDB: Outer search completed - 1 results
+WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 3/4 - Executing inner relation search
 WARNING:  ParadeDB: Inner search completed - 3 results
+WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
@@ -771,6 +787,8 @@ WARNING:  ParadeDB: Mapped 4 out of 4 column values: [Some("1"), Some("Document 
 WARNING:  ParadeDB: Converting '1' to integer 1
 WARNING:  ParadeDB: Converting '1' to integer 1
 WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("1"), Some("Document 1"), Some("file1.txt"), Some("1")]
+WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
@@ -985,6 +1003,16 @@ WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: [
 WARNING:  ParadeDB: Outer side is base, inner is composite - checking feasibility
 WARNING:  ParadeDB: Composite joins not yet supported - intermediate result access not implemented
 WARNING:  ParadeDB: Rejecting composite join to allow PostgreSQL's optimized default processing
+WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Executing custom scan
  id |   title    | filename  | author_name 
 ----+------------+-----------+-------------
   2 | Document 2 | file2.txt | Jane Doe
@@ -1152,11 +1180,12 @@ WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=1 -> 'join_attr_1'
 WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=2 -> 'join_attr_4'
 WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_2'
 WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=3 -> 'join_attr_3'
-WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing production-ready join execution
 WARNING:  ParadeDB: Join configuration - outer predicates: 1 (search: 1), inner predicates: 0 (search: 0), bilateral: false
 WARNING:  ParadeDB: Relation validation - outer: documents_join_test (valid: true), inner: files_join_test (valid: true)
 WARNING:  ParadeDB: Join execution initialization completed successfully
+WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 1/4 - Initializing join execution
 WARNING:  ParadeDB: Prerequisites validation passed - ready for join execution
 WARNING:  ParadeDB: Initializing search execution with safety checks
@@ -1174,10 +1203,13 @@ WARNING:  ParadeDB: Relation files_join_test has 1 pages
 WARNING:  ParadeDB: Generated 3 table scan results for relation files_join_test
 WARNING:  ParadeDB: Search execution completed - outer: 2, inner: 3
 WARNING:  ParadeDB: Search execution initialization completed successfully
+WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 2/4 - Executing outer relation search
 WARNING:  ParadeDB: Outer search completed - 2 results
+WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 3/4 - Executing inner relation search
 WARNING:  ParadeDB: Inner search completed - 3 results
+WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
@@ -1257,6 +1289,8 @@ WARNING:  ParadeDB: Mapped 4 out of 4 column values: [Some("2"), Some("Document 
 WARNING:  ParadeDB: Converting '2' to integer 2
 WARNING:  ParadeDB: Converting '2' to integer 2
 WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("2"), Some("Document 2"), Some("file2.txt"), Some("2")]
+WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_join_test, inner: files_join_test
@@ -1353,6 +1387,8 @@ WARNING:  ParadeDB: Mapped 4 out of 4 column values: [Some("3"), Some("Document 
 WARNING:  ParadeDB: Converting '3' to integer 3
 WARNING:  ParadeDB: Converting '3' to integer 3
 WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("3"), Some("Document 3"), Some("file3.txt"), Some("3")]
+WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Join matching complete - total matches: 2

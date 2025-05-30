@@ -40,7 +40,6 @@ pub mod datetime;
 pub mod fake_aminsertcleanup;
 pub mod index;
 mod parallel;
-pub mod parallel_worker;
 pub mod spinlock;
 pub mod storage;
 pub mod types;

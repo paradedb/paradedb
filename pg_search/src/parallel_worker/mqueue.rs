@@ -96,7 +96,7 @@ pub struct MessageQueueSender {
 
 impl MessageQueueSender {
     #[doc(hidden)]
-    pub(super) unsafe fn new(seg: *mut pg_sys::dsm_segment, mq: *mut pg_sys::shm_mq) -> Self {
+    pub(crate) unsafe fn new(seg: *mut pg_sys::dsm_segment, mq: *mut pg_sys::shm_mq) -> Self {
         unsafe {
             Self {
                 handle: MessageQueueHandle::attach_sender(seg, mq),
@@ -176,7 +176,7 @@ pub struct MessageQueueReceiver {
 }
 
 impl MessageQueueReceiver {
-    pub(super) unsafe fn new(
+    pub(crate) unsafe fn new(
         pcxt: NonNull<pg_sys::ParallelContext>,
         address: *mut std::ffi::c_void,
         size: usize,

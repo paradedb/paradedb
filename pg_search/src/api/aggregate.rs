@@ -3,11 +3,9 @@ use crate::api::aggregate::vischeck::TSVisibilityChecker;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::launch_parallel_process;
-use crate::postgres::parallel_worker::builder::ParallelStateManager;
-use crate::postgres::parallel_worker::mqueue::MessageQueueSender;
-use crate::postgres::parallel_worker::{
-    ParallelProcess, ParallelState, ParallelStateType, ParallelWorker,
-};
+use crate::parallel_worker::mqueue::MessageQueueSender;
+use crate::parallel_worker::ParallelStateManager;
+use crate::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, ParallelWorker};
 use crate::postgres::spinlock::Spinlock;
 use crate::query::SearchQueryInput;
 use pgrx::{check_for_interrupts, default, pg_extern, pg_sys, Json, JsonB, PgRelation};
@@ -209,16 +207,29 @@ impl ParallelAggregationWorker<'_> {
     }
 }
 
-impl<'a> ParallelWorker for ParallelAggregationWorker<'a> {
-    fn new(state_manager: ParallelStateManager) -> Option<Self> {
-        unsafe {
-            Some(Self {
-                state: state_manager.object(0).expect("wrong type")?,
-                config: state_manager.object(1).expect("wrong type")?,
-                agg_req_bytes: state_manager.slice(2).expect("wrong type")?,
-                query_bytes: state_manager.slice(3).expect("wrong type")?,
-                segment_ids: state_manager.slice(4).expect("wrong type")?,
-            })
+impl ParallelWorker for ParallelAggregationWorker<'_> {
+    fn new(state_manager: ParallelStateManager) -> Self {
+        Self {
+            state: state_manager
+                .object(0)
+                .expect("wrong type for state")
+                .expect("missing state value"),
+            config: state_manager
+                .object(1)
+                .expect("wrong type for config")
+                .expect("missing config value"),
+            agg_req_bytes: state_manager
+                .slice(2)
+                .expect("wrong type for agg_req_bytes")
+                .expect("missing agg_req_bytes value"),
+            query_bytes: state_manager
+                .slice(3)
+                .expect("wrong type for query_bytes")
+                .expect("missing query_bytes value"),
+            segment_ids: state_manager
+                .slice(4)
+                .expect("wrong type for segment_ids")
+                .expect("missing segment_ids value"),
         }
     }
 
@@ -230,7 +241,6 @@ impl<'a> ParallelWorker for ParallelAggregationWorker<'a> {
         }
 
         let intermediate_results = self.execute_aggregate(worker_number)?;
-
         let bytes = serde_json::to_vec(&intermediate_results)?;
         Ok(mq_sender.send(bytes)?)
     }
@@ -283,7 +293,7 @@ pub fn aggregate(
         // leader participation
         let mut agg_results = Vec::with_capacity(nlaunched);
         if pg_sys::parallel_leader_participation {
-            let mut worker = ParallelAggregationWorker::new(*process.state_manager()).unwrap();
+            let mut worker = ParallelAggregationWorker::new(*process.state_manager());
             let result = worker.execute_aggregate(-1)?;
             agg_results.push(Ok(result));
         }
@@ -447,32 +457,12 @@ mod vischeck {
                 }
 
                 pg_sys::table_index_fetch_end(self.scan);
-                ExecClearTuple(self.slot);
+                pg_sys::ExecClearTuple(self.slot);
                 if self.vmbuf != pg_sys::InvalidBuffer as pg_sys::Buffer {
                     pg_sys::ReleaseBuffer(self.vmbuf);
                 }
             }
         }
-    }
-
-    #[allow(improper_ctypes)]
-    extern "C" {
-        #[link_name = "ExecClearTuple__pgrx_cshim"]
-        fn ExecClearTuple(slot: *mut pg_sys::TupleTableSlot) -> *mut pg_sys::TupleTableSlot;
-        #[link_name = "table_index_fetch_tuple__pgrx_cshim"]
-        fn table_index_fetch_tuple(
-            scan: *mut pg_sys::IndexFetchTableData,
-            tid: pg_sys::ItemPointer,
-            snapshot: pg_sys::Snapshot,
-            slot: *mut pg_sys::TupleTableSlot,
-            call_again: *mut bool,
-            all_dead: *mut bool,
-        ) -> bool;
-        fn visibilitymap_get_status(
-            rel: pg_sys::Relation,
-            heapBlk: pg_sys::BlockNumber,
-            vmbuf: *mut pg_sys::Buffer,
-        ) -> u8;
     }
 
     impl TSVisibilityChecker {
@@ -497,7 +487,7 @@ mod vischeck {
             unsafe {
                 utils::u64_to_item_pointer(ctid, &mut self.tid);
 
-                if visibilitymap_get_status(
+                if pg_sys::visibilitymap_get_status(
                     (*self.scan).rel,
                     item_pointer_get_block_number(&self.tid),
                     &mut self.vmbuf,
@@ -508,8 +498,8 @@ mod vischeck {
 
                 let mut call_again = false;
                 let mut all_dead = false;
-                ExecClearTuple(self.slot);
-                table_index_fetch_tuple(
+                pg_sys::ExecClearTuple(self.slot);
+                pg_sys::table_index_fetch_tuple(
                     self.scan,
                     &mut self.tid,
                     self.snapshot,

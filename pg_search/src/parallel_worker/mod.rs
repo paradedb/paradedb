@@ -21,9 +21,10 @@
 pub mod builder;
 pub mod mqueue;
 
-use crate::postgres::parallel_worker::builder::ParallelStateManager;
-use crate::postgres::parallel_worker::mqueue::MessageQueueSender;
+use crate::parallel_worker::mqueue::MessageQueueSender;
 use pgrx::pg_sys;
+use std::error::Error;
+use std::fmt::Display;
 use std::ptr::NonNull;
 
 #[repr(u64)]
@@ -42,27 +43,35 @@ impl From<TocKeys> for u64 {
 pub trait ParallelStateType: Copy {}
 
 pub trait ParallelState {
+    /// A binary representation of the header information necessary to store/retrieve [`ParallelState`]
+    /// in shared memory
     fn info(&self) -> Vec<u8> {
         let mut info = Vec::new();
         let type_name = self.type_name();
-        let nbytes = size_of::<usize>() + size_of::<usize>() + type_name.as_bytes().len();
+        let nbytes = size_of::<usize>() + size_of::<usize>() + type_name.len();
         info.extend(nbytes.to_ne_bytes());
-        info.extend(self.len().to_ne_bytes());
+        info.extend(self.array_len().to_ne_bytes());
         info.extend(self.type_name().as_bytes());
 
         info
     }
 
+    /// Returns the rust type name of the implementing type, or element if an array/vec
     fn type_name(&self) -> &'static str {
         std::any::type_name::<Self>()
     }
 
+    /// Returns the size of the type, in bytes, as represented in memory
     fn size_of(&self) -> usize {
         size_of_val(self)
     }
-    fn len(&self) -> usize {
+
+    /// Returns the number of elements in the array/vec, or `1` if it's not an array/vec
+    fn array_len(&self) -> usize {
         1
     }
+
+    /// Return a byte slice pointing to the raw bytes of this instance in memory
     fn as_bytes(&self) -> &[u8];
 }
 
@@ -94,7 +103,7 @@ impl<T: ParallelStateType> ParallelState for Vec<T> {
     fn size_of(&self) -> usize {
         self.len() * size_of::<T>()
     }
-    fn len(&self) -> usize {
+    fn array_len(&self) -> usize {
         self.len()
     }
     fn as_bytes(&self) -> &[u8] {
@@ -107,11 +116,136 @@ pub trait ParallelProcess {
 }
 
 pub trait ParallelWorker {
-    fn new(state_manager: ParallelStateManager) -> Option<Self>
+    fn new(state_manager: ParallelStateManager) -> Self
     where
         Self: Sized;
 
     fn run(self, mq_sender: &MessageQueueSender, worker_number: i32) -> anyhow::Result<()>;
+}
+
+#[derive(Copy, Clone)]
+pub struct ParallelStateManager {
+    toc: NonNull<pg_sys::shm_toc>,
+    len: usize,
+}
+
+#[derive(Debug)]
+pub enum ValueError {
+    WrongType(String, String),
+}
+
+impl Error for ValueError {}
+
+impl Display for ValueError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ValueError::WrongType(wanted, got) => {
+                write!(f, "Wrong type, expected `{}`, got `{}`", wanted, got)
+            }
+        }
+    }
+}
+
+impl ParallelStateManager {
+    pub(crate) fn new(toc: *mut pg_sys::shm_toc) -> Self {
+        assert!(!toc.is_null());
+        unsafe {
+            let ptr = pg_sys::shm_toc_lookup(toc, TocKeys::UserStateLength.into(), true);
+            let len = *ptr.cast();
+
+            Self {
+                toc: NonNull::new(toc).unwrap_unchecked(),
+                len,
+            }
+        }
+    }
+
+    unsafe fn decode_info<T: ParallelStateType>(
+        &self,
+        i: usize,
+    ) -> Result<Option<(usize, &str)>, ValueError> {
+        let idx: u64 = TocKeys::UserState.into();
+        let idx = idx + i as u64;
+        let ptr = pg_sys::shm_toc_lookup(self.toc.as_ptr(), idx, true);
+        if ptr.is_null() {
+            return Ok(None);
+        }
+
+        let info_len: usize = *ptr.cast();
+        let len: usize = *ptr.add(size_of::<usize>()).cast();
+        let type_name_len = info_len - (size_of::<usize>() * 2);
+        let type_name = std::str::from_utf8(std::slice::from_raw_parts(
+            ptr.add(size_of::<usize>() * 2).cast(),
+            type_name_len,
+        ))
+        .expect("type_name should be valid UTF-8");
+
+        if type_name != std::any::type_name::<T>() {
+            return Err(ValueError::WrongType(
+                type_name.to_owned(),
+                std::any::type_name::<T>().to_owned(),
+            ));
+        }
+
+        Ok(Some((len, type_name)))
+    }
+
+    /// Retrieve a **mutable** reference to the object stored in the state at index `i`.
+    ///
+    /// Returns a [`ValueError`] if the type `T` doesn't match the type of the object at index `i`.
+    /// Returns `None` if `i` is out of bounds
+    pub fn object<T: ParallelStateType>(
+        &self,
+        i: usize,
+    ) -> Result<Option<&'static mut T>, ValueError> {
+        if i >= self.len {
+            return Ok(None);
+        }
+
+        let i = i * 2;
+        unsafe {
+            let Some((_, _)) = self.decode_info::<T>(i)? else {
+                return Ok(None);
+            };
+
+            let idx: u64 = TocKeys::UserState.into();
+            let idx = idx + i as u64 + 1;
+            let ptr = pg_sys::shm_toc_lookup(self.toc.as_ptr(), idx, true);
+            if ptr.is_null() {
+                return Ok(None);
+            }
+            Ok(Some(&mut *ptr.cast()))
+        }
+    }
+
+    /// Retrieve a slice to the Vec of objects stored in the state at index `i`.
+    ///
+    /// Returns a [`ValueError`] if the type `T` doesn't match the type of the slice elements at index `i`.
+    /// Returns `None` if `i` is out of bounds
+    pub fn slice<T: ParallelStateType>(
+        &self,
+        i: usize,
+    ) -> Result<Option<&'static [T]>, ValueError> {
+        if i >= self.len {
+            return Ok(None);
+        }
+
+        let i = i * 2;
+        unsafe {
+            let Some((len, _)) = self.decode_info::<T>(i)? else {
+                return Ok(None);
+            };
+
+            let idx: u64 = TocKeys::UserState.into();
+            let idx = idx + i as u64 + 1;
+            let ptr = pg_sys::shm_toc_lookup(self.toc.as_ptr(), idx, true);
+            if ptr.is_null() {
+                return Ok(None);
+            }
+            let slice = std::slice::from_raw_parts(ptr.cast(), len);
+            Ok(Some(slice))
+        }
+    }
 }
 
 /// This macro facilitates the creation and execution of a parallel process within the PostgreSQL environment using the `pgx` framework.
@@ -123,7 +257,7 @@ pub trait ParallelWorker {
 ///
 /// ```text
 /// launch_parallel_process!(
-///     ParallelProcessType<ParallelStateType, ParallelWorkerType>,
+///     ParallelProcessType<ParallelWorkerType>,
 ///     parallel_process_instance,
 ///     number_of_workers,
 ///     message_queue_size
@@ -131,7 +265,6 @@ pub trait ParallelWorker {
 /// ```
 ///
 /// - **ParallelProcessType**: A type that implements the [`ParallelProcess`] trait. Represents the process logic.
-/// - **ParallelStateType**: The shared state in memory used across workers. Must implement the [`ParallelState`] trait.
 /// - **ParallelWorkerType**: The worker type that performs the parallel task. Must implement the [`ParallelWorker`] trait and must be zero-sized.
 /// - **parallel_process_instance**: An instance of the specified [`ParallelProcess`].
 /// - **number_of_workers**: The number of workers to be spawned for this parallel process.
@@ -139,8 +272,7 @@ pub trait ParallelWorker {
 ///
 /// # Constraints
 /// This macro enforces the following constraints to ensure runtime safety:
-/// - **Zero-Sized Worker Type**: The `ParallelWorkerType` must be a zero-sized type. An assertion enforces this at compile time.
-/// - **Trait Implementation Check**: Both the `ParallelStateType` and the `ParallelProcessType` must implement the [`ParallelState` ]and [`ParallelProcess`] traits respectively. These checks are done via compile-time assertions.
+/// - **Trait Implementation Check**: `ParallelProcessType` must implement the  [`ParallelProcess`] trait. This checks is done via compile-time assertions.
 ///
 /// # Generated Output
 ///
@@ -151,66 +283,61 @@ pub trait ParallelWorker {
 /// # Example
 ///
 /// ```rust,no_run
-/// use std::ffi::c_void;
-/// use std::ptr::addr_of;
 /// use pg_search::launch_parallel_process;
-/// use pg_search::postgres::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, ParallelWorker};
-/// use pg_search::postgres::parallel_worker::builder::ParallelStateManager;
-/// use pg_search::postgres::parallel_worker::mqueue::MessageQueueSender;
+/// use pg_search::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, ParallelWorker};
+/// use pg_search::parallel_worker::ParallelStateManager;
+/// use pg_search::parallel_worker::mqueue::MessageQueueSender;
 ///
 /// // Define a ParallelState type
 /// #[repr(C)]
 /// #[derive(Copy, Clone)]
-/// struct MyParallelState {
+/// struct MyState {
 ///     junk: u32
 /// }
 ///
-/// impl ParallelStateType for MyParallelState {}
+/// impl ParallelStateType for MyState {}
 ///
 /// // Define the Worker type
-/// struct MyWorker;
-/// impl ParallelWorker for MyWorker {
+/// struct MyWorker<'a> {
+///    state: &'a MyState
+/// };
+/// impl ParallelWorker for MyWorker<'_> {
 ///
-///     fn new(state_manager: &mut ParallelStateManager) -> Self {
-///         todo!()
+///     fn new(state_manager: ParallelStateManager) -> Self {
+///         Self { state: state_manager.object(0).expect("wrong type").expect("null value") }
 ///     }
 ///
-///     fn run(&mut self, mq_sender: &MessageQueueSender, worker_number: i32) {
-///         pgrx::warning!("junk={}", state.junk);
+///     fn run(mut self, mq_sender: &MessageQueueSender, worker_number: i32) -> anyhow::Result<()> {
+///         pgrx::warning!("junk={}", self.state.junk);
+///         Ok(())
 ///     }
 /// }
 ///
 /// struct MyProcess {
-///    state: MyParallelState,
+///    state: MyState,
 /// };
 ///
 /// impl ParallelProcess for MyProcess {
-///     fn dynamic_state(&self) -> &dyn ParallelState {
-///         &self.state
-///     }
-///
-///     fn static_state(&self) -> Vec<&dyn ParallelState> {
-///         vec![]
+///     fn state_values(&self) -> Vec<&dyn ParallelState> {
+///         vec![&self.state]
 ///     }
 /// }
 ///
 /// impl MyProcess {
 ///     fn new(junk: u32) -> Self {
 ///         Self {
-///             state: MyParallelState {
+///             state: MyState {
 ///                 junk
-///             }   
-///         }       
+///             }
+///         }
 ///     }
 /// }
-///
-///
 ///
 /// let my_process = MyProcess::new(42);
 ///
 /// // Launch the parallel process
 /// let launched = launch_parallel_process!(
-///     MyProcess<MyParallelState, MyWorker>,
+///     MyProcess<MyWorker>,
 ///     my_process,
 ///     4,     // Number of workers
 ///     1024  // Message queue size in bytes
@@ -237,20 +364,19 @@ macro_rules! launch_parallel_process {
                 toc: *mut pg_sys::shm_toc,
             ) {
                 let (stateman, mq_sender) =
-                    $crate::postgres::parallel_worker::generic_parallel_worker_entry_point(
+                    $crate::parallel_worker::generic_parallel_worker_entry_point(
                         seg,
                         toc,
                         $mq_size as usize,
                     );
 
                 <$parallel_worker_type>::new(stateman)
-                    .expect("should be able to create ParallelWorker instance")
                     .run(&mq_sender, unsafe { pgrx::pg_sys::ParallelWorkerNumber })
                     .unwrap_or_else(|e| ::std::panic::panic_any(e));
             }
         }
 
-        $crate::postgres::parallel_worker::builder::ParallelProcessBuilder::build(
+        $crate::parallel_worker::builder::ParallelProcessBuilder::build(
             $process,
             stringify!($parallel_process_type),
             $nworkers,
@@ -329,4 +455,87 @@ const fn MAXALIGN_DOWN(LEN: usize) -> usize {
 #[allow(non_snake_case)]
 const fn TYPEALIGN_DOWN(ALIGNVAL: usize, LEN: usize) -> usize {
     LEN & !(ALIGNVAL - 1)
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use crate::parallel_worker::mqueue::MessageQueueSender;
+    use crate::parallel_worker::{
+        ParallelProcess, ParallelState, ParallelStateManager, ParallelStateType, ParallelWorker,
+    };
+    use pgrx::pg_test;
+    use pgrx::prelude::*;
+
+    #[pg_test]
+    fn test_parallel_workers() {
+        #[repr(C)]
+        #[derive(Copy, Clone)]
+        struct MyState {
+            junk: u32,
+        }
+
+        impl ParallelStateType for MyState {}
+
+        // Define the Worker type
+        struct MyWorker<'a> {
+            state: &'a MyState,
+        }
+
+        impl ParallelWorker for MyWorker<'_> {
+            fn new(state_manager: ParallelStateManager) -> Self {
+                Self {
+                    state: state_manager
+                        .object(0)
+                        .expect("wrong type")
+                        .expect("null value"),
+                }
+            }
+
+            fn run(self, mq_sender: &MessageQueueSender, worker_number: i32) -> anyhow::Result<()> {
+                assert_eq!(self.state.junk, 42);
+                Ok(mq_sender.send(worker_number.to_ne_bytes())?)
+            }
+        }
+
+        struct MyProcess {
+            state: MyState,
+        }
+
+        impl ParallelProcess for MyProcess {
+            fn state_values(&self) -> Vec<&dyn ParallelState> {
+                vec![&self.state]
+            }
+        }
+
+        impl MyProcess {
+            fn new(junk: u32) -> Self {
+                Self {
+                    state: MyState { junk },
+                }
+            }
+        }
+
+        // Launch the parallel process
+        let process = launch_parallel_process!(
+            MyProcess<MyWorker>,
+            MyProcess::new(42),
+            2,    // Number of workers
+            1024  // Message queue size in bytes
+        )
+        .expect("Failed to launch parallel process");
+
+        assert_eq!(
+            process.launched_workers(),
+            2,
+            "didn't launch correct number of workers"
+        );
+        for (worker_number, message) in process {
+            let reply_worker_number = i32::from_ne_bytes(message.as_slice().try_into().unwrap());
+            assert_eq!(
+                worker_number as i32, reply_worker_number,
+                "mix-matched reply from worker"
+            )
+        }
+    }
 }

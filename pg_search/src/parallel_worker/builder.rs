@@ -15,14 +15,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::parallel_worker::mqueue::MessageQueueReceiver;
-use crate::postgres::parallel_worker::{
-    estimate_chunk, estimate_keys, ParallelProcess, ParallelStateType, TocKeys, MAXALIGN_DOWN,
+use crate::parallel_worker::mqueue::MessageQueueReceiver;
+use crate::parallel_worker::{
+    estimate_chunk, estimate_keys, ParallelProcess, ParallelStateManager, TocKeys, MAXALIGN_DOWN,
 };
 use pgrx::pg_sys;
-use std::error::Error;
 use std::ffi::CString;
-use std::fmt::Display;
 use std::ptr::NonNull;
 
 pub struct ParallelProcessBuilder;
@@ -133,121 +131,6 @@ impl ParallelProcessBuilder {
                 stateman: ParallelStateManager::new((*pcxt.as_ptr()).toc),
             })
         }
-    }
-}
-
-#[derive(Copy, Clone)]
-pub struct ParallelStateManager {
-    toc: NonNull<pg_sys::shm_toc>,
-    len: usize,
-}
-
-#[derive(Debug)]
-pub enum ValueError {
-    WrongType(String, String),
-}
-impl Error for ValueError {}
-impl Display for ValueError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ValueError::WrongType(wanted, got) => {
-                write!(f, "Wrong type, expected `{}`, got `{}`", wanted, got)
-            }
-        }
-    }
-}
-
-impl ParallelStateManager {
-    pub(super) fn new(toc: *mut pg_sys::shm_toc) -> Self {
-        assert!(!toc.is_null());
-        unsafe {
-            let ptr = pg_sys::shm_toc_lookup(toc, TocKeys::UserStateLength.into(), true);
-            let len = *ptr.cast();
-
-            Self {
-                toc: NonNull::new(toc).unwrap_unchecked(),
-                len,
-            }
-        }
-    }
-
-    unsafe fn decode_info(&self, ptr: *mut std::ffi::c_void) -> (usize, &str) {
-        let info_len: usize = *ptr.cast();
-        let len: usize = *ptr.add(size_of::<usize>()).cast();
-        let type_name_len = info_len - (size_of::<usize>() * 2);
-        let type_name = std::str::from_utf8(std::slice::from_raw_parts(
-            ptr.add(size_of::<usize>() * 2).cast(),
-            type_name_len,
-        ))
-        .expect("type_name should be valid UTF-8");
-
-        (len, type_name)
-    }
-
-    pub unsafe fn object<T: ParallelStateType>(
-        &self,
-        i: usize,
-    ) -> Result<Option<&'static mut T>, ValueError> {
-        if i >= self.len {
-            return Ok(None);
-        }
-
-        let i = i * 2;
-
-        let idx: u64 = TocKeys::UserState.into();
-        let idx = idx + i as u64;
-        let ptr = pg_sys::shm_toc_lookup(self.toc.as_ptr(), idx, true);
-        if ptr.is_null() {
-            return Ok(None);
-        }
-        let (_, type_name) = self.decode_info(ptr);
-        if type_name != std::any::type_name::<T>() {
-            return Err(ValueError::WrongType(
-                type_name.to_owned(),
-                std::any::type_name::<T>().to_owned(),
-            ));
-        }
-
-        let idx: u64 = TocKeys::UserState.into();
-        let idx = idx + i as u64 + 1;
-        let ptr = pg_sys::shm_toc_lookup(self.toc.as_ptr(), idx, true);
-        if ptr.is_null() {
-            return Ok(None);
-        }
-        Ok(Some(&mut *ptr.cast()))
-    }
-
-    pub unsafe fn slice<T: ParallelStateType>(
-        &self,
-        i: usize,
-    ) -> Result<Option<&'static [T]>, ValueError> {
-        if i >= self.len {
-            return Ok(None);
-        }
-
-        let i = i * 2;
-        let idx: u64 = TocKeys::UserState.into();
-        let idx = idx + i as u64;
-        let ptr = pg_sys::shm_toc_lookup(self.toc.as_ptr(), idx, true);
-        if ptr.is_null() {
-            return Ok(None);
-        }
-        let (len, type_name) = self.decode_info(ptr);
-        if type_name != std::any::type_name::<T>() {
-            return Err(ValueError::WrongType(
-                type_name.to_owned(),
-                std::any::type_name::<T>().to_owned(),
-            ));
-        }
-
-        let idx: u64 = TocKeys::UserState.into();
-        let idx = idx + i as u64 + 1;
-        let ptr = pg_sys::shm_toc_lookup(self.toc.as_ptr(), idx, true);
-        if ptr.is_null() {
-            return Ok(None);
-        }
-        let slice = std::slice::from_raw_parts(ptr.cast(), len);
-        Ok(Some(slice))
     }
 }
 

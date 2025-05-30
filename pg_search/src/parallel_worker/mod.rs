@@ -372,7 +372,7 @@ macro_rules! launch_parallel_process {
 
                 <$parallel_worker_type>::new(state_manager)
                     .run(&mq_sender, unsafe { pgrx::pg_sys::ParallelWorkerNumber })
-                    .unwrap_or_else(|e| ::std::panic::panic_any(e));
+                    .unwrap_or_else(|e| panic!("{e}"));
             }
         }
 

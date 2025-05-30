@@ -244,7 +244,7 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
         }
 
         if let Some(intermediate_results) = self.execute_aggregate(worker_number)? {
-            let bytes = serde_json::to_vec(&intermediate_results)?;
+            let bytes = postcard::to_allocvec(&intermediate_results)?;
             Ok(mq_sender.send(bytes)?)
         } else {
             Ok(())
@@ -309,8 +309,7 @@ pub fn aggregate(
 
         // wait for workers to finish, collecting their intermediate aggregate results
         for (_worker_number, message) in process {
-            let worker_results =
-                serde_json::from_slice::<IntermediateAggregationResults>(&message)?;
+            let worker_results = postcard::from_bytes::<IntermediateAggregationResults>(&message)?;
 
             agg_results.push(Ok(worker_results));
         }

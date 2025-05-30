@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 mod anyenum;
-mod document;
+pub mod document;
 pub mod range;
 
 use crate::api::HashMap;

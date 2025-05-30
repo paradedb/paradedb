@@ -19,49 +19,7 @@ use crate::api::HashSet;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::ParallelScanState;
 use pgrx::{pg_guard, pg_sys};
-use std::ptr::addr_of_mut;
 use tantivy::index::SegmentId;
-
-#[derive(Debug)]
-#[repr(transparent)]
-pub struct Spinlock(pg_sys::slock_t);
-
-impl Spinlock {
-    #[inline(always)]
-    pub fn init(&mut self) {
-        unsafe {
-            // SAFETY:  `unsafe` due to normal FFI
-            pg_sys::SpinLockInit(addr_of_mut!(self.0));
-        }
-    }
-
-    #[inline(always)]
-    pub fn acquire(&mut self) -> impl Drop {
-        AcquiredSpinLock::new(self)
-    }
-}
-
-#[repr(transparent)]
-struct AcquiredSpinLock(*mut pg_sys::slock_t);
-
-impl AcquiredSpinLock {
-    fn new(lock: &mut Spinlock) -> Self {
-        unsafe {
-            let addr = addr_of_mut!(lock.0);
-            pg_sys::SpinLockAcquire(addr);
-            Self(addr)
-        }
-    }
-}
-
-impl Drop for AcquiredSpinLock {
-    #[inline(always)]
-    fn drop(&mut self) {
-        unsafe {
-            pg_sys::SpinLockRelease(self.0);
-        }
-    }
-}
 
 #[pg_guard]
 pub unsafe extern "C-unwind" fn aminitparallelscan(target: *mut ::core::ffi::c_void) {

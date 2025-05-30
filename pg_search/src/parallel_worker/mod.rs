@@ -363,14 +363,14 @@ macro_rules! launch_parallel_process {
                 seg: *mut pg_sys::dsm_segment,
                 toc: *mut pg_sys::shm_toc,
             ) {
-                let (stateman, mq_sender) =
+                let (state_manager, mq_sender) =
                     $crate::parallel_worker::generic_parallel_worker_entry_point(
                         seg,
                         toc,
                         $mq_size as usize,
                     );
 
-                <$parallel_worker_type>::new(stateman)
+                <$parallel_worker_type>::new(state_manager)
                     .run(&mq_sender, unsafe { pgrx::pg_sys::ParallelWorkerNumber })
                     .unwrap_or_else(|e| ::std::panic::panic_any(e));
             }
@@ -404,9 +404,9 @@ pub unsafe fn generic_parallel_worker_entry_point(
         .add(pg_sys::ParallelWorkerNumber as usize * mq_size)
         .cast::<pg_sys::shm_mq>();
 
-    let stateman = ParallelStateManager::new(toc);
+    let state_manager = ParallelStateManager::new(toc);
     let mq_sender = MessageQueueSender::new(seg, mq);
-    (stateman, mq_sender)
+    (state_manager, mq_sender)
 }
 
 #[inline(always)]

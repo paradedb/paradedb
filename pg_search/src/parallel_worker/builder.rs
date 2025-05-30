@@ -128,7 +128,7 @@ impl ParallelProcessBuilder {
             Some(ParallelProcessLauncher {
                 pcxt,
                 mq_handles: mq_receivers,
-                stateman: ParallelStateManager::new((*pcxt.as_ptr()).toc),
+                state_manager: ParallelStateManager::new((*pcxt.as_ptr()).toc),
             })
         }
     }
@@ -136,7 +136,7 @@ impl ParallelProcessBuilder {
 
 pub struct ParallelProcessLauncher {
     pcxt: NonNull<pg_sys::ParallelContext>,
-    stateman: ParallelStateManager,
+    state_manager: ParallelStateManager,
     mq_handles: Vec<MessageQueueReceiver>,
 }
 
@@ -193,10 +193,10 @@ impl ParallelProcessFinish {
 
     #[allow(dead_code)]
     pub fn state_manager(&self) -> &ParallelStateManager {
-        &self.launcher.stateman
+        &self.launcher.state_manager
     }
     pub fn state_manager_mut(&mut self) -> &mut ParallelStateManager {
-        &mut self.launcher.stateman
+        &mut self.launcher.state_manager
     }
 
     pub fn recv(&self) -> Option<Vec<(usize, Vec<u8>)>> {

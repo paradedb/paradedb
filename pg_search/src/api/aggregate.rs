@@ -3,15 +3,16 @@ use crate::api::aggregate::vischeck::TSVisibilityChecker;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::launch_parallel_process;
+use crate::postgres::parallel_worker::builder::ParallelStateManager;
 use crate::postgres::parallel_worker::mqueue::MessageQueueSender;
-use crate::postgres::parallel_worker::{ParallelProcess, ParallelState, ParallelWorker};
+use crate::postgres::parallel_worker::{
+    ParallelProcess, ParallelState, ParallelStateType, ParallelWorker,
+};
 use crate::postgres::spinlock::Spinlock;
 use crate::query::SearchQueryInput;
 use pgrx::{check_for_interrupts, default, pg_extern, pg_sys, Json, JsonB, PgRelation};
 use rustc_hash::FxHashSet;
 use std::error::Error;
-use std::ffi::c_void;
-use std::ptr::addr_of;
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::aggregation::{AggregationLimitsGuard, DistributedAggregationCollector};
@@ -20,29 +21,25 @@ use tantivy::index::SegmentId;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-struct ParallelAggregationState {
+struct State {
+    // these require the Spinlock mutex for atomic access (read and write)
+    mutex: Spinlock,
+    nlaunched: usize,
+    remaining_segments: usize,
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+struct Config {
     indexrelid: pg_sys::Oid,
     total_segments: usize,
     solve_mvcc: bool,
 
     memory_limit: u64,
     bucket_limit: u32,
-
-    // (start,length) lookups into `payload`, all measured in bytes
-    agg_req_offset: (usize, usize),
-    query_offset: (usize, usize),
-    segment_ids_offset: (usize, usize),
-
-    // these require the Spinlock mutex for atomic access (read and write)
-    mutex: Spinlock,
-    nlaunched: usize,
-    remaining_segments: usize,
-    payload: [u8; 0], // allocated after the struct by Postgres' shm system
 }
 
-impl ParallelState for ParallelAggregationState {}
-
-impl ParallelAggregationState {
+impl State {
     fn set_launched_workers(&mut self, nlaunched: usize) {
         let _lock = self.mutex.acquire();
         self.nlaunched = nlaunched;
@@ -52,101 +49,29 @@ impl ParallelAggregationState {
         let _lock = self.mutex.acquire();
         self.nlaunched
     }
-
-    fn checkout_segment(&mut self) -> Option<SegmentId> {
-        let segment_ids = unsafe {
-            let payload = self.payload.as_ptr();
-            std::slice::from_raw_parts(
-                payload.add(self.segment_ids_offset.0).cast::<SegmentId>(),
-                self.total_segments,
-            )
-        };
-
-        let _lock = self.mutex.acquire();
-        if self.remaining_segments == 0 {
-            return None;
-        }
-        self.remaining_segments -= 1;
-        segment_ids.get(self.remaining_segments).copied()
-    }
-
-    fn total_segments(&mut self) -> usize {
-        self.total_segments
-    }
-
-    fn solve_mvcc(&self) -> bool {
-        self.solve_mvcc
-    }
-
-    fn agg_req_bytes(&self) -> &[u8] {
-        unsafe {
-            let payload = self.payload.as_ptr();
-            std::slice::from_raw_parts(payload.add(self.agg_req_offset.0), self.agg_req_offset.1)
-        }
-    }
-
-    fn query_bytes(&self) -> &[u8] {
-        unsafe {
-            let payload = self.payload.as_ptr();
-            std::slice::from_raw_parts(payload.add(self.query_offset.0), self.query_offset.1)
-        }
-    }
 }
 
 struct ParallelAggregation {
-    state: ParallelAggregationState,
+    state: State,
+    config: Config,
     query_bytes: Vec<u8>,
     agg_req_bytes: Vec<u8>,
     segment_ids: Vec<SegmentId>,
 }
 
+impl ParallelStateType for State {}
+impl ParallelStateType for Config {}
+impl ParallelStateType for SegmentId {}
+
 impl ParallelProcess for ParallelAggregation {
-    fn size_of_state(&self) -> usize {
-        size_of::<ParallelAggregationState>()
-            + self.agg_req_bytes.len()
-            + self.query_bytes.len()
-            + self.segment_ids.len() * size_of::<SegmentId>()
-    }
-
-    unsafe fn init_shm_state(&self, dest: *mut c_void) {
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                addr_of!(self.state) as *const c_void,
-                dest,
-                size_of::<ParallelAggregationState>(),
-            );
-
-            let shm_state = dest as *mut ParallelAggregationState;
-            let payload = (*shm_state).payload.as_mut_ptr();
-
-            let agg_req_offset = (0, self.agg_req_bytes.len());
-            std::ptr::copy_nonoverlapping(
-                self.agg_req_bytes.as_ptr(),
-                payload.add(agg_req_offset.0),
-                agg_req_offset.1,
-            );
-
-            let query_offset = (agg_req_offset.0 + agg_req_offset.1, self.query_bytes.len());
-            std::ptr::copy_nonoverlapping(
-                self.query_bytes.as_ptr(),
-                payload.add(query_offset.0),
-                query_offset.1,
-            );
-
-            let segment_ids_offset = (
-                query_offset.0 + query_offset.1,
-                self.segment_ids.len() * size_of::<SegmentId>(),
-            );
-            std::ptr::copy_nonoverlapping(
-                self.segment_ids.as_ptr(),
-                payload.add(segment_ids_offset.0).cast(),
-                self.segment_ids.len(),
-            );
-
-            (*shm_state).agg_req_offset = agg_req_offset;
-            (*shm_state).query_offset = query_offset;
-            (*shm_state).segment_ids_offset = segment_ids_offset;
-        }
+    fn state_values(&self) -> Vec<&dyn ParallelState> {
+        vec![
+            &self.state,
+            &self.config,
+            &self.agg_req_bytes,
+            &self.query_bytes,
+            &self.segment_ids,
+        ]
     }
 }
 
@@ -161,21 +86,17 @@ impl ParallelAggregation {
         segment_ids: Vec<SegmentId>,
     ) -> anyhow::Result<Self> {
         Ok(Self {
-            state: ParallelAggregationState {
+            state: State {
                 mutex: Spinlock::new(),
                 nlaunched: 0,
+                remaining_segments: segment_ids.len(),
+            },
+            config: Config {
+                indexrelid,
                 total_segments: segment_ids.len(),
                 solve_mvcc,
-
                 memory_limit,
                 bucket_limit,
-                indexrelid,
-                remaining_segments: segment_ids.len(),
-
-                agg_req_offset: (0, 0),
-                query_offset: (0, 0),
-                segment_ids_offset: (0, 0),
-                payload: [],
             },
             agg_req_bytes: serde_json::to_vec(aggregations)?,
             query_bytes: serde_json::to_vec(query)?,
@@ -184,13 +105,16 @@ impl ParallelAggregation {
     }
 }
 
-struct ParallelAggregationWorker;
+struct ParallelAggregationWorker<'a> {
+    state: &'a mut State,
+    config: &'a Config,
+    agg_req_bytes: &'a [u8],
+    query_bytes: &'a [u8],
+    segment_ids: &'a [SegmentId],
+}
 
-impl ParallelAggregationWorker {
-    fn checkout_segments(
-        state: &mut ParallelAggregationState,
-        worker_number: i32,
-    ) -> FxHashSet<SegmentId> {
+impl ParallelAggregationWorker<'_> {
+    fn checkout_segments(&mut self, worker_number: i32) -> FxHashSet<SegmentId> {
         /*
             // thanks, Daniel Lemire:  https://x.com/lemire/status/1925609310274400509
 
@@ -221,12 +145,12 @@ impl ParallelAggregationWorker {
                 0
             };
 
-        let nworkers = state.launched_workers();
-        let nsegments = state.total_segments();
+        let nworkers = self.state.launched_workers();
+        let nsegments = self.config.total_segments;
 
         let mut segment_ids = FxHashSet::default();
         let (_, many_segments) = chunk_range(nsegments, nworkers, worker_number as usize);
-        while let Some(segment_id) = state.checkout_segment() {
+        while let Some(segment_id) = self.checkout_segment() {
             segment_ids.insert(segment_id);
 
             if segment_ids.len() == many_segments {
@@ -237,25 +161,37 @@ impl ParallelAggregationWorker {
         segment_ids
     }
 
+    fn checkout_segment(&mut self) -> Option<SegmentId> {
+        let _lock = self.state.mutex.acquire();
+        if self.state.remaining_segments == 0 {
+            return None;
+        }
+        self.state.remaining_segments -= 1;
+        self.segment_ids.get(self.state.remaining_segments).cloned()
+    }
+
     fn execute_aggregate(
-        state: &mut ParallelAggregationState,
+        &mut self,
         worker_number: i32,
     ) -> anyhow::Result<IntermediateAggregationResults> {
-        let segment_ids = ParallelAggregationWorker::checkout_segments(state, worker_number);
-        let query = serde_json::from_slice::<SearchQueryInput>(state.query_bytes())?;
-        let agg_req = serde_json::from_slice::<Aggregations>(state.agg_req_bytes())?;
+        let segment_ids = self.checkout_segments(worker_number);
+        let agg_req = serde_json::from_slice::<Aggregations>(self.agg_req_bytes)?;
+        let query = serde_json::from_slice::<SearchQueryInput>(self.query_bytes)?;
 
         let indexrel =
-            unsafe { PgRelation::with_lock(state.indexrelid, pg_sys::AccessShareLock as _) };
+            unsafe { PgRelation::with_lock(self.config.indexrelid, pg_sys::AccessShareLock as _) };
         let reader =
             SearchIndexReader::open(&indexrel, MvccSatisfies::ParallelWorker(segment_ids))?;
 
         let base_collector = DistributedAggregationCollector::from_aggs(
             agg_req,
-            AggregationLimitsGuard::new(Some(state.memory_limit), Some(state.bucket_limit)),
+            AggregationLimitsGuard::new(
+                Some(self.config.memory_limit),
+                Some(self.config.bucket_limit),
+            ),
         );
 
-        let intermediate_results = if state.solve_mvcc() {
+        let intermediate_results = if self.config.solve_mvcc {
             let heaprel = indexrel
                 .heap_relation()
                 .expect("index should belong to a heap relation");
@@ -273,21 +209,27 @@ impl ParallelAggregationWorker {
     }
 }
 
-impl ParallelWorker for ParallelAggregationWorker {
-    type State = ParallelAggregationState;
+impl<'a> ParallelWorker for ParallelAggregationWorker<'a> {
+    fn new(state_manager: ParallelStateManager) -> Option<Self> {
+        unsafe {
+            Some(Self {
+                state: state_manager.object(0).expect("wrong type")?,
+                config: state_manager.object(1).expect("wrong type")?,
+                agg_req_bytes: state_manager.slice(2).expect("wrong type")?,
+                query_bytes: state_manager.slice(3).expect("wrong type")?,
+                segment_ids: state_manager.slice(4).expect("wrong type")?,
+            })
+        }
+    }
 
-    fn run(
-        state: &mut Self::State,
-        mq_sender: &MessageQueueSender,
-        worker_number: i32,
-    ) -> anyhow::Result<()> {
+    fn run(mut self, mq_sender: &MessageQueueSender, worker_number: i32) -> anyhow::Result<()> {
         // wait for all workers to launch
-        while state.launched_workers() == 0 {
+        while self.state.launched_workers() == 0 {
             check_for_interrupts!();
             std::thread::yield_now();
         }
 
-        let intermediate_results = Self::execute_aggregate(state, worker_number)?;
+        let intermediate_results = self.execute_aggregate(worker_number)?;
 
         let bytes = serde_json::to_vec(&intermediate_results)?;
         Ok(mq_sender.send(bytes)?)
@@ -318,10 +260,11 @@ pub fn aggregate(
 
         let nworkers = pg_sys::max_parallel_workers_per_gather as usize;
         let mut process = launch_parallel_process!(
-            ParallelAggregation<ParallelAggregationState, ParallelAggregationWorker>,
+            ParallelAggregation<ParallelAggregationWorker>,
             process,
             nworkers,
-            16384)
+            16384
+        )
         .expect("should be able to launch parallel process");
 
         // signal our workers with the number of workers actually launched
@@ -330,15 +273,19 @@ pub fn aggregate(
         if pg_sys::parallel_leader_participation {
             nlaunched += 1;
         }
-        process.shm_state_mut().set_launched_workers(nlaunched);
+
+        process
+            .state_manager_mut()
+            .object::<State>(0)?
+            .unwrap()
+            .set_launched_workers(nlaunched);
 
         // leader participation
-        let mut agg_results = Vec::with_capacity(nworkers);
+        let mut agg_results = Vec::with_capacity(nlaunched);
         if pg_sys::parallel_leader_participation {
-            agg_results.push(Ok(ParallelAggregationWorker::execute_aggregate(
-                process.shm_state_mut(),
-                -1, // leader worker number is negative one
-            )?));
+            let mut worker = ParallelAggregationWorker::new(*process.state_manager()).unwrap();
+            let result = worker.execute_aggregate(-1)?;
+            agg_results.push(Ok(result));
         }
 
         // wait for workers to finish, collecting their intermediate aggregate results

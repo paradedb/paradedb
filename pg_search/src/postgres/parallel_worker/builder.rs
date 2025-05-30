@@ -17,21 +17,23 @@
 
 use crate::postgres::parallel_worker::mqueue::MessageQueueReceiver;
 use crate::postgres::parallel_worker::{
-    estimate_chunk, estimate_keys, ParallelProcess, TocKeys, MAXALIGN_DOWN,
+    estimate_chunk, estimate_keys, ParallelProcess, ParallelStateType, TocKeys, MAXALIGN_DOWN,
 };
 use pgrx::pg_sys;
+use std::error::Error;
 use std::ffi::CString;
+use std::fmt::Display;
 use std::ptr::NonNull;
 
 pub struct ParallelProcessBuilder;
 
 impl ParallelProcessBuilder {
-    pub fn build<P: ParallelProcess, S>(
+    pub fn build<P: ParallelProcess>(
         process: P,
         fn_name: &'static str,
         nworkers: usize,
         mq_size: usize,
-    ) -> Option<ParallelProcessLauncher<S>> {
+    ) -> Option<ParallelProcessLauncher> {
         unsafe {
             let mut nworkers = nworkers
                 .min(pg_sys::max_worker_processes as _)
@@ -42,7 +44,8 @@ impl ParallelProcessBuilder {
             }
             let mq_size = MAXALIGN_DOWN(mq_size);
             let fn_name = CString::new(fn_name).unwrap();
-            let nstate_bytes = process.size_of_state();
+
+            let state_entries = process.state_values();
             let nmq_bytes = pg_sys::mul_size(mq_size, nworkers);
 
             pg_sys::EnterParallelMode();
@@ -52,13 +55,22 @@ impl ParallelProcessBuilder {
                 nworkers as _,
             ));
 
-            // for storing the shared state
-            estimate_keys(pcxt.as_ptr(), 1);
-            estimate_chunk(pcxt.as_ptr(), nstate_bytes);
-
             // for the message queues
             estimate_keys(pcxt.as_ptr(), 1);
             estimate_chunk(pcxt.as_ptr(), nmq_bytes);
+
+            // for user state
+            estimate_keys(pcxt.as_ptr(), 1);
+            estimate_chunk(pcxt.as_ptr(), size_of::<usize>());
+            for entry in &state_entries {
+                // for the element length
+                estimate_keys(pcxt.as_ptr(), 1);
+                estimate_chunk(pcxt.as_ptr(), entry.info().len());
+
+                // for the entry itself
+                estimate_keys(pcxt.as_ptr(), 1);
+                estimate_chunk(pcxt.as_ptr(), entry.size_of());
+            }
 
             // initialize shared memory
             pg_sys::InitializeParallelDSM(pcxt.as_ptr());
@@ -69,14 +81,37 @@ impl ParallelProcessBuilder {
                 return None;
             }
 
-            // let the ParallelProcess initialize its state into the allocated shared memory space
-            let state_address = pg_sys::shm_toc_allocate((*pcxt.as_ptr()).toc, nstate_bytes);
-            process.init_shm_state(state_address);
+            // copy user state into shared memory
+            let user_state_length_address =
+                pg_sys::shm_toc_allocate((*pcxt.as_ptr()).toc, size_of::<usize>());
+            std::ptr::copy_nonoverlapping(
+                state_entries.len().to_ne_bytes().as_ptr().cast(),
+                user_state_length_address,
+                size_of::<usize>(),
+            );
             pg_sys::shm_toc_insert(
                 (*pcxt.as_ptr()).toc,
-                TocKeys::SharedState.into(),
-                state_address,
+                TocKeys::UserStateLength.into(),
+                user_state_length_address,
             );
+            for (i, entry) in state_entries.into_iter().enumerate() {
+                let i = i * 2;
+                let idx: u64 = TocKeys::UserState.into();
+
+                let info = entry.info();
+                let info_address = pg_sys::shm_toc_allocate((*pcxt.as_ptr()).toc, info.len());
+                std::ptr::copy_nonoverlapping(info.as_ptr(), info_address.cast(), info.len());
+                pg_sys::shm_toc_insert((*pcxt.as_ptr()).toc, idx + i as u64, info_address);
+
+                let nbytes = entry.size_of();
+                let state_address = pg_sys::shm_toc_allocate((*pcxt.as_ptr()).toc, nbytes);
+                std::ptr::copy_nonoverlapping(
+                    entry.as_bytes().as_ptr().cast(),
+                    state_address,
+                    nbytes,
+                );
+                pg_sys::shm_toc_insert((*pcxt.as_ptr()).toc, idx + i as u64 + 1, state_address);
+            }
 
             // setup the message queues
             let mut mq_receivers = Vec::with_capacity(nworkers);
@@ -95,20 +130,135 @@ impl ParallelProcessBuilder {
             Some(ParallelProcessLauncher {
                 pcxt,
                 mq_handles: mq_receivers,
-                shm_state: NonNull::new(state_address as *mut S).unwrap(),
+                stateman: ParallelStateManager::new((*pcxt.as_ptr()).toc),
             })
         }
     }
 }
 
-pub struct ParallelProcessLauncher<S> {
+#[derive(Copy, Clone)]
+pub struct ParallelStateManager {
+    toc: NonNull<pg_sys::shm_toc>,
+    len: usize,
+}
+
+#[derive(Debug)]
+pub enum ValueError {
+    WrongType(String, String),
+}
+impl Error for ValueError {}
+impl Display for ValueError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ValueError::WrongType(wanted, got) => {
+                write!(f, "Wrong type, expected `{}`, got `{}`", wanted, got)
+            }
+        }
+    }
+}
+
+impl ParallelStateManager {
+    pub(super) fn new(toc: *mut pg_sys::shm_toc) -> Self {
+        assert!(!toc.is_null());
+        unsafe {
+            let ptr = pg_sys::shm_toc_lookup(toc, TocKeys::UserStateLength.into(), true);
+            let len = *ptr.cast();
+
+            Self {
+                toc: NonNull::new(toc).unwrap_unchecked(),
+                len,
+            }
+        }
+    }
+
+    unsafe fn decode_info(&self, ptr: *mut std::ffi::c_void) -> (usize, &str) {
+        let info_len: usize = *ptr.cast();
+        let len: usize = *ptr.add(size_of::<usize>()).cast();
+        let type_name_len = info_len - (size_of::<usize>() * 2);
+        let type_name = std::str::from_utf8(std::slice::from_raw_parts(
+            ptr.add(size_of::<usize>() * 2).cast(),
+            type_name_len,
+        ))
+        .expect("type_name should be valid UTF-8");
+
+        (len, type_name)
+    }
+
+    pub unsafe fn object<T: ParallelStateType>(
+        &self,
+        i: usize,
+    ) -> Result<Option<&'static mut T>, ValueError> {
+        if i >= self.len {
+            return Ok(None);
+        }
+
+        let i = i * 2;
+
+        let idx: u64 = TocKeys::UserState.into();
+        let idx = idx + i as u64;
+        let ptr = pg_sys::shm_toc_lookup(self.toc.as_ptr(), idx, true);
+        if ptr.is_null() {
+            return Ok(None);
+        }
+        let (_, type_name) = self.decode_info(ptr);
+        if type_name != std::any::type_name::<T>() {
+            return Err(ValueError::WrongType(
+                type_name.to_owned(),
+                std::any::type_name::<T>().to_owned(),
+            ));
+        }
+
+        let idx: u64 = TocKeys::UserState.into();
+        let idx = idx + i as u64 + 1;
+        let ptr = pg_sys::shm_toc_lookup(self.toc.as_ptr(), idx, true);
+        if ptr.is_null() {
+            return Ok(None);
+        }
+        Ok(Some(&mut *ptr.cast()))
+    }
+
+    pub unsafe fn slice<T: ParallelStateType>(
+        &self,
+        i: usize,
+    ) -> Result<Option<&'static [T]>, ValueError> {
+        if i >= self.len {
+            return Ok(None);
+        }
+
+        let i = i * 2;
+        let idx: u64 = TocKeys::UserState.into();
+        let idx = idx + i as u64;
+        let ptr = pg_sys::shm_toc_lookup(self.toc.as_ptr(), idx, true);
+        if ptr.is_null() {
+            return Ok(None);
+        }
+        let (len, type_name) = self.decode_info(ptr);
+        if type_name != std::any::type_name::<T>() {
+            return Err(ValueError::WrongType(
+                type_name.to_owned(),
+                std::any::type_name::<T>().to_owned(),
+            ));
+        }
+
+        let idx: u64 = TocKeys::UserState.into();
+        let idx = idx + i as u64 + 1;
+        let ptr = pg_sys::shm_toc_lookup(self.toc.as_ptr(), idx, true);
+        if ptr.is_null() {
+            return Ok(None);
+        }
+        let slice = std::slice::from_raw_parts(ptr.cast(), len);
+        Ok(Some(slice))
+    }
+}
+
+pub struct ParallelProcessLauncher {
     pcxt: NonNull<pg_sys::ParallelContext>,
-    shm_state: NonNull<S>,
+    stateman: ParallelStateManager,
     mq_handles: Vec<MessageQueueReceiver>,
 }
 
-impl<S: Copy> ParallelProcessLauncher<S> {
-    pub fn launch(self) -> Option<ParallelProcessAttach<S>> {
+impl ParallelProcessLauncher {
+    pub fn launch(self) -> Option<ParallelProcessAttach> {
         unsafe {
             let pcxt = self.pcxt.as_ptr();
             pg_sys::LaunchParallelWorkers(pcxt);
@@ -134,11 +284,11 @@ impl<S: Copy> ParallelProcessLauncher<S> {
 }
 
 #[repr(transparent)]
-pub struct ParallelProcessAttach<S> {
-    launcher: ParallelProcessLauncher<S>,
+pub struct ParallelProcessAttach {
+    launcher: ParallelProcessLauncher,
 }
-impl<S> ParallelProcessAttach<S> {
-    pub fn wait_for_attach(self) -> Option<ParallelProcessFinish<S>> {
+impl ParallelProcessAttach {
+    pub fn wait_for_attach(self) -> Option<ParallelProcessFinish> {
         unsafe {
             pg_sys::WaitForParallelWorkersToAttach(self.launcher.pcxt.as_ptr());
             Some(ParallelProcessFinish {
@@ -149,22 +299,21 @@ impl<S> ParallelProcessAttach<S> {
 }
 
 #[repr(transparent)]
-pub struct ParallelProcessFinish<S> {
-    launcher: ParallelProcessLauncher<S>,
+pub struct ParallelProcessFinish {
+    launcher: ParallelProcessLauncher,
 }
 
-impl<S> ParallelProcessFinish<S> {
+impl ParallelProcessFinish {
     pub fn launched_workers(&self) -> usize {
         unsafe { (*self.launcher.pcxt.as_ptr()).nworkers_launched as usize }
     }
 
     #[allow(dead_code)]
-    pub fn shm_state(&self) -> &S {
-        unsafe { &*self.launcher.shm_state.as_ptr() }
+    pub fn state_manager(&self) -> &ParallelStateManager {
+        &self.launcher.stateman
     }
-
-    pub fn shm_state_mut(&mut self) -> &mut S {
-        unsafe { &mut *self.launcher.shm_state.as_ptr() }
+    pub fn state_manager_mut(&mut self) -> &mut ParallelStateManager {
+        &mut self.launcher.stateman
     }
 
     pub fn recv(&self) -> Option<Vec<(usize, Vec<u8>)>> {
@@ -237,14 +386,14 @@ impl<S> ParallelProcessFinish<S> {
     }
 }
 
-pub struct ParallelProcessMessageQueue<S: Copy> {
-    finisher: Option<ParallelProcessFinish<S>>,
+pub struct ParallelProcessMessageQueue {
+    finisher: Option<ParallelProcessFinish>,
     batch: Vec<(usize, Vec<u8>)>,
 }
 
-impl<S: Copy> IntoIterator for ParallelProcessFinish<S> {
+impl IntoIterator for ParallelProcessFinish {
     type Item = (usize, Vec<u8>);
-    type IntoIter = ParallelProcessMessageQueue<S>;
+    type IntoIter = ParallelProcessMessageQueue;
 
     fn into_iter(self) -> Self::IntoIter {
         ParallelProcessMessageQueue {
@@ -254,7 +403,7 @@ impl<S: Copy> IntoIterator for ParallelProcessFinish<S> {
     }
 }
 
-impl<S: Copy> Iterator for ParallelProcessMessageQueue<S> {
+impl Iterator for ParallelProcessMessageQueue {
     type Item = (usize, Vec<u8>);
 
     fn next(&mut self) -> Option<Self::Item> {

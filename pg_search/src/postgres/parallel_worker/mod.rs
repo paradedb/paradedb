@@ -21,14 +21,16 @@
 pub mod builder;
 pub mod mqueue;
 
+use crate::postgres::parallel_worker::builder::ParallelStateManager;
 use crate::postgres::parallel_worker::mqueue::MessageQueueSender;
 use pgrx::pg_sys;
 use std::ptr::NonNull;
 
 #[repr(u64)]
 enum TocKeys {
-    SharedState = 1,
-    MessageQueues = 2,
+    MessageQueues = 1,
+    UserStateLength = 2,
+    UserState = 3,
 }
 
 impl From<TocKeys> for u64 {
@@ -37,27 +39,79 @@ impl From<TocKeys> for u64 {
     }
 }
 
-#[allow(dead_code)]
-pub trait ParallelState {}
+pub trait ParallelStateType: Copy {}
+
+pub trait ParallelState {
+    fn info(&self) -> Vec<u8> {
+        let mut info = Vec::new();
+        let type_name = self.type_name();
+        let nbytes = size_of::<usize>() + size_of::<usize>() + type_name.as_bytes().len();
+        info.extend(nbytes.to_ne_bytes());
+        info.extend(self.len().to_ne_bytes());
+        info.extend(self.type_name().as_bytes());
+
+        info
+    }
+
+    fn type_name(&self) -> &'static str {
+        std::any::type_name::<Self>()
+    }
+
+    fn size_of(&self) -> usize {
+        size_of_val(self)
+    }
+    fn len(&self) -> usize {
+        1
+    }
+    fn as_bytes(&self) -> &[u8];
+}
+
+impl ParallelStateType for u8 {}
+impl ParallelStateType for u16 {}
+impl ParallelStateType for u32 {}
+impl ParallelStateType for u64 {}
+impl ParallelStateType for usize {}
+impl ParallelStateType for i8 {}
+impl ParallelStateType for i16 {}
+impl ParallelStateType for i32 {}
+impl ParallelStateType for i64 {}
+impl ParallelStateType for isize {}
+impl ParallelStateType for f32 {}
+impl ParallelStateType for f64 {}
+impl ParallelStateType for bool {}
+impl ParallelStateType for () {}
+
+impl<T: ParallelStateType> ParallelState for T {
+    fn as_bytes(&self) -> &[u8] {
+        unsafe { std::slice::from_raw_parts(self as *const _ as *const u8, self.size_of()) }
+    }
+}
+
+impl<T: ParallelStateType> ParallelState for Vec<T> {
+    fn type_name(&self) -> &'static str {
+        std::any::type_name::<T>()
+    }
+    fn size_of(&self) -> usize {
+        self.len() * size_of::<T>()
+    }
+    fn len(&self) -> usize {
+        self.len()
+    }
+    fn as_bytes(&self) -> &[u8] {
+        unsafe { std::slice::from_raw_parts(self.as_ptr() as *const u8, self.size_of()) }
+    }
+}
 
 pub trait ParallelProcess {
-    fn size_of_state(&self) -> usize;
-
-    /// # Safety
-    ///
-    /// This function is unsafe because we cannot ensure the `dest` pointer being provided is what
-    /// your implementation wants.  It's on you to make sure you've defined things properly when
-    /// calling the `launch_parallel_process!()` macro
-    unsafe fn init_shm_state(&self, dest: *mut std::ffi::c_void);
+    fn state_values(&self) -> Vec<&dyn ParallelState>;
 }
 
 pub trait ParallelWorker {
-    type State;
-    fn run(
-        shm_state: &mut Self::State,
-        mq_sender: &MessageQueueSender,
-        worker_number: i32,
-    ) -> anyhow::Result<()>;
+    fn new(state_manager: ParallelStateManager) -> Option<Self>
+    where
+        Self: Sized;
+
+    fn run(self, mq_sender: &MessageQueueSender, worker_number: i32) -> anyhow::Result<()>;
 }
 
 /// This macro facilitates the creation and execution of a parallel process within the PostgreSQL environment using the `pgx` framework.
@@ -100,23 +154,28 @@ pub trait ParallelWorker {
 /// use std::ffi::c_void;
 /// use std::ptr::addr_of;
 /// use pg_search::launch_parallel_process;
-/// use pg_search::postgres::parallel_worker::{ParallelProcess, ParallelState, ParallelWorker};
-///
+/// use pg_search::postgres::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, ParallelWorker};
+/// use pg_search::postgres::parallel_worker::builder::ParallelStateManager;
 /// use pg_search::postgres::parallel_worker::mqueue::MessageQueueSender;
 ///
 /// // Define a ParallelState type
 /// #[repr(C)]
+/// #[derive(Copy, Clone)]
 /// struct MyParallelState {
 ///     junk: u32
 /// }
-/// impl ParallelState for MyParallelState {}
+///
+/// impl ParallelStateType for MyParallelState {}
 ///
 /// // Define the Worker type
 /// struct MyWorker;
 /// impl ParallelWorker for MyWorker {
-///     type State = MyParallelState;
 ///
-///     fn run(state: &mut Self::State, mq_sender: &MessageQueueSender, worker_number: i32) {
+///     fn new(state_manager: &mut ParallelStateManager) -> Self {
+///         todo!()
+///     }
+///
+///     fn run(&mut self, mq_sender: &MessageQueueSender, worker_number: i32) {
 ///         pgrx::warning!("junk={}", state.junk);
 ///     }
 /// }
@@ -126,14 +185,12 @@ pub trait ParallelWorker {
 /// };
 ///
 /// impl ParallelProcess for MyProcess {
-///     fn size_of_state(&self) -> usize {
-///         size_of::<MyParallelState>()
+///     fn dynamic_state(&self) -> &dyn ParallelState {
+///         &self.state
 ///     }
 ///
-///     unsafe fn init_shm_state(&self, dest: *mut c_void) {
-///         unsafe {
-///             std::ptr::copy_nonoverlapping(addr_of!(self.state) as *c_void, dest, self.size_of_state());
-///         }
+///     fn static_state(&self) -> Vec<&dyn ParallelState> {
+///         vec![]
 ///     }
 /// }
 ///
@@ -165,19 +222,11 @@ pub trait ParallelWorker {
 /// ```
 #[macro_export]
 macro_rules! launch_parallel_process {
-    ($parallel_process_type:ident<$parallel_state_type:ty, $parallel_worker_type:ty>, $process:expr, $nworkers:expr, $mq_size:literal) => {{
+    ($parallel_process_type:ident<$parallel_worker_type:ty>, $process:expr, $nworkers:expr, $mq_size:literal) => {{
         {
             const _: () = {
-                assert!(
-                    size_of::<$parallel_worker_type>() == 0,
-                    "ParallelWorker must be zero sized"
-                );
-
                 const fn assert_is_parallel_worker<T: ParallelProcess>() {}
                 assert_is_parallel_worker::<$parallel_process_type>();
-
-                const fn assert_is_parallel_state<T: ParallelState>() {}
-                assert_is_parallel_state::<$parallel_state_type>();
             };
 
             #[allow(non_snake_case)]
@@ -187,24 +236,21 @@ macro_rules! launch_parallel_process {
                 seg: *mut pg_sys::dsm_segment,
                 toc: *mut pg_sys::shm_toc,
             ) {
-                let (state_ptr, mq_sender) =
+                let (stateman, mq_sender) =
                     $crate::postgres::parallel_worker::generic_parallel_worker_entry_point(
                         seg,
                         toc,
                         $mq_size as usize,
                     );
 
-                let state = &mut *state_ptr.cast::<$parallel_state_type>();
-                let _ = <$parallel_worker_type as $crate::postgres::parallel_worker::ParallelWorker>::run(
-                    state, &mq_sender, unsafe { pgrx::pg_sys::ParallelWorkerNumber }
-                ).unwrap_or_else(|e| ::std::panic::panic_any(e));
+                <$parallel_worker_type>::new(stateman)
+                    .expect("should be able to create ParallelWorker instance")
+                    .run(&mq_sender, unsafe { pgrx::pg_sys::ParallelWorkerNumber })
+                    .unwrap_or_else(|e| ::std::panic::panic_any(e));
             }
         }
 
-        $crate::postgres::parallel_worker::builder::ParallelProcessBuilder::build::<
-            _,
-            $parallel_state_type,
-        >(
+        $crate::postgres::parallel_worker::builder::ParallelProcessBuilder::build(
             $process,
             stringify!($parallel_process_type),
             $nworkers,
@@ -222,10 +268,7 @@ pub unsafe fn generic_parallel_worker_entry_point(
     seg: *mut pg_sys::dsm_segment,
     toc: *mut pg_sys::shm_toc,
     mq_size: usize,
-) -> (*mut std::ffi::c_void, MessageQueueSender) {
-    let shm_state = get_toc_entry(toc, TocKeys::SharedState)
-        .map(|value| value.as_ptr())
-        .expect("worker state should exist in toc");
+) -> (ParallelStateManager, MessageQueueSender) {
     let mqueues_base = get_toc_entry(toc, TocKeys::MessageQueues)
         .map(|value| value.as_ptr())
         .expect("message queue should exist in toc");
@@ -235,8 +278,9 @@ pub unsafe fn generic_parallel_worker_entry_point(
         .add(pg_sys::ParallelWorkerNumber as usize * mq_size)
         .cast::<pg_sys::shm_mq>();
 
+    let stateman = ParallelStateManager::new(toc);
     let mq_sender = MessageQueueSender::new(seg, mq);
-    (shm_state, mq_sender)
+    (stateman, mq_sender)
 }
 
 #[inline(always)]

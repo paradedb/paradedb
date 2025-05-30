@@ -539,7 +539,7 @@ pub fn explain(state: &CustomScanStateWrapper<PdbScan>, explainer: &mut Explaine
     }
 }
 
-pub fn estimate_cardinality(indexrel: &PgRelation, field: &str) -> Option<usize> {
+pub fn estimate_cardinality(indexrel: &PgRelation, field: &FieldName) -> Option<usize> {
     let reader = SearchIndexReader::open(indexrel, MvccSatisfies::Snapshot)
         .expect("estimate_cardinality: should be able to open SearchIndexReader");
     let searcher = reader.searcher();
@@ -552,7 +552,7 @@ pub fn estimate_cardinality(indexrel: &PgRelation, field: &str) -> Option<usize>
     Some(
         largest_segment_reader
             .fast_fields()
-            .str(field)
+            .str(&field.root())
             .ok()
             .flatten()?
             .num_terms(),

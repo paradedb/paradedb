@@ -15,7 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::{HashMap, HashSet};
+use crate::api::index::FieldName;
+use crate::api::HashMap;
 use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::scorer_iter::DeferredScorer;
@@ -342,7 +343,7 @@ impl SearchIndexReader {
         &self.searcher
     }
 
-    pub fn validate_checksum(&self) -> Result<HashSet<PathBuf>> {
+    pub fn validate_checksum(&self) -> Result<std::collections::HashSet<PathBuf>> {
         Ok(self.underlying_index.validate_checksum()?)
     }
 
@@ -446,7 +447,7 @@ impl SearchIndexReader {
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
         query: &SearchQueryInput,
-        sort_field: Option<String>,
+        sort_field: Option<FieldName>,
         sortdir: SortDirection,
         n: usize,
         offset: usize,

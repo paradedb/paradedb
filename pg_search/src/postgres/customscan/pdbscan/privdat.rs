@@ -33,7 +33,7 @@ pub struct PrivateData {
     range_table_index: Option<pg_sys::Index>,
     query: Option<SearchQueryInput>,
     limit: Option<usize>,
-    sort_field: Option<String>,
+    sort_field: Option<FieldName>,
     sort_direction: Option<SortDirection>,
     #[serde(with = "var_attname_lookup_serializer")]
     var_attname_lookup: Option<HashMap<(Varno, pg_sys::AttrNumber), FieldName>>,
@@ -243,7 +243,7 @@ impl PrivateData {
         self.limit
     }
 
-    pub fn sort_field(&self) -> Option<String> {
+    pub fn sort_field(&self) -> Option<FieldName> {
         self.sort_field.clone()
     }
 

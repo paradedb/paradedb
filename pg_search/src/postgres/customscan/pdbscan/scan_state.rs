@@ -55,7 +55,7 @@ pub struct PdbScanState {
     pub targetlist_len: usize,
 
     pub limit: Option<usize>,
-    pub sort_field: Option<String>,
+    pub sort_field: Option<FieldName>,
     pub sort_direction: Option<SortDirection>,
 
     pub retry_count: usize,

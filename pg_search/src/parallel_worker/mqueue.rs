@@ -171,7 +171,7 @@ impl Display for MessageQueueRecvError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             MessageQueueRecvError::Detached => write!(f, "queue is detached"),
-            MessageQueueRecvError::WouldBlock => write!(f, "queue is full"),
+            MessageQueueRecvError::WouldBlock => write!(f, "queue is empty"),
             MessageQueueRecvError::Unknown(other) => write!(f, "unknown error code: {other}"),
         }
     }

@@ -567,9 +567,18 @@ unsafe fn create_search_join_path<CS: CustomScan>(
     );
 
     warning!("ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========");
+    let jtype = if jointype == pg_sys::JoinType::JOIN_INNER {
+        "INNER"
+    } else if jointype == pg_sys::JoinType::JOIN_LEFT {
+        "LEFT"
+    } else if jointype == pg_sys::JoinType::JOIN_RIGHT {
+        "RIGHT"
+    } else {
+        "UNKNOWN"
+    };
     warning!(
         "ParadeDB: Creating custom join path for jointype: {}, outer: {:?}, inner: {:?}",
-        jointype as i32,
+        jtype,
         outer_relids
             .iter()
             .map(|oid| unsafe { get_rel_name(*oid) })

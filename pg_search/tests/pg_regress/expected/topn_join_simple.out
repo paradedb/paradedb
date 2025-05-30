@@ -1,0 +1,147 @@
+-- Simple TopN Join Test
+-- Test that TopN join optimization works for basic bilateral search queries
+\set ON_ERROR_STOP on
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Enable join optimization
+SET paradedb.enable_custom_join = true;
+SET paradedb.enable_topn_join_optimization = true;
+-- Create simple test tables
+DROP TABLE IF EXISTS simple_files CASCADE;
+DROP TABLE IF EXISTS simple_docs CASCADE;
+CREATE TABLE simple_docs (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    content TEXT
+);
+CREATE TABLE simple_files (
+    id SERIAL PRIMARY KEY,
+    filename TEXT,
+    content TEXT,
+    doc_id INTEGER REFERENCES simple_docs(id)
+);
+-- Insert test data
+INSERT INTO simple_docs (title, content) VALUES 
+    ('Doc 1', 'database postgresql advanced system'),
+    ('Doc 2', 'machine learning data analysis'),
+    ('Doc 3', 'web development javascript');
+INSERT INTO simple_files (filename, content, doc_id) VALUES 
+    ('readme.txt', 'database tutorial advanced guide', 1),
+    ('analysis.py', 'data processing machine learning', 2),
+    ('app.js', 'web application javascript code', 3);
+-- Create BM25 indexes
+CREATE INDEX simple_docs_idx ON simple_docs
+USING bm25 ("id",
+    "content",
+    "title"
+)
+WITH (
+    key_field = 'id',
+    text_fields = '{
+        "content": {
+            "tokenizer": {"type": "default"}
+        },
+        "title": {
+            "tokenizer": {"type": "default"}
+        }
+    }'
+);
+CREATE INDEX simple_files_idx ON simple_files
+USING bm25 ("id",
+    "content",
+    "filename",
+    "doc_id"
+)
+WITH (
+    key_field = 'id',
+    text_fields = '{
+        "content": {
+            "tokenizer": {"type": "default"}
+        },
+        "filename": {
+            "tokenizer": {"type": "default"}
+        }
+    }',
+    numeric_fields = '{
+        "doc_id": {}
+    }'
+);
+-- Test 1: Basic TopN join with LIMIT (should trigger TopN optimization)
+\echo 'Test 1: Basic TopN join with LIMIT'
+Test 1: Basic TopN join with LIMIT
+SELECT d.title, f.filename
+FROM simple_docs d
+JOIN simple_files f ON d.id = f.doc_id
+WHERE d.content @@@ 'database'
+  AND f.content @@@ 'database'
+ORDER BY d.id
+LIMIT 2;
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["simple_docs"], inner relids: ["simple_files"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
+WARNING:  ParadeDB: Found BM25 index for relation simple_docs (rti 1)
+WARNING:  ParadeDB: Checked relations ["simple_docs"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Found BM25 index for relation simple_files (rti 2)
+WARNING:  ParadeDB: Checked relations ["simple_files"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Join feasibility check - outer has BM25: true, inner has BM25: true
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Extracted join condition: 1.id = 2.doc_id
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation simple_docs (rti 1)
+WARNING:  ParadeDB: Extracted search query for simple_docs: uses_search_operator=true
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation simple_files (rti 2)
+WARNING:  ParadeDB: Extracted search query for simple_files: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 1 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
+WARNING:  ParadeDB: Outer predicate for simple_docs - uses_search: true
+WARNING:  ParadeDB: Inner predicate for simple_files - uses_search: true
+WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["simple_docs"], inner: ["simple_files"]
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["simple_docs"], inner: ["simple_files"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["simple_files"], inner relids: ["simple_docs"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
+WARNING:  ParadeDB: Found BM25 index for relation simple_files (rti 2)
+WARNING:  ParadeDB: Checked relations ["simple_files"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Found BM25 index for relation simple_docs (rti 1)
+WARNING:  ParadeDB: Checked relations ["simple_docs"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Join feasibility check - outer has BM25: true, inner has BM25: true
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Extracted join condition: 1.id = 2.doc_id
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation simple_files (rti 2)
+WARNING:  ParadeDB: Extracted search query for simple_files: uses_search_operator=true
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation simple_docs (rti 1)
+WARNING:  ParadeDB: Extracted search query for simple_docs: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 1 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
+WARNING:  ParadeDB: Outer predicate for simple_files - uses_search: true
+WARNING:  ParadeDB: Inner predicate for simple_docs - uses_search: true
+WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["simple_files"], inner: ["simple_docs"]
+WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["simple_files"], inner: ["simple_docs"]
+WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
+WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
+WARNING:  ParadeDB: plan_custom_path called - is_join = true
+WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
+WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries, processed_tlist has 3 entries
+WARNING:  ParadeDB: Found 2 relevant RTIs for score functions: {2, 1}
+WARNING:  ParadeDB: No score functions detected - using PostgreSQL's standard target list handling for joins
+WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
+WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
+WARNING:  ParadeDB: ==========================================
+ERROR:  variable not found in subplan target list

@@ -39,7 +39,7 @@ use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::builders::custom_path::{
     CustomPathBuilder, ExecMethodType, Flags, OrderByStyle, RestrictInfoType, SortDirection,
 };
-use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
+use crate::postgres::customscan::builders::custom_scan::{Args, CustomScanBuilder};
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
@@ -559,21 +559,92 @@ impl CustomScan for PdbScan {
                 pgrx::warning!("ParadeDB: ========== JOIN NODE PLANNING ==========");
                 pgrx::warning!("ParadeDB: Planning custom join path with scanrelid = 0");
 
-                // For join nodes, PostgreSQL provides us with the appropriate target list
-                // We don't need to reconstruct it - just use what we're given
+                // For join nodes, we need to handle score function calls from the processed target list
+                let processed_tlist =
+                    PgList::<pg_sys::TargetEntry>::from_pg((*builder.args().root).processed_tlist);
+
                 pgrx::warning!(
-                    "ParadeDB: Using PostgreSQL's provided target list with {} entries",
-                    tlist.len()
+                    "ParadeDB: Using PostgreSQL's provided target list with {} entries, processed_tlist has {} entries",
+                    tlist.len(),
+                    processed_tlist.len()
                 );
 
                 // Create a simple attribute name lookup for joins (mostly for debugging)
-                let attname_lookup = HashMap::default();
-                builder
-                    .custom_private_mut()
-                    .set_var_attname_lookup(attname_lookup);
+                let mut attname_lookup = HashMap::default();
 
-                // Use the target list as provided by PostgreSQL
-                builder.set_custom_scan_tlist(tlist.as_ptr());
+                // Check if we need to add score function calls to the target list
+                let score_funcoid = score_funcoid();
+                let snippet_funcoid = snippet_funcoid();
+                let snippet_positions_funcoid = snippet_positions_funcoid();
+
+                // Extract search predicates to find the RTIs we need to handle
+                let search_predicates = builder.custom_private().join_search_predicates().clone();
+                let mut relevant_rtis = HashSet::default();
+
+                if let Some(ref predicates) = search_predicates {
+                    for pred in &predicates.outer_predicates {
+                        relevant_rtis.insert(pred.rti);
+                    }
+                    for pred in &predicates.inner_predicates {
+                        relevant_rtis.insert(pred.rti);
+                    }
+                    pgrx::warning!(
+                        "ParadeDB: Found {} relevant RTIs for score functions: {:?}",
+                        relevant_rtis.len(),
+                        relevant_rtis
+                    );
+                }
+
+                // Scan processed target list for score functions related to our search predicates
+                let mut found_any_score_functions = false;
+                for te in processed_tlist.iter_ptr() {
+                    for rti in &relevant_rtis {
+                        let func_vars_at_level = pullout_funcexprs(
+                            te.cast(),
+                            &[score_funcoid, snippet_funcoid, snippet_positions_funcoid],
+                            (*rti).try_into().unwrap(),
+                        );
+
+                        if !func_vars_at_level.is_empty() {
+                            found_any_score_functions = true;
+                            for (funcexpr, var) in func_vars_at_level {
+                                pgrx::warning!(
+                                    "ParadeDB: Found score function for RTI {}, adding to target list",
+                                    rti
+                                );
+
+                                let te =
+                                    pg_sys::copyObjectImpl(te.cast()).cast::<pg_sys::TargetEntry>();
+                                (*te).resno = (tlist.len() + 1) as _;
+                                (*te).expr = funcexpr.cast();
+
+                                tlist.push(te);
+
+                                let attname = attname_from_var(builder.args().root, var)
+                                    .1
+                                    .expect("function call argument should be a column name");
+                                attname_lookup
+                                    .insert(((*var).varno as Varno, (*var).varattno), attname);
+                            }
+                        }
+                    }
+                }
+
+                if found_any_score_functions {
+                    pgrx::warning!(
+                        "ParadeDB: Score functions detected - setting up score projections"
+                    );
+                    builder
+                        .custom_private_mut()
+                        .set_var_attname_lookup(attname_lookup);
+                    builder.set_custom_scan_tlist(tlist.as_ptr());
+                } else {
+                    pgrx::warning!(
+                        "ParadeDB: No score functions detected - using PostgreSQL's standard target list handling for joins"
+                    );
+                    // For join nodes without score functions, let PostgreSQL handle the target list
+                    // Don't call builder.set_custom_scan_tlist() at all
+                }
 
                 pgrx::warning!("ParadeDB: ========== JOIN PLANNING COMPLETE ==========");
             } else {
@@ -625,6 +696,35 @@ impl CustomScan for PdbScan {
             }
 
             pgrx::warning!("ParadeDB: ========== PLANNING STAGE COMPLETE ==========");
+
+            // Print target list information
+            let tlist_ptr = builder.args().tlist.as_ptr();
+            if !tlist_ptr.is_null() {
+                let tlist_string = pg_sys::nodeToString(tlist_ptr.cast());
+                if !tlist_string.is_null() {
+                    let tlist_str = std::ffi::CStr::from_ptr(tlist_string)
+                        .to_string_lossy()
+                        .to_string();
+                    pgrx::warning!("ParadeDB: Input Target List: {}", tlist_str);
+                }
+            }
+
+            // Print custom scan target list we're setting
+            let custom_tlist = tlist.as_ptr();
+            if !custom_tlist.is_null() {
+                let custom_tlist_string = pg_sys::nodeToString(custom_tlist.cast());
+                if !custom_tlist_string.is_null() {
+                    let custom_tlist_str = std::ffi::CStr::from_ptr(custom_tlist_string)
+                        .to_string_lossy()
+                        .to_string();
+                    pgrx::warning!(
+                        "ParadeDB: Custom Target List We're Setting: {}",
+                        custom_tlist_str
+                    );
+                }
+            }
+
+            pgrx::warning!("ParadeDB: ==========================================");
         }
 
         builder.build()
@@ -664,73 +764,50 @@ impl CustomScan for PdbScan {
                 builder.custom_state().exec_method_type = ExecMethodType::Normal;
                 builder.custom_state().targetlist_len = builder.target_list().len();
 
-                // Set default values for join execution
-                builder.custom_state().limit = None;
+                // Extract limit from private data (set during planning)
+                let limit = builder.custom_private().limit().map(|l| l as f64);
+                builder.custom_state().limit = builder.custom_private().limit();
                 builder.custom_state().sort_field = None;
                 builder.custom_state().sort_direction = None;
 
+                pgrx::warning!("ParadeDB: Set join state - limit: {:?}", limit);
+
                 // Store the search predicates in the join execution state
-                let mut join_exec_state = JoinExecState::new(search_predicates);
+                if let Some(search_predicates) = search_predicates {
+                    let mut join_exec_state = JoinExecState::new(Some(search_predicates));
 
-                // CRITICAL: Store the relation OIDs from private data
-                // This eliminates the need to infer missing relations during execution
-                let outer_relids = builder.custom_private().join_outer_relids();
-                let inner_relids = builder.custom_private().join_inner_relids();
+                    // Transfer limit to join execution state for TopN optimization
+                    join_exec_state.limit = limit;
 
-                if !outer_relids.is_empty() {
-                    // For now, use the first outer relation as the primary one for backward compatibility
-                    join_exec_state.outer_relid = outer_relids[0];
-                    pgrx::warning!(
-                        "ParadeDB: Stored outer relation OIDs: {:?}",
-                        outer_relids
-                            .iter()
-                            .map(|oid| crate::postgres::customscan::pdbscan::get_rel_name(*oid))
-                            .collect::<Vec<_>>()
-                    );
-                }
-                if !inner_relids.is_empty() {
-                    // For now, use the first inner relation as the primary one for backward compatibility
-                    join_exec_state.inner_relid = inner_relids[0];
-                    pgrx::warning!(
-                        "ParadeDB: Stored inner relation OIDs: {:?}",
-                        inner_relids
-                            .iter()
-                            .map(|oid| crate::postgres::customscan::pdbscan::get_rel_name(*oid))
-                            .collect::<Vec<_>>()
-                    );
-                }
-
-                // Store variable mappings from the planning phase for reference
-                // Note: These may be different at execution time, but they provide a starting point
-                if let Some(var_lookup) = builder.custom_private().var_attname_lookup() {
-                    pgrx::warning!(
-                        "ParadeDB: Storing {} variable mappings from planning phase",
-                        var_lookup.len()
-                    );
-
-                    // Convert the planning-time mappings to a format we can use for debugging
-                    for ((varno, attno), attname) in var_lookup.iter() {
-                        pgrx::warning!(
-                            "ParadeDB: Planning-time mapping: varno={}, attno={} -> '{}'",
-                            varno,
-                            attno,
-                            attname
-                        );
+                    // Set relation OIDs from the search predicates
+                    if let Some(ref predicates) = join_exec_state.search_predicates {
+                        if let Some(first_outer) = predicates.outer_predicates.first() {
+                            join_exec_state.outer_relid = first_outer.relid;
+                        }
+                        if let Some(first_inner) = predicates.inner_predicates.first() {
+                            join_exec_state.inner_relid = first_inner.relid;
+                        }
                     }
-                }
 
-                // Store composite relation information if available
-                if let Some(ref composite_info) = builder.custom_private().join_composite_info() {
+                    builder.custom_state().join_exec_state = Some(join_exec_state);
+
                     pgrx::warning!(
-                        "ParadeDB: Storing composite join info - composite_side: {:?}, base_has_search: {}, composite_has_search: {}",
-                        composite_info.composite_side,
-                        composite_info.base_has_search,
-                        composite_info.composite_has_search
+                        "ParadeDB: Created join execution state with limit {:?}, outer_relid: {}, inner_relid: {}",
+                        limit,
+                        builder.custom_state().join_exec_state.as_ref().map(|js| js.outer_relid).unwrap_or(pg_sys::InvalidOid),
+                        builder.custom_state().join_exec_state.as_ref().map(|js| js.inner_relid).unwrap_or(pg_sys::InvalidOid)
                     );
-                    join_exec_state.composite_info = Some(composite_info.clone());
+                } else {
+                    let mut join_exec_state = JoinExecState::default();
+                    join_exec_state.limit = limit;
+                    builder.custom_state().join_exec_state = Some(join_exec_state);
+
+                    pgrx::warning!(
+                        "ParadeDB: Created default join execution state with limit {:?}",
+                        limit
+                    );
                 }
 
-                builder.custom_state().join_exec_state = Some(join_exec_state);
                 builder.custom_state().unilateral_child_plan_side = builder
                     .custom_private()
                     .unilateral_child_plan_side()
@@ -1260,7 +1337,7 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
 /// time.
 ///
 fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>) {
-    match builder.custom_state_ref().exec_method_type.clone() {
+    match builder.custom_state().exec_method_type.clone() {
         ExecMethodType::Normal => builder
             .custom_state()
             .assign_exec_method(NormalScanExecState::default(), Some(ExecMethodType::Normal)),

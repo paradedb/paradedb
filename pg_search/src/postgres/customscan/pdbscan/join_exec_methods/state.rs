@@ -301,6 +301,7 @@ pub unsafe fn exec_join_step(
                     warning!("ParadeDB: Detected TopN join query, using optimized execution");
                     return super::top_n_join::execute_topn_join(state);
                 }
+                warning!("ParadeDB: Not a TopN join query");
             }
 
             // Check if we should use lazy join execution

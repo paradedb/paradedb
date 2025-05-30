@@ -149,7 +149,7 @@ WARNING:  ParadeDB: Inner predicate for topn_files - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["topn_documents"], inner: ["topn_files"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["topn_documents"], inner: ["topn_files"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["topn_documents"], inner: ["topn_files"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -178,7 +178,7 @@ WARNING:  ParadeDB: Inner predicate for topn_documents - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["topn_files"], inner: ["topn_documents"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["topn_files"], inner: ["topn_documents"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["topn_files"], inner: ["topn_documents"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -187,7 +187,15 @@ WARNING:  ParadeDB: plan_custom_path called - is_join = true
 WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries, processed_tlist has 5 entries
+WARNING:  ParadeDB: Found 2 relevant RTIs for score functions: {2, 1}
+WARNING:  ParadeDB: Found score function for RTI 1, adding to target list
+WARNING:  ParadeDB: Found score function for RTI 2, adding to target list
+WARNING:  ParadeDB: Found score function for RTI 2, adding to target list
+WARNING:  ParadeDB: Found score function for RTI 1, adding to target list
+WARNING:  ParadeDB: Score functions detected - setting up score projections
 WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
 WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
+WARNING:  ParadeDB: Custom Target List We're Setting: ({TARGETENTRY :expr {FUNCEXPR :funcid 180737 :funcresulttype 700 :funcretset false :funcvariadic false :funcformat 0 :funccollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}) :location -1} :resno 1 :resname doc_score :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {FUNCEXPR :funcid 180737 :funcresulttype 700 :funcretset false :funcvariadic false :funcformat 0 :funccollid 0 :inputcollid 0 :args ({VAR :varno 2 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 1 :location -1}) :location -1} :resno 2 :resname file_score :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {FUNCEXPR :funcid 180737 :funcresulttype 700 :funcretset false :funcvariadic false :funcformat 0 :funccollid 0 :inputcollid 0 :args ({VAR :varno 2 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 1 :location -1}) :location -1} :resno 3 :resname combined_score :ressortgroupref 1 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {FUNCEXPR :funcid 180737 :funcresulttype 700 :funcretset false :funcvariadic false :funcformat 0 :funccollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}) :location -1} :resno 4 :resname combined_score :ressortgroupref 1 :resorigtbl 0 :resorigcol 0 :resjunk false})
+WARNING:  ParadeDB: ==========================================
 ERROR:  variable not found in subplan target list

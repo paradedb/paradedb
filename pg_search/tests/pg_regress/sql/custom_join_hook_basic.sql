@@ -7,6 +7,8 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Enable the custom join feature
 SET paradedb.enable_custom_join = true;
 
+SET paradedb.enable_topn_join_optimization = true;
+
 -- Create test tables with BM25 indexes
 CREATE TABLE documents_join_test (
     id SERIAL PRIMARY KEY,
@@ -124,3 +126,4 @@ DROP TABLE files_join_test CASCADE;
 DROP TABLE authors_join_test CASCADE;
 
 RESET paradedb.enable_custom_join;
+RESET paradedb.enable_topn_join_optimization;

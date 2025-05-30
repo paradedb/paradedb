@@ -71,7 +71,7 @@ WARNING:  ParadeDB: Inner predicate for small_reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["small_products"], inner: ["small_reviews"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["small_products"], inner: ["small_reviews"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["small_products"], inner: ["small_reviews"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -100,7 +100,7 @@ WARNING:  ParadeDB: Inner predicate for small_products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["small_reviews"], inner: ["small_products"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["small_reviews"], inner: ["small_products"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["small_reviews"], inner: ["small_products"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -109,200 +109,15 @@ WARNING:  ParadeDB: plan_custom_path called - is_join = true
 WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Using PostgreSQL's provided target list with 3 entries
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 3 entries, processed_tlist has 3 entries
+WARNING:  ParadeDB: Found 2 relevant RTIs for score functions: {2, 1}
+WARNING:  ParadeDB: No score functions detected - using PostgreSQL's standard target list handling for joins
 WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
 WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
-WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
-WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Stored outer relation OIDs: ["small_products"]
-WARNING:  ParadeDB: Stored inner relation OIDs: ["small_reviews"]
-WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
-WARNING:  ParadeDB: Beginning custom scan for join node
-WARNING:  ParadeDB: Initializing join execution
-WARNING:  ParadeDB: Join execution initialization complete
-WARNING:  ParadeDB: Executing join step in phase: NotStarted
-WARNING:  ParadeDB: Starting join execution
-WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1
-WARNING:  ParadeDB: Outer predicate 0: relation=small_products, uses_search=true
-WARNING:  ParadeDB: Inner predicate 0: relation=small_reviews, uses_search=true
-WARNING:  ParadeDB: Initialized mock results - outer: 2, inner: 2
-WARNING:  ParadeDB: Executing join step in phase: JoinMatching
-WARNING:  ParadeDB: In join matching phase
-WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
-WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: small_products, inner: small_reviews
-WARNING:  ParadeDB: Determining join keys for relations small_products and small_reviews using extracted join conditions
-WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
-WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
-WARNING:  ParadeDB: Mapped RTI 1 to relid Some("small_products"), RTI 2 to relid Some("small_reviews")
-WARNING:  ParadeDB: Found matching join condition: small_products.id = small_reviews.product_id
-WARNING:  ParadeDB: Fetching column 'id' from relation small_products with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'product_id' from relation small_reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
-WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = true
-WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[0] after 1 evaluations
-WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
-WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: small_products, inner: small_reviews
-WARNING:  ParadeDB: Fetching real heap tuple values from relations small_products and small_reviews
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: small_products, inner: small_reviews
-WARNING:  ParadeDB: Detected relations from predicates - outer: 'small_products', inner: 'small_reviews'
-WARNING:  ParadeDB: Fetching all columns with names from relation small_products with CTID 1
-WARNING:  ParadeDB: small_products column 'id' = '1'
-WARNING:  ParadeDB: small_products column 'name' = 'Laptop Pro'
-WARNING:  ParadeDB: small_products column 'description' = 'High-performance laptop for professionals'
-WARNING:  ParadeDB: small_products column 'category' = 'electronics'
-WARNING:  ParadeDB: Successfully fetched 4 columns from small_products relation
-WARNING:  ParadeDB: Fetching all columns with names from relation small_reviews with CTID 1
-WARNING:  ParadeDB: small_reviews column 'id' = '1'
-WARNING:  ParadeDB: small_reviews column 'product_id' = '1'
-WARNING:  ParadeDB: small_reviews column 'review_text' = 'Excellent laptop with great performance'
-WARNING:  ParadeDB: small_reviews column 'rating' = '5'
-WARNING:  ParadeDB: Successfully fetched 4 columns from small_reviews relation
-WARNING:  ParadeDB: Fetched 4 columns from outer relation, 4 from inner relation
-WARNING:  ParadeDB: Analyzing 3 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}"),)))]
-WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation small_products
-WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "small_products")]
-WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
-WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: small_products, inner: small_reviews
-WARNING:  ParadeDB: Resolved varnosyn 1 to relation small_products
-WARNING:  ParadeDB: varnosyn 1 resolved to relation small_products, attno 2
-WARNING:  ParadeDB: Relation small_products attno 2 -> column name 'name'
-WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn(small_products,name)
-WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
-WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 2, varattnosyn: 3
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 3
-WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 3 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: small_products, inner: small_reviews
-WARNING:  ParadeDB: Resolved varnosyn 2 to relation small_reviews
-WARNING:  ParadeDB: varnosyn 2 resolved to relation small_reviews, attno 3
-WARNING:  ParadeDB: Relation small_reviews attno 3 -> column name 'review_text'
-WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn(small_reviews,review_text)
-WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
-WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 4
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 4
-WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 4 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: small_products, inner: small_reviews
-WARNING:  ParadeDB: Resolved varnosyn 2 to relation small_reviews
-WARNING:  ParadeDB: varnosyn 2 resolved to relation small_reviews, attno 4
-WARNING:  ParadeDB: Relation small_reviews attno 4 -> column name 'rating'
-WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn(small_reviews,rating)
-WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Laptop Pro"), Some("Excellent laptop with great performance"), Some("5")]
-WARNING:  ParadeDB: Converting '5' to integer 5
-WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Laptop Pro"), Some("Excellent laptop with great performance"), Some("5")]
-WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [1]
-WARNING:  ParadeDB: Executing join step in phase: JoinMatching
-WARNING:  ParadeDB: In join matching phase
-WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 1/2
-WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: small_products, inner: small_reviews
-WARNING:  ParadeDB: Determining join keys for relations small_products and small_reviews using extracted join conditions
-WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
-WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
-WARNING:  ParadeDB: Mapped RTI 1 to relid Some("small_products"), RTI 2 to relid Some("small_reviews")
-WARNING:  ParadeDB: Found matching join condition: small_products.id = small_reviews.product_id
-WARNING:  ParadeDB: Fetching column 'id' from relation small_products with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'product_id' from relation small_reviews with CTID 2
-WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
-WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[1] (ctid 2) = true
-WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[1] after 1 evaluations
-WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
-WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: small_products, inner: small_reviews
-WARNING:  ParadeDB: Fetching real heap tuple values from relations small_products and small_reviews
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: small_products, inner: small_reviews
-WARNING:  ParadeDB: Detected relations from predicates - outer: 'small_products', inner: 'small_reviews'
-WARNING:  ParadeDB: Fetching all columns with names from relation small_products with CTID 1
-WARNING:  ParadeDB: small_products column 'id' = '1'
-WARNING:  ParadeDB: small_products column 'name' = 'Laptop Pro'
-WARNING:  ParadeDB: small_products column 'description' = 'High-performance laptop for professionals'
-WARNING:  ParadeDB: small_products column 'category' = 'electronics'
-WARNING:  ParadeDB: Successfully fetched 4 columns from small_products relation
-WARNING:  ParadeDB: Fetching all columns with names from relation small_reviews with CTID 2
-WARNING:  ParadeDB: small_reviews column 'id' = '2'
-WARNING:  ParadeDB: small_reviews column 'product_id' = '1'
-WARNING:  ParadeDB: small_reviews column 'review_text' = 'Good build quality but expensive'
-WARNING:  ParadeDB: small_reviews column 'rating' = '4'
-WARNING:  ParadeDB: Successfully fetched 4 columns from small_reviews relation
-WARNING:  ParadeDB: Fetched 4 columns from outer relation, 4 from inner relation
-WARNING:  ParadeDB: Analyzing 3 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}"),)))]
-WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation small_products
-WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "small_products")]
-WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
-WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: small_products, inner: small_reviews
-WARNING:  ParadeDB: Resolved varnosyn 1 to relation small_products
-WARNING:  ParadeDB: varnosyn 1 resolved to relation small_products, attno 2
-WARNING:  ParadeDB: Relation small_products attno 2 -> column name 'name'
-WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn(small_products,name)
-WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
-WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 2, varattnosyn: 3
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 3
-WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 3 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: small_products, inner: small_reviews
-WARNING:  ParadeDB: Resolved varnosyn 2 to relation small_reviews
-WARNING:  ParadeDB: varnosyn 2 resolved to relation small_reviews, attno 3
-WARNING:  ParadeDB: Relation small_reviews attno 3 -> column name 'review_text'
-WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn(small_reviews,review_text)
-WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
-WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 4
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 4
-WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 4 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: small_products, inner: small_reviews
-WARNING:  ParadeDB: Resolved varnosyn 2 to relation small_reviews
-WARNING:  ParadeDB: varnosyn 2 resolved to relation small_reviews, attno 4
-WARNING:  ParadeDB: Relation small_reviews attno 4 -> column name 'rating'
-WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn(small_reviews,rating)
-WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Laptop Pro"), Some("Good build quality but expensive"), Some("4")]
-WARNING:  ParadeDB: Converting '4' to integer 4
-WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Laptop Pro"), Some("Good build quality but expensive"), Some("4")]
-WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
-WARNING:  ParadeDB: Executing join step in phase: JoinMatching
-WARNING:  ParadeDB: In join matching phase
-WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 0/2
-WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: small_products, inner: small_reviews
-WARNING:  ParadeDB: Determining join keys for relations small_products and small_reviews using extracted join conditions
-WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
-WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
-WARNING:  ParadeDB: Mapped RTI 1 to relid Some("small_products"), RTI 2 to relid Some("small_reviews")
-WARNING:  ParadeDB: Found matching join condition: small_products.id = small_reviews.product_id
-WARNING:  ParadeDB: Fetching column 'id' from relation small_products with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'product_id' from relation small_reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
-WARNING:  ParadeDB: Iteration 1: outer[1] (ctid 2) × inner[0] (ctid 1) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: small_products, inner: small_reviews
-WARNING:  ParadeDB: Determining join keys for relations small_products and small_reviews using extracted join conditions
-WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
-WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
-WARNING:  ParadeDB: Mapped RTI 1 to relid Some("small_products"), RTI 2 to relid Some("small_reviews")
-WARNING:  ParadeDB: Found matching join condition: small_products.id = small_reviews.product_id
-WARNING:  ParadeDB: Fetching column 'id' from relation small_products with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'product_id' from relation small_reviews with CTID 2
-WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
-WARNING:  ParadeDB: Iteration 2: outer[1] (ctid 2) × inner[1] (ctid 2) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: All join combinations exhausted
-WARNING:  ParadeDB: Join execution finished after advancing position
-WARNING:  ParadeDB: Cleaning up join execution state
-WARNING:  ParadeDB: Join execution cleanup complete
-    name    |               review_text               | rating 
-------------+-----------------------------------------+--------
- Laptop Pro | Excellent laptop with great performance |      5
- Laptop Pro | Good build quality but expensive        |      4
-(2 rows)
-
+WARNING:  ParadeDB: Input Target List: ({TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 2 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 4 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1} :resno 3 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false})
+WARNING:  ParadeDB: Custom Target List We're Setting: ({TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 2 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 4 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1} :resno 3 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false})
+WARNING:  ParadeDB: ==========================================
+ERROR:  variable not found in subplan target list
 -- Test 2: Medium dataset - should use SortedArray strategy
 CREATE TABLE medium_docs (
     id SERIAL PRIMARY KEY,
@@ -392,7 +207,7 @@ WARNING:  ParadeDB: Inner predicate for medium_comments - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["medium_docs"], inner: ["medium_comments"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["medium_docs"], inner: ["medium_comments"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["medium_docs"], inner: ["medium_comments"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 10000, startup_cost: 50.00, total_cost: 100.00
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -421,7 +236,7 @@ WARNING:  ParadeDB: Inner predicate for medium_docs - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["medium_comments"], inner: ["medium_docs"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["medium_comments"], inner: ["medium_docs"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["medium_comments"], inner: ["medium_docs"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 10000, startup_cost: 50.00, total_cost: 100.00
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -430,14 +245,16 @@ WARNING:  ParadeDB: plan_custom_path called - is_join = true
 WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries, processed_tlist has 1 entries
+WARNING:  ParadeDB: Found 2 relevant RTIs for score functions: {2, 1}
+WARNING:  ParadeDB: No score functions detected - using PostgreSQL's standard target list handling for joins
 WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
 WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
+WARNING:  ParadeDB: ==========================================
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Stored outer relation OIDs: ["medium_docs"]
-WARNING:  ParadeDB: Stored inner relation OIDs: ["medium_comments"]
-WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
+WARNING:  ParadeDB: Set join state - limit: None
+WARNING:  ParadeDB: Created join execution state with limit None, outer_relid: 181083, inner_relid: 181092
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
 WARNING:  ParadeDB: Join execution initialization complete
@@ -449,6 +266,7 @@ WARNING:  ParadeDB: Inner predicate 0: relation=medium_comments, uses_search=tru
 WARNING:  ParadeDB: Initialized mock results - outer: 2, inner: 2
 WARNING:  ParadeDB: Executing join step in phase: JoinMatching
 WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Not a TopN join query
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: medium_docs, inner: medium_comments
@@ -513,6 +331,7 @@ WARNING:  ParadeDB: Created join result tuple with real heap data: []
 WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
 WARNING:  ParadeDB: Executing join step in phase: JoinMatching
 WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Not a TopN join query
 WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: medium_docs, inner: medium_comments
@@ -691,9 +510,9 @@ WARNING:  ParadeDB: Inner predicate for large_tags - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["large_articles"], inner: ["large_tags"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["large_articles"], inner: ["large_tags"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["large_articles"], inner: ["large_tags"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
-WARNING:  ParadeDB: Join path estimates - rows: 74102, startup_cost: 50.00, total_cost: 420.51
+WARNING:  ParadeDB: Join path estimates - rows: 75375, startup_cost: 50.00, total_cost: 426.88
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["large_tags"], inner relids: ["large_articles"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
@@ -720,23 +539,25 @@ WARNING:  ParadeDB: Inner predicate for large_articles - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["large_tags"], inner: ["large_articles"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["large_tags"], inner: ["large_articles"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["large_tags"], inner: ["large_articles"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
-WARNING:  ParadeDB: Join path estimates - rows: 74102, startup_cost: 50.00, total_cost: 420.51
+WARNING:  ParadeDB: Join path estimates - rows: 75375, startup_cost: 50.00, total_cost: 426.88
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
 WARNING:  ParadeDB: plan_custom_path called - is_join = true
 WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries, processed_tlist has 1 entries
+WARNING:  ParadeDB: Found 2 relevant RTIs for score functions: {2, 1}
+WARNING:  ParadeDB: No score functions detected - using PostgreSQL's standard target list handling for joins
 WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
 WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
+WARNING:  ParadeDB: ==========================================
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Stored outer relation OIDs: ["large_articles"]
-WARNING:  ParadeDB: Stored inner relation OIDs: ["large_tags"]
-WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
+WARNING:  ParadeDB: Set join state - limit: None
+WARNING:  ParadeDB: Created join execution state with limit None, outer_relid: 181103, inner_relid: 181112
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
 WARNING:  ParadeDB: Join execution initialization complete
@@ -748,6 +569,7 @@ WARNING:  ParadeDB: Inner predicate 0: relation=large_tags, uses_search=true
 WARNING:  ParadeDB: Initialized mock results - outer: 2, inner: 2
 WARNING:  ParadeDB: Executing join step in phase: JoinMatching
 WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Not a TopN join query
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: large_articles, inner: large_tags
@@ -812,6 +634,7 @@ WARNING:  ParadeDB: Created join result tuple with real heap data: []
 WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
 WARNING:  ParadeDB: Executing join step in phase: JoinMatching
 WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Not a TopN join query
 WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: large_articles, inner: large_tags
@@ -869,7 +692,7 @@ WARNING:  ParadeDB: Inner predicate for small_reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["small_products"], inner: ["small_reviews"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["small_products"], inner: ["small_reviews"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["small_products"], inner: ["small_reviews"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -898,7 +721,7 @@ WARNING:  ParadeDB: Inner predicate for small_products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["small_reviews"], inner: ["small_products"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["small_reviews"], inner: ["small_products"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["small_reviews"], inner: ["small_products"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -907,14 +730,16 @@ WARNING:  ParadeDB: plan_custom_path called - is_join = true
 WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries, processed_tlist has 1 entries
+WARNING:  ParadeDB: Found 2 relevant RTIs for score functions: {2, 1}
+WARNING:  ParadeDB: No score functions detected - using PostgreSQL's standard target list handling for joins
 WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
 WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
+WARNING:  ParadeDB: ==========================================
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Stored outer relation OIDs: ["small_products"]
-WARNING:  ParadeDB: Stored inner relation OIDs: ["small_reviews"]
-WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
+WARNING:  ParadeDB: Set join state - limit: None
+WARNING:  ParadeDB: Created join execution state with limit None, outer_relid: 181063, inner_relid: 181072
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
 WARNING:  ParadeDB: Join execution initialization complete
@@ -926,6 +751,7 @@ WARNING:  ParadeDB: Inner predicate 0: relation=small_reviews, uses_search=true
 WARNING:  ParadeDB: Initialized mock results - outer: 2, inner: 2
 WARNING:  ParadeDB: Executing join step in phase: JoinMatching
 WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Not a TopN join query
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: small_products, inner: small_reviews
@@ -964,6 +790,7 @@ WARNING:  ParadeDB: Created join result tuple with real heap data: []
 WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [1]
 WARNING:  ParadeDB: Executing join step in phase: JoinMatching
 WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Not a TopN join query
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: small_products, inner: small_reviews
@@ -1002,6 +829,7 @@ WARNING:  ParadeDB: Created join result tuple with real heap data: []
 WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
 WARNING:  ParadeDB: Executing join step in phase: JoinMatching
 WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Not a TopN join query
 WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: small_products, inner: small_reviews
@@ -1070,7 +898,7 @@ WARNING:  ParadeDB: Inner predicate for small_reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["small_products"], inner: ["small_reviews"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["small_products"], inner: ["small_reviews"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["small_products"], inner: ["small_reviews"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -1099,7 +927,7 @@ WARNING:  ParadeDB: Inner predicate for small_products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["small_reviews"], inner: ["small_products"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["small_reviews"], inner: ["small_products"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["small_reviews"], inner: ["small_products"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -1108,14 +936,16 @@ WARNING:  ParadeDB: plan_custom_path called - is_join = true
 WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries, processed_tlist has 1 entries
+WARNING:  ParadeDB: Found 2 relevant RTIs for score functions: {2, 1}
+WARNING:  ParadeDB: No score functions detected - using PostgreSQL's standard target list handling for joins
 WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
 WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
+WARNING:  ParadeDB: ==========================================
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Stored outer relation OIDs: ["small_products"]
-WARNING:  ParadeDB: Stored inner relation OIDs: ["small_reviews"]
-WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
+WARNING:  ParadeDB: Set join state - limit: None
+WARNING:  ParadeDB: Created join execution state with limit None, outer_relid: 181063, inner_relid: 181072
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
 WARNING:  ParadeDB: Join execution initialization complete
@@ -1127,6 +957,7 @@ WARNING:  ParadeDB: Inner predicate 0: relation=small_reviews, uses_search=true
 WARNING:  ParadeDB: Initialized mock results - outer: 2, inner: 2
 WARNING:  ParadeDB: Executing join step in phase: JoinMatching
 WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Not a TopN join query
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: small_products, inner: small_reviews
@@ -1165,6 +996,7 @@ WARNING:  ParadeDB: Created join result tuple with real heap data: []
 WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [1]
 WARNING:  ParadeDB: Executing join step in phase: JoinMatching
 WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Not a TopN join query
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: small_products, inner: small_reviews
@@ -1203,6 +1035,7 @@ WARNING:  ParadeDB: Created join result tuple with real heap data: []
 WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
 WARNING:  ParadeDB: Executing join step in phase: JoinMatching
 WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Not a TopN join query
 WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: small_products, inner: small_reviews
@@ -1270,7 +1103,7 @@ WARNING:  ParadeDB: Inner predicate for small_reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["small_products"], inner: ["small_reviews"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["small_products"], inner: ["small_reviews"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["small_products"], inner: ["small_reviews"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -1299,7 +1132,7 @@ WARNING:  ParadeDB: Inner predicate for small_products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["small_reviews"], inner: ["small_products"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["small_reviews"], inner: ["small_products"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["small_reviews"], inner: ["small_products"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -1308,14 +1141,16 @@ WARNING:  ParadeDB: plan_custom_path called - is_join = true
 WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries, processed_tlist has 1 entries
+WARNING:  ParadeDB: Found 2 relevant RTIs for score functions: {2, 1}
+WARNING:  ParadeDB: No score functions detected - using PostgreSQL's standard target list handling for joins
 WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
 WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
+WARNING:  ParadeDB: ==========================================
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Stored outer relation OIDs: ["small_products"]
-WARNING:  ParadeDB: Stored inner relation OIDs: ["small_reviews"]
-WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
+WARNING:  ParadeDB: Set join state - limit: None
+WARNING:  ParadeDB: Created join execution state with limit None, outer_relid: 181063, inner_relid: 181072
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
 WARNING:  ParadeDB: Join execution initialization complete
@@ -1327,6 +1162,7 @@ WARNING:  ParadeDB: Inner predicate 0: relation=small_reviews, uses_search=true
 WARNING:  ParadeDB: Initialized mock results - outer: 2, inner: 2
 WARNING:  ParadeDB: Executing join step in phase: JoinMatching
 WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Not a TopN join query
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: small_products, inner: small_reviews
@@ -1365,6 +1201,7 @@ WARNING:  ParadeDB: Created join result tuple with real heap data: []
 WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [1]
 WARNING:  ParadeDB: Executing join step in phase: JoinMatching
 WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Not a TopN join query
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: small_products, inner: small_reviews
@@ -1403,6 +1240,7 @@ WARNING:  ParadeDB: Created join result tuple with real heap data: []
 WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
 WARNING:  ParadeDB: Executing join step in phase: JoinMatching
 WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Not a TopN join query
 WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: small_products, inner: small_reviews
@@ -1470,7 +1308,7 @@ WARNING:  ParadeDB: Inner predicate for small_reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["small_products"], inner: ["small_reviews"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["small_products"], inner: ["small_reviews"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["small_products"], inner: ["small_reviews"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -1499,7 +1337,7 @@ WARNING:  ParadeDB: Inner predicate for small_products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["small_reviews"], inner: ["small_products"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["small_reviews"], inner: ["small_products"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["small_reviews"], inner: ["small_products"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -1508,89 +1346,15 @@ WARNING:  ParadeDB: plan_custom_path called - is_join = true
 WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Using PostgreSQL's provided target list with 2 entries
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 2 entries, processed_tlist has 2 entries
+WARNING:  ParadeDB: Found 2 relevant RTIs for score functions: {2, 1}
+WARNING:  ParadeDB: No score functions detected - using PostgreSQL's standard target list handling for joins
 WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
 WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
-WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
-WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Stored outer relation OIDs: ["small_products"]
-WARNING:  ParadeDB: Stored inner relation OIDs: ["small_reviews"]
-WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
-WARNING:  ParadeDB: Beginning custom scan for join node
-WARNING:  ParadeDB: Initializing join execution
-WARNING:  ParadeDB: Join execution initialization complete
-WARNING:  ParadeDB: Executing join step in phase: NotStarted
-WARNING:  ParadeDB: Starting join execution
-WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1
-WARNING:  ParadeDB: Outer predicate 0: relation=small_products, uses_search=true
-WARNING:  ParadeDB: Inner predicate 0: relation=small_reviews, uses_search=true
-WARNING:  ParadeDB: Initialized mock results - outer: 2, inner: 2
-WARNING:  ParadeDB: Executing join step in phase: JoinMatching
-WARNING:  ParadeDB: In join matching phase
-WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
-WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: small_products, inner: small_reviews
-WARNING:  ParadeDB: Determining join keys for relations small_products and small_reviews using extracted join conditions
-WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
-WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (product_id)
-WARNING:  ParadeDB: Mapped RTI 1 to relid Some("small_products"), RTI 2 to relid Some("small_reviews")
-WARNING:  ParadeDB: Found matching join condition: small_products.id = small_reviews.product_id
-WARNING:  ParadeDB: Fetching column 'id' from relation small_products with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'product_id' from relation small_reviews with CTID 1
-WARNING:  ParadeDB: Fetched column 'product_id' (attno 2) = Some("1")
-WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = true
-WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[0] after 1 evaluations
-WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[0]
-WARNING:  ParadeDB: Creating result tuple with 2 attributes
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: small_products, inner: small_reviews
-WARNING:  ParadeDB: Fetching real heap tuple values from relations small_products and small_reviews
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: small_products, inner: small_reviews
-WARNING:  ParadeDB: Detected relations from predicates - outer: 'small_products', inner: 'small_reviews'
-WARNING:  ParadeDB: Fetching all columns with names from relation small_products with CTID 1
-WARNING:  ParadeDB: small_products column 'id' = '1'
-WARNING:  ParadeDB: small_products column 'name' = 'Laptop Pro'
-WARNING:  ParadeDB: small_products column 'description' = 'High-performance laptop for professionals'
-WARNING:  ParadeDB: small_products column 'category' = 'electronics'
-WARNING:  ParadeDB: Successfully fetched 4 columns from small_products relation
-WARNING:  ParadeDB: Fetching all columns with names from relation small_reviews with CTID 1
-WARNING:  ParadeDB: small_reviews column 'id' = '1'
-WARNING:  ParadeDB: small_reviews column 'product_id' = '1'
-WARNING:  ParadeDB: small_reviews column 'review_text' = 'Excellent laptop with great performance'
-WARNING:  ParadeDB: small_reviews column 'rating' = '5'
-WARNING:  ParadeDB: Successfully fetched 4 columns from small_reviews relation
-WARNING:  ParadeDB: Fetched 4 columns from outer relation, 4 from inner relation
-WARNING:  ParadeDB: Analyzing 2 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}"),)))]
-WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation small_products
-WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "small_products")]
-WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
-WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: small_products, inner: small_reviews
-WARNING:  ParadeDB: Resolved varnosyn 1 to relation small_products
-WARNING:  ParadeDB: varnosyn 1 resolved to relation small_products, attno 2
-WARNING:  ParadeDB: Relation small_products attno 2 -> column name 'name'
-WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn(small_products,name)
-WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
-WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 2, varattnosyn: 3
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 3
-WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 3 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: small_products, inner: small_reviews
-WARNING:  ParadeDB: Resolved varnosyn 2 to relation small_reviews
-WARNING:  ParadeDB: varnosyn 2 resolved to relation small_reviews, attno 3
-WARNING:  ParadeDB: Relation small_reviews attno 3 -> column name 'review_text'
-WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn(small_reviews,review_text)
-WARNING:  ParadeDB: Mapped 2 out of 2 column values: [Some("Laptop Pro"), Some("Excellent laptop with great performance")]
-WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Laptop Pro"), Some("Excellent laptop with great performance")]
-WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [1]
-WARNING:  ParadeDB: Cleaning up join execution state
-WARNING:  ParadeDB: Join execution cleanup complete
-    name    |               review_text               
-------------+-----------------------------------------
- Laptop Pro | Excellent laptop with great performance
-(1 row)
-
+WARNING:  ParadeDB: Input Target List: ({TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 2 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false})
+WARNING:  ParadeDB: Custom Target List We're Setting: ({TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 2 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false})
+WARNING:  ParadeDB: ==========================================
+ERROR:  variable not found in subplan target list
 -- Test with broad search (many results)
 SELECT COUNT(*) as broad_search_count
 FROM medium_docs d
@@ -1621,7 +1385,7 @@ WARNING:  ParadeDB: Inner predicate for medium_comments - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["medium_docs"], inner: ["medium_comments"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["medium_docs"], inner: ["medium_comments"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["medium_docs"], inner: ["medium_comments"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 500000, startup_cost: 50.00, total_cost: 2550.00
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -1650,7 +1414,7 @@ WARNING:  ParadeDB: Inner predicate for medium_docs - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["medium_comments"], inner: ["medium_docs"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["medium_comments"], inner: ["medium_docs"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["medium_comments"], inner: ["medium_docs"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 500000, startup_cost: 50.00, total_cost: 2550.00
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -1661,6 +1425,9 @@ WARNING:  ParadeDB: ========== SCAN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning regular scan node
 WARNING:  ParadeDB: Completed scan node planning
 WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
+WARNING:  ParadeDB: Input Target List: ({TARGETENTRY :expr {VAR :varno 2 :varattno 2 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 2 :location -1} :resno 1 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false})
+WARNING:  ParadeDB: Custom Target List We're Setting: ({TARGETENTRY :expr {VAR :varno 2 :varattno 2 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 2 :location -1} :resno 1 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false})
+WARNING:  ParadeDB: ==========================================
 WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
 WARNING:  ParadeDB: plan_custom_path called - is_join = false
 WARNING:  ParadeDB: No join search predicates found in private data
@@ -1668,6 +1435,9 @@ WARNING:  ParadeDB: ========== SCAN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning regular scan node
 WARNING:  ParadeDB: Completed scan node planning
 WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
+WARNING:  ParadeDB: Input Target List: ({TARGETENTRY :expr {VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false})
+WARNING:  ParadeDB: Custom Target List We're Setting: ({TARGETENTRY :expr {VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false})
+WARNING:  ParadeDB: ==========================================
  broad_search_count 
 --------------------
                5000
@@ -1706,7 +1476,7 @@ WARNING:  ParadeDB: Inner predicate for small_reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["small_products"], inner: ["small_reviews"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["small_products"], inner: ["small_reviews"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["small_products"], inner: ["small_reviews"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -1735,7 +1505,7 @@ WARNING:  ParadeDB: Inner predicate for small_products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["small_reviews"], inner: ["small_products"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["small_reviews"], inner: ["small_products"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["small_reviews"], inner: ["small_products"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -1744,18 +1514,15 @@ WARNING:  ParadeDB: plan_custom_path called - is_join = true
 WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Using PostgreSQL's provided target list with 2 entries
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 2 entries, processed_tlist has 2 entries
+WARNING:  ParadeDB: Found 2 relevant RTIs for score functions: {2, 1}
+WARNING:  ParadeDB: No score functions detected - using PostgreSQL's standard target list handling for joins
 WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
 WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
-WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
-WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Stored outer relation OIDs: ["small_products"]
-WARNING:  ParadeDB: Stored inner relation OIDs: ["small_reviews"]
-WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
-WARNING:  ParadeDB: Beginning custom scan for join node
-WARNING:  ParadeDB: Initializing join execution
-WARNING:  ParadeDB: Join execution initialization complete
-ERROR:  called `Option::unwrap()` on a `None` value
+WARNING:  ParadeDB: Input Target List: ({TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 4 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1} :resno 2 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false})
+WARNING:  ParadeDB: Custom Target List We're Setting: ({TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 4 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1} :resno 2 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false})
+WARNING:  ParadeDB: ==========================================
+ERROR:  variable not found in subplan target list
 -- Medium selective query (SortedArray)
 EXPLAIN (COSTS OFF, BUFFERS OFF)
 SELECT COUNT(*)
@@ -1787,7 +1554,7 @@ WARNING:  ParadeDB: Inner predicate for medium_comments - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["medium_docs"], inner: ["medium_comments"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["medium_docs"], inner: ["medium_comments"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["medium_docs"], inner: ["medium_comments"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 10000, startup_cost: 50.00, total_cost: 100.00
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -1816,7 +1583,7 @@ WARNING:  ParadeDB: Inner predicate for medium_docs - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["medium_comments"], inner: ["medium_docs"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["medium_comments"], inner: ["medium_docs"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["medium_comments"], inner: ["medium_docs"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 10000, startup_cost: 50.00, total_cost: 100.00
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -1825,14 +1592,16 @@ WARNING:  ParadeDB: plan_custom_path called - is_join = true
 WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries, processed_tlist has 1 entries
+WARNING:  ParadeDB: Found 2 relevant RTIs for score functions: {2, 1}
+WARNING:  ParadeDB: No score functions detected - using PostgreSQL's standard target list handling for joins
 WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
 WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
+WARNING:  ParadeDB: ==========================================
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Stored outer relation OIDs: ["medium_docs"]
-WARNING:  ParadeDB: Stored inner relation OIDs: ["medium_comments"]
-WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
+WARNING:  ParadeDB: Set join state - limit: None
+WARNING:  ParadeDB: Created join execution state with limit None, outer_relid: 181083, inner_relid: 181092
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
 WARNING:  ParadeDB: Join execution initialization complete
@@ -1868,9 +1637,9 @@ WARNING:  ParadeDB: Inner predicate for large_tags - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["large_articles"], inner: ["large_tags"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["large_articles"], inner: ["large_tags"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["large_articles"], inner: ["large_tags"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
-WARNING:  ParadeDB: Join path estimates - rows: 148203, startup_cost: 50.00, total_cost: 791.01
+WARNING:  ParadeDB: Join path estimates - rows: 149625, startup_cost: 50.00, total_cost: 798.12
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["large_tags"], inner relids: ["large_articles"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
@@ -1897,9 +1666,9 @@ WARNING:  ParadeDB: Inner predicate for large_articles - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["large_tags"], inner: ["large_articles"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["large_tags"], inner: ["large_articles"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["large_tags"], inner: ["large_articles"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
-WARNING:  ParadeDB: Join path estimates - rows: 148203, startup_cost: 50.00, total_cost: 791.01
+WARNING:  ParadeDB: Join path estimates - rows: 149625, startup_cost: 50.00, total_cost: 798.12
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
 WARNING:  ParadeDB: plan_custom_path called - is_join = false
@@ -1908,6 +1677,9 @@ WARNING:  ParadeDB: ========== SCAN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning regular scan node
 WARNING:  ParadeDB: Completed scan node planning
 WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
+WARNING:  ParadeDB: Input Target List: ({TARGETENTRY :expr {VAR :varno 2 :varattno 2 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 2 :location -1} :resno 1 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false})
+WARNING:  ParadeDB: Custom Target List We're Setting: ({TARGETENTRY :expr {VAR :varno 2 :varattno 2 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 2 :location -1} :resno 1 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false})
+WARNING:  ParadeDB: ==========================================
 WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
 WARNING:  ParadeDB: plan_custom_path called - is_join = false
 WARNING:  ParadeDB: No join search predicates found in private data
@@ -1915,6 +1687,9 @@ WARNING:  ParadeDB: ========== SCAN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning regular scan node
 WARNING:  ParadeDB: Completed scan node planning
 WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
+WARNING:  ParadeDB: Input Target List: ({TARGETENTRY :expr {VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false})
+WARNING:  ParadeDB: Custom Target List We're Setting: ({TARGETENTRY :expr {VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false})
+WARNING:  ParadeDB: ==========================================
                                                                                              QUERY PLAN                                                                                              
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Finalize Aggregate
@@ -1971,7 +1746,7 @@ WARNING:  ParadeDB: Inner predicate for small_reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["small_products"], inner: ["small_reviews"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["small_products"], inner: ["small_reviews"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["small_products"], inner: ["small_reviews"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -2000,7 +1775,7 @@ WARNING:  ParadeDB: Inner predicate for small_products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["small_reviews"], inner: ["small_products"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["small_reviews"], inner: ["small_products"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["small_reviews"], inner: ["small_products"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -2009,14 +1784,16 @@ WARNING:  ParadeDB: plan_custom_path called - is_join = true
 WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries, processed_tlist has 1 entries
+WARNING:  ParadeDB: Found 2 relevant RTIs for score functions: {2, 1}
+WARNING:  ParadeDB: No score functions detected - using PostgreSQL's standard target list handling for joins
 WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
 WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
+WARNING:  ParadeDB: ==========================================
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Stored outer relation OIDs: ["small_products"]
-WARNING:  ParadeDB: Stored inner relation OIDs: ["small_reviews"]
-WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
+WARNING:  ParadeDB: Set join state - limit: None
+WARNING:  ParadeDB: Created join execution state with limit None, outer_relid: 181063, inner_relid: 181072
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
 WARNING:  ParadeDB: Join execution initialization complete
@@ -2028,6 +1805,7 @@ WARNING:  ParadeDB: Inner predicate 0: relation=small_reviews, uses_search=true
 WARNING:  ParadeDB: Initialized mock results - outer: 2, inner: 2
 WARNING:  ParadeDB: Executing join step in phase: JoinMatching
 WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Not a TopN join query
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: small_products, inner: small_reviews
@@ -2066,6 +1844,7 @@ WARNING:  ParadeDB: Created join result tuple with real heap data: []
 WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [1]
 WARNING:  ParadeDB: Executing join step in phase: JoinMatching
 WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Not a TopN join query
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: small_products, inner: small_reviews
@@ -2104,6 +1883,7 @@ WARNING:  ParadeDB: Created join result tuple with real heap data: []
 WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
 WARNING:  ParadeDB: Executing join step in phase: JoinMatching
 WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Not a TopN join query
 WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: small_products, inner: small_reviews
@@ -2140,7 +1920,7 @@ WARNING:  ParadeDB: Join execution cleanup complete
      2
 (1 row)
 
-Time: 7.524 ms
+Time: 13.803 ms
 \timing off
 -- Time medium dataset join (SortedArray)
 \timing on
@@ -2171,7 +1951,7 @@ WARNING:  ParadeDB: Inner predicate for medium_comments - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["medium_docs"], inner: ["medium_comments"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["medium_docs"], inner: ["medium_comments"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["medium_docs"], inner: ["medium_comments"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 10000, startup_cost: 50.00, total_cost: 100.00
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -2200,7 +1980,7 @@ WARNING:  ParadeDB: Inner predicate for medium_docs - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["medium_comments"], inner: ["medium_docs"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["medium_comments"], inner: ["medium_docs"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["medium_comments"], inner: ["medium_docs"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 10000, startup_cost: 50.00, total_cost: 100.00
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -2209,14 +1989,16 @@ WARNING:  ParadeDB: plan_custom_path called - is_join = true
 WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries, processed_tlist has 1 entries
+WARNING:  ParadeDB: Found 2 relevant RTIs for score functions: {2, 1}
+WARNING:  ParadeDB: No score functions detected - using PostgreSQL's standard target list handling for joins
 WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
 WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
+WARNING:  ParadeDB: ==========================================
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Stored outer relation OIDs: ["medium_docs"]
-WARNING:  ParadeDB: Stored inner relation OIDs: ["medium_comments"]
-WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
+WARNING:  ParadeDB: Set join state - limit: None
+WARNING:  ParadeDB: Created join execution state with limit None, outer_relid: 181083, inner_relid: 181092
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
 WARNING:  ParadeDB: Join execution initialization complete
@@ -2228,6 +2010,7 @@ WARNING:  ParadeDB: Inner predicate 0: relation=medium_comments, uses_search=tru
 WARNING:  ParadeDB: Initialized mock results - outer: 2, inner: 2
 WARNING:  ParadeDB: Executing join step in phase: JoinMatching
 WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Not a TopN join query
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: medium_docs, inner: medium_comments
@@ -2292,6 +2075,7 @@ WARNING:  ParadeDB: Created join result tuple with real heap data: []
 WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
 WARNING:  ParadeDB: Executing join step in phase: JoinMatching
 WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Not a TopN join query
 WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: medium_docs, inner: medium_comments
@@ -2315,7 +2099,7 @@ WARNING:  ParadeDB: Join execution cleanup complete
      1
 (1 row)
 
-Time: 7.602 ms
+Time: 13.089 ms
 \timing off
 -- Time large dataset join (BloomFilter)
 \timing on
@@ -2346,9 +2130,9 @@ WARNING:  ParadeDB: Inner predicate for large_tags - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["large_articles"], inner: ["large_tags"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["large_articles"], inner: ["large_tags"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["large_articles"], inner: ["large_tags"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
-WARNING:  ParadeDB: Join path estimates - rows: 74102, startup_cost: 50.00, total_cost: 420.51
+WARNING:  ParadeDB: Join path estimates - rows: 75375, startup_cost: 50.00, total_cost: 426.88
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["large_tags"], inner relids: ["large_articles"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
@@ -2375,23 +2159,25 @@ WARNING:  ParadeDB: Inner predicate for large_articles - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["large_tags"], inner: ["large_articles"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["large_tags"], inner: ["large_articles"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["large_tags"], inner: ["large_articles"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
-WARNING:  ParadeDB: Join path estimates - rows: 74102, startup_cost: 50.00, total_cost: 420.51
+WARNING:  ParadeDB: Join path estimates - rows: 75375, startup_cost: 50.00, total_cost: 426.88
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
 WARNING:  ParadeDB: plan_custom_path called - is_join = true
 WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries, processed_tlist has 1 entries
+WARNING:  ParadeDB: Found 2 relevant RTIs for score functions: {2, 1}
+WARNING:  ParadeDB: No score functions detected - using PostgreSQL's standard target list handling for joins
 WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
 WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
+WARNING:  ParadeDB: ==========================================
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Stored outer relation OIDs: ["large_articles"]
-WARNING:  ParadeDB: Stored inner relation OIDs: ["large_tags"]
-WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
+WARNING:  ParadeDB: Set join state - limit: None
+WARNING:  ParadeDB: Created join execution state with limit None, outer_relid: 181103, inner_relid: 181112
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
 WARNING:  ParadeDB: Join execution initialization complete
@@ -2403,6 +2189,7 @@ WARNING:  ParadeDB: Inner predicate 0: relation=large_tags, uses_search=true
 WARNING:  ParadeDB: Initialized mock results - outer: 2, inner: 2
 WARNING:  ParadeDB: Executing join step in phase: JoinMatching
 WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Not a TopN join query
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: large_articles, inner: large_tags
@@ -2467,6 +2254,7 @@ WARNING:  ParadeDB: Created join result tuple with real heap data: []
 WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
 WARNING:  ParadeDB: Executing join step in phase: JoinMatching
 WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Not a TopN join query
 WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: large_articles, inner: large_tags
@@ -2490,7 +2278,7 @@ WARNING:  ParadeDB: Join execution cleanup complete
      1
 (1 row)
 
-Time: 8.510 ms
+Time: 15.171 ms
 \timing off
 -- Test 8: Filter pushdown validation
 -- Verify that filters are actually being pushed down to Tantivy
@@ -2525,9 +2313,9 @@ WARNING:  ParadeDB: Inner predicate for large_tags - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["large_articles"], inner: ["large_tags"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["large_articles"], inner: ["large_tags"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["large_articles"], inner: ["large_tags"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
-WARNING:  ParadeDB: Join path estimates - rows: 446705, startup_cost: 50.00, total_cost: 2283.53
+WARNING:  ParadeDB: Join path estimates - rows: 447750, startup_cost: 50.00, total_cost: 2288.75
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["large_tags"], inner relids: ["large_articles"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
@@ -2554,142 +2342,24 @@ WARNING:  ParadeDB: Inner predicate for large_articles - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["large_tags"], inner: ["large_articles"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["large_tags"], inner: ["large_articles"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["large_tags"], inner: ["large_articles"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
-WARNING:  ParadeDB: Join path estimates - rows: 446705, startup_cost: 50.00, total_cost: 2283.53
+WARNING:  ParadeDB: Join path estimates - rows: 447750, startup_cost: 50.00, total_cost: 2288.75
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: ========== PLANNING STAGE START ==========
 WARNING:  ParadeDB: plan_custom_path called - is_join = true
 WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Using PostgreSQL's provided target list with 2 entries
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 2 entries, processed_tlist has 2 entries
+WARNING:  ParadeDB: Found 2 relevant RTIs for score functions: {2, 1}
+WARNING:  ParadeDB: No score functions detected - using PostgreSQL's standard target list handling for joins
 WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
 WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
-WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
-WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Stored outer relation OIDs: ["large_articles"]
-WARNING:  ParadeDB: Stored inner relation OIDs: ["large_tags"]
-WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
-WARNING:  ParadeDB: Beginning custom scan for join node
-WARNING:  ParadeDB: Initializing join execution
-WARNING:  ParadeDB: Join execution initialization complete
-WARNING:  ParadeDB: Executing join step in phase: NotStarted
-WARNING:  ParadeDB: Starting join execution
-WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1
-WARNING:  ParadeDB: Outer predicate 0: relation=large_articles, uses_search=true
-WARNING:  ParadeDB: Inner predicate 0: relation=large_tags, uses_search=true
-WARNING:  ParadeDB: Initialized mock results - outer: 2, inner: 2
-WARNING:  ParadeDB: Executing join step in phase: JoinMatching
-WARNING:  ParadeDB: In join matching phase
-WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
-WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: large_articles, inner: large_tags
-WARNING:  ParadeDB: Determining join keys for relations large_articles and large_tags using extracted join conditions
-WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
-WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (article_id)
-WARNING:  ParadeDB: Mapped RTI 1 to relid Some("large_articles"), RTI 2 to relid Some("large_tags")
-WARNING:  ParadeDB: Found matching join condition: large_articles.id = large_tags.article_id
-WARNING:  ParadeDB: Fetching column 'id' from relation large_articles with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'article_id' from relation large_tags with CTID 1
-WARNING:  ParadeDB: Fetched column 'article_id' (attno 2) = Some("2")
-WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [1]
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: large_articles, inner: large_tags
-WARNING:  ParadeDB: Determining join keys for relations large_articles and large_tags using extracted join conditions
-WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
-WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (article_id)
-WARNING:  ParadeDB: Mapped RTI 1 to relid Some("large_articles"), RTI 2 to relid Some("large_tags")
-WARNING:  ParadeDB: Found matching join condition: large_articles.id = large_tags.article_id
-WARNING:  ParadeDB: Fetching column 'id' from relation large_articles with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'article_id' from relation large_tags with CTID 2
-WARNING:  ParadeDB: Fetched column 'article_id' (attno 2) = Some("3")
-WARNING:  ParadeDB: Iteration 2: outer[0] (ctid 1) × inner[1] (ctid 2) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: large_articles, inner: large_tags
-WARNING:  ParadeDB: Determining join keys for relations large_articles and large_tags using extracted join conditions
-WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
-WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (article_id)
-WARNING:  ParadeDB: Mapped RTI 1 to relid Some("large_articles"), RTI 2 to relid Some("large_tags")
-WARNING:  ParadeDB: Found matching join condition: large_articles.id = large_tags.article_id
-WARNING:  ParadeDB: Fetching column 'id' from relation large_articles with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'article_id' from relation large_tags with CTID 1
-WARNING:  ParadeDB: Fetched column 'article_id' (attno 2) = Some("2")
-WARNING:  ParadeDB: Iteration 3: outer[1] (ctid 2) × inner[0] (ctid 1) = true
-WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[1] × inner[0] after 3 evaluations
-WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[0]
-WARNING:  ParadeDB: Creating result tuple with 2 attributes
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: large_articles, inner: large_tags
-WARNING:  ParadeDB: Fetching real heap tuple values from relations large_articles and large_tags
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: large_articles, inner: large_tags
-WARNING:  ParadeDB: Detected relations from predicates - outer: 'large_articles', inner: 'large_tags'
-WARNING:  ParadeDB: Fetching all columns with names from relation large_articles with CTID 2
-WARNING:  ParadeDB: large_articles column 'id' = '2'
-WARNING:  ParadeDB: large_articles column 'headline' = 'Article 2: Business Market Analysis'
-WARNING:  ParadeDB: large_articles column 'body' = 'Detailed article content about global economic trends and market dynamics with comprehensive analysis and expert opinions'
-WARNING:  ParadeDB: large_articles column 'category' = 'business'
-WARNING:  ParadeDB: Successfully fetched 4 columns from large_articles relation
-WARNING:  ParadeDB: Fetching all columns with names from relation large_tags with CTID 1
-WARNING:  ParadeDB: large_tags column 'id' = '1'
-WARNING:  ParadeDB: large_tags column 'article_id' = '2'
-WARNING:  ParadeDB: large_tags column 'tag_name' = 'machine-learning'
-WARNING:  ParadeDB: large_tags column 'tag_category' = 'secondary'
-WARNING:  ParadeDB: Successfully fetched 4 columns from large_tags relation
-WARNING:  ParadeDB: Fetched 4 columns from outer relation, 4 from inner relation
-WARNING:  ParadeDB: Analyzing 2 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}"),)))]
-WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation large_articles
-WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "large_articles")]
-WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
-WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: large_articles, inner: large_tags
-WARNING:  ParadeDB: Resolved varnosyn 1 to relation large_articles
-WARNING:  ParadeDB: varnosyn 1 resolved to relation large_articles, attno 2
-WARNING:  ParadeDB: Relation large_articles attno 2 -> column name 'headline'
-WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn(large_articles,headline)
-WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
-WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 2, varattnosyn: 3
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 3
-WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 3 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: large_articles, inner: large_tags
-WARNING:  ParadeDB: Resolved varnosyn 2 to relation large_tags
-WARNING:  ParadeDB: varnosyn 2 resolved to relation large_tags, attno 3
-WARNING:  ParadeDB: Relation large_tags attno 3 -> column name 'tag_name'
-WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn(large_tags,tag_name)
-WARNING:  ParadeDB: Mapped 2 out of 2 column values: [Some("Article 2: Business Market Analysis"), Some("machine-learning")]
-WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Article 2: Business Market Analysis"), Some("machine-learning")]
-WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
-WARNING:  ParadeDB: Executing join step in phase: JoinMatching
-WARNING:  ParadeDB: In join matching phase
-WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 1/2
-WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: large_articles, inner: large_tags
-WARNING:  ParadeDB: Determining join keys for relations large_articles and large_tags using extracted join conditions
-WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
-WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (article_id)
-WARNING:  ParadeDB: Mapped RTI 1 to relid Some("large_articles"), RTI 2 to relid Some("large_tags")
-WARNING:  ParadeDB: Found matching join condition: large_articles.id = large_tags.article_id
-WARNING:  ParadeDB: Fetching column 'id' from relation large_articles with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'article_id' from relation large_tags with CTID 2
-WARNING:  ParadeDB: Fetched column 'article_id' (attno 2) = Some("3")
-WARNING:  ParadeDB: Iteration 1: outer[1] (ctid 2) × inner[1] (ctid 2) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: All join combinations exhausted
-WARNING:  ParadeDB: Join execution finished after advancing position
-WARNING:  ParadeDB: Cleaning up join execution state
-WARNING:  ParadeDB: Join execution cleanup complete
-              headline               |     tag_name     
--------------------------------------+------------------
- Article 2: Business Market Analysis | machine-learning
-(1 row)
-
+WARNING:  ParadeDB: Input Target List: ({TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 2 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false})
+WARNING:  ParadeDB: Custom Target List We're Setting: ({TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 2 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false})
+WARNING:  ParadeDB: ==========================================
+ERROR:  variable not found in subplan target list
 -- Test with complex search predicates
 SELECT d.title, c.comment_text
 FROM medium_docs d
@@ -2721,7 +2391,7 @@ WARNING:  ParadeDB: Inner predicate for medium_comments - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["medium_docs"], inner: ["medium_comments"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["medium_docs"], inner: ["medium_comments"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["medium_docs"], inner: ["medium_comments"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 20000, startup_cost: 50.00, total_cost: 150.00
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -2750,7 +2420,7 @@ WARNING:  ParadeDB: Inner predicate for medium_docs - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["medium_comments"], inner: ["medium_docs"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["medium_comments"], inner: ["medium_docs"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["medium_comments"], inner: ["medium_docs"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 20000, startup_cost: 50.00, total_cost: 150.00
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -2759,133 +2429,15 @@ WARNING:  ParadeDB: plan_custom_path called - is_join = true
 WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Using PostgreSQL's provided target list with 2 entries
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 2 entries, processed_tlist has 2 entries
+WARNING:  ParadeDB: Found 2 relevant RTIs for score functions: {2, 1}
+WARNING:  ParadeDB: No score functions detected - using PostgreSQL's standard target list handling for joins
 WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
 WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
-WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
-WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Stored outer relation OIDs: ["medium_docs"]
-WARNING:  ParadeDB: Stored inner relation OIDs: ["medium_comments"]
-WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
-WARNING:  ParadeDB: Beginning custom scan for join node
-WARNING:  ParadeDB: Initializing join execution
-WARNING:  ParadeDB: Join execution initialization complete
-WARNING:  ParadeDB: Executing join step in phase: NotStarted
-WARNING:  ParadeDB: Starting join execution
-WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1
-WARNING:  ParadeDB: Outer predicate 0: relation=medium_docs, uses_search=true
-WARNING:  ParadeDB: Inner predicate 0: relation=medium_comments, uses_search=true
-WARNING:  ParadeDB: Initialized mock results - outer: 2, inner: 2
-WARNING:  ParadeDB: Executing join step in phase: JoinMatching
-WARNING:  ParadeDB: In join matching phase
-WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
-WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: medium_docs, inner: medium_comments
-WARNING:  ParadeDB: Determining join keys for relations medium_docs and medium_comments using extracted join conditions
-WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
-WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (doc_id)
-WARNING:  ParadeDB: Mapped RTI 1 to relid Some("medium_docs"), RTI 2 to relid Some("medium_comments")
-WARNING:  ParadeDB: Found matching join condition: medium_docs.id = medium_comments.doc_id
-WARNING:  ParadeDB: Fetching column 'id' from relation medium_docs with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'doc_id' from relation medium_comments with CTID 1
-WARNING:  ParadeDB: Fetched column 'doc_id' (attno 2) = Some("2")
-WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [1]
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: medium_docs, inner: medium_comments
-WARNING:  ParadeDB: Determining join keys for relations medium_docs and medium_comments using extracted join conditions
-WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
-WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (doc_id)
-WARNING:  ParadeDB: Mapped RTI 1 to relid Some("medium_docs"), RTI 2 to relid Some("medium_comments")
-WARNING:  ParadeDB: Found matching join condition: medium_docs.id = medium_comments.doc_id
-WARNING:  ParadeDB: Fetching column 'id' from relation medium_docs with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'doc_id' from relation medium_comments with CTID 2
-WARNING:  ParadeDB: Fetched column 'doc_id' (attno 2) = Some("3")
-WARNING:  ParadeDB: Iteration 2: outer[0] (ctid 1) × inner[1] (ctid 2) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: medium_docs, inner: medium_comments
-WARNING:  ParadeDB: Determining join keys for relations medium_docs and medium_comments using extracted join conditions
-WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
-WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (doc_id)
-WARNING:  ParadeDB: Mapped RTI 1 to relid Some("medium_docs"), RTI 2 to relid Some("medium_comments")
-WARNING:  ParadeDB: Found matching join condition: medium_docs.id = medium_comments.doc_id
-WARNING:  ParadeDB: Fetching column 'id' from relation medium_docs with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'doc_id' from relation medium_comments with CTID 1
-WARNING:  ParadeDB: Fetched column 'doc_id' (attno 2) = Some("2")
-WARNING:  ParadeDB: Iteration 3: outer[1] (ctid 2) × inner[0] (ctid 1) = true
-WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[1] × inner[0] after 3 evaluations
-WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[0]
-WARNING:  ParadeDB: Creating result tuple with 2 attributes
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: medium_docs, inner: medium_comments
-WARNING:  ParadeDB: Fetching real heap tuple values from relations medium_docs and medium_comments
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: medium_docs, inner: medium_comments
-WARNING:  ParadeDB: Detected relations from predicates - outer: 'medium_docs', inner: 'medium_comments'
-WARNING:  ParadeDB: Fetching all columns with names from relation medium_docs with CTID 2
-WARNING:  ParadeDB: medium_docs column 'id' = '2'
-WARNING:  ParadeDB: medium_docs column 'title' = 'Document 2'
-WARNING:  ParadeDB: medium_docs column 'content' = 'Content about business and finance with detailed analysis and insights'
-WARNING:  ParadeDB: medium_docs column 'author' = 'Author 3'
-WARNING:  ParadeDB: Successfully fetched 4 columns from medium_docs relation
-WARNING:  ParadeDB: Fetching all columns with names from relation medium_comments with CTID 1
-WARNING:  ParadeDB: medium_comments column 'id' = '1'
-WARNING:  ParadeDB: medium_comments column 'doc_id' = '2'
-WARNING:  ParadeDB: medium_comments column 'comment_text' = 'Comment about interesting perspective'
-WARNING:  ParadeDB: medium_comments column 'commenter' = 'User2'
-WARNING:  ParadeDB: Successfully fetched 4 columns from medium_comments relation
-WARNING:  ParadeDB: Fetched 4 columns from outer relation, 4 from inner relation
-WARNING:  ParadeDB: Analyzing 2 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}"),)))]
-WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation medium_docs
-WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "medium_docs")]
-WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
-WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: medium_docs, inner: medium_comments
-WARNING:  ParadeDB: Resolved varnosyn 1 to relation medium_docs
-WARNING:  ParadeDB: varnosyn 1 resolved to relation medium_docs, attno 2
-WARNING:  ParadeDB: Relation medium_docs attno 2 -> column name 'title'
-WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn(medium_docs,title)
-WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
-WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 2, varattnosyn: 3
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 3
-WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 3 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: medium_docs, inner: medium_comments
-WARNING:  ParadeDB: Resolved varnosyn 2 to relation medium_comments
-WARNING:  ParadeDB: varnosyn 2 resolved to relation medium_comments, attno 3
-WARNING:  ParadeDB: Relation medium_comments attno 3 -> column name 'comment_text'
-WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn(medium_comments,comment_text)
-WARNING:  ParadeDB: Mapped 2 out of 2 column values: [Some("Document 2"), Some("Comment about interesting perspective")]
-WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Document 2"), Some("Comment about interesting perspective")]
-WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
-WARNING:  ParadeDB: Executing join step in phase: JoinMatching
-WARNING:  ParadeDB: In join matching phase
-WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 1/2
-WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: medium_docs, inner: medium_comments
-WARNING:  ParadeDB: Determining join keys for relations medium_docs and medium_comments using extracted join conditions
-WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
-WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (doc_id)
-WARNING:  ParadeDB: Mapped RTI 1 to relid Some("medium_docs"), RTI 2 to relid Some("medium_comments")
-WARNING:  ParadeDB: Found matching join condition: medium_docs.id = medium_comments.doc_id
-WARNING:  ParadeDB: Fetching column 'id' from relation medium_docs with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'doc_id' from relation medium_comments with CTID 2
-WARNING:  ParadeDB: Fetched column 'doc_id' (attno 2) = Some("3")
-WARNING:  ParadeDB: Iteration 1: outer[1] (ctid 2) × inner[1] (ctid 2) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: All join combinations exhausted
-WARNING:  ParadeDB: Join execution finished after advancing position
-WARNING:  ParadeDB: Cleaning up join execution state
-WARNING:  ParadeDB: Join execution cleanup complete
-   title    |             comment_text              
-------------+---------------------------------------
- Document 2 | Comment about interesting perspective
-(1 row)
-
+WARNING:  ParadeDB: Input Target List: ({TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 2 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false})
+WARNING:  ParadeDB: Custom Target List We're Setting: ({TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 2 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false})
+WARNING:  ParadeDB: ==========================================
+ERROR:  variable not found in subplan target list
 -- Cleanup
 DROP TABLE small_products CASCADE;
 DROP TABLE small_reviews CASCADE;

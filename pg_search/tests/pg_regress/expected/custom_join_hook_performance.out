@@ -97,7 +97,7 @@ WARNING:  ParadeDB: Inner predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_perf"], inner: ["tags_perf"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["documents_perf"], inner: ["tags_perf"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["documents_perf"], inner: ["tags_perf"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 67, startup_cost: 50.00, total_cost: 50.34
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -126,7 +126,7 @@ WARNING:  ParadeDB: Inner predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["tags_perf"], inner: ["documents_perf"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["tags_perf"], inner: ["documents_perf"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["tags_perf"], inner: ["documents_perf"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 67, startup_cost: 50.00, total_cost: 50.34
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -135,14 +135,16 @@ WARNING:  ParadeDB: plan_custom_path called - is_join = true
 WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries, processed_tlist has 1 entries
+WARNING:  ParadeDB: Found 2 relevant RTIs for score functions: {2, 1}
+WARNING:  ParadeDB: No score functions detected - using PostgreSQL's standard target list handling for joins
 WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
 WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
+WARNING:  ParadeDB: ==========================================
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Stored outer relation OIDs: ["documents_perf"]
-WARNING:  ParadeDB: Stored inner relation OIDs: ["tags_perf"]
-WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
+WARNING:  ParadeDB: Set join state - limit: None
+WARNING:  ParadeDB: Created join execution state with limit None, outer_relid: 180923, inner_relid: 180933
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
 WARNING:  ParadeDB: Join execution initialization complete
@@ -154,6 +156,7 @@ WARNING:  ParadeDB: Inner predicate 0: relation=tags_perf, uses_search=true
 WARNING:  ParadeDB: Initialized mock results - outer: 2, inner: 2
 WARNING:  ParadeDB: Executing join step in phase: JoinMatching
 WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Not a TopN join query
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
@@ -219,6 +222,7 @@ WARNING:  ParadeDB: Created join result tuple with real heap data: []
 WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
 WARNING:  ParadeDB: Executing join step in phase: JoinMatching
 WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Not a TopN join query
 WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
@@ -273,7 +277,7 @@ WARNING:  ParadeDB: Inner predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_perf"], inner: ["tags_perf"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["documents_perf"], inner: ["tags_perf"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["documents_perf"], inner: ["tags_perf"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 16, startup_cost: 50.00, total_cost: 50.08
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -302,7 +306,7 @@ WARNING:  ParadeDB: Inner predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["tags_perf"], inner: ["documents_perf"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["tags_perf"], inner: ["documents_perf"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["tags_perf"], inner: ["documents_perf"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 16, startup_cost: 50.00, total_cost: 50.08
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -311,143 +315,15 @@ WARNING:  ParadeDB: plan_custom_path called - is_join = true
 WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Using PostgreSQL's provided target list with 3 entries
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 3 entries, processed_tlist has 3 entries
+WARNING:  ParadeDB: Found 2 relevant RTIs for score functions: {2, 1}
+WARNING:  ParadeDB: No score functions detected - using PostgreSQL's standard target list handling for joins
 WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
 WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
-WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
-WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Stored outer relation OIDs: ["documents_perf"]
-WARNING:  ParadeDB: Stored inner relation OIDs: ["tags_perf"]
-WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
-WARNING:  ParadeDB: Beginning custom scan for join node
-WARNING:  ParadeDB: Initializing join execution
-WARNING:  ParadeDB: Join execution initialization complete
-WARNING:  ParadeDB: Executing join step in phase: NotStarted
-WARNING:  ParadeDB: Starting join execution
-WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1
-WARNING:  ParadeDB: Outer predicate 0: relation=documents_perf, uses_search=true
-WARNING:  ParadeDB: Inner predicate 0: relation=tags_perf, uses_search=true
-WARNING:  ParadeDB: Initialized mock results - outer: 2, inner: 2
-WARNING:  ParadeDB: Executing join step in phase: JoinMatching
-WARNING:  ParadeDB: In join matching phase
-WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
-WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Determining join keys for relations documents_perf and tags_perf using extracted join conditions
-WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
-WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
-WARNING:  ParadeDB: Mapped RTI 1 to relid Some("documents_perf"), RTI 2 to relid Some("tags_perf")
-WARNING:  ParadeDB: Found matching join condition: documents_perf.id = tags_perf.document_id
-WARNING:  ParadeDB: Fetching column 'id' from relation documents_perf with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'document_id' from relation tags_perf with CTID 1
-WARNING:  ParadeDB: Fetched column 'document_id' (attno 2) = Some("2")
-WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [1]
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Determining join keys for relations documents_perf and tags_perf using extracted join conditions
-WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
-WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
-WARNING:  ParadeDB: Mapped RTI 1 to relid Some("documents_perf"), RTI 2 to relid Some("tags_perf")
-WARNING:  ParadeDB: Found matching join condition: documents_perf.id = tags_perf.document_id
-WARNING:  ParadeDB: Fetching column 'id' from relation documents_perf with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'document_id' from relation tags_perf with CTID 2
-WARNING:  ParadeDB: Fetched column 'document_id' (attno 2) = Some("3")
-WARNING:  ParadeDB: Iteration 2: outer[0] (ctid 1) × inner[1] (ctid 2) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Determining join keys for relations documents_perf and tags_perf using extracted join conditions
-WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
-WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
-WARNING:  ParadeDB: Mapped RTI 1 to relid Some("documents_perf"), RTI 2 to relid Some("tags_perf")
-WARNING:  ParadeDB: Found matching join condition: documents_perf.id = tags_perf.document_id
-WARNING:  ParadeDB: Fetching column 'id' from relation documents_perf with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'document_id' from relation tags_perf with CTID 1
-WARNING:  ParadeDB: Fetched column 'document_id' (attno 2) = Some("2")
-WARNING:  ParadeDB: Iteration 3: outer[1] (ctid 2) × inner[0] (ctid 1) = true
-WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[1] × inner[0] after 3 evaluations
-WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[0]
-WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Fetching real heap tuple values from relations documents_perf and tags_perf
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Detected relations from predicates - outer: 'documents_perf', inner: 'tags_perf'
-WARNING:  ParadeDB: Fetching all columns with names from relation documents_perf with CTID 2
-WARNING:  ParadeDB: documents_perf column 'id' = '2'
-WARNING:  ParadeDB: documents_perf column 'title' = 'Document 2'
-WARNING:  ParadeDB: documents_perf column 'content' = 'This is document number 2 with content about business and finance'
-WARNING:  ParadeDB: documents_perf column 'author' = 'Author 3'
-WARNING:  ParadeDB: documents_perf column 'created_at' = 'ERROR_TEXT_5'
-WARNING:  ParadeDB: Successfully fetched 5 columns from documents_perf relation
-WARNING:  ParadeDB: Fetching all columns with names from relation tags_perf with CTID 1
-WARNING:  ParadeDB: tags_perf column 'id' = '1'
-WARNING:  ParadeDB: tags_perf column 'document_id' = '2'
-WARNING:  ParadeDB: tags_perf column 'tag_name' = 'priority'
-WARNING:  ParadeDB: tags_perf column 'tag_value' = 'medium'
-WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
-WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
-WARNING:  ParadeDB: Analyzing 3 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}"),)))]
-WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation documents_perf
-WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "documents_perf")]
-WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
-WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Resolved varnosyn 1 to relation documents_perf
-WARNING:  ParadeDB: varnosyn 1 resolved to relation documents_perf, attno 2
-WARNING:  ParadeDB: Relation documents_perf attno 2 -> column name 'title'
-WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn(documents_perf,title)
-WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
-WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 2, varattnosyn: 3
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 3
-WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 3 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Resolved varnosyn 2 to relation tags_perf
-WARNING:  ParadeDB: varnosyn 2 resolved to relation tags_perf, attno 3
-WARNING:  ParadeDB: Relation tags_perf attno 3 -> column name 'tag_name'
-WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn(tags_perf,tag_name)
-WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
-WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 4
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 4
-WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 4 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Resolved varnosyn 2 to relation tags_perf
-WARNING:  ParadeDB: varnosyn 2 resolved to relation tags_perf, attno 4
-WARNING:  ParadeDB: Relation tags_perf attno 4 -> column name 'tag_value'
-WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn(tags_perf,tag_value)
-WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Document 2"), Some("priority"), Some("medium")]
-WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Document 2"), Some("priority"), Some("medium")]
-WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
-WARNING:  ParadeDB: Executing join step in phase: JoinMatching
-WARNING:  ParadeDB: In join matching phase
-WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 1/2
-WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Determining join keys for relations documents_perf and tags_perf using extracted join conditions
-WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
-WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
-WARNING:  ParadeDB: Mapped RTI 1 to relid Some("documents_perf"), RTI 2 to relid Some("tags_perf")
-WARNING:  ParadeDB: Found matching join condition: documents_perf.id = tags_perf.document_id
-WARNING:  ParadeDB: Fetching column 'id' from relation documents_perf with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'document_id' from relation tags_perf with CTID 2
-WARNING:  ParadeDB: Fetched column 'document_id' (attno 2) = Some("3")
-WARNING:  ParadeDB: Iteration 1: outer[1] (ctid 2) × inner[1] (ctid 2) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: All join combinations exhausted
-WARNING:  ParadeDB: Join execution finished after advancing position
-WARNING:  ParadeDB: Cleaning up join execution state
-WARNING:  ParadeDB: Join execution cleanup complete
-   title    | tag_name | tag_value 
-------------+----------+-----------
- Document 2 | priority | medium
-(1 row)
-
+WARNING:  ParadeDB: Input Target List: ({TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 2 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1} :resno 3 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false})
+WARNING:  ParadeDB: Custom Target List We're Setting: ({TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 2 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1} :resno 3 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false})
+WARNING:  ParadeDB: ==========================================
+ERROR:  variable not found in subplan target list
 -- Test 3: Cross-product scenario (many-to-many)
 SELECT COUNT(*) as cross_product_count
 FROM documents_perf d
@@ -478,7 +354,7 @@ WARNING:  ParadeDB: Inner predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_perf"], inner: ["tags_perf"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["documents_perf"], inner: ["tags_perf"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["documents_perf"], inner: ["tags_perf"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 125, startup_cost: 50.00, total_cost: 50.62
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -507,7 +383,7 @@ WARNING:  ParadeDB: Inner predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["tags_perf"], inner: ["documents_perf"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["tags_perf"], inner: ["documents_perf"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["tags_perf"], inner: ["documents_perf"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 125, startup_cost: 50.00, total_cost: 50.62
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -516,14 +392,16 @@ WARNING:  ParadeDB: plan_custom_path called - is_join = true
 WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 0 entries, processed_tlist has 1 entries
+WARNING:  ParadeDB: Found 2 relevant RTIs for score functions: {2, 1}
+WARNING:  ParadeDB: No score functions detected - using PostgreSQL's standard target list handling for joins
 WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
 WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
+WARNING:  ParadeDB: ==========================================
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Stored outer relation OIDs: ["documents_perf"]
-WARNING:  ParadeDB: Stored inner relation OIDs: ["tags_perf"]
-WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
+WARNING:  ParadeDB: Set join state - limit: None
+WARNING:  ParadeDB: Created join execution state with limit None, outer_relid: 180923, inner_relid: 180933
 WARNING:  ParadeDB: Beginning custom scan for join node
 WARNING:  ParadeDB: Initializing join execution
 WARNING:  ParadeDB: Join execution initialization complete
@@ -535,6 +413,7 @@ WARNING:  ParadeDB: Inner predicate 0: relation=tags_perf, uses_search=true
 WARNING:  ParadeDB: Initialized mock results - outer: 2, inner: 2
 WARNING:  ParadeDB: Executing join step in phase: JoinMatching
 WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Not a TopN join query
 WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
@@ -600,6 +479,7 @@ WARNING:  ParadeDB: Created join result tuple with real heap data: []
 WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
 WARNING:  ParadeDB: Executing join step in phase: JoinMatching
 WARNING:  ParadeDB: In join matching phase
+WARNING:  ParadeDB: Not a TopN join query
 WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 1/2
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
 WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
@@ -653,7 +533,7 @@ WARNING:  ParadeDB: Inner predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_perf"], inner: ["tags_perf"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["documents_perf"], inner: ["tags_perf"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["documents_perf"], inner: ["tags_perf"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -682,7 +562,7 @@ WARNING:  ParadeDB: Inner predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["tags_perf"], inner: ["documents_perf"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["tags_perf"], inner: ["documents_perf"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["tags_perf"], inner: ["documents_perf"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -691,134 +571,15 @@ WARNING:  ParadeDB: plan_custom_path called - is_join = true
 WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Using PostgreSQL's provided target list with 2 entries
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 2 entries, processed_tlist has 2 entries
+WARNING:  ParadeDB: Found 2 relevant RTIs for score functions: {2, 1}
+WARNING:  ParadeDB: No score functions detected - using PostgreSQL's standard target list handling for joins
 WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
 WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
-WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
-WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Stored outer relation OIDs: ["documents_perf"]
-WARNING:  ParadeDB: Stored inner relation OIDs: ["tags_perf"]
-WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
-WARNING:  ParadeDB: Beginning custom scan for join node
-WARNING:  ParadeDB: Initializing join execution
-WARNING:  ParadeDB: Join execution initialization complete
-WARNING:  ParadeDB: Executing join step in phase: NotStarted
-WARNING:  ParadeDB: Starting join execution
-WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1
-WARNING:  ParadeDB: Outer predicate 0: relation=documents_perf, uses_search=true
-WARNING:  ParadeDB: Inner predicate 0: relation=tags_perf, uses_search=true
-WARNING:  ParadeDB: Initialized mock results - outer: 2, inner: 2
-WARNING:  ParadeDB: Executing join step in phase: JoinMatching
-WARNING:  ParadeDB: In join matching phase
-WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
-WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Determining join keys for relations documents_perf and tags_perf using extracted join conditions
-WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
-WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
-WARNING:  ParadeDB: Mapped RTI 1 to relid Some("documents_perf"), RTI 2 to relid Some("tags_perf")
-WARNING:  ParadeDB: Found matching join condition: documents_perf.id = tags_perf.document_id
-WARNING:  ParadeDB: Fetching column 'id' from relation documents_perf with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'document_id' from relation tags_perf with CTID 1
-WARNING:  ParadeDB: Fetched column 'document_id' (attno 2) = Some("2")
-WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [1]
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Determining join keys for relations documents_perf and tags_perf using extracted join conditions
-WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
-WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
-WARNING:  ParadeDB: Mapped RTI 1 to relid Some("documents_perf"), RTI 2 to relid Some("tags_perf")
-WARNING:  ParadeDB: Found matching join condition: documents_perf.id = tags_perf.document_id
-WARNING:  ParadeDB: Fetching column 'id' from relation documents_perf with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'document_id' from relation tags_perf with CTID 2
-WARNING:  ParadeDB: Fetched column 'document_id' (attno 2) = Some("3")
-WARNING:  ParadeDB: Iteration 2: outer[0] (ctid 1) × inner[1] (ctid 2) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Determining join keys for relations documents_perf and tags_perf using extracted join conditions
-WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
-WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
-WARNING:  ParadeDB: Mapped RTI 1 to relid Some("documents_perf"), RTI 2 to relid Some("tags_perf")
-WARNING:  ParadeDB: Found matching join condition: documents_perf.id = tags_perf.document_id
-WARNING:  ParadeDB: Fetching column 'id' from relation documents_perf with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'document_id' from relation tags_perf with CTID 1
-WARNING:  ParadeDB: Fetched column 'document_id' (attno 2) = Some("2")
-WARNING:  ParadeDB: Iteration 3: outer[1] (ctid 2) × inner[0] (ctid 1) = true
-WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[1] × inner[0] after 3 evaluations
-WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[0]
-WARNING:  ParadeDB: Creating result tuple with 2 attributes
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Fetching real heap tuple values from relations documents_perf and tags_perf
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Detected relations from predicates - outer: 'documents_perf', inner: 'tags_perf'
-WARNING:  ParadeDB: Fetching all columns with names from relation documents_perf with CTID 2
-WARNING:  ParadeDB: documents_perf column 'id' = '2'
-WARNING:  ParadeDB: documents_perf column 'title' = 'Document 2'
-WARNING:  ParadeDB: documents_perf column 'content' = 'This is document number 2 with content about business and finance'
-WARNING:  ParadeDB: documents_perf column 'author' = 'Author 3'
-WARNING:  ParadeDB: documents_perf column 'created_at' = 'ERROR_TEXT_5'
-WARNING:  ParadeDB: Successfully fetched 5 columns from documents_perf relation
-WARNING:  ParadeDB: Fetching all columns with names from relation tags_perf with CTID 1
-WARNING:  ParadeDB: tags_perf column 'id' = '1'
-WARNING:  ParadeDB: tags_perf column 'document_id' = '2'
-WARNING:  ParadeDB: tags_perf column 'tag_name' = 'priority'
-WARNING:  ParadeDB: tags_perf column 'tag_value' = 'medium'
-WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
-WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
-WARNING:  ParadeDB: Analyzing 2 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1}"),)))]
-WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation documents_perf
-WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "documents_perf")]
-WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
-WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Resolved varnosyn 1 to relation documents_perf
-WARNING:  ParadeDB: varnosyn 1 resolved to relation documents_perf, attno 2
-WARNING:  ParadeDB: Relation documents_perf attno 2 -> column name 'title'
-WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn(documents_perf,title)
-WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
-WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 2, varattnosyn: 4
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 4
-WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 4 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Resolved varnosyn 2 to relation tags_perf
-WARNING:  ParadeDB: varnosyn 2 resolved to relation tags_perf, attno 4
-WARNING:  ParadeDB: Relation tags_perf attno 4 -> column name 'tag_value'
-WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn(tags_perf,tag_value)
-WARNING:  ParadeDB: Mapped 2 out of 2 column values: [Some("Document 2"), Some("medium")]
-WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Document 2"), Some("medium")]
-WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
-WARNING:  ParadeDB: Executing join step in phase: JoinMatching
-WARNING:  ParadeDB: In join matching phase
-WARNING:  ParadeDB: Current positions - outer: 1/2, inner: 1/2
-WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Determining join keys for relations documents_perf and tags_perf using extracted join conditions
-WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
-WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
-WARNING:  ParadeDB: Mapped RTI 1 to relid Some("documents_perf"), RTI 2 to relid Some("tags_perf")
-WARNING:  ParadeDB: Found matching join condition: documents_perf.id = tags_perf.document_id
-WARNING:  ParadeDB: Fetching column 'id' from relation documents_perf with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'document_id' from relation tags_perf with CTID 2
-WARNING:  ParadeDB: Fetched column 'document_id' (attno 2) = Some("3")
-WARNING:  ParadeDB: Iteration 1: outer[1] (ctid 2) × inner[1] (ctid 2) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: All join combinations exhausted
-WARNING:  ParadeDB: Join execution finished after advancing position
-WARNING:  ParadeDB: Cleaning up join execution state
-WARNING:  ParadeDB: Join execution cleanup complete
-   title    | tag_value 
-------------+-----------
- Document 2 | medium
-(1 row)
-
+WARNING:  ParadeDB: Input Target List: ({TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1} :resno 2 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false})
+WARNING:  ParadeDB: Custom Target List We're Setting: ({TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1} :resno 2 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false})
+WARNING:  ParadeDB: ==========================================
+ERROR:  variable not found in subplan target list
 -- Test 5: Single result
 SELECT d.title, d.author, t.tag_name
 FROM documents_perf d
@@ -850,7 +611,7 @@ WARNING:  ParadeDB: Inner predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_perf"], inner: ["tags_perf"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["documents_perf"], inner: ["tags_perf"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["documents_perf"], inner: ["tags_perf"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 82, startup_cost: 50.00, total_cost: 50.41
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -879,7 +640,7 @@ WARNING:  ParadeDB: Inner predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["tags_perf"], inner: ["documents_perf"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["tags_perf"], inner: ["documents_perf"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["tags_perf"], inner: ["documents_perf"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 82, startup_cost: 50.00, total_cost: 50.41
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -888,125 +649,15 @@ WARNING:  ParadeDB: plan_custom_path called - is_join = true
 WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Using PostgreSQL's provided target list with 3 entries
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 3 entries, processed_tlist has 3 entries
+WARNING:  ParadeDB: Found 2 relevant RTIs for score functions: {2, 1}
+WARNING:  ParadeDB: No score functions detected - using PostgreSQL's standard target list handling for joins
 WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
 WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
-WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
-WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Stored outer relation OIDs: ["documents_perf"]
-WARNING:  ParadeDB: Stored inner relation OIDs: ["tags_perf"]
-WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
-WARNING:  ParadeDB: Beginning custom scan for join node
-WARNING:  ParadeDB: Initializing join execution
-WARNING:  ParadeDB: Join execution initialization complete
-WARNING:  ParadeDB: Executing join step in phase: NotStarted
-WARNING:  ParadeDB: Starting join execution
-WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1
-WARNING:  ParadeDB: Outer predicate 0: relation=documents_perf, uses_search=true
-WARNING:  ParadeDB: Inner predicate 0: relation=tags_perf, uses_search=true
-WARNING:  ParadeDB: Initialized mock results - outer: 2, inner: 2
-WARNING:  ParadeDB: Executing join step in phase: JoinMatching
-WARNING:  ParadeDB: In join matching phase
-WARNING:  ParadeDB: Current positions - outer: 0/2, inner: 0/2
-WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Determining join keys for relations documents_perf and tags_perf using extracted join conditions
-WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
-WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
-WARNING:  ParadeDB: Mapped RTI 1 to relid Some("documents_perf"), RTI 2 to relid Some("tags_perf")
-WARNING:  ParadeDB: Found matching join condition: documents_perf.id = tags_perf.document_id
-WARNING:  ParadeDB: Fetching column 'id' from relation documents_perf with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'document_id' from relation tags_perf with CTID 1
-WARNING:  ParadeDB: Fetched column 'document_id' (attno 2) = Some("2")
-WARNING:  ParadeDB: Iteration 1: outer[0] (ctid 1) × inner[0] (ctid 1) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [1]
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Determining join keys for relations documents_perf and tags_perf using extracted join conditions
-WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
-WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
-WARNING:  ParadeDB: Mapped RTI 1 to relid Some("documents_perf"), RTI 2 to relid Some("tags_perf")
-WARNING:  ParadeDB: Found matching join condition: documents_perf.id = tags_perf.document_id
-WARNING:  ParadeDB: Fetching column 'id' from relation documents_perf with CTID 1
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
-WARNING:  ParadeDB: Fetching column 'document_id' from relation tags_perf with CTID 2
-WARNING:  ParadeDB: Fetched column 'document_id' (attno 2) = Some("3")
-WARNING:  ParadeDB: Iteration 2: outer[0] (ctid 1) × inner[1] (ctid 2) = false
-WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
-WARNING:  ParadeDB: Advanced to next outer tuple [2/2], reset inner to 0
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Determining join keys for relations documents_perf and tags_perf using extracted join conditions
-WARNING:  ParadeDB: Found 1 extracted join conditions from query plan
-WARNING:  ParadeDB: Checking join condition: RTI 1 (id) = RTI 2 (document_id)
-WARNING:  ParadeDB: Mapped RTI 1 to relid Some("documents_perf"), RTI 2 to relid Some("tags_perf")
-WARNING:  ParadeDB: Found matching join condition: documents_perf.id = tags_perf.document_id
-WARNING:  ParadeDB: Fetching column 'id' from relation documents_perf with CTID 2
-WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
-WARNING:  ParadeDB: Fetching column 'document_id' from relation tags_perf with CTID 1
-WARNING:  ParadeDB: Fetched column 'document_id' (attno 2) = Some("2")
-WARNING:  ParadeDB: Iteration 3: outer[1] (ctid 2) × inner[0] (ctid 1) = true
-WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[1] × inner[0] after 3 evaluations
-WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[0]
-WARNING:  ParadeDB: Creating result tuple with 3 attributes
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Fetching real heap tuple values from relations documents_perf and tags_perf
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Detected relations from predicates - outer: 'documents_perf', inner: 'tags_perf'
-WARNING:  ParadeDB: Fetching all columns with names from relation documents_perf with CTID 2
-WARNING:  ParadeDB: documents_perf column 'id' = '2'
-WARNING:  ParadeDB: documents_perf column 'title' = 'Document 2'
-WARNING:  ParadeDB: documents_perf column 'content' = 'This is document number 2 with content about business and finance'
-WARNING:  ParadeDB: documents_perf column 'author' = 'Author 3'
-WARNING:  ParadeDB: documents_perf column 'created_at' = 'ERROR_TEXT_5'
-WARNING:  ParadeDB: Successfully fetched 5 columns from documents_perf relation
-WARNING:  ParadeDB: Fetching all columns with names from relation tags_perf with CTID 1
-WARNING:  ParadeDB: tags_perf column 'id' = '1'
-WARNING:  ParadeDB: tags_perf column 'document_id' = '2'
-WARNING:  ParadeDB: tags_perf column 'tag_name' = 'priority'
-WARNING:  ParadeDB: tags_perf column 'tag_value' = 'medium'
-WARNING:  ParadeDB: Successfully fetched 4 columns from tags_perf relation
-WARNING:  ParadeDB: Fetched 5 columns from outer relation, 4 from inner relation
-WARNING:  ParadeDB: Analyzing 3 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 4 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1}"),)))]
-WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation documents_perf
-WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "documents_perf")]
-WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
-WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
-WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Resolved varnosyn 1 to relation documents_perf
-WARNING:  ParadeDB: varnosyn 1 resolved to relation documents_perf, attno 2
-WARNING:  ParadeDB: Relation documents_perf attno 2 -> column name 'title'
-WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn(documents_perf,title)
-WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
-WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 1, varattnosyn: 4
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 4
-WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 4 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Resolved varnosyn 1 to relation documents_perf
-WARNING:  ParadeDB: varnosyn 1 resolved to relation documents_perf, attno 4
-WARNING:  ParadeDB: Relation documents_perf attno 4 -> column name 'author'
-WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn(documents_perf,author)
-WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
-WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 2, varattnosyn: 3
-WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 3
-WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 3 to relation
-WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: documents_perf, inner: tags_perf
-WARNING:  ParadeDB: Resolved varnosyn 2 to relation tags_perf
-WARNING:  ParadeDB: varnosyn 2 resolved to relation tags_perf, attno 3
-WARNING:  ParadeDB: Relation tags_perf attno 3 -> column name 'tag_name'
-WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn(tags_perf,tag_name)
-WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Document 2"), Some("Author 3"), Some("priority")]
-WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Document 2"), Some("Author 3"), Some("priority")]
-WARNING:  ParadeDB: Advanced to next inner tuple [2/2] for outer [2]
-WARNING:  ParadeDB: Cleaning up join execution state
-WARNING:  ParadeDB: Join execution cleanup complete
-   title    |  author  | tag_name 
-------------+----------+----------
- Document 2 | Author 3 | priority
-(1 row)
-
+WARNING:  ParadeDB: Input Target List: ({TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 4 :location -1} :resno 2 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 3 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false})
+WARNING:  ParadeDB: Custom Target List We're Setting: ({TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 4 :location -1} :resno 2 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 3 :location -1} :resno 3 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false})
+WARNING:  ParadeDB: ==========================================
+ERROR:  variable not found in subplan target list
 -- Test 6: EXPLAIN to see execution plan
 EXPLAIN (COSTS OFF, BUFFERS OFF) 
 SELECT d.title, t.tag_value
@@ -1038,7 +689,7 @@ WARNING:  ParadeDB: Inner predicate for tags_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_perf"], inner: ["tags_perf"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["documents_perf"], inner: ["tags_perf"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["documents_perf"], inner: ["tags_perf"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 16, startup_cost: 50.00, total_cost: 50.08
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -1067,7 +718,7 @@ WARNING:  ParadeDB: Inner predicate for documents_perf - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["tags_perf"], inner: ["documents_perf"]
 WARNING:  ParadeDB: ========== STAGE 1: PATH CREATION STAGE ==========
-WARNING:  ParadeDB: Creating custom join path for jointype: 0, outer: ["tags_perf"], inner: ["documents_perf"]
+WARNING:  ParadeDB: Creating custom join path for jointype: INNER, outer: ["tags_perf"], inner: ["documents_perf"]
 WARNING:  ParadeDB: ========== STAGE 2: PATH COST ESTIMATION ==========
 WARNING:  ParadeDB: Join path estimates - rows: 16, startup_cost: 50.00, total_cost: 50.08
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
@@ -1076,18 +727,15 @@ WARNING:  ParadeDB: plan_custom_path called - is_join = true
 WARNING:  ParadeDB: Found join search predicates - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: ========== JOIN NODE PLANNING ==========
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
-WARNING:  ParadeDB: Using PostgreSQL's provided target list with 2 entries
+WARNING:  ParadeDB: Using PostgreSQL's provided target list with 2 entries, processed_tlist has 2 entries
+WARNING:  ParadeDB: Found 2 relevant RTIs for score functions: {2, 1}
+WARNING:  ParadeDB: No score functions detected - using PostgreSQL's standard target list handling for joins
 WARNING:  ParadeDB: ========== JOIN PLANNING COMPLETE ==========
 WARNING:  ParadeDB: ========== PLANNING STAGE COMPLETE ==========
-WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
-WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
-WARNING:  ParadeDB: Stored outer relation OIDs: ["documents_perf"]
-WARNING:  ParadeDB: Stored inner relation OIDs: ["tags_perf"]
-WARNING:  ParadeDB: Storing 0 variable mappings from planning phase
-WARNING:  ParadeDB: Beginning custom scan for join node
-WARNING:  ParadeDB: Initializing join execution
-WARNING:  ParadeDB: Join execution initialization complete
-ERROR:  called `Option::unwrap()` on a `None` value
+WARNING:  ParadeDB: Input Target List: ({TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1} :resno 2 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false})
+WARNING:  ParadeDB: Custom Target List We're Setting: ({TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 1 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {VAR :varno 2 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 4 :location -1} :resno 2 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false})
+WARNING:  ParadeDB: ==========================================
+ERROR:  variable not found in subplan target list
 -- Cleanup
 DROP TABLE documents_perf CASCADE;
 DROP TABLE tags_perf CASCADE;

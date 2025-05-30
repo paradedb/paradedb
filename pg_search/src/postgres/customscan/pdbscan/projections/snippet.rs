@@ -15,9 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::index::FieldName;
 use crate::api::HashMap;
 use crate::api::Varno;
 use crate::nodecast;
+use crate::postgres::var::find_one_var;
 use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{
     default, direct_function_call, extension_sql, pg_extern, pg_guard, pg_sys, AnyElement,
@@ -38,12 +40,12 @@ pub struct SnippetConfig {
 
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub enum SnippetType {
-    Text(String, pg_sys::Oid, SnippetConfig),
-    Positions(String, pg_sys::Oid),
+    Text(FieldName, pg_sys::Oid, SnippetConfig),
+    Positions(FieldName, pg_sys::Oid),
 }
 
 impl SnippetType {
-    pub fn field(&self) -> &str {
+    pub fn field(&self) -> &FieldName {
         match self {
             SnippetType::Text(field, _, _) => field,
             SnippetType::Positions(field, _) => field,
@@ -67,7 +69,7 @@ impl SnippetType {
 
 struct Context<'a> {
     planning_rti: pg_sys::Index,
-    attname_lookup: &'a HashMap<(Varno, pg_sys::AttrNumber), String>,
+    attname_lookup: &'a HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
     snippet_funcoid: pg_sys::Oid,
     snippet_positions_funcoid: pg_sys::Oid,
     snippet_type: Vec<SnippetType>,
@@ -126,7 +128,7 @@ pub fn snippet_positions_funcoid() -> pg_sys::Oid {
 
 pub unsafe fn uses_snippets(
     planning_rti: pg_sys::Index,
-    attname_lookup: &HashMap<(Varno, pg_sys::AttrNumber), String>,
+    attname_lookup: &HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
     node: *mut pg_sys::Node,
     snippet_funcoid: pg_sys::Oid,
     snippet_positions_funcoid: pg_sys::Oid,
@@ -184,7 +186,7 @@ unsafe fn extract_snippet_text(
 ) -> Option<SnippetType> {
     assert!(args.len() == 4);
 
-    let field_arg = nodecast!(Var, T_Var, args.get_ptr(0).unwrap());
+    let field_arg = find_one_var(args.get_ptr(0).unwrap());
     let start_arg = nodecast!(Const, T_Const, args.get_ptr(1).unwrap());
     let end_arg = nodecast!(Const, T_Const, args.get_ptr(2).unwrap());
     let max_num_chars_arg = nodecast!(Const, T_Const, args.get_ptr(3).unwrap());
@@ -196,7 +198,7 @@ unsafe fn extract_snippet_text(
             .attname_lookup
             .get(&((*context).planning_rti as _, (*field_arg).varattno as _))
             .cloned()
-            .expect("Var attname should be in lookup");
+            .expect("extract_snippet_text: attname should be in lookup");
         let start_tag = String::from_datum((*start_arg).constvalue, (*start_arg).constisnull);
         let end_tag = String::from_datum((*end_arg).constvalue, (*end_arg).constisnull);
         let max_num_chars = i32::from_datum(
@@ -225,14 +227,14 @@ unsafe fn extract_snippet_positions(
 ) -> Option<SnippetType> {
     assert!(args.len() == 1);
 
-    let field_arg = nodecast!(Var, T_Var, args.get_ptr(0).unwrap());
+    let field_arg = find_one_var(args.get_ptr(0).unwrap());
 
     if let Some(field_arg) = field_arg {
         let attname = (*context)
             .attname_lookup
             .get(&((*context).planning_rti as _, (*field_arg).varattno as _))
             .cloned()
-            .expect("Var attname should be in lookup");
+            .expect("extract_snippet_positions: attname should be in lookup");
 
         Some(SnippetType::Positions(
             attname,

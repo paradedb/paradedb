@@ -25,9 +25,8 @@ mod qual_inspect;
 mod scan_state;
 mod solve_expr;
 
-use crate::api::operator::{
-    anyelement_query_input_opoid, attname_from_var, estimate_selectivity, find_var_relation,
-};
+use crate::api::index::FieldName;
+use crate::api::operator::{anyelement_query_input_opoid, estimate_selectivity};
 use crate::api::Cardinality;
 use crate::api::{HashMap, HashSet};
 use crate::index::fast_fields_helper::WhichFastField;
@@ -60,6 +59,7 @@ use crate::postgres::customscan::pdbscan::qual_inspect::extract_quals;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::customscan::{self, CustomScan, CustomScanState};
 use crate::postgres::rel_get_bm25_index;
+use crate::postgres::var::find_var_relation;
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
@@ -530,9 +530,10 @@ impl CustomScan for PdbScan {
                     te.cast(),
                     &[score_funcoid, snippet_funcoid, snippet_positions_funcoid],
                     rti,
+                    builder.args().root,
                 );
 
-                for (funcexpr, var) in func_vars_at_level {
+                for (funcexpr, var, attname) in func_vars_at_level {
                     // if we have a tlist, then we need to add the specific function that uses
                     // a Var at our level to that tlist.
                     //
@@ -549,9 +550,6 @@ impl CustomScan for PdbScan {
 
                     // track a triplet of (varno, varattno, attname) as 3 individual
                     // entries in the `attname_lookup` List
-                    let attname = attname_from_var(builder.args().root, var)
-                        .1
-                        .expect("function call argument should be a column name");
                     attname_lookup.insert(((*var).varno, (*var).varattno), attname);
                 }
             }
@@ -1252,7 +1250,7 @@ unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
                 let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                 let tupdesc = heaprel.tuple_desc();
                 if let Some(att) = tupdesc.get(attno as usize - 1) {
-                    if schema.is_field_lower_sortable(att.name()) {
+                    if schema.is_field_lower_sortable(&FieldName::from(att.name())) {
                         return Some(OrderByStyle::Field(first_pathkey, att.name().to_string()));
                     }
                 }
@@ -1262,7 +1260,7 @@ unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
                     let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                     let tupdesc = heaprel.tuple_desc();
                     if let Some(att) = tupdesc.get(attno as usize - 1) {
-                        if schema.is_field_raw_sortable(att.name()) {
+                        if schema.is_field_raw_sortable(&FieldName::from(att.name())) {
                             return Some(OrderByStyle::Field(
                                 first_pathkey,
                                 att.name().to_string(),
@@ -1278,7 +1276,7 @@ unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
                 let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                 let tupdesc = heaprel.tuple_desc();
                 if let Some(att) = tupdesc.get(attno as usize - 1) {
-                    if schema.is_field_raw_sortable(att.name()) {
+                    if schema.is_field_raw_sortable(&FieldName::from(att.name())) {
                         return Some(OrderByStyle::Field(first_pathkey, att.name().to_string()));
                     }
                 }

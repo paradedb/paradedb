@@ -465,7 +465,6 @@ mod tests {
         ParallelProcess, ParallelState, ParallelStateManager, ParallelStateType, ParallelWorker,
     };
     use pgrx::pg_test;
-    use pgrx::prelude::*;
 
     #[pg_test]
     fn test_parallel_workers() {

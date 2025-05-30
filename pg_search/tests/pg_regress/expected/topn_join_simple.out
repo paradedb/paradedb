@@ -332,8 +332,30 @@ WARNING:  ParadeDB: Join configuration - outer predicates: 1 (search: 1), inner 
 WARNING:  ParadeDB: Relation validation - outer: simple_docs (valid: true), inner: simple_files (valid: true)
 WARNING:  ParadeDB: Join execution initialization completed successfully
 WARNING:  ParadeDB: Explaining custom scan
-WARNING:  ParadeDB: Explaining custom scan: table
-ERROR:  called `Option::unwrap()` on a `None` value
+WARNING:  ParadeDB: Cleaning up join execution
+WARNING:  ParadeDB: Cleaning up join execution state
+WARNING:  ParadeDB: ===== JOIN EXECUTION STATISTICS =====
+WARNING:  ParadeDB: Search Results - Outer: 0, Inner: 0, Total Combinations: 0
+WARNING:  ParadeDB: Join Processing - Matches: 0, Returned: 0, Success Rate: 0.0%
+WARNING:  ParadeDB: Heap Tuple Access - Attempts: 0, Successes: 0, Success Rate: 0.0%
+WARNING:  ParadeDB: Cleaned up 0 search readers
+WARNING:  ParadeDB: Cleared 0 outer and 0 inner search results
+WARNING:  ParadeDB: ===== END JOIN EXECUTION STATISTICS =====
+WARNING:  ParadeDB: Join execution cleanup complete
+                   QUERY PLAN                   
+------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: d.id
+         ->  Custom Scan (ParadeDB Scan)
+               Node Type: ParadeDB Join
+               Outer Relation: simple_docs
+               Inner Relation: simple_files
+               Join Type: Bilateral Search Join
+               Outer Search Predicates: 1
+               Inner Search Predicates: 1
+(10 rows)
+
 -- Cleanup
 DROP TABLE simple_files CASCADE;
 DROP TABLE simple_docs CASCADE; 

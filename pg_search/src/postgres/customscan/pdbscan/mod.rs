@@ -912,6 +912,109 @@ impl CustomScan for PdbScan {
         explainer: &mut Explainer,
     ) {
         pgrx::warning!("ParadeDB: Explaining custom scan");
+
+        // Check if this is a join node
+        if state.custom_state().execution_rti == 0 {
+            // This is a join node - handle differently
+            explainer.add_text("Node Type", "ParadeDB Join");
+
+            // Get join information from the join execution state
+            if let Some(ref join_state) = state.custom_state().join_exec_state {
+                // Show relation information if available
+                if join_state.outer_relid != pg_sys::InvalidOid {
+                    explainer.add_text("Outer Relation", &unsafe {
+                        get_rel_name(join_state.outer_relid)
+                    });
+                }
+                if join_state.inner_relid != pg_sys::InvalidOid {
+                    explainer.add_text("Inner Relation", &unsafe {
+                        get_rel_name(join_state.inner_relid)
+                    });
+                }
+
+                // Show search predicate information
+                if let Some(ref predicates) = join_state.search_predicates {
+                    let outer_search_count = predicates
+                        .outer_predicates
+                        .iter()
+                        .filter(|p| p.uses_search_operator)
+                        .count();
+                    let inner_search_count = predicates
+                        .inner_predicates
+                        .iter()
+                        .filter(|p| p.uses_search_operator)
+                        .count();
+
+                    explainer.add_text(
+                        "Join Type",
+                        if outer_search_count > 0 && inner_search_count > 0 {
+                            "Bilateral Search Join"
+                        } else if outer_search_count > 0 || inner_search_count > 0 {
+                            "Unilateral Search Join"
+                        } else {
+                            "Standard Join"
+                        },
+                    );
+
+                    explainer.add_unsigned_integer(
+                        "Outer Search Predicates",
+                        outer_search_count as u64,
+                        None,
+                    );
+                    explainer.add_unsigned_integer(
+                        "Inner Search Predicates",
+                        inner_search_count as u64,
+                        None,
+                    );
+                }
+
+                // Show execution phase in ANALYZE mode
+                if explainer.is_analyze() {
+                    explainer.add_text("Execution Phase", &format!("{:?}", join_state.phase));
+
+                    // Show statistics if available
+                    explainer.add_unsigned_integer(
+                        "Outer Tuples",
+                        join_state.stats.outer_tuples as u64,
+                        None,
+                    );
+                    explainer.add_unsigned_integer(
+                        "Inner Tuples",
+                        join_state.stats.inner_tuples as u64,
+                        None,
+                    );
+                    explainer.add_unsigned_integer(
+                        "Join Matches",
+                        join_state.stats.join_matches as u64,
+                        None,
+                    );
+                    explainer.add_unsigned_integer(
+                        "Tuples Returned",
+                        join_state.stats.tuples_returned as u64,
+                        None,
+                    );
+
+                    if explainer.is_verbose() {
+                        explainer.add_unsigned_integer(
+                            "Heap Fetch Attempts",
+                            join_state.stats.heap_fetch_attempts as u64,
+                            None,
+                        );
+                        explainer.add_unsigned_integer(
+                            "Heap Fetch Successes",
+                            join_state.stats.heap_fetch_successes as u64,
+                            None,
+                        );
+                    }
+                }
+            } else {
+                explainer.add_text("Join State", "Not Initialized");
+            }
+
+            return;
+        }
+
+        // Original scan node logic
         explainer.add_text("Table", state.custom_state().heaprelname());
         explainer.add_text("Index", state.custom_state().indexrelname());
         if explainer.is_costs() {

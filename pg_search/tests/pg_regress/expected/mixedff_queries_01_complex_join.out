@@ -114,23 +114,8 @@ JOIN pages p ON p.fileId = f.id
 WHERE d.parents @@@ 'Factures' AND f.title @@@ 'Receipt' AND p.content @@@ 'Socienty'
 ORDER BY d.id, f.id, p.id;
 WARNING:  ParadeDB: Explaining custom scan
-WARNING:  ParadeDB: Explaining custom scan: table
-WARNING:  ParadeDB: Explaining custom scan: index
-WARNING:  ParadeDB: Explaining custom scan: analyze
-WARNING:  ParadeDB: Explaining custom scan: exec_method
-WARNING:  ParadeDB: Explaining custom scan: limit
 WARNING:  ParadeDB: Explaining custom scan
-WARNING:  ParadeDB: Explaining custom scan: table
-WARNING:  ParadeDB: Explaining custom scan: index
-WARNING:  ParadeDB: Explaining custom scan: analyze
-WARNING:  ParadeDB: Explaining custom scan: exec_method
-WARNING:  ParadeDB: Explaining custom scan: limit
 WARNING:  ParadeDB: Explaining custom scan
-WARNING:  ParadeDB: Explaining custom scan: table
-WARNING:  ParadeDB: Explaining custom scan: index
-WARNING:  ParadeDB: Explaining custom scan: analyze
-WARNING:  ParadeDB: Explaining custom scan: exec_method
-WARNING:  ParadeDB: Explaining custom scan: limit
                                                                                  QUERY PLAN                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Incremental Sort
@@ -225,23 +210,8 @@ WHERE documents.parents @@@ 'Factures' AND files.title @@@ 'Receipt' AND pages.c
 ORDER BY pages.fileId, pages.page_number
 LIMIT 10;
 WARNING:  ParadeDB: Explaining custom scan
-WARNING:  ParadeDB: Explaining custom scan: table
-WARNING:  ParadeDB: Explaining custom scan: index
-WARNING:  ParadeDB: Explaining custom scan: analyze
-WARNING:  ParadeDB: Explaining custom scan: exec_method
-WARNING:  ParadeDB: Explaining custom scan: limit
 WARNING:  ParadeDB: Explaining custom scan
-WARNING:  ParadeDB: Explaining custom scan: table
-WARNING:  ParadeDB: Explaining custom scan: index
-WARNING:  ParadeDB: Explaining custom scan: analyze
-WARNING:  ParadeDB: Explaining custom scan: exec_method
-WARNING:  ParadeDB: Explaining custom scan: limit
 WARNING:  ParadeDB: Explaining custom scan
-WARNING:  ParadeDB: Explaining custom scan: table
-WARNING:  ParadeDB: Explaining custom scan: index
-WARNING:  ParadeDB: Explaining custom scan: analyze
-WARNING:  ParadeDB: Explaining custom scan: exec_method
-WARNING:  ParadeDB: Explaining custom scan: limit
                                                                                     QUERY PLAN                                                                                     
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -45399,23 +45369,8 @@ JOIN pages ON pages.fileId = files.id
 WHERE documents.parents @@@ 'Factures' AND files.title @@@ 'Receipt' AND pages.content @@@ 'Socienty'
 LIMIT 10;
 WARNING:  ParadeDB: Explaining custom scan
-WARNING:  ParadeDB: Explaining custom scan: table
-WARNING:  ParadeDB: Explaining custom scan: index
-WARNING:  ParadeDB: Explaining custom scan: analyze
-WARNING:  ParadeDB: Explaining custom scan: exec_method
-WARNING:  ParadeDB: Explaining custom scan: limit
 WARNING:  ParadeDB: Explaining custom scan
-WARNING:  ParadeDB: Explaining custom scan: table
-WARNING:  ParadeDB: Explaining custom scan: index
-WARNING:  ParadeDB: Explaining custom scan: analyze
-WARNING:  ParadeDB: Explaining custom scan: exec_method
-WARNING:  ParadeDB: Explaining custom scan: limit
 WARNING:  ParadeDB: Explaining custom scan
-WARNING:  ParadeDB: Explaining custom scan: table
-WARNING:  ParadeDB: Explaining custom scan: index
-WARNING:  ParadeDB: Explaining custom scan: analyze
-WARNING:  ParadeDB: Explaining custom scan: exec_method
-WARNING:  ParadeDB: Explaining custom scan: limit
                                                                                 QUERY PLAN                                                                                
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit

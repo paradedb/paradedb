@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::index::FieldName;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::index::writer::index::SearchIndexWriter;
@@ -41,14 +42,14 @@ struct BuildState {
     start: Instant,
     writer: SearchIndexWriter,
     categorized_fields: Vec<(SearchField, CategorizedFieldData)>,
-    key_field_name: String,
+    key_field_name: FieldName,
 }
 
 impl BuildState {
     fn new(indexrel: &PgRelation, writer: SearchIndexWriter) -> Self {
         let tupdesc = unsafe { PgTupleDesc::from_pg_unchecked(indexrel.rd_att) };
         let categorized_fields = categorize_fields(&tupdesc, &writer.schema);
-        let key_field_name = writer.schema.key_field().name.0;
+        let key_field_name = writer.schema.key_field().name;
 
         BuildState {
             count: 0,

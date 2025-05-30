@@ -125,7 +125,7 @@ impl MoreLikeThisQueryBuilder {
         let directory = MVCCDirectory::snapshot(index_relation.oid());
         let index = Index::open(directory).expect("more_like_this: should be able to open index");
         let schema = SearchIndexSchema::open(index.schema(), &index_relation);
-        let key_field_name = schema.key_field().name.0;
+        let key_field_name = schema.key_field().name;
         let key_oid = (&index_relation, &schema).key_field().1;
         let categorized_fields = categorize_fields(&index_relation.tuple_desc(), &schema);
 
@@ -150,11 +150,11 @@ impl MoreLikeThisQueryBuilder {
                 .first();
 
             for (field, categorized) in categorized_fields {
-                if field.name.0 == "ctid" {
+                if field.name.is_ctid() {
                     continue;
                 }
 
-                if let Some(datum) = result.get_datum_by_name(field.name.0)? {
+                if let Some(datum) = result.get_datum_by_name(field.name.root())? {
                     if categorized.is_array {
                         let values = unsafe {
                             TantivyValue::try_from_datum_array(datum, categorized.base_oid)

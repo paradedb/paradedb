@@ -968,7 +968,7 @@ pub fn term_set(
     Debug, Clone, Ord, Eq, PartialOrd, PartialEq, Hash, Serialize, Deserialize, PostgresType,
 )]
 #[inoutfuncs]
-pub struct FieldName(pub String);
+pub struct FieldName(String);
 
 impl Display for FieldName {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -1029,6 +1029,10 @@ impl FieldName {
         } else {
             Some(json_path[1..].join("."))
         }
+    }
+
+    pub fn is_ctid(&self) -> bool {
+        self.root() == "ctid"
     }
 }
 

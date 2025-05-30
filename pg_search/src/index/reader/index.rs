@@ -486,7 +486,7 @@ impl SearchIndexReader {
             .expect("sort field should exist in index schema");
         let collector = TopDocs::with_limit(n)
             .and_offset(offset)
-            .order_by_u64_field(sort_field.name.0.clone(), sortdir.into());
+            .order_by_u64_field(sort_field.name.root().clone(), sortdir.into());
         let query = self.query(query);
         let weight = query
             .weight(tantivy::query::EnableScoring::Enabled {

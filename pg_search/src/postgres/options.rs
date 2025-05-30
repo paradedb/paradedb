@@ -310,7 +310,7 @@ impl SearchIndexCreateOptions {
     fn get_fields_at_offset(
         &self,
         offset: i32,
-        key_field_name: &str,
+        key_field_name: &FieldName,
         attributes: &HashMap<FieldName, SearchFieldType>,
         parser: &dyn Fn(serde_json::Value) -> Result<SearchFieldConfig>,
     ) -> Vec<(FieldName, SearchFieldConfig, Option<SearchFieldType>)> {
@@ -325,7 +325,7 @@ impl SearchIndexCreateOptions {
 
     fn get_text_fields(
         &self,
-        key_field_name: &str,
+        key_field_name: &FieldName,
         attributes: &HashMap<FieldName, SearchFieldType>,
     ) -> Vec<(FieldName, SearchFieldConfig, Option<SearchFieldType>)> {
         self.get_fields_at_offset(
@@ -338,7 +338,7 @@ impl SearchIndexCreateOptions {
 
     fn get_numeric_fields(
         &self,
-        key_field_name: &str,
+        key_field_name: &FieldName,
         attributes: &HashMap<FieldName, SearchFieldType>,
     ) -> Vec<(FieldName, SearchFieldConfig, Option<SearchFieldType>)> {
         self.get_fields_at_offset(
@@ -351,7 +351,7 @@ impl SearchIndexCreateOptions {
 
     fn get_boolean_fields(
         &self,
-        key_field_name: &str,
+        key_field_name: &FieldName,
         attributes: &HashMap<FieldName, SearchFieldType>,
     ) -> Vec<(FieldName, SearchFieldConfig, Option<SearchFieldType>)> {
         self.get_fields_at_offset(
@@ -364,7 +364,7 @@ impl SearchIndexCreateOptions {
 
     fn get_json_fields(
         &self,
-        key_field_name: &str,
+        key_field_name: &FieldName,
         attributes: &HashMap<FieldName, SearchFieldType>,
     ) -> Vec<(FieldName, SearchFieldConfig, Option<SearchFieldType>)> {
         self.get_fields_at_offset(
@@ -377,7 +377,7 @@ impl SearchIndexCreateOptions {
 
     fn get_range_fields(
         &self,
-        key_field_name: &str,
+        key_field_name: &FieldName,
         attributes: &HashMap<FieldName, SearchFieldType>,
     ) -> Vec<(FieldName, SearchFieldConfig, Option<SearchFieldType>)> {
         self.get_fields_at_offset(
@@ -390,7 +390,7 @@ impl SearchIndexCreateOptions {
 
     fn get_datetime_fields(
         &self,
-        key_field_name: &str,
+        key_field_name: &FieldName,
         attributes: &HashMap<FieldName, SearchFieldType>,
     ) -> Vec<(FieldName, SearchFieldConfig, Option<SearchFieldType>)> {
         self.get_fields_at_offset(
@@ -406,7 +406,7 @@ impl SearchIndexCreateOptions {
         if key_field_name.is_empty() {
             return None;
         }
-        Some(FieldName(key_field_name))
+        Some(key_field_name.into())
     }
 
     fn get_key_field_config(
@@ -470,7 +470,7 @@ impl SearchIndexCreateOptions {
 
     fn get_ctid_field_config(&self) -> (FieldName, SearchFieldConfig, Option<SearchFieldType>) {
         (
-            FieldName("ctid".into()),
+            "ctid".into(),
             SearchFieldConfig::Numeric {
                 indexed: true,
                 fast: true,
@@ -512,7 +512,7 @@ impl SearchIndexCreateOptions {
                 )
             });
 
-            attributes.insert(FieldName(att.name().into()), field_type);
+            attributes.insert(att.name().into(), field_type);
         }
 
         let (key_field_name, key_field_config, key_field_type) = self
@@ -520,13 +520,13 @@ impl SearchIndexCreateOptions {
             .expect("key_field WITH option should be configured");
 
         let mut configured = self
-            .get_text_fields(&key_field_name.0, &attributes)
+            .get_text_fields(&key_field_name, &attributes)
             .into_iter()
-            .chain(self.get_numeric_fields(&key_field_name.0, &attributes))
-            .chain(self.get_boolean_fields(&key_field_name.0, &attributes))
-            .chain(self.get_json_fields(&key_field_name.0, &attributes))
-            .chain(self.get_range_fields(&key_field_name.0, &attributes))
-            .chain(self.get_datetime_fields(&key_field_name.0, &attributes))
+            .chain(self.get_numeric_fields(&key_field_name, &attributes))
+            .chain(self.get_boolean_fields(&key_field_name, &attributes))
+            .chain(self.get_json_fields(&key_field_name, &attributes))
+            .chain(self.get_range_fields(&key_field_name, &attributes))
+            .chain(self.get_datetime_fields(&key_field_name, &attributes))
             .chain(std::iter::once(self.get_ctid_field_config()))
             .map(|(field_name, field_config, field_type)| {
                 (
@@ -554,7 +554,7 @@ impl SearchIndexCreateOptions {
         for (field_name, (field_config, _)) in configured.iter() {
             if !attributes.contains_key(field_name) {
                 if let Some(column) = field_config.column() {
-                    if !attributes.contains_key(&FieldName(column.into())) {
+                    if !attributes.contains_key(&column.clone().into()) {
                         panic!("field '{field_name}' references a column '{column}' which is not in the index definition");
                     }
                 }
@@ -575,16 +575,16 @@ impl SearchIndexCreateOptions {
 
     fn validate_fields_and_set_types(
         &self,
-        key_field_name: &str,
+        key_field_name: &FieldName,
         attributes: &HashMap<FieldName, SearchFieldType>,
         fields: &mut Vec<(FieldName, SearchFieldConfig, Option<SearchFieldType>)>,
     ) {
         for (field_name, field_config, outer_field_type) in fields {
-            if key_field_name == field_name.0 {
+            if key_field_name == field_name {
                 panic!("cannot override BM25 configuration for key_field '{key_field_name}', you must use an aliased field name and 'column' configuration key");
             }
 
-            if "ctid" == &field_name.0 {
+            if field_name.is_ctid() {
                 panic!("the name `ctid` is reserved by pg_search");
             } else if let Some(field_type) = attributes.get(field_name) {
                 if !field_type.is_compatible_with(field_config) {
@@ -592,7 +592,7 @@ impl SearchIndexCreateOptions {
                 }
                 *outer_field_type = Some(*field_type);
             } else if let Some(column) = field_config.column() {
-                if let Some(field_type) = attributes.get(&FieldName(column.clone())) {
+                if let Some(field_type) = attributes.get(&column.clone().into()) {
                     *outer_field_type = Some(*field_type);
                 } else {
                     panic!("the column `{column} referenced by the field configuration for '{field_name}' does not exist")

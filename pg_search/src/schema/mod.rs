@@ -732,7 +732,7 @@ impl SearchIndexSchema {
         let search_fields = fields
             .iter()
             .map(|(field_name, field_config, field_type)| {
-                let field = schema.get_field(field_name.0.as_str()).unwrap();
+                let field = schema.get_field(&field_name.root()).unwrap();
                 SearchField {
                     id: SearchFieldId(field),
                     name: field_name.clone(),
@@ -768,8 +768,8 @@ impl SearchIndexSchema {
             .clone()
     }
 
-    pub fn is_key_field(&self, name: &str) -> bool {
-        self.key_field().name.0 == name
+    pub fn is_key_field(&self, name: &FieldName) -> bool {
+        self.key_field().name.root() == name.root()
     }
 
     #[inline(always)]
@@ -927,14 +927,14 @@ trait AsTypeOid {
 
 impl AsTypeOid for (&PgRelation, &SearchIndexSchema) {
     fn typeoid(&self, search_field: &SearchField) -> PgOid {
-        if search_field.name.0 == "ctid" {
+        if search_field.name.is_ctid() {
             return PgOid::BuiltIn(pgrx::pg_sys::BuiltinOid::TIDOID);
         }
         let indexrel = self.0;
         for attribute in indexrel.tuple_desc().iter() {
             let attname = attribute.name().to_string();
             let typeoid = attribute.type_oid();
-            if search_field.name.0 == attname {
+            if search_field.name.root() == attname {
                 return typeoid;
             }
             // If the field was aliased, return the column
@@ -945,21 +945,21 @@ impl AsTypeOid for (&PgRelation, &SearchIndexSchema) {
         }
         panic!(
             "search field {} not found in index '{}' with oid: {}",
-            search_field.name.0,
+            search_field.name,
             indexrel.name(),
             indexrel.oid().to_u32()
         );
     }
 }
 
-impl AsTypeOid for HashMap<String, PgOid> {
+impl AsTypeOid for HashMap<FieldName, PgOid> {
     fn typeoid(&self, search_field: &SearchField) -> PgOid {
-        if search_field.name.0 == "ctid" {
+        if search_field.name.is_ctid() {
             return PgOid::BuiltIn(pgrx::pg_sys::BuiltinOid::TIDOID);
         }
-        self.get(&search_field.name.0)
+        self.get(&search_field.name)
             .copied()
-            .unwrap_or_else(|| panic!("search field {} not found in index", search_field.name.0))
+            .unwrap_or_else(|| panic!("search field {} not found in index", search_field.name))
     }
 }
 
@@ -973,10 +973,10 @@ impl AsFieldType<String> for (&PgRelation, &SearchIndexSchema) {
 
     fn fields(&self) -> Vec<(tantivy::schema::FieldType, PgOid, Field)> {
         let indexrel = self.0;
-        let typeoid_lookup: HashMap<String, PgOid> = indexrel
+        let typeoid_lookup: HashMap<FieldName, PgOid> = indexrel
             .tuple_desc()
             .iter()
-            .map(|attribute| (attribute.name().to_string(), attribute.type_oid()))
+            .map(|attribute| (attribute.name().into(), attribute.type_oid()))
             .collect();
         self.1
             .fields
@@ -990,7 +990,7 @@ impl AsFieldType<String> for (&PgRelation, &SearchIndexSchema) {
     }
     fn as_field_type(&self, from: &String) -> Option<(tantivy::schema::FieldType, PgOid, Field)> {
         self.1
-            .get_search_field(&FieldName(from.into()))
+            .get_search_field(&from.clone().into())
             .map(|search_field| {
                 let field = search_field.id.0;
                 let field_type = self.1.schema.get_field_entry(field).field_type().clone();

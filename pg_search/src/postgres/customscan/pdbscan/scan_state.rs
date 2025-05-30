@@ -198,14 +198,13 @@ impl PdbScanState {
     }
 
     #[inline(always)]
-    pub fn determine_key_field(&self) -> String {
+    pub fn determine_key_field(&self) -> FieldName {
         unsafe {
             let indexrel = PgRelation::with_lock(self.indexrelid, pg_sys::AccessShareLock as _);
             let ops = indexrel.rd_options as *mut SearchIndexCreateOptions;
             (*ops)
                 .get_key_field()
                 .expect("`USING bm25` index should have a valued `key_field` option")
-                .0
         }
     }
 

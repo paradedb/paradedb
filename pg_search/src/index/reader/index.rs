@@ -357,7 +357,7 @@ impl SearchIndexReader {
             .expect("cannot generate snippet, field does not exist");
 
         match self.schema.schema.get_field_entry(field.into()).field_type() {
-            FieldType::Str(_) | FieldType::JsonObject(_) => {
+            FieldType::Str(_) => {
                 let field:tantivy::schema::Field = field.into();
                 let generator = SnippetGenerator::create(&self.searcher, &self.query(query), field)
                     .unwrap_or_else(|err| panic!("failed to create snippet generator for field: {field_name}... {err}"));

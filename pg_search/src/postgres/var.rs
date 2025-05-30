@@ -1,13 +1,9 @@
 use crate::api::index::FieldName;
-use crate::api::HashSet;
-use crate::customscan::operator_oid;
 use crate::nodecast;
-use pgrx::pg_sys::NodeTag::{T_Const, T_OpExpr, T_Var};
-use pgrx::pg_sys::{expression_tree_walker, Const, OpExpr, Var};
-use pgrx::{is_a, pg_guard, pg_sys, FromDatum, PgList, PgOid, PgRelation};
+use pgrx::pg_sys::expression_tree_walker;
+use pgrx::{is_a, pg_guard, pg_sys, PgList, PgRelation};
 use std::ffi::CStr;
 use std::ptr::addr_of_mut;
-use std::sync::OnceLock;
 
 /// Given a [`pg_sys::Var`] and a [`pg_sys::PlannerInfo`], attempt to find the relation Oid that
 /// contains the var.
@@ -128,94 +124,6 @@ pub unsafe fn find_vars(node: *mut pg_sys::Node) -> Vec<*mut pg_sys::Var> {
     data.vars
 }
 
-/// Given a [`pg_sys::Node`], attempt to find the [`pg_sys::Var`] that it references.
-///
-/// If there is not exactly one Var in the node, then this function will return `None`.
-#[inline(always)]
-pub unsafe fn find_one_var(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {
-    let mut vars = find_vars(node);
-    if vars.len() == 1 {
-        Some(vars.pop().unwrap())
-    } else {
-        None
-    }
-}
-
-/// Given a [`pg_sys::Node`] and a [`pg_sys::PlannerInfo`], attempt to find the [`pg_sys::Var`] and
-/// the [`FieldName`] that it references.
-///
-/// It is the caller's responsibility to ensure that the node contains a Var with a valid FieldName.
-pub unsafe fn find_one_var_and_fieldname(
-    root: *mut pg_sys::PlannerInfo,
-    node: *mut pg_sys::Node,
-) -> Option<(*mut pg_sys::Var, FieldName)> {
-    if is_a(node, T_OpExpr) {
-        let opexpr = node.cast::<OpExpr>();
-        static JSON_OPERATOR_LOOKUP: OnceLock<HashSet<pg_sys::Oid>> = OnceLock::new();
-        if JSON_OPERATOR_LOOKUP
-            .get_or_init(|| initialize_json_operator_lookup())
-            .contains(&(*opexpr).opno)
-        {
-            let var = find_one_var(node)?;
-            let path = find_json_path(root, node);
-            return Some((var, path.join(".").into()));
-        }
-        None
-    } else if is_a(node, T_Var) {
-        let var = node.cast::<Var>();
-        let (heaprelid, varattno, _) = find_var_relation(var, root);
-        Some((var, fieldname_from_var(heaprelid, var, varattno)?))
-    } else {
-        None
-    }
-}
-
-/// Given a [`pg_sys::Node`] and a [`pg_sys::PlannerInfo`], attempt to find the JSON path that the
-/// node references.
-///
-/// It is the caller's responsibility to ensure that the node is a JSON path expression.
-#[inline(always)]
-unsafe fn find_json_path(root: *mut pg_sys::PlannerInfo, node: *mut pg_sys::Node) -> Vec<String> {
-    let mut path = Vec::new();
-
-    if is_a(node, T_Var) {
-        let node = node as *mut Var;
-        let (heaprelid, varattno, _) = find_var_relation(node, root);
-        let field_name = fieldname_from_var(heaprelid, node, varattno)
-            .expect("find_json_path: var should have a valid FieldName");
-        path.push(field_name.root());
-        return path;
-    } else if is_a(node, T_Const) {
-        let node = node as *mut Const;
-        if let PgOid::BuiltIn(oid) = PgOid::from((*node).consttype) {
-            match oid {
-                pg_sys::BuiltinOid::TEXTOID | pg_sys::BuiltinOid::VARCHAROID => {
-                    if let Some(s) = String::from_datum((*node).constvalue, (*node).constisnull) {
-                        path.push(s);
-                    }
-                }
-                pg_sys::BuiltinOid::TEXTARRAYOID | pg_sys::BuiltinOid::VARCHARARRAYOID => {
-                    if let Some(array) =
-                        pgrx::Array::<String>::from_datum((*node).constvalue, (*node).constisnull)
-                    {
-                        path.extend(array.iter().flatten());
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        return path;
-    } else if is_a(node, T_OpExpr) {
-        let node = node as *mut OpExpr;
-        for expr in PgList::from_pg((*node).args).iter_ptr() {
-            path.extend(find_json_path(root, expr));
-        }
-    }
-
-    path
-}
-
 /// Given a [`pg_sys::Var`], attempt to find the [`FieldName`] that it references.
 pub unsafe fn fieldname_from_var(
     heaprelid: pg_sys::Oid,
@@ -234,29 +142,4 @@ pub unsafe fn fieldname_from_var(
             .get(varattno as usize - 1)
             .map(|attribute| attribute.name().into())
     }
-}
-
-#[inline(always)]
-unsafe fn initialize_json_operator_lookup() -> HashSet<pg_sys::Oid> {
-    const OPERATORS: [&str; 2] = ["->", "->>"];
-    const TYPE_PAIRS: &[[&str; 2]] = &[
-        ["json", "text"],
-        ["jsonb", "text"],
-        ["json", "int4"],
-        ["jsonb", "int4"],
-    ];
-
-    let mut lookup = HashSet::default();
-    for o in OPERATORS {
-        for [l, r] in TYPE_PAIRS {
-            lookup.insert(operator_oid(&format!("{o}({l},{r})")));
-        }
-    }
-
-    lookup.insert(operator_oid("#>(json,text[])"));
-    lookup.insert(operator_oid("#>(jsonb,text[])"));
-    lookup.insert(operator_oid("#>>(json,text[])"));
-    lookup.insert(operator_oid("#>>(jsonb,text[])"));
-
-    lookup
 }

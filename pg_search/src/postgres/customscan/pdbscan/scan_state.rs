@@ -31,7 +31,6 @@ use crate::postgres::ParallelScanState;
 use crate::query::{AsHumanReadable, SearchQueryInput};
 use pgrx::heap_tuple::PgHeapTuple;
 use pgrx::{name_data_to_str, pg_sys, PgRelation, PgTupleDesc};
-use serde_json::Value;
 use std::cell::UnsafeCell;
 use tantivy::snippet::SnippetGenerator;
 use tantivy::SegmentReader;
@@ -373,55 +372,9 @@ impl PdbScanState {
                 .join(" "),
             )
         } else {
-            match (field.root(), field.path()) {
-                (root, Some(path)) => {
-                    let pointer = format!("/{}", path.replace('.', "/"));
-                    let field = match attribute.type_oid().value() {
-                        pg_sys::JSONOID => {
-                            let json_value = heap_tuple
-                                .get_by_name::<pgrx::datum::Json>(&root)
-                                .unwrap_or_else(|_| {
-                                    panic!(
-                                        "doc_from_heap: should be able to read json field {}",
-                                        root
-                                    )
-                                })?
-                                .0;
-                            json_value.pointer(&pointer).cloned()?
-                        }
-                        pg_sys::JSONBOID => {
-                            let json_value = heap_tuple
-                                .get_by_name::<pgrx::datum::JsonB>(&root)
-                                .unwrap_or_else(|_| {
-                                    panic!(
-                                        "doc_from_heap: should be able to read jsonb field {}",
-                                        root
-                                    )
-                                })?
-                                .0;
-                            json_value.pointer(&pointer).cloned()?
-                        }
-                        unsupported => {
-                            return None;
-                        }
-                    };
-
-                    match field {
-                        Value::String(val) => Some(val.to_string()),
-                        Value::Array(array) => Some(array.iter().filter_map(|v| match v {
-                            Value::String(s) => Some(s.to_string()),
-                            _ => None
-                        }).collect::<Vec<_>>().join(" ")),
-                        val => unimplemented!(
-                            "only text fields for json/jsonb are supported for snippets, found {:?}",
-                            val
-                        ),
-                    }
-                }
-                (root, None) => heap_tuple
-                    .get_by_name(&root)
-                    .unwrap_or_else(|_| panic!("doc_from_heap: should be able to read {}", root)),
-            }
+            heap_tuple
+                .get_by_name(&field.root())
+                .unwrap_or_else(|_| panic!("{} should exist in the heap tuple", field))
         }
     }
 }

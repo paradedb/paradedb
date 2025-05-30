@@ -59,7 +59,7 @@ use crate::postgres::customscan::pdbscan::qual_inspect::extract_quals;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::customscan::{self, CustomScan, CustomScanState};
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::var::find_var_relation;
+use crate::postgres::var::{fieldname_from_var, find_var_relation};
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
@@ -533,7 +533,7 @@ impl CustomScan for PdbScan {
                     builder.args().root,
                 );
 
-                for (funcexpr, var, attname) in func_vars_at_level {
+                for (funcexpr, var) in func_vars_at_level {
                     // if we have a tlist, then we need to add the specific function that uses
                     // a Var at our level to that tlist.
                     //
@@ -550,7 +550,10 @@ impl CustomScan for PdbScan {
 
                     // track a triplet of (varno, varattno, attname) as 3 individual
                     // entries in the `attname_lookup` List
-                    attname_lookup.insert(((*var).varno, (*var).varattno), attname);
+                    let (heaprelid, varattno, _) = find_var_relation(var, builder.args().root);
+                    if let Some(attname) = fieldname_from_var(heaprelid, var, varattno) {
+                        attname_lookup.insert(((*var).varno, (*var).varattno), attname);
+                    }
                 }
             }
 

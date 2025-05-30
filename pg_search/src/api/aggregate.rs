@@ -171,8 +171,11 @@ impl ParallelAggregationWorker<'_> {
     fn execute_aggregate(
         &mut self,
         worker_number: i32,
-    ) -> anyhow::Result<IntermediateAggregationResults> {
+    ) -> anyhow::Result<Option<IntermediateAggregationResults>> {
         let segment_ids = self.checkout_segments(worker_number);
+        if segment_ids.is_empty() {
+            return Ok(None);
+        }
         let agg_req = serde_json::from_slice::<Aggregations>(self.agg_req_bytes)?;
         let query = serde_json::from_slice::<SearchQueryInput>(self.query_bytes)?;
 
@@ -203,7 +206,7 @@ impl ParallelAggregationWorker<'_> {
         } else {
             reader.collect(&query, base_collector, false)
         };
-        Ok(intermediate_results)
+        Ok(Some(intermediate_results))
     }
 }
 
@@ -240,15 +243,18 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
             std::thread::yield_now();
         }
 
-        let intermediate_results = self.execute_aggregate(worker_number)?;
-        let bytes = serde_json::to_vec(&intermediate_results)?;
-        Ok(mq_sender.send(bytes)?)
+        if let Some(intermediate_results) = self.execute_aggregate(worker_number)? {
+            let bytes = serde_json::to_vec(&intermediate_results)?;
+            Ok(mq_sender.send(bytes)?)
+        } else {
+            Ok(())
+        }
     }
 }
 
 #[pg_extern]
 pub fn aggregate(
-    indexrel: PgRelation,
+    index: PgRelation,
     query: SearchQueryInput,
     agg: Json,
     solve_mvcc: default!(bool, true),
@@ -256,10 +262,10 @@ pub fn aggregate(
     bucket_limit: default!(i64, 65000),
 ) -> Result<JsonB, Box<dyn Error>> {
     unsafe {
-        let reader = SearchIndexReader::open(&indexrel, MvccSatisfies::Snapshot)?;
+        let reader = SearchIndexReader::open(&index, MvccSatisfies::Snapshot)?;
         let agg_req = serde_json::from_value(agg.0)?;
         let process = ParallelAggregation::new(
-            indexrel.oid(),
+            index.oid(),
             &query,
             &agg_req,
             solve_mvcc,
@@ -268,7 +274,9 @@ pub fn aggregate(
             reader.segment_ids(),
         )?;
 
-        let nworkers = pg_sys::max_parallel_workers_per_gather as usize;
+        // limit number of workers to the number of segments
+        let nworkers =
+            (pg_sys::max_parallel_workers_per_gather as usize).min(reader.segment_readers().len());
         let mut process = launch_parallel_process!(
             ParallelAggregation<ParallelAggregationWorker>,
             process,
@@ -294,8 +302,9 @@ pub fn aggregate(
         let mut agg_results = Vec::with_capacity(nlaunched);
         if pg_sys::parallel_leader_participation {
             let mut worker = ParallelAggregationWorker::new(*process.state_manager());
-            let result = worker.execute_aggregate(-1)?;
-            agg_results.push(Ok(result));
+            if let Some(result) = worker.execute_aggregate(-1)? {
+                agg_results.push(Ok(result));
+            }
         }
 
         // wait for workers to finish, collecting their intermediate aggregate results

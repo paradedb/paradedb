@@ -360,8 +360,8 @@ macro_rules! launch_parallel_process {
             #[no_mangle]
             #[pgrx::pg_guard]
             pub unsafe extern "C-unwind" fn $parallel_process_type(
-                seg: *mut pg_sys::dsm_segment,
-                toc: *mut pg_sys::shm_toc,
+                seg: *mut pgrx::pg_sys::dsm_segment,
+                toc: *mut pgrx::pg_sys::shm_toc,
             ) {
                 let (state_manager, mq_sender) =
                     $crate::parallel_worker::generic_parallel_worker_entry_point(

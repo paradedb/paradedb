@@ -18,6 +18,7 @@
 use std::cell::RefCell;
 use std::iter::Peekable;
 
+use crate::api::index::FieldName;
 use crate::index::reader::index::{SearchIndexReader, SearchResults};
 use crate::postgres::customscan::builders::custom_path::SortDirection;
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
@@ -42,7 +43,7 @@ pub struct TopNScanExecState {
     // set during init
     search_query_input: Option<SearchQueryInput>,
     search_reader: Option<SearchIndexReader>,
-    sort_field: Option<String>,
+    sort_field: Option<FieldName>,
 
     // state tracking
     search_results: Peekable<SearchResults>,

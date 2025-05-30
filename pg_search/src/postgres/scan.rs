@@ -128,8 +128,7 @@ pub extern "C-unwind" fn amrescan(
         let options = (*(*scan).indexRelation).rd_options as *mut SearchIndexCreateOptions;
         let key_field = (*options)
             .get_key_field()
-            .expect("bm25 index should have a key_field")
-            .0;
+            .expect("bm25 index should have a key_field");
         let key_field_type = search_reader.key_field().type_.into();
 
         let need_scores = search_query_input.need_scores();

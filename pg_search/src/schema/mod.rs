@@ -21,7 +21,7 @@ pub mod range;
 
 use crate::api::HashMap;
 use anyhow::{Context, Result};
-use derive_more::{AsRef, Display, From, Into};
+use derive_more::{From, Into};
 pub use document::*;
 use pgrx::{PgBuiltInOids, PgOid, PgRelation};
 use serde::{Deserialize, Serialize};
@@ -34,24 +34,17 @@ use tantivy::schema::{
 use thiserror::Error;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
 
+use crate::api::index::FieldName;
 use crate::postgres::index::get_fields;
 use crate::query::AsFieldType;
 pub use anyenum::AnyEnum;
 use tokenizers::manager::SearchTokenizerFilters;
-
-/// The id of a field, stored in the index.
-#[derive(Debug, Clone, Display, From, AsRef, PartialEq, Eq, Serialize, Deserialize, Hash)]
-#[from(forward)]
-pub struct SearchFieldName(pub String);
 
 /// The name of a field, as it appears to Postgres.
 #[derive(Debug, Copy, Clone, From, PartialEq, Eq, Serialize, Deserialize)]
 #[from(forward)]
 pub struct SearchFieldId(pub Field);
 
-/// The name of the index, as it appears to Postgres.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SearchIndexName(pub String);
 /// The type of the search field.
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SearchFieldType {
@@ -652,7 +645,7 @@ pub struct SearchField {
     /// The id of the field, stored in the index.
     pub id: SearchFieldId,
     /// The name of the field, as it appears to Postgres.
-    pub name: SearchFieldName,
+    pub name: FieldName,
     /// Configuration for the field passed at index build time.
     pub config: SearchFieldConfig,
     /// Field type
@@ -693,12 +686,12 @@ pub struct SearchIndexSchema {
     pub schema: Schema,
     /// A lookup cache for retrieving search fields.
     #[serde(skip_serializing)]
-    pub lookup: Option<HashMap<SearchFieldName, usize>>,
+    pub lookup: Option<HashMap<String, usize>>,
 }
 
 impl SearchIndexSchema {
     pub fn new(
-        fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
+        fields: Vec<(FieldName, SearchFieldConfig, SearchFieldType)>,
         key_index: usize,
     ) -> Result<Self, SearchIndexSchemaError> {
         let mut builder = Schema::builder();
@@ -739,7 +732,7 @@ impl SearchIndexSchema {
         let search_fields = fields
             .iter()
             .map(|(field_name, field_config, field_type)| {
-                let field = schema.get_field(field_name.0.as_str()).unwrap();
+                let field = schema.get_field(&field_name.root()).unwrap();
                 SearchField {
                     id: SearchFieldId(field),
                     name: field_name.clone(),
@@ -757,14 +750,13 @@ impl SearchIndexSchema {
         }
     }
 
-    fn build_lookup(search_fields: &[SearchField]) -> HashMap<SearchFieldName, usize> {
+    fn build_lookup(search_fields: &[SearchField]) -> HashMap<String, usize> {
         let mut lookup = HashMap::default();
         search_fields
             .iter()
             .enumerate()
             .for_each(|(idx, search_field)| {
-                let name = search_field.name.clone();
-                lookup.insert(name, idx);
+                lookup.insert(search_field.name.root(), idx);
             });
         lookup
     }
@@ -776,8 +768,8 @@ impl SearchIndexSchema {
             .clone()
     }
 
-    pub fn is_key_field(&self, name: &str) -> bool {
-        self.key_field().name.0 == name
+    pub fn is_key_field(&self, name: &FieldName) -> bool {
+        self.key_field().name.root() == name.root()
     }
 
     #[inline(always)]
@@ -787,31 +779,35 @@ impl SearchIndexSchema {
         }
     }
 
-    pub fn get_search_field(&self, name: &SearchFieldName) -> Option<&SearchField> {
+    pub fn get_search_field(&self, name: &FieldName) -> Option<&SearchField> {
         if let Some(lookup) = &self.lookup {
-            lookup.get(name).and_then(|idx| self.fields.get(*idx))
+            lookup
+                .get(&name.root())
+                .and_then(|idx| self.fields.get(*idx))
         } else {
             let lookup = Self::build_lookup(&self.fields);
-            lookup.get(name).and_then(|idx| self.fields.get(*idx))
+            lookup
+                .get(&name.root())
+                .and_then(|idx| self.fields.get(*idx))
         }
     }
 
-    pub fn is_field_raw_sortable(&self, name: &str) -> bool {
+    pub fn is_field_raw_sortable(&self, name: &FieldName) -> bool {
         self.is_field_sortable(name, SearchNormalizer::Raw)
             .is_some()
     }
 
-    pub fn is_field_lower_sortable(&self, name: &str) -> bool {
+    pub fn is_field_lower_sortable(&self, name: &FieldName) -> bool {
         self.is_field_sortable(name, SearchNormalizer::Lowercase)
             .is_some()
     }
 
-    pub fn is_fast_field(&self, name: &str) -> bool {
+    pub fn is_fast_field(&self, name: &FieldName) -> bool {
         self.is_field_raw_sortable(name)
     }
 
-    pub fn is_numeric_fast_field(&self, name: &str) -> bool {
-        if let Some(search_field) = self.get_search_field(&SearchFieldName(name.to_string())) {
+    pub fn is_numeric_fast_field(&self, name: &FieldName) -> bool {
+        if let Some(search_field) = self.get_search_field(name) {
             matches!(
                 search_field.config,
                 SearchFieldConfig::Numeric { fast: true, .. }
@@ -823,8 +819,12 @@ impl SearchIndexSchema {
         }
     }
 
-    fn is_field_sortable(&self, name: &str, desired_normalizer: SearchNormalizer) -> Option<()> {
-        let search_field = self.get_search_field(&SearchFieldName(name.to_string()))?;
+    fn is_field_sortable(
+        &self,
+        name: &FieldName,
+        desired_normalizer: SearchNormalizer,
+    ) -> Option<()> {
+        let search_field = self.get_search_field(name)?;
 
         match search_field.config {
             SearchFieldConfig::Text {
@@ -927,14 +927,14 @@ trait AsTypeOid {
 
 impl AsTypeOid for (&PgRelation, &SearchIndexSchema) {
     fn typeoid(&self, search_field: &SearchField) -> PgOid {
-        if search_field.name.0 == "ctid" {
+        if search_field.name.is_ctid() {
             return PgOid::BuiltIn(pgrx::pg_sys::BuiltinOid::TIDOID);
         }
         let indexrel = self.0;
         for attribute in indexrel.tuple_desc().iter() {
             let attname = attribute.name().to_string();
             let typeoid = attribute.type_oid();
-            if search_field.name.0 == attname {
+            if search_field.name.root() == attname {
                 return typeoid;
             }
             // If the field was aliased, return the column
@@ -945,21 +945,21 @@ impl AsTypeOid for (&PgRelation, &SearchIndexSchema) {
         }
         panic!(
             "search field {} not found in index '{}' with oid: {}",
-            search_field.name.0,
+            search_field.name,
             indexrel.name(),
             indexrel.oid().to_u32()
         );
     }
 }
 
-impl AsTypeOid for HashMap<String, PgOid> {
+impl AsTypeOid for HashMap<FieldName, PgOid> {
     fn typeoid(&self, search_field: &SearchField) -> PgOid {
-        if search_field.name.0 == "ctid" {
+        if search_field.name.is_ctid() {
             return PgOid::BuiltIn(pgrx::pg_sys::BuiltinOid::TIDOID);
         }
-        self.get(&search_field.name.0)
+        self.get(&search_field.name)
             .copied()
-            .unwrap_or_else(|| panic!("search field {} not found in index", search_field.name.0))
+            .unwrap_or_else(|| panic!("search field {} not found in index", search_field.name))
     }
 }
 
@@ -973,10 +973,10 @@ impl AsFieldType<String> for (&PgRelation, &SearchIndexSchema) {
 
     fn fields(&self) -> Vec<(tantivy::schema::FieldType, PgOid, Field)> {
         let indexrel = self.0;
-        let typeoid_lookup: HashMap<String, PgOid> = indexrel
+        let typeoid_lookup: HashMap<FieldName, PgOid> = indexrel
             .tuple_desc()
             .iter()
-            .map(|attribute| (attribute.name().to_string(), attribute.type_oid()))
+            .map(|attribute| (attribute.name().into(), attribute.type_oid()))
             .collect();
         self.1
             .fields
@@ -990,7 +990,7 @@ impl AsFieldType<String> for (&PgRelation, &SearchIndexSchema) {
     }
     fn as_field_type(&self, from: &String) -> Option<(tantivy::schema::FieldType, PgOid, Field)> {
         self.1
-            .get_search_field(&SearchFieldName(from.into()))
+            .get_search_field(&from.clone().into())
             .map(|search_field| {
                 let field = search_field.id.0;
                 let field_type = self.1.schema.get_field_entry(field).field_type().clone();

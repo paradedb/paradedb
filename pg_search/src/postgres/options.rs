@@ -25,7 +25,8 @@ use std::collections::hash_map::Entry;
 use std::ffi::CStr;
 use tokenizers::{manager::SearchTokenizerFilters, SearchNormalizer, SearchTokenizer};
 
-use crate::schema::{IndexRecordOption, SearchFieldConfig, SearchFieldName, SearchFieldType};
+use crate::api::index::FieldName;
+use crate::schema::{IndexRecordOption, SearchFieldConfig, SearchFieldType};
 
 /* ADDING OPTIONS
  * in init(), call pg_sys::add_{type}_reloption (check postgres docs for what args you need)
@@ -289,7 +290,7 @@ impl SearchIndexCreateOptions {
     fn deserialize_config_fields(
         serialized: String,
         parser: &dyn Fn(serde_json::Value) -> Result<SearchFieldConfig>,
-    ) -> Vec<(SearchFieldName, SearchFieldConfig, Option<SearchFieldType>)> {
+    ) -> Vec<(FieldName, SearchFieldConfig, Option<SearchFieldType>)> {
         let config_map: Map<String, serde_json::Value> = serde_json::from_str(&serialized)
             .unwrap_or_else(|err| panic!("failed to deserialize field config: {err:?}"));
 
@@ -309,10 +310,10 @@ impl SearchIndexCreateOptions {
     fn get_fields_at_offset(
         &self,
         offset: i32,
-        key_field_name: &str,
-        attributes: &HashMap<SearchFieldName, SearchFieldType>,
+        key_field_name: &FieldName,
+        attributes: &HashMap<FieldName, SearchFieldType>,
         parser: &dyn Fn(serde_json::Value) -> Result<SearchFieldConfig>,
-    ) -> Vec<(SearchFieldName, SearchFieldConfig, Option<SearchFieldType>)> {
+    ) -> Vec<(FieldName, SearchFieldConfig, Option<SearchFieldType>)> {
         let config = self.get_str(offset, "".to_string());
         if config.is_empty() {
             return Vec::new();
@@ -324,9 +325,9 @@ impl SearchIndexCreateOptions {
 
     fn get_text_fields(
         &self,
-        key_field_name: &str,
-        attributes: &HashMap<SearchFieldName, SearchFieldType>,
-    ) -> Vec<(SearchFieldName, SearchFieldConfig, Option<SearchFieldType>)> {
+        key_field_name: &FieldName,
+        attributes: &HashMap<FieldName, SearchFieldType>,
+    ) -> Vec<(FieldName, SearchFieldConfig, Option<SearchFieldType>)> {
         self.get_fields_at_offset(
             self.text_fields_offset,
             key_field_name,
@@ -337,9 +338,9 @@ impl SearchIndexCreateOptions {
 
     fn get_numeric_fields(
         &self,
-        key_field_name: &str,
-        attributes: &HashMap<SearchFieldName, SearchFieldType>,
-    ) -> Vec<(SearchFieldName, SearchFieldConfig, Option<SearchFieldType>)> {
+        key_field_name: &FieldName,
+        attributes: &HashMap<FieldName, SearchFieldType>,
+    ) -> Vec<(FieldName, SearchFieldConfig, Option<SearchFieldType>)> {
         self.get_fields_at_offset(
             self.numeric_fields_offset,
             key_field_name,
@@ -350,9 +351,9 @@ impl SearchIndexCreateOptions {
 
     fn get_boolean_fields(
         &self,
-        key_field_name: &str,
-        attributes: &HashMap<SearchFieldName, SearchFieldType>,
-    ) -> Vec<(SearchFieldName, SearchFieldConfig, Option<SearchFieldType>)> {
+        key_field_name: &FieldName,
+        attributes: &HashMap<FieldName, SearchFieldType>,
+    ) -> Vec<(FieldName, SearchFieldConfig, Option<SearchFieldType>)> {
         self.get_fields_at_offset(
             self.boolean_fields_offset,
             key_field_name,
@@ -363,9 +364,9 @@ impl SearchIndexCreateOptions {
 
     fn get_json_fields(
         &self,
-        key_field_name: &str,
-        attributes: &HashMap<SearchFieldName, SearchFieldType>,
-    ) -> Vec<(SearchFieldName, SearchFieldConfig, Option<SearchFieldType>)> {
+        key_field_name: &FieldName,
+        attributes: &HashMap<FieldName, SearchFieldType>,
+    ) -> Vec<(FieldName, SearchFieldConfig, Option<SearchFieldType>)> {
         self.get_fields_at_offset(
             self.json_fields_offset,
             key_field_name,
@@ -376,9 +377,9 @@ impl SearchIndexCreateOptions {
 
     fn get_range_fields(
         &self,
-        key_field_name: &str,
-        attributes: &HashMap<SearchFieldName, SearchFieldType>,
-    ) -> Vec<(SearchFieldName, SearchFieldConfig, Option<SearchFieldType>)> {
+        key_field_name: &FieldName,
+        attributes: &HashMap<FieldName, SearchFieldType>,
+    ) -> Vec<(FieldName, SearchFieldConfig, Option<SearchFieldType>)> {
         self.get_fields_at_offset(
             self.range_fields_offset,
             key_field_name,
@@ -389,9 +390,9 @@ impl SearchIndexCreateOptions {
 
     fn get_datetime_fields(
         &self,
-        key_field_name: &str,
-        attributes: &HashMap<SearchFieldName, SearchFieldType>,
-    ) -> Vec<(SearchFieldName, SearchFieldConfig, Option<SearchFieldType>)> {
+        key_field_name: &FieldName,
+        attributes: &HashMap<FieldName, SearchFieldType>,
+    ) -> Vec<(FieldName, SearchFieldConfig, Option<SearchFieldType>)> {
         self.get_fields_at_offset(
             self.datetime_fields_offset,
             key_field_name,
@@ -400,18 +401,18 @@ impl SearchIndexCreateOptions {
         )
     }
 
-    pub fn get_key_field(&self) -> Option<SearchFieldName> {
+    pub fn get_key_field(&self) -> Option<FieldName> {
         let key_field_name = self.get_str(self.key_field_offset, "".to_string());
         if key_field_name.is_empty() {
             return None;
         }
-        Some(SearchFieldName(key_field_name))
+        Some(key_field_name.into())
     }
 
     fn get_key_field_config(
         &self,
-        attributes: &HashMap<SearchFieldName, SearchFieldType>,
-    ) -> Option<(SearchFieldName, SearchFieldConfig, SearchFieldType)> {
+        attributes: &HashMap<FieldName, SearchFieldType>,
+    ) -> Option<(FieldName, SearchFieldConfig, SearchFieldType)> {
         let key_field_name = self.get_key_field()?;
         let key_field_type = attributes.get(&key_field_name)?;
         let key_field_config = match key_field_type {
@@ -467,11 +468,9 @@ impl SearchIndexCreateOptions {
         Some((key_field_name, key_field_config, *key_field_type))
     }
 
-    fn get_ctid_field_config(
-        &self,
-    ) -> (SearchFieldName, SearchFieldConfig, Option<SearchFieldType>) {
+    fn get_ctid_field_config(&self) -> (FieldName, SearchFieldConfig, Option<SearchFieldType>) {
         (
-            SearchFieldName("ctid".into()),
+            "ctid".into(),
             SearchFieldConfig::Numeric {
                 indexed: true,
                 fast: true,
@@ -484,7 +483,7 @@ impl SearchIndexCreateOptions {
     pub unsafe fn get_all_fields(
         &self,
         indexrel: &PgRelation,
-    ) -> impl Iterator<Item = (SearchFieldName, SearchFieldConfig, SearchFieldType)> {
+    ) -> impl Iterator<Item = (FieldName, SearchFieldConfig, SearchFieldType)> {
         let heaprel = indexrel
             .heap_relation()
             .expect("index relation should have a heap relation");
@@ -492,7 +491,7 @@ impl SearchIndexCreateOptions {
 
         let index_info = unsafe { pg_sys::BuildIndexInfo(indexrel.as_ptr()) };
 
-        let mut attributes: HashMap<SearchFieldName, SearchFieldType> = HashMap::default();
+        let mut attributes: HashMap<FieldName, SearchFieldType> = HashMap::default();
 
         for i in 0..(*index_info).ii_NumIndexAttrs {
             let heap_attno = (*index_info).ii_IndexAttrNumbers[i as usize];
@@ -513,7 +512,7 @@ impl SearchIndexCreateOptions {
                 )
             });
 
-            attributes.insert(SearchFieldName(att.name().into()), field_type);
+            attributes.insert(att.name().into(), field_type);
         }
 
         let (key_field_name, key_field_config, key_field_type) = self
@@ -521,13 +520,13 @@ impl SearchIndexCreateOptions {
             .expect("key_field WITH option should be configured");
 
         let mut configured = self
-            .get_text_fields(&key_field_name.0, &attributes)
+            .get_text_fields(&key_field_name, &attributes)
             .into_iter()
-            .chain(self.get_numeric_fields(&key_field_name.0, &attributes))
-            .chain(self.get_boolean_fields(&key_field_name.0, &attributes))
-            .chain(self.get_json_fields(&key_field_name.0, &attributes))
-            .chain(self.get_range_fields(&key_field_name.0, &attributes))
-            .chain(self.get_datetime_fields(&key_field_name.0, &attributes))
+            .chain(self.get_numeric_fields(&key_field_name, &attributes))
+            .chain(self.get_boolean_fields(&key_field_name, &attributes))
+            .chain(self.get_json_fields(&key_field_name, &attributes))
+            .chain(self.get_range_fields(&key_field_name, &attributes))
+            .chain(self.get_datetime_fields(&key_field_name, &attributes))
             .chain(std::iter::once(self.get_ctid_field_config()))
             .map(|(field_name, field_config, field_type)| {
                 (
@@ -540,7 +539,7 @@ impl SearchIndexCreateOptions {
                     ),
                 )
             })
-            .collect::<HashMap<SearchFieldName, (SearchFieldConfig, SearchFieldType)>>();
+            .collect::<HashMap<FieldName, (SearchFieldConfig, SearchFieldType)>>();
 
         // make sure the set of configured fields don't specify a different configuration for the key_field
         // we own this configuration
@@ -555,7 +554,7 @@ impl SearchIndexCreateOptions {
         for (field_name, (field_config, _)) in configured.iter() {
             if !attributes.contains_key(field_name) {
                 if let Some(column) = field_config.column() {
-                    if !attributes.contains_key(&SearchFieldName(column.into())) {
+                    if !attributes.contains_key(&column.clone().into()) {
                         panic!("field '{field_name}' references a column '{column}' which is not in the index definition");
                     }
                 }
@@ -576,16 +575,16 @@ impl SearchIndexCreateOptions {
 
     fn validate_fields_and_set_types(
         &self,
-        key_field_name: &str,
-        attributes: &HashMap<SearchFieldName, SearchFieldType>,
-        fields: &mut Vec<(SearchFieldName, SearchFieldConfig, Option<SearchFieldType>)>,
+        key_field_name: &FieldName,
+        attributes: &HashMap<FieldName, SearchFieldType>,
+        fields: &mut Vec<(FieldName, SearchFieldConfig, Option<SearchFieldType>)>,
     ) {
         for (field_name, field_config, outer_field_type) in fields {
-            if key_field_name == field_name.0 {
+            if key_field_name == field_name {
                 panic!("cannot override BM25 configuration for key_field '{key_field_name}', you must use an aliased field name and 'column' configuration key");
             }
 
-            if "ctid" == &field_name.0 {
+            if field_name.is_ctid() {
                 panic!("the name `ctid` is reserved by pg_search");
             } else if let Some(field_type) = attributes.get(field_name) {
                 if !field_type.is_compatible_with(field_config) {
@@ -593,7 +592,7 @@ impl SearchIndexCreateOptions {
                 }
                 *outer_field_type = Some(*field_type);
             } else if let Some(column) = field_config.column() {
-                if let Some(field_type) = attributes.get(&SearchFieldName(column.clone())) {
+                if let Some(field_type) = attributes.get(&column.clone().into()) {
                     *outer_field_type = Some(*field_type);
                 } else {
                     panic!("the column `{column} referenced by the field configuration for '{field_name}' does not exist")

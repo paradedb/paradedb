@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::index::FieldName;
 use crate::api::HashMap;
 use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
@@ -24,7 +25,7 @@ use crate::postgres::storage::block::CLEANUP_LOCK;
 use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchField;
-use crate::schema::{SearchFieldName, SearchIndexSchema};
+use crate::schema::SearchIndexSchema;
 use anyhow::Result;
 use pgrx::{pg_sys, PgRelation};
 use std::cmp::Ordering;
@@ -348,12 +349,12 @@ impl SearchIndexReader {
 
     pub fn snippet_generator(
         &self,
-        field_name: &str,
+        field_name: &FieldName,
         query: &SearchQueryInput,
     ) -> (tantivy::schema::Field, SnippetGenerator) {
         let field = self
             .schema
-            .get_search_field(&SearchFieldName(field_name.into()))
+            .get_search_field(field_name)
             .expect("cannot generate snippet, field does not exist");
 
         match self.schema.schema.get_field_entry(field.into()).field_type() {
@@ -446,7 +447,7 @@ impl SearchIndexReader {
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
         query: &SearchQueryInput,
-        sort_field: Option<String>,
+        sort_field: Option<FieldName>,
         sortdir: SortDirection,
         n: usize,
         offset: usize,
@@ -474,18 +475,18 @@ impl SearchIndexReader {
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
         query: &SearchQueryInput,
-        sort_field: String,
+        sort_field: FieldName,
         sortdir: SortDirection,
         n: usize,
         offset: usize,
     ) -> SearchResults {
         let sort_field = self
             .schema
-            .get_search_field(&SearchFieldName(sort_field.clone()))
+            .get_search_field(&sort_field)
             .expect("sort field should exist in index schema");
         let collector = TopDocs::with_limit(n)
             .and_offset(offset)
-            .order_by_u64_field(sort_field.name.0.clone(), sortdir.into());
+            .order_by_u64_field(sort_field.name.root().clone(), sortdir.into());
         let query = self.query(query);
         let weight = query
             .weight(tantivy::query::EnableScoring::Enabled {

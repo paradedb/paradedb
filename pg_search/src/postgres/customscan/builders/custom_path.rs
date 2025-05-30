@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::index::FieldName;
 use crate::api::Cardinality;
 use crate::api::HashSet;
 use crate::index::fast_fields_helper::WhichFastField;
@@ -83,7 +84,7 @@ impl From<SortDirection> for u32 {
 #[derive(Debug)]
 pub enum OrderByStyle {
     Score(*mut pg_sys::PathKey),
-    Field(*mut pg_sys::PathKey, String),
+    Field(*mut pg_sys::PathKey, FieldName),
 }
 
 impl OrderByStyle {

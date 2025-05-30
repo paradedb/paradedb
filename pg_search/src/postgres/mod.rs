@@ -44,6 +44,7 @@ pub mod spinlock;
 pub mod storage;
 pub mod types;
 pub mod utils;
+pub mod var;
 pub mod visibility_checker;
 
 #[repr(u16)] // b/c that's what [`pg_sys::StrategyNumber`] is

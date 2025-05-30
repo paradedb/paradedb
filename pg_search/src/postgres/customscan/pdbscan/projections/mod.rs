@@ -18,7 +18,8 @@
 pub mod score;
 pub mod snippet;
 
-use crate::api::operator::{find_vars, ReturnedNodePointer};
+use crate::api::index::FieldName;
+use crate::api::operator::ReturnedNodePointer;
 use crate::api::HashMap;
 use crate::api::Varno;
 use crate::nodecast;
@@ -26,6 +27,7 @@ use crate::postgres::customscan::pdbscan::projections::score::score_funcoid;
 use crate::postgres::customscan::pdbscan::projections::snippet::{
     snippet_funcoid, snippet_positions_funcoid, SnippetType,
 };
+use crate::postgres::var::find_vars;
 use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{pg_extern, pg_guard, pg_sys, Internal, PgList};
 use std::ptr::{addr_of_mut, NonNull};
@@ -131,6 +133,7 @@ pub unsafe fn pullout_funcexprs(
     node: *mut pg_sys::Node,
     funcids: &[pg_sys::Oid],
     rti: i32,
+    root: *mut pg_sys::PlannerInfo,
 ) -> Vec<(*mut pg_sys::FuncExpr, *mut pg_sys::Var)> {
     #[pg_guard]
     unsafe extern "C-unwind" fn walker(
@@ -184,7 +187,7 @@ pub unsafe fn inject_placeholders(
     score_funcoid: pg_sys::Oid,
     snippet_funcoid: pg_sys::Oid,
     snippet_positions_funcoid: pg_sys::Oid,
-    attname_lookup: &HashMap<(Varno, pg_sys::AttrNumber), String>,
+    attname_lookup: &HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
     snippet_generators: &HashMap<SnippetType, Option<(tantivy::schema::Field, SnippetGenerator)>>,
 ) -> (
     *mut pg_sys::List,
@@ -271,7 +274,7 @@ pub unsafe fn inject_placeholders(
 
         snippet_funcoid: pg_sys::Oid,
         snippet_positions_funcoid: pg_sys::Oid,
-        attname_lookup: &'a HashMap<(Varno, pg_sys::AttrNumber), String>,
+        attname_lookup: &'a HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
 
         snippet_generators:
             &'a HashMap<SnippetType, Option<(tantivy::schema::Field, SnippetGenerator)>>,

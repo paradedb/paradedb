@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::index::FieldName;
 use crate::index::writer::index::IndexError;
 use crate::postgres::build::is_bm25_index;
 use crate::postgres::types::TantivyValue;
@@ -134,7 +135,7 @@ pub fn categorize_fields(
 pub unsafe fn row_to_search_document(
     values: *mut pg_sys::Datum,
     isnull: *mut bool,
-    key_field_name: &str,
+    key_field_name: &FieldName,
     categorized_fields: &Vec<(SearchField, CategorizedFieldData)>,
     document: &mut SearchDocument,
 ) -> Result<(), IndexError> {
@@ -151,7 +152,7 @@ pub unsafe fn row_to_search_document(
         let datum = *values.add(*attno);
         let isnull = *isnull.add(*attno);
 
-        if isnull && key_field_name == search_field.name.as_ref() {
+        if isnull && *key_field_name == search_field.name {
             return Err(IndexError::KeyIdNull(key_field_name.to_string()));
         }
 

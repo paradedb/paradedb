@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::index::FieldName;
 use crate::index::merge_policy::{LayeredMergePolicy, NumCandidates, NumMerged};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{Mergeable, SearchIndexMerger, SearchIndexWriter};
@@ -38,7 +39,7 @@ pub struct InsertState {
     pub indexrelid: pg_sys::Oid,
     pub writer: Option<SearchIndexWriter>,
     categorized_fields: Vec<(SearchField, CategorizedFieldData)>,
-    key_field_name: String,
+    key_field_name: FieldName,
     per_row_context: PgMemoryContexts,
 }
 
@@ -50,7 +51,7 @@ impl InsertState {
         let writer = SearchIndexWriter::open(indexrel, MvccSatisfies::Mergeable, writer_resources)?;
         let tupdesc = unsafe { PgTupleDesc::from_pg_unchecked(indexrel.rd_att) };
         let categorized_fields = categorize_fields(&tupdesc, &writer.schema);
-        let key_field_name = writer.schema.key_field().name.0;
+        let key_field_name = writer.schema.key_field().name;
 
         let per_row_context = pg_sys::AllocSetContextCreateExtended(
             PgMemoryContexts::CurrentMemoryContext.value(),

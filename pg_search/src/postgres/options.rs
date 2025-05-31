@@ -15,22 +15,23 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::index::FieldName;
 use crate::api::HashMap;
+use crate::schema::IndexRecordOption;
+use crate::schema::{SearchFieldConfig, SearchFieldType};
+
 use anyhow::Result;
 use memoffset::*;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
 use serde_json::Map;
-use std::collections::hash_map::Entry;
 use std::ffi::CStr;
-use tokenizers::{manager::SearchTokenizerFilters, SearchNormalizer, SearchTokenizer};
-
-use crate::api::index::FieldName;
-use crate::schema::{IndexRecordOption, SearchFieldConfig, SearchFieldType};
+use tokenizers::manager::SearchTokenizerFilters;
+use tokenizers::{SearchNormalizer, SearchTokenizer};
 
 /* ADDING OPTIONS
  * in init(), call pg_sys::add_{type}_reloption (check postgres docs for what args you need)
- * add the corresponding entries to SearchIndexCreateOptions struct definition
+ * add the corresponding entries to SearchIndexOptions struct definition
  * in amoptions(), add a relopt_parse_elt entry to the options array and change NUM_REL_OPTS
  * Note that for string options, postgres will give you the offset of the string, and you have to read the string
  * yourself (see get_tokenizer)
@@ -38,8 +39,8 @@ use crate::schema::{IndexRecordOption, SearchFieldConfig, SearchFieldType};
 
 /* READING OPTIONS
  * options are placed in relation.rd_options
- * As in ambuild(), cast relation.rd_options into SearchIndexCreateOptions using PgBox
- * (because SearchIndexCreateOptions is a postgres-allocated object) and use getters and setters
+ * As in ambuild(), cast relation.rd_options into SearchIndexOptions using PgBox
+ * (because SearchIndexOptions is a postgres-allocated object) and use getters and setters
 */
 
 static mut RELOPT_KIND_PDB: pg_sys::relopt_kind::Type = 0;
@@ -47,7 +48,7 @@ static mut RELOPT_KIND_PDB: pg_sys::relopt_kind::Type = 0;
 // Postgres handles string options by placing each option offset bytes from the start of rdopts and
 // plops the offset in the struct
 #[repr(C)]
-pub struct SearchIndexCreateOptions {
+pub struct SearchIndexOptions {
     // varlena header (needed bc postgres treats this as bytea)
     vl_len_: i32,
     text_fields_offset: i32,
@@ -66,10 +67,7 @@ extern "C-unwind" fn validate_text_fields(value: *const std::os::raw::c_char) {
     if json_str.is_empty() {
         return;
     }
-    SearchIndexCreateOptions::deserialize_config_fields(
-        json_str,
-        &SearchFieldConfig::text_from_json,
-    );
+    deserialize_config_fields(json_str, &SearchFieldConfig::text_from_json);
 }
 
 #[pg_guard]
@@ -78,10 +76,7 @@ extern "C-unwind" fn validate_numeric_fields(value: *const std::os::raw::c_char)
     if json_str.is_empty() {
         return;
     }
-    SearchIndexCreateOptions::deserialize_config_fields(
-        json_str,
-        &SearchFieldConfig::numeric_from_json,
-    );
+    deserialize_config_fields(json_str, &SearchFieldConfig::numeric_from_json);
 }
 
 #[pg_guard]
@@ -90,10 +85,7 @@ extern "C-unwind" fn validate_boolean_fields(value: *const std::os::raw::c_char)
     if json_str.is_empty() {
         return;
     }
-    SearchIndexCreateOptions::deserialize_config_fields(
-        json_str,
-        &SearchFieldConfig::boolean_from_json,
-    );
+    deserialize_config_fields(json_str, &SearchFieldConfig::boolean_from_json);
 }
 
 #[pg_guard]
@@ -102,10 +94,7 @@ extern "C-unwind" fn validate_json_fields(value: *const std::os::raw::c_char) {
     if json_str.is_empty() {
         return;
     }
-    SearchIndexCreateOptions::deserialize_config_fields(
-        json_str,
-        &SearchFieldConfig::json_from_json,
-    );
+    deserialize_config_fields(json_str, &SearchFieldConfig::json_from_json);
 }
 
 #[pg_guard]
@@ -114,10 +103,7 @@ extern "C-unwind" fn validate_range_fields(value: *const std::os::raw::c_char) {
     if json_str.is_empty() {
         return;
     }
-    SearchIndexCreateOptions::deserialize_config_fields(
-        json_str,
-        &SearchFieldConfig::range_from_json,
-    );
+    deserialize_config_fields(json_str, &SearchFieldConfig::range_from_json);
 }
 
 #[pg_guard]
@@ -126,10 +112,7 @@ extern "C-unwind" fn validate_datetime_fields(value: *const std::os::raw::c_char
     if json_str.is_empty() {
         return;
     }
-    SearchIndexCreateOptions::deserialize_config_fields(
-        json_str,
-        &SearchFieldConfig::date_from_json,
-    );
+    deserialize_config_fields(json_str, &SearchFieldConfig::date_from_json);
 }
 
 #[pg_guard]
@@ -201,42 +184,42 @@ pub unsafe extern "C-unwind" fn amoptions(
         pg_sys::relopt_parse_elt {
             optname: "text_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
-            offset: offset_of!(SearchIndexCreateOptions, text_fields_offset) as i32,
+            offset: offset_of!(SearchIndexOptions, text_fields_offset) as i32,
         },
         pg_sys::relopt_parse_elt {
             optname: "numeric_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
-            offset: offset_of!(SearchIndexCreateOptions, numeric_fields_offset) as i32,
+            offset: offset_of!(SearchIndexOptions, numeric_fields_offset) as i32,
         },
         pg_sys::relopt_parse_elt {
             optname: "boolean_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
-            offset: offset_of!(SearchIndexCreateOptions, boolean_fields_offset) as i32,
+            offset: offset_of!(SearchIndexOptions, boolean_fields_offset) as i32,
         },
         pg_sys::relopt_parse_elt {
             optname: "json_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
-            offset: offset_of!(SearchIndexCreateOptions, json_fields_offset) as i32,
+            offset: offset_of!(SearchIndexOptions, json_fields_offset) as i32,
         },
         pg_sys::relopt_parse_elt {
             optname: "range_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
-            offset: offset_of!(SearchIndexCreateOptions, range_fields_offset) as i32,
+            offset: offset_of!(SearchIndexOptions, range_fields_offset) as i32,
         },
         pg_sys::relopt_parse_elt {
             optname: "datetime_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
-            offset: offset_of!(SearchIndexCreateOptions, datetime_fields_offset) as i32,
+            offset: offset_of!(SearchIndexOptions, datetime_fields_offset) as i32,
         },
         pg_sys::relopt_parse_elt {
             optname: "key_field".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
-            offset: offset_of!(SearchIndexCreateOptions, key_field_offset) as i32,
+            offset: offset_of!(SearchIndexOptions, key_field_offset) as i32,
         },
         pg_sys::relopt_parse_elt {
             optname: "layer_sizes".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
-            offset: offset_of!(SearchIndexCreateOptions, layer_sizes_offset) as i32,
+            offset: offset_of!(SearchIndexOptions, layer_sizes_offset) as i32,
         },
     ];
     build_relopts(reloptions, validate, options)
@@ -251,7 +234,7 @@ unsafe fn build_relopts(
         reloptions,
         validate,
         RELOPT_KIND_PDB,
-        std::mem::size_of::<SearchIndexCreateOptions>(), // TODO: proper size calculator
+        std::mem::size_of::<SearchIndexOptions>(), // TODO: proper size calculator
         options.as_ptr(),
         NUM_REL_OPTS as i32,
     );
@@ -259,7 +242,7 @@ unsafe fn build_relopts(
     rdopts as *mut pg_sys::bytea
 }
 
-impl SearchIndexCreateOptions {
+impl SearchIndexOptions {
     pub unsafe fn from_relation(indexrel: &PgRelation) -> &Self {
         let mut ptr = indexrel.rd_options as *const Self;
         if ptr.is_null() {
@@ -276,329 +259,183 @@ impl SearchIndexCreateOptions {
         if layer_sizes_str.trim().is_empty() {
             return default.to_vec();
         }
-
         get_layer_sizes(&layer_sizes_str).collect()
     }
 
-    /// As a SearchFieldConfig is an enum, for it to be correctly serialized the variant needs
-    /// to be present on the json object. This helper method will "wrap" the json object in
-    /// another object with the variant key, which is passed into the function. For example:
-    ///
-    /// {"Text": { <actual_config> }}
-    ///
-    /// This way, serde will know to deserialize the config as SearchFieldConfig::Text.
-    fn deserialize_config_fields(
-        serialized: String,
-        parser: &dyn Fn(serde_json::Value) -> Result<SearchFieldConfig>,
-    ) -> Vec<(FieldName, SearchFieldConfig, Option<SearchFieldType>)> {
-        let config_map: Map<String, serde_json::Value> = serde_json::from_str(&serialized)
-            .unwrap_or_else(|err| panic!("failed to deserialize field config: {err:?}"));
+    pub fn key_field_name(&self) -> FieldName {
+        let key_field_name = self.get_str(self.key_field_offset, "".to_string());
+        if key_field_name.is_empty() {
+            panic!("key_field WITH option should be configured");
+        }
+        key_field_name.into()
+    }
 
-        config_map
+    pub fn field_config_or_default(
+        &self,
+        field_name: &FieldName,
+        relation_oid: pg_sys::Oid,
+    ) -> SearchFieldConfig {
+        let field_config = self.field_config(field_name, relation_oid);
+        if let Some(config) = field_config {
+            return config;
+        }
+
+        let field_type = match field_config.as_ref().and_then(|config| config.column()) {
+            Some(column) => self.aliased_field_type(column, relation_oid),
+            None => self.field_type(field_name, relation_oid),
+        };
+        field_config.unwrap_or_else(|| field_type.default_config())
+    }
+
+    pub fn field_config(
+        &self,
+        field_name: &FieldName,
+        relation_oid: pg_sys::Oid,
+    ) -> Option<SearchFieldConfig> {
+        if field_name.is_ctid() {
+            return Some(ctid_field_config());
+        }
+
+        if field_name.root() == self.key_field_name().root() {
+            return Some(key_field_config(&self.field_type(field_name, relation_oid)));
+        }
+
+        // Text fields
+        let config = self.get_str(self.text_fields_offset, "".to_string());
+        if !config.is_empty() {
+            let mut deserialized =
+                deserialize_config_fields(config, &SearchFieldConfig::text_from_json);
+            if let Some(config) = deserialized.remove(field_name) {
+                return Some(config);
+            }
+        }
+
+        // Numeric fields
+        let config = self.get_str(self.numeric_fields_offset, "".to_string());
+        if !config.is_empty() {
+            let mut deserialized =
+                deserialize_config_fields(config, &SearchFieldConfig::numeric_from_json);
+            if let Some(config) = deserialized.remove(field_name) {
+                return Some(config);
+            }
+        }
+
+        // Boolean fields
+        let config = self.get_str(self.boolean_fields_offset, "".to_string());
+        if !config.is_empty() {
+            let mut deserialized =
+                deserialize_config_fields(config, &SearchFieldConfig::boolean_from_json);
+            if let Some(config) = deserialized.remove(field_name) {
+                return Some(config);
+            }
+        }
+
+        // JSON fields
+        let config = self.get_str(self.json_fields_offset, "".to_string());
+        if !config.is_empty() {
+            let mut deserialized =
+                deserialize_config_fields(config, &SearchFieldConfig::json_from_json);
+            if let Some(config) = deserialized.remove(field_name) {
+                return Some(config);
+            }
+        }
+
+        // Range fields
+        let config = self.get_str(self.range_fields_offset, "".to_string());
+        if !config.is_empty() {
+            let mut deserialized =
+                deserialize_config_fields(config, &SearchFieldConfig::json_from_json);
+            if let Some(config) = deserialized.remove(field_name) {
+                return Some(config);
+            }
+        }
+
+        // Date/time fields
+        let config = self.get_str(self.datetime_fields_offset, "".to_string());
+        if !config.is_empty() {
+            let mut deserialized =
+                deserialize_config_fields(config, &SearchFieldConfig::date_from_json);
+            if let Some(config) = deserialized.remove(field_name) {
+                return Some(config);
+            }
+        }
+
+        None
+    }
+
+    pub fn get_aliased_text_configs(
+        &self,
+        relation_oid: pg_sys::Oid,
+    ) -> HashMap<FieldName, SearchFieldConfig> {
+        let config = self.get_str(self.text_fields_offset, "".to_string());
+        if config.is_empty() {
+            return HashMap::default();
+        }
+
+        deserialize_config_fields(config, &SearchFieldConfig::text_from_json)
             .into_iter()
-            .map(|(field_name, field_config)| {
-                (
-                    field_name.clone().into(),
-                    parser(field_config)
-                        .unwrap_or_else(|err| panic!("field config should be valid for SearchFieldConfig::{field_name}: {err}")),
-                    None,
-                )
+            .filter(|(_field_name, config)| {
+                if let Some(column) = config.column() {
+                    assert!(matches!(
+                        self.aliased_field_type(column, relation_oid),
+                        SearchFieldType::Text(_)
+                    ));
+                    true
+                } else {
+                    false
+                }
             })
             .collect()
     }
 
-    fn get_fields_at_offset(
+    pub fn get_aliased_json_configs(
         &self,
-        offset: i32,
-        key_field_name: &FieldName,
-        attributes: &HashMap<FieldName, SearchFieldType>,
-        parser: &dyn Fn(serde_json::Value) -> Result<SearchFieldConfig>,
-    ) -> Vec<(FieldName, SearchFieldConfig, Option<SearchFieldType>)> {
-        let config = self.get_str(offset, "".to_string());
+        relation_oid: pg_sys::Oid,
+    ) -> HashMap<FieldName, SearchFieldConfig> {
+        let config = self.get_str(self.json_fields_offset, "".to_string());
         if config.is_empty() {
-            return Vec::new();
+            return HashMap::default();
         }
-        let mut configs = Self::deserialize_config_fields(config, parser);
-        self.validate_fields_and_set_types(key_field_name, attributes, &mut configs);
-        configs
-    }
-
-    fn get_text_fields(
-        &self,
-        key_field_name: &FieldName,
-        attributes: &HashMap<FieldName, SearchFieldType>,
-    ) -> Vec<(FieldName, SearchFieldConfig, Option<SearchFieldType>)> {
-        self.get_fields_at_offset(
-            self.text_fields_offset,
-            key_field_name,
-            attributes,
-            &SearchFieldConfig::text_from_json,
-        )
-    }
-
-    fn get_numeric_fields(
-        &self,
-        key_field_name: &FieldName,
-        attributes: &HashMap<FieldName, SearchFieldType>,
-    ) -> Vec<(FieldName, SearchFieldConfig, Option<SearchFieldType>)> {
-        self.get_fields_at_offset(
-            self.numeric_fields_offset,
-            key_field_name,
-            attributes,
-            &SearchFieldConfig::numeric_from_json,
-        )
-    }
-
-    fn get_boolean_fields(
-        &self,
-        key_field_name: &FieldName,
-        attributes: &HashMap<FieldName, SearchFieldType>,
-    ) -> Vec<(FieldName, SearchFieldConfig, Option<SearchFieldType>)> {
-        self.get_fields_at_offset(
-            self.boolean_fields_offset,
-            key_field_name,
-            attributes,
-            &SearchFieldConfig::boolean_from_json,
-        )
-    }
-
-    fn get_json_fields(
-        &self,
-        key_field_name: &FieldName,
-        attributes: &HashMap<FieldName, SearchFieldType>,
-    ) -> Vec<(FieldName, SearchFieldConfig, Option<SearchFieldType>)> {
-        self.get_fields_at_offset(
-            self.json_fields_offset,
-            key_field_name,
-            attributes,
-            &SearchFieldConfig::json_from_json,
-        )
-    }
-
-    fn get_range_fields(
-        &self,
-        key_field_name: &FieldName,
-        attributes: &HashMap<FieldName, SearchFieldType>,
-    ) -> Vec<(FieldName, SearchFieldConfig, Option<SearchFieldType>)> {
-        self.get_fields_at_offset(
-            self.range_fields_offset,
-            key_field_name,
-            attributes,
-            &SearchFieldConfig::range_from_json,
-        )
-    }
-
-    fn get_datetime_fields(
-        &self,
-        key_field_name: &FieldName,
-        attributes: &HashMap<FieldName, SearchFieldType>,
-    ) -> Vec<(FieldName, SearchFieldConfig, Option<SearchFieldType>)> {
-        self.get_fields_at_offset(
-            self.datetime_fields_offset,
-            key_field_name,
-            attributes,
-            &SearchFieldConfig::date_from_json,
-        )
-    }
-
-    pub fn get_key_field(&self) -> Option<FieldName> {
-        let key_field_name = self.get_str(self.key_field_offset, "".to_string());
-        if key_field_name.is_empty() {
-            return None;
-        }
-        Some(key_field_name.into())
-    }
-
-    fn get_key_field_config(
-        &self,
-        attributes: &HashMap<FieldName, SearchFieldType>,
-    ) -> Option<(FieldName, SearchFieldConfig, SearchFieldType)> {
-        let key_field_name = self.get_key_field()?;
-        let key_field_type = attributes.get(&key_field_name)?;
-        let key_field_config = match key_field_type {
-            SearchFieldType::I64 | SearchFieldType::U64 | SearchFieldType::F64 => {
-                SearchFieldConfig::Numeric {
-                    indexed: true,
-                    fast: true,
-                    column: None,
-                }
-            }
-            SearchFieldType::Text => SearchFieldConfig::Text {
-                indexed: true,
-                fast: true,
-                fieldnorms: false,
-
-                // NB:  This should use the `SearchTokenizer::Keyword` tokenizer but for historical
-                // reasons it uses the `SearchTokenizer::Raw` tokenizer but with the same filters
-                // configuration as the `SearchTokenizer::Keyword` tokenizer.
-                #[allow(deprecated)]
-                tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::keyword().clone()),
-                record: IndexRecordOption::Basic,
-                normalizer: SearchNormalizer::Raw,
-                column: None,
-            },
-            SearchFieldType::Uuid => SearchFieldConfig::default_uuid(),
-            SearchFieldType::Json => SearchFieldConfig::Json {
-                indexed: true,
-                fast: true,
-                fieldnorms: false,
-                expand_dots: false,
-                #[allow(deprecated)]
-                tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::default()),
-                record: IndexRecordOption::Basic,
-                normalizer: SearchNormalizer::Raw,
-                column: None,
-            },
-            SearchFieldType::Range => SearchFieldConfig::Range {
-                fast: true,
-                column: None,
-            },
-            SearchFieldType::Bool => SearchFieldConfig::Boolean {
-                indexed: true,
-                fast: true,
-                column: None,
-            },
-            SearchFieldType::Date => SearchFieldConfig::Date {
-                indexed: true,
-                fast: true,
-                column: None,
-            },
-        };
-
-        Some((key_field_name, key_field_config, *key_field_type))
-    }
-
-    fn get_ctid_field_config(&self) -> (FieldName, SearchFieldConfig, Option<SearchFieldType>) {
-        (
-            "ctid".into(),
-            SearchFieldConfig::Numeric {
-                indexed: true,
-                fast: true,
-                column: None,
-            },
-            Some(SearchFieldType::U64),
-        )
-    }
-
-    pub unsafe fn get_all_fields(
-        &self,
-        indexrel: &PgRelation,
-    ) -> impl Iterator<Item = (FieldName, SearchFieldConfig, SearchFieldType)> {
-        let heaprel = indexrel
-            .heap_relation()
-            .expect("index relation should have a heap relation");
-        let tupdesc = heaprel.tuple_desc();
-
-        let index_info = unsafe { pg_sys::BuildIndexInfo(indexrel.as_ptr()) };
-
-        let mut attributes: HashMap<FieldName, SearchFieldType> = HashMap::default();
-
-        for i in 0..(*index_info).ii_NumIndexAttrs {
-            let heap_attno = (*index_info).ii_IndexAttrNumbers[i as usize];
-            let att = tupdesc
-                .get((heap_attno - 1) as usize)
-                .expect("attribute should exist");
-            let atttypid = att.type_oid().value();
-            let array_type = pg_sys::get_element_type(atttypid);
-            let base_oid = PgOid::from(if array_type != pg_sys::InvalidOid {
-                array_type
-            } else {
-                atttypid
-            });
-            let field_type = SearchFieldType::try_from(&base_oid).unwrap_or_else(|err| {
-                panic!(
-                    "cannot index column '{}' with type {base_oid:?}: {err}",
-                    att.name()
-                )
-            });
-
-            attributes.insert(att.name().into(), field_type);
-        }
-
-        let (key_field_name, key_field_config, key_field_type) = self
-            .get_key_field_config(&attributes)
-            .expect("key_field WITH option should be configured");
-
-        let mut configured = self
-            .get_text_fields(&key_field_name, &attributes)
+        deserialize_config_fields(config, &SearchFieldConfig::json_from_json)
             .into_iter()
-            .chain(self.get_numeric_fields(&key_field_name, &attributes))
-            .chain(self.get_boolean_fields(&key_field_name, &attributes))
-            .chain(self.get_json_fields(&key_field_name, &attributes))
-            .chain(self.get_range_fields(&key_field_name, &attributes))
-            .chain(self.get_datetime_fields(&key_field_name, &attributes))
-            .chain(std::iter::once(self.get_ctid_field_config()))
-            .map(|(field_name, field_config, field_type)| {
-                (
-                    field_name.clone(),
-                    (
-                        field_config,
-                        field_type.unwrap_or_else(|| {
-                            panic!("field type should have been set for `{field_name}`")
-                        }),
-                    ),
-                )
-            })
-            .collect::<HashMap<FieldName, (SearchFieldConfig, SearchFieldType)>>();
-
-        // make sure the set of configured fields don't specify a different configuration for the key_field
-        // we own this configuration
-        if configured.contains_key(&key_field_name) {
-            panic!("cannot override BM25 configuration for key_field '{key_field_name}', you must use an aliased field name and 'column' configuration key");
-        }
-        configured.insert(key_field_name, (key_field_config, key_field_type));
-
-        // look for configured fields that don't directly map to an index attribute
-        // these should have a `column` value on their config and that column should match
-        // a field in the attribute set
-        for (field_name, (field_config, _)) in configured.iter() {
-            if !attributes.contains_key(field_name) {
-                if let Some(column) = field_config.column() {
-                    if !attributes.contains_key(&column.clone().into()) {
-                        panic!("field '{field_name}' references a column '{column}' which is not in the index definition");
-                    }
-                }
-            }
-        }
-
-        // assign default configurations for any fields in the attributes set that didn't have user-specified configs
-        for (field_name, field_type) in attributes {
-            if let Entry::Vacant(entry) = configured.entry(field_name) {
-                entry.insert((field_type.default_config(), field_type));
-            }
-        }
-
-        configured
-            .into_iter()
-            .map(|(field_name, (field_config, field_type))| (field_name, field_config, field_type))
-    }
-
-    fn validate_fields_and_set_types(
-        &self,
-        key_field_name: &FieldName,
-        attributes: &HashMap<FieldName, SearchFieldType>,
-        fields: &mut Vec<(FieldName, SearchFieldConfig, Option<SearchFieldType>)>,
-    ) {
-        for (field_name, field_config, outer_field_type) in fields {
-            if key_field_name == field_name {
-                panic!("cannot override BM25 configuration for key_field '{key_field_name}', you must use an aliased field name and 'column' configuration key");
-            }
-
-            if field_name.is_ctid() {
-                panic!("the name `ctid` is reserved by pg_search");
-            } else if let Some(field_type) = attributes.get(field_name) {
-                if !field_type.is_compatible_with(field_config) {
-                    panic!("field type '{field_name}' is not compatible with field config '{field_config:?}'")
-                }
-                *outer_field_type = Some(*field_type);
-            } else if let Some(column) = field_config.column() {
-                if let Some(field_type) = attributes.get(&column.clone().into()) {
-                    *outer_field_type = Some(*field_type);
+            .filter(|(_field_name, config)| {
+                if let Some(column) = config.column() {
+                    assert!(matches!(
+                        self.aliased_field_type(column, relation_oid),
+                        SearchFieldType::Json(_)
+                    ));
+                    true
                 } else {
-                    panic!("the column `{column} referenced by the field configuration for '{field_name}' does not exist")
+                    false
                 }
-            }
+            })
+            .collect()
+    }
+
+    fn aliased_field_type(&self, alias: &str, relation_oid: pg_sys::Oid) -> SearchFieldType {
+        if alias == self.key_field_name().root() {
+            panic!("key field cannot be aliased");
         }
+
+        let index_relation = unsafe { PgRelation::open(relation_oid) };
+        let tuple_desc = index_relation.tuple_desc();
+        let attribute_oid = tuple_desc
+            .iter()
+            .find(|attribute| attribute.name() == alias)
+            .unwrap()
+            .type_oid();
+        (&attribute_oid).try_into().unwrap()
+    }
+
+    fn field_type(&self, field_name: &FieldName, relation_oid: pg_sys::Oid) -> SearchFieldType {
+        let index_relation = unsafe { PgRelation::open(relation_oid) };
+        let tuple_desc = index_relation.tuple_desc();
+        let attribute_oid = tuple_desc
+            .iter()
+            .find(|attribute| attribute.name() == field_name.root())
+            .unwrap()
+            .type_oid();
+        (&attribute_oid).try_into().unwrap()
     }
 
     fn get_str(&self, offset: i32, default: String) -> String {
@@ -685,4 +522,83 @@ pub unsafe fn init() {
         Some(validate_layer_sizes),
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
+}
+
+/// As a SearchFieldConfig is an enum, for it to be correctly serialized the variant needs
+/// to be present on the json object. This helper method will "wrap" the json object in
+/// another object with the variant key, which is passed into the function. For example:
+///
+/// {"Text": { <actual_config> }}
+///
+/// This way, serde will know to deserialize the config as SearchFieldConfig::Text.
+fn deserialize_config_fields(
+    serialized: String,
+    parser: &dyn Fn(serde_json::Value) -> Result<SearchFieldConfig>,
+) -> HashMap<FieldName, SearchFieldConfig> {
+    let config_map: Map<String, serde_json::Value> = serde_json::from_str(&serialized)
+        .unwrap_or_else(|err| panic!("failed to deserialize field config: {err:?}"));
+
+    config_map
+        .into_iter()
+        .map(|(field_name, field_config)| {
+            (
+                field_name.into(),
+                parser(field_config)
+                    .expect("field config should be valid for SearchFieldConfig::{field_name}"),
+            )
+        })
+        .collect()
+}
+
+fn key_field_config(field_type: &SearchFieldType) -> SearchFieldConfig {
+    match field_type {
+        SearchFieldType::I64(_) | SearchFieldType::U64(_) | SearchFieldType::F64(_) => {
+            SearchFieldConfig::Numeric {
+                indexed: true,
+                fast: true,
+            }
+        }
+        SearchFieldType::Text(_) => SearchFieldConfig::Text {
+            indexed: true,
+            fast: true,
+            fieldnorms: false,
+
+            // NB:  This should use the `SearchTokenizer::Keyword` tokenizer but for historical
+            // reasons it uses the `SearchTokenizer::Raw` tokenizer but with the same filters
+            // configuration as the `SearchTokenizer::Keyword` tokenizer.
+            #[allow(deprecated)]
+            tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::keyword().clone()),
+            record: IndexRecordOption::Basic,
+            normalizer: SearchNormalizer::Raw,
+            column: None,
+        },
+        SearchFieldType::Uuid(_) => SearchFieldConfig::default_uuid(),
+        SearchFieldType::Json(_) => SearchFieldConfig::Json {
+            indexed: true,
+            fast: true,
+            fieldnorms: false,
+            expand_dots: false,
+            #[allow(deprecated)]
+            tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::default()),
+            record: IndexRecordOption::Basic,
+            normalizer: SearchNormalizer::Raw,
+            column: None,
+        },
+        SearchFieldType::Range(_) => SearchFieldConfig::Range { fast: true },
+        SearchFieldType::Bool(_) => SearchFieldConfig::Boolean {
+            indexed: true,
+            fast: true,
+        },
+        SearchFieldType::Date(_) => SearchFieldConfig::Date {
+            indexed: true,
+            fast: true,
+        },
+    }
+}
+
+fn ctid_field_config() -> SearchFieldConfig {
+    SearchFieldConfig::Numeric {
+        indexed: true,
+        fast: true,
+    }
 }

@@ -31,10 +31,7 @@ use crate::index::channel::{ChannelDirectory, ChannelRequestHandler};
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::{setup_tokenizers, WriterResources};
 use crate::postgres::storage::block::SegmentMetaEntry;
-use crate::{
-    postgres::types::TantivyValueError,
-    schema::{SearchDocument, SearchIndexSchema},
-};
+use crate::{postgres::types::TantivyValueError, schema::SearchIndexSchema};
 
 // NB:  should this be a GUC?  Could be useful or could just complicate things for the user
 /// How big should our delete queue get before we go ahead and remove them?
@@ -71,7 +68,8 @@ impl SearchIndexDeleter {
                 })
                 .expect("scoped thread should not fail")?
         };
-        setup_tokenizers(&mut index, index_relation);
+        let schema = SearchIndexSchema::open(index_relation.oid())?;
+        setup_tokenizers(index_relation.oid(), &mut index)?;
 
         let index_clone = index.clone();
         let writer = handler

@@ -31,7 +31,7 @@ pub enum Qual {
     All,
     ExternalVar,
     OpExpr {
-        var: *mut pg_sys::Var,
+        lhs: *mut pg_sys::Node,
         opno: pg_sys::Oid,
         val: *mut pg_sys::Const,
     },
@@ -536,7 +536,7 @@ unsafe fn opexpr(
     }
 
     match (*lhs).type_ {
-        pg_sys::NodeTag::T_Var => var_opexpr(
+        pg_sys::NodeTag::T_Var => node_opexpr(
             root,
             rti,
             pdbopoid,
@@ -552,7 +552,17 @@ unsafe fn opexpr(
             // direct support for paradedb.score() in the WHERE clause
             let funcexpr = nodecast!(FuncExpr, T_FuncExpr, lhs)?;
             if (*funcexpr).funcid != score_funcoid() {
-                return None;
+                return node_opexpr(
+                    root,
+                    rti,
+                    pdbopoid,
+                    ri_type,
+                    schema,
+                    uses_our_operator,
+                    opexpr,
+                    lhs,
+                    rhs,
+                );
             }
 
             if is_complex(rhs) {
@@ -570,7 +580,7 @@ unsafe fn opexpr(
 }
 
 #[allow(clippy::too_many_arguments)]
-unsafe fn var_opexpr(
+unsafe fn node_opexpr(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
     pdbopoid: pg_sys::Oid,
@@ -611,7 +621,7 @@ unsafe fn var_opexpr(
         } else {
             // it doesn't use our operator
             if contains_var(rhs) {
-                // the rhs is (or contains) a Var too, which likely means its part of a join condition
+                // the rhs is (or contains) a Var, which likely means its part of a join condition
                 // we choose to just select everything in this situation
                 return Some(Qual::ExternalVar);
             } else {
@@ -622,25 +632,24 @@ unsafe fn var_opexpr(
         }
     }
 
-    let (lhs, rhs) = (var, const_?);
+    let rhs = const_?;
     if is_our_operator {
         // the rhs expression is a Const, so we can use it directly
-
-        if (*lhs).varno as i32 == rti as i32 {
-            // the var comes from this range table entry, so we can use the full expression directly
+        if is_node_range_table_entry(lhs, rti) {
+            // the node comes from this range table entry, so we can use the full expression directly
             *uses_our_operator = true;
             Some(Qual::OpExpr {
-                var: lhs,
+                lhs,
                 opno: (*opexpr).opno,
                 val: rhs,
             })
         } else {
-            // the var comes from a different range table
+            // the node comes from a different range table
             if matches!(ri_type, RestrictInfoType::Join) {
                 // and we're doing a join, so in this case we choose to just select everything
                 Some(Qual::ExternalVar)
             } else {
-                // the var comes from a different range table and we're not doing a join (how is that possible?!)
+                // the node comes from a different range table and we're not doing a join (how is that possible?!)
                 // so we don't do anything
                 None
             }
@@ -649,6 +658,22 @@ unsafe fn var_opexpr(
         // it doesn't use our operator.
         // we'll try to convert it into a pushdown
         try_pushdown(root, opexpr, schema)
+    }
+}
+
+unsafe fn is_node_range_table_entry(node: *mut pg_sys::Node, rti: pg_sys::Index) -> bool {
+    match (*node).type_ {
+        pg_sys::NodeTag::T_Var => {
+            let var = node.cast::<pg_sys::Var>();
+            (*var).varno as i32 == rti as i32
+        }
+        pg_sys::NodeTag::T_FuncExpr => {
+            let funcexpr = node.cast::<pg_sys::FuncExpr>();
+            PgList::<pg_sys::Node>::from_pg((*funcexpr).args)
+                .iter_ptr()
+                .all(|arg| is_node_range_table_entry(arg, rti))
+        }
+        _ => false,
     }
 }
 

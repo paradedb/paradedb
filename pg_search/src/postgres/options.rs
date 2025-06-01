@@ -28,6 +28,8 @@ use tokenizers::{manager::SearchTokenizerFilters, SearchNormalizer, SearchTokeni
 use crate::api::index::FieldName;
 use crate::schema::{IndexRecordOption, SearchFieldConfig, SearchFieldType};
 
+use super::utils::extract_field_attributes;
+
 /* ADDING OPTIONS
  * in init(), call pg_sys::add_{type}_reloption (check postgres docs for what args you need)
  * add the corresponding entries to SearchIndexCreateOptions struct definition
@@ -484,36 +486,21 @@ impl SearchIndexCreateOptions {
         &self,
         indexrel: &PgRelation,
     ) -> impl Iterator<Item = (FieldName, SearchFieldConfig, SearchFieldType)> {
-        let heaprel = indexrel
-            .heap_relation()
-            .expect("index relation should have a heap relation");
-        let tupdesc = heaprel.tuple_desc();
-
-        let index_info = unsafe { pg_sys::BuildIndexInfo(indexrel.as_ptr()) };
-
-        let mut attributes: HashMap<FieldName, SearchFieldType> = HashMap::default();
-
-        for i in 0..(*index_info).ii_NumIndexAttrs {
-            let heap_attno = (*index_info).ii_IndexAttrNumbers[i as usize];
-            let att = tupdesc
-                .get((heap_attno - 1) as usize)
-                .expect("attribute should exist");
-            let atttypid = att.type_oid().value();
-            let array_type = pg_sys::get_element_type(atttypid);
-            let base_oid = PgOid::from(if array_type != pg_sys::InvalidOid {
-                array_type
-            } else {
-                atttypid
-            });
-            let field_type = SearchFieldType::try_from(&base_oid).unwrap_or_else(|err| {
-                panic!(
-                    "cannot index column '{}' with type {base_oid:?}: {err}",
-                    att.name()
-                )
-            });
-
-            attributes.insert(att.name().into(), field_type);
-        }
+        let attributes: HashMap<FieldName, SearchFieldType> = extract_field_attributes(indexrel)
+            .into_iter()
+            .map(|(attname, atttypid)| {
+                let array_type = pg_sys::get_element_type(atttypid);
+                let base_oid = PgOid::from(if array_type != pg_sys::InvalidOid {
+                    array_type
+                } else {
+                    atttypid
+                });
+                let field_type = SearchFieldType::try_from(&base_oid).unwrap_or_else(|err| {
+                    panic!("cannot index '{attname}' with type {base_oid:?}: {err}",)
+                });
+                (attname.into(), field_type)
+            })
+            .collect();
 
         let (key_field_name, key_field_config, key_field_type) = self
             .get_key_field_config(&attributes)

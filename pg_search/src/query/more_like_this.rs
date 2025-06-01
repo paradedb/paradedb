@@ -127,7 +127,7 @@ impl MoreLikeThisQueryBuilder {
         let schema = SearchIndexSchema::open(index.schema(), &index_relation);
         let key_field_name = schema.key_field().name;
         let key_oid = (&index_relation, &schema).key_field().1;
-        let categorized_fields = categorize_fields(&index_relation.tuple_desc(), &schema);
+        let categorized_fields = categorize_fields(&index_relation, &schema);
 
         let doc_fields: Vec<(Field, Vec<OwnedValue>)> = pgrx::Spi::connect(|client| {
             let mut doc_fields = Vec::new();

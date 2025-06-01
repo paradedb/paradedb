@@ -30,7 +30,7 @@ use tantivy::schema::OwnedValue;
 
 use super::expression::PG_SEARCH_PREFIX;
 
-extern "C" {
+extern "C-unwind" {
     // SAFETY: `IsTransactionState()` doesn't raise an ERROR.  As such, we can avoid the pgrx
     // sigsetjmp overhead by linking to the function directly.
     pub fn IsTransactionState() -> bool;

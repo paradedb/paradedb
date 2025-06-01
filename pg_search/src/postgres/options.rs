@@ -30,6 +30,8 @@ use std::ffi::CStr;
 use tokenizers::manager::SearchTokenizerFilters;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
 
+use super::utils::extract_field_attributes;
+
 /* ADDING OPTIONS
  * in init(), call pg_sys::add_{type}_reloption (check postgres docs for what args you need)
  * add the corresponding entries to SearchIndexOptionsData struct definition

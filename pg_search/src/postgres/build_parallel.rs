@@ -315,8 +315,7 @@ impl WorkerBuildState {
         };
         let writer = SerialIndexWriter::open(indexrel, config)?;
         let schema = SearchIndexSchema::open(indexrel.oid())?;
-        let tupdesc = indexrel.tuple_desc();
-        let categorized_fields = categorize_fields(&tupdesc, &schema);
+        let categorized_fields = categorize_fields(&indexrel, &schema);
         let key_field_name = schema.key_field().field_name();
         Ok(Self {
             writer,

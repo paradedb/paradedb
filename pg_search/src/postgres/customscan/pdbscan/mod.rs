@@ -48,7 +48,7 @@ use crate::postgres::customscan::pdbscan::exec_methods::{
     fast_fields, normal::NormalScanExecState, ExecState,
 };
 use crate::postgres::customscan::pdbscan::join_exec_methods::{
-    cleanup_join_execution, exec_join_step, init_join_execution, JoinExecState,
+    cleanup_join_execution, init_join_execution, JoinExecState,
 };
 use crate::postgres::customscan::pdbscan::parallel::{compute_nworkers, list_segment_ids};
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
@@ -1196,11 +1196,21 @@ impl CustomScan for PdbScan {
 
     #[allow(clippy::blocks_in_conditions)]
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
-        pgrx::warning!("ParadeDB: Executing custom scan");
         // Check if this is a join node
         if state.custom_state().execution_rti == 0 {
-            // Use the new join execution framework
-            return unsafe { exec_join_step(state) };
+            // For join nodes, use the execution method determined during planning
+            match &state.custom_state().exec_method_type {
+                ExecMethodType::TopNJoin { .. } => {
+                    pgrx::warning!(
+                        "ParadeDB: Using TopN-optimized join execution (planned at planning time)"
+                    );
+                    return unsafe { join_exec_methods::exec_topn_join_step(state) };
+                }
+                _ => {
+                    pgrx::warning!("ParadeDB: Using standard join execution");
+                    return unsafe { join_exec_methods::exec_join_step(state) };
+                }
+            }
         }
 
         if state.custom_state().search_reader.is_none() {
@@ -1482,6 +1492,13 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>
             ),
             None,
         ),
+        ExecMethodType::TopNJoin { .. } => {
+            // TopN joins are handled in join execution framework, not in scan execution
+            // Use normal execution method as placeholder since join nodes don't use scan execution methods
+            builder
+                .custom_state()
+                .assign_exec_method(NormalScanExecState::default(), None)
+        }
         ExecMethodType::FastFieldString {
             field,
             which_fast_fields,
@@ -1698,16 +1715,6 @@ unsafe fn is_lower_func(node: *mut pg_sys::Node, rti: i32) -> Option<*mut pg_sys
         if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).expect("args should be Some")) {
             if (*var).varno as i32 == rti as i32 {
                 return Some(var);
-            }
-        } else if let Some(relabel) = nodecast!(
-            RelabelType,
-            T_RelabelType,
-            args.get_ptr(0).expect("args should be Some")
-        ) {
-            if let Some(var) = nodecast!(Var, T_Var, (*relabel).arg) {
-                if (*var).varno as i32 == rti as i32 {
-                    return Some(var);
-                }
             }
         }
     }

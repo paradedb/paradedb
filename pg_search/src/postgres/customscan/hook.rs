@@ -17,7 +17,9 @@
 
 use crate::api::HashMap;
 use crate::gucs;
-use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
+use crate::postgres::customscan::builders::custom_path::{
+    CustomPathBuilder, ExecMethodType, Flags, SortDirection,
+};
 use crate::postgres::customscan::pdbscan::join_qual_inspect::{
     extract_join_search_predicates, JoinSearchPredicates,
 };
@@ -566,8 +568,8 @@ unsafe fn create_search_join_path<CS: CustomScan>(
     );
 
     // Store ALL relation OIDs from each side (handles both base and composite relations)
-    private_data.set_join_outer_relids(outer_relids);
-    private_data.set_join_inner_relids(inner_relids);
+    private_data.set_join_outer_relids(outer_relids.clone());
+    private_data.set_join_inner_relids(inner_relids.clone());
 
     // For unilateral joins, determine which side needs table scanning
     if let Some(ref predicates) = search_predicates {
@@ -673,20 +675,104 @@ unsafe fn create_search_join_path<CS: CustomScan>(
     // Enhanced cost model that considers search optimization benefits
     let (startup_cost, per_tuple_cost) =
         calculate_search_join_costs(search_predicates, outer_rows, inner_rows);
-    let total_cost = startup_cost + (estimated_rows * per_tuple_cost);
 
-    builder = builder
-        .set_rows(estimated_rows)
-        .set_startup_cost(startup_cost)
-        .set_total_cost(total_cost)
-        .set_flag(Flags::Projection); // We'll handle projection ourselves
+    // DETECT TOPN JOIN OPPORTUNITY DURING PLANNING
+    let limit = if (*root).limit_tuples > -1.0 {
+        Some((*root).limit_tuples as usize)
+    } else {
+        None
+    };
 
-    warning!(
-        "ParadeDB: Join path estimates - rows: {:.0}, startup_cost: {:.2}, total_cost: {:.2}",
-        estimated_rows,
-        startup_cost,
-        total_cost
-    );
+    let has_order_by = !(*root).query_pathkeys.is_null();
+    let has_search_predicates = search_predicates
+        .map(|p| p.has_search_predicates())
+        .unwrap_or(false);
+
+    // Determine if this should be a TopN join
+    let use_topn_join = limit.is_some() && has_order_by && has_search_predicates;
+
+    if use_topn_join {
+        let limit_count = limit.unwrap();
+        let sort_direction = SortDirection::Desc; // Default, could be determined from pathkeys
+        let need_scores = true; // Conservative default for TopN joins
+
+        // Get relation OIDs for TopN join
+        let outer_relid = if !outer_relids.is_empty() {
+            outer_relids[0]
+        } else {
+            pg_sys::InvalidOid
+        };
+        let inner_relid = if !inner_relids.is_empty() {
+            inner_relids[0]
+        } else {
+            pg_sys::InvalidOid
+        };
+
+        // Set TopN join execution method in private data
+        private_data.set_exec_method_type(ExecMethodType::TopNJoin {
+            limit: limit_count,
+            sort_direction,
+            need_scores,
+            outer_relid,
+            inner_relid,
+        });
+
+        // Store TopN-specific information
+        private_data.set_limit(Some(limit_count as f64));
+        private_data.set_sort_direction(Some(sort_direction));
+
+        warning!(
+            "ParadeDB: TopN join detected during planning - limit: {}, has_order_by: {}, has_search: {}",
+            limit_count,
+            has_order_by,
+            has_search_predicates
+        );
+
+        // Adjust cost estimates for TopN optimization
+        // TopN joins process significantly fewer combinations
+        let topn_selectivity = (limit_count as f64) / (outer_rows * inner_rows).max(1.0);
+        let topn_estimated_rows = (limit_count as f64).min(estimated_rows);
+
+        // TopN has higher startup cost but much lower total cost
+        let topn_startup_cost = startup_cost * 1.5; // Slightly higher startup
+        let topn_total_cost = topn_startup_cost + (topn_estimated_rows * per_tuple_cost * 0.1); // Much lower total cost
+
+        builder = builder
+            .set_rows(topn_estimated_rows)
+            .set_startup_cost(topn_startup_cost)
+            .set_total_cost(topn_total_cost);
+
+        warning!(
+            "ParadeDB: TopN join path estimates - rows: {:.0}, startup_cost: {:.2}, total_cost: {:.2} (optimized)",
+            topn_estimated_rows,
+            topn_startup_cost,
+            topn_total_cost
+        );
+    } else {
+        // Standard join execution method
+        private_data.set_exec_method_type(ExecMethodType::Normal);
+        warning!(
+            "ParadeDB: Standard join - limit: {:?}, order_by: {}, search: {}",
+            limit,
+            has_order_by,
+            has_search_predicates
+        );
+
+        let total_cost = startup_cost + (estimated_rows * per_tuple_cost);
+
+        builder = builder
+            .set_rows(estimated_rows)
+            .set_startup_cost(startup_cost)
+            .set_total_cost(total_cost)
+            .set_flag(Flags::Projection); // We'll handle projection ourselves
+
+        warning!(
+            "ParadeDB: Join path estimates - rows: {:.0}, startup_cost: {:.2}, total_cost: {:.2}",
+            estimated_rows,
+            startup_cost,
+            total_cost
+        );
+    }
 
     let mut custom_path = builder.build();
 

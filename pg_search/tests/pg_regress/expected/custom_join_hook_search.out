@@ -82,6 +82,7 @@ WARNING:  ParadeDB: Outer predicate for products - uses_search: true
 WARNING:  ParadeDB: Inner predicate for reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["products"], inner: ["reviews"]
+WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["reviews"], inner relids: ["products"]
@@ -107,6 +108,7 @@ WARNING:  ParadeDB: Outer predicate for reviews - uses_search: true
 WARNING:  ParadeDB: Inner predicate for products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["reviews"], inner: ["products"]
+WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
@@ -127,7 +129,7 @@ WARNING:  ParadeDB: Initializing production-ready join execution
 WARNING:  ParadeDB: Join configuration - outer predicates: 1 (search: 1), inner predicates: 1 (search: 1), bilateral: true
 WARNING:  ParadeDB: Relation validation - outer: products (valid: true), inner: reviews (valid: true)
 WARNING:  ParadeDB: Join execution initialization completed successfully
-WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Using standard join execution
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 1/4 - Initializing join execution
 WARNING:  ParadeDB: Prerequisites validation passed - ready for join execution
@@ -216,7 +218,7 @@ WARNING:  ParadeDB: Relation reviews attno 4 -> column name 'review_text'
 WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn(reviews,review_text)
 WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Laptop Pro"), Some("John Doe"), Some("Excellent laptop with amazing performance and battery life")]
 WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Laptop Pro"), Some("John Doe"), Some("Excellent laptop with amazing performance and battery life")]
-WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Using standard join execution
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
@@ -271,6 +273,7 @@ WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join pat
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["products"], inner: ["reviews"]
 WARNING:  ParadeDB: Unilateral join - outer has search, inner needs table scan
+WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 2, startup_cost: 75.00, total_cost: 75.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["reviews"], inner relids: ["products"]
@@ -294,6 +297,7 @@ WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join pat
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["reviews"], inner: ["products"]
 WARNING:  ParadeDB: Unilateral join - inner has search, outer needs table scan
+WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 2, startup_cost: 75.00, total_cost: 75.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
@@ -314,7 +318,7 @@ WARNING:  ParadeDB: Initializing production-ready join execution
 WARNING:  ParadeDB: Join configuration - outer predicates: 1 (search: 1), inner predicates: 0 (search: 0), bilateral: false
 WARNING:  ParadeDB: Relation validation - outer: products (valid: true), inner: reviews (valid: true)
 WARNING:  ParadeDB: Join execution initialization completed successfully
-WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Using standard join execution
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 1/4 - Initializing join execution
 WARNING:  ParadeDB: Prerequisites validation passed - ready for join execution
@@ -404,7 +408,7 @@ WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn(reviews,rating)
 WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Laptop Pro"), Some("John Doe"), Some("5")]
 WARNING:  ParadeDB: Converting '5' to integer 5
 WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Laptop Pro"), Some("John Doe"), Some("5")]
-WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Using standard join execution
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
@@ -525,7 +529,7 @@ WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn(reviews,rating)
 WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Wireless Mouse"), Some("Jane Smith"), Some("4")]
 WARNING:  ParadeDB: Converting '4' to integer 4
 WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Wireless Mouse"), Some("Jane Smith"), Some("4")]
-WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Using standard join execution
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
@@ -664,7 +668,7 @@ WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn(reviews,rating)
 WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Smartphone X"), Some("Charlie Davis"), Some("5")]
 WARNING:  ParadeDB: Converting '5' to integer 5
 WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Smartphone X"), Some("Charlie Davis"), Some("5")]
-WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Using standard join execution
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
@@ -723,6 +727,7 @@ WARNING:  ParadeDB: Outer predicate for products - uses_search: true
 WARNING:  ParadeDB: Inner predicate for reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["products"], inner: ["reviews"]
+WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["reviews"], inner relids: ["products"]
@@ -748,6 +753,7 @@ WARNING:  ParadeDB: Outer predicate for reviews - uses_search: true
 WARNING:  ParadeDB: Inner predicate for products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["reviews"], inner: ["products"]
+WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
@@ -768,7 +774,7 @@ WARNING:  ParadeDB: Initializing production-ready join execution
 WARNING:  ParadeDB: Join configuration - outer predicates: 1 (search: 1), inner predicates: 1 (search: 1), bilateral: true
 WARNING:  ParadeDB: Relation validation - outer: products (valid: true), inner: reviews (valid: true)
 WARNING:  ParadeDB: Join execution initialization completed successfully
-WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Using standard join execution
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 1/4 - Initializing join execution
 WARNING:  ParadeDB: Prerequisites validation passed - ready for join execution
@@ -894,6 +900,7 @@ WARNING:  ParadeDB: Outer predicate for products - uses_search: true
 WARNING:  ParadeDB: Inner predicate for reviews - uses_search: false
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["products"], inner: ["reviews"]
+WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["reviews"], inner relids: ["products"]
@@ -919,6 +926,7 @@ WARNING:  ParadeDB: Outer predicate for reviews - uses_search: false
 WARNING:  ParadeDB: Inner predicate for products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["reviews"], inner: ["products"]
+WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
@@ -939,7 +947,7 @@ WARNING:  ParadeDB: Initializing production-ready join execution
 WARNING:  ParadeDB: Join configuration - outer predicates: 1 (search: 1), inner predicates: 1 (search: 0), bilateral: true
 WARNING:  ParadeDB: Relation validation - outer: products (valid: true), inner: reviews (valid: true)
 WARNING:  ParadeDB: Join execution initialization completed successfully
-WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Using standard join execution
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 1/4 - Initializing join execution
 WARNING:  ParadeDB: Prerequisites validation passed - ready for join execution
@@ -1029,7 +1037,7 @@ WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn(reviews,rating)
 WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("Laptop Pro"), Some("Excellent laptop with amazing performance and battery life"), Some("5")]
 WARNING:  ParadeDB: Converting '5' to integer 5
 WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Laptop Pro"), Some("Excellent laptop with amazing performance and battery life"), Some("5")]
-WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Using standard join execution
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation

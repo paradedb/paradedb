@@ -94,6 +94,7 @@ WARNING:  ParadeDB: Outer predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Inner predicate for files_join_test - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_join_test"], inner: ["files_join_test"]
+WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["files_join_test"], inner relids: ["documents_join_test"]
@@ -119,6 +120,7 @@ WARNING:  ParadeDB: Outer predicate for files_join_test - uses_search: true
 WARNING:  ParadeDB: Inner predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["files_join_test"], inner: ["documents_join_test"]
+WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
@@ -139,7 +141,7 @@ WARNING:  ParadeDB: Initializing production-ready join execution
 WARNING:  ParadeDB: Join configuration - outer predicates: 1 (search: 1), inner predicates: 1 (search: 1), bilateral: true
 WARNING:  ParadeDB: Relation validation - outer: documents_join_test (valid: true), inner: files_join_test (valid: true)
 WARNING:  ParadeDB: Join execution initialization completed successfully
-WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Using standard join execution
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 1/4 - Initializing join execution
 WARNING:  ParadeDB: Prerequisites validation passed - ready for join execution
@@ -226,7 +228,7 @@ WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn(files_join_test,fil
 WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("1"), Some("Document 1"), Some("file1.txt")]
 WARNING:  ParadeDB: Converting '1' to integer 1
 WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("1"), Some("Document 1"), Some("file1.txt")]
-WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Using standard join execution
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
@@ -332,6 +334,7 @@ WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join pat
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_join_test"], inner: ["files_join_test"]
 WARNING:  ParadeDB: Unilateral join - outer has search, inner needs table scan
+WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["files_join_test"], inner relids: ["documents_join_test"]
@@ -355,6 +358,7 @@ WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join pat
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["files_join_test"], inner: ["documents_join_test"]
 WARNING:  ParadeDB: Unilateral join - inner has search, outer needs table scan
+WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
@@ -375,7 +379,7 @@ WARNING:  ParadeDB: Initializing production-ready join execution
 WARNING:  ParadeDB: Join configuration - outer predicates: 1 (search: 1), inner predicates: 0 (search: 0), bilateral: false
 WARNING:  ParadeDB: Relation validation - outer: documents_join_test (valid: true), inner: files_join_test (valid: true)
 WARNING:  ParadeDB: Join execution initialization completed successfully
-WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Using standard join execution
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 1/4 - Initializing join execution
 WARNING:  ParadeDB: Prerequisites validation passed - ready for join execution
@@ -470,7 +474,7 @@ WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn(files_join_test,fil
 WARNING:  ParadeDB: Mapped 3 out of 3 column values: [Some("2"), Some("Document 2"), Some("file2.txt")]
 WARNING:  ParadeDB: Converting '2' to integer 2
 WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("2"), Some("Document 2"), Some("file2.txt")]
-WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Using standard join execution
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
@@ -527,6 +531,7 @@ WARNING:  ParadeDB: Outer predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Inner predicate for files_join_test - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_join_test"], inner: ["files_join_test"]
+WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["files_join_test"], inner relids: ["documents_join_test"]
@@ -552,6 +557,7 @@ WARNING:  ParadeDB: Outer predicate for files_join_test - uses_search: true
 WARNING:  ParadeDB: Inner predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["files_join_test"], inner: ["documents_join_test"]
+WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["documents_join_test"], inner relids: ["authors_join_test"]
@@ -575,6 +581,7 @@ WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join pat
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_join_test"], inner: ["authors_join_test"]
 WARNING:  ParadeDB: Unilateral join - outer has search, inner needs table scan
+WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["authors_join_test"], inner relids: ["documents_join_test"]
@@ -598,6 +605,7 @@ WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join pat
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_join_test"], inner: ["documents_join_test"]
 WARNING:  ParadeDB: Unilateral join - inner has search, outer needs table scan
+WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["files_join_test"], inner relids: ["authors_join_test"]
@@ -621,6 +629,7 @@ WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join pat
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["files_join_test"], inner: ["authors_join_test"]
 WARNING:  ParadeDB: Unilateral join - outer has search, inner needs table scan
+WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["authors_join_test"], inner relids: ["files_join_test"]
@@ -644,6 +653,7 @@ WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join pat
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_join_test"], inner: ["files_join_test"]
 WARNING:  ParadeDB: Unilateral join - inner has search, outer needs table scan
+WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["documents_join_test", "files_join_test"], inner relids: ["authors_join_test"]
@@ -690,7 +700,7 @@ WARNING:  ParadeDB: Initializing production-ready join execution
 WARNING:  ParadeDB: Join configuration - outer predicates: 1 (search: 1), inner predicates: 1 (search: 1), bilateral: true
 WARNING:  ParadeDB: Relation validation - outer: documents_join_test (valid: true), inner: files_join_test (valid: true)
 WARNING:  ParadeDB: Join execution initialization completed successfully
-WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Using standard join execution
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 1/4 - Initializing join execution
 WARNING:  ParadeDB: Prerequisites validation passed - ready for join execution
@@ -787,7 +797,7 @@ WARNING:  ParadeDB: Mapped 4 out of 4 column values: [Some("1"), Some("Document 
 WARNING:  ParadeDB: Converting '1' to integer 1
 WARNING:  ParadeDB: Converting '1' to integer 1
 WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("1"), Some("Document 1"), Some("file1.txt"), Some("1")]
-WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Using standard join execution
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
@@ -852,6 +862,7 @@ WARNING:  ParadeDB: Outer predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Inner predicate for files_join_test - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_join_test"], inner: ["files_join_test"]
+WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["files_join_test"], inner relids: ["documents_join_test"]
@@ -877,6 +888,7 @@ WARNING:  ParadeDB: Outer predicate for files_join_test - uses_search: true
 WARNING:  ParadeDB: Inner predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["files_join_test"], inner: ["documents_join_test"]
+WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["documents_join_test"], inner relids: ["authors_join_test"]
@@ -902,6 +914,7 @@ WARNING:  ParadeDB: Outer predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Inner predicate for authors_join_test - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_join_test"], inner: ["authors_join_test"]
+WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["authors_join_test"], inner relids: ["documents_join_test"]
@@ -927,6 +940,7 @@ WARNING:  ParadeDB: Outer predicate for authors_join_test - uses_search: true
 WARNING:  ParadeDB: Inner predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_join_test"], inner: ["documents_join_test"]
+WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["files_join_test"], inner relids: ["authors_join_test"]
@@ -952,6 +966,7 @@ WARNING:  ParadeDB: Outer predicate for files_join_test - uses_search: true
 WARNING:  ParadeDB: Inner predicate for authors_join_test - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["files_join_test"], inner: ["authors_join_test"]
+WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["authors_join_test"], inner relids: ["files_join_test"]
@@ -977,6 +992,7 @@ WARNING:  ParadeDB: Outer predicate for authors_join_test - uses_search: true
 WARNING:  ParadeDB: Inner predicate for files_join_test - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_join_test"], inner: ["files_join_test"]
+WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["documents_join_test", "files_join_test"], inner relids: ["authors_join_test"]
@@ -1003,16 +1019,6 @@ WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: [
 WARNING:  ParadeDB: Outer side is base, inner is composite - checking feasibility
 WARNING:  ParadeDB: Composite joins not yet supported - intermediate result access not implemented
 WARNING:  ParadeDB: Rejecting composite join to allow PostgreSQL's optimized default processing
-WARNING:  ParadeDB: Executing custom scan
-WARNING:  ParadeDB: Executing custom scan
-WARNING:  ParadeDB: Executing custom scan
-WARNING:  ParadeDB: Executing custom scan
-WARNING:  ParadeDB: Executing custom scan
-WARNING:  ParadeDB: Executing custom scan
-WARNING:  ParadeDB: Executing custom scan
-WARNING:  ParadeDB: Executing custom scan
-WARNING:  ParadeDB: Executing custom scan
-WARNING:  ParadeDB: Executing custom scan
  id |   title    | filename  | author_name 
 ----+------------+-----------+-------------
   2 | Document 2 | file2.txt | Jane Doe
@@ -1045,6 +1051,7 @@ WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join pat
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_join_test"], inner: ["files_join_test"]
 WARNING:  ParadeDB: Unilateral join - outer has search, inner needs table scan
+WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["files_join_test"], inner relids: ["documents_join_test"]
@@ -1068,6 +1075,7 @@ WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join pat
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["files_join_test"], inner: ["documents_join_test"]
 WARNING:  ParadeDB: Unilateral join - inner has search, outer needs table scan
+WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["documents_join_test"], inner relids: ["authors_join_test"]
@@ -1091,6 +1099,7 @@ WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join pat
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_join_test"], inner: ["authors_join_test"]
 WARNING:  ParadeDB: Unilateral join - outer has search, inner needs table scan
+WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["authors_join_test"], inner relids: ["documents_join_test"]
@@ -1114,6 +1123,7 @@ WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join pat
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_join_test"], inner: ["documents_join_test"]
 WARNING:  ParadeDB: Unilateral join - inner has search, outer needs table scan
+WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
 WARNING:  ParadeDB: Created custom join path, adding to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["files_join_test"], inner relids: ["authors_join_test"]
@@ -1184,7 +1194,7 @@ WARNING:  ParadeDB: Initializing production-ready join execution
 WARNING:  ParadeDB: Join configuration - outer predicates: 1 (search: 1), inner predicates: 0 (search: 0), bilateral: false
 WARNING:  ParadeDB: Relation validation - outer: documents_join_test (valid: true), inner: files_join_test (valid: true)
 WARNING:  ParadeDB: Join execution initialization completed successfully
-WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Using standard join execution
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 1/4 - Initializing join execution
 WARNING:  ParadeDB: Prerequisites validation passed - ready for join execution
@@ -1289,7 +1299,7 @@ WARNING:  ParadeDB: Mapped 4 out of 4 column values: [Some("2"), Some("Document 
 WARNING:  ParadeDB: Converting '2' to integer 2
 WARNING:  ParadeDB: Converting '2' to integer 2
 WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("2"), Some("Document 2"), Some("file2.txt"), Some("2")]
-WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Using standard join execution
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
@@ -1387,7 +1397,7 @@ WARNING:  ParadeDB: Mapped 4 out of 4 column values: [Some("3"), Some("Document 
 WARNING:  ParadeDB: Converting '3' to integer 3
 WARNING:  ParadeDB: Converting '3' to integer 3
 WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("3"), Some("Document 3"), Some("file3.txt"), Some("3")]
-WARNING:  ParadeDB: Executing custom scan
+WARNING:  ParadeDB: Using standard join execution
 WARNING:  ParadeDB: Executing join step
 WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
 WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation

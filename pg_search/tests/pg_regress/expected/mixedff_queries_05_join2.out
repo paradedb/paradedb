@@ -225,8 +225,6 @@ WARNING:  ParadeDB: Explaining custom scan
 (12 rows)
 
 SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color @@@ 'blue') AND (users.name @@@ 'bob') LIMIT 10;
-WARNING:  ParadeDB: Executing custom scan
-WARNING:  ParadeDB: Executing custom scan
  color 
 -------
  blue
@@ -255,8 +253,6 @@ WARNING:  ParadeDB: Explaining custom scan
 (15 rows)
 
 SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color @@@ 'blue') AND (users.name @@@ 'bob') LIMIT 10;
-WARNING:  ParadeDB: Executing custom scan
-WARNING:  ParadeDB: Executing custom scan
  color 
 -------
  blue

@@ -124,6 +124,13 @@ pub enum ExecMethodType {
         sort_direction: SortDirection,
         need_scores: bool,
     },
+    TopNJoin {
+        limit: usize,
+        sort_direction: SortDirection,
+        need_scores: bool,
+        outer_relid: pg_sys::Oid,
+        inner_relid: pg_sys::Oid,
+    },
     FastFieldString {
         field: String,
         which_fast_fields: HashSet<WhichFastField>,
@@ -147,6 +154,10 @@ impl ExecMethodType {
                 // TODO: To allow sorted output with parallel workers, we would need to partition
                 // our segments across the workers so that each worker emitted all of its results
                 // in sorted order.
+                true
+            }
+            ExecMethodType::TopNJoin { .. } if nworkers == 0 => {
+                // TopN joins are also sorted when not using parallel workers
                 true
             }
             _ => false,

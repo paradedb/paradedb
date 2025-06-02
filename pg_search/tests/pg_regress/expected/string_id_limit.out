@@ -1,0 +1,95 @@
+-- Setup
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
+DROP TABLE IF EXISTS comments CASCADE;
+-- create a table with an id, customer_id, text, a created_at timestamp.
+CREATE TABLE comments (
+	id VARCHAR(24) PRIMARY KEY,
+	customer_id VARCHAR(64) NOT NULL,
+	text TEXT DEFAULT ''
+);
+-- add search index
+CREATE INDEX comments_search ON comments USING bm25(
+	id, customer_id, text
+)
+WITH (
+	key_field='id',
+	text_fields='{
+		"customer_id": {
+			"fast":true,
+			"tokenizer": {"type": "keyword"},
+			"record": "basic"
+		}
+	}'
+);
+WARNING:  the `raw` tokenizer is deprecated
+-- populate the table with faulty data
+INSERT INTO comments (id, customer_id) VALUES ('ctx_01ifsur2egUPnbJOAiHv', 'customer_1');
+INSERT INTO comments (id, customer_id) VALUES ('ctx_01iddo3tioqV6f4yCB6O', 'customer_1');
+INSERT INTO comments (id, customer_id) VALUES ('ctx_01ic75tgb5J5XkhJqkjn', 'customer_1');
+-- this row should be the first one returned
+INSERT INTO comments (id, customer_id) VALUES ('ctx_01iso5q4prkOQVGKK0ue', 'customer_1');
+-- Select w limit. This will return
+-- "ctx_01ifsur2egUPnbJOAiHv" first despite it being second in the order
+SELECT * FROM comments
+WHERE id @@@ paradedb.term('customer_id', 'customer_1')
+ORDER BY id desc
+LIMIT 2;
+            id            | customer_id | text 
+--------------------------+-------------+------
+ ctx_01ifsur2egUPnbJOAiHv | customer_1  | 
+ ctx_01iddo3tioqV6f4yCB6O | customer_1  | 
+(2 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT * FROM comments
+WHERE id @@@ paradedb.term('customer_id', 'customer_1')
+ORDER BY id desc
+LIMIT 2;
+                                                        QUERY PLAN                                                         
+---------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Scan) on comments
+         Table: comments
+         Index: comments_search
+         Exec Method: TopNScanExecState
+         Scores: false
+            Sort Field: id
+            Sort Direction: desc
+            Top N Limit: 2
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"customer_id","value":"customer_1","is_datetime":false}}}}
+(10 rows)
+
+-- Select w/o limit, returns correctly ordered results,
+-- "ctx_01iso5q4prkOQVGKK0ue" first
+SELECT * FROM comments
+WHERE id @@@ paradedb.term('customer_id', 'customer_1')
+ORDER BY id DESC;
+            id            | customer_id | text 
+--------------------------+-------------+------
+ ctx_01iso5q4prkOQVGKK0ue | customer_1  | 
+ ctx_01ifsur2egUPnbJOAiHv | customer_1  | 
+ ctx_01iddo3tioqV6f4yCB6O | customer_1  | 
+ ctx_01ic75tgb5J5XkhJqkjn | customer_1  | 
+(4 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT * FROM comments
+WHERE id @@@ paradedb.term('customer_id', 'customer_1')
+ORDER BY id DESC;
+                                                        QUERY PLAN                                                         
+---------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id DESC
+   ->  Custom Scan (ParadeDB Scan) on comments
+         Table: comments
+         Index: comments_search
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"customer_id","value":"customer_1","is_datetime":false}}}}
+(8 rows)
+

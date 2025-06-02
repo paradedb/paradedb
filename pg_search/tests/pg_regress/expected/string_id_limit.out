@@ -41,8 +41,8 @@ ORDER BY id desc
 LIMIT 2;
             id            | customer_id | text 
 --------------------------+-------------+------
+ ctx_01iso5q4prkOQVGKK0ue | customer_1  | 
  ctx_01ifsur2egUPnbJOAiHv | customer_1  | 
- ctx_01iddo3tioqV6f4yCB6O | customer_1  | 
 (2 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

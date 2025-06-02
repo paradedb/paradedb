@@ -37,7 +37,6 @@ use tantivy::index::{Index, SegmentId};
 use tantivy::query::{EnableScoring, QueryClone, QueryParser};
 use tantivy::schema::FieldType;
 use tantivy::snippet::SnippetGenerator;
-use tantivy::termdict::TermOrdinal;
 use tantivy::{
     query::Query, DocAddress, DocId, DocSet, Executor, IndexReader, Order, ReloadPolicy, Score,
     Searcher, SegmentOrdinal, SegmentReader, TantivyDocument,
@@ -98,11 +97,7 @@ pub enum SearchResults {
         FastFieldCache,
         std::vec::IntoIter<(TweakedScore, DocAddress)>,
     ),
-    TopNByField(
-        Searcher,
-        FastFieldCache,
-        std::vec::IntoIter<(TermOrdinal, DocAddress)>,
-    ),
+    TopNByField(Searcher, FastFieldCache, std::vec::IntoIter<DocAddress>),
     MultiSegment(
         Searcher,
         Option<FFType>,
@@ -143,7 +138,7 @@ impl Iterator for SearchResults {
                 (searcher, ff_lookup, (score.score, doc_id))
             }
             SearchResults::TopNByField(searcher, ff_lookup, iter) => {
-                let (_, doc_id) = iter.next()?;
+                let doc_id = iter.next()?;
                 (searcher, ff_lookup, (1.0, doc_id))
             }
             SearchResults::MultiSegment(searcher, fftype, iters, offset) => loop {
@@ -435,7 +430,7 @@ impl SearchIndexReader {
         SearchResults::MultiSegment(self.searcher.clone(), Default::default(), iters, offset)
     }
 
-    /// Search the Tantivy index for the "top N" matching documents in a specific segment.
+    /// Search the Tantivy index for the "top N" matching documents in specific segments.
     ///
     /// The documents are returned in score order.  Most relevant first if `sortdir` is [`SortDirection::Desc`],
     /// or least relevant first if it's [`SortDirection::Asc`].
@@ -458,7 +453,34 @@ impl SearchIndexReader {
                 !need_scores,
                 "cannot sort by field and get scores in the same query"
             );
-            self.top_by_field_in_segments(segment_ids, query, sort_field, sortdir, n, offset)
+            let field = self
+                .schema
+                .get_search_field(&sort_field)
+                .expect("sort field should exist in index schema");
+            match self
+                .schema
+                .schema
+                .get_field_entry(field.into())
+                .field_type()
+                .value_type()
+            {
+                tantivy::schema::Type::Str => self.top_by_string_field_in_segments(
+                    segment_ids,
+                    query,
+                    sort_field,
+                    sortdir,
+                    n,
+                    offset,
+                ),
+                _ => self.top_by_field_in_segments(
+                    segment_ids,
+                    query,
+                    sort_field,
+                    sortdir,
+                    n,
+                    offset,
+                ),
+            }
         } else {
             self.top_by_score_in_segments(segment_ids, query, sortdir, n, offset, need_scores)
         }
@@ -480,13 +502,9 @@ impl SearchIndexReader {
         n: usize,
         offset: usize,
     ) -> SearchResults {
-        let sort_field = self
-            .schema
-            .get_search_field(&sort_field)
-            .expect("sort field should exist in index schema");
         let collector = TopDocs::with_limit(n)
             .and_offset(offset)
-            .order_by_u64_field(sort_field.name.root().clone(), sortdir.into());
+            .order_by_u64_field(&sort_field, sortdir.into());
         let query = self.query(query);
         let weight = query
             .weight(tantivy::query::EnableScoring::Enabled {
@@ -507,7 +525,63 @@ impl SearchIndexReader {
         SearchResults::TopNByField(
             self.searcher.clone(),
             Default::default(),
-            top_docs.into_iter(),
+            // TODO: We are discarding a u64-encoded numeric field value here.
+            // To actually fetch it, we might switch the `TopDocs::order_by_u64_field` call to
+            // `TopDocs::order_by_fast_field`, which handles the decoding.
+            top_docs
+                .into_iter()
+                .map(|(_, doc)| doc)
+                .collect::<Vec<_>>()
+                .into_iter(),
+        )
+    }
+
+    /// Search the Tantivy index for the "top N" matching documents (ordered by a field) in the given segments.
+    ///
+    /// The documents are returned in field order.  Largest first if `sortdir` is [`SortDirection::Desc`],
+    /// or smallest first if it's [`SortDirection::Asc`].
+    ///
+    /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
+    /// handle that, if it's necessary.
+    fn top_by_string_field_in_segments(
+        &self,
+        segment_ids: impl Iterator<Item = SegmentId>,
+        query: &SearchQueryInput,
+        sort_field: FieldName,
+        sortdir: SortDirection,
+        n: usize,
+        offset: usize,
+    ) -> SearchResults {
+        let collector = TopDocs::with_limit(n)
+            .and_offset(offset)
+            .order_by_string_fast_field(&sort_field, sortdir.into());
+        let query = self.query(query);
+        let weight = query
+            .weight(tantivy::query::EnableScoring::Enabled {
+                searcher: &self.searcher,
+                statistics_provider: &self.searcher,
+            })
+            .expect("creating a Weight from a Query should not fail");
+
+        let top_docs = self.collect_segments(segment_ids, |segment_ord, segment_reader| {
+            collector
+                .collect_segment(weight.as_ref(), segment_ord, segment_reader)
+                .expect("should be able to collect top-n in segment")
+        });
+
+        let top_docs = collector
+            .merge_fruits(top_docs)
+            .expect("should be able to merge top-n in segments");
+        SearchResults::TopNByField(
+            self.searcher.clone(),
+            Default::default(),
+            // TODO: We are discarding a valid string field value here, but could in theory actually
+            // render it using a virtual tuple for the right query shape.
+            top_docs
+                .into_iter()
+                .map(|(_, doc)| doc)
+                .collect::<Vec<_>>()
+                .into_iter(),
         )
     }
 

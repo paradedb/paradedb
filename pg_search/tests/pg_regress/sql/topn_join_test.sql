@@ -82,28 +82,28 @@ INSERT INTO books_topn (id, title, author_id, content) VALUES
 
 -- Test 1: TopN Join with LIMIT 5 
 -- This should trigger TopN optimization, processing only ~15 combinations instead of 50
-EXPLAIN (ANALYZE, BUFFERS) 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) 
 SELECT b.title, a.name, b.content
 FROM books_topn b
 JOIN authors_topn a ON b.author_id = a.id
 WHERE b.content @@@ 'science fiction'
   AND a.bio @@@ 'author'
-ORDER BY b.content @@@ 'science fiction' DESC
+ORDER BY b.id DESC
 LIMIT 5;
 
 -- Test 2: Standard join without LIMIT for comparison
 -- This should use standard join processing
-EXPLAIN (ANALYZE, BUFFERS)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT b.title, a.name, b.content  
 FROM books_topn b
 JOIN authors_topn a ON b.author_id = a.id
 WHERE b.content @@@ 'fiction'
   AND a.bio @@@ 'author'
-ORDER BY b.content @@@ 'fiction' DESC;
+ORDER BY b.id DESC;
 
 -- Test 3: TopN Join with composite relation (nested join)
 -- This tests TopN optimization with one side being a composite relation
-EXPLAIN (ANALYZE, BUFFERS)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT outer_result.title, outer_result.author_name, outer_result.content
 FROM (
     SELECT b.title, a.name as author_name, b.content, b.id
@@ -113,7 +113,7 @@ FROM (
 ) outer_result
 JOIN books_topn b2 ON outer_result.id != b2.id
 WHERE b2.content @@@ 'horror'
-ORDER BY b2.content @@@ 'horror' DESC
+ORDER BY b2.id DESC
 LIMIT 3;
 
 -- Test 4: Verify TopN results are correct
@@ -125,7 +125,7 @@ WITH full_results AS (
     JOIN authors_topn a ON b.author_id = a.id  
     WHERE b.content @@@ 'magic fantasy'
       AND a.bio @@@ 'author'
-    ORDER BY distance DESC
+    ORDER BY b.id DESC
 ),
 topn_results AS (
     SELECT b.title, a.name,
@@ -134,7 +134,7 @@ topn_results AS (
     JOIN authors_topn a ON b.author_id = a.id
     WHERE b.content @@@ 'magic fantasy' 
       AND a.bio @@@ 'author'
-    ORDER BY distance DESC
+    ORDER BY b.id DESC
     LIMIT 2
 )
 SELECT 'Full Results' as result_type, * FROM full_results

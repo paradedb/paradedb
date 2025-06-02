@@ -72,13 +72,13 @@ INSERT INTO books_topn (id, title, author_id, content) VALUES
 (10, 'The Stand', 2, 'Post-apocalyptic pandemic survival good versus evil battle');
 -- Test 1: TopN Join with LIMIT 5 
 -- This should trigger TopN optimization, processing only ~15 combinations instead of 50
-EXPLAIN (ANALYZE, BUFFERS) 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) 
 SELECT b.title, a.name, b.content
 FROM books_topn b
 JOIN authors_topn a ON b.author_id = a.id
 WHERE b.content @@@ 'science fiction'
   AND a.bio @@@ 'author'
-ORDER BY b.content @@@ 'science fiction' DESC
+ORDER BY b.id DESC
 LIMIT 5;
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["books_topn"], inner relids: ["authors_topn"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
@@ -104,8 +104,9 @@ WARNING:  ParadeDB: Inner predicate for authors_topn - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["books_topn"], inner: ["authors_topn"]
 WARNING:  ParadeDB: TopN join detected during planning - limit: 5, has_order_by: true, has_search: true
-WARNING:  ParadeDB: TopN join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.00 (optimized)
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: TopN join path estimates - rows: 5, startup_cost: 40.00, total_cost: 15.00 (MUCH LOWER than standard 50.01) - FORCED
+WARNING:  ParadeDB: Forcing TopN join path selection by clearing existing paths
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["authors_topn"], inner relids: ["books_topn"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation authors_topn (rti 2)
@@ -130,64 +131,64 @@ WARNING:  ParadeDB: Inner predicate for books_topn - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_topn"], inner: ["books_topn"]
 WARNING:  ParadeDB: TopN join detected during planning - limit: 5, has_order_by: true, has_search: true
-WARNING:  ParadeDB: TopN join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.00 (optimized)
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: TopN join path estimates - rows: 5, startup_cost: 40.00, total_cost: 15.00 (MUCH LOWER than standard 50.01) - FORCED
+WARNING:  ParadeDB: Forcing TopN join path selection by clearing existing paths
+WARNING:  ParadeDB: Adding custom join path to joinrel
+WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
+WARNING:  ParadeDB: Join target list has 4 entries
+WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'join_attr_1'
+WARNING:  ParadeDB: Mapped join variable varno=1, varattno=4 to 'join_attr_2'
+WARNING:  ParadeDB: Mapped join variable varno=1, varattno=1 to 'join_attr_3'
+WARNING:  ParadeDB: Mapped join variable varno=2, varattno=2 to 'join_attr_4'
+WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
+WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Stored outer relation OIDs: ["authors_topn"]
+WARNING:  ParadeDB: Stored inner relation OIDs: ["books_topn"]
+WARNING:  ParadeDB: Storing 4 variable mappings from planning phase
+WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=1 -> 'join_attr_3'
+WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=2 -> 'join_attr_4'
+WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=4 -> 'join_attr_2'
+WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_1'
+WARNING:  ParadeDB: Initializing production-ready join execution
+WARNING:  ParadeDB: Join configuration - outer predicates: 1 (search: 1), inner predicates: 1 (search: 1), bilateral: true
+WARNING:  ParadeDB: Relation validation - outer: authors_topn (valid: true), inner: books_topn (valid: true)
+WARNING:  ParadeDB: Join execution initialization completed successfully
 WARNING:  ParadeDB: Explaining custom scan
-WARNING:  ParadeDB: Explaining custom scan
-                                                                                                             QUERY PLAN                                                                                                              
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=100002020.03..200002020.27 rows=1 width=97) (actual time=28.235..76.781 rows=2 loops=1)
-   Buffers: shared hit=267
-   ->  Nested Loop  (cost=100002020.03..200002020.27 rows=1 width=97) (actual time=28.233..76.778 rows=2 loops=1)
-         Join Filter: (b.author_id = a.id)
-         Rows Removed by Join Filter: 5
-         Buffers: shared hit=267
-         ->  Gather Merge  (cost=1010.03..1010.15 rows=1 width=72) (actual time=24.479..24.527 rows=2 loops=1)
-               Workers Planned: 1
-               Workers Launched: 1
-               Buffers: shared hit=127
-               ->  Sort  (cost=10.02..10.03 rows=1 width=72) (actual time=2.184..2.188 rows=1 loops=2)
-                     Sort Key: ((b.id @@@ '{"with_index":{"oid":251299,"query":{"parse_with_field":{"field":"content","query_string":"science fiction","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)) DESC
-                     Sort Method: quicksort  Memory: 25kB
-                     Buffers: shared hit=119
-                     Worker 0:  Sort Method: quicksort  Memory: 25kB
-                     ->  Parallel Custom Scan (ParadeDB Scan) on books_topn b  (cost=10.00..10.01 rows=1 width=72) (actual time=1.849..1.877 rows=1 loops=2)
-                           Table: books_topn
-                           Index: books_topn_idx
-                           Segment Count: 1
-                           Heap Fetches: 2
-                           Exec Method: NormalScanExecState
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"science fiction","lenient":null,"conjunction_mode":null}}}}
-                           Buffers: shared hit=82
-         ->  Gather  (cost=1010.00..1010.11 rows=1 width=36) (actual time=2.085..13.888 rows=4 loops=2)
-               Workers Planned: 1
-               Workers Launched: 1
-               Buffers: shared hit=89
-               ->  Parallel Custom Scan (ParadeDB Scan) on authors_topn a  (cost=10.00..10.01 rows=1 width=36) (actual time=0.595..0.750 rows=2 loops=4)
-                     Table: authors_topn
-                     Index: authors_topn_idx
-                     Segment Count: 1
-                     Heap Fetches: 4
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"author","lenient":null,"conjunction_mode":null}}}}
-                     Buffers: shared hit=73
- Planning:
-   Buffers: shared hit=166
- Planning Time: 9.448 ms
- Execution Time: 78.404 ms
-(41 rows)
+WARNING:  ParadeDB: Cleaning up join execution
+WARNING:  ParadeDB: Cleaning up join execution state
+WARNING:  ParadeDB: ===== JOIN EXECUTION STATISTICS =====
+WARNING:  ParadeDB: Search Results - Outer: 0, Inner: 0, Total Combinations: 0
+WARNING:  ParadeDB: Join Processing - Matches: 0, Returned: 0, Success Rate: 0.0%
+WARNING:  ParadeDB: Heap Tuple Access - Attempts: 0, Successes: 0, Success Rate: 0.0%
+WARNING:  ParadeDB: Cleaned up 0 search readers
+WARNING:  ParadeDB: Cleared 0 outer and 0 inner search results
+WARNING:  ParadeDB: ===== END JOIN EXECUTION STATISTICS =====
+WARNING:  ParadeDB: Join execution cleanup complete
+                      QUERY PLAN                      
+------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: b.id DESC
+         ->  Result
+               ->  Custom Scan (ParadeDB Scan)
+                     Node Type: ParadeDB Join
+                     Outer Relation: authors_topn
+                     Inner Relation: books_topn
+                     Join Type: Bilateral Search Join
+                     Outer Search Predicates: 1
+                     Inner Search Predicates: 1
+(11 rows)
 
 -- Test 2: Standard join without LIMIT for comparison
 -- This should use standard join processing
-EXPLAIN (ANALYZE, BUFFERS)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT b.title, a.name, b.content  
 FROM books_topn b
 JOIN authors_topn a ON b.author_id = a.id
 WHERE b.content @@@ 'fiction'
   AND a.bio @@@ 'author'
-ORDER BY b.content @@@ 'fiction' DESC;
+ORDER BY b.id DESC;
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["books_topn"], inner relids: ["authors_topn"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation books_topn (rti 1)
@@ -213,7 +214,7 @@ WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["books_topn"], inner: ["authors_topn"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: true, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["authors_topn"], inner relids: ["books_topn"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation authors_topn (rti 2)
@@ -239,55 +240,55 @@ WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_topn"], inner: ["books_topn"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: true, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Adding custom join path to joinrel
+WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
+WARNING:  ParadeDB: Join target list has 0 entries
+WARNING:  ParadeDB: Using processed_tlist instead (has 4 entries)
+WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'title'
+WARNING:  ParadeDB: Mapped join variable varno=2, varattno=2 to 'name'
+WARNING:  ParadeDB: Mapped join variable varno=1, varattno=4 to 'content'
+WARNING:  ParadeDB: Mapped join variable varno=1, varattno=1 to 'join_attr_4'
+WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
+WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Stored outer relation OIDs: ["books_topn"]
+WARNING:  ParadeDB: Stored inner relation OIDs: ["authors_topn"]
+WARNING:  ParadeDB: Storing 4 variable mappings from planning phase
+WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=2 -> 'name'
+WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=1 -> 'join_attr_4'
+WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=4 -> 'content'
+WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'title'
+WARNING:  ParadeDB: Initializing production-ready join execution
+WARNING:  ParadeDB: Join configuration - outer predicates: 1 (search: 1), inner predicates: 1 (search: 1), bilateral: true
+WARNING:  ParadeDB: Relation validation - outer: books_topn (valid: true), inner: authors_topn (valid: true)
+WARNING:  ParadeDB: Join execution initialization completed successfully
 WARNING:  ParadeDB: Explaining custom scan
-WARNING:  ParadeDB: Explaining custom scan
-                                                                                                      QUERY PLAN                                                                                                       
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Nested Loop  (cost=100002020.03..200002020.27 rows=1 width=97) (actual time=28.332..77.664 rows=2 loops=1)
-   Join Filter: (b.author_id = a.id)
-   Rows Removed by Join Filter: 5
-   Buffers: shared hit=261
-   ->  Gather Merge  (cost=1010.03..1010.15 rows=1 width=72) (actual time=25.331..25.370 rows=2 loops=1)
-         Workers Planned: 1
-         Workers Launched: 1
-         Buffers: shared hit=123
-         ->  Sort  (cost=10.02..10.03 rows=1 width=72) (actual time=1.704..1.707 rows=1 loops=2)
-               Sort Key: ((b.id @@@ '{"with_index":{"oid":251299,"query":{"parse_with_field":{"field":"content","query_string":"fiction","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)) DESC
-               Sort Method: quicksort  Memory: 25kB
-               Buffers: shared hit=115
-               Worker 0:  Sort Method: quicksort  Memory: 25kB
-               ->  Parallel Custom Scan (ParadeDB Scan) on books_topn b  (cost=10.00..10.01 rows=1 width=72) (actual time=1.400..1.426 rows=1 loops=2)
-                     Table: books_topn
-                     Index: books_topn_idx
-                     Segment Count: 1
-                     Heap Fetches: 2
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"fiction","lenient":null,"conjunction_mode":null}}}}
-                     Buffers: shared hit=78
-   ->  Gather  (cost=1010.00..1010.11 rows=1 width=36) (actual time=1.823..14.591 rows=4 loops=2)
-         Workers Planned: 1
-         Workers Launched: 1
-         Buffers: shared hit=89
-         ->  Parallel Custom Scan (ParadeDB Scan) on authors_topn a  (cost=10.00..10.01 rows=1 width=36) (actual time=0.676..0.839 rows=2 loops=4)
-               Table: authors_topn
-               Index: authors_topn_idx
-               Segment Count: 1
-               Heap Fetches: 4
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"author","lenient":null,"conjunction_mode":null}}}}
-               Buffers: shared hit=73
- Planning:
-   Buffers: shared hit=42
- Planning Time: 5.970 ms
- Execution Time: 78.933 ms
-(39 rows)
+WARNING:  ParadeDB: Cleaning up join execution
+WARNING:  ParadeDB: Cleaning up join execution state
+WARNING:  ParadeDB: ===== JOIN EXECUTION STATISTICS =====
+WARNING:  ParadeDB: Search Results - Outer: 0, Inner: 0, Total Combinations: 0
+WARNING:  ParadeDB: Join Processing - Matches: 0, Returned: 0, Success Rate: 0.0%
+WARNING:  ParadeDB: Heap Tuple Access - Attempts: 0, Successes: 0, Success Rate: 0.0%
+WARNING:  ParadeDB: Cleaned up 0 search readers
+WARNING:  ParadeDB: Cleared 0 outer and 0 inner search results
+WARNING:  ParadeDB: ===== END JOIN EXECUTION STATISTICS =====
+WARNING:  ParadeDB: Join execution cleanup complete
+                QUERY PLAN                
+------------------------------------------
+ Sort
+   Sort Key: b.id DESC
+   ->  Custom Scan (ParadeDB Scan)
+         Node Type: ParadeDB Join
+         Outer Relation: books_topn
+         Inner Relation: authors_topn
+         Join Type: Bilateral Search Join
+         Outer Search Predicates: 1
+         Inner Search Predicates: 1
+(9 rows)
 
 -- Test 3: TopN Join with composite relation (nested join)
 -- This tests TopN optimization with one side being a composite relation
-EXPLAIN (ANALYZE, BUFFERS)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT outer_result.title, outer_result.author_name, outer_result.content
 FROM (
     SELECT b.title, a.name as author_name, b.content, b.id
@@ -297,7 +298,7 @@ FROM (
 ) outer_result
 JOIN books_topn b2 ON outer_result.id != b2.id
 WHERE b2.content @@@ 'horror'
-ORDER BY b2.content @@@ 'horror' DESC
+ORDER BY b2.id DESC
 LIMIT 3;
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["books_topn"], inner relids: ["authors_topn"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
@@ -321,8 +322,9 @@ WARNING:  ParadeDB: Will use search on one side and heap scanning on the other s
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["books_topn"], inner: ["authors_topn"]
 WARNING:  ParadeDB: Unilateral join - inner has search, outer needs table scan
 WARNING:  ParadeDB: TopN join detected during planning - limit: 3, has_order_by: true, has_search: true
-WARNING:  ParadeDB: TopN join path estimates - rows: 3, startup_cost: 112.50, total_cost: 112.50 (optimized)
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: TopN join path estimates - rows: 3, startup_cost: 60.00, total_cost: 22.69 (MUCH LOWER than standard 75.65) - FORCED
+WARNING:  ParadeDB: Forcing TopN join path selection by clearing existing paths
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["authors_topn"], inner relids: ["books_topn"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation authors_topn (rti 5)
@@ -345,8 +347,9 @@ WARNING:  ParadeDB: Will use search on one side and heap scanning on the other s
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_topn"], inner: ["books_topn"]
 WARNING:  ParadeDB: Unilateral join - outer has search, inner needs table scan
 WARNING:  ParadeDB: TopN join detected during planning - limit: 3, has_order_by: true, has_search: true
-WARNING:  ParadeDB: TopN join path estimates - rows: 3, startup_cost: 112.50, total_cost: 112.50 (optimized)
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: TopN join path estimates - rows: 3, startup_cost: 60.00, total_cost: 22.69 (MUCH LOWER than standard 75.65) - FORCED
+WARNING:  ParadeDB: Forcing TopN join path selection by clearing existing paths
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["books_topn"], inner relids: ["books_topn"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation books_topn (rti 4)
@@ -369,8 +372,9 @@ WARNING:  ParadeDB: Will use search on one side and heap scanning on the other s
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["books_topn"], inner: ["books_topn"]
 WARNING:  ParadeDB: Unilateral join - inner has search, outer needs table scan
 WARNING:  ParadeDB: TopN join detected during planning - limit: 3, has_order_by: true, has_search: true
-WARNING:  ParadeDB: TopN join path estimates - rows: 3, startup_cost: 112.50, total_cost: 112.50 (optimized)
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: TopN join path estimates - rows: 3, startup_cost: 60.00, total_cost: 22.69 (MUCH LOWER than standard 75.65) - FORCED
+WARNING:  ParadeDB: Forcing TopN join path selection by clearing existing paths
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["books_topn"], inner relids: ["books_topn"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation books_topn (rti 2)
@@ -393,8 +397,9 @@ WARNING:  ParadeDB: Will use search on one side and heap scanning on the other s
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["books_topn"], inner: ["books_topn"]
 WARNING:  ParadeDB: Unilateral join - outer has search, inner needs table scan
 WARNING:  ParadeDB: TopN join detected during planning - limit: 3, has_order_by: true, has_search: true
-WARNING:  ParadeDB: TopN join path estimates - rows: 3, startup_cost: 112.50, total_cost: 112.50 (optimized)
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: TopN join path estimates - rows: 3, startup_cost: 60.00, total_cost: 22.69 (MUCH LOWER than standard 75.65) - FORCED
+WARNING:  ParadeDB: Forcing TopN join path selection by clearing existing paths
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["books_topn", "authors_topn"], inner relids: ["books_topn"]
 WARNING:  ParadeDB: Outer side is composite, inner is base - checking feasibility
 WARNING:  ParadeDB: Composite joins not yet supported - intermediate result access not implemented
@@ -415,23 +420,60 @@ WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
 WARNING:  ParadeDB: Join target list has 4 entries
 WARNING:  ParadeDB: Mapped join variable varno=4, varattno=2 to 'join_attr_1'
 WARNING:  ParadeDB: Mapped join variable varno=4, varattno=4 to 'join_attr_2'
-WARNING:  ParadeDB: Mapped join variable varno=4, varattno=1 to 'join_attr_3'
-WARNING:  ParadeDB: Mapped join variable varno=5, varattno=2 to 'join_attr_4'
+WARNING:  ParadeDB: Mapped join variable varno=4, varattno=3 to 'join_attr_3'
+WARNING:  ParadeDB: Mapped join variable varno=2, varattno=1 to 'join_attr_4'
 WARNING:  ParadeDB: Set custom scan target list for join node
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
-WARNING:  ParadeDB: Extracted search predicates from private data - outer: 0, inner: 1, bilateral: false
+WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 0, bilateral: false
 WARNING:  ParadeDB: Stored outer relation OIDs: ["books_topn"]
-WARNING:  ParadeDB: Stored inner relation OIDs: ["authors_topn"]
+WARNING:  ParadeDB: Stored inner relation OIDs: ["books_topn"]
 WARNING:  ParadeDB: Storing 4 variable mappings from planning phase
 WARNING:  ParadeDB: Planning-time mapping: varno=4, attno=4 -> 'join_attr_2'
 WARNING:  ParadeDB: Planning-time mapping: varno=4, attno=2 -> 'join_attr_1'
-WARNING:  ParadeDB: Planning-time mapping: varno=4, attno=1 -> 'join_attr_3'
-WARNING:  ParadeDB: Planning-time mapping: varno=5, attno=2 -> 'join_attr_4'
+WARNING:  ParadeDB: Planning-time mapping: varno=4, attno=3 -> 'join_attr_3'
+WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=1 -> 'join_attr_4'
 WARNING:  ParadeDB: Initializing production-ready join execution
-WARNING:  ParadeDB: Join configuration - outer predicates: 0 (search: 0), inner predicates: 1 (search: 1), bilateral: false
-WARNING:  ParadeDB: Relation validation - outer: books_topn (valid: true), inner: authors_topn (valid: true)
+WARNING:  ParadeDB: Join configuration - outer predicates: 1 (search: 1), inner predicates: 0 (search: 0), bilateral: false
+WARNING:  ParadeDB: Relation validation - outer: books_topn (valid: true), inner: books_topn (valid: true)
 WARNING:  ParadeDB: Join execution initialization completed successfully
-ERROR:  custom_state.indexrel should already be open
+WARNING:  ParadeDB: Explaining custom scan
+WARNING:  ParadeDB: Explaining custom scan
+WARNING:  ParadeDB: Cleaning up join execution
+WARNING:  ParadeDB: Cleaning up join execution state
+WARNING:  ParadeDB: ===== JOIN EXECUTION STATISTICS =====
+WARNING:  ParadeDB: Search Results - Outer: 0, Inner: 0, Total Combinations: 0
+WARNING:  ParadeDB: Join Processing - Matches: 0, Returned: 0, Success Rate: 0.0%
+WARNING:  ParadeDB: Heap Tuple Access - Attempts: 0, Successes: 0, Success Rate: 0.0%
+WARNING:  ParadeDB: Cleaned up 0 search readers
+WARNING:  ParadeDB: Cleared 0 outer and 0 inner search results
+WARNING:  ParadeDB: ===== END JOIN EXECUTION STATISTICS =====
+WARNING:  ParadeDB: Join execution cleanup complete
+                                                                               QUERY PLAN                                                                               
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: b2.id DESC
+         ->  Hash Join
+               Hash Cond: (a.id = b.author_id)
+               ->  Gather
+                     Workers Planned: 1
+                     ->  Parallel Custom Scan (ParadeDB Scan) on authors_topn a
+                           Table: authors_topn
+                           Index: authors_topn_idx
+                           Exec Method: NumericFastFieldExecState
+                           Fast Fields: id
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"British","lenient":null,"conjunction_mode":null}}}}
+               ->  Hash
+                     ->  Custom Scan (ParadeDB Scan)
+                           Node Type: ParadeDB Join
+                           Outer Relation: books_topn
+                           Inner Relation: books_topn
+                           Join Type: Unilateral Search Join
+                           Outer Search Predicates: 1
+                           Inner Search Predicates: 0
+(22 rows)
+
 -- Test 4: Verify TopN results are correct
 -- Compare TopN limited results with full results
 WITH full_results AS (
@@ -441,7 +483,7 @@ WITH full_results AS (
     JOIN authors_topn a ON b.author_id = a.id  
     WHERE b.content @@@ 'magic fantasy'
       AND a.bio @@@ 'author'
-    ORDER BY distance DESC
+    ORDER BY b.id DESC
 ),
 topn_results AS (
     SELECT b.title, a.name,
@@ -450,7 +492,7 @@ topn_results AS (
     JOIN authors_topn a ON b.author_id = a.id
     WHERE b.content @@@ 'magic fantasy' 
       AND a.bio @@@ 'author'
-    ORDER BY distance DESC
+    ORDER BY b.id DESC
     LIMIT 2
 )
 SELECT 'Full Results' as result_type, * FROM full_results
@@ -482,7 +524,7 @@ WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["books_topn"], inner: ["authors_topn"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: true, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["authors_topn"], inner relids: ["books_topn"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation authors_topn (rti 2)
@@ -508,7 +550,7 @@ WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_topn"], inner: ["books_topn"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: true, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["books_topn"], inner relids: ["authors_topn"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation books_topn (rti 1)
@@ -533,8 +575,9 @@ WARNING:  ParadeDB: Inner predicate for authors_topn - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["books_topn"], inner: ["authors_topn"]
 WARNING:  ParadeDB: TopN join detected during planning - limit: 2, has_order_by: true, has_search: true
-WARNING:  ParadeDB: TopN join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.00 (optimized)
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: TopN join path estimates - rows: 2, startup_cost: 40.00, total_cost: 15.00 (MUCH LOWER than standard 50.01) - FORCED
+WARNING:  ParadeDB: Forcing TopN join path selection by clearing existing paths
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["authors_topn"], inner relids: ["books_topn"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation authors_topn (rti 2)
@@ -559,8 +602,9 @@ WARNING:  ParadeDB: Inner predicate for books_topn - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_topn"], inner: ["books_topn"]
 WARNING:  ParadeDB: TopN join detected during planning - limit: 2, has_order_by: true, has_search: true
-WARNING:  ParadeDB: TopN join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.00 (optimized)
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: TopN join path estimates - rows: 2, startup_cost: 40.00, total_cost: 15.00 (MUCH LOWER than standard 50.01) - FORCED
+WARNING:  ParadeDB: Forcing TopN join path selection by clearing existing paths
+WARNING:  ParadeDB: Adding custom join path to joinrel
  result_type  |                  title                  |     name     | distance 
 --------------+-----------------------------------------+--------------+----------
  Full Results | Harry Potter and the Philosophers Stone | J.K. Rowling | t

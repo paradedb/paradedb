@@ -84,7 +84,7 @@ WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["products"], inner: ["reviews"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["reviews"], inner relids: ["products"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation reviews (rti 2)
@@ -110,7 +110,7 @@ WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["reviews"], inner: ["products"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
 WARNING:  ParadeDB: Join target list has 3 entries
 WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'join_attr_1'
@@ -275,7 +275,7 @@ WARNING:  ParadeDB: Storing join relation OIDs - outer: ["products"], inner: ["r
 WARNING:  ParadeDB: Unilateral join - outer has search, inner needs table scan
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 2, startup_cost: 75.00, total_cost: 75.01
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["reviews"], inner relids: ["products"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation reviews (rti 2)
@@ -299,7 +299,7 @@ WARNING:  ParadeDB: Storing join relation OIDs - outer: ["reviews"], inner: ["pr
 WARNING:  ParadeDB: Unilateral join - inner has search, outer needs table scan
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 2, startup_cost: 75.00, total_cost: 75.01
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
 WARNING:  ParadeDB: Join target list has 3 entries
 WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'join_attr_1'
@@ -729,7 +729,7 @@ WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["products"], inner: ["reviews"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["reviews"], inner relids: ["products"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation reviews (rti 2)
@@ -755,7 +755,7 @@ WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["reviews"], inner: ["products"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
 WARNING:  ParadeDB: Join target list has 3 entries
 WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'join_attr_1'
@@ -902,7 +902,7 @@ WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["products"], inner: ["reviews"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["reviews"], inner relids: ["products"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation reviews (rti 2)
@@ -928,7 +928,7 @@ WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["reviews"], inner: ["products"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
 WARNING:  ParadeDB: Join target list has 3 entries
 WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'join_attr_1'

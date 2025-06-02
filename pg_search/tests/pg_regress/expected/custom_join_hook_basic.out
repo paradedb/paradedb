@@ -96,7 +96,7 @@ WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_join_test"], inner: ["files_join_test"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["files_join_test"], inner relids: ["documents_join_test"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation files_join_test (rti 2)
@@ -122,7 +122,7 @@ WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["files_join_test"], inner: ["documents_join_test"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
 WARNING:  ParadeDB: Join target list has 3 entries
 WARNING:  ParadeDB: Mapped join variable varno=1, varattno=1 to 'join_attr_1'
@@ -336,7 +336,7 @@ WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_join_test"],
 WARNING:  ParadeDB: Unilateral join - outer has search, inner needs table scan
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["files_join_test"], inner relids: ["documents_join_test"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation files_join_test (rti 2)
@@ -360,7 +360,7 @@ WARNING:  ParadeDB: Storing join relation OIDs - outer: ["files_join_test"], inn
 WARNING:  ParadeDB: Unilateral join - inner has search, outer needs table scan
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
 WARNING:  ParadeDB: Join target list has 3 entries
 WARNING:  ParadeDB: Mapped join variable varno=1, varattno=1 to 'join_attr_1'
@@ -533,7 +533,7 @@ WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_join_test"], inner: ["files_join_test"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["files_join_test"], inner relids: ["documents_join_test"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation files_join_test (rti 2)
@@ -559,7 +559,7 @@ WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["files_join_test"], inner: ["documents_join_test"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["documents_join_test"], inner relids: ["authors_join_test"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation documents_join_test (rti 1)
@@ -583,7 +583,7 @@ WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_join_test"],
 WARNING:  ParadeDB: Unilateral join - outer has search, inner needs table scan
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["authors_join_test"], inner relids: ["documents_join_test"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation authors_join_test (rti 4)
@@ -607,7 +607,7 @@ WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_join_test"], i
 WARNING:  ParadeDB: Unilateral join - inner has search, outer needs table scan
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["files_join_test"], inner relids: ["authors_join_test"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation files_join_test (rti 2)
@@ -631,7 +631,7 @@ WARNING:  ParadeDB: Storing join relation OIDs - outer: ["files_join_test"], inn
 WARNING:  ParadeDB: Unilateral join - outer has search, inner needs table scan
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["authors_join_test"], inner relids: ["files_join_test"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation authors_join_test (rti 4)
@@ -655,7 +655,7 @@ WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_join_test"], i
 WARNING:  ParadeDB: Unilateral join - inner has search, outer needs table scan
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["documents_join_test", "files_join_test"], inner relids: ["authors_join_test"]
 WARNING:  ParadeDB: Outer side is composite, inner is base - checking feasibility
 WARNING:  ParadeDB: Composite joins not yet supported - intermediate result access not implemented
@@ -864,7 +864,7 @@ WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_join_test"], inner: ["files_join_test"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["files_join_test"], inner relids: ["documents_join_test"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation files_join_test (rti 2)
@@ -890,7 +890,7 @@ WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["files_join_test"], inner: ["documents_join_test"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["documents_join_test"], inner relids: ["authors_join_test"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation documents_join_test (rti 1)
@@ -916,7 +916,7 @@ WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_join_test"], inner: ["authors_join_test"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["authors_join_test"], inner relids: ["documents_join_test"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation authors_join_test (rti 4)
@@ -942,7 +942,7 @@ WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_join_test"], inner: ["documents_join_test"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["files_join_test"], inner relids: ["authors_join_test"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation files_join_test (rti 2)
@@ -968,7 +968,7 @@ WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["files_join_test"], inner: ["authors_join_test"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["authors_join_test"], inner relids: ["files_join_test"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation authors_join_test (rti 4)
@@ -994,7 +994,7 @@ WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_join_test"], inner: ["files_join_test"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["documents_join_test", "files_join_test"], inner relids: ["authors_join_test"]
 WARNING:  ParadeDB: Outer side is composite, inner is base - checking feasibility
 WARNING:  ParadeDB: Composite joins not yet supported - intermediate result access not implemented
@@ -1053,7 +1053,7 @@ WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_join_test"],
 WARNING:  ParadeDB: Unilateral join - outer has search, inner needs table scan
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["files_join_test"], inner relids: ["documents_join_test"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation files_join_test (rti 2)
@@ -1077,7 +1077,7 @@ WARNING:  ParadeDB: Storing join relation OIDs - outer: ["files_join_test"], inn
 WARNING:  ParadeDB: Unilateral join - inner has search, outer needs table scan
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["documents_join_test"], inner relids: ["authors_join_test"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation documents_join_test (rti 1)
@@ -1101,7 +1101,7 @@ WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_join_test"],
 WARNING:  ParadeDB: Unilateral join - outer has search, inner needs table scan
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["authors_join_test"], inner relids: ["documents_join_test"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation authors_join_test (rti 4)
@@ -1125,7 +1125,7 @@ WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_join_test"], i
 WARNING:  ParadeDB: Unilateral join - inner has search, outer needs table scan
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
-WARNING:  ParadeDB: Created custom join path, adding to joinrel
+WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["files_join_test"], inner relids: ["authors_join_test"]
 WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
 WARNING:  ParadeDB: Found BM25 index for relation files_join_test (rti 2)

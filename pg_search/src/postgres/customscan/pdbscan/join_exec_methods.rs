@@ -22,7 +22,7 @@
 
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::reader::index::SearchIndexReader;
-use crate::postgres::customscan::builders::custom_path::SortDirection;
+use crate::postgres::customscan::builders::custom_path::{ExecMethodType, SortDirection};
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::pdbscan::join_qual_inspect::{
     JoinSearchPredicates, RelationSearchPredicate,
@@ -4059,199 +4059,149 @@ unsafe fn execute_real_searches_safe(
 pub unsafe fn exec_topn_join_step(
     state: &mut CustomScanStateWrapper<PdbScan>,
 ) -> *mut pg_sys::TupleTableSlot {
-    pgrx::warning!("ParadeDB: Executing TopN-optimized join step");
+    pgrx::warning!("ParadeDB: Executing TopN join step");
 
-    // Get or initialize TopN execution state
-    let needs_init = if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
-        join_state.topn_exec_state.is_none()
-    } else {
-        pgrx::warning!("ParadeDB: No join execution state for TopN join");
-        return std::ptr::null_mut();
-    };
-
-    if needs_init {
-        pgrx::warning!("ParadeDB: Initializing TopN join execution state");
+    // Initialize TopN execution if not already done
+    if state.custom_state().join_exec_state.is_none() {
         if !init_topn_join_execution(state) {
             pgrx::warning!("ParadeDB: Failed to initialize TopN join execution");
             return std::ptr::null_mut();
         }
     }
 
-    // Execute TopN join phases
-    let current_phase = if let Some(ref join_state) = state.custom_state().join_exec_state {
-        if let Some(ref topn_state) = join_state.topn_exec_state {
-            topn_state.phase.clone()
-        } else {
-            TopNJoinPhase::NotStarted
+    // Get the join execution state
+    let mut join_state = match state.custom_state_mut().join_exec_state.as_mut() {
+        Some(state) => state,
+        None => {
+            pgrx::warning!("ParadeDB: TopN join state not initialized");
+            return std::ptr::null_mut();
         }
-    } else {
-        return std::ptr::null_mut();
     };
 
-    match current_phase {
-        TopNJoinPhase::NotStarted => {
-            pgrx::warning!("ParadeDB: TopN Phase 1/5 - Starting TopN join execution");
+    // Check if we have TopN execution state
+    let mut topn_state = match join_state.topn_exec_state.as_mut() {
+        Some(state) => state,
+        None => {
+            pgrx::warning!("ParadeDB: TopN execution state not initialized");
+            return std::ptr::null_mut();
+        }
+    };
 
-            // Initialize search readers
-            if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
-                if let Some(ref mut topn_state) = join_state.topn_exec_state {
-                    if !topn_state.init_search_readers() {
-                        pgrx::warning!("ParadeDB: Failed to initialize TopN search readers");
-                        return std::ptr::null_mut();
-                    }
+    // Execute TopN join phases
+    loop {
+        match topn_state.phase {
+            TopNJoinPhase::NotStarted => {
+                pgrx::warning!("ParadeDB: TopN Phase 1/5 - Initializing search readers");
+                if topn_state.init_search_readers() {
                     topn_state.phase = TopNJoinPhase::InitialSearch;
-                }
-            }
-
-            // Continue to next phase
-            exec_topn_join_step(state)
-        }
-        TopNJoinPhase::InitialSearch => {
-            pgrx::warning!("ParadeDB: TopN Phase 2/5 - Executing initial limited searches");
-
-            // Execute initial searches with limited results
-            if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
-                if let Some(ref mut topn_state) = join_state.topn_exec_state {
-                    if !topn_state.execute_initial_searches() {
-                        pgrx::warning!("ParadeDB: TopN initial searches failed");
-                        return std::ptr::null_mut();
-                    }
-                    topn_state.phase = TopNJoinPhase::GeneratingMatches;
-                }
-            }
-
-            // Continue to next phase
-            exec_topn_join_step(state)
-        }
-        TopNJoinPhase::GeneratingMatches => {
-            pgrx::warning!("ParadeDB: TopN Phase 3/5 - Generating TopN join matches");
-
-            // Generate TopN join matches
-            if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
-                if let Some(ref mut topn_state) = join_state.topn_exec_state {
-                    if !topn_state.generate_topn_matches() {
-                        pgrx::warning!("ParadeDB: TopN match generation failed");
-                        topn_state.phase = TopNJoinPhase::Finished;
-                        return std::ptr::null_mut();
-                    }
-                    topn_state.phase = TopNJoinPhase::ReturningTuples;
-                }
-            }
-
-            // Continue to next phase
-            exec_topn_join_step(state)
-        }
-        TopNJoinPhase::ReturningTuples => {
-            pgrx::warning!("ParadeDB: TopN Phase 4/5 - Returning matched tuples");
-
-            // Get the next TopN match
-            let next_match =
-                if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
-                    if let Some(ref mut topn_state) = join_state.topn_exec_state {
-                        topn_state.get_next_match()
-                    } else {
-                        None
-                    }
+                    pgrx::warning!("ParadeDB: TopN search readers initialized successfully");
                 } else {
-                    None
-                };
-
-            match next_match {
-                Some(match_item) => {
-                    // Check if we need to expand search results
-                    let should_expand =
-                        if let Some(ref join_state) = state.custom_state().join_exec_state {
-                            if let Some(ref topn_state) = join_state.topn_exec_state {
-                                topn_state.should_expand_search()
-                            } else {
-                                false
-                            }
-                        } else {
-                            false
-                        };
-
-                    if should_expand {
-                        // Move to expansion phase
-                        if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
-                            if let Some(ref mut topn_state) = join_state.topn_exec_state {
-                                topn_state.phase = TopNJoinPhase::ExpandingSearch;
-                            }
-                        }
-                        return exec_topn_join_step(state);
-                    }
-
-                    // Process this match with visibility checking
-                    process_topn_join_match(state, match_item)
+                    pgrx::warning!("ParadeDB: Failed to initialize TopN search readers");
+                    topn_state.phase = TopNJoinPhase::Finished;
+                    return std::ptr::null_mut();
                 }
-                None => {
-                    // No more matches - check if we should expand or finish
-                    let should_expand =
-                        if let Some(ref join_state) = state.custom_state().join_exec_state {
-                            if let Some(ref topn_state) = join_state.topn_exec_state {
-                                topn_state.should_expand_search()
-                            } else {
-                                false
-                            }
-                        } else {
-                            false
-                        };
+            }
 
-                    if should_expand {
-                        // Move to expansion phase
+            TopNJoinPhase::InitialSearch => {
+                pgrx::warning!("ParadeDB: TopN Phase 2/5 - Executing initial searches");
+                if topn_state.execute_initial_searches() {
+                    topn_state.phase = TopNJoinPhase::GeneratingMatches;
+                    pgrx::warning!(
+                        "ParadeDB: TopN initial searches completed - outer: {}, inner: {}",
+                        topn_state.outer_results.len(),
+                        topn_state.inner_results.len()
+                    );
+                } else {
+                    pgrx::warning!("ParadeDB: TopN initial searches failed");
+                    topn_state.phase = TopNJoinPhase::Finished;
+                    return std::ptr::null_mut();
+                }
+            }
+
+            TopNJoinPhase::GeneratingMatches => {
+                pgrx::warning!("ParadeDB: TopN Phase 3/5 - Generating top-N matches");
+                if topn_state.generate_topn_matches() {
+                    topn_state.phase = TopNJoinPhase::ReturningTuples;
+                    pgrx::warning!(
+                        "ParadeDB: TopN matches generated - {} candidates in buffer",
+                        topn_state.match_buffer.len()
+                    );
+                } else {
+                    pgrx::warning!("ParadeDB: TopN match generation failed");
+                    topn_state.phase = TopNJoinPhase::Finished;
+                    return std::ptr::null_mut();
+                }
+            }
+
+            TopNJoinPhase::ReturningTuples => {
+                pgrx::warning!("ParadeDB: TopN Phase 4/5 - Returning tuple matches");
+                if let Some(match_item) = topn_state.get_next_match() {
+                    // Process this match with visibility checking
+                    // We need to temporarily drop the topn_state borrow to call process_topn_join_match
+                    drop(topn_state);
+                    drop(join_state);
+
+                    if let Some(tuple) = process_topn_join_match(state, match_item) {
+                        // Re-borrow to increment visible count
                         if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
                             if let Some(ref mut topn_state) = join_state.topn_exec_state {
-                                topn_state.phase = TopNJoinPhase::ExpandingSearch;
-                            }
-                        }
-                        return exec_topn_join_step(state);
-                    } else {
-                        // Finished
-                        if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
-                            if let Some(ref mut topn_state) = join_state.topn_exec_state {
-                                topn_state.phase = TopNJoinPhase::Finished;
-                                let (outer_count, inner_count, matches, visible) =
-                                    topn_state.get_stats();
+                                topn_state.increment_visible();
                                 pgrx::warning!(
-                                    "ParadeDB: TopN join complete - outer: {}, inner: {}, matches: {}, visible: {}",
-                                    outer_count, inner_count, matches, visible
+                                    "ParadeDB: TopN returning tuple {} of {} (found visible: {})",
+                                    topn_state.buffer_position,
+                                    topn_state.match_buffer.len(),
+                                    topn_state.found_visible
                                 );
                             }
                         }
-                        std::ptr::null_mut()
+                        return tuple;
                     }
-                }
-            }
-        }
-        TopNJoinPhase::ExpandingSearch => {
-            pgrx::warning!("ParadeDB: TopN Phase 5/5 - Expanding search results");
 
-            // Expand search results
-            if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
-                if let Some(ref mut topn_state) = join_state.topn_exec_state {
-                    if topn_state.expand_search_results() {
-                        // Successfully expanded, go back to generating matches
-                        topn_state.phase = TopNJoinPhase::GeneratingMatches;
-                        return exec_topn_join_step(state);
-                    } else {
-                        // Could not expand further, finish
-                        topn_state.phase = TopNJoinPhase::Finished;
-                        let (outer_count, inner_count, matches, visible) = topn_state.get_stats();
-                        pgrx::warning!(
-                            "ParadeDB: TopN join exhausted - outer: {}, inner: {}, matches: {}, visible: {}",
-                            outer_count, inner_count, matches, visible
-                        );
-                        std::ptr::null_mut()
-                    }
+                    // Re-borrow for next iteration
+                    join_state = match state.custom_state_mut().join_exec_state.as_mut() {
+                        Some(state) => state,
+                        None => return std::ptr::null_mut(),
+                    };
+                    topn_state = match join_state.topn_exec_state.as_mut() {
+                        Some(state) => state,
+                        None => return std::ptr::null_mut(),
+                    };
+
+                    // Continue to next match if this one wasn't visible
+                    continue;
                 } else {
-                    std::ptr::null_mut()
+                    // No more matches in buffer
+                    if topn_state.should_expand_search() {
+                        topn_state.phase = TopNJoinPhase::ExpandingSearch;
+                        pgrx::warning!("ParadeDB: TopN transitioning to expansion phase");
+                        continue;
+                    } else {
+                        topn_state.phase = TopNJoinPhase::Finished;
+                        pgrx::warning!("ParadeDB: TopN join execution completed");
+                        return std::ptr::null_mut();
+                    }
                 }
-            } else {
-                std::ptr::null_mut()
             }
-        }
-        TopNJoinPhase::Finished => {
-            pgrx::warning!("ParadeDB: TopN join execution completed");
-            std::ptr::null_mut()
+
+            TopNJoinPhase::ExpandingSearch => {
+                pgrx::warning!("ParadeDB: TopN Phase 5/5 - Expanding search for more results");
+                if topn_state.expand_search_results() {
+                    topn_state.phase = TopNJoinPhase::ReturningTuples;
+                    pgrx::warning!(
+                        "ParadeDB: TopN search expansion successful, returning to tuple phase"
+                    );
+                    continue;
+                } else {
+                    topn_state.phase = TopNJoinPhase::Finished;
+                    pgrx::warning!("ParadeDB: TopN search expansion exhausted");
+                    return std::ptr::null_mut();
+                }
+            }
+
+            TopNJoinPhase::Finished => {
+                pgrx::warning!("ParadeDB: TopN join execution finished");
+                return std::ptr::null_mut();
+            }
         }
     }
 }
@@ -4260,31 +4210,38 @@ pub unsafe fn exec_topn_join_step(
 fn init_topn_join_execution(state: &mut CustomScanStateWrapper<PdbScan>) -> bool {
     pgrx::warning!("ParadeDB: Initializing TopN join execution");
 
-    // Extract configuration from the custom scan state
-    let (limit, sort_direction, need_scores) = (
-        state.custom_state().limit.unwrap_or(100),
-        state
-            .custom_state()
-            .sort_direction
-            .unwrap_or(SortDirection::Desc),
-        state.custom_state().need_scores(),
-    );
-
-    // Get relation OIDs and search predicates
-    let (outer_relid, inner_relid, search_predicates) =
-        if let Some(ref join_state) = state.custom_state().join_exec_state {
-            (
-                join_state.outer_relid,
-                join_state.inner_relid,
-                join_state.search_predicates.clone(),
-            )
-        } else {
-            pgrx::warning!("ParadeDB: No join execution state for TopN initialization");
-            return false;
+    // Get TopN configuration from execution method type
+    let (limit, sort_direction, need_scores, outer_relid, inner_relid) =
+        match &state.custom_state().exec_method_type {
+            ExecMethodType::TopNJoin {
+                limit,
+                sort_direction,
+                need_scores,
+                outer_relid,
+                inner_relid,
+            } => (
+                *limit,
+                *sort_direction,
+                *need_scores,
+                *outer_relid,
+                *inner_relid,
+            ),
+            _ => {
+                pgrx::warning!("ParadeDB: Not a TopN join execution method");
+                return false;
+            }
         };
 
+    // Get search predicates from join execution state
+    let search_predicates = if let Some(ref join_state) = state.custom_state().join_exec_state {
+        join_state.search_predicates.clone()
+    } else {
+        pgrx::warning!("ParadeDB: No join execution state found for TopN join");
+        return false;
+    };
+
     // Create TopN execution state
-    let topn_state = TopNJoinExecState::new(
+    let topn_exec_state = TopNJoinExecState::new(
         limit,
         sort_direction,
         need_scores,
@@ -4293,18 +4250,18 @@ fn init_topn_join_execution(state: &mut CustomScanStateWrapper<PdbScan>) -> bool
         search_predicates,
     );
 
-    // Store it in the join execution state
+    // Store TopN execution state in join execution state
     if let Some(ref mut join_state) = state.custom_state_mut().join_exec_state {
-        join_state.topn_exec_state = Some(topn_state);
+        join_state.topn_exec_state = Some(topn_exec_state);
         pgrx::warning!(
-            "ParadeDB: TopN join initialized - limit: {}, sort: {:?}, outer: {}, inner: {}",
+            "ParadeDB: TopN join execution initialized - limit: {}, outer: {}, inner: {}",
             limit,
-            sort_direction,
             unsafe { get_rel_name(outer_relid) },
             unsafe { get_rel_name(inner_relid) }
         );
         true
     } else {
+        pgrx::warning!("ParadeDB: Failed to store TopN execution state");
         false
     }
 }
@@ -4313,7 +4270,7 @@ fn init_topn_join_execution(state: &mut CustomScanStateWrapper<PdbScan>) -> bool
 unsafe fn process_topn_join_match(
     state: &mut CustomScanStateWrapper<PdbScan>,
     match_item: ScoredJoinMatch,
-) -> *mut pg_sys::TupleTableSlot {
+) -> Option<*mut pg_sys::TupleTableSlot> {
     pgrx::warning!(
         "ParadeDB: Processing TopN match - outer: {}, inner: {}, score: {}",
         match_item.outer_ctid,
@@ -4331,7 +4288,7 @@ unsafe fn process_topn_join_match(
     let scan_slot = state.csstate.ss.ss_ScanTupleSlot;
     if scan_slot.is_null() {
         pgrx::warning!("ParadeDB: Scan slot is null in TopN match processing");
-        return std::ptr::null_mut();
+        return None;
     }
 
     // Clear the slot
@@ -4393,7 +4350,7 @@ unsafe fn process_topn_join_match(
     }
 
     pgrx::warning!("ParadeDB: TopN match processed successfully");
-    scan_slot
+    Some(scan_slot)
 }
 
 impl TopNJoinExecState {
@@ -4428,32 +4385,77 @@ impl TopNJoinExecState {
 
     /// Initialize search readers for the relations, supporting composite relations
     pub fn init_search_readers(&mut self) -> bool {
-        if let Some(ref predicates) = self.search_predicates {
-            // Initialize reader for outer relation if it has search predicates
-            if !predicates.outer_predicates.is_empty() && self.outer_relid != pg_sys::InvalidOid {
-                if let Some(reader) = self.create_search_reader(self.outer_relid) {
-                    self.search_readers.insert(self.outer_relid, reader);
-                } else {
-                    pgrx::warning!("ParadeDB: Failed to create search reader for outer relation");
-                    return false;
-                }
-            }
+        pgrx::warning!("ParadeDB: Initializing TopN search readers");
 
-            // Initialize reader for inner relation if it has search predicates
-            if !predicates.inner_predicates.is_empty() && self.inner_relid != pg_sys::InvalidOid {
-                if let Some(reader) = self.create_search_reader(self.inner_relid) {
-                    self.search_readers.insert(self.inner_relid, reader);
-                } else {
-                    pgrx::warning!("ParadeDB: Failed to create search reader for inner relation");
-                    return false;
-                }
-            }
-
-            true
+        // Try to create search readers for each relation
+        // For join nodes, we need to get BM25 indexes directly from relation OIDs
+        if let Some(reader) = self.create_search_reader(self.outer_relid) {
+            self.search_readers.insert(self.outer_relid, reader);
+            pgrx::warning!(
+                "ParadeDB: TopN outer search reader initialized for {}",
+                unsafe { get_rel_name(self.outer_relid) }
+            );
         } else {
-            pgrx::warning!("ParadeDB: No search predicates available for TopN join");
-            false
+            pgrx::warning!(
+                "ParadeDB: TopN could not create outer search reader for {} - will use table scan",
+                unsafe { get_rel_name(self.outer_relid) }
+            );
+            // This is OK - we can fall back to table scans
         }
+
+        if let Some(reader) = self.create_search_reader(self.inner_relid) {
+            self.search_readers.insert(self.inner_relid, reader);
+            pgrx::warning!(
+                "ParadeDB: TopN inner search reader initialized for {}",
+                unsafe { get_rel_name(self.inner_relid) }
+            );
+        } else {
+            pgrx::warning!(
+                "ParadeDB: TopN could not create inner search reader for {} - will use table scan",
+                unsafe { get_rel_name(self.inner_relid) }
+            );
+            // This is OK - we can fall back to table scans
+        }
+
+        // Check if we have search predicates that require search readers
+        if let Some(ref predicates) = self.search_predicates {
+            let needs_outer_search = !predicates.outer_predicates.is_empty()
+                && predicates
+                    .outer_predicates
+                    .iter()
+                    .any(|p| p.uses_search_operator);
+            let needs_inner_search = !predicates.inner_predicates.is_empty()
+                && predicates
+                    .inner_predicates
+                    .iter()
+                    .any(|p| p.uses_search_operator);
+
+            if needs_outer_search && !self.search_readers.contains_key(&self.outer_relid) {
+                pgrx::warning!(
+                    "ParadeDB: TopN WARNING - outer search required but no search reader available"
+                );
+                // Don't fail completely - we can still try table scans
+            }
+
+            if needs_inner_search && !self.search_readers.contains_key(&self.inner_relid) {
+                pgrx::warning!(
+                    "ParadeDB: TopN WARNING - inner search required but no search reader available"
+                );
+                // Don't fail completely - we can still try table scans
+            }
+
+            pgrx::warning!(
+                "ParadeDB: TopN search reader summary - outer: {}, inner: {}, predicates: outer={}, inner={}",
+                self.search_readers.contains_key(&self.outer_relid),
+                self.search_readers.contains_key(&self.inner_relid),
+                needs_outer_search,
+                needs_inner_search
+            );
+        }
+
+        // Return true even if we couldn't create all readers - we can fall back to table scans
+        pgrx::warning!("ParadeDB: TopN search reader initialization completed");
+        true
     }
 
     /// Create a search reader for a relation

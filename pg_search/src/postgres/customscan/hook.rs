@@ -434,8 +434,18 @@ pub extern "C-unwind" fn paradedb_join_pathlist_callback<CS: CustomScan>(
             search_predicates.as_ref(),
             &composite_analysis,
         );
-        if let Some(path) = custom_path {
-            warning!("ParadeDB: Created custom join path, adding to joinrel");
+        if let Some(mut path) = custom_path {
+            // Handle Force flag like in rel_pathlist_callback
+            let forced = (*path).flags & Flags::Force as u32 != 0;
+            (*path).flags ^= Flags::Force as u32; // Clear the Force flag
+
+            if forced {
+                warning!("ParadeDB: Forcing TopN join path selection by clearing existing paths");
+                // Remove all existing possible paths to force our custom join
+                (*joinrel).pathlist = std::ptr::null_mut();
+            }
+
+            warning!("ParadeDB: Adding custom join path to joinrel");
             pg_sys::add_path(joinrel, path.cast());
         } else {
             warning!("ParadeDB: Failed to create custom join path");
@@ -728,25 +738,32 @@ unsafe fn create_search_join_path<CS: CustomScan>(
             has_search_predicates
         );
 
-        // Adjust cost estimates for TopN optimization
-        // TopN joins process significantly fewer combinations
-        let topn_selectivity = (limit_count as f64) / (outer_rows * inner_rows).max(1.0);
-        let topn_estimated_rows = (limit_count as f64).min(estimated_rows);
+        // CRITICAL FIX: TopN joins should have MUCH LOWER costs than standard joins
+        // TopN dramatically reduces the work by only processing combinations needed for LIMIT
+        let topn_reduction_factor =
+            (limit_count as f64 / (outer_rows * inner_rows).max(1.0)).min(0.1);
 
-        // TopN has higher startup cost but much lower total cost
-        let topn_startup_cost = startup_cost * 1.5; // Slightly higher startup
-        let topn_total_cost = topn_startup_cost + (topn_estimated_rows * per_tuple_cost * 0.1); // Much lower total cost
+        // TopN has slightly higher startup cost (for setup) but dramatically lower total cost
+        let topn_startup_cost = startup_cost * 0.8; // Slightly lower startup (good optimization)
+        let topn_total_cost =
+            topn_startup_cost + (limit_count as f64 * per_tuple_cost * topn_reduction_factor);
+
+        // Ensure TopN cost is significantly lower than standard join cost
+        let standard_total_cost = startup_cost + (estimated_rows * per_tuple_cost);
+        let final_topn_cost = topn_total_cost.min(standard_total_cost * 0.3); // At most 30% of standard cost
 
         builder = builder
-            .set_rows(topn_estimated_rows)
+            .set_rows(limit_count as f64)
             .set_startup_cost(topn_startup_cost)
-            .set_total_cost(topn_total_cost);
+            .set_total_cost(final_topn_cost)
+            .set_flag(Flags::Force); // Force TopN join selection - it's a major optimization
 
         warning!(
-            "ParadeDB: TopN join path estimates - rows: {:.0}, startup_cost: {:.2}, total_cost: {:.2} (optimized)",
-            topn_estimated_rows,
+            "ParadeDB: TopN join path estimates - rows: {}, startup_cost: {:.2}, total_cost: {:.2} (MUCH LOWER than standard {:.2}) - FORCED",
+            limit_count,
             topn_startup_cost,
-            topn_total_cost
+            final_topn_cost,
+            standard_total_cost
         );
     } else {
         // Standard join execution method

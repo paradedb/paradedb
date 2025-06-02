@@ -138,6 +138,8 @@ jobs:
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false # Disable cache on publish workflows
 
       # Note: We need to specify bash as the shell to ensure that it doesn't default to /bin/sh on Debian, since
       # /bin/sh does not support the `[[` syntax.

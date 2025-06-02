@@ -374,7 +374,7 @@ checksum = "89e25b6adfb930f02d1981565a6e5d9c547ac15a96606256d3b59040e5cd4ca3"
 
 [[package]]
 name = "benchmarks"
-version = "0.15.20"
+version = "0.15.21"
 dependencies = [
  "anyhow",
  "clap",
@@ -785,6 +785,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "cobs"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "67ba02a97a2bd10f4b59b25c7973101c79642302776489e030cd13cdab09ed15"
+
+[[package]]
 name = "colorchoice"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1138,6 +1144,18 @@ checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 dependencies = [
  "serde",
 ]
+
+[[package]]
+name = "embedded-io"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef1a6892d9eef45c8fa6b9e0086428a2cca8491aca8f787c534a3d6d0bcb3ced"
+
+[[package]]
+name = "embedded-io"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "edd0f118536f44f5ccd48bcb8b111bdc3de888b58c74639dfb034a357d0f206d"
 
 [[package]]
 name = "encoding"
@@ -2874,7 +2892,7 @@ dependencies = [
 [[package]]
 name = "ownedbytes"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=e7b32ae0e9f44a2ed8b82683fb0c6527eff7002b#e7b32ae0e9f44a2ed8b82683fb0c6527eff7002b"
+source = "git+https://github.com/paradedb/tantivy.git?rev=657cedc19af403b33392841e2cc3e639ddc84211#657cedc19af403b33392841e2cc3e639ddc84211"
 dependencies = [
  "stable_deref_trait",
 ]
@@ -3014,7 +3032,7 @@ dependencies = [
 
 [[package]]
 name = "pg_search"
-version = "0.15.20"
+version = "0.15.21"
 dependencies = [
  "anyhow",
  "bincode 2.0.1",
@@ -3032,6 +3050,7 @@ dependencies = [
  "parking_lot",
  "pgrx",
  "pgrx-tests",
+ "postcard",
  "proptest",
  "rand 0.9.1",
  "rstest",
@@ -3330,6 +3349,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be97d76faf1bfab666e1375477b23fde79eccf0276e9b63b92a39d676a889ba9"
 dependencies = [
  "rand 0.8.5",
+]
+
+[[package]]
+name = "postcard"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "170a2601f67cc9dba8edd8c4870b15f71a6a2dc196daec8c83f72b59dff628a8"
+dependencies = [
+ "cobs",
+ "embedded-io 0.4.0",
+ "embedded-io 0.6.1",
+ "serde",
 ]
 
 [[package]]
@@ -4641,7 +4672,7 @@ dependencies = [
 [[package]]
 name = "tantivy"
 version = "0.23.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=e7b32ae0e9f44a2ed8b82683fb0c6527eff7002b#e7b32ae0e9f44a2ed8b82683fb0c6527eff7002b"
+source = "git+https://github.com/paradedb/tantivy.git?rev=657cedc19af403b33392841e2cc3e639ddc84211#657cedc19af403b33392841e2cc3e639ddc84211"
 dependencies = [
  "aho-corasick",
  "arc-swap",
@@ -4693,7 +4724,7 @@ dependencies = [
 [[package]]
 name = "tantivy-bitpacker"
 version = "0.6.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=e7b32ae0e9f44a2ed8b82683fb0c6527eff7002b#e7b32ae0e9f44a2ed8b82683fb0c6527eff7002b"
+source = "git+https://github.com/paradedb/tantivy.git?rev=657cedc19af403b33392841e2cc3e639ddc84211#657cedc19af403b33392841e2cc3e639ddc84211"
 dependencies = [
  "bitpacking",
 ]
@@ -4701,7 +4732,7 @@ dependencies = [
 [[package]]
 name = "tantivy-columnar"
 version = "0.3.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=e7b32ae0e9f44a2ed8b82683fb0c6527eff7002b#e7b32ae0e9f44a2ed8b82683fb0c6527eff7002b"
+source = "git+https://github.com/paradedb/tantivy.git?rev=657cedc19af403b33392841e2cc3e639ddc84211#657cedc19af403b33392841e2cc3e639ddc84211"
 dependencies = [
  "downcast-rs",
  "fastdivide",
@@ -4716,7 +4747,7 @@ dependencies = [
 [[package]]
 name = "tantivy-common"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=e7b32ae0e9f44a2ed8b82683fb0c6527eff7002b#e7b32ae0e9f44a2ed8b82683fb0c6527eff7002b"
+source = "git+https://github.com/paradedb/tantivy.git?rev=657cedc19af403b33392841e2cc3e639ddc84211#657cedc19af403b33392841e2cc3e639ddc84211"
 dependencies = [
  "async-trait",
  "byteorder",
@@ -4749,7 +4780,7 @@ dependencies = [
 [[package]]
 name = "tantivy-query-grammar"
 version = "0.22.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=e7b32ae0e9f44a2ed8b82683fb0c6527eff7002b#e7b32ae0e9f44a2ed8b82683fb0c6527eff7002b"
+source = "git+https://github.com/paradedb/tantivy.git?rev=657cedc19af403b33392841e2cc3e639ddc84211#657cedc19af403b33392841e2cc3e639ddc84211"
 dependencies = [
  "nom",
 ]
@@ -4757,7 +4788,7 @@ dependencies = [
 [[package]]
 name = "tantivy-sstable"
 version = "0.3.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=e7b32ae0e9f44a2ed8b82683fb0c6527eff7002b#e7b32ae0e9f44a2ed8b82683fb0c6527eff7002b"
+source = "git+https://github.com/paradedb/tantivy.git?rev=657cedc19af403b33392841e2cc3e639ddc84211#657cedc19af403b33392841e2cc3e639ddc84211"
 dependencies = [
  "futures-util",
  "itertools 0.14.0",
@@ -4770,7 +4801,7 @@ dependencies = [
 [[package]]
 name = "tantivy-stacker"
 version = "0.3.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=e7b32ae0e9f44a2ed8b82683fb0c6527eff7002b#e7b32ae0e9f44a2ed8b82683fb0c6527eff7002b"
+source = "git+https://github.com/paradedb/tantivy.git?rev=657cedc19af403b33392841e2cc3e639ddc84211#657cedc19af403b33392841e2cc3e639ddc84211"
 dependencies = [
  "murmurhash32",
  "rand_distr",
@@ -4780,7 +4811,7 @@ dependencies = [
 [[package]]
 name = "tantivy-tokenizer-api"
 version = "0.3.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=e7b32ae0e9f44a2ed8b82683fb0c6527eff7002b#e7b32ae0e9f44a2ed8b82683fb0c6527eff7002b"
+source = "git+https://github.com/paradedb/tantivy.git?rev=657cedc19af403b33392841e2cc3e639ddc84211#657cedc19af403b33392841e2cc3e639ddc84211"
 dependencies = [
  "serde",
 ]
@@ -4826,7 +4857,7 @@ dependencies = [
 
 [[package]]
 name = "tests"
-version = "0.15.20"
+version = "0.15.21"
 dependencies = [
  "anyhow",
  "approx",
@@ -4964,7 +4995,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokenizers"
-version = "0.15.20"
+version = "0.15.21"
 dependencies = [
  "anyhow",
  "lindera",

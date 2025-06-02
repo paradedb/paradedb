@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::index::FieldName;
 use crate::api::{HashMap, HashSet};
 use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
@@ -25,12 +26,11 @@ use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::storage::block::{
     LinkedList, MVCCEntry, SegmentMetaEntry, SEGMENT_METAS_START,
 };
-use crate::postgres::storage::merge::MergeLock;
+use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::storage::LinkedItemList;
 use crate::postgres::utils::item_pointer_to_u64;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchFieldConfig;
-use crate::schema::SearchFieldName;
 use anyhow::Result;
 use pgrx::prelude::*;
 use pgrx::JsonB;
@@ -41,7 +41,7 @@ use serde_json::Value;
 pub unsafe fn index_fields(index: PgRelation) -> anyhow::Result<JsonB> {
     let options = SearchIndexCreateOptions::from_relation(&index);
     let fields = options.get_all_fields(&index).collect::<Vec<_>>();
-    let name_and_config: HashMap<SearchFieldName, SearchFieldConfig> = fields
+    let name_and_config: HashMap<FieldName, SearchFieldConfig> = fields
         .into_iter()
         .map(|(field_name, field_config, _)| (field_name, field_config))
         .collect();
@@ -75,8 +75,9 @@ unsafe fn merge_info(
 
     let mut result = Vec::new();
     for index in index_kind.partitions() {
-        let merge_lock = MergeLock::acquire(index.oid());
-        let merge_entries = merge_lock.in_progress_merge_entries();
+        let metadata = MetaPage::open(index.oid());
+        let merge_lock = metadata.acquire_merge_lock();
+        let merge_entries = merge_lock.merge_list().list();
         result.extend(merge_entries.into_iter().flat_map(move |merge_entry| {
             let index_name = index.name().to_owned();
             merge_entry
@@ -109,8 +110,8 @@ unsafe fn vacuum_info(
 
     let mut result = Vec::new();
     for index in index_kind.partitions() {
-        let mut merge_lock = MergeLock::acquire(index.oid());
-        let vacuum_list = merge_lock.list_vacuuming_segments();
+        let metadata = MetaPage::open(index.oid());
+        let vacuum_list = metadata.vacuum_list().read_list();
         result.extend(
             vacuum_list
                 .iter()
@@ -403,10 +404,12 @@ fn force_merge_raw_bytes(
 #[pg_extern]
 fn merge_lock_garbage_collect(index: PgRelation) -> SetOfIterator<'static, i32> {
     unsafe {
-        let mut merge_lock = MergeLock::acquire(index.oid());
-        let before = merge_lock.in_progress_merge_entries();
-        merge_lock.garbage_collect();
-        let after = merge_lock.in_progress_merge_entries();
+        let metadata = MetaPage::open(index.oid());
+        let merge_lock = metadata.acquire_merge_lock();
+        let mut merge_list = merge_lock.merge_list();
+        let before = merge_list.list();
+        merge_list.garbage_collect();
+        let after = merge_list.list();
         drop(merge_lock);
 
         let before_pids = before

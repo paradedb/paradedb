@@ -369,6 +369,11 @@ pub async fn set_execution_method(
             .await?;
     }
 
+    // Allow any number of columns to be used with Mixed.
+    sqlx::query("SET paradedb.mixed_fast_field_exec_column_threshold = 100")
+        .execute(&mut *conn)
+        .await?;
+
     // Ensure index scan is used
     sqlx::query("SET enable_seqscan = off")
         .execute(&mut *conn)

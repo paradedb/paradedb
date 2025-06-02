@@ -17,7 +17,7 @@
 
 use crate::api::HashMap;
 use crate::postgres::build::is_bm25_index;
-use crate::postgres::parallel::Spinlock;
+use crate::postgres::spinlock::Spinlock;
 use crate::query::SearchQueryInput;
 use pgrx::*;
 use std::io::Write;
@@ -40,9 +40,11 @@ pub mod datetime;
 pub mod fake_aminsertcleanup;
 pub mod index;
 mod parallel;
+pub mod spinlock;
 pub mod storage;
 pub mod types;
 pub mod utils;
+pub mod var;
 pub mod visibility_checker;
 
 #[repr(u16)] // b/c that's what [`pg_sys::StrategyNumber`] is
@@ -241,6 +243,10 @@ impl ParallelScanState {
 
     pub fn acquire_mutex(&mut self) -> impl Drop {
         self.mutex.acquire()
+    }
+
+    pub fn nsegments(&self) -> usize {
+        self.nsegments
     }
 
     pub fn remaining_segments(&self) -> usize {

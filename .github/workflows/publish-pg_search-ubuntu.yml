@@ -152,6 +152,8 @@ jobs:
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false # Disable cache on publish workflows
 
       - name: Retrieve OS & GitHub Tag Versions
         id: version

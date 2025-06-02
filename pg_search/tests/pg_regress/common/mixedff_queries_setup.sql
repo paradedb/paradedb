@@ -4,6 +4,9 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
 SET paradedb.enable_mixed_fast_field_exec = true;
+-- The `mixedff` tests allow any number of columns to be used with fast fields, in order to test
+-- more permutations of selected columns.
+SET paradedb.mixed_fast_field_exec_column_threshold = 100;
 
 -- Drop any existing test tables from this group
 DROP TABLE IF EXISTS documents CASCADE;
@@ -56,7 +59,8 @@ CREATE INDEX files_search ON files USING bm25 (
     id,
     documentId,
     title,
-    file_path
+    file_path,
+    file_size
 ) WITH (
     key_field = 'id',
     text_fields = '{"documentid": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "file_path": {"tokenizer": {"type": "default"}, "fast": true}}'
@@ -69,7 +73,7 @@ CREATE INDEX pages_search ON pages USING bm25 (
     page_number
 ) WITH (
     key_field = 'id',
-    text_fields = '{"fileid": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
+    text_fields = '{"fileid": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}',
     numeric_fields = '{"page_number": {"fast": true}}'
 );
 

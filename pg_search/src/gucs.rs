@@ -25,8 +25,19 @@ static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 /// Allows the user to enable or disable the FastFieldsExecState executor. Default is `true`.
 static ENABLE_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(true);
 
-/// Allows the user to enable or disable the MixedFastFieldExecState executor. Default is `false`.
-static ENABLE_MIXED_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(false);
+/// Allows the user to enable or disable the MixedFastFieldExecState executor. Default is `true`.
+static ENABLE_MIXED_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+/// The number of fast-field columns below-which the MixedFastFieldExecState will be used, rather
+/// than the NormalExecState. The Mixed execution mode fetches data as column-oriented, whereas
+/// the Normal mode fetches data as row-oriented.
+///
+/// Each fetch from a fast-field column costs one or two disk seeks, whereas a fetch of a row
+/// generally costs one. But with a wide enough row, fetching multiple columns might still result
+/// in better cache performance than fetching a row.
+static MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(3);
+static MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD_NAME: &str =
+    "paradedb.mixed_fast_field_exec_column_threshold";
 
 /// The `PER_TUPLE_COST` is an arbitrary value that needs to be really high.  In fact, we default
 /// to one hundred million.
@@ -91,6 +102,19 @@ pub fn init() {
         GucFlags::default(),
     );
 
+    GucRegistry::define_int_guc(
+        MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD_NAME,
+        "Threshold of fetched columns below which MixedFastFieldExecState will be used.",
+        "The number of fast-field columns below-which the MixedFastFieldExecState will be used, rather \
+         than the NormalExecState. The Mixed execution mode fetches data as column-oriented, whereas \
+         the Normal mode fetches data as row-oriented.",
+        &MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
     GucRegistry::define_float_guc(
         "paradedb.per_tuple_cost",
         "Arbitrary multiplier for the cost of retrieving a tuple from a USING bm25 index outside of an IndexScan",
@@ -114,7 +138,7 @@ pub fn init() {
     GucRegistry::define_int_guc(
         "paradedb.create_index_parallelism",
         "The number of threads to use when creating an index",
-        "Default is 0, which means a thread for as many cores in the machine",
+        "Default is 0, which means a thread for each core in the machine",
         &CREATE_INDEX_PARALLELISM,
         0,
         std::thread::available_parallelism()
@@ -170,6 +194,15 @@ pub fn is_fast_field_exec_enabled() -> bool {
 
 pub fn is_mixed_fast_field_exec_enabled() -> bool {
     ENABLE_MIXED_FAST_FIELD_EXEC.get()
+}
+
+pub fn mixed_fast_field_exec_column_threshold() -> usize {
+    MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD
+        .get()
+        .try_into()
+        .unwrap_or_else(|e| {
+            panic!("{MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD_NAME} must be positive. {e}");
+        })
 }
 
 pub fn per_tuple_cost() -> f64 {

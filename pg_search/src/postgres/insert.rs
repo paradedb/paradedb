@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::index::FieldName;
 use crate::index::merge_policy::{LayeredMergePolicy, NumCandidates, NumMerged};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{Mergeable, SearchIndexMerger, SearchIndexWriter};
@@ -22,7 +23,7 @@ use crate::index::WriterResources;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::storage::block::{SegmentMetaEntry, CLEANUP_LOCK, SEGMENT_METAS_START};
 use crate::postgres::storage::buffer::BufferManager;
-use crate::postgres::storage::merge::MergeLock;
+use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use crate::postgres::utils::{
     categorize_fields, item_pointer_to_u64, row_to_search_document, CategorizedFieldData,
@@ -38,7 +39,7 @@ pub struct InsertState {
     pub indexrelid: pg_sys::Oid,
     pub writer: Option<SearchIndexWriter>,
     categorized_fields: Vec<(SearchField, CategorizedFieldData)>,
-    key_field_name: String,
+    key_field_name: FieldName,
     per_row_context: PgMemoryContexts,
 }
 
@@ -50,7 +51,7 @@ impl InsertState {
         let writer = SearchIndexWriter::open(indexrel, MvccSatisfies::Mergeable, writer_resources)?;
         let tupdesc = unsafe { PgTupleDesc::from_pg_unchecked(indexrel.rd_att) };
         let categorized_fields = categorize_fields(&tupdesc, &writer.schema);
-        let key_field_name = writer.schema.key_field().name.0;
+        let key_field_name = writer.schema.key_field().name;
 
         let per_row_context = pg_sys::AllocSetContextCreateExtended(
             PgMemoryContexts::CurrentMemoryContext.value(),
@@ -263,7 +264,8 @@ pub unsafe fn merge_index_with_policy(
     // before it decides to find the segments it should vacuum.  The reason is that it needs to see
     // the final merged segment, not the original segments that will be deleted
     let cleanup_lock = BufferManager::new(indexrelid).get_buffer(CLEANUP_LOCK);
-    let mut merge_lock = MergeLock::acquire(indexrelid);
+    let metadata = MetaPage::open(indexrelid);
+    let merge_lock = metadata.acquire_merge_lock();
     let mut merger =
         SearchIndexMerger::open(indexrelid).expect("should be able to open a SearchIndexMerger");
     let merger_segment_ids = merger
@@ -271,9 +273,9 @@ pub unsafe fn merge_index_with_policy(
         .expect("SearchIndexMerger should have segment ids");
 
     // the non_mergeable_segments are those that are concurrently being vacuumed *and* merged
-    let mut non_mergeable_segments = merge_lock.list_vacuuming_segments();
-    non_mergeable_segments.extend(merge_lock.in_progress_segment_ids());
-    let create_index_segment_ids = merge_lock.create_index_segment_ids();
+    let mut non_mergeable_segments = metadata.vacuum_list().read_list();
+    non_mergeable_segments.extend(merge_lock.merge_list().list_segment_ids());
+    let create_index_segment_ids = metadata.create_index_segment_ids();
 
     if pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) {
         pgrx::debug1!("do_merge: non_mergeable_segments={non_mergeable_segments:?}");
@@ -317,10 +319,12 @@ pub unsafe fn merge_index_with_policy(
     let ncandidates = merge_candidates.len();
     if ncandidates > 0 {
         // record all the segments the SearchIndexMerger can see, as those are the ones that
-        // could be merged.  This also drops the MergeLock
+        // could be merged
         let merge_entry = merge_lock
-            .record_in_progress_segment_ids(merge_policy.mergeable_segments())
+            .merge_list()
+            .add_segment_ids(merge_policy.mergeable_segments())
             .expect("should be able to write current merge segment_id list");
+        drop(merge_lock);
 
         // we are NOT under the MergeLock at this point, which allows concurrent backends to also merge
         //
@@ -388,8 +392,9 @@ pub unsafe fn merge_index_with_policy(
         }
 
         // re-acquire the MergeLock to remove the entry we made above
-        let mut merge_lock = MergeLock::acquire(indexrelid);
+        let merge_lock = metadata.acquire_merge_lock();
         merge_lock
+            .merge_list()
             .remove_entry(merge_entry)
             .expect("should be able to remove MergeEntry");
         drop(merge_lock);

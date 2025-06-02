@@ -145,6 +145,7 @@ ORDER BY numeric_field1;
 -- Now enable MixedFastFieldExec
 SET paradedb.enable_fast_field_exec = false;
 SET paradedb.enable_mixed_fast_field_exec = true;
+SET paradedb.mixed_fast_field_exec_column_threshold = 100;
 -- Get query plan to verify we're using MixedFastFieldExec
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT
@@ -191,6 +192,7 @@ ORDER BY numeric_field1;
 
 RESET paradedb.enable_fast_field_exec;
 RESET paradedb.enable_mixed_fast_field_exec;
+RESET paradedb.mixed_fast_field_exec_column_threshold;
 RESET enable_seqscan;
 RESET enable_bitmapscan;
 RESET enable_indexscan;

@@ -18,4 +18,5 @@ DROP TABLE IF EXISTS union_test_b CASCADE;
 RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;
 RESET paradedb.enable_mixed_fast_field_exec;
+RESET paradedb.mixed_fast_field_exec_column_threshold;
 SELECT 'Advanced features tests cleanup complete' AS status; 

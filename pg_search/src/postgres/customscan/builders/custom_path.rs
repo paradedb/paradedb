@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::index::FieldName;
 use crate::api::Cardinality;
 use crate::api::HashSet;
 use crate::index::fast_fields_helper::WhichFastField;
@@ -83,7 +84,7 @@ impl From<SortDirection> for u32 {
 #[derive(Debug)]
 pub enum OrderByStyle {
     Score(*mut pg_sys::PathKey),
-    Field(*mut pg_sys::PathKey, String),
+    Field(*mut pg_sys::PathKey, FieldName),
 }
 
 impl OrderByStyle {
@@ -141,14 +142,11 @@ impl ExecMethodType {
     /// Returns true if this execution method will emit results in sorted order with the given
     /// number of workers.
     ///
-    pub fn is_sorted(&self, nworkers: usize) -> bool {
+    pub fn is_sorted(&self) -> bool {
         match self {
-            ExecMethodType::TopN { .. } if nworkers == 0 => {
-                // TODO: To allow sorted output with parallel workers, we would need to partition
-                // our segments across the workers so that each worker emitted all of its results
-                // in sorted order.
-                true
-            }
+            ExecMethodType::TopN { .. } => true,
+            // See https://github.com/paradedb/paradedb/issues/2623 about enabling sorted orders for
+            // String and Mixed.
             _ => false,
         }
     }

@@ -25,9 +25,7 @@ mod qual_inspect;
 mod scan_state;
 mod solve_expr;
 
-use crate::api::operator::{
-    anyelement_query_input_opoid, attname_from_var, estimate_selectivity, find_var_relation,
-};
+use crate::api::operator::{anyelement_query_input_opoid, estimate_selectivity};
 use crate::api::Cardinality;
 use crate::api::{HashMap, HashSet};
 use crate::index::fast_fields_helper::WhichFastField;
@@ -60,11 +58,12 @@ use crate::postgres::customscan::pdbscan::qual_inspect::extract_quals;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::customscan::{self, CustomScan, CustomScanState};
 use crate::postgres::rel_get_bm25_index;
+use crate::postgres::var::{fieldname_from_var, find_var_relation};
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
-use crate::{gucs, FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
+use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 use pgrx::pg_sys::CustomExecMethods;
 use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts, PgRelation};
 use std::ffi::CStr;
@@ -401,10 +400,13 @@ impl CustomScan for PdbScan {
                 0
             };
 
+            // TODO: Re-examine this `is_string_fast_field_capable` check after #2612 has landed,
+            // as it should likely be checking for `is_mixed_fast_field_capable` as well, and
+            // should probably have different thresholds.
+            // See https://github.com/paradedb/paradedb/issues/2620
             if pathkey.is_some()
                 && !is_topn
-                && fast_fields::is_string_agg_capable_with_prereqs(builder.custom_private())
-                    .is_some()
+                && fast_fields::is_string_fast_field_capable(builder.custom_private()).is_some()
             {
                 let pathkey = pathkey.as_ref().unwrap();
 
@@ -451,11 +453,7 @@ impl CustomScan for PdbScan {
 
             // Once we have chosen an execution method type, we have a final determination of the
             // properties of the output, and can make claims about whether it is sorted.
-            if builder
-                .custom_private()
-                .exec_method_type()
-                .is_sorted(nworkers)
-            {
+            if builder.custom_private().exec_method_type().is_sorted() {
                 if let Some(pathkey) = pathkey.as_ref() {
                     builder = builder.add_path_key(pathkey);
                 }
@@ -531,6 +529,7 @@ impl CustomScan for PdbScan {
                     te.cast(),
                     &[score_funcoid, snippet_funcoid, snippet_positions_funcoid],
                     rti,
+                    builder.args().root,
                 );
 
                 for (funcexpr, var) in func_vars_at_level {
@@ -550,10 +549,10 @@ impl CustomScan for PdbScan {
 
                     // track a triplet of (varno, varattno, attname) as 3 individual
                     // entries in the `attname_lookup` List
-                    let attname = attname_from_var(builder.args().root, var)
-                        .1
-                        .expect("function call argument should be a column name");
-                    attname_lookup.insert(((*var).varno, (*var).varattno), attname);
+                    let (heaprelid, varattno, _) = find_var_relation(var, builder.args().root);
+                    if let Some(attname) = fieldname_from_var(heaprelid, var, varattno) {
+                        attname_lookup.insert(((*var).varno, (*var).varattno), attname);
+                    }
                 }
             }
 
@@ -996,7 +995,7 @@ impl CustomScan for PdbScan {
 }
 
 ///
-/// Choose and return an ExecMethodType based on the properties of the builder.
+/// Choose and return an ExecMethodType based on the properties of the builder at planning time.
 ///
 /// If the query can return "fast fields", make that determination here, falling back to the
 /// [`NormalScanExecState`] if not.
@@ -1005,6 +1004,10 @@ impl CustomScan for PdbScan {
 /// [`NumericFastFieldExecState`] when there's one or more numeric fast fields, or
 /// [`MixedFastFieldExecState`] when there are multiple string fast fields or a mix of string
 /// and numeric fast fields.
+///
+/// If we have failed to extract all relevant information at planning time, then the fast-field
+/// execution methods might still fall back to `Normal` at execution time: see the notes in
+/// `assign_exec_method` and `compute_exec_which_fast_fields`.
 ///
 /// `paradedb.score()`, `ctid`, and `tableoid` are considered fast fields for the purposes of
 /// these specialized [`ExecMethod`]s.
@@ -1019,27 +1022,17 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
             sort_direction,
             need_scores: privdata.need_scores(),
         }
-    } else if fast_fields::is_numeric_fast_field_capable(privdata)
-        && gucs::is_fast_field_exec_enabled()
-    {
+    } else if fast_fields::is_numeric_fast_field_capable(privdata) {
         // Check for numeric-only fast fields first because they're more selective
         ExecMethodType::FastFieldNumeric {
             which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
         }
-    } else if fast_fields::is_string_agg_capable(privdata).is_some()
-        && gucs::is_fast_field_exec_enabled()
-    {
-        let field = fast_fields::is_string_agg_capable(privdata).unwrap();
+    } else if let Some(field) = fast_fields::is_string_fast_field_capable(privdata) {
         ExecMethodType::FastFieldString {
             field,
             which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
         }
-    } else if gucs::is_mixed_fast_field_exec_enabled() {
-        // Use MixedFastFieldExec if enabled
-        //
-        // We'd suggest using MixedFastFieldExec as the last resort (default) at the planning
-        // stage, but we will fall back to NormalExecState (in assign_exec_method) if we can't
-        // execute using MixedFastFieldExec with the given fields and possibly expressions.
+    } else if fast_fields::is_mixed_fast_field_capable(privdata) {
         ExecMethodType::FastFieldMixed {
             which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
         }
@@ -1052,9 +1045,9 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
 ///
 /// Creates and assigns the execution method which was chosen at planning time.
 ///
-/// Currently, if MixedFastFieldExecState is chosen, we will fall back to NormalScanExecState if
-/// we fail to extract the superset of fields during planning time which was needed at execution
-/// time.
+/// If a fast-fields execution method was chosen at planning time, we might still fall back to
+/// NormalScanExecState if we fail to extract the superset of fields during planning time which was
+/// needed at execution time.
 ///
 fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>) {
     match builder.custom_state_ref().exec_method_type.clone() {
@@ -1170,12 +1163,27 @@ fn compute_exec_which_fast_fields(
         )
     };
 
-    let is_missing_fast_fields = exec_which_fast_fields.is_empty()
-        || exec_which_fast_fields
-            .iter()
-            .any(|ff| !planned_which_fast_fields.contains(ff));
+    if fast_fields::is_all_special_or_junk_fields(&exec_which_fast_fields) {
+        // In some cases, enough columns are pruned between planning and execution that there
+        // is no point actually using fast fields, and we can fall back to `Normal`.
+        //
+        // TODO: In order to implement https://github.com/paradedb/paradedb/issues/2623, we will
+        // need to differentiate these cases, so that we can always emit the sort order that we
+        // claimed.
+        return None;
+    }
 
-    if is_missing_fast_fields {
+    let missing_fast_fields = exec_which_fast_fields
+        .iter()
+        .filter(|ff| !planned_which_fast_fields.contains(ff))
+        .collect::<Vec<_>>();
+
+    if !missing_fast_fields.is_empty() {
+        pgrx::log!(
+            "Failed to extract all fast fields at planning time: \
+             was missing {missing_fast_fields:?} from {planned_which_fast_fields:?} \
+             Falling back to Normal execution.",
+        );
         return None;
     }
 
@@ -1244,8 +1252,8 @@ unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
                 let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                 let tupdesc = heaprel.tuple_desc();
                 if let Some(att) = tupdesc.get(attno as usize - 1) {
-                    if schema.is_field_lower_sortable(att.name()) {
-                        return Some(OrderByStyle::Field(first_pathkey, att.name().to_string()));
+                    if schema.is_field_lower_sortable(&att.name().into()) {
+                        return Some(OrderByStyle::Field(first_pathkey, att.name().into()));
                     }
                 }
             } else if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expr) {
@@ -1254,11 +1262,8 @@ unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
                     let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                     let tupdesc = heaprel.tuple_desc();
                     if let Some(att) = tupdesc.get(attno as usize - 1) {
-                        if schema.is_field_raw_sortable(att.name()) {
-                            return Some(OrderByStyle::Field(
-                                first_pathkey,
-                                att.name().to_string(),
-                            ));
+                        if schema.is_field_raw_sortable(&att.name().into()) {
+                            return Some(OrderByStyle::Field(first_pathkey, att.name().into()));
                         }
                     }
                 }
@@ -1270,8 +1275,8 @@ unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
                 let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                 let tupdesc = heaprel.tuple_desc();
                 if let Some(att) = tupdesc.get(attno as usize - 1) {
-                    if schema.is_field_raw_sortable(att.name()) {
-                        return Some(OrderByStyle::Field(first_pathkey, att.name().to_string()));
+                    if schema.is_field_raw_sortable(&att.name().into()) {
+                        return Some(OrderByStyle::Field(first_pathkey, att.name().into()));
                     }
                 }
             }
@@ -1420,9 +1425,9 @@ unsafe fn collect_maybe_fast_field_referenced_columns(
                 referenced_columns.insert((*var).varattno);
             }
         }
-        // NOTE: Unless we encounter the second type of fallback in `assign_exec_method`, then we
-        // can be reasonably confident that directly inspecting Vars is sufficient. We haven't seen
-        // it yet in the wild.
+        // NOTE: Unless we encounter the fallback in `compute_exec_which_fast_fields`, then we
+        // can be reasonably confident that directly inspecting Vars is sufficient. We haven't
+        // seen it yet in the wild.
     }
 
     referenced_columns

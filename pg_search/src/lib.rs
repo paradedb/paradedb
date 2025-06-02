@@ -24,6 +24,7 @@ mod query;
 mod schema;
 
 pub mod gucs;
+pub mod parallel_worker;
 
 use self::postgres::customscan;
 use pgrx::*;

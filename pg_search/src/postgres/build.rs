@@ -15,14 +15,15 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::index::FieldName;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::index::writer::index::SearchIndexWriter;
 use crate::postgres::storage::block::{
-    SegmentMetaEntry, CLEANUP_LOCK, MERGE_LOCK, SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
+    SegmentMetaEntry, CLEANUP_LOCK, METADATA, SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
 };
 use crate::postgres::storage::buffer::BufferManager;
-use crate::postgres::storage::merge::MergeLock;
+use crate::postgres::storage::metadata::MetaPageMut;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use crate::postgres::utils::{
     categorize_fields, item_pointer_to_u64, row_to_search_document, CategorizedFieldData,
@@ -41,14 +42,14 @@ struct BuildState {
     start: Instant,
     writer: SearchIndexWriter,
     categorized_fields: Vec<(SearchField, CategorizedFieldData)>,
-    key_field_name: String,
+    key_field_name: FieldName,
 }
 
 impl BuildState {
     fn new(indexrel: &PgRelation, writer: SearchIndexWriter) -> Self {
         let tupdesc = unsafe { PgTupleDesc::from_pg_unchecked(indexrel.rd_att) };
         let categorized_fields = categorize_fields(&tupdesc, &writer.schema);
-        let key_field_name = writer.schema.key_field().name.0;
+        let key_field_name = writer.schema.key_field().name;
 
         BuildState {
             count: 0,
@@ -71,8 +72,7 @@ pub extern "C-unwind" fn ambuild(
     let index_relation = unsafe { PgRelation::from_pg(indexrel) };
     let index_oid = index_relation.oid();
 
-    // Create the metadata blocks for the index
-    unsafe { create_metadata(&index_relation) };
+    unsafe { init_fixed_buffers(&index_relation) };
 
     // ensure we only allow one `USING bm25` index on this relation, accounting for a REINDEX
     // and accounting for CONCURRENTLY.
@@ -158,8 +158,8 @@ fn do_heap_scan<'a>(
             .expect("do_heap_scan: should be able to open a SearchIndexReader");
 
         // record the segment ids created in the merge lock
-        let merge_lock = MergeLock::init(index_relation.oid());
-        merge_lock
+        let metadata = MetaPageMut::new(index_relation.oid());
+        metadata
             .record_create_index_segment_ids(reader.segment_ids().iter())
             .expect("do_heap_scan: should be able to record segment ids in merge lock");
 
@@ -258,13 +258,13 @@ fn bm25_amhandler_oid() -> Option<pg_sys::Oid> {
     }
 }
 
-unsafe fn create_metadata(index_relation: &PgRelation) {
+unsafe fn init_fixed_buffers(index_relation: &PgRelation) {
     let relation_oid = index_relation.oid();
     let mut bman = BufferManager::new(relation_oid);
 
     // Init merge lock buffer
     let mut merge_lock = bman.new_buffer();
-    assert_eq!(merge_lock.number(), MERGE_LOCK);
+    assert_eq!(merge_lock.number(), METADATA);
     merge_lock.init_page();
 
     // Init cleanup lock buffer

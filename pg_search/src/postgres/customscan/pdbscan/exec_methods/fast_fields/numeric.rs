@@ -17,7 +17,9 @@
 
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::reader::index::SearchResults;
-use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::FastFieldExecState;
+use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::{
+    non_string_ff_to_datum, FastFieldExecState,
+};
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::is_block_all_visible;
 use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
@@ -46,10 +48,11 @@ impl ExecMethod for NumericFastFieldExecState {
     fn query(&mut self, state: &mut PdbScanState) -> bool {
         if let Some(parallel_state) = state.parallel_state {
             if let Some(segment_id) = unsafe { checkout_segment(parallel_state) } {
-                self.inner.search_results = state.search_reader.as_ref().unwrap().search_segment(
+                self.inner.search_results = state.search_reader.as_ref().unwrap().search_segments(
                     state.need_scores(),
-                    segment_id,
+                    [segment_id].into_iter(),
                     state.search_query_input(),
+                    0,
                 );
                 return true;
             }
@@ -106,18 +109,29 @@ impl ExecMethod for NumericFastFieldExecState {
                         (*slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
                         (*slot).tts_nvalid = natts as _;
 
-                        // Use the shared extract_data_from_fast_fields function
                         let tupdesc = self.inner.tupdesc.as_ref().unwrap();
-                        crate::postgres::customscan::pdbscan::exec_methods::fast_fields::extract_data_from_fast_fields(
-                            natts,
-                            tupdesc,
-                            &self.inner.which_fast_fields,
-                            &mut self.inner.ffhelper,
-                            slot,
-                            scored,
-                            doc_address,
-                            &mut self.inner.strbuf,
-                        );
+                        let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
+                        let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
+
+                        for (i, att) in tupdesc.iter().enumerate() {
+                            match non_string_ff_to_datum(
+                                (&self.inner.which_fast_fields[i], i),
+                                att.atttypid,
+                                scored.bm25,
+                                doc_address,
+                                &mut self.inner.ffhelper,
+                                slot,
+                            ) {
+                                None => {
+                                    datums[i] = pg_sys::Datum::null();
+                                    isnull[i] = true;
+                                }
+                                Some(datum) => {
+                                    datums[i] = datum;
+                                    isnull[i] = false;
+                                }
+                            }
+                        }
 
                         ExecState::Virtual { slot }
                     } else {

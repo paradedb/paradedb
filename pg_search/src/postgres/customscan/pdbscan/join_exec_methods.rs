@@ -4458,17 +4458,39 @@ impl TopNJoinExecState {
         true
     }
 
-    /// Create a search reader for a relation
+    /// Create a search reader for a relation, leveraging existing infrastructure
     fn create_search_reader(&self, relid: pg_sys::Oid) -> Option<SearchIndexReader> {
-        if let Some((_, bm25_index)) = rel_get_bm25_index(relid) {
-            let directory = MVCCDirectory::snapshot(bm25_index.oid());
-            let _index = Index::open(directory).ok()?;
-
-            Some(SearchIndexReader::open(&bm25_index, MvccSatisfies::Snapshot).ok()?)
-        } else {
-            pgrx::warning!("ParadeDB: No BM25 index found for relation {}", relid);
-            None
+        if relid == pg_sys::InvalidOid || self.is_composite_relation(relid) {
+            // Cannot create search reader for composite relations
+            return None;
         }
+
+        unsafe {
+            // Use the existing infrastructure to get BM25 index
+            if let Some((_table, bm25_index)) = rel_get_bm25_index(relid) {
+                // Create the directory and index reader using existing patterns
+                let directory = MVCCDirectory::snapshot(bm25_index.oid());
+                if let Ok(index) = tantivy::Index::open(directory) {
+                    // Create search reader using existing infrastructure
+                    match SearchIndexReader::open(&bm25_index, MvccSatisfies::Snapshot) {
+                        Ok(reader) => {
+                            pgrx::warning!(
+                                "ParadeDB: TopN created search reader for relation {}",
+                                get_rel_name(relid)
+                            );
+                            return Some(reader);
+                        }
+                        Err(e) => {
+                            pgrx::warning!(
+                                "ParadeDB: TopN failed to create search reader: {:?}",
+                                e
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        None
     }
 
     /// Execute initial limited searches on both relations, handling composite relations
@@ -4550,7 +4572,7 @@ impl TopNJoinExecState {
         }
     }
 
-    /// Execute search on a specific relation
+    /// Execute search on a specific relation using the existing search infrastructure
     fn execute_search_on_relation(
         &self,
         reader: &SearchIndexReader,
@@ -4560,62 +4582,51 @@ impl TopNJoinExecState {
         // For now, use the first search predicate
         if let Some(predicate) = predicates.first() {
             if predicate.uses_search_operator {
-                // Execute the search query
+                pgrx::warning!(
+                    "ParadeDB: TopN executing search on {} with limit {}",
+                    predicate.relname,
+                    limit
+                );
+
+                // Use the existing search infrastructure - this is the key reuse!
+                // The SearchIndexReader already has all the sophisticated search logic
                 let search_results = reader.search_top_n(
                     &predicate.query,
-                    None, // No field sorting for now
+                    None, // No field sorting for TopN joins initially
                     self.sort_direction.into(),
                     limit,
                     self.need_scores,
                 );
 
-                // Convert results to (ctid, score) tuples
                 let mut results = Vec::new();
+                let mut count = 0;
+
+                // Extract results using existing iterator pattern
                 for (scored, _doc_address) in search_results {
                     results.push((scored.ctid, scored.bm25));
-                    if results.len() >= limit {
+                    count += 1;
+                    if count >= limit {
                         break;
                     }
                 }
-                results
-            } else {
-                // Non-search predicate, generate scan
-                self.generate_scan_results(pg_sys::InvalidOid, limit)
+
+                pgrx::warning!(
+                    "ParadeDB: TopN search returned {} results from {}",
+                    results.len(),
+                    predicate.relname
+                );
+                return results;
             }
-        } else {
-            Vec::new()
         }
+
+        // Fallback to scan results if search fails
+        self.generate_scan_results(pg_sys::InvalidOid, limit)
     }
 
     /// Generate limited scan results for relations, supporting composite relations
     fn generate_scan_results(&self, relid: pg_sys::Oid, limit: usize) -> Vec<(u64, f32)> {
         // Use the enhanced composite relation handling
-        return self.handle_composite_relation_search(relid, limit);
-    }
-
-    /// Generate scan results for composite relations (intermediate join results)
-    fn generate_composite_scan_results(&self, limit: usize) -> Vec<(u64, f32)> {
-        // For composite relations, we need to extract results from the intermediate state
-        // This is a simplified implementation - in practice, we'd need to:
-        // 1. Access the intermediate results from the join state
-        // 2. Convert them to CTID-like identifiers
-        // 3. Assign appropriate scores based on the join criteria
-
-        let mut results = Vec::new();
-
-        // Generate synthetic composite results
-        // In a real implementation, these would come from intermediate join results
-        for i in 1..=limit.min(100) {
-            let ctid = (1000 + i) as u64; // Use higher CTIDs for composite results
-            let score = 0.5; // Lower score for composite results
-            results.push((ctid, score));
-        }
-
-        pgrx::warning!(
-            "ParadeDB: Generated {} composite scan results",
-            results.len()
-        );
-        results
+        self.handle_composite_relation_search(relid, limit)
     }
 
     /// Generate join matches from search results and maintain TopN buffer

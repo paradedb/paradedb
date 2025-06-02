@@ -91,9 +91,24 @@ WHERE b.content @@@ 'science fiction'
 ORDER BY b.id DESC
 LIMIT 5;
 
+SELECT b.title, a.name, b.content
+FROM books_topn b
+JOIN authors_topn a ON b.author_id = a.id
+WHERE b.content @@@ 'science fiction'
+  AND a.bio @@@ 'author'
+ORDER BY b.id DESC
+LIMIT 5;
+
 -- Test 2: Standard join without LIMIT for comparison
 -- This should use standard join processing
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT b.title, a.name, b.content  
+FROM books_topn b
+JOIN authors_topn a ON b.author_id = a.id
+WHERE b.content @@@ 'fiction'
+  AND a.bio @@@ 'author'
+ORDER BY b.id DESC;
+
 SELECT b.title, a.name, b.content  
 FROM books_topn b
 JOIN authors_topn a ON b.author_id = a.id
@@ -116,8 +131,44 @@ WHERE b2.content @@@ 'horror'
 ORDER BY b2.id DESC
 LIMIT 3;
 
+SELECT outer_result.title, outer_result.author_name, outer_result.content
+FROM (
+    SELECT b.title, a.name as author_name, b.content, b.id
+    FROM books_topn b  
+    JOIN authors_topn a ON b.author_id = a.id
+    WHERE a.bio @@@ 'British'
+) outer_result
+JOIN books_topn b2 ON outer_result.id != b2.id
+WHERE b2.content @@@ 'horror'
+ORDER BY b2.id DESC
+LIMIT 3;
+
 -- Test 4: Verify TopN results are correct
 -- Compare TopN limited results with full results
+WITH full_results AS (
+    SELECT b.title, a.name, 
+           b.content @@@ 'magic fantasy' as distance
+    FROM books_topn b
+    JOIN authors_topn a ON b.author_id = a.id  
+    WHERE b.content @@@ 'magic fantasy'
+      AND a.bio @@@ 'author'
+    ORDER BY b.id DESC
+),
+topn_results AS (
+    SELECT b.title, a.name,
+           b.content @@@ 'magic fantasy' as distance
+    FROM books_topn b
+    JOIN authors_topn a ON b.author_id = a.id
+    WHERE b.content @@@ 'magic fantasy' 
+      AND a.bio @@@ 'author'
+    ORDER BY b.id DESC
+    LIMIT 2
+)
+SELECT 'Full Results' as result_type, * FROM full_results
+UNION ALL
+SELECT 'TopN Results' as result_type, * FROM topn_results
+ORDER BY result_type, distance DESC;
+
 WITH full_results AS (
     SELECT b.title, a.name, 
            b.content @@@ 'magic fantasy' as distance

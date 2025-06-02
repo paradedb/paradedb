@@ -180,6 +180,270 @@ WARNING:  ParadeDB: Join execution cleanup complete
                      Inner Search Predicates: 1
 (11 rows)
 
+SELECT b.title, a.name, b.content
+FROM books_topn b
+JOIN authors_topn a ON b.author_id = a.id
+WHERE b.content @@@ 'science fiction'
+  AND a.bio @@@ 'author'
+ORDER BY b.id DESC
+LIMIT 5;
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["books_topn"], inner relids: ["authors_topn"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
+WARNING:  ParadeDB: Found BM25 index for relation books_topn (rti 1)
+WARNING:  ParadeDB: Checked relations ["books_topn"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Found BM25 index for relation authors_topn (rti 2)
+WARNING:  ParadeDB: Checked relations ["authors_topn"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Join feasibility check - outer has BM25: true, inner has BM25: true
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation books_topn (rti 1)
+WARNING:  ParadeDB: Extracted search query for books_topn: uses_search_operator=true
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation authors_topn (rti 2)
+WARNING:  ParadeDB: Extracted search query for authors_topn: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
+WARNING:  ParadeDB: Outer predicate for books_topn - uses_search: true
+WARNING:  ParadeDB: Inner predicate for authors_topn - uses_search: true
+WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["books_topn"], inner: ["authors_topn"]
+WARNING:  ParadeDB: TopN join detected during planning - limit: 5, has_order_by: true, has_search: true
+WARNING:  ParadeDB: TopN join path estimates - rows: 5, startup_cost: 40.00, total_cost: 15.00 (MUCH LOWER than standard 50.01) - FORCED
+WARNING:  ParadeDB: Forcing TopN join path selection by clearing existing paths
+WARNING:  ParadeDB: Adding custom join path to joinrel
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["authors_topn"], inner relids: ["books_topn"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
+WARNING:  ParadeDB: Found BM25 index for relation authors_topn (rti 2)
+WARNING:  ParadeDB: Checked relations ["authors_topn"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Found BM25 index for relation books_topn (rti 1)
+WARNING:  ParadeDB: Checked relations ["books_topn"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Join feasibility check - outer has BM25: true, inner has BM25: true
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation authors_topn (rti 2)
+WARNING:  ParadeDB: Extracted search query for authors_topn: uses_search_operator=true
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation books_topn (rti 1)
+WARNING:  ParadeDB: Extracted search query for books_topn: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
+WARNING:  ParadeDB: Outer predicate for authors_topn - uses_search: true
+WARNING:  ParadeDB: Inner predicate for books_topn - uses_search: true
+WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_topn"], inner: ["books_topn"]
+WARNING:  ParadeDB: TopN join detected during planning - limit: 5, has_order_by: true, has_search: true
+WARNING:  ParadeDB: TopN join path estimates - rows: 5, startup_cost: 40.00, total_cost: 15.00 (MUCH LOWER than standard 50.01) - FORCED
+WARNING:  ParadeDB: Forcing TopN join path selection by clearing existing paths
+WARNING:  ParadeDB: Adding custom join path to joinrel
+WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
+WARNING:  ParadeDB: Join target list has 4 entries
+WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'join_attr_1'
+WARNING:  ParadeDB: Mapped join variable varno=1, varattno=4 to 'join_attr_2'
+WARNING:  ParadeDB: Mapped join variable varno=1, varattno=1 to 'join_attr_3'
+WARNING:  ParadeDB: Mapped join variable varno=2, varattno=2 to 'join_attr_4'
+WARNING:  ParadeDB: Set custom scan target list for join node with 4 entries
+WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
+WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Stored outer relation OIDs: ["authors_topn"]
+WARNING:  ParadeDB: Stored inner relation OIDs: ["books_topn"]
+WARNING:  ParadeDB: Storing 4 variable mappings from planning phase
+WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=1 -> 'join_attr_3'
+WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=2 -> 'join_attr_4'
+WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=4 -> 'join_attr_2'
+WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'join_attr_1'
+WARNING:  ParadeDB: Initializing production-ready join execution
+WARNING:  ParadeDB: Join configuration - outer predicates: 1 (search: 1), inner predicates: 1 (search: 1), bilateral: true
+WARNING:  ParadeDB: Relation validation - outer: authors_topn (valid: true), inner: books_topn (valid: true)
+WARNING:  ParadeDB: Join execution initialization completed successfully
+WARNING:  ParadeDB: Using standard join execution
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Phase 1/4 - Initializing join execution
+WARNING:  ParadeDB: Prerequisites validation passed - ready for join execution
+WARNING:  ParadeDB: Initializing search execution with safety checks
+WARNING:  ParadeDB: Initializing search with 1 outer and 1 inner predicates
+WARNING:  ParadeDB: Initializing search readers with safety checks
+WARNING:  ParadeDB: Successfully opened search reader for authors_topn
+WARNING:  ParadeDB: Successfully opened search reader for books_topn
+WARNING:  ParadeDB: Search reader initialization - 2 successful out of 2 attempts
+WARNING:  ParadeDB: Executing real searches with safety checks
+WARNING:  ParadeDB: Executing real BM25 search on relation authors_topn
+WARNING:  ParadeDB: Real search on authors_topn returned 4 results
+WARNING:  ParadeDB: Successfully executed search on authors_topn
+WARNING:  ParadeDB: Executing real BM25 search on relation books_topn
+WARNING:  ParadeDB: Real search on books_topn returned 2 results
+WARNING:  ParadeDB: Successfully executed search on books_topn
+WARNING:  ParadeDB: Search execution completed - outer: 4, inner: 2
+WARNING:  ParadeDB: Search execution initialization completed successfully
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Phase 2/4 - Executing outer relation search
+WARNING:  ParadeDB: Outer search completed - 4 results
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Phase 3/4 - Executing inner relation search
+WARNING:  ParadeDB: Inner search completed - 2 results
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: authors_topn, inner: books_topn
+WARNING:  ParadeDB: Unknown relation pair (authors_topn, books_topn), using generic 'id' = 'id' join
+WARNING:  ParadeDB: Fetching column 'id' from relation authors_topn with CTID 1
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 4
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("4")
+WARNING:  ParadeDB: Join condition evaluation: 1 (authors_topn.id) = 4 (books_topn.id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[0] (ctid 1) × inner[0] (ctid 4) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: authors_topn, inner: books_topn
+WARNING:  ParadeDB: Unknown relation pair (authors_topn, books_topn), using generic 'id' = 'id' join
+WARNING:  ParadeDB: Fetching column 'id' from relation authors_topn with CTID 1
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 8
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("8")
+WARNING:  ParadeDB: Join condition evaluation: 1 (authors_topn.id) = 8 (books_topn.id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[0] (ctid 1) × inner[1] (ctid 8) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Advanced to next outer tuple [2/4]
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: authors_topn, inner: books_topn
+WARNING:  ParadeDB: Unknown relation pair (authors_topn, books_topn), using generic 'id' = 'id' join
+WARNING:  ParadeDB: Fetching column 'id' from relation authors_topn with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 4
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("4")
+WARNING:  ParadeDB: Join condition evaluation: 2 (authors_topn.id) = 4 (books_topn.id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 2) × inner[0] (ctid 4) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: authors_topn, inner: books_topn
+WARNING:  ParadeDB: Unknown relation pair (authors_topn, books_topn), using generic 'id' = 'id' join
+WARNING:  ParadeDB: Fetching column 'id' from relation authors_topn with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 8
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("8")
+WARNING:  ParadeDB: Join condition evaluation: 2 (authors_topn.id) = 8 (books_topn.id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 2) × inner[1] (ctid 8) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Advanced to next outer tuple [3/4]
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: authors_topn, inner: books_topn
+WARNING:  ParadeDB: Unknown relation pair (authors_topn, books_topn), using generic 'id' = 'id' join
+WARNING:  ParadeDB: Fetching column 'id' from relation authors_topn with CTID 4
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("4")
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 4
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("4")
+WARNING:  ParadeDB: Join condition evaluation: 4 (authors_topn.id) = 4 (books_topn.id) -> true
+WARNING:  ParadeDB: Evaluating join condition for outer[2] (ctid 4) × inner[0] (ctid 4) = true
+WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[2] × inner[0]
+WARNING:  ParadeDB: Creating join result tuple for outer[2], inner[0]
+WARNING:  ParadeDB: Creating result tuple with 4 attributes
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: authors_topn, inner: books_topn
+WARNING:  ParadeDB: Fetching real heap tuple values from relations authors_topn and books_topn
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: authors_topn, inner: books_topn
+WARNING:  ParadeDB: Detected relations from predicates - outer: 'authors_topn', inner: 'books_topn'
+WARNING:  ParadeDB: Fetching all columns with names from relation authors_topn with CTID 4
+WARNING:  ParadeDB: authors_topn column 'id' = '4'
+WARNING:  ParadeDB: authors_topn column 'name' = 'Isaac Asimov'
+WARNING:  ParadeDB: authors_topn column 'bio' = 'Science fiction robotics foundation series author scientist'
+WARNING:  ParadeDB: Successfully fetched 3 columns from authors_topn relation
+WARNING:  ParadeDB: Fetching all columns with names from relation books_topn with CTID 4
+WARNING:  ParadeDB: books_topn column 'id' = '4'
+WARNING:  ParadeDB: books_topn column 'title' = 'Foundation'
+WARNING:  ParadeDB: books_topn column 'author_id' = '4'
+WARNING:  ParadeDB: books_topn column 'content' = 'Science fiction galactic empire psychohistory mathematics prediction'
+WARNING:  ParadeDB: Successfully fetched 4 columns from books_topn relation
+WARNING:  ParadeDB: Fetched 3 columns from outer relation, 4 from inner relation
+WARNING:  ParadeDB: Analyzing 4 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 4 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}"),))), (4, Some((Ok("{VAR :varno -3 :varattno 4 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 2 :location -1}"),)))]
+WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation authors_topn
+WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "authors_topn")]
+WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
+WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: authors_topn, inner: books_topn
+WARNING:  ParadeDB: Resolved varnosyn 1 to relation books_topn
+WARNING:  ParadeDB: varnosyn 1 resolved to relation books_topn, attno 2
+WARNING:  ParadeDB: Relation books_topn attno 2 -> column name 'title'
+WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn(books_topn,title)
+WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
+WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 1, varattnosyn: 4
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 4
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 4 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: authors_topn, inner: books_topn
+WARNING:  ParadeDB: Resolved varnosyn 1 to relation books_topn
+WARNING:  ParadeDB: varnosyn 1 resolved to relation books_topn, attno 4
+WARNING:  ParadeDB: Relation books_topn attno 4 -> column name 'content'
+WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn(books_topn,content)
+WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
+WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 1, varattnosyn: 1
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 1
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 1 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: authors_topn, inner: books_topn
+WARNING:  ParadeDB: Resolved varnosyn 1 to relation books_topn
+WARNING:  ParadeDB: varnosyn 1 resolved to relation books_topn, attno 1
+WARNING:  ParadeDB: Relation books_topn attno 1 -> column name 'id'
+WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn(books_topn,id)
+WARNING:  ParadeDB: Analyzing target entry 4 (resno: 4)
+WARNING:  ParadeDB: Found Var in target entry 4 - varno: -3, attno: 4, varnosyn: 2, varattnosyn: 2
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 2
+WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 2 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: authors_topn, inner: books_topn
+WARNING:  ParadeDB: Resolved varnosyn 2 to relation authors_topn
+WARNING:  ParadeDB: varnosyn 2 resolved to relation authors_topn, attno 2
+WARNING:  ParadeDB: Relation authors_topn attno 2 -> column name 'name'
+WARNING:  ParadeDB: Target entry 4 mapped to: RelationColumn(authors_topn,name)
+WARNING:  ParadeDB: Mapped 4 out of 4 column values: [Some("Foundation"), Some("Science fiction galactic empire psychohistory mathematics prediction"), Some("4"), Some("Isaac Asimov")]
+WARNING:  ParadeDB: Converting '4' to integer 4
+WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Foundation"), Some("Science fiction galactic empire psychohistory mathematics prediction"), Some("4"), Some("Isaac Asimov")]
+WARNING:  ParadeDB: Using standard join execution
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: authors_topn, inner: books_topn
+WARNING:  ParadeDB: Unknown relation pair (authors_topn, books_topn), using generic 'id' = 'id' join
+WARNING:  ParadeDB: Fetching column 'id' from relation authors_topn with CTID 4
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("4")
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 8
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("8")
+WARNING:  ParadeDB: Join condition evaluation: 4 (authors_topn.id) = 8 (books_topn.id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[2] (ctid 4) × inner[1] (ctid 8) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Advanced to next outer tuple [4/4]
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: authors_topn, inner: books_topn
+WARNING:  ParadeDB: Unknown relation pair (authors_topn, books_topn), using generic 'id' = 'id' join
+WARNING:  ParadeDB: Fetching column 'id' from relation authors_topn with CTID 5
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("5")
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 4
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("4")
+WARNING:  ParadeDB: Join condition evaluation: 5 (authors_topn.id) = 4 (books_topn.id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[3] (ctid 5) × inner[0] (ctid 4) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: authors_topn, inner: books_topn
+WARNING:  ParadeDB: Unknown relation pair (authors_topn, books_topn), using generic 'id' = 'id' join
+WARNING:  ParadeDB: Fetching column 'id' from relation authors_topn with CTID 5
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("5")
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 8
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("8")
+WARNING:  ParadeDB: Join condition evaluation: 5 (authors_topn.id) = 8 (books_topn.id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[3] (ctid 5) × inner[1] (ctid 8) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Join matching complete - total matches: 1
+WARNING:  ParadeDB: Cleaning up join execution
+WARNING:  ParadeDB: Cleaning up join execution state
+WARNING:  ParadeDB: ===== JOIN EXECUTION STATISTICS =====
+WARNING:  ParadeDB: Search Results - Outer: 4, Inner: 2, Total Combinations: 8
+WARNING:  ParadeDB: Join Processing - Matches: 1, Returned: 1, Success Rate: 12.5%
+WARNING:  ParadeDB: Heap Tuple Access - Attempts: 2, Successes: 4, Success Rate: 200.0%
+WARNING:  ParadeDB: Cleaned up 2 search readers
+WARNING:  ParadeDB: Cleared 4 outer and 2 inner search results
+WARNING:  ParadeDB: ===== END JOIN EXECUTION STATISTICS =====
+WARNING:  ParadeDB: Join execution cleanup complete
+   title    |     name     |                               content                                
+------------+--------------+----------------------------------------------------------------------
+ Foundation | Isaac Asimov | Science fiction galactic empire psychohistory mathematics prediction
+(1 row)
+
 -- Test 2: Standard join without LIMIT for comparison
 -- This should use standard join processing
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -285,6 +549,266 @@ WARNING:  ParadeDB: Join execution cleanup complete
          Outer Search Predicates: 1
          Inner Search Predicates: 1
 (9 rows)
+
+SELECT b.title, a.name, b.content  
+FROM books_topn b
+JOIN authors_topn a ON b.author_id = a.id
+WHERE b.content @@@ 'fiction'
+  AND a.bio @@@ 'author'
+ORDER BY b.id DESC;
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["books_topn"], inner relids: ["authors_topn"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
+WARNING:  ParadeDB: Found BM25 index for relation books_topn (rti 1)
+WARNING:  ParadeDB: Checked relations ["books_topn"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Found BM25 index for relation authors_topn (rti 2)
+WARNING:  ParadeDB: Checked relations ["authors_topn"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Join feasibility check - outer has BM25: true, inner has BM25: true
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation books_topn (rti 1)
+WARNING:  ParadeDB: Extracted search query for books_topn: uses_search_operator=true
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation authors_topn (rti 2)
+WARNING:  ParadeDB: Extracted search query for authors_topn: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
+WARNING:  ParadeDB: Outer predicate for books_topn - uses_search: true
+WARNING:  ParadeDB: Inner predicate for authors_topn - uses_search: true
+WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["books_topn"], inner: ["authors_topn"]
+WARNING:  ParadeDB: Standard join - limit: None, order_by: true, search: true
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
+WARNING:  ParadeDB: Adding custom join path to joinrel
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["authors_topn"], inner relids: ["books_topn"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
+WARNING:  ParadeDB: Found BM25 index for relation authors_topn (rti 2)
+WARNING:  ParadeDB: Checked relations ["authors_topn"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Found BM25 index for relation books_topn (rti 1)
+WARNING:  ParadeDB: Checked relations ["books_topn"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Join feasibility check - outer has BM25: true, inner has BM25: true
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation authors_topn (rti 2)
+WARNING:  ParadeDB: Extracted search query for authors_topn: uses_search_operator=true
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation books_topn (rti 1)
+WARNING:  ParadeDB: Extracted search query for books_topn: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
+WARNING:  ParadeDB: Outer predicate for authors_topn - uses_search: true
+WARNING:  ParadeDB: Inner predicate for books_topn - uses_search: true
+WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_topn"], inner: ["books_topn"]
+WARNING:  ParadeDB: Standard join - limit: None, order_by: true, search: true
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
+WARNING:  ParadeDB: Adding custom join path to joinrel
+WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
+WARNING:  ParadeDB: Join target list has 0 entries
+WARNING:  ParadeDB: Using processed_tlist instead (has 4 entries)
+WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'title'
+WARNING:  ParadeDB: Mapped join variable varno=2, varattno=2 to 'name'
+WARNING:  ParadeDB: Mapped join variable varno=1, varattno=4 to 'content'
+WARNING:  ParadeDB: Mapped join variable varno=1, varattno=1 to 'join_attr_4'
+WARNING:  ParadeDB: Set custom scan target list for join node with 4 entries
+WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
+WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Stored outer relation OIDs: ["books_topn"]
+WARNING:  ParadeDB: Stored inner relation OIDs: ["authors_topn"]
+WARNING:  ParadeDB: Storing 4 variable mappings from planning phase
+WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=2 -> 'name'
+WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=1 -> 'join_attr_4'
+WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=4 -> 'content'
+WARNING:  ParadeDB: Planning-time mapping: varno=1, attno=2 -> 'title'
+WARNING:  ParadeDB: Initializing production-ready join execution
+WARNING:  ParadeDB: Join configuration - outer predicates: 1 (search: 1), inner predicates: 1 (search: 1), bilateral: true
+WARNING:  ParadeDB: Relation validation - outer: books_topn (valid: true), inner: authors_topn (valid: true)
+WARNING:  ParadeDB: Join execution initialization completed successfully
+WARNING:  ParadeDB: Using standard join execution
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Phase 1/4 - Initializing join execution
+WARNING:  ParadeDB: Prerequisites validation passed - ready for join execution
+WARNING:  ParadeDB: Initializing search execution with safety checks
+WARNING:  ParadeDB: Initializing search with 1 outer and 1 inner predicates
+WARNING:  ParadeDB: Initializing search readers with safety checks
+WARNING:  ParadeDB: Successfully opened search reader for books_topn
+WARNING:  ParadeDB: Successfully opened search reader for authors_topn
+WARNING:  ParadeDB: Search reader initialization - 2 successful out of 2 attempts
+WARNING:  ParadeDB: Executing real searches with safety checks
+WARNING:  ParadeDB: Executing real BM25 search on relation books_topn
+WARNING:  ParadeDB: Real search on books_topn returned 2 results
+WARNING:  ParadeDB: Successfully executed search on books_topn
+WARNING:  ParadeDB: Executing real BM25 search on relation authors_topn
+WARNING:  ParadeDB: Real search on authors_topn returned 4 results
+WARNING:  ParadeDB: Successfully executed search on authors_topn
+WARNING:  ParadeDB: Search execution completed - outer: 2, inner: 4
+WARNING:  ParadeDB: Search execution initialization completed successfully
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Phase 2/4 - Executing outer relation search
+WARNING:  ParadeDB: Outer search completed - 2 results
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Phase 3/4 - Executing inner relation search
+WARNING:  ParadeDB: Inner search completed - 4 results
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: authors_topn
+WARNING:  ParadeDB: Unknown relation pair (books_topn, authors_topn), using generic 'id' = 'id' join
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 4
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("4")
+WARNING:  ParadeDB: Fetching column 'id' from relation authors_topn with CTID 1
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
+WARNING:  ParadeDB: Join condition evaluation: 4 (books_topn.id) = 1 (authors_topn.id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[0] (ctid 4) × inner[0] (ctid 1) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: authors_topn
+WARNING:  ParadeDB: Unknown relation pair (books_topn, authors_topn), using generic 'id' = 'id' join
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 4
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("4")
+WARNING:  ParadeDB: Fetching column 'id' from relation authors_topn with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Join condition evaluation: 4 (books_topn.id) = 2 (authors_topn.id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[0] (ctid 4) × inner[1] (ctid 2) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: authors_topn
+WARNING:  ParadeDB: Unknown relation pair (books_topn, authors_topn), using generic 'id' = 'id' join
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 4
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("4")
+WARNING:  ParadeDB: Fetching column 'id' from relation authors_topn with CTID 4
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("4")
+WARNING:  ParadeDB: Join condition evaluation: 4 (books_topn.id) = 4 (authors_topn.id) -> true
+WARNING:  ParadeDB: Evaluating join condition for outer[0] (ctid 4) × inner[2] (ctid 4) = true
+WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[2]
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[2]
+WARNING:  ParadeDB: Creating result tuple with 4 attributes
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: authors_topn
+WARNING:  ParadeDB: Fetching real heap tuple values from relations books_topn and authors_topn
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: authors_topn
+WARNING:  ParadeDB: Detected relations from predicates - outer: 'books_topn', inner: 'authors_topn'
+WARNING:  ParadeDB: Fetching all columns with names from relation books_topn with CTID 4
+WARNING:  ParadeDB: books_topn column 'id' = '4'
+WARNING:  ParadeDB: books_topn column 'title' = 'Foundation'
+WARNING:  ParadeDB: books_topn column 'author_id' = '4'
+WARNING:  ParadeDB: books_topn column 'content' = 'Science fiction galactic empire psychohistory mathematics prediction'
+WARNING:  ParadeDB: Successfully fetched 4 columns from books_topn relation
+WARNING:  ParadeDB: Fetching all columns with names from relation authors_topn with CTID 4
+WARNING:  ParadeDB: authors_topn column 'id' = '4'
+WARNING:  ParadeDB: authors_topn column 'name' = 'Isaac Asimov'
+WARNING:  ParadeDB: authors_topn column 'bio' = 'Science fiction robotics foundation series author scientist'
+WARNING:  ParadeDB: Successfully fetched 3 columns from authors_topn relation
+WARNING:  ParadeDB: Fetched 4 columns from outer relation, 3 from inner relation
+WARNING:  ParadeDB: Analyzing 4 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 2 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 4 :location -1}"),))), (4, Some((Ok("{VAR :varno -3 :varattno 4 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1}"),)))]
+WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation books_topn
+WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "books_topn")]
+WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
+WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 2
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 2 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: authors_topn
+WARNING:  ParadeDB: Resolved varnosyn 1 to relation books_topn
+WARNING:  ParadeDB: varnosyn 1 resolved to relation books_topn, attno 2
+WARNING:  ParadeDB: Relation books_topn attno 2 -> column name 'title'
+WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn(books_topn,title)
+WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
+WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 2, varattnosyn: 2
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 2
+WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 2 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: authors_topn
+WARNING:  ParadeDB: Resolved varnosyn 2 to relation authors_topn
+WARNING:  ParadeDB: varnosyn 2 resolved to relation authors_topn, attno 2
+WARNING:  ParadeDB: Relation authors_topn attno 2 -> column name 'name'
+WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn(authors_topn,name)
+WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
+WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 1, varattnosyn: 4
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 4
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 4 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: authors_topn
+WARNING:  ParadeDB: Resolved varnosyn 1 to relation books_topn
+WARNING:  ParadeDB: varnosyn 1 resolved to relation books_topn, attno 4
+WARNING:  ParadeDB: Relation books_topn attno 4 -> column name 'content'
+WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn(books_topn,content)
+WARNING:  ParadeDB: Analyzing target entry 4 (resno: 4)
+WARNING:  ParadeDB: Found Var in target entry 4 - varno: -3, attno: 4, varnosyn: 1, varattnosyn: 1
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 1, varattnosyn: 1
+WARNING:  ParadeDB: Mapping original variable varnosyn: 1, varattnosyn: 1 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: authors_topn
+WARNING:  ParadeDB: Resolved varnosyn 1 to relation books_topn
+WARNING:  ParadeDB: varnosyn 1 resolved to relation books_topn, attno 1
+WARNING:  ParadeDB: Relation books_topn attno 1 -> column name 'id'
+WARNING:  ParadeDB: Target entry 4 mapped to: RelationColumn(books_topn,id)
+WARNING:  ParadeDB: Mapped 4 out of 4 column values: [Some("Foundation"), Some("Isaac Asimov"), Some("Science fiction galactic empire psychohistory mathematics prediction"), Some("4")]
+WARNING:  ParadeDB: Converting '4' to integer 4
+WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("Foundation"), Some("Isaac Asimov"), Some("Science fiction galactic empire psychohistory mathematics prediction"), Some("4")]
+WARNING:  ParadeDB: Using standard join execution
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: authors_topn
+WARNING:  ParadeDB: Unknown relation pair (books_topn, authors_topn), using generic 'id' = 'id' join
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 4
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("4")
+WARNING:  ParadeDB: Fetching column 'id' from relation authors_topn with CTID 5
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("5")
+WARNING:  ParadeDB: Join condition evaluation: 4 (books_topn.id) = 5 (authors_topn.id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[0] (ctid 4) × inner[3] (ctid 5) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Advanced to next outer tuple [2/2]
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: authors_topn
+WARNING:  ParadeDB: Unknown relation pair (books_topn, authors_topn), using generic 'id' = 'id' join
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 8
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("8")
+WARNING:  ParadeDB: Fetching column 'id' from relation authors_topn with CTID 1
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
+WARNING:  ParadeDB: Join condition evaluation: 8 (books_topn.id) = 1 (authors_topn.id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 8) × inner[0] (ctid 1) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: authors_topn
+WARNING:  ParadeDB: Unknown relation pair (books_topn, authors_topn), using generic 'id' = 'id' join
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 8
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("8")
+WARNING:  ParadeDB: Fetching column 'id' from relation authors_topn with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Join condition evaluation: 8 (books_topn.id) = 2 (authors_topn.id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 8) × inner[1] (ctid 2) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: authors_topn
+WARNING:  ParadeDB: Unknown relation pair (books_topn, authors_topn), using generic 'id' = 'id' join
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 8
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("8")
+WARNING:  ParadeDB: Fetching column 'id' from relation authors_topn with CTID 4
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("4")
+WARNING:  ParadeDB: Join condition evaluation: 8 (books_topn.id) = 4 (authors_topn.id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 8) × inner[2] (ctid 4) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: authors_topn
+WARNING:  ParadeDB: Unknown relation pair (books_topn, authors_topn), using generic 'id' = 'id' join
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 8
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("8")
+WARNING:  ParadeDB: Fetching column 'id' from relation authors_topn with CTID 5
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("5")
+WARNING:  ParadeDB: Join condition evaluation: 8 (books_topn.id) = 5 (authors_topn.id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 8) × inner[3] (ctid 5) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Join matching complete - total matches: 1
+WARNING:  ParadeDB: Cleaning up join execution
+WARNING:  ParadeDB: Cleaning up join execution state
+WARNING:  ParadeDB: ===== JOIN EXECUTION STATISTICS =====
+WARNING:  ParadeDB: Search Results - Outer: 2, Inner: 4, Total Combinations: 8
+WARNING:  ParadeDB: Join Processing - Matches: 1, Returned: 1, Success Rate: 12.5%
+WARNING:  ParadeDB: Heap Tuple Access - Attempts: 2, Successes: 4, Success Rate: 200.0%
+WARNING:  ParadeDB: Cleaned up 2 search readers
+WARNING:  ParadeDB: Cleared 2 outer and 4 inner search results
+WARNING:  ParadeDB: ===== END JOIN EXECUTION STATISTICS =====
+WARNING:  ParadeDB: Join execution cleanup complete
+   title    |     name     |                               content                                
+------------+--------------+----------------------------------------------------------------------
+ Foundation | Isaac Asimov | Science fiction galactic empire psychohistory mathematics prediction
+(1 row)
 
 -- Test 3: TopN Join with composite relation (nested join)
 -- This tests TopN optimization with one side being a composite relation
@@ -474,8 +998,646 @@ WARNING:  ParadeDB: Join execution cleanup complete
                            Inner Search Predicates: 0
 (22 rows)
 
+SELECT outer_result.title, outer_result.author_name, outer_result.content
+FROM (
+    SELECT b.title, a.name as author_name, b.content, b.id
+    FROM books_topn b  
+    JOIN authors_topn a ON b.author_id = a.id
+    WHERE a.bio @@@ 'British'
+) outer_result
+JOIN books_topn b2 ON outer_result.id != b2.id
+WHERE b2.content @@@ 'horror'
+ORDER BY b2.id DESC
+LIMIT 3;
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["books_topn"], inner relids: ["authors_topn"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
+WARNING:  ParadeDB: Found BM25 index for relation books_topn (rti 4)
+WARNING:  ParadeDB: Checked relations ["books_topn"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Found BM25 index for relation authors_topn (rti 5)
+WARNING:  ParadeDB: Checked relations ["authors_topn"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Join feasibility check - outer has BM25: true, inner has BM25: true
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation authors_topn (rti 5)
+WARNING:  ParadeDB: Extracted search query for authors_topn: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 0 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 0, inner: 1, bilateral: false
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
+WARNING:  ParadeDB: Inner predicate for authors_topn - uses_search: true
+WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["books_topn"], inner: ["authors_topn"]
+WARNING:  ParadeDB: Unilateral join - inner has search, outer needs table scan
+WARNING:  ParadeDB: TopN join detected during planning - limit: 3, has_order_by: true, has_search: true
+WARNING:  ParadeDB: TopN join path estimates - rows: 3, startup_cost: 60.00, total_cost: 22.69 (MUCH LOWER than standard 75.65) - FORCED
+WARNING:  ParadeDB: Forcing TopN join path selection by clearing existing paths
+WARNING:  ParadeDB: Adding custom join path to joinrel
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["authors_topn"], inner relids: ["books_topn"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
+WARNING:  ParadeDB: Found BM25 index for relation authors_topn (rti 5)
+WARNING:  ParadeDB: Checked relations ["authors_topn"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Found BM25 index for relation books_topn (rti 4)
+WARNING:  ParadeDB: Checked relations ["books_topn"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Join feasibility check - outer has BM25: true, inner has BM25: true
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation authors_topn (rti 5)
+WARNING:  ParadeDB: Extracted search query for authors_topn: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 0 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 0, bilateral: false
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
+WARNING:  ParadeDB: Outer predicate for authors_topn - uses_search: true
+WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_topn"], inner: ["books_topn"]
+WARNING:  ParadeDB: Unilateral join - outer has search, inner needs table scan
+WARNING:  ParadeDB: TopN join detected during planning - limit: 3, has_order_by: true, has_search: true
+WARNING:  ParadeDB: TopN join path estimates - rows: 3, startup_cost: 60.00, total_cost: 22.69 (MUCH LOWER than standard 75.65) - FORCED
+WARNING:  ParadeDB: Forcing TopN join path selection by clearing existing paths
+WARNING:  ParadeDB: Adding custom join path to joinrel
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["books_topn"], inner relids: ["books_topn"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
+WARNING:  ParadeDB: Found BM25 index for relation books_topn (rti 4)
+WARNING:  ParadeDB: Checked relations ["books_topn"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Found BM25 index for relation books_topn (rti 2)
+WARNING:  ParadeDB: Checked relations ["books_topn"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Join feasibility check - outer has BM25: true, inner has BM25: true
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation books_topn (rti 2)
+WARNING:  ParadeDB: Extracted search query for books_topn: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 0 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 0, inner: 1, bilateral: false
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
+WARNING:  ParadeDB: Inner predicate for books_topn - uses_search: true
+WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["books_topn"], inner: ["books_topn"]
+WARNING:  ParadeDB: Unilateral join - inner has search, outer needs table scan
+WARNING:  ParadeDB: TopN join detected during planning - limit: 3, has_order_by: true, has_search: true
+WARNING:  ParadeDB: TopN join path estimates - rows: 3, startup_cost: 60.00, total_cost: 22.69 (MUCH LOWER than standard 75.65) - FORCED
+WARNING:  ParadeDB: Forcing TopN join path selection by clearing existing paths
+WARNING:  ParadeDB: Adding custom join path to joinrel
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["books_topn"], inner relids: ["books_topn"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
+WARNING:  ParadeDB: Found BM25 index for relation books_topn (rti 2)
+WARNING:  ParadeDB: Checked relations ["books_topn"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Found BM25 index for relation books_topn (rti 4)
+WARNING:  ParadeDB: Checked relations ["books_topn"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Join feasibility check - outer has BM25: true, inner has BM25: true
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation books_topn (rti 2)
+WARNING:  ParadeDB: Extracted search query for books_topn: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 0 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 0, bilateral: false
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
+WARNING:  ParadeDB: Outer predicate for books_topn - uses_search: true
+WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["books_topn"], inner: ["books_topn"]
+WARNING:  ParadeDB: Unilateral join - outer has search, inner needs table scan
+WARNING:  ParadeDB: TopN join detected during planning - limit: 3, has_order_by: true, has_search: true
+WARNING:  ParadeDB: TopN join path estimates - rows: 3, startup_cost: 60.00, total_cost: 22.69 (MUCH LOWER than standard 75.65) - FORCED
+WARNING:  ParadeDB: Forcing TopN join path selection by clearing existing paths
+WARNING:  ParadeDB: Adding custom join path to joinrel
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["books_topn", "authors_topn"], inner relids: ["books_topn"]
+WARNING:  ParadeDB: Outer side is composite, inner is base - checking feasibility
+WARNING:  ParadeDB: Composite joins not yet supported - intermediate result access not implemented
+WARNING:  ParadeDB: Rejecting composite join to allow PostgreSQL's optimized default processing
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["books_topn"], inner relids: ["books_topn", "authors_topn"]
+WARNING:  ParadeDB: Outer side is base, inner is composite - checking feasibility
+WARNING:  ParadeDB: Composite joins not yet supported - intermediate result access not implemented
+WARNING:  ParadeDB: Rejecting composite join to allow PostgreSQL's optimized default processing
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["books_topn", "books_topn"], inner relids: ["authors_topn"]
+WARNING:  ParadeDB: Outer side is composite, inner is base - checking feasibility
+WARNING:  ParadeDB: Composite joins not yet supported - intermediate result access not implemented
+WARNING:  ParadeDB: Rejecting composite join to allow PostgreSQL's optimized default processing
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["authors_topn"], inner relids: ["books_topn", "books_topn"]
+WARNING:  ParadeDB: Outer side is base, inner is composite - checking feasibility
+WARNING:  ParadeDB: Composite joins not yet supported - intermediate result access not implemented
+WARNING:  ParadeDB: Rejecting composite join to allow PostgreSQL's optimized default processing
+WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
+WARNING:  ParadeDB: Join target list has 4 entries
+WARNING:  ParadeDB: Mapped join variable varno=4, varattno=2 to 'join_attr_1'
+WARNING:  ParadeDB: Mapped join variable varno=4, varattno=4 to 'join_attr_2'
+WARNING:  ParadeDB: Mapped join variable varno=4, varattno=3 to 'join_attr_3'
+WARNING:  ParadeDB: Mapped join variable varno=2, varattno=1 to 'join_attr_4'
+WARNING:  ParadeDB: Set custom scan target list for join node with 4 entries
+WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
+WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 0, bilateral: false
+WARNING:  ParadeDB: Stored outer relation OIDs: ["books_topn"]
+WARNING:  ParadeDB: Stored inner relation OIDs: ["books_topn"]
+WARNING:  ParadeDB: Storing 4 variable mappings from planning phase
+WARNING:  ParadeDB: Planning-time mapping: varno=4, attno=4 -> 'join_attr_2'
+WARNING:  ParadeDB: Planning-time mapping: varno=4, attno=2 -> 'join_attr_1'
+WARNING:  ParadeDB: Planning-time mapping: varno=4, attno=3 -> 'join_attr_3'
+WARNING:  ParadeDB: Planning-time mapping: varno=2, attno=1 -> 'join_attr_4'
+WARNING:  ParadeDB: Initializing production-ready join execution
+WARNING:  ParadeDB: Join configuration - outer predicates: 1 (search: 1), inner predicates: 0 (search: 0), bilateral: false
+WARNING:  ParadeDB: Relation validation - outer: books_topn (valid: true), inner: books_topn (valid: true)
+WARNING:  ParadeDB: Join execution initialization completed successfully
+WARNING:  ParadeDB: Using standard join execution
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Phase 1/4 - Initializing join execution
+WARNING:  ParadeDB: Prerequisites validation passed - ready for join execution
+WARNING:  ParadeDB: Initializing search execution with safety checks
+WARNING:  ParadeDB: Initializing search with 1 outer and 0 inner predicates
+WARNING:  ParadeDB: Initializing search readers with safety checks
+WARNING:  ParadeDB: Successfully opened search reader for books_topn
+WARNING:  ParadeDB: Search reader initialization - 1 successful out of 1 attempts
+WARNING:  ParadeDB: Executing real searches with safety checks
+WARNING:  ParadeDB: Executing real BM25 search on relation books_topn
+WARNING:  ParadeDB: Real search on books_topn returned 2 results
+WARNING:  ParadeDB: Successfully executed search on books_topn
+WARNING:  ParadeDB: No inner search results - generating table scan results for unilateral join
+WARNING:  ParadeDB: Generating table scan results for relation books_topn
+WARNING:  ParadeDB: Relation books_topn has 1 pages
+WARNING:  ParadeDB: Generated 10 table scan results for relation books_topn
+WARNING:  ParadeDB: Search execution completed - outer: 2, inner: 10
+WARNING:  ParadeDB: Search execution initialization completed successfully
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Phase 2/4 - Executing outer relation search
+WARNING:  ParadeDB: Outer search completed - 2 results
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Phase 3/4 - Executing inner relation search
+WARNING:  ParadeDB: Inner search completed - 10 results
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: books_topn
+WARNING:  ParadeDB: Unknown relation pair (books_topn, books_topn), using generic 'id' = 'id' join
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 1
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
+WARNING:  ParadeDB: Join condition evaluation: 2 (books_topn.id) = 1 (books_topn.id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[0] (ctid 2) × inner[0] (ctid 1) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: books_topn
+WARNING:  ParadeDB: Unknown relation pair (books_topn, books_topn), using generic 'id' = 'id' join
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Join condition evaluation: 2 (books_topn.id) = 2 (books_topn.id) -> true
+WARNING:  ParadeDB: Evaluating join condition for outer[0] (ctid 2) × inner[1] (ctid 2) = true
+WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[0] × inner[1]
+WARNING:  ParadeDB: Creating join result tuple for outer[0], inner[1]
+WARNING:  ParadeDB: Creating result tuple with 4 attributes
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: books_topn
+WARNING:  ParadeDB: Fetching real heap tuple values from relations books_topn and books_topn
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: books_topn
+WARNING:  ParadeDB: Detected relations from predicates - outer: 'books_topn', inner: 'books_topn'
+WARNING:  ParadeDB: Fetching all columns with names from relation books_topn with CTID 2
+WARNING:  ParadeDB: books_topn column 'id' = '2'
+WARNING:  ParadeDB: books_topn column 'title' = 'The Shining'
+WARNING:  ParadeDB: books_topn column 'author_id' = '2'
+WARNING:  ParadeDB: books_topn column 'content' = 'Horror psychological supernatural haunted hotel winter isolation'
+WARNING:  ParadeDB: Successfully fetched 4 columns from books_topn relation
+WARNING:  ParadeDB: Fetching all columns with names from relation books_topn with CTID 2
+WARNING:  ParadeDB: books_topn column 'id' = '2'
+WARNING:  ParadeDB: books_topn column 'title' = 'The Shining'
+WARNING:  ParadeDB: books_topn column 'author_id' = '2'
+WARNING:  ParadeDB: books_topn column 'content' = 'Horror psychological supernatural haunted hotel winter isolation'
+WARNING:  ParadeDB: Successfully fetched 4 columns from books_topn relation
+WARNING:  ParadeDB: Fetched 4 columns from outer relation, 4 from inner relation
+WARNING:  ParadeDB: Analyzing 4 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 2 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 4 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 3 :location -1}"),))), (4, Some((Ok("{VAR :varno -3 :varattno 4 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 1 :location -1}"),)))]
+WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation books_topn
+WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "books_topn")]
+WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
+WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 4, varattnosyn: 2
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 4, varattnosyn: 2
+WARNING:  ParadeDB: Mapping original variable varnosyn: 4, varattnosyn: 2 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: books_topn
+WARNING:  ParadeDB: Resolved varnosyn 4 to relation books_topn
+WARNING:  ParadeDB: varnosyn 4 resolved to relation books_topn, attno 2
+WARNING:  ParadeDB: Relation books_topn attno 2 -> column name 'title'
+WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn(books_topn,title)
+WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
+WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 4, varattnosyn: 4
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 4, varattnosyn: 4
+WARNING:  ParadeDB: Mapping original variable varnosyn: 4, varattnosyn: 4 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: books_topn
+WARNING:  ParadeDB: Resolved varnosyn 4 to relation books_topn
+WARNING:  ParadeDB: varnosyn 4 resolved to relation books_topn, attno 4
+WARNING:  ParadeDB: Relation books_topn attno 4 -> column name 'content'
+WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn(books_topn,content)
+WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
+WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 4, varattnosyn: 3
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 4, varattnosyn: 3
+WARNING:  ParadeDB: Mapping original variable varnosyn: 4, varattnosyn: 3 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: books_topn
+WARNING:  ParadeDB: Resolved varnosyn 4 to relation books_topn
+WARNING:  ParadeDB: varnosyn 4 resolved to relation books_topn, attno 3
+WARNING:  ParadeDB: Relation books_topn attno 3 -> column name 'author_id'
+WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn(books_topn,author_id)
+WARNING:  ParadeDB: Analyzing target entry 4 (resno: 4)
+WARNING:  ParadeDB: Found Var in target entry 4 - varno: -3, attno: 4, varnosyn: 2, varattnosyn: 1
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 1
+WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 1 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: books_topn
+WARNING:  ParadeDB: Resolved varnosyn 2 to relation books_topn
+WARNING:  ParadeDB: varnosyn 2 resolved to relation books_topn, attno 1
+WARNING:  ParadeDB: Relation books_topn attno 1 -> column name 'id'
+WARNING:  ParadeDB: Target entry 4 mapped to: RelationColumn(books_topn,id)
+WARNING:  ParadeDB: Mapped 4 out of 4 column values: [Some("The Shining"), Some("Horror psychological supernatural haunted hotel winter isolation"), Some("2"), Some("2")]
+WARNING:  ParadeDB: Converting '2' to integer 2
+WARNING:  ParadeDB: Converting '2' to integer 2
+WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("The Shining"), Some("Horror psychological supernatural haunted hotel winter isolation"), Some("2"), Some("2")]
+WARNING:  ParadeDB: Using standard join execution
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: books_topn
+WARNING:  ParadeDB: Unknown relation pair (books_topn, books_topn), using generic 'id' = 'id' join
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 3
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("3")
+WARNING:  ParadeDB: Join condition evaluation: 2 (books_topn.id) = 3 (books_topn.id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[0] (ctid 2) × inner[2] (ctid 3) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: books_topn
+WARNING:  ParadeDB: Unknown relation pair (books_topn, books_topn), using generic 'id' = 'id' join
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 4
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("4")
+WARNING:  ParadeDB: Join condition evaluation: 2 (books_topn.id) = 4 (books_topn.id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[0] (ctid 2) × inner[3] (ctid 4) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: books_topn
+WARNING:  ParadeDB: Unknown relation pair (books_topn, books_topn), using generic 'id' = 'id' join
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 5
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("5")
+WARNING:  ParadeDB: Join condition evaluation: 2 (books_topn.id) = 5 (books_topn.id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[0] (ctid 2) × inner[4] (ctid 5) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: books_topn
+WARNING:  ParadeDB: Unknown relation pair (books_topn, books_topn), using generic 'id' = 'id' join
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 6
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("6")
+WARNING:  ParadeDB: Join condition evaluation: 2 (books_topn.id) = 6 (books_topn.id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[0] (ctid 2) × inner[5] (ctid 6) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: books_topn
+WARNING:  ParadeDB: Unknown relation pair (books_topn, books_topn), using generic 'id' = 'id' join
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 7
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("7")
+WARNING:  ParadeDB: Join condition evaluation: 2 (books_topn.id) = 7 (books_topn.id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[0] (ctid 2) × inner[6] (ctid 7) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: books_topn
+WARNING:  ParadeDB: Unknown relation pair (books_topn, books_topn), using generic 'id' = 'id' join
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 8
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("8")
+WARNING:  ParadeDB: Join condition evaluation: 2 (books_topn.id) = 8 (books_topn.id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[0] (ctid 2) × inner[7] (ctid 8) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: books_topn
+WARNING:  ParadeDB: Unknown relation pair (books_topn, books_topn), using generic 'id' = 'id' join
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 9
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("9")
+WARNING:  ParadeDB: Join condition evaluation: 2 (books_topn.id) = 9 (books_topn.id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[0] (ctid 2) × inner[8] (ctid 9) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: books_topn
+WARNING:  ParadeDB: Unknown relation pair (books_topn, books_topn), using generic 'id' = 'id' join
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 10
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("10")
+WARNING:  ParadeDB: Join condition evaluation: 2 (books_topn.id) = 10 (books_topn.id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[0] (ctid 2) × inner[9] (ctid 10) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Advanced to next outer tuple [2/2]
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: books_topn
+WARNING:  ParadeDB: Unknown relation pair (books_topn, books_topn), using generic 'id' = 'id' join
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 6
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("6")
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 1
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("1")
+WARNING:  ParadeDB: Join condition evaluation: 6 (books_topn.id) = 1 (books_topn.id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 6) × inner[0] (ctid 1) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: books_topn
+WARNING:  ParadeDB: Unknown relation pair (books_topn, books_topn), using generic 'id' = 'id' join
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 6
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("6")
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 2
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("2")
+WARNING:  ParadeDB: Join condition evaluation: 6 (books_topn.id) = 2 (books_topn.id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 6) × inner[1] (ctid 2) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: books_topn
+WARNING:  ParadeDB: Unknown relation pair (books_topn, books_topn), using generic 'id' = 'id' join
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 6
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("6")
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 3
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("3")
+WARNING:  ParadeDB: Join condition evaluation: 6 (books_topn.id) = 3 (books_topn.id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 6) × inner[2] (ctid 3) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: books_topn
+WARNING:  ParadeDB: Unknown relation pair (books_topn, books_topn), using generic 'id' = 'id' join
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 6
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("6")
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 4
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("4")
+WARNING:  ParadeDB: Join condition evaluation: 6 (books_topn.id) = 4 (books_topn.id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 6) × inner[3] (ctid 4) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: books_topn
+WARNING:  ParadeDB: Unknown relation pair (books_topn, books_topn), using generic 'id' = 'id' join
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 6
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("6")
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 5
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("5")
+WARNING:  ParadeDB: Join condition evaluation: 6 (books_topn.id) = 5 (books_topn.id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 6) × inner[4] (ctid 5) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: books_topn
+WARNING:  ParadeDB: Unknown relation pair (books_topn, books_topn), using generic 'id' = 'id' join
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 6
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("6")
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 6
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("6")
+WARNING:  ParadeDB: Join condition evaluation: 6 (books_topn.id) = 6 (books_topn.id) -> true
+WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 6) × inner[5] (ctid 6) = true
+WARNING:  ParadeDB: Join condition satisfied - creating result tuple for outer[1] × inner[5]
+WARNING:  ParadeDB: Creating join result tuple for outer[1], inner[5]
+WARNING:  ParadeDB: Creating result tuple with 4 attributes
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: books_topn
+WARNING:  ParadeDB: Fetching real heap tuple values from relations books_topn and books_topn
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: books_topn
+WARNING:  ParadeDB: Detected relations from predicates - outer: 'books_topn', inner: 'books_topn'
+WARNING:  ParadeDB: Fetching all columns with names from relation books_topn with CTID 6
+WARNING:  ParadeDB: books_topn column 'id' = '6'
+WARNING:  ParadeDB: books_topn column 'title' = 'It'
+WARNING:  ParadeDB: books_topn column 'author_id' = '2'
+WARNING:  ParadeDB: books_topn column 'content' = 'Horror supernatural entity children small town terror fear'
+WARNING:  ParadeDB: Successfully fetched 4 columns from books_topn relation
+WARNING:  ParadeDB: Fetching all columns with names from relation books_topn with CTID 6
+WARNING:  ParadeDB: books_topn column 'id' = '6'
+WARNING:  ParadeDB: books_topn column 'title' = 'It'
+WARNING:  ParadeDB: books_topn column 'author_id' = '2'
+WARNING:  ParadeDB: books_topn column 'content' = 'Horror supernatural entity children small town terror fear'
+WARNING:  ParadeDB: Successfully fetched 4 columns from books_topn relation
+WARNING:  ParadeDB: Fetched 4 columns from outer relation, 4 from inner relation
+WARNING:  ParadeDB: Analyzing 4 target entries using execution-time varno/attno mapping: [(1, Some((Ok("{VAR :varno -3 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 2 :location -1}"),))), (2, Some((Ok("{VAR :varno -3 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 4 :location -1}"),))), (3, Some((Ok("{VAR :varno -3 :varattno 3 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 4 :varattnosyn 3 :location -1}"),))), (4, Some((Ok("{VAR :varno -3 :varattno 4 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 1 :location -1}"),)))]
+WARNING:  ParadeDB: Mapped varno 4294967293 to outer relation books_topn
+WARNING:  ParadeDB: Built execution-time varno mapping with 1 entries: [(4294967293, "books_topn")]
+WARNING:  ParadeDB: Analyzing target entry 1 (resno: 1)
+WARNING:  ParadeDB: Found Var in target entry 1 - varno: -3, attno: 1, varnosyn: 4, varattnosyn: 2
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 4, varattnosyn: 2
+WARNING:  ParadeDB: Mapping original variable varnosyn: 4, varattnosyn: 2 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: books_topn
+WARNING:  ParadeDB: Resolved varnosyn 4 to relation books_topn
+WARNING:  ParadeDB: varnosyn 4 resolved to relation books_topn, attno 2
+WARNING:  ParadeDB: Relation books_topn attno 2 -> column name 'title'
+WARNING:  ParadeDB: Target entry 1 mapped to: RelationColumn(books_topn,title)
+WARNING:  ParadeDB: Analyzing target entry 2 (resno: 2)
+WARNING:  ParadeDB: Found Var in target entry 2 - varno: -3, attno: 2, varnosyn: 4, varattnosyn: 4
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 4, varattnosyn: 4
+WARNING:  ParadeDB: Mapping original variable varnosyn: 4, varattnosyn: 4 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: books_topn
+WARNING:  ParadeDB: Resolved varnosyn 4 to relation books_topn
+WARNING:  ParadeDB: varnosyn 4 resolved to relation books_topn, attno 4
+WARNING:  ParadeDB: Relation books_topn attno 4 -> column name 'content'
+WARNING:  ParadeDB: Target entry 2 mapped to: RelationColumn(books_topn,content)
+WARNING:  ParadeDB: Analyzing target entry 3 (resno: 3)
+WARNING:  ParadeDB: Found Var in target entry 3 - varno: -3, attno: 3, varnosyn: 4, varattnosyn: 3
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 4, varattnosyn: 3
+WARNING:  ParadeDB: Mapping original variable varnosyn: 4, varattnosyn: 3 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: books_topn
+WARNING:  ParadeDB: Resolved varnosyn 4 to relation books_topn
+WARNING:  ParadeDB: varnosyn 4 resolved to relation books_topn, attno 3
+WARNING:  ParadeDB: Relation books_topn attno 3 -> column name 'author_id'
+WARNING:  ParadeDB: Target entry 3 mapped to: RelationColumn(books_topn,author_id)
+WARNING:  ParadeDB: Analyzing target entry 4 (resno: 4)
+WARNING:  ParadeDB: Found Var in target entry 4 - varno: -3, attno: 4, varnosyn: 2, varattnosyn: 1
+WARNING:  ParadeDB: Variable references INDEX/intermediate result, using varnosyn: 2, varattnosyn: 1
+WARNING:  ParadeDB: Mapping original variable varnosyn: 2, varattnosyn: 1 to relation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: books_topn
+WARNING:  ParadeDB: Resolved varnosyn 2 to relation books_topn
+WARNING:  ParadeDB: varnosyn 2 resolved to relation books_topn, attno 1
+WARNING:  ParadeDB: Relation books_topn attno 1 -> column name 'id'
+WARNING:  ParadeDB: Target entry 4 mapped to: RelationColumn(books_topn,id)
+WARNING:  ParadeDB: Mapped 4 out of 4 column values: [Some("It"), Some("Horror supernatural entity children small town terror fear"), Some("2"), Some("6")]
+WARNING:  ParadeDB: Converting '2' to integer 2
+WARNING:  ParadeDB: Converting '6' to integer 6
+WARNING:  ParadeDB: Created join result tuple with real heap data: [Some("It"), Some("Horror supernatural entity children small town terror fear"), Some("2"), Some("6")]
+WARNING:  ParadeDB: Using standard join execution
+WARNING:  ParadeDB: Executing join step
+WARNING:  ParadeDB: Phase 4/4 - Performing join matching and tuple generation
+WARNING:  ParadeDB: Matching and returning next tuple with join condition evaluation
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: books_topn
+WARNING:  ParadeDB: Unknown relation pair (books_topn, books_topn), using generic 'id' = 'id' join
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 6
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("6")
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 7
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("7")
+WARNING:  ParadeDB: Join condition evaluation: 6 (books_topn.id) = 7 (books_topn.id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 6) × inner[6] (ctid 7) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: books_topn
+WARNING:  ParadeDB: Unknown relation pair (books_topn, books_topn), using generic 'id' = 'id' join
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 6
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("6")
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 8
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("8")
+WARNING:  ParadeDB: Join condition evaluation: 6 (books_topn.id) = 8 (books_topn.id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 6) × inner[7] (ctid 8) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: books_topn
+WARNING:  ParadeDB: Unknown relation pair (books_topn, books_topn), using generic 'id' = 'id' join
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 6
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("6")
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 9
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("9")
+WARNING:  ParadeDB: Join condition evaluation: 6 (books_topn.id) = 9 (books_topn.id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 6) × inner[8] (ctid 9) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Using stored relation OIDs from join state - outer: books_topn, inner: books_topn
+WARNING:  ParadeDB: Unknown relation pair (books_topn, books_topn), using generic 'id' = 'id' join
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 6
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("6")
+WARNING:  ParadeDB: Fetching column 'id' from relation books_topn with CTID 10
+WARNING:  ParadeDB: Fetched column 'id' (attno 1) = Some("10")
+WARNING:  ParadeDB: Join condition evaluation: 6 (books_topn.id) = 10 (books_topn.id) -> false
+WARNING:  ParadeDB: Evaluating join condition for outer[1] (ctid 6) × inner[9] (ctid 10) = false
+WARNING:  ParadeDB: Join condition not satisfied - advancing to next combination
+WARNING:  ParadeDB: Join matching complete - total matches: 2
+WARNING:  ParadeDB: Cleaning up join execution
+WARNING:  ParadeDB: Cleaning up join execution state
+WARNING:  ParadeDB: ===== JOIN EXECUTION STATISTICS =====
+WARNING:  ParadeDB: Search Results - Outer: 2, Inner: 10, Total Combinations: 20
+WARNING:  ParadeDB: Join Processing - Matches: 2, Returned: 2, Success Rate: 10.0%
+WARNING:  ParadeDB: Heap Tuple Access - Attempts: 4, Successes: 8, Success Rate: 200.0%
+WARNING:  ParadeDB: Cleaned up 1 search readers
+WARNING:  ParadeDB: Cleared 2 outer and 10 inner search results
+WARNING:  ParadeDB: ===== END JOIN EXECUTION STATISTICS =====
+WARNING:  ParadeDB: Join execution cleanup complete
+ title | author_name | content 
+-------+-------------+---------
+(0 rows)
+
 -- Test 4: Verify TopN results are correct
 -- Compare TopN limited results with full results
+WITH full_results AS (
+    SELECT b.title, a.name, 
+           b.content @@@ 'magic fantasy' as distance
+    FROM books_topn b
+    JOIN authors_topn a ON b.author_id = a.id  
+    WHERE b.content @@@ 'magic fantasy'
+      AND a.bio @@@ 'author'
+    ORDER BY b.id DESC
+),
+topn_results AS (
+    SELECT b.title, a.name,
+           b.content @@@ 'magic fantasy' as distance
+    FROM books_topn b
+    JOIN authors_topn a ON b.author_id = a.id
+    WHERE b.content @@@ 'magic fantasy' 
+      AND a.bio @@@ 'author'
+    ORDER BY b.id DESC
+    LIMIT 2
+)
+SELECT 'Full Results' as result_type, * FROM full_results
+UNION ALL
+SELECT 'TopN Results' as result_type, * FROM topn_results
+ORDER BY result_type, distance DESC;
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["books_topn"], inner relids: ["authors_topn"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
+WARNING:  ParadeDB: Found BM25 index for relation books_topn (rti 1)
+WARNING:  ParadeDB: Checked relations ["books_topn"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Found BM25 index for relation authors_topn (rti 2)
+WARNING:  ParadeDB: Checked relations ["authors_topn"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Join feasibility check - outer has BM25: true, inner has BM25: true
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation books_topn (rti 1)
+WARNING:  ParadeDB: Extracted search query for books_topn: uses_search_operator=true
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation authors_topn (rti 2)
+WARNING:  ParadeDB: Extracted search query for authors_topn: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
+WARNING:  ParadeDB: Outer predicate for books_topn - uses_search: true
+WARNING:  ParadeDB: Inner predicate for authors_topn - uses_search: true
+WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["books_topn"], inner: ["authors_topn"]
+WARNING:  ParadeDB: Standard join - limit: None, order_by: true, search: true
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
+WARNING:  ParadeDB: Adding custom join path to joinrel
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["authors_topn"], inner relids: ["books_topn"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
+WARNING:  ParadeDB: Found BM25 index for relation authors_topn (rti 2)
+WARNING:  ParadeDB: Checked relations ["authors_topn"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Found BM25 index for relation books_topn (rti 1)
+WARNING:  ParadeDB: Checked relations ["books_topn"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Join feasibility check - outer has BM25: true, inner has BM25: true
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation authors_topn (rti 2)
+WARNING:  ParadeDB: Extracted search query for authors_topn: uses_search_operator=true
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation books_topn (rti 1)
+WARNING:  ParadeDB: Extracted search query for books_topn: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
+WARNING:  ParadeDB: Outer predicate for authors_topn - uses_search: true
+WARNING:  ParadeDB: Inner predicate for books_topn - uses_search: true
+WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_topn"], inner: ["books_topn"]
+WARNING:  ParadeDB: Standard join - limit: None, order_by: true, search: true
+WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
+WARNING:  ParadeDB: Adding custom join path to joinrel
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["books_topn"], inner relids: ["authors_topn"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
+WARNING:  ParadeDB: Found BM25 index for relation books_topn (rti 1)
+WARNING:  ParadeDB: Checked relations ["books_topn"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Found BM25 index for relation authors_topn (rti 2)
+WARNING:  ParadeDB: Checked relations ["authors_topn"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Join feasibility check - outer has BM25: true, inner has BM25: true
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation books_topn (rti 1)
+WARNING:  ParadeDB: Extracted search query for books_topn: uses_search_operator=true
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation authors_topn (rti 2)
+WARNING:  ParadeDB: Extracted search query for authors_topn: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
+WARNING:  ParadeDB: Outer predicate for books_topn - uses_search: true
+WARNING:  ParadeDB: Inner predicate for authors_topn - uses_search: true
+WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["books_topn"], inner: ["authors_topn"]
+WARNING:  ParadeDB: TopN join detected during planning - limit: 2, has_order_by: true, has_search: true
+WARNING:  ParadeDB: TopN join path estimates - rows: 2, startup_cost: 40.00, total_cost: 15.00 (MUCH LOWER than standard 50.01) - FORCED
+WARNING:  ParadeDB: Forcing TopN join path selection by clearing existing paths
+WARNING:  ParadeDB: Adding custom join path to joinrel
+WARNING:  ParadeDB: Join pathlist callback called - jointype: 0, outer relids: ["authors_topn"], inner relids: ["books_topn"]
+WARNING:  ParadeDB: Both sides are base relations - proceeding with standard join
+WARNING:  ParadeDB: Found BM25 index for relation authors_topn (rti 2)
+WARNING:  ParadeDB: Checked relations ["authors_topn"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Found BM25 index for relation books_topn (rti 1)
+WARNING:  ParadeDB: Checked relations ["books_topn"] for BM25 indexes, found: true
+WARNING:  ParadeDB: Join feasibility check - outer has BM25: true, inner has BM25: true
+WARNING:  ParadeDB: Analyzing join search predicates
+WARNING:  ParadeDB: Found 1 join restriction clauses
+WARNING:  ParadeDB: Analyzing join clause of type T_OpExpr
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation authors_topn (rti 2)
+WARNING:  ParadeDB: Extracted search query for authors_topn: uses_search_operator=true
+WARNING:  ParadeDB: Analyzing 1 base restriction clauses for relation
+WARNING:  ParadeDB: Extracting predicates for relation books_topn (rti 1)
+WARNING:  ParadeDB: Extracted search query for books_topn: uses_search_operator=true
+WARNING:  ParadeDB: Extracted 1 outer predicates, 1 inner predicates, 0 join conditions
+WARNING:  ParadeDB: Found search predicates - outer: 1, inner: 1, bilateral: true
+WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelations
+WARNING:  ParadeDB: Outer predicate for authors_topn - uses_search: true
+WARNING:  ParadeDB: Inner predicate for books_topn - uses_search: true
+WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_topn"], inner: ["books_topn"]
+WARNING:  ParadeDB: TopN join detected during planning - limit: 2, has_order_by: true, has_search: true
+WARNING:  ParadeDB: TopN join path estimates - rows: 2, startup_cost: 40.00, total_cost: 15.00 (MUCH LOWER than standard 50.01) - FORCED
+WARNING:  ParadeDB: Forcing TopN join path selection by clearing existing paths
+WARNING:  ParadeDB: Adding custom join path to joinrel
+ result_type  |                  title                  |     name     | distance 
+--------------+-----------------------------------------+--------------+----------
+ Full Results | Harry Potter and the Philosophers Stone | J.K. Rowling | t
+ TopN Results | Harry Potter and the Philosophers Stone | J.K. Rowling | t
+(2 rows)
+
 WITH full_results AS (
     SELECT b.title, a.name, 
            b.content @@@ 'magic fantasy' as distance

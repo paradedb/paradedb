@@ -103,6 +103,15 @@ impl PartialOrd for ScoredJoinMatch {
     }
 }
 
+impl Eq for ScoredJoinMatch {}
+
+impl Ord for ScoredJoinMatch {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // Use partial_cmp with fallback to Equal for NaN handling
+        self.partial_cmp(other).unwrap_or(std::cmp::Ordering::Equal)
+    }
+}
+
 /// TopN-optimized join execution state
 ///
 /// This state manages TopN joins by maintaining a limited buffer of the highest-scoring
@@ -4636,30 +4645,73 @@ impl TopNJoinExecState {
             return false;
         }
 
+        let total_combinations = self.outer_results.len() * self.inner_results.len();
+
         pgrx::warning!(
-            "ParadeDB: TopN generating matches from {} outer × {} inner = {} combinations",
+            "ParadeDB: TopN Phase 1 OPTIMIZATION - generating matches from {} outer × {} inner = {} combinations",
             self.outer_results.len(),
             self.inner_results.len(),
-            self.outer_results.len() * self.inner_results.len()
+            total_combinations
         );
 
-        // Generate all possible join combinations
-        let mut candidates = Vec::new();
+        // PHASE 1 OPTIMIZATION: Use a bounded priority queue instead of generating all combinations
+        // This uses a min-heap to efficiently maintain only the top N candidates
+        use std::cmp::Reverse;
+        use std::collections::BinaryHeap;
 
+        // Use a bounded min-heap to keep only the top N candidates
+        // We use Reverse to create a min-heap (lowest scores get evicted first)
+        let mut top_candidates: BinaryHeap<Reverse<ScoredJoinMatch>> = BinaryHeap::new();
+        let buffer_size = (self.limit * 3).max(100); // Buffer slightly more than limit to account for invisible tuples
+
+        let mut combinations_processed = 0;
+        let mut combinations_kept = 0;
+
+        // Process combinations efficiently using the bounded priority queue
         for (outer_ctid, outer_score) in &self.outer_results {
             for (inner_ctid, inner_score) in &self.inner_results {
+                combinations_processed += 1;
+
                 // Calculate combined score (simple addition for now)
                 let combined_score = outer_score + inner_score;
 
-                candidates.push(ScoredJoinMatch {
+                let candidate = ScoredJoinMatch {
                     outer_ctid: *outer_ctid,
                     inner_ctid: *inner_ctid,
                     combined_score,
                     outer_score: *outer_score,
                     inner_score: *inner_score,
-                });
+                };
+
+                // OPTIMIZATION: Only keep top N candidates using bounded priority queue
+                if top_candidates.len() < buffer_size {
+                    // Heap not full yet, just add
+                    top_candidates.push(Reverse(candidate));
+                    combinations_kept += 1;
+                } else {
+                    // Heap is full, check if this candidate is better than the worst
+                    if let Some(Reverse(worst)) = top_candidates.peek() {
+                        if candidate.combined_score > worst.combined_score {
+                            // This candidate is better than the worst, replace it
+                            top_candidates.pop(); // Remove worst
+                            top_candidates.push(Reverse(candidate));
+                            combinations_kept += 1;
+                        }
+                        // If candidate is not better than worst, we skip it entirely
+                    }
+                }
+
+                // EARLY TERMINATION: If we're processing in score order and the heap is full,
+                // we could potentially break early, but for now we'll process all combinations
+                // to ensure correctness across different scoring schemes
             }
         }
+
+        // Convert bounded priority queue back to sorted vector (highest scores first)
+        let mut candidates: Vec<ScoredJoinMatch> = top_candidates
+            .into_iter()
+            .map(|Reverse(candidate)| candidate)
+            .collect();
 
         // Sort candidates by combined score (highest first)
         candidates.sort_by(|a, b| {
@@ -4668,13 +4720,15 @@ impl TopNJoinExecState {
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
 
-        // Keep only the top N matches
+        // Final truncation to exactly what we need
         candidates.truncate(self.limit * 2); // Get a bit more to account for invisible tuples
 
         pgrx::warning!(
-            "ParadeDB: TopN keeping {} highest-scoring matches out of {} candidates",
+            "ParadeDB: TopN Phase 1 COMPLETE - processed {} combinations, kept {}, final buffer: {} (reduction: {:.1}%)",
+            combinations_processed,
+            combinations_kept,
             candidates.len(),
-            self.outer_results.len() * self.inner_results.len()
+            (1.0 - (combinations_kept as f32 / combinations_processed as f32)) * 100.0
         );
 
         self.match_buffer = candidates;

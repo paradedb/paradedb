@@ -89,6 +89,11 @@ pub struct PrivateData {
 
     /// Which side has a child plan for unilateral joins
     unilateral_child_plan_side: Option<UnilateralChildSide>,
+
+    /// Expected target list from PostgreSQL's joinrel->reltarget for join nodes
+    /// This contains exactly what PostgreSQL expects the join to produce
+    #[serde(skip)]
+    expected_join_targetlist: Option<*mut pg_sys::List>,
 }
 
 mod var_attname_lookup_serializer {
@@ -272,6 +277,13 @@ impl PrivateData {
     pub fn set_unilateral_child_plan_side(&mut self, side: Option<UnilateralChildSide>) {
         self.unilateral_child_plan_side = side;
     }
+
+    pub fn set_expected_join_targetlist(
+        &mut self,
+        expected_join_targetlist: Option<*mut pg_sys::List>,
+    ) {
+        self.expected_join_targetlist = expected_join_targetlist;
+    }
 }
 
 //
@@ -374,5 +386,9 @@ impl PrivateData {
 
     pub fn unilateral_child_plan_side(&self) -> &Option<UnilateralChildSide> {
         &self.unilateral_child_plan_side
+    }
+
+    pub fn expected_join_targetlist(&self) -> &Option<*mut pg_sys::List> {
+        &self.expected_join_targetlist
     }
 }

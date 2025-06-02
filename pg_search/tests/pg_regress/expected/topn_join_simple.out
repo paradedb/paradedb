@@ -96,6 +96,7 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Outer predicate for simple_docs - uses_search: true
 WARNING:  ParadeDB: Inner predicate for simple_files - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 3 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["simple_docs"], inner: ["simple_files"]
 WARNING:  ParadeDB: TopN join detected during planning - limit: 2, has_order_by: true, has_search: true
 WARNING:  ParadeDB: TopN join path estimates - rows: 2, startup_cost: 40.00, total_cost: 15.00 (MUCH LOWER than standard 50.01) - FORCED
@@ -123,6 +124,7 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Outer predicate for simple_files - uses_search: true
 WARNING:  ParadeDB: Inner predicate for simple_docs - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 3 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["simple_files"], inner: ["simple_docs"]
 WARNING:  ParadeDB: TopN join detected during planning - limit: 2, has_order_by: true, has_search: true
 WARNING:  ParadeDB: TopN join path estimates - rows: 2, startup_cost: 40.00, total_cost: 15.00 (MUCH LOWER than standard 50.01) - FORCED
@@ -130,6 +132,7 @@ WARNING:  ParadeDB: Forcing TopN join path selection by clearing existing paths
 WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
 WARNING:  ParadeDB: Join target list has 3 entries
+WARNING:  ParadeDB: processed_tlist: [(Some(0x7f8798817d88), "title"), (Some(0x7f8798817e78), "filename"), (Some(0x7f8798817f18), "join_attr_0")], tlist: [(Some(0x7f87804a92e8), "join_attr_1"), (Some(0x7f87804a9468), "join_attr_1"), (Some(0x7f87804a93a8), "join_attr_1")]
 WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'join_attr_1'
 WARNING:  ParadeDB: Mapped join variable varno=1, varattno=1 to 'join_attr_2'
 WARNING:  ParadeDB: Mapped join variable varno=2, varattno=2 to 'join_attr_3'
@@ -287,6 +290,7 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Outer predicate for simple_docs - uses_search: true
 WARNING:  ParadeDB: Inner predicate for simple_files - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 3 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["simple_docs"], inner: ["simple_files"]
 WARNING:  ParadeDB: TopN join detected during planning - limit: 1, has_order_by: true, has_search: true
 WARNING:  ParadeDB: TopN join path estimates - rows: 1, startup_cost: 40.00, total_cost: 15.00 (MUCH LOWER than standard 50.01) - FORCED
@@ -314,6 +318,7 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Outer predicate for simple_files - uses_search: true
 WARNING:  ParadeDB: Inner predicate for simple_docs - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
+WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 3 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["simple_files"], inner: ["simple_docs"]
 WARNING:  ParadeDB: TopN join detected during planning - limit: 1, has_order_by: true, has_search: true
 WARNING:  ParadeDB: TopN join path estimates - rows: 1, startup_cost: 40.00, total_cost: 15.00 (MUCH LOWER than standard 50.01) - FORCED
@@ -321,6 +326,7 @@ WARNING:  ParadeDB: Forcing TopN join path selection by clearing existing paths
 WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
 WARNING:  ParadeDB: Join target list has 3 entries
+WARNING:  ParadeDB: processed_tlist: [(Some(0x7f8798814a48), "title"), (Some(0x7f8798814b38), "filename"), (Some(0x7f8798814c38), "join_attr_0")], tlist: [(Some(0x7f8798824c90), "join_attr_1"), (Some(0x7f8798824e10), "join_attr_1"), (Some(0x7f8798824d50), "join_attr_1")]
 WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'join_attr_1'
 WARNING:  ParadeDB: Mapped join variable varno=1, varattno=1 to 'join_attr_2'
 WARNING:  ParadeDB: Mapped join variable varno=2, varattno=2 to 'join_attr_3'

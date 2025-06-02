@@ -562,6 +562,40 @@ impl CustomScan for PdbScan {
                             pg_sys::copyObjectImpl(te.cast()).cast::<pg_sys::TargetEntry>();
                         tlist.push(te_copy);
                     }
+                } else {
+                    pgrx::warning!(
+                        "ParadeDB: processed_tlist: {:?}, tlist: {:?}",
+                        PgList::<pg_sys::TargetEntry>::from_pg(
+                            (*builder.args().root).processed_tlist
+                        )
+                        .iter_ptr()
+                        .map(|te| {
+                            let var = nodecast!(Var, T_Var, (*te).expr);
+                            let attname = if !(*te).resname.is_null() {
+                                std::ffi::CStr::from_ptr((*te).resname)
+                                    .to_string_lossy()
+                                    .to_string()
+                            } else {
+                                format!("join_attr_{}", 0)
+                            };
+                            (var, attname)
+                        })
+                        .collect::<Vec<_>>(),
+                        tlist
+                            .iter_ptr()
+                            .map(|te| {
+                                let var = nodecast!(Var, T_Var, (*te).expr);
+                                let attname = if !(*te).resname.is_null() {
+                                    std::ffi::CStr::from_ptr((*te).resname)
+                                        .to_string_lossy()
+                                        .to_string()
+                                } else {
+                                    format!("join_attr_{}", 1)
+                                };
+                                (var, attname)
+                            })
+                            .collect::<Vec<_>>()
+                    );
                 }
 
                 // For join nodes, we need to set up proper variable mappings

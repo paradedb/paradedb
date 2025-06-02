@@ -542,8 +542,8 @@ impl CustomScan for PdbScan {
                 // This is a join node - handle differently
                 pgrx::warning!("ParadeDB: Planning custom join path with scanrelid = 0");
 
-                // For join nodes, we need to ensure the target list is properly set up
-                // The target list should contain all the columns that the upper plan nodes expect
+                // Use the target list that's already available from builder.args().tlist
+                // This contains all the information we need at execution time
                 pgrx::warning!("ParadeDB: Join target list has {} entries", tlist.len());
 
                 // If the target list is empty, try to use processed_tlist from root
@@ -562,40 +562,6 @@ impl CustomScan for PdbScan {
                             pg_sys::copyObjectImpl(te.cast()).cast::<pg_sys::TargetEntry>();
                         tlist.push(te_copy);
                     }
-                } else {
-                    pgrx::warning!(
-                        "ParadeDB: processed_tlist: {:?}, tlist: {:?}",
-                        PgList::<pg_sys::TargetEntry>::from_pg(
-                            (*builder.args().root).processed_tlist
-                        )
-                        .iter_ptr()
-                        .map(|te| {
-                            let var = nodecast!(Var, T_Var, (*te).expr);
-                            let attname = if !(*te).resname.is_null() {
-                                std::ffi::CStr::from_ptr((*te).resname)
-                                    .to_string_lossy()
-                                    .to_string()
-                            } else {
-                                format!("join_attr_{}", 0)
-                            };
-                            (var, attname)
-                        })
-                        .collect::<Vec<_>>(),
-                        tlist
-                            .iter_ptr()
-                            .map(|te| {
-                                let var = nodecast!(Var, T_Var, (*te).expr);
-                                let attname = if !(*te).resname.is_null() {
-                                    std::ffi::CStr::from_ptr((*te).resname)
-                                        .to_string_lossy()
-                                        .to_string()
-                                } else {
-                                    format!("join_attr_{}", 1)
-                                };
-                                (var, attname)
-                            })
-                            .collect::<Vec<_>>()
-                    );
                 }
 
                 // For join nodes, we need to set up proper variable mappings
@@ -634,30 +600,17 @@ impl CustomScan for PdbScan {
                     .custom_private_mut()
                     .set_var_attname_lookup(attname_lookup);
 
-                // CRITICAL: For join nodes, we need to ensure the custom scan's target list
-                // matches exactly what PostgreSQL expects. The issue is that PostgreSQL
-                // validates that our custom scan can provide all the variables in the target list.
-
-                // Only set the custom scan's target list if we have entries
+                // Set the custom scan's target list - it's already properly formed
                 if !tlist.is_empty() {
-                    // Set the custom scan's target list to match the join's target list
-                    // This tells PostgreSQL exactly what variables our custom scan will provide
                     builder.set_custom_scan_tlist(tlist.as_ptr());
-                    pgrx::warning!("ParadeDB: Set custom scan target list for join node");
+                    pgrx::warning!(
+                        "ParadeDB: Set custom scan target list for join node with {} entries",
+                        tlist.len()
+                    );
                 } else {
                     pgrx::warning!(
-                        "ParadeDB: WARNING - Join target list is still empty, may cause issues"
+                        "ParadeDB: WARNING - Join target list is empty, may cause issues"
                     );
-                    // In this case, we might need to construct a minimal target list
-                    // based on the search predicates or other available information
-
-                    // As a last resort, we could try to infer what columns are needed
-                    // from the join search predicates
-                    if let Some(predicates) = builder.custom_private().join_search_predicates() {
-                        pgrx::warning!("ParadeDB: Attempting to construct minimal target list from join predicates");
-                        // This is a placeholder - in a real implementation, we'd need to
-                        // analyze the predicates and construct appropriate target entries
-                    }
                 }
 
                 return builder.build();

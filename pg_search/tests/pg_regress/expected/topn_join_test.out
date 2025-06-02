@@ -102,7 +102,6 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Outer predicate for books_topn - uses_search: true
 WARNING:  ParadeDB: Inner predicate for authors_topn - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 4 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["books_topn"], inner: ["authors_topn"]
 WARNING:  ParadeDB: TopN join detected during planning - limit: 5, has_order_by: true, has_search: true
 WARNING:  ParadeDB: TopN join path estimates - rows: 5, startup_cost: 40.00, total_cost: 15.00 (MUCH LOWER than standard 50.01) - FORCED
@@ -130,7 +129,6 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Outer predicate for authors_topn - uses_search: true
 WARNING:  ParadeDB: Inner predicate for books_topn - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 4 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_topn"], inner: ["books_topn"]
 WARNING:  ParadeDB: TopN join detected during planning - limit: 5, has_order_by: true, has_search: true
 WARNING:  ParadeDB: TopN join path estimates - rows: 5, startup_cost: 40.00, total_cost: 15.00 (MUCH LOWER than standard 50.01) - FORCED
@@ -138,12 +136,11 @@ WARNING:  ParadeDB: Forcing TopN join path selection by clearing existing paths
 WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
 WARNING:  ParadeDB: Join target list has 4 entries
-WARNING:  ParadeDB: processed_tlist: [(Some(0x7f878f032e98), "title"), (Some(0x7f878f032f88), "name"), (Some(0x7f878f033088), "content"), (Some(0x7f878f033128), "join_attr_0")], tlist: [(Some(0x7f878f03fbc0), "join_attr_1"), (Some(0x7f878f03fd40), "join_attr_1"), (Some(0x7f878f03fdb0), "join_attr_1"), (Some(0x7f878f03fc80), "join_attr_1")]
 WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'join_attr_1'
 WARNING:  ParadeDB: Mapped join variable varno=1, varattno=4 to 'join_attr_2'
 WARNING:  ParadeDB: Mapped join variable varno=1, varattno=1 to 'join_attr_3'
 WARNING:  ParadeDB: Mapped join variable varno=2, varattno=2 to 'join_attr_4'
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Set custom scan target list for join node with 4 entries
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Stored outer relation OIDs: ["authors_topn"]
@@ -214,7 +211,6 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Outer predicate for books_topn - uses_search: true
 WARNING:  ParadeDB: Inner predicate for authors_topn - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 4 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["books_topn"], inner: ["authors_topn"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: true, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
@@ -241,7 +237,6 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Outer predicate for authors_topn - uses_search: true
 WARNING:  ParadeDB: Inner predicate for books_topn - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 4 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_topn"], inner: ["books_topn"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: true, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
@@ -253,7 +248,7 @@ WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'title'
 WARNING:  ParadeDB: Mapped join variable varno=2, varattno=2 to 'name'
 WARNING:  ParadeDB: Mapped join variable varno=1, varattno=4 to 'content'
 WARNING:  ParadeDB: Mapped join variable varno=1, varattno=1 to 'join_attr_4'
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Set custom scan target list for join node with 4 entries
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Stored outer relation OIDs: ["books_topn"]
@@ -324,7 +319,6 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Inner predicate for authors_topn - uses_search: true
 WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 4 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["books_topn"], inner: ["authors_topn"]
 WARNING:  ParadeDB: Unilateral join - inner has search, outer needs table scan
 WARNING:  ParadeDB: TopN join detected during planning - limit: 3, has_order_by: true, has_search: true
@@ -350,7 +344,6 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Outer predicate for authors_topn - uses_search: true
 WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 4 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_topn"], inner: ["books_topn"]
 WARNING:  ParadeDB: Unilateral join - outer has search, inner needs table scan
 WARNING:  ParadeDB: TopN join detected during planning - limit: 3, has_order_by: true, has_search: true
@@ -376,7 +369,6 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Inner predicate for books_topn - uses_search: true
 WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 4 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["books_topn"], inner: ["books_topn"]
 WARNING:  ParadeDB: Unilateral join - inner has search, outer needs table scan
 WARNING:  ParadeDB: TopN join detected during planning - limit: 3, has_order_by: true, has_search: true
@@ -402,7 +394,6 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Outer predicate for books_topn - uses_search: true
 WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 4 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["books_topn"], inner: ["books_topn"]
 WARNING:  ParadeDB: Unilateral join - outer has search, inner needs table scan
 WARNING:  ParadeDB: TopN join detected during planning - limit: 3, has_order_by: true, has_search: true
@@ -427,12 +418,11 @@ WARNING:  ParadeDB: Composite joins not yet supported - intermediate result acce
 WARNING:  ParadeDB: Rejecting composite join to allow PostgreSQL's optimized default processing
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
 WARNING:  ParadeDB: Join target list has 4 entries
-WARNING:  ParadeDB: processed_tlist: [(Some(0x7f878f033278), "title"), (Some(0x7f878f033368), "author_name"), (Some(0x7f878f033408), "content"), (Some(0x7f878f0334a8), "join_attr_0")], tlist: [(Some(0x7f878f03f970), "join_attr_1"), (Some(0x7f878f03faf0), "join_attr_1"), (Some(0x7f878f0405e8), "join_attr_1"), (Some(0x7f878f03fb60), "join_attr_1")]
 WARNING:  ParadeDB: Mapped join variable varno=4, varattno=2 to 'join_attr_1'
 WARNING:  ParadeDB: Mapped join variable varno=4, varattno=4 to 'join_attr_2'
 WARNING:  ParadeDB: Mapped join variable varno=4, varattno=3 to 'join_attr_3'
 WARNING:  ParadeDB: Mapped join variable varno=2, varattno=1 to 'join_attr_4'
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Set custom scan target list for join node with 4 entries
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 0, bilateral: false
 WARNING:  ParadeDB: Stored outer relation OIDs: ["books_topn"]
@@ -531,7 +521,6 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Outer predicate for books_topn - uses_search: true
 WARNING:  ParadeDB: Inner predicate for authors_topn - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 3 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["books_topn"], inner: ["authors_topn"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: true, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
@@ -558,7 +547,6 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Outer predicate for authors_topn - uses_search: true
 WARNING:  ParadeDB: Inner predicate for books_topn - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 3 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_topn"], inner: ["books_topn"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: true, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
@@ -585,7 +573,6 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Outer predicate for books_topn - uses_search: true
 WARNING:  ParadeDB: Inner predicate for authors_topn - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 3 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["books_topn"], inner: ["authors_topn"]
 WARNING:  ParadeDB: TopN join detected during planning - limit: 2, has_order_by: true, has_search: true
 WARNING:  ParadeDB: TopN join path estimates - rows: 2, startup_cost: 40.00, total_cost: 15.00 (MUCH LOWER than standard 50.01) - FORCED
@@ -613,7 +600,6 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Outer predicate for authors_topn - uses_search: true
 WARNING:  ParadeDB: Inner predicate for books_topn - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 3 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_topn"], inner: ["books_topn"]
 WARNING:  ParadeDB: TopN join detected during planning - limit: 2, has_order_by: true, has_search: true
 WARNING:  ParadeDB: TopN join path estimates - rows: 2, startup_cost: 40.00, total_cost: 15.00 (MUCH LOWER than standard 50.01) - FORCED

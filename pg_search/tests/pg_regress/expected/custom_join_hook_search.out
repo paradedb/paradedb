@@ -81,7 +81,6 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Outer predicate for products - uses_search: true
 WARNING:  ParadeDB: Inner predicate for reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 3 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["products"], inner: ["reviews"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
@@ -108,18 +107,16 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Outer predicate for reviews - uses_search: true
 WARNING:  ParadeDB: Inner predicate for products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 3 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["reviews"], inner: ["products"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
 WARNING:  ParadeDB: Join target list has 3 entries
-WARNING:  ParadeDB: processed_tlist: [(Some(0x7f878f0924e8), "name"), (Some(0x7f878f0925d8), "reviewer_name"), (Some(0x7f878f092678), "review_text")], tlist: [(Some(0x7f8790030678), "join_attr_1"), (Some(0x7f8790030738), "join_attr_1"), (Some(0x7f87900307f8), "join_attr_1")]
 WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'join_attr_1'
 WARNING:  ParadeDB: Mapped join variable varno=2, varattno=3 to 'join_attr_2'
 WARNING:  ParadeDB: Mapped join variable varno=2, varattno=4 to 'join_attr_3'
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Set custom scan target list for join node with 3 entries
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Stored outer relation OIDs: ["products"]
@@ -274,7 +271,6 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Outer predicate for products - uses_search: true
 WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 3 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["products"], inner: ["reviews"]
 WARNING:  ParadeDB: Unilateral join - outer has search, inner needs table scan
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
@@ -299,7 +295,6 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Inner predicate for products - uses_search: true
 WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 3 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["reviews"], inner: ["products"]
 WARNING:  ParadeDB: Unilateral join - inner has search, outer needs table scan
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
@@ -307,11 +302,10 @@ WARNING:  ParadeDB: Join path estimates - rows: 2, startup_cost: 75.00, total_co
 WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
 WARNING:  ParadeDB: Join target list has 3 entries
-WARNING:  ParadeDB: processed_tlist: [(Some(0x7f878f016e78), "name"), (Some(0x7f878f016f68), "reviewer_name"), (Some(0x7f878f017008), "rating")], tlist: [(Some(0x7f878f094068), "join_attr_1"), (Some(0x7f878f094128), "join_attr_1"), (Some(0x7f878f0941e8), "join_attr_1")]
 WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'join_attr_1'
 WARNING:  ParadeDB: Mapped join variable varno=2, varattno=3 to 'join_attr_2'
 WARNING:  ParadeDB: Mapped join variable varno=2, varattno=5 to 'join_attr_3'
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Set custom scan target list for join node with 3 entries
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 0, bilateral: false
 WARNING:  ParadeDB: Stored outer relation OIDs: ["products"]
@@ -732,7 +726,6 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Outer predicate for products - uses_search: true
 WARNING:  ParadeDB: Inner predicate for reviews - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 3 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["products"], inner: ["reviews"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
@@ -759,18 +752,16 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Outer predicate for reviews - uses_search: true
 WARNING:  ParadeDB: Inner predicate for products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 3 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["reviews"], inner: ["products"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
 WARNING:  ParadeDB: Join target list has 3 entries
-WARNING:  ParadeDB: processed_tlist: [(Some(0x7f879880f818), "name"), (Some(0x7f879880f908), "description"), (Some(0x7f879880f9a8), "review_text")], tlist: [(Some(0x7f879881f830), "join_attr_1"), (Some(0x7f879881f8f0), "join_attr_1"), (Some(0x7f879881f960), "join_attr_1")]
 WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'join_attr_1'
 WARNING:  ParadeDB: Mapped join variable varno=1, varattno=3 to 'join_attr_2'
 WARNING:  ParadeDB: Mapped join variable varno=2, varattno=4 to 'join_attr_3'
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Set custom scan target list for join node with 3 entries
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Stored outer relation OIDs: ["products"]
@@ -908,7 +899,6 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Outer predicate for products - uses_search: true
 WARNING:  ParadeDB: Inner predicate for reviews - uses_search: false
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 3 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["products"], inner: ["reviews"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
@@ -935,18 +925,16 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Outer predicate for reviews - uses_search: false
 WARNING:  ParadeDB: Inner predicate for products - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 3 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["reviews"], inner: ["products"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_cost: 75.01
 WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
 WARNING:  ParadeDB: Join target list has 3 entries
-WARNING:  ParadeDB: processed_tlist: [(Some(0x7f879f02d298), "name"), (Some(0x7f879f02d388), "review_text"), (Some(0x7f879f02d428), "rating")], tlist: [(Some(0x7f879f04d270), "join_attr_1"), (Some(0x7f879f04d330), "join_attr_1"), (Some(0x7f879f04d3f0), "join_attr_1")]
 WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'join_attr_1'
 WARNING:  ParadeDB: Mapped join variable varno=2, varattno=4 to 'join_attr_2'
 WARNING:  ParadeDB: Mapped join variable varno=2, varattno=5 to 'join_attr_3'
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Set custom scan target list for join node with 3 entries
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Stored outer relation OIDs: ["products"]

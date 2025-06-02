@@ -93,7 +93,6 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Outer predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Inner predicate for files_join_test - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 3 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_join_test"], inner: ["files_join_test"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
@@ -120,18 +119,16 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Outer predicate for files_join_test - uses_search: true
 WARNING:  ParadeDB: Inner predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 3 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["files_join_test"], inner: ["documents_join_test"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
 WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
 WARNING:  ParadeDB: Join target list has 3 entries
-WARNING:  ParadeDB: processed_tlist: [(Some(0x7f879f0c0538), "id"), (Some(0x7f879f0c0628), "title"), (Some(0x7f879f0c06c8), "filename")], tlist: [(Some(0x7f87a0052260), "join_attr_1"), (Some(0x7f87a0052320), "join_attr_1"), (Some(0x7f87a0052390), "join_attr_1")]
 WARNING:  ParadeDB: Mapped join variable varno=1, varattno=1 to 'join_attr_1'
 WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'join_attr_2'
 WARNING:  ParadeDB: Mapped join variable varno=2, varattno=3 to 'join_attr_3'
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Set custom scan target list for join node with 3 entries
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Stored outer relation OIDs: ["documents_join_test"]
@@ -335,7 +332,6 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Outer predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 3 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_join_test"], inner: ["files_join_test"]
 WARNING:  ParadeDB: Unilateral join - outer has search, inner needs table scan
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
@@ -360,7 +356,6 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Inner predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 3 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["files_join_test"], inner: ["documents_join_test"]
 WARNING:  ParadeDB: Unilateral join - inner has search, outer needs table scan
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
@@ -368,11 +363,10 @@ WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 75.00, total_co
 WARNING:  ParadeDB: Adding custom join path to joinrel
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
 WARNING:  ParadeDB: Join target list has 3 entries
-WARNING:  ParadeDB: processed_tlist: [(Some(0x7f87990132e0), "id"), (Some(0x7f87990133d0), "title"), (Some(0x7f8799013470), "filename")], tlist: [(Some(0x7f8799043728), "join_attr_1"), (Some(0x7f87990437e8), "join_attr_1"), (Some(0x7f8799043858), "join_attr_1")]
 WARNING:  ParadeDB: Mapped join variable varno=1, varattno=1 to 'join_attr_1'
 WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'join_attr_2'
 WARNING:  ParadeDB: Mapped join variable varno=2, varattno=3 to 'join_attr_3'
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Set custom scan target list for join node with 3 entries
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 0, bilateral: false
 WARNING:  ParadeDB: Stored outer relation OIDs: ["documents_join_test"]
@@ -536,7 +530,6 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Outer predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Inner predicate for files_join_test - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 4 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_join_test"], inner: ["files_join_test"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
@@ -563,7 +556,6 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Outer predicate for files_join_test - uses_search: true
 WARNING:  ParadeDB: Inner predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 4 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["files_join_test"], inner: ["documents_join_test"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
@@ -587,7 +579,6 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Outer predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 4 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_join_test"], inner: ["authors_join_test"]
 WARNING:  ParadeDB: Unilateral join - outer has search, inner needs table scan
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
@@ -612,7 +603,6 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Inner predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 4 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_join_test"], inner: ["documents_join_test"]
 WARNING:  ParadeDB: Unilateral join - inner has search, outer needs table scan
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
@@ -637,7 +627,6 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Outer predicate for files_join_test - uses_search: true
 WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 4 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["files_join_test"], inner: ["authors_join_test"]
 WARNING:  ParadeDB: Unilateral join - outer has search, inner needs table scan
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
@@ -662,7 +651,6 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Inner predicate for files_join_test - uses_search: true
 WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 4 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_join_test"], inner: ["files_join_test"]
 WARNING:  ParadeDB: Unilateral join - inner has search, outer needs table scan
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
@@ -694,12 +682,11 @@ WARNING:  ParadeDB: Composite joins not yet supported - intermediate result acce
 WARNING:  ParadeDB: Rejecting composite join to allow PostgreSQL's optimized default processing
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
 WARNING:  ParadeDB: Join target list has 4 entries
-WARNING:  ParadeDB: processed_tlist: [(Some(0x7f879f0bf9b8), "id"), (Some(0x7f879f0bfaa8), "title"), (Some(0x7f879f0bfb48), "filename"), (Some(0x7f879f0bfbe8), "author_name")], tlist: [(Some(0x7f87a0052560), "join_attr_1"), (Some(0x7f87a0052620), "join_attr_1"), (Some(0x7f87a0052690), "join_attr_1"), (Some(0x7f87a0052e80), "join_attr_1")]
 WARNING:  ParadeDB: Mapped join variable varno=1, varattno=1 to 'join_attr_1'
 WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'join_attr_2'
 WARNING:  ParadeDB: Mapped join variable varno=2, varattno=3 to 'join_attr_3'
 WARNING:  ParadeDB: Mapped join variable varno=2, varattno=2 to 'join_attr_4'
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Set custom scan target list for join node with 4 entries
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 1, bilateral: true
 WARNING:  ParadeDB: Stored outer relation OIDs: ["documents_join_test"]
@@ -874,7 +861,6 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Outer predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Inner predicate for files_join_test - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 4 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_join_test"], inner: ["files_join_test"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
@@ -901,7 +887,6 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Outer predicate for files_join_test - uses_search: true
 WARNING:  ParadeDB: Inner predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 4 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["files_join_test"], inner: ["documents_join_test"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
@@ -928,7 +913,6 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Outer predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Inner predicate for authors_join_test - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 4 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_join_test"], inner: ["authors_join_test"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
@@ -955,7 +939,6 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Outer predicate for authors_join_test - uses_search: true
 WARNING:  ParadeDB: Inner predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 4 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_join_test"], inner: ["documents_join_test"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
@@ -982,7 +965,6 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Outer predicate for files_join_test - uses_search: true
 WARNING:  ParadeDB: Inner predicate for authors_join_test - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 4 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["files_join_test"], inner: ["authors_join_test"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
@@ -1009,7 +991,6 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Outer predicate for authors_join_test - uses_search: true
 WARNING:  ParadeDB: Inner predicate for files_join_test - uses_search: true
 WARNING:  ParadeDB: Bilateral search detected - proceeding with custom join path
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 4 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_join_test"], inner: ["files_join_test"]
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
 WARNING:  ParadeDB: Join path estimates - rows: 1, startup_cost: 50.00, total_cost: 50.01
@@ -1068,7 +1049,6 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Outer predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 4 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_join_test"], inner: ["files_join_test"]
 WARNING:  ParadeDB: Unilateral join - outer has search, inner needs table scan
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
@@ -1093,7 +1073,6 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Inner predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 4 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["files_join_test"], inner: ["documents_join_test"]
 WARNING:  ParadeDB: Unilateral join - inner has search, outer needs table scan
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
@@ -1118,7 +1097,6 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Outer predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 4 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["documents_join_test"], inner: ["authors_join_test"]
 WARNING:  ParadeDB: Unilateral join - outer has search, inner needs table scan
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
@@ -1143,7 +1121,6 @@ WARNING:  ParadeDB: Join is feasible based on composite analysis: BothBaseRelati
 WARNING:  ParadeDB: Inner predicate for documents_join_test - uses_search: true
 WARNING:  ParadeDB: Unilateral search detected - proceeding with custom join path
 WARNING:  ParadeDB: Will use search on one side and heap scanning on the other side
-WARNING:  ParadeDB: Stored expected target list from joinrel->reltarget with 4 expressions
 WARNING:  ParadeDB: Storing join relation OIDs - outer: ["authors_join_test"], inner: ["documents_join_test"]
 WARNING:  ParadeDB: Unilateral join - inner has search, outer needs table scan
 WARNING:  ParadeDB: Standard join - limit: None, order_by: false, search: true
@@ -1199,12 +1176,11 @@ WARNING:  ParadeDB: Composite joins not yet supported - intermediate result acce
 WARNING:  ParadeDB: Rejecting composite join to allow PostgreSQL's optimized default processing
 WARNING:  ParadeDB: Planning custom join path with scanrelid = 0
 WARNING:  ParadeDB: Join target list has 4 entries
-WARNING:  ParadeDB: processed_tlist: [(Some(0x7f878f016478), "id"), (Some(0x7f878f016568), "title"), (Some(0x7f878f016608), "filename"), (Some(0x7f878f0166a8), "author_name")], tlist: [(Some(0x7f878f01dad8), "join_attr_1"), (Some(0x7f878f01db98), "join_attr_1"), (Some(0x7f878f01dc08), "join_attr_1"), (Some(0x7f878f01e628), "join_attr_1")]
 WARNING:  ParadeDB: Mapped join variable varno=1, varattno=1 to 'join_attr_1'
 WARNING:  ParadeDB: Mapped join variable varno=1, varattno=2 to 'join_attr_2'
 WARNING:  ParadeDB: Mapped join variable varno=2, varattno=3 to 'join_attr_3'
 WARNING:  ParadeDB: Mapped join variable varno=2, varattno=2 to 'join_attr_4'
-WARNING:  ParadeDB: Set custom scan target list for join node
+WARNING:  ParadeDB: Set custom scan target list for join node with 4 entries
 WARNING:  ParadeDB: Creating custom scan state for join node (scanrelid = 0)
 WARNING:  ParadeDB: Extracted search predicates from private data - outer: 1, inner: 0, bilateral: false
 WARNING:  ParadeDB: Stored outer relation OIDs: ["documents_join_test"]

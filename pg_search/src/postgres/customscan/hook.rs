@@ -30,7 +30,7 @@ use crate::postgres::customscan::pdbscan::{bms_iter, get_rel_name, get_rel_name_
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::rel_get_bm25_index;
 use once_cell::sync::Lazy;
-use pgrx::{pg_guard, pg_sys, warning, PgList, PgMemoryContexts};
+use pgrx::{pg_guard, pg_sys, warning, PgMemoryContexts};
 use std::collections::hash_map::Entry;
 
 pub fn register_rel_pathlist<CS: CustomScan + 'static>(_: CS) {
@@ -559,23 +559,6 @@ unsafe fn create_search_join_path<CS: CustomScan>(
     // Store the search predicates in the private data
     let private_data = unsafe { &mut *(builder.custom_private() as *mut _ as *mut PrivateData) };
     private_data.set_join_search_predicates(search_predicates.cloned());
-
-    // CRITICAL: Store the expected target list from PostgreSQL's joinrel->reltarget
-    // This contains exactly what PostgreSQL expects the join to produce, eliminating
-    // the need to guess or reconstruct the target list during planning
-    let expected_targetlist = unsafe { (*(*joinrel).reltarget).exprs };
-    private_data.set_expected_join_targetlist(Some(expected_targetlist));
-
-    warning!(
-        "ParadeDB: Stored expected target list from joinrel->reltarget with {} expressions",
-        unsafe {
-            if expected_targetlist.is_null() {
-                0
-            } else {
-                PgList::<pg_sys::Node>::from_pg(expected_targetlist).len()
-            }
-        }
-    );
 
     // CRITICAL: Store the relation OIDs from the join structure
     // This eliminates the need to infer missing relations during execution

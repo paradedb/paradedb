@@ -641,7 +641,7 @@ unsafe fn node_opexpr(
         rhs = (*relabel_target).arg.cast();
     }
 
-    let (var, const_) = (nodecast!(Var, T_Var, lhs)?, nodecast!(Const, T_Const, rhs));
+    let const_ = nodecast!(Const, T_Const, rhs);
 
     let is_our_operator = (*opexpr).opno == pdbopoid;
 

@@ -61,14 +61,11 @@ impl PagingExprs {
 
 /// Generate arbitrary `ORDER BY`, `OFFSET`, and `LIMIT` expressions.
 ///
-/// If a `deterministic_order_by_tiebreaker` is passed, then this strategy will limit itself to
-/// combinations which allow for deterministic comparison:
-/// * If an `ORDER BY` is generated, the given tiebreaker will be appended to give a
-///   stable sort order.
-/// * `LIMIT` and `OFFSET` will only be generated if there is an `ORDER BY`.
+/// This strategy limits itself to combinations which allow for deterministic comparison:
+/// it will always generate an `ORDER BY` including (at least) the given tiebreaker column.
 pub fn arb_paging_exprs(
     table: impl AsRef<str>,
-    deterministic_order_by_tiebreaker: Option<&'static str>,
+    order_by_tiebreaker: impl AsRef<str>,
     columns: Vec<impl AsRef<str>>,
 ) -> impl Strategy<Value = String> {
     let columns = columns
@@ -80,21 +77,12 @@ pub fn arb_paging_exprs(
     // Choose `order_by`.
     proptest::sample::subsequence(columns, 0..columns_len)
         .prop_flat_map(move |mut order_by| {
-            let (offset, limit) =
-                if deterministic_order_by_tiebreaker.is_some() && order_by.is_empty() {
-                    // If there is no `ORDER BY`, then we cannot deterministically LIMIT or OFFSET.
-                    (Just(None).boxed(), Just(None).boxed())
-                } else {
-                    // If a tiebreaker was requested add it, and then generate OFFSET and LIMIT.
-                    if let Some(order_by_tiebreaker) = deterministic_order_by_tiebreaker {
-                        order_by.push(order_by_tiebreaker.to_owned());
-                    }
-                    (
-                        prop_oneof![Just(None), Just(Some(0usize)), Just(Some(10usize))].boxed(),
-                        prop_oneof![Just(None), Just(Some(10usize))].boxed(),
-                    )
-                };
-            (Just(order_by), offset, limit)
+            order_by.push(order_by_tiebreaker.as_ref().to_owned());
+            (
+                Just(order_by),
+                prop_oneof![Just(None), Just(Some(0usize)), Just(Some(10usize))].boxed(),
+                prop_oneof![Just(None), Just(Some(10usize))].boxed(),
+            )
         })
         .prop_map(|(order_by, offset, limit)| {
             PagingExprs {

@@ -212,7 +212,40 @@ async fn generated_single_relation(database: Db) {
             vec![table_name],
             vec![("name", "bob"), ("color", "blue"), ("age", "20")]
         ),
-        paging_exprs in arb_paging_exprs(table_name, None, vec!["name", "color", "age"]),
+    )| {
+        let pg = format!("SELECT id FROM {table_name} WHERE {}", where_expr.to_sql(" = "));
+        let bm25 = format!("SELECT id FROM {table_name} WHERE {}", where_expr.to_sql("@@@"));
+
+        let mut pg_res = (&pg).fetch::<(i64,)>(&mut pool.pull());
+        let mut bm25_res = (&bm25).fetch::<(i64,)>(&mut pool.pull());
+        pg_res.sort();
+        bm25_res.sort();
+        prop_assert_eq!(
+            pg_res,
+            bm25_res,
+            "\npg:\n  {:?}\nbm25:\n  {:?}\nexplain:\n{}\n",
+            pg,
+            bm25,
+            explain(&bm25, &mut pool.pull()),
+        );
+    });
+}
+
+#[rstest]
+#[tokio::test]
+async fn generated_paging(database: Db) {
+    let pool = MutexObjectPool::<PgConnection>::new(
+        move || block_on(async { database.connection().await }),
+        |_| {},
+    );
+
+    let table_name = "users";
+    let setup_sql = generated_queries_setup(&mut pool.pull(), &[(table_name, 10)]);
+    eprintln!("{setup_sql}");
+
+    proptest!(|(
+        where_expr in arb_wheres(vec![table_name], vec![("name", "bob")]),
+        paging_exprs in arb_paging_exprs(table_name, "id", vec!["name", "color", "age"]),
     )| {
         let pg = format!("SELECT id FROM {table_name} WHERE {} {paging_exprs}", where_expr.to_sql(" = "));
         let bm25 = format!("SELECT id FROM {table_name} WHERE {} {paging_exprs}", where_expr.to_sql("@@@"));
@@ -220,8 +253,8 @@ async fn generated_single_relation(database: Db) {
         let pg_res = (&pg).fetch::<(i64,)>(&mut pool.pull());
         let bm25_res = (&bm25).fetch::<(i64,)>(&mut pool.pull());
         prop_assert_eq!(
-            pg_res.len(),
-            bm25_res.len(),
+            pg_res,
+            bm25_res,
             "\npg:\n  {:?}\nbm25:\n  {:?}\nexplain:\n{}\n",
             pg,
             bm25,
@@ -256,7 +289,7 @@ async fn generated_subquery(database: Db) {
             vec![("name", "bob"), ("color", "blue"), ("age", "20")]
         ),
         subquery_column in proptest::sample::select(&["name", "color", "age"]),
-        paging_exprs in arb_paging_exprs(inner_table_name, Some("id"), vec!["name", "color", "age"]),
+        paging_exprs in arb_paging_exprs(inner_table_name, "id", vec!["name", "color", "age"]),
     )| {
         let pg = format!("SELECT COUNT(*) FROM {outer_table_name} \
             WHERE {outer_table_name}.{subquery_column} IN (\

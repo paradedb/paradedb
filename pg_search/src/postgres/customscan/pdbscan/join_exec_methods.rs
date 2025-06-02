@@ -4906,3 +4906,410 @@ impl TopNJoinExecState {
         }
     }
 }
+
+/// Join match that can be ordered by any PostgreSQL expression, not just BM25 scores
+#[derive(Debug, Clone)]
+pub struct OrderableJoinMatch {
+    /// Outer relation CTID
+    pub outer_ctid: u64,
+    /// Inner relation CTID  
+    pub inner_ctid: u64,
+    /// Outer score (for BM25-based sorting if needed)
+    pub outer_score: f32,
+    /// Inner score (for BM25-based sorting if needed)
+    pub inner_score: f32,
+    /// The actual ORDER BY value(s) that this match should be sorted by
+    /// This is a generic container that can hold any PostgreSQL Datum
+    pub order_by_values: Vec<OrderByValue>,
+}
+
+/// A single ORDER BY value with its sort direction and null handling
+#[derive(Debug, Clone)]
+pub struct OrderByValue {
+    /// The actual value to sort by (serialized as String for now, could be Datum later)
+    pub value: Option<String>,
+    /// Whether this value is NULL
+    pub is_null: bool,
+    /// Sort direction for this column (ASC/DESC)
+    pub sort_desc: bool,
+    /// NULL handling (NULLS FIRST/LAST)
+    pub nulls_first: bool,
+}
+
+impl PartialEq for OrderableJoinMatch {
+    fn eq(&self, other: &Self) -> bool {
+        self.outer_ctid == other.outer_ctid
+            && self.inner_ctid == other.inner_ctid
+            && self.order_by_values.len() == other.order_by_values.len()
+            && self
+                .order_by_values
+                .iter()
+                .zip(&other.order_by_values)
+                .all(|(a, b)| a.value == b.value && a.is_null == b.is_null)
+    }
+}
+
+impl Eq for OrderableJoinMatch {}
+
+impl PartialOrd for OrderableJoinMatch {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for OrderableJoinMatch {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // Compare by ORDER BY values in sequence (multi-column sorting)
+        for (self_val, other_val) in self.order_by_values.iter().zip(&other.order_by_values) {
+            let ordering = match (self_val.is_null, other_val.is_null) {
+                (true, true) => std::cmp::Ordering::Equal,
+                (true, false) => {
+                    if self_val.nulls_first {
+                        std::cmp::Ordering::Less
+                    } else {
+                        std::cmp::Ordering::Greater
+                    }
+                }
+                (false, true) => {
+                    if other_val.nulls_first {
+                        std::cmp::Ordering::Greater
+                    } else {
+                        std::cmp::Ordering::Less
+                    }
+                }
+                (false, false) => {
+                    // Both values are non-null, compare them
+                    let value_cmp = self_val.value.cmp(&other_val.value);
+                    if self_val.sort_desc {
+                        value_cmp.reverse()
+                    } else {
+                        value_cmp
+                    }
+                }
+            };
+
+            if ordering != std::cmp::Ordering::Equal {
+                return ordering;
+            }
+        }
+
+        // If all ORDER BY values are equal, fall back to CTIDs for deterministic ordering
+        (self.outer_ctid, self.inner_ctid).cmp(&(other.outer_ctid, other.inner_ctid))
+    }
+}
+
+/// Information about ORDER BY expressions extracted from PostgreSQL's planning phase
+#[derive(Debug, Clone)]
+pub struct OrderByInfo {
+    /// The parsed ORDER BY expressions and their metadata
+    pub expressions: Vec<OrderByExpression>,
+    /// Whether we can optimize this ORDER BY with TopN
+    pub is_topn_optimizable: bool,
+    /// Fallback to default ordering if expressions are too complex
+    pub use_fallback_ordering: bool,
+}
+
+/// A single ORDER BY expression with metadata
+#[derive(Debug, Clone)]
+pub struct OrderByExpression {
+    /// The PostgreSQL expression (simplified representation for now)
+    pub expression_type: OrderByExpressionType,
+    /// Sort direction (ASC/DESC)
+    pub sort_desc: bool,
+    /// NULL handling (NULLS FIRST/LAST)
+    pub nulls_first: bool,
+    /// The raw PostgreSQL expression node (for complex evaluation)
+    pub pg_expr: Option<*mut pg_sys::Node>, // Note: This should be copied/serialized in real implementation
+}
+
+/// Types of ORDER BY expressions we can handle
+#[derive(Debug, Clone)]
+pub enum OrderByExpressionType {
+    /// Simple column reference: ORDER BY table.column
+    ColumnRef {
+        table_alias: Option<String>,
+        column_name: String,
+        attno: pg_sys::AttrNumber,
+    },
+    /// BM25 score function: ORDER BY table.content @@@ 'query'
+    BM25Score {
+        table_alias: Option<String>,
+        column_name: String,
+    },
+    /// ParadeDB score function: ORDER BY paradedb.score(table.ctid)
+    ParadeDBScore,
+    /// Function call: ORDER BY lower(table.name)
+    FunctionCall {
+        function_name: String,
+        args: Vec<String>,
+    },
+    /// Expression: ORDER BY table.price * 1.1
+    Expression { expression_text: String },
+    /// Too complex to optimize - fall back to standard sorting
+    Complex,
+}
+
+impl OrderByInfo {
+    /// Extract ORDER BY information from PostgreSQL's query pathkeys
+    pub unsafe fn extract_from_pathkeys(
+        root: *mut pg_sys::PlannerInfo,
+        outer_relid: pg_sys::Oid,
+        inner_relid: pg_sys::Oid,
+    ) -> Self {
+        let mut expressions = Vec::new();
+        let mut is_topn_optimizable = true;
+        let mut use_fallback_ordering = false;
+
+        let pathkeys = pgrx::PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
+
+        if pathkeys.is_empty() {
+            // No ORDER BY clause - we can't do TopN optimization
+            return OrderByInfo {
+                expressions,
+                is_topn_optimizable: false,
+                use_fallback_ordering: true,
+            };
+        }
+
+        pgrx::warning!(
+            "ParadeDB: Analyzing {} ORDER BY pathkeys for TopN optimization",
+            pathkeys.len()
+        );
+
+        for (i, pathkey) in pathkeys.iter_ptr().enumerate() {
+            let equivclass = (*pathkey).pk_eclass;
+            let members =
+                pgrx::PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
+
+            let mut found_suitable_expr = false;
+
+            for member in members.iter_ptr() {
+                let expr = (*member).em_expr.cast();
+
+                // Try to categorize this expression
+                let expr_type = Self::categorize_expression(expr, outer_relid, inner_relid, root);
+
+                match expr_type {
+                    OrderByExpressionType::Complex => {
+                        pgrx::warning!(
+                            "ParadeDB: ORDER BY expression {} is too complex for TopN optimization",
+                            i
+                        );
+                        is_topn_optimizable = false;
+                        use_fallback_ordering = true;
+                        break;
+                    }
+                    _ => {
+                        let sort_desc =
+                            (*pathkey).pk_strategy == pg_sys::BTGreaterStrategyNumber as i32;
+                        let nulls_first = (*pathkey).pk_nulls_first;
+
+                        expressions.push(OrderByExpression {
+                            expression_type: expr_type,
+                            sort_desc,
+                            nulls_first,
+                            pg_expr: Some(expr), // In production, this should be copied
+                        });
+
+                        found_suitable_expr = true;
+                        pgrx::warning!(
+                            "ParadeDB: ORDER BY expression {} categorized successfully",
+                            i
+                        );
+                        break;
+                    }
+                }
+            }
+
+            if !found_suitable_expr {
+                pgrx::warning!(
+                    "ParadeDB: Could not find suitable expression for ORDER BY pathkey {}",
+                    i
+                );
+                is_topn_optimizable = false;
+                use_fallback_ordering = true;
+                break;
+            }
+        }
+
+        pgrx::warning!(
+            "ParadeDB: ORDER BY analysis complete - {} expressions, optimizable: {}, fallback: {}",
+            expressions.len(),
+            is_topn_optimizable,
+            use_fallback_ordering
+        );
+
+        OrderByInfo {
+            expressions,
+            is_topn_optimizable,
+            use_fallback_ordering,
+        }
+    }
+
+    /// Categorize a PostgreSQL expression for ORDER BY optimization
+    unsafe fn categorize_expression(
+        expr: *mut pg_sys::Node,
+        outer_relid: pg_sys::Oid,
+        inner_relid: pg_sys::Oid,
+        root: *mut pg_sys::PlannerInfo,
+    ) -> OrderByExpressionType {
+        // Check if it's a simple Var (column reference)
+        if let Some(var) = crate::nodecast!(Var, T_Var, expr) {
+            // Find which relation this variable belongs to
+            let (relid, attno, _) = crate::api::operator::find_var_relation(var, root);
+
+            if relid == outer_relid || relid == inner_relid {
+                // Get column name
+                let heaprel = pgrx::PgRelation::with_lock(relid, pg_sys::AccessShareLock as _);
+                let tupdesc = heaprel.tuple_desc();
+                if let Some(att) = tupdesc.get(attno as usize - 1) {
+                    return OrderByExpressionType::ColumnRef {
+                        table_alias: None, // Could be determined from RTE
+                        column_name: att.name().to_string(),
+                        attno,
+                    };
+                }
+            }
+        }
+
+        // Check if it's a ParadeDB score function
+        if crate::postgres::customscan::pdbscan::projections::score::is_score_func(expr.cast(), 0) {
+            return OrderByExpressionType::ParadeDBScore;
+        }
+
+        // Check if it's a function call
+        if let Some(funcexpr) = crate::nodecast!(FuncExpr, T_FuncExpr, expr) {
+            let funcname = unsafe {
+                let funcname_ptr = pg_sys::get_func_name((*funcexpr).funcid);
+                if !funcname_ptr.is_null() {
+                    std::ffi::CStr::from_ptr(funcname_ptr)
+                        .to_string_lossy()
+                        .to_string()
+                } else {
+                    "unknown_func".to_string()
+                }
+            };
+
+            // For now, treat most functions as complex, but we could optimize common ones
+            return OrderByExpressionType::FunctionCall {
+                function_name: funcname,
+                args: vec![], // Could extract argument details
+            };
+        }
+
+        // TODO: Add support for OpExpr (operators like @@@ for BM25 score)
+        // TODO: Add support for more expression types
+
+        // Default to complex for anything we don't recognize
+        OrderByExpressionType::Complex
+    }
+
+    /// Evaluate ORDER BY expressions for a specific join match
+    pub unsafe fn evaluate_for_match(
+        &self,
+        outer_ctid: u64,
+        inner_ctid: u64,
+        outer_relid: pg_sys::Oid,
+        inner_relid: pg_sys::Oid,
+        outer_score: f32,
+        inner_score: f32,
+    ) -> Vec<OrderByValue> {
+        let mut values = Vec::new();
+
+        for expr in &self.expressions {
+            let value = match &expr.expression_type {
+                OrderByExpressionType::ColumnRef {
+                    column_name, attno, ..
+                } => {
+                    // Fetch actual column value from the heap
+                    // Determine which relation this column belongs to
+                    let column_value = if let Some(val) =
+                        Self::fetch_column_value(outer_relid, outer_ctid, *attno)
+                    {
+                        Some(val)
+                    } else if let Some(val) =
+                        Self::fetch_column_value(inner_relid, inner_ctid, *attno)
+                    {
+                        Some(val)
+                    } else {
+                        None
+                    };
+
+                    let is_null = column_value.is_none();
+
+                    OrderByValue {
+                        value: column_value,
+                        is_null,
+                        sort_desc: expr.sort_desc,
+                        nulls_first: expr.nulls_first,
+                    }
+                }
+                OrderByExpressionType::BM25Score { .. } => {
+                    // Use the appropriate BM25 score
+                    OrderByValue {
+                        value: Some(format!("{:.6}", outer_score + inner_score)), // Combined score for now
+                        is_null: false,
+                        sort_desc: expr.sort_desc,
+                        nulls_first: expr.nulls_first,
+                    }
+                }
+                OrderByExpressionType::ParadeDBScore => {
+                    // Use combined score
+                    OrderByValue {
+                        value: Some(format!("{:.6}", outer_score + inner_score)),
+                        is_null: false,
+                        sort_desc: expr.sort_desc,
+                        nulls_first: expr.nulls_first,
+                    }
+                }
+                OrderByExpressionType::FunctionCall { function_name, .. } => {
+                    // For now, return NULL for function calls (would need proper evaluation)
+                    pgrx::warning!(
+                        "ParadeDB: Function call {} in ORDER BY not yet supported",
+                        function_name
+                    );
+                    OrderByValue {
+                        value: None,
+                        is_null: true,
+                        sort_desc: expr.sort_desc,
+                        nulls_first: expr.nulls_first,
+                    }
+                }
+                OrderByExpressionType::Expression { .. } => {
+                    // For now, return NULL for complex expressions
+                    OrderByValue {
+                        value: None,
+                        is_null: true,
+                        sort_desc: expr.sort_desc,
+                        nulls_first: expr.nulls_first,
+                    }
+                }
+                OrderByExpressionType::Complex => {
+                    // Should not reach here if we're using this path
+                    OrderByValue {
+                        value: None,
+                        is_null: true,
+                        sort_desc: expr.sort_desc,
+                        nulls_first: expr.nulls_first,
+                    }
+                }
+            };
+
+            values.push(value);
+        }
+
+        values
+    }
+
+    /// Helper to fetch a column value from a relation
+    unsafe fn fetch_column_value(
+        relid: pg_sys::Oid,
+        ctid: u64,
+        attno: pg_sys::AttrNumber,
+    ) -> Option<String> {
+        // This would use the existing fetch_column_from_relation_by_attno function
+        crate::postgres::customscan::pdbscan::join_exec_methods::fetch_column_from_relation_by_attno(
+            relid, ctid, attno,
+        )
+    }
+}

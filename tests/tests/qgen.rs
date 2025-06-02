@@ -47,15 +47,7 @@ CREATE TABLE {tname}
     age   varchar
 );
 
-INSERT into {tname} (name, color, age)
-VALUES ('bob', 'blue', 20);
-
-INSERT into {tname} (name, color, age)
-SELECT(ARRAY ['alice','bob','cloe', 'sally','brandy','brisket','anchovy']::text[])[(floor(random() * 7) + 1)::int],
-      (ARRAY ['red','green','blue', 'orange','purple','pink','yellow']::text[])[(floor(random() * 7) + 1)::int],
-      (floor(random() * 100) + 1)::int::text
-FROM generate_series(1, {row_count});
-
+-- Note: Create the index before inserting rows to encourage multiple segments being created.
 CREATE INDEX idx{tname} ON {tname} USING bm25 (id, name, color, age)
 WITH (
 key_field = 'id',
@@ -66,6 +58,16 @@ text_fields = '
                 "age": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }}
             }}'
 );
+
+INSERT into {tname} (name, color, age)
+VALUES ('bob', 'blue', 20);
+
+INSERT into {tname} (name, color, age)
+SELECT(ARRAY ['alice','bob','cloe', 'sally','brandy','brisket','anchovy']::text[])[(floor(random() * 7) + 1)::int],
+      (ARRAY ['red','green','blue', 'orange','purple','pink','yellow']::text[])[(floor(random() * 7) + 1)::int],
+      (floor(random() * 100) + 1)::int::text
+FROM generate_series(1, {row_count});
+
 CREATE INDEX idx{tname}_name ON {tname} (name);
 CREATE INDEX idx{tname}_color ON {tname} (color);
 CREATE INDEX idx{tname}_age ON {tname} (age);

@@ -62,18 +62,18 @@ impl PushdownField {
 }
 
 macro_rules! pushdown {
-    ($attname:expr, $opexpr:expr, $operator:expr, $rhs:ident) => {
+    ($attname:expr, $opexpr:expr, $operator:expr, $rhs:ident) => {{
         let funcexpr = make_opexpr($attname, $opexpr, $operator, $rhs);
 
         if !is_complex(funcexpr.cast()) {
-            return Some(Qual::PushdownExpr { funcexpr });
+            Some(Qual::PushdownExpr { funcexpr })
         } else {
-            return Some(Qual::Expr {
+            Some(Qual::Expr {
                 node: funcexpr.cast(),
                 expr_state: std::ptr::null_mut(),
-            });
+            })
         }
-    };
+    }};
 }
 
 type PostgresOperatorOid = pg_sys::Oid;
@@ -129,6 +129,7 @@ unsafe fn initialize_equality_operator_lookup() -> HashMap<PostgresOperatorOid, 
 #[rustfmt::skip]
 pub unsafe fn try_pushdown(
     root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
     opexpr: *mut pg_sys::OpExpr,
     schema: &SearchIndexSchema
 ) -> Option<Qual> {
@@ -154,7 +155,21 @@ pub unsafe fn try_pushdown(
 
     static EQUALITY_OPERATOR_LOOKUP: OnceLock<HashMap<pg_sys::Oid, &str>> = OnceLock::new();
     match EQUALITY_OPERATOR_LOOKUP.get_or_init(|| initialize_equality_operator_lookup()).get(&(*opexpr).opno) {
-        Some(pgsearch_operator) => { pushdown!(&pushdown.attname(), opexpr, pgsearch_operator, rhs); },
+        Some(pgsearch_operator) => { 
+            if let Some(pushed_down_qual) =  pushdown!(&pushdown.attname(), opexpr, pgsearch_operator, rhs) {
+                // the `opexpr` is one we can pushdown
+                if (*var).varno as pg_sys::Index == rti {
+                    // and it's in this RTI, so we can use it directly
+                    Some(pushed_down_qual)
+                } else {
+                    // it's not in this RTI, which means it's in some other table due to a join, so
+                    // we need to indicate an arbitrary external var
+                    Some(Qual::ExternalVar)
+                }
+            } else {
+                None
+            }
+        },
         None => {
             // TODO:  support other types of OpExprs
             None

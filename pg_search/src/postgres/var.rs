@@ -98,7 +98,11 @@ pub unsafe fn find_var_relation(
             (pg_sys::Oid::INVALID, pg_sys::InvalidAttrNumber as i16, None)
         }
 
-        _ => panic!("unsupported RTEKind: {}", (*rte).rtekind),
+        // Likewise, the safest bet for any other RTEKind that we do not recognize is to ignore it.
+        rtekind => {
+            pgrx::debug1!("Unsupported RTEKind in `find_var_relation`: {rtekind}");
+            (pg_sys::Oid::INVALID, pg_sys::InvalidAttrNumber as i16, None)
+        }
     }
 }
 

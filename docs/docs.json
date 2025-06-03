@@ -195,7 +195,8 @@
                     "group": "ParadeDB Self-Hosted",
                     "pages": [
                       "deploy/self-hosted/kubernetes",
-                      "deploy/self-hosted/extensions",
+                      "deploy/self-hosted/docker",
+                      "deploy/self-hosted/extension",
                       {
                         "group": "Logical Replication",
                         "pages": [
@@ -209,8 +210,7 @@
                           "deploy/self-hosted/high-availability/getting-started",
                           "deploy/self-hosted/high-availability/configuration"
                         ]
-                      },
-                      "deploy/self-hosted/docker"
+                      }
                     ]
                   },
                   "deploy/byoc",
@@ -240,6 +240,7 @@
                   "changelog/0.15.20",
                   "changelog/0.15.19",
                   "changelog/0.15.18",
+                  "changelog/0.15.17",
                   "changelog/0.15.16",
                   "changelog/0.15.15",
                   "changelog/0.15.14",

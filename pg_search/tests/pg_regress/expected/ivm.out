@@ -28,7 +28,6 @@ UPDATE test SET id = id;
 -- fails with custom scans enabled
 SET paradedb.enable_custom_scan = true;
 UPDATE test SET id = id;
-ERROR:  unsupported RTEKind: 7
 SELECT * from test;
  id 
 ----

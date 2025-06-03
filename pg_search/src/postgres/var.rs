@@ -91,6 +91,13 @@ pub unsafe fn find_var_relation(
 
             ((*te).resorigtbl, (*te).resorigcol, Some(targetlist))
         }
+
+        // Custom scans involving named tuple stores (such as those created by `pg_ivm`) are not
+        // supported.
+        pg_sys::RTEKind::RTE_NAMEDTUPLESTORE => {
+            (pg_sys::Oid::INVALID, pg_sys::InvalidAttrNumber as i16, None)
+        }
+
         _ => panic!("unsupported RTEKind: {}", (*rte).rtekind),
     }
 }

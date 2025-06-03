@@ -7,28 +7,30 @@ CREATE EXTENSION IF NOT EXISTS pg_ivm;
 
 DROP TABLE IF EXISTS test CASCADE;
 CREATE TABLE test (
-    id int
+    id int,
+    content TEXT
 );
 
-INSERT INTO test VALUES (1);
-
 DROP TABLE IF EXISTS test_view CASCADE;
-SELECT pgivm.create_immv('test_view', 'SELECT * FROM test;');
+SELECT pgivm.create_immv('test_view', 'SELECT test.*, test.id + 1 as derived FROM test;');
 
 CREATE INDEX test_search_idx ON test_view
-USING bm25 (id)
+USING bm25 (id, content)
 WITH (key_field='id');
 
--- works with custom scans disabled
+-- Validate that DML works with/without the custom scan.
 SET paradedb.enable_custom_scan = false;
+INSERT INTO test VALUES (1, 'pineapple sauce');
 UPDATE test SET id = id;
-
--- fails with custom scans enabled
 SET paradedb.enable_custom_scan = true;
+INSERT INTO test VALUES (2, 'mango sauce');
 UPDATE test SET id = id;
 
+-- Confirm that the indexed view is queryable.
 SELECT * from test;
-SELECT * from test_view;
+SELECT * FROM test_view WHERE test_view.content @@@ 'pineapple';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT * FROM test_view WHERE test_view.content @@@ 'pineapple';
 
 DROP TABLE IF EXISTS test_view CASCADE;
 DROP TABLE IF EXISTS test CASCADE;

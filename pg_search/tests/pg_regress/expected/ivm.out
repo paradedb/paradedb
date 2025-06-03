@@ -1,0 +1,56 @@
+-- Test use of the pg_ivm extension.
+-- Setup
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
+CREATE EXTENSION IF NOT EXISTS pg_ivm;
+DROP TABLE IF EXISTS test CASCADE;
+CREATE TABLE test (
+    id int
+);
+INSERT INTO test VALUES (1);
+DROP TABLE IF EXISTS test_view CASCADE;
+SELECT pgivm.create_immv('test_view', 'SELECT * FROM test;');
+ create_immv 
+-------------
+           1
+(1 row)
+
+CREATE INDEX test_search_idx ON test_view
+USING bm25 (id)
+WITH (key_field='id');
+-- works with custom scans disabled
+SET paradedb.enable_custom_scan = false;
+UPDATE test SET id = id;
+-- fails with custom scans enabled
+SET paradedb.enable_custom_scan = true;
+UPDATE test SET id = id;
+ERROR:  unsupported RTEKind: 7
+SELECT * from test;
+ id 
+----
+  1
+(1 row)
+
+SELECT * from test_view;
+ id 
+----
+  1
+(1 row)
+
+DROP TABLE IF EXISTS test_view CASCADE;
+DROP TABLE IF EXISTS test CASCADE;
+\i common/common_cleanup.sql 
+-- Reset parallel workers setting to default
+RESET max_parallel_workers_per_gather;
+RESET enable_indexscan;
+RESET paradedb.enable_mixed_fast_field_exec;
+SELECT 'Common tests cleanup complete' AS status; 
+            status             
+-------------------------------
+ Common tests cleanup complete
+(1 row)
+

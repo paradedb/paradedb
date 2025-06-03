@@ -289,10 +289,16 @@ impl PdbScanState {
     }
 
     pub fn is_sorted(&self) -> bool {
-        matches!(
+        let result = matches!(
             self.sort_direction,
             Some(SortDirection::Asc | SortDirection::Desc)
-        )
+        );
+        pgrx::warning!(
+            " >>> EXEC: is_sorted() called, sort_direction={:?}, result={}",
+            self.sort_direction,
+            result
+        );
+        result
     }
 
     pub fn reset(&mut self) {

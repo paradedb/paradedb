@@ -150,6 +150,24 @@ impl ExecMethodType {
             _ => false,
         }
     }
+
+    ///
+    /// Returns true if this execution method can potentially emit results in sorted order
+    /// when it has appropriate sort field information.
+    ///
+    pub fn can_be_sorted(&self) -> bool {
+        match self {
+            ExecMethodType::TopN { .. } => true,
+            // String fast field execution can provide sorted output when it has a sort field
+            ExecMethodType::FastFieldString { .. } => true,
+            // Mixed fast field execution can provide sorted output when it has string fields
+            ExecMethodType::FastFieldMixed { .. } => true,
+            // Numeric fast fields can provide sorted output when ordering by scores or numeric fields
+            ExecMethodType::FastFieldNumeric { .. } => true,
+            // Normal execution can also provide sorted output when it has sort information
+            ExecMethodType::Normal => true,
+        }
+    }
 }
 
 #[derive(Debug)]

@@ -1,0 +1,165 @@
+-- Reproduction case for join materialization issue with ORDER BY LIMIT
+-- This demonstrates how PostgreSQL materializes the entire join before sorting and limiting
+-- Create test tables with sufficient data to see the issue
+CREATE TABLE docs (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    content TEXT
+);
+CREATE TABLE files (
+    id SERIAL PRIMARY KEY,
+    doc_id INTEGER REFERENCES docs(id),
+    filename TEXT,
+    data TEXT
+);
+CREATE TABLE pages (
+    id SERIAL PRIMARY KEY,
+    file_id INTEGER REFERENCES files(id),
+    page_num INTEGER,
+    text_content TEXT
+);
+-- Insert test data
+INSERT INTO docs (title, content) 
+SELECT 'Document ' || i, 'Content for document ' || i 
+FROM generate_series(1, 10000) i;
+INSERT INTO files (doc_id, filename, data)
+SELECT 
+    (i % 10000) + 1,
+    'file_' || i || '.txt',
+    'Data for file ' || i
+FROM generate_series(1, 50000) i;
+INSERT INTO pages (file_id, page_num, text_content)
+SELECT 
+    (i % 50000) + 1,
+    (i % 10) + 1,
+    'Page content ' || i || ' with some text'
+FROM generate_series(1, 200000) i;
+-- Create ParadeDB indexes
+CREATE INDEX docs_idx ON docs USING bm25 (id, title, content) WITH (key_field='id');
+ERROR:  access method "bm25" does not exist
+CREATE INDEX files_idx ON files USING bm25 (id, doc_id, filename, data) WITH (key_field='id');
+ERROR:  access method "bm25" does not exist
+CREATE INDEX pages_idx ON pages USING bm25 (id, file_id, page_num, text_content) WITH (key_field='id');
+ERROR:  access method "bm25" does not exist
+-- Wait for indexing to complete
+SELECT pg_sleep(2);
+ pg_sleep 
+----------
+ 
+(1 row)
+
+-- Force custom scan usage
+SET enable_indexscan = off;
+SET enable_bitmapscan = off;
+SET max_parallel_workers_per_gather = 0;  -- Disable parallelism initially
+-- Test 1: Single table with ORDER BY + LIMIT (should use TopN)
+EXPLAIN (ANALYZE, VERBOSE, BUFFERS)
+SELECT id, title, paradedb.score(id) as score
+FROM docs 
+WHERE content @@@ 'document'
+ORDER BY score DESC 
+LIMIT 100;
+ERROR:  schema "paradedb" does not exist at character 55
+-- Test 2: JOIN without ORDER BY + LIMIT (no TopN possible)
+EXPLAIN (ANALYZE, VERBOSE, BUFFERS)
+SELECT d.id, f.id, d.title, f.filename,
+       paradedb.score(d.id) + paradedb.score(f.id) as combined_score
+FROM docs d 
+JOIN files f ON d.id = f.doc_id
+WHERE d.content @@@ 'document' AND f.data @@@ 'file'
+LIMIT 100;
+ERROR:  schema "paradedb" does not exist at character 84
+-- Test 3: JOIN with ORDER BY + LIMIT (should materialize join first)
+EXPLAIN (ANALYZE, VERBOSE, BUFFERS)
+SELECT d.id, f.id, d.title, f.filename,
+       paradedb.score(d.id) + paradedb.score(f.id) as combined_score
+FROM docs d 
+JOIN files f ON d.id = f.doc_id
+WHERE d.content @@@ 'document' AND f.data @@@ 'file'
+ORDER BY combined_score DESC
+LIMIT 100;
+ERROR:  schema "paradedb" does not exist at character 84
+-- Test 4: Three-way JOIN with ORDER BY + LIMIT (even worse materialization)
+EXPLAIN (ANALYZE, VERBOSE, BUFFERS)
+SELECT d.id, f.id, p.id,
+       paradedb.score(d.id) + paradedb.score(f.id) + paradedb.score(p.id) as total_score
+FROM docs d 
+JOIN files f ON d.id = f.doc_id
+JOIN pages p ON f.id = p.file_id
+WHERE d.content @@@ 'document' 
+  AND f.data @@@ 'file'
+  AND p.text_content @@@ 'content'
+ORDER BY total_score DESC
+LIMIT 100;
+ERROR:  schema "paradedb" does not exist at character 69
+-- Test 5: Enable parallelism and see the issue from the original query
+SET max_parallel_workers_per_gather = 8;
+SET max_parallel_workers = 8;
+EXPLAIN (ANALYZE, VERBOSE, BUFFERS)
+SELECT d.id, f.id, p.id,
+       paradedb.score(d.id) + paradedb.score(f.id) + paradedb.score(p.id) as total_score
+FROM docs d 
+JOIN files f ON d.id = f.doc_id
+JOIN pages p ON f.id = p.file_id
+WHERE d.content @@@ 'document' 
+  AND f.data @@@ 'file'
+  AND p.text_content @@@ 'content'
+ORDER BY total_score DESC
+LIMIT 100;
+ERROR:  schema "paradedb" does not exist at character 69
+-- Test 6: Compare with PostgreSQL's handling of regular indexes
+-- Create regular btree indexes for comparison
+CREATE INDEX docs_title_idx ON docs(title);
+CREATE INDEX files_filename_idx ON files(filename);
+SET enable_indexscan = on;
+SET enable_bitmapscan = on;
+EXPLAIN (ANALYZE, VERBOSE, BUFFERS)
+SELECT d.id, f.id, d.title, f.filename
+FROM docs d 
+JOIN files f ON d.id = f.doc_id
+WHERE d.title LIKE 'Document 1%' 
+  AND f.filename LIKE 'file_1%'
+ORDER BY d.title, f.filename
+LIMIT 100; 
+                                                                    QUERY PLAN                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=503.63..503.64 rows=1 width=72) (actual time=15.034..15.052 rows=100 loops=1)
+   Output: d.id, f.id, d.title, f.filename
+   Buffers: shared hit=480 read=199
+   ->  Sort  (cost=503.63..503.64 rows=1 width=72) (actual time=15.033..15.041 rows=100 loops=1)
+         Output: d.id, f.id, d.title, f.filename
+         Sort Key: d.title, f.filename
+         Sort Method: top-N heapsort  Memory: 39kB
+         Buffers: shared hit=480 read=199
+         ->  Hash Join  (cost=94.62..503.62 rows=1 width=72) (actual time=6.275..14.457 rows=2219 loops=1)
+               Output: d.id, f.id, d.title, f.filename
+               Inner Unique: true
+               Hash Cond: (f.doc_id = d.id)
+               Buffers: shared hit=480 read=199
+               ->  Bitmap Heap Scan on public.files f  (cost=6.85..415.20 rows=250 width=40) (actual time=5.611..12.529 rows=11111 loops=1)
+                     Output: f.id, f.doc_id, f.filename, f.data
+                     Filter: (f.filename ~~ 'file_1%'::text)
+                     Rows Removed by Filter: 38889
+                     Heap Blocks: exact=467
+                     Buffers: shared hit=467 read=193
+                     ->  Bitmap Index Scan on files_filename_idx  (cost=0.00..6.79 rows=250 width=0) (actual time=5.544..5.545 rows=50000 loops=1)
+                           Index Cond: ((f.filename >= 'file'::text) AND (f.filename < 'filf'::text))
+                           Buffers: shared read=193
+               ->  Hash  (cost=87.14..87.14 rows=50 width=36) (actual time=0.637..0.638 rows=1112 loops=1)
+                     Output: d.id, d.title
+                     Buckets: 2048 (originally 1024)  Batches: 1 (originally 1)  Memory Usage: 71kB
+                     Buffers: shared hit=13 read=6
+                     ->  Bitmap Heap Scan on public.docs d  (cost=4.80..87.14 rows=50 width=36) (actual time=0.168..0.396 rows=1112 loops=1)
+                           Output: d.id, d.title
+                           Filter: (d.title ~~ 'Document 1%'::text)
+                           Heap Blocks: exact=13
+                           Buffers: shared hit=13 read=6
+                           ->  Bitmap Index Scan on docs_title_idx  (cost=0.00..4.79 rows=50 width=0) (actual time=0.159..0.159 rows=1112 loops=1)
+                                 Index Cond: ((d.title >= 'Document 1'::text) AND (d.title < 'Document 2'::text))
+                                 Buffers: shared read=6
+ Planning:
+   Buffers: shared hit=123 read=2
+ Planning Time: 1.130 ms
+ Execution Time: 15.172 ms
+(38 rows)
+

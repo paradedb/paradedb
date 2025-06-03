@@ -83,6 +83,13 @@ impl ExecMethod for NormalScanExecState {
     fn query(&mut self, state: &mut PdbScanState) -> bool {
         if let Some(parallel_state) = state.parallel_state {
             if let Some(segment_id) = unsafe { checkout_segment(parallel_state) } {
+                pgrx::warning!(
+                    " >>> EXEC: NormalScanExecState parallel segment={}, sort_direction={:?}, sort_field={:?}",
+                    segment_id,
+                    state.sort_direction,
+                    state.sort_field
+                );
+
                 self.search_results = state.search_reader.as_ref().unwrap().search_segments(
                     state.need_scores(),
                     [segment_id].into_iter(),
@@ -100,6 +107,13 @@ impl ExecMethod for NormalScanExecState {
             false
         } else {
             // not parallel, first time query
+            pgrx::warning!(
+                " >>> EXEC: NormalScanExecState non-parallel, sort_direction={:?}, sort_field={:?}, is_sorted={}",
+                state.sort_direction,
+                state.sort_field,
+                state.is_sorted()
+            );
+
             self.do_query(state);
             self.did_query = true;
             true
@@ -170,16 +184,79 @@ impl NormalScanExecState {
         if self.did_query {
             return false;
         }
-        self.search_results = state
-            .search_reader
-            .as_ref()
-            .expect("must have a search_reader to do a query")
-            .search(
-                state.need_scores(),
-                false,
-                state.search_query_input(),
-                state.limit,
+
+        // Check if we should use sorted search
+        if let Some(sort_direction) = state.sort_direction {
+            let can_use_sorted_search = if let Some(sort_field) = state.sort_field.as_ref() {
+                // Sorting by field: can only use sorted search if we don't need scores
+                !state.need_scores()
+            } else {
+                // Sorting by score: can always use sorted search
+                true
+            };
+
+            if can_use_sorted_search {
+                pgrx::warning!(
+                    " >>> EXEC: NormalScanExecState using SORTED search, sort_direction={:?}, sort_field={:?}",
+                    sort_direction,
+                    state.sort_field
+                );
+
+                // Use sorted search
+                self.search_results = state
+                    .search_reader
+                    .as_ref()
+                    .expect("must have a search_reader to do a query")
+                    .search_top_n_in_segments(
+                        state
+                            .search_reader
+                            .as_ref()
+                            .unwrap()
+                            .segment_readers()
+                            .keys()
+                            .copied(),
+                        state.search_query_input(),
+                        state.sort_field.as_ref().map(|s| s.as_str()),
+                        sort_direction,
+                        state.limit.unwrap_or(1000), // Use limit if available, otherwise reasonable default
+                        0,                           // offset
+                        state.need_scores(),
+                    );
+            } else {
+                pgrx::warning!(
+                    " >>> EXEC: NormalScanExecState using UNORDERED search (needs scores + field sort)"
+                );
+
+                // Fall back to unordered search
+                self.search_results = state
+                    .search_reader
+                    .as_ref()
+                    .expect("must have a search_reader to do a query")
+                    .search(
+                        state.need_scores(),
+                        false,
+                        state.search_query_input(),
+                        state.limit,
+                    );
+            }
+        } else {
+            pgrx::warning!(
+                " >>> EXEC: NormalScanExecState using UNORDERED search (no sort direction)"
             );
+
+            // No sort information, use unordered search
+            self.search_results = state
+                .search_reader
+                .as_ref()
+                .expect("must have a search_reader to do a query")
+                .search(
+                    state.need_scores(),
+                    false,
+                    state.search_query_input(),
+                    state.limit,
+                );
+        }
+
         self.did_query = true;
         true
     }

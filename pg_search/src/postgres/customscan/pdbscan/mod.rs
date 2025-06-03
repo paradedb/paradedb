@@ -274,6 +274,12 @@ impl CustomScan for PdbScan {
 
             let is_topn = limit.is_some() && pathkey.is_some();
 
+            pgrx::warning!(
+                " >>> PATHKEY DEBUG: pathkey={:?}, is_topn={}",
+                pathkey,
+                is_topn
+            );
+
             // When collecting which_fast_fields, analyze the entire set of referenced columns,
             // not just those in the target list. To avoid execution-time surprises, the "planned"
             // fast fields must be a superset of the fast fields which are extracted from the
@@ -442,8 +448,52 @@ impl CustomScan for PdbScan {
                     // otherwise we'll do a regular scan
                     builder.custom_private().set_sort_info(pathkey);
                 }
+            } else if pathkey.is_some()
+                && !is_topn
+                && fast_fields::is_numeric_fast_field_capable(builder.custom_private())
+            {
+                // For numeric fast fields that can be sorted (like scores), set sort info
+                let pathkey = pathkey.as_ref().unwrap();
+
+                pgrx::warning!(
+                    " >>> NUMERIC FF CAPABLE: Setting sort info for {:?}",
+                    pathkey
+                );
+
+                // Only set sort info for score-based ordering or if we don't need const projections
+                match (maybe_needs_const_projections, pathkey) {
+                    (false, OrderByStyle::Field(..)) => {
+                        pgrx::warning!(" >>> Setting sort info for field");
+                        builder.custom_private().set_sort_info(pathkey);
+                    }
+                    (_, OrderByStyle::Score(..)) => {
+                        pgrx::warning!(" >>> Setting sort info for score");
+                        builder.custom_private().set_sort_info(pathkey);
+                    }
+                    _ => {
+                        pgrx::warning!(" >>> NOT setting sort info: needs_const_projections={:?}, pathkey={:?}", maybe_needs_const_projections, pathkey);
+                    }
+                }
+            } else if pathkey.is_some() {
+                pgrx::warning!(" >>> NOT NUMERIC FF CAPABLE: pathkey.is_some()={}, is_topn={}, is_numeric_capable={}", 
+                    pathkey.is_some(), is_topn, fast_fields::is_numeric_fast_field_capable(builder.custom_private()));
             } else if !quals.contains_external_var() && nworkers > 0 {
                 builder = builder.set_parallel(nworkers);
+            } else {
+                // Check if this relation is using scores in the target list and can potentially
+                // contribute to sorted output in a JOIN scenario with ORDER BY score expressions
+                let target_list = (*(*builder.args().root).parse).targetList;
+                let uses_scores_in_target = uses_scores(target_list.cast(), score_funcoid(), rti);
+
+                if uses_scores_in_target {
+                    pgrx::warning!(" >>> ENABLING SCORE SORTING for relation with rti={}", rti);
+                    // Enable score-based sorting by default (descending, which is most common)
+                    builder
+                        .custom_private()
+                        .set_sort_direction(Some(SortDirection::Desc));
+                } else if !quals.contains_external_var() && nworkers > 0 {
+                    builder = builder.set_parallel(nworkers);
+                }
             }
 
             let exec_method_type = choose_exec_method(builder.custom_private());
@@ -453,10 +503,39 @@ impl CustomScan for PdbScan {
 
             // Once we have chosen an execution method type, we have a final determination of the
             // properties of the output, and can make claims about whether it is sorted.
-            if builder.custom_private().exec_method_type().is_sorted() {
+            if builder.custom_private().exec_method_type().is_sorted()
+                || (builder.custom_private().exec_method_type().can_be_sorted()
+                    && builder.custom_private().is_sorted())
+            {
+                pgrx::warning!(" >>> SORTED");
+                pgrx::warning!(
+                    " is_sorted (exec_method_type): {:?}",
+                    builder.custom_private().exec_method_type().is_sorted()
+                );
+                pgrx::warning!(
+                    " can_be_sorted: {:?}",
+                    builder.custom_private().exec_method_type().can_be_sorted()
+                );
+                pgrx::warning!(
+                    " is_sorted (custom_private): {:?}, sort_field: {:?}",
+                    builder.custom_private().is_sorted(),
+                    builder.custom_private().sort_field()
+                );
+                pgrx::warning!(" pathkey: {:?}", pathkey);
                 if let Some(pathkey) = pathkey.as_ref() {
                     builder = builder.add_path_key(pathkey);
                 }
+            } else {
+                pgrx::warning!(" >>> NOT SORTED");
+                pgrx::warning!(
+                    " is_sorted: {:?}",
+                    builder.custom_private().exec_method_type().is_sorted()
+                );
+                pgrx::warning!(
+                    " can_be_sorted: {:?}",
+                    builder.custom_private().exec_method_type().can_be_sorted()
+                );
+                pgrx::warning!(" is_sorted: {:?}", builder.custom_private().is_sorted());
             }
 
             //
@@ -1411,6 +1490,7 @@ unsafe fn is_partitioned_table_setup(
 /// This function is critical for issue #2505/#2556 where we need to detect all columns used in JOIN
 /// conditions to ensure we select the right execution method. Previously, only looking at the
 /// target list would miss columns referenced in JOIN conditions, leading to execution-time errors.
+///
 unsafe fn collect_maybe_fast_field_referenced_columns(
     rte_index: pg_sys::Index,
     rel: *mut pg_sys::RelOptInfo,

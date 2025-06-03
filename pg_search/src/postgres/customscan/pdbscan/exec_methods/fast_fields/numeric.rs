@@ -48,30 +48,124 @@ impl ExecMethod for NumericFastFieldExecState {
     fn query(&mut self, state: &mut PdbScanState) -> bool {
         if let Some(parallel_state) = state.parallel_state {
             if let Some(segment_id) = unsafe { checkout_segment(parallel_state) } {
-                self.inner.search_results = state.search_reader.as_ref().unwrap().search_segments(
-                    state.need_scores(),
-                    [segment_id].into_iter(),
-                    state.search_query_input(),
-                    0,
-                );
-                return true;
-            }
+                // Check if we should use sorted search
+                if let Some(sort_direction) = state.sort_direction {
+                    let can_use_sorted_search = if let Some(sort_field) = state.sort_field.as_ref()
+                    {
+                        // Sorting by field: can only use sorted search if we don't need scores
+                        !state.need_scores()
+                    } else {
+                        // Sorting by score: can always use sorted search
+                        true
+                    };
 
-            // no more segments to query
-            self.inner.search_results = SearchResults::None;
-            false
-        } else if self.inner.did_query {
-            // not parallel, so we're done
-            false
+                    if can_use_sorted_search {
+                        pgrx::warning!(
+                            " >>> EXEC: NumericFastFieldExecState using SORTED search, segment={}, sort_direction={:?}, sort_field={:?}",
+                            segment_id,
+                            sort_direction,
+                            state.sort_field
+                        );
+
+                        // Use sorted search
+                        self.inner.search_results = state
+                            .search_reader
+                            .as_ref()
+                            .unwrap()
+                            .search_top_n_in_segments(
+                                vec![segment_id].into_iter(),
+                                state.search_query_input(),
+                                state.sort_field.clone(),
+                                sort_direction.into(),
+                                1000, // Use a reasonable limit for parallel segments
+                                0,    // offset
+                                state.need_scores(),
+                            );
+                    } else {
+                        pgrx::warning!(
+                            " >>> EXEC: NumericFastFieldExecState using UNORDERED search (needs scores + field sort), segment={}",
+                            segment_id
+                        );
+
+                        // Fall back to unordered search
+                        self.inner.search_results = state.search_reader.as_ref().unwrap().search(
+                            state.need_scores(),
+                            false,
+                            state.search_query_input(),
+                            None,
+                        );
+                    }
+                } else {
+                    pgrx::warning!(
+                        " >>> EXEC: NumericFastFieldExecState using UNORDERED search (no sort direction), segment={}",
+                        segment_id
+                    );
+
+                    // No sort information, use unordered search
+                    self.inner.search_results = state.search_reader().search(
+                        state.search_query_input(),
+                        vec![segment_id],
+                        state.need_scores(),
+                    );
+                }
+                true
+            } else {
+                false
+            }
         } else {
-            // not parallel, first time query
-            self.inner.search_results = state.search_reader.as_ref().unwrap().search(
-                state.need_scores(),
-                false,
-                state.search_query_input(),
-                state.limit,
-            );
-            self.inner.did_query = true;
+            // Non-parallel case
+            if let Some(sort_direction) = state.sort_direction {
+                let can_use_sorted_search = if let Some(sort_field) = state.sort_field.as_ref() {
+                    // Sorting by field: can only use sorted search if we don't need scores
+                    !state.need_scores()
+                } else {
+                    // Sorting by score: can always use sorted search
+                    true
+                };
+
+                if can_use_sorted_search {
+                    pgrx::warning!(
+                        " >>> EXEC: NumericFastFieldExecState using SORTED search (non-parallel), sort_direction={:?}, sort_field={:?}",
+                        sort_direction,
+                        state.sort_field
+                    );
+
+                    // Use sorted search for all segments
+                    self.inner.search_results = state.search_reader().search_top_n_in_segments(
+                        state.search_reader().segment_readers().keys().copied(),
+                        state.search_query_input(),
+                        state.sort_field.as_ref().map(|s| s.as_str()),
+                        sort_direction,
+                        1000, // Use a reasonable limit
+                        0,    // offset
+                        state.need_scores(),
+                    );
+                } else {
+                    pgrx::warning!(
+                        " >>> EXEC: NumericFastFieldExecState using UNORDERED search (needs scores + field sort, non-parallel)"
+                    );
+
+                    // Fall back to unordered search
+                    self.inner.search_results = state.search_reader.as_ref().unwrap().search(
+                        state.need_scores(),
+                        false,
+                        state.search_query_input(),
+                        None,
+                    );
+                }
+            } else {
+                pgrx::warning!(
+                    " >>> EXEC: NumericFastFieldExecState using UNORDERED search (no sort direction, non-parallel)"
+                );
+
+                // No sort information, use unordered search
+                self.inner.search_results = state.search_reader().search(
+                    state.need_scores(),
+                    false,
+                    state.search_query_input(),
+                    None,
+                );
+            }
             true
         }
     }

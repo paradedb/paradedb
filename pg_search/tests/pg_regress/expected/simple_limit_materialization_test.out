@@ -1,0 +1,349 @@
+-- Simple test to confirm join materialization issue
+-- This creates a minimal reproduction case
+-- Create small test tables
+CREATE TABLE test_docs (
+    id SERIAL PRIMARY KEY,
+    content TEXT
+);
+CREATE TABLE test_files (
+    id SERIAL PRIMARY KEY,
+    doc_id INTEGER REFERENCES test_docs(id),
+    filename TEXT
+);
+-- Insert minimal data - just enough to see the pattern
+INSERT INTO test_docs (content) VALUES 
+('document one'), ('document two'), ('document three');
+INSERT INTO test_files (doc_id, filename) VALUES 
+(1, 'file1.txt'), (1, 'file2.txt'),
+(2, 'file3.txt'), (2, 'file4.txt'),
+(3, 'file5.txt'), (3, 'file6.txt');
+-- Create ParadeDB indexes
+CREATE INDEX test_docs_idx ON test_docs USING bm25 (id, content) WITH (key_field='id');
+CREATE INDEX test_files_idx ON test_files USING bm25 (id, doc_id, filename) WITH (key_field='id');
+-- Force ParadeDB usage
+SET enable_indexscan = off;
+SET enable_bitmapscan = off;
+SET max_parallel_workers_per_gather = 0;
+-- Test 1: Single table - should use TopNScanExecState
+EXPLAIN (ANALYZE, VERBOSE)
+SELECT id, content, paradedb.score(id) as score
+FROM test_docs 
+WHERE content @@@ 'document'
+ORDER BY score DESC 
+LIMIT 1;
+WARNING:   >>> PATHKEY DEBUG: pathkey=Some(Score(0x7fd07702c0c0)), is_topn=true
+WARNING:   >>> NOT NUMERIC FF CAPABLE: pathkey.is_some()=true, is_topn=true, is_numeric_capable=false
+WARNING:   >>> SORTED
+WARNING:   is_sorted (exec_method_type): true
+WARNING:   can_be_sorted: true
+WARNING:   is_sorted (custom_private): true, sort_field: None
+WARNING:   pathkey: Some(Score(0x7fd07702c0c0))
+                                                                        QUERY PLAN                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=10.00..10.01 rows=1 width=40) (actual time=0.609..0.610 rows=1 loops=1)
+   Output: id, content, (paradedb.score(id))
+   ->  Custom Scan (ParadeDB Scan) on public.test_docs  (cost=10.00..10.01 rows=1 width=40) (actual time=0.608..0.609 rows=1 loops=1)
+         Output: id, content, paradedb.score(id)
+         Table: test_docs
+         Index: test_docs_idx
+         Segment Count: 1
+         Heap Fetches: 1
+         Virtual Tuples: 0
+         Invisible Tuples: 0
+         Exec Method: TopNScanExecState
+         Scores: true
+            Sort Field: paradedb.score()
+            Sort Direction: desc
+            Top N Limit: 1
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"document","lenient":null,"conjunction_mode":null}}}}
+         Human Readable Query: content:(document)
+ Planning Time: 2.516 ms
+ Execution Time: 0.814 ms
+(19 rows)
+
+EXPLAIN (ANALYZE, VERBOSE)
+SELECT id, content, paradedb.score(id) as score
+FROM test_docs 
+WHERE content LIKE 'document%'
+ORDER BY score DESC 
+LIMIT 1;
+WARNING:   >>> PATHKEY DEBUG: pathkey=Some(Score(0x7fd07701add8)), is_topn=true
+                                                      QUERY PLAN                                                       
+-----------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=1.05..1.05 rows=1 width=40) (actual time=0.068..0.068 rows=1 loops=1)
+   Output: id, content, (paradedb.score(id))
+   ->  Sort  (cost=1.05..1.05 rows=1 width=40) (actual time=0.068..0.068 rows=1 loops=1)
+         Output: id, content, (paradedb.score(id))
+         Sort Key: (paradedb.score(test_docs.id)) DESC
+         Sort Method: top-N heapsort  Memory: 25kB
+         ->  Seq Scan on public.test_docs  (cost=0.00..1.04 rows=1 width=40) (actual time=0.019..0.021 rows=3 loops=1)
+               Output: id, content, paradedb.score(id)
+               Filter: (test_docs.content ~~ 'document%'::text)
+ Planning Time: 0.406 ms
+ Execution Time: 0.084 ms
+(11 rows)
+
+-- Test 2: Join - should NOT use TopNScanExecState and materialize everything
+EXPLAIN (ANALYZE, VERBOSE)
+SELECT d.id, f.id, 
+       paradedb.score(d.id) + paradedb.score(f.id) as combined_score
+FROM test_docs d 
+JOIN test_files f ON d.id = f.doc_id
+WHERE d.content @@@ 'document' AND f.filename @@@ 'file'
+ORDER BY combined_score DESC
+LIMIT 1;
+WARNING:   >>> PATHKEY DEBUG: pathkey=None, is_topn=false
+WARNING:   >>> ENABLING SCORE SORTING for relation with rti=1
+WARNING:   >>> SORTED
+WARNING:   is_sorted (exec_method_type): false
+WARNING:   can_be_sorted: true
+WARNING:   is_sorted (custom_private): true, sort_field: None
+WARNING:   pathkey: None
+WARNING:   >>> PATHKEY DEBUG: pathkey=None, is_topn=false
+WARNING:   >>> ENABLING SCORE SORTING for relation with rti=2
+WARNING:   >>> SORTED
+WARNING:   is_sorted (exec_method_type): false
+WARNING:   can_be_sorted: true
+WARNING:   is_sorted (custom_private): true, sort_field: None
+WARNING:   pathkey: None
+ERROR:  attempt to multiply with overflow
+EXPLAIN (ANALYZE, VERBOSE)
+SELECT d.id, f.id, 
+       paradedb.score(d.id) + paradedb.score(f.id) as combined_score
+FROM test_docs d 
+JOIN test_files f ON d.id = f.doc_id
+WHERE d.content LIKE 'document%' AND f.filename LIKE 'file%'
+ORDER BY combined_score DESC
+LIMIT 1;
+WARNING:   >>> PATHKEY DEBUG: pathkey=None, is_topn=false
+WARNING:   >>> PATHKEY DEBUG: pathkey=None, is_topn=false
+                                                           QUERY PLAN                                                           
+--------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=2.14..2.15 rows=1 width=12) (actual time=0.129..0.129 rows=1 loops=1)
+   Output: d.id, f.id, (((paradedb.score(d.id)) + (paradedb.score(f.id))))
+   ->  Sort  (cost=2.14..2.15 rows=1 width=12) (actual time=0.128..0.129 rows=1 loops=1)
+         Output: d.id, f.id, (((paradedb.score(d.id)) + (paradedb.score(f.id))))
+         Sort Key: (((paradedb.score(d.id)) + (paradedb.score(f.id)))) DESC
+         Sort Method: top-N heapsort  Memory: 25kB
+         ->  Nested Loop  (cost=0.00..2.13 rows=1 width=12) (actual time=0.061..0.100 rows=6 loops=1)
+               Output: d.id, f.id, ((paradedb.score(d.id)) + (paradedb.score(f.id)))
+               Join Filter: (d.id = f.doc_id)
+               Rows Removed by Join Filter: 12
+               ->  Seq Scan on public.test_docs d  (cost=0.00..1.04 rows=1 width=8) (actual time=0.036..0.038 rows=3 loops=1)
+                     Output: d.id, paradedb.score(d.id)
+                     Filter: (d.content ~~ 'document%'::text)
+               ->  Seq Scan on public.test_files f  (cost=0.00..1.08 rows=1 width=12) (actual time=0.008..0.011 rows=6 loops=3)
+                     Output: f.id, f.doc_id, paradedb.score(f.id)
+                     Filter: (f.filename ~~ 'file%'::text)
+ Planning Time: 0.808 ms
+ Execution Time: 0.160 ms
+(18 rows)
+
+-- Test 3: Join - should NOT use TopNScanExecState and materialize everything
+EXPLAIN (ANALYZE, VERBOSE)
+SELECT d.id, f.id, 
+       paradedb.score(d.id) as score_d,
+       paradedb.score(f.id) as score_f
+FROM test_docs d 
+JOIN test_files f ON d.id = f.doc_id
+WHERE d.content @@@ 'document' AND f.filename @@@ 'file'
+ORDER BY score_d DESC
+LIMIT 1;
+WARNING:   >>> PATHKEY DEBUG: pathkey=None, is_topn=false
+WARNING:   >>> ENABLING SCORE SORTING for relation with rti=1
+WARNING:   >>> SORTED
+WARNING:   is_sorted (exec_method_type): false
+WARNING:   can_be_sorted: true
+WARNING:   is_sorted (custom_private): true, sort_field: None
+WARNING:   pathkey: None
+WARNING:   >>> PATHKEY DEBUG: pathkey=None, is_topn=false
+WARNING:   >>> ENABLING SCORE SORTING for relation with rti=2
+WARNING:   >>> SORTED
+WARNING:   is_sorted (exec_method_type): false
+WARNING:   can_be_sorted: true
+WARNING:   is_sorted (custom_private): true, sort_field: None
+WARNING:   pathkey: None
+                                                                              QUERY PLAN                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=20.09..20.09 rows=1 width=16) (actual time=0.490..0.492 rows=0 loops=1)
+   Output: d.id, f.id, (paradedb.score(d.id)), (paradedb.score(f.id))
+   ->  Sort  (cost=20.09..20.09 rows=1 width=16) (actual time=0.490..0.491 rows=0 loops=1)
+         Output: d.id, f.id, (paradedb.score(d.id)), (paradedb.score(f.id))
+         Sort Key: (paradedb.score(d.id)) DESC
+         Sort Method: quicksort  Memory: 25kB
+         ->  Nested Loop  (cost=20.00..20.08 rows=1 width=16) (actual time=0.464..0.465 rows=0 loops=1)
+               Output: d.id, f.id, (paradedb.score(d.id)), (paradedb.score(f.id))
+               Inner Unique: true
+               Join Filter: (d.id = f.doc_id)
+               ->  Custom Scan (ParadeDB Scan) on public.test_files f  (cost=10.00..10.01 rows=1 width=12) (actual time=0.464..0.464 rows=0 loops=1)
+                     Output: f.id, f.doc_id, paradedb.score(f.id), paradedb.score(f.id)
+                     Table: test_files
+                     Index: test_files_idx
+                     Segment Count: 1
+                     Heap Fetches: 0
+                     Virtual Tuples: 0
+                     Invisible Tuples: 0
+                     Exec Method: NormalScanExecState
+                     Scores: true
+                        Sort Field: paradedb.score()
+                        Sort Direction: desc
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"filename","query_string":"file","lenient":null,"conjunction_mode":null}}}}
+                     Human Readable Query: filename:(file)
+               ->  Custom Scan (ParadeDB Scan) on public.test_docs d  (cost=10.00..10.03 rows=3 width=8) (never executed)
+                     Output: d.id, paradedb.score(d.id), paradedb.score(d.id)
+                     Table: test_docs
+                     Index: test_docs_idx
+                     Segment Count: 1
+                     Heap Fetches: 0
+                     Virtual Tuples: 0
+                     Invisible Tuples: 0
+                     Exec Method: NormalScanExecState
+                     Scores: true
+                        Sort Field: paradedb.score()
+                        Sort Direction: desc
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"document","lenient":null,"conjunction_mode":null}}}}
+                     Human Readable Query: content:(document)
+ Planning Time: 2.112 ms
+ Execution Time: 0.704 ms
+(40 rows)
+
+EXPLAIN (ANALYZE, VERBOSE)
+SELECT d.id, f.id, 
+       paradedb.score(d.id) as score_d,
+       paradedb.score(f.id) as score_f
+FROM test_docs d 
+JOIN test_files f ON d.id = f.doc_id
+WHERE d.content LIKE 'document%' AND f.filename LIKE 'file%'
+ORDER BY score_d DESC
+LIMIT 1;
+WARNING:   >>> PATHKEY DEBUG: pathkey=None, is_topn=false
+WARNING:   >>> PATHKEY DEBUG: pathkey=None, is_topn=false
+                                                           QUERY PLAN                                                           
+--------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=2.14..2.15 rows=1 width=16) (actual time=0.045..0.046 rows=1 loops=1)
+   Output: d.id, f.id, (paradedb.score(d.id)), (paradedb.score(f.id))
+   ->  Sort  (cost=2.14..2.15 rows=1 width=16) (actual time=0.045..0.045 rows=1 loops=1)
+         Output: d.id, f.id, (paradedb.score(d.id)), (paradedb.score(f.id))
+         Sort Key: (paradedb.score(d.id)) DESC
+         Sort Method: top-N heapsort  Memory: 25kB
+         ->  Nested Loop  (cost=0.00..2.13 rows=1 width=16) (actual time=0.015..0.029 rows=6 loops=1)
+               Output: d.id, f.id, (paradedb.score(d.id)), (paradedb.score(f.id))
+               Join Filter: (d.id = f.doc_id)
+               Rows Removed by Join Filter: 12
+               ->  Seq Scan on public.test_docs d  (cost=0.00..1.04 rows=1 width=8) (actual time=0.009..0.011 rows=3 loops=1)
+                     Output: d.id, paradedb.score(d.id)
+                     Filter: (d.content ~~ 'document%'::text)
+               ->  Seq Scan on public.test_files f  (cost=0.00..1.08 rows=1 width=12) (actual time=0.002..0.005 rows=6 loops=3)
+                     Output: f.id, f.doc_id, paradedb.score(f.id)
+                     Filter: (f.filename ~~ 'file%'::text)
+ Planning Time: 0.571 ms
+ Execution Time: 0.068 ms
+(18 rows)
+
+-- Test 3: Join - should NOT use TopNScanExecState and materialize everything
+EXPLAIN (ANALYZE, VERBOSE)
+SELECT d.id, f.id, 
+       paradedb.score(d.id) as score_d,
+       paradedb.score(f.id) as score_f
+FROM test_docs d 
+JOIN test_files f ON d.id = f.doc_id
+WHERE d.content @@@ 'document' AND f.filename @@@ 'file'
+ORDER BY score_d, score_f DESC
+LIMIT 1;
+WARNING:   >>> PATHKEY DEBUG: pathkey=None, is_topn=false
+WARNING:   >>> ENABLING SCORE SORTING for relation with rti=1
+WARNING:   >>> SORTED
+WARNING:   is_sorted (exec_method_type): false
+WARNING:   can_be_sorted: true
+WARNING:   is_sorted (custom_private): true, sort_field: None
+WARNING:   pathkey: None
+WARNING:   >>> PATHKEY DEBUG: pathkey=None, is_topn=false
+WARNING:   >>> ENABLING SCORE SORTING for relation with rti=2
+WARNING:   >>> SORTED
+WARNING:   is_sorted (exec_method_type): false
+WARNING:   can_be_sorted: true
+WARNING:   is_sorted (custom_private): true, sort_field: None
+WARNING:   pathkey: None
+                                                                              QUERY PLAN                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=20.09..20.09 rows=1 width=16) (actual time=0.456..0.456 rows=0 loops=1)
+   Output: d.id, f.id, (paradedb.score(d.id)), (paradedb.score(f.id))
+   ->  Sort  (cost=20.09..20.09 rows=1 width=16) (actual time=0.455..0.456 rows=0 loops=1)
+         Output: d.id, f.id, (paradedb.score(d.id)), (paradedb.score(f.id))
+         Sort Key: (paradedb.score(d.id)), (paradedb.score(f.id)) DESC
+         Sort Method: quicksort  Memory: 25kB
+         ->  Nested Loop  (cost=20.00..20.08 rows=1 width=16) (actual time=0.438..0.439 rows=0 loops=1)
+               Output: d.id, f.id, (paradedb.score(d.id)), (paradedb.score(f.id))
+               Inner Unique: true
+               Join Filter: (d.id = f.doc_id)
+               ->  Custom Scan (ParadeDB Scan) on public.test_files f  (cost=10.00..10.01 rows=1 width=12) (actual time=0.438..0.438 rows=0 loops=1)
+                     Output: f.id, f.doc_id, paradedb.score(f.id), paradedb.score(f.id)
+                     Table: test_files
+                     Index: test_files_idx
+                     Segment Count: 1
+                     Heap Fetches: 0
+                     Virtual Tuples: 0
+                     Invisible Tuples: 0
+                     Exec Method: NormalScanExecState
+                     Scores: true
+                        Sort Field: paradedb.score()
+                        Sort Direction: desc
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"filename","query_string":"file","lenient":null,"conjunction_mode":null}}}}
+                     Human Readable Query: filename:(file)
+               ->  Custom Scan (ParadeDB Scan) on public.test_docs d  (cost=10.00..10.03 rows=3 width=8) (never executed)
+                     Output: d.id, paradedb.score(d.id), paradedb.score(d.id)
+                     Table: test_docs
+                     Index: test_docs_idx
+                     Segment Count: 1
+                     Heap Fetches: 0
+                     Virtual Tuples: 0
+                     Invisible Tuples: 0
+                     Exec Method: NormalScanExecState
+                     Scores: true
+                        Sort Field: paradedb.score()
+                        Sort Direction: desc
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"document","lenient":null,"conjunction_mode":null}}}}
+                     Human Readable Query: content:(document)
+ Planning Time: 2.198 ms
+ Execution Time: 0.648 ms
+(40 rows)
+
+EXPLAIN (ANALYZE, VERBOSE)
+SELECT d.id, f.id, 
+       paradedb.score(d.id) as score_d,
+       paradedb.score(f.id) as score_f
+FROM test_docs d 
+JOIN test_files f ON d.id = f.doc_id
+WHERE d.content LIKE 'document%' AND f.filename LIKE 'file%'
+ORDER BY score_d, score_f DESC
+LIMIT 1;
+WARNING:   >>> PATHKEY DEBUG: pathkey=None, is_topn=false
+WARNING:   >>> PATHKEY DEBUG: pathkey=None, is_topn=false
+                                                           QUERY PLAN                                                           
+--------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=2.14..2.15 rows=1 width=16) (actual time=0.046..0.047 rows=1 loops=1)
+   Output: d.id, f.id, (paradedb.score(d.id)), (paradedb.score(f.id))
+   ->  Sort  (cost=2.14..2.15 rows=1 width=16) (actual time=0.046..0.046 rows=1 loops=1)
+         Output: d.id, f.id, (paradedb.score(d.id)), (paradedb.score(f.id))
+         Sort Key: (paradedb.score(d.id)), (paradedb.score(f.id)) DESC
+         Sort Method: top-N heapsort  Memory: 25kB
+         ->  Nested Loop  (cost=0.00..2.13 rows=1 width=16) (actual time=0.015..0.030 rows=6 loops=1)
+               Output: d.id, f.id, (paradedb.score(d.id)), (paradedb.score(f.id))
+               Join Filter: (d.id = f.doc_id)
+               Rows Removed by Join Filter: 12
+               ->  Seq Scan on public.test_docs d  (cost=0.00..1.04 rows=1 width=8) (actual time=0.010..0.011 rows=3 loops=1)
+                     Output: d.id, paradedb.score(d.id)
+                     Filter: (d.content ~~ 'document%'::text)
+               ->  Seq Scan on public.test_files f  (cost=0.00..1.08 rows=1 width=12) (actual time=0.002..0.005 rows=6 loops=3)
+                     Output: f.id, f.doc_id, paradedb.score(f.id)
+                     Filter: (f.filename ~~ 'file%'::text)
+ Planning Time: 0.574 ms
+ Execution Time: 0.069 ms
+(18 rows)
+
+-- The key difference to look for:
+-- 1. Single table: Shows "TopNScanExecState" and "Top N Limit: 1"
+-- 2. Join: Shows regular exec methods and processes ALL join results before limiting
+-- Cleanup
+DROP TABLE test_files;
+DROP TABLE test_docs; 

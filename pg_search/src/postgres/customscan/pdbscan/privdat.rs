@@ -47,9 +47,9 @@ pub struct PrivateData {
     referenced_columns_count: usize,
     need_scores: bool,
     exec_method_type: ExecMethodType,
-    // Additional search predicates from join filters that are relevant for snippet generation
+    // Additional search predicates from join filters that are relevant for snippet/score generation
     // Maps field names to their corresponding search queries from join predicates
-    join_snippet_predicates: HashMap<FieldName, SearchQueryInput>,
+    join_predicates: HashMap<FieldName, SearchQueryInput>,
 }
 
 mod var_attname_lookup_serializer {
@@ -220,11 +220,8 @@ impl PrivateData {
         self.need_scores = maybe;
     }
 
-    pub fn set_join_snippet_predicates(
-        &mut self,
-        predicates: HashMap<FieldName, SearchQueryInput>,
-    ) {
-        self.join_snippet_predicates = predicates;
+    pub fn set_join_predicates(&mut self, predicates: HashMap<FieldName, SearchQueryInput>) {
+        self.join_predicates = predicates;
     }
 }
 
@@ -298,7 +295,7 @@ impl PrivateData {
         self.need_scores
     }
 
-    pub fn join_snippet_predicates(&self) -> &HashMap<FieldName, SearchQueryInput> {
-        &self.join_snippet_predicates
+    pub fn join_predicates(&self) -> &HashMap<FieldName, SearchQueryInput> {
+        &self.join_predicates
     }
 }

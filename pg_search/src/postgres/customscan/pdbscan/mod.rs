@@ -55,9 +55,7 @@ use crate::postgres::customscan::pdbscan::projections::snippet::{
 use crate::postgres::customscan::pdbscan::projections::{
     inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
 };
-use crate::postgres::customscan::pdbscan::qual_inspect::{
-    extract_join_snippet_predicates, extract_quals,
-};
+use crate::postgres::customscan::pdbscan::qual_inspect::{extract_join_predicates, extract_quals};
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::customscan::{self, CustomScan, CustomScanState};
 use crate::postgres::rel_get_bm25_index;
@@ -131,7 +129,7 @@ impl PdbScan {
             for snippet_type in snippet_generators.keys() {
                 if let Some(join_predicate) = state
                     .custom_state()
-                    .join_snippet_predicates
+                    .join_predicates
                     .get(snippet_type.field())
                 {
                     // Combine base query with join predicate using Boolean AND
@@ -593,7 +591,7 @@ impl CustomScan for PdbScan {
                 .expect("should be able to open index for snippet extraction");
             let schema = SearchIndexSchema::open(index.schema(), &indexrel);
 
-            let join_snippet_predicates = extract_join_snippet_predicates(
+            let join_predicates = extract_join_predicates(
                 builder.args().root,
                 rti as pg_sys::Index,
                 anyelement_query_input_opoid(),
@@ -602,7 +600,7 @@ impl CustomScan for PdbScan {
 
             builder
                 .custom_private_mut()
-                .set_join_snippet_predicates(join_snippet_predicates);
+                .set_join_predicates(join_predicates);
 
             builder
                 .custom_private_mut()
@@ -685,8 +683,8 @@ impl CustomScan for PdbScan {
             .collect();
 
             // Store join snippet predicates in the scan state
-            builder.custom_state().join_snippet_predicates =
-                builder.custom_private().join_snippet_predicates().clone();
+            builder.custom_state().join_predicates =
+                builder.custom_private().join_predicates().clone();
 
             assign_exec_method(&mut builder);
 

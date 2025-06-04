@@ -92,7 +92,7 @@ pub struct PdbScanState {
     pub placeholder_targetlist: Option<*mut pg_sys::List>,
 
     // Additional search predicates from join filters for snippet generation
-    pub join_snippet_predicates: HashMap<FieldName, SearchQueryInput>,
+    pub join_predicates: HashMap<FieldName, SearchQueryInput>,
 
     pub exec_method_type: ExecMethodType,
     exec_method: UnsafeCell<Box<dyn ExecMethod>>,

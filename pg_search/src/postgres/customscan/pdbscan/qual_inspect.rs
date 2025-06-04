@@ -733,7 +733,7 @@ unsafe fn booltest(
 /// Extract join-level search predicates that are relevant for snippet generation
 /// This captures search predicates that reference specific fields but may not be
 /// pushed down to the current scan due to join conditions
-pub unsafe fn extract_join_snippet_predicates(
+pub unsafe fn extract_join_predicates(
     root: *mut pg_sys::PlannerInfo,
     current_rti: pg_sys::Index,
     pdbopoid: pg_sys::Oid,

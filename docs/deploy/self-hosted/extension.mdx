@@ -1,13 +1,6 @@
 ---
-title: Extensions
+title: Extension
 ---
-
-<Note>
-  If you are self-hosting, we do not recommend installing ParadeDB in your
-  primary Postgres. ParadeDB is designed to run as a [logical
-  replica](/deploy/self-hosted/logical-replication) of your primary, which
-  isolates search and analytical workloads from your primary.
-</Note>
 
 If you already self-manage Postgres, you may prefer to install ParadeDB directly within your self-managed
 Postgres instead of deploying the ParadeDB Helm chart.
@@ -32,18 +25,18 @@ sudo apt-get install -y libicu74
 
 </CodeGroup>
 
-## Install the ParadeDB Postgres Extensions
+## Install the ParadeDB Postgres Extension
 
 ### ParadeDB Community
 
-ParadeDB provides prebuilt binaries for our extensions on
+ParadeDB provides prebuilt binaries for our extension on
 
 - Debian 12
 - Ubuntu 22.04 and 24.04
 - Red Hat Enterprise Linux 8 and 9
 - macOS 14 (Sonoma) and 15 (Sequoia)
 
-Postgres 14, 15, 16, and 17 are available. If you are using a different version of Postgres or a different operating system, you will need to build the extensions from source.
+Postgres 14, 15, 16, and 17 are available. If you are using a different version of Postgres or a different operating system, you will need to build the extension from source.
 
 #### pg_search
 
@@ -114,7 +107,7 @@ shared_preload_libraries = 'pg_search'
 
 Reload the Postgres server for these changes to take effect.
 
-## Load the Extensions
+## Load the Extension
 
 Finally, connect to your Postgres database via your client of choice (e.g. `psql`) and run the following command:
 

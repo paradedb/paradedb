@@ -21,6 +21,7 @@ use pgrx::{iter::TableIterator, *};
 use crate::api::HashMap;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::expression::PG_SEARCH_PREFIX;
 use crate::postgres::index::IndexKind;
 use crate::postgres::types::TantivyValue;
 use crate::query::{SearchQueryInput, TermInput};
@@ -1033,6 +1034,14 @@ impl FieldName {
 
     pub fn is_ctid(&self) -> bool {
         self.root() == "ctid"
+    }
+
+    pub fn without_search_prefix(&self) -> Option<String> {
+        if self.0.starts_with(PG_SEARCH_PREFIX) {
+            Some(self.0[PG_SEARCH_PREFIX.len()..].to_string())
+        } else {
+            None
+        }
     }
 }
 

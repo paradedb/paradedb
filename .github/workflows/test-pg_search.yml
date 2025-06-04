@@ -243,4 +243,5 @@ jobs:
           fi
 
       - name: Print the Postgres Logs
+        if: always()
         run: cat ~/.pgrx/${{ matrix.pg_version}}.log

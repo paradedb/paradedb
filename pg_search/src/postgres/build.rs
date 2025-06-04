@@ -15,52 +15,17 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::index::FieldName;
-use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::SearchIndexReader;
-use crate::index::writer::index::SearchIndexWriter;
+use crate::index::get_index_schema;
+use crate::index::mvcc::MVCCDirectory;
+use crate::postgres::build_parallel::build_index;
 use crate::postgres::storage::block::{
     SegmentMetaEntry, CLEANUP_LOCK, METADATA, SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
 };
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::metadata::MetaPageMut;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
-use crate::postgres::utils::{
-    categorize_fields, item_pointer_to_u64, row_to_search_document, CategorizedFieldData,
-};
-use crate::schema::{SearchField, SearchFieldConfig};
-use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::*;
-use std::ffi::CStr;
-use std::time::Instant;
-use tokenizers::SearchTokenizer;
-
-// For now just pass the count on the build callback state
-struct BuildState {
-    count: usize,
-    per_row_context: PgMemoryContexts,
-    start: Instant,
-    writer: SearchIndexWriter,
-    categorized_fields: Vec<(SearchField, CategorizedFieldData)>,
-    key_field_name: FieldName,
-}
-
-impl BuildState {
-    fn new(indexrel: &PgRelation, writer: SearchIndexWriter) -> Self {
-        let tupdesc = unsafe { PgTupleDesc::from_pg_unchecked(indexrel.rd_att) };
-        let categorized_fields = categorize_fields(&tupdesc, &writer.schema);
-        let key_field_name = writer.schema.key_field().name;
-
-        BuildState {
-            count: 0,
-            per_row_context: PgMemoryContexts::new("pg_search ambuild context"),
-            start: Instant::now(),
-            writer,
-            categorized_fields,
-            key_field_name,
-        }
-    }
-}
+use tantivy::{Index, IndexSettings};
 
 #[pg_guard]
 pub extern "C-unwind" fn ambuild(
@@ -70,9 +35,6 @@ pub extern "C-unwind" fn ambuild(
 ) -> *mut pg_sys::IndexBuildResult {
     let heap_relation = unsafe { PgRelation::from_pg(heaprel) };
     let index_relation = unsafe { PgRelation::from_pg(indexrel) };
-    let index_oid = index_relation.oid();
-
-    unsafe { init_fixed_buffers(&index_relation) };
 
     // ensure we only allow one `USING bm25` index on this relation, accounting for a REINDEX
     // and accounting for CONCURRENTLY.
@@ -83,7 +45,7 @@ pub extern "C-unwind" fn ambuild(
 
         if !is_reindex {
             for existing_index in heap_relation.indices(pg_sys::AccessShareLock as _) {
-                if existing_index.oid() == index_oid {
+                if existing_index.oid() == index_relation.oid() {
                     // the index we're about to build already exists on the table.
                     continue;
                 }
@@ -95,142 +57,42 @@ pub extern "C-unwind" fn ambuild(
         }
     }
 
-    let tuple_count = do_heap_scan(index_info, &heap_relation, &index_relation);
-    unsafe { pg_sys::FlushRelationBuffers(indexrel) };
-
-    let mut result = unsafe { PgBox::<pg_sys::IndexBuildResult>::alloc0() };
-    result.heap_tuples = tuple_count as f64;
-    result.index_tuples = tuple_count as f64;
-    result.into_pg()
-}
-
-#[pg_guard]
-pub extern "C-unwind" fn ambuildempty(_index_relation: pg_sys::Relation) {}
-
-fn do_heap_scan<'a>(
-    index_info: *mut pg_sys::IndexInfo,
-    heap_relation: &'a PgRelation,
-    index_relation: &'a PgRelation,
-) -> usize {
     unsafe {
-        let writer = SearchIndexWriter::create_index(index_relation)
-            .expect("do_heap_scan: should be able to open a SearchIndexWriter");
+        ambuildempty(indexrel);
 
-        // warn that the `raw` tokenizer is deprecated
-        for field in &writer.schema.fields {
-            #[allow(deprecated)]
-            if matches!(
-                field.config,
-                SearchFieldConfig::Text {
-                    tokenizer: SearchTokenizer::Raw(_),
-                    ..
-                } | SearchFieldConfig::Json {
-                    tokenizer: SearchTokenizer::Raw(_),
-                    ..
-                }
-            ) {
-                ErrorReport::new(
-                    PgSqlErrorCode::ERRCODE_WARNING_DEPRECATED_FEATURE,
-                    "the `raw` tokenizer is deprecated",
-                    function_name!(),
-                )
-                    .set_detail("the `raw` tokenizer is deprecated as it also lowercases and truncates the input and this is probably not what you want")
-                    .set_hint("use `keyword` instead").report(PgLogLevel::WARNING);
-            }
-        }
+        let index_oid = index_relation.oid();
+        let (heap_tuples, segment_ids) =
+            build_index(heap_relation, index_relation, (*index_info).ii_Concurrent)
+                .unwrap_or_else(|e| panic!("{e}"));
 
-        let mut state = BuildState::new(index_relation, writer);
-        pg_sys::IndexBuildHeapScan(
-            heap_relation.as_ptr(),
-            index_relation.as_ptr(),
-            index_info,
-            Some(build_callback),
-            &mut state,
-        );
+        let mut result = PgBox::<pg_sys::IndexBuildResult>::alloc0();
+        result.heap_tuples = heap_tuples;
+        result.index_tuples = heap_tuples;
 
-        state
-            .writer
-            .commit()
-            .unwrap_or_else(|e| panic!("failed to commit new tantivy index: {e}"));
-
-        // store number of segments created in metadata
-        let reader = SearchIndexReader::open(index_relation, MvccSatisfies::Snapshot)
-            .expect("do_heap_scan: should be able to open a SearchIndexReader");
-
-        // record the segment ids created in the merge lock
-        let metadata = MetaPageMut::new(index_relation.oid());
+        let metadata = MetaPageMut::new(index_oid);
         metadata
-            .record_create_index_segment_ids(reader.segment_ids().iter())
+            .record_create_index_segment_ids(segment_ids.iter())
             .expect("do_heap_scan: should be able to record segment ids in merge lock");
 
-        state.count
+        pg_sys::FlushRelationBuffers(indexrel);
+        result.into_pg()
     }
 }
 
 #[pg_guard]
-unsafe extern "C-unwind" fn build_callback(
-    indexrel: pg_sys::Relation,
-    ctid: pg_sys::ItemPointer,
-    values: *mut pg_sys::Datum,
-    isnull: *mut bool,
-    _tuple_is_alive: bool,
-    state: *mut std::os::raw::c_void,
-) {
-    check_for_interrupts!();
-    let build_state = (state as *mut BuildState)
-        .as_mut()
-        .expect("BuildState pointer should not be null");
-
-    let categorized_fields = &build_state.categorized_fields;
-    let key_field_name = &build_state.key_field_name;
-    let writer = &mut build_state.writer;
-    // In the block below, we switch to the memory context we've defined on our build
-    // state, resetting it before and after. We do this because we're looking up a
-    // PgTupleDesc... which is supposed to free the corresponding Postgres memory when it
-    // is dropped. However, in practice, we're not seeing the memory get freed, which is
-    // causing huge memory usage when building large indexes.
-    //
-    // By running in our own memory context, we can force the memory to be freed with
-    // the call to reset().
+pub unsafe extern "C-unwind" fn ambuildempty(index_relation: pg_sys::Relation) {
+    let indexrel = unsafe { PgRelation::from_pg(index_relation) };
     unsafe {
-        build_state.per_row_context.switch_to(|cxt| {
-            let mut search_document = writer.schema.new_document();
-
-            row_to_search_document(
-                values,
-                isnull,
-                key_field_name,
-                categorized_fields,
-                &mut search_document,
-            )
-                .unwrap_or_else(|err| {
-                    panic!(
-                        "error creating index entries for index '{}': {err}",
-                        CStr::from_ptr((*(*indexrel).rd_rel).relname.data.as_ptr()).to_string_lossy()
-                    );
-                });
-            writer
-                .insert(search_document, item_pointer_to_u64(*ctid))
-                .unwrap_or_else(|err| {
-                    panic!("error inserting document during build callback.  See Postgres log for more information: {err:?}")
-                });
-
-            cxt.reset();
-        });
-
-        // important to count the number of items we've indexed for proper statistics updates,
-        // especially after CREATE INDEX has finished
-        build_state.count += 1;
-
-        if crate::gucs::log_create_index_progress() && build_state.count % 100_000 == 0 {
-            let secs = build_state.start.elapsed().as_secs_f64();
-            let rate = build_state.count as f64 / secs;
-            pgrx::log!(
-                "processed {} rows in {secs:.2} seconds ({rate:.2} per second)",
-                build_state.count,
-            );
-        }
+        init_fixed_buffers(&indexrel);
     }
+
+    let schema = get_index_schema(&indexrel).unwrap_or_else(|e| panic!("{e}"));
+    let directory = MVCCDirectory::snapshot(indexrel.oid());
+    let settings = IndexSettings {
+        docstore_compress_dedicated_thread: false,
+        ..Default::default()
+    };
+    Index::create(directory, schema.into(), settings).unwrap_or_else(|e| panic!("{e}"));
 }
 
 pub fn is_bm25_index(indexrel: &PgRelation) -> bool {

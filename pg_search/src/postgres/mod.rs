@@ -34,6 +34,7 @@ mod scan;
 mod vacuum;
 mod validate;
 
+mod build_parallel;
 pub mod customscan;
 pub mod datetime;
 #[cfg(not(feature = "pg17"))]
@@ -91,6 +92,7 @@ fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRouti
     #[cfg(feature = "pg17")]
     {
         amroutine.aminsertcleanup = Some(insert::aminsertcleanup);
+        amroutine.amcanbuildparallel = true;
     }
     amroutine.ambulkdelete = Some(delete::ambulkdelete);
     amroutine.amvacuumcleanup = Some(vacuum::amvacuumcleanup);

@@ -290,7 +290,7 @@ fn adjusted_byte_size(
         return 0;
     }
 
-    all_entries
+    let adjusted_byte_size = all_entries
         .get(&meta.id())
         .map(|entry| {
             entry
@@ -298,5 +298,7 @@ fn adjusted_byte_size(
                 .saturating_sub(entry.num_deleted_docs() as u64 * avg_doc_size)
         })
         .unwrap_or(meta.num_docs() as u64 * avg_doc_size)
-        .max(avg_doc_size)
+        .max(avg_doc_size);
+    pgrx::warning!("adjusted byte size = {}", adjusted_byte_size);
+    adjusted_byte_size
 }

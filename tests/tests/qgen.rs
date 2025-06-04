@@ -19,6 +19,7 @@ mod fixtures;
 
 use crate::fixtures::querygen::arb_joins_and_wheres;
 use crate::fixtures::querygen::joingen::JoinType;
+use crate::fixtures::querygen::pagegen::arb_paging_exprs;
 use crate::fixtures::querygen::wheregen::arb_wheres;
 
 use fixtures::*;
@@ -47,15 +48,7 @@ CREATE TABLE {tname}
     age   varchar
 );
 
-INSERT into {tname} (name, color, age)
-VALUES ('bob', 'blue', 20);
-
-INSERT into {tname} (name, color, age)
-SELECT(ARRAY ['alice','bob','cloe', 'sally','brandy','brisket','anchovy']::text[])[(floor(random() * 7) + 1)::int],
-      (ARRAY ['red','green','blue', 'orange','purple','pink','yellow']::text[])[(floor(random() * 7) + 1)::int],
-      (floor(random() * 100) + 1)::int::text
-FROM generate_series(1, {row_count});
-
+-- Note: Create the index before inserting rows to encourage multiple segments being created.
 CREATE INDEX idx{tname} ON {tname} USING bm25 (id, name, color, age)
 WITH (
 key_field = 'id',
@@ -66,6 +59,16 @@ text_fields = '
                 "age": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }}
             }}'
 );
+
+INSERT into {tname} (name, color, age)
+VALUES ('bob', 'blue', 20);
+
+INSERT into {tname} (name, color, age)
+SELECT(ARRAY ['alice','bob','cloe', 'sally','brandy','brisket','anchovy']::text[])[(floor(random() * 7) + 1)::int],
+      (ARRAY ['red','green','blue', 'orange','purple','pink','yellow']::text[])[(floor(random() * 7) + 1)::int],
+      (floor(random() * 100) + 1)::int::text
+FROM generate_series(1, {row_count});
+
 CREATE INDEX idx{tname}_name ON {tname} (name);
 CREATE INDEX idx{tname}_color ON {tname} (color);
 CREATE INDEX idx{tname}_age ON {tname} (age);
@@ -79,6 +82,15 @@ ANALYZE;
     }
 
     setup_sql
+}
+
+fn explain(query: impl AsRef<str>, conn: &mut PgConnection) -> String {
+    format!("EXPLAIN ANALYZE {}", query.as_ref())
+        .fetch::<(String,)>(conn)
+        .into_iter()
+        .map(|(s,)| s)
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 ///
@@ -123,7 +135,7 @@ async fn generated_joins_small(database: Db) {
             "\npg:\n  {}\nbm25:\n  {}\nexplain:\n{}\n",
             pg,
             bm25,
-            format!("EXPLAIN {bm25}").fetch::<(String,)>(&mut pool.pull()).into_iter().map(|(s,)| s).collect::<Vec<_>>().join("\n"),
+            explain(&bm25, &mut pool.pull()),
         );
     });
 }
@@ -178,7 +190,7 @@ async fn generated_joins_large_limit(database: Db) {
             "\npg:\n  {}\nbm25:\n  {}\nexplain:\n{}\n",
             pg,
             bm25,
-            format!("EXPLAIN {bm25}").fetch::<(String,)>(&mut pool.pull()).into_iter().map(|(s,)| s).collect::<Vec<_>>().join("\n"),
+            explain(&bm25, &mut pool.pull()),
         );
     });
 }
@@ -192,7 +204,8 @@ async fn generated_single_relation(database: Db) {
     );
 
     let table_name = "users";
-    generated_queries_setup(&mut pool.pull(), &[(table_name, 10)]);
+    let setup_sql = generated_queries_setup(&mut pool.pull(), &[(table_name, 10)]);
+    eprintln!("{setup_sql}");
 
     proptest!(|(
         where_expr in arb_wheres(
@@ -200,11 +213,92 @@ async fn generated_single_relation(database: Db) {
             vec![("name", "bob"), ("color", "blue"), ("age", "20")]
         ),
     )| {
-        let where_clause = where_expr.to_sql(" = ");
-        let pg = format!("SELECT COUNT(*) FROM {table_name} WHERE {where_clause}");
-        let bm25 = format!(
-            "SELECT COUNT(*) FROM {table_name} WHERE ({where_clause}) AND id @@@ paradedb.all()"
-        ); // force a pushdown
+        let pg = format!("SELECT id FROM {table_name} WHERE {}", where_expr.to_sql(" = "));
+        let bm25 = format!("SELECT id FROM {table_name} WHERE {}", where_expr.to_sql("@@@"));
+
+        let mut pg_res = (&pg).fetch::<(i64,)>(&mut pool.pull());
+        let mut bm25_res = (&bm25).fetch::<(i64,)>(&mut pool.pull());
+        pg_res.sort();
+        bm25_res.sort();
+        prop_assert_eq!(
+            pg_res,
+            bm25_res,
+            "\npg:\n  {:?}\nbm25:\n  {:?}\nexplain:\n{}\n",
+            pg,
+            bm25,
+            explain(&bm25, &mut pool.pull()),
+        );
+    });
+}
+
+#[rstest]
+#[tokio::test]
+async fn generated_paging(database: Db) {
+    let pool = MutexObjectPool::<PgConnection>::new(
+        move || block_on(async { database.connection().await }),
+        |_| {},
+    );
+
+    let table_name = "users";
+    let setup_sql = generated_queries_setup(&mut pool.pull(), &[(table_name, 10)]);
+    eprintln!("{setup_sql}");
+
+    proptest!(|(
+        where_expr in arb_wheres(vec![table_name], vec![("name", "bob")]),
+        paging_exprs in arb_paging_exprs(table_name, "id", vec!["name", "color", "age"]),
+    )| {
+        let pg = format!("SELECT id FROM {table_name} WHERE {} {paging_exprs}", where_expr.to_sql(" = "));
+        let bm25 = format!("SELECT id FROM {table_name} WHERE {} {paging_exprs}", where_expr.to_sql("@@@"));
+
+        let pg_res = (&pg).fetch::<(i64,)>(&mut pool.pull());
+        let bm25_res = (&bm25).fetch::<(i64,)>(&mut pool.pull());
+        prop_assert_eq!(
+            pg_res,
+            bm25_res,
+            "\npg:\n  {:?}\nbm25:\n  {:?}\nexplain:\n{}\n",
+            pg,
+            bm25,
+            explain(&bm25, &mut pool.pull()),
+        );
+    });
+}
+
+#[rstest]
+#[tokio::test]
+async fn generated_subquery(database: Db) {
+    let pool = MutexObjectPool::<PgConnection>::new(
+        move || block_on(async { database.connection().await }),
+        |_| {},
+    );
+
+    let outer_table_name = "products";
+    let inner_table_name = "orders";
+    let setup_sql = generated_queries_setup(
+        &mut pool.pull(),
+        &[(outer_table_name, 10), (inner_table_name, 10)],
+    );
+    eprintln!("{setup_sql}");
+
+    proptest!(|(
+        outer_where_expr in arb_wheres(
+            vec![outer_table_name],
+            vec![("name", "bob"), ("color", "blue"), ("age", "20")]
+        ),
+        inner_where_expr in arb_wheres(
+            vec![inner_table_name],
+            vec![("name", "bob"), ("color", "blue"), ("age", "20")]
+        ),
+        subquery_column in proptest::sample::select(&["name", "color", "age"]),
+        paging_exprs in arb_paging_exprs(inner_table_name, "id", vec!["name", "color", "age"]),
+    )| {
+        let pg = format!("SELECT COUNT(*) FROM {outer_table_name} \
+            WHERE {outer_table_name}.{subquery_column} IN (\
+                SELECT {subquery_column} FROM {inner_table_name} WHERE {} {paging_exprs}\
+            ) AND {}", inner_where_expr.to_sql(" = "), outer_where_expr.to_sql(" = "));
+        let bm25 = format!("SELECT COUNT(*) FROM {outer_table_name} \
+            WHERE {outer_table_name}.{subquery_column} IN (\
+                SELECT {subquery_column} FROM {inner_table_name} WHERE {} {paging_exprs}\
+            ) AND {}", inner_where_expr.to_sql("@@@"), outer_where_expr.to_sql("@@@"));
 
         let (pg_cnt,) = (&pg).fetch_one::<(i64,)>(&mut pool.pull());
         let (bm25_cnt,) = (&bm25).fetch_one::<(i64,)>(&mut pool.pull());
@@ -214,7 +308,7 @@ async fn generated_single_relation(database: Db) {
             "\npg:\n  {}\nbm25:\n  {}\nexplain:\n{}\n",
             pg,
             bm25,
-            format!("EXPLAIN {bm25}").fetch::<(String,)>(&mut pool.pull()).into_iter().map(|(s,)| s).collect::<Vec<_>>().join("\n"),
+            explain(&bm25, &mut pool.pull()),
         );
     });
 }

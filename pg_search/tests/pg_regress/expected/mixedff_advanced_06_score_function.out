@@ -317,10 +317,16 @@ CREATE TABLE score_test (
     is_featured BOOLEAN
 );
 -- Insert test data with deterministic values
+--
+-- each new row contains a (predictable) set of random words.
+-- This is intentional to produce different scores for each matching
+-- result of the queries that follow so that the test itself doesn't
+-- have to worry about tie-breaking on same-scores.
+--
 INSERT INTO score_test (title, content, author, rating, views, published_date, is_featured)
 SELECT
     'Post ' || i,
-    'This is content for post ' || i || '. It contains some searchable text and keywords like technology, science, research, and development.',
+    'This is content for post ' || i || '. It contains some searchable text and keywords like technology, science, research, and development. ' || paradedb.random_words(i + 5),
     'Author ' || (1 + (i % 5)),
     (1 + (i % 5)),
     (100 * i)::float,  -- Deterministic view counts
@@ -369,18 +375,18 @@ FROM score_test
 WHERE content @@@ 'technology'
 ORDER BY title, paradedb.score(id), rating DESC
 LIMIT 10;
-  title   |    score     | rating 
-----------+--------------+--------
- Post 1   | 0.0144330505 |      2
- Post 10  | 0.0144330505 |      1
- Post 100 | 0.0144330505 |      1
- Post 11  | 0.0144330505 |      2
- Post 12  | 0.0144330505 |      3
- Post 13  | 0.0144330505 |      4
- Post 14  | 0.0144330505 |      5
- Post 15  | 0.0144330505 |      1
- Post 16  | 0.0144330505 |      2
- Post 17  | 0.0144330505 |      3
+  title   |    score    | rating 
+----------+-------------+--------
+ Post 1   | 0.019852143 |      2
+ Post 10  | 0.018565284 |      1
+ Post 100 | 0.011464216 |      1
+ Post 11  | 0.018432524 |      2
+ Post 12  |  0.01830165 |      3
+ Post 13  | 0.018172622 |      4
+ Post 14  | 0.018045401 |      5
+ Post 15  | 0.017919946 |      1
+ Post 16  | 0.017796224 |      2
+ Post 17  | 0.017796224 |      3
 (10 rows)
 
 -- Test 2: Score function with mixed field types in selection
@@ -409,13 +415,13 @@ FROM score_test
 WHERE content @@@ 'research'
 ORDER BY title, author, rating, views, paradedb.score(id) DESC
 LIMIT 5;
-           title           |    author     | rating | views |    score     
----------------------------+---------------+--------+-------+--------------
- Advanced Science Research | Author Expert |      5 |  8888 |  0.018967897
- Post 1                    | Author 2      |      2 |   100 | 0.0144330505
- Post 10                   | Author 1      |      1 |  1000 | 0.0144330505
- Post 100                  | Author 1      |      1 | 10000 | 0.0144330505
- Post 11                   | Author 2      |      2 |  1100 | 0.0144330505
+           title           |    author     | rating | views |    score    
+---------------------------+---------------+--------+-------+-------------
+ Advanced Science Research | Author Expert |      5 |  8888 | 0.022842946
+ Post 1                    | Author 2      |      2 |   100 | 0.019852143
+ Post 10                   | Author 1      |      1 |  1000 | 0.018565284
+ Post 100                  | Author 1      |      1 | 10000 | 0.011464216
+ Post 11                   | Author 2      |      2 |  1100 | 0.018432524
 (5 rows)
 
 -- Test 3: Score function with multiple conditions on different field types
@@ -445,14 +451,14 @@ WHERE content @@@ 'technology' AND rating >= 4 AND is_featured = true
 ORDER BY title, author, paradedb.score(id) DESC;
            title            |    author     |   score   
 ----------------------------+---------------+-----------
- Post 14                    | Author 5      | 2.7966232
- Post 28                    | Author 4      | 2.7966232
- Post 49                    | Author 5      | 2.7966232
- Post 63                    | Author 4      | 2.7966232
- Post 84                    | Author 5      | 2.7966232
- Post 98                    | Author 4      | 2.7966232
- Special Technology Post    | Author Expert | 2.8006313
- Technology Trends Analysis | Author Expert | 2.8006313
+ Post 14                    | Author 5      | 2.8002355
+ Post 28                    | Author 4      | 2.7986248
+ Post 49                    | Author 5      |  2.796766
+ Post 63                    | Author 4      | 2.7958398
+ Post 84                    | Author 5      | 2.7945328
+ Post 98                    | Author 4      | 2.7936544
+ Special Technology Post    | Author Expert | 2.8048325
+ Technology Trends Analysis | Author Expert | 2.8048325
 (8 rows)
 
 -- Test 4: Using score in a CTE with mixed fields
@@ -493,16 +499,16 @@ ORDER BY title, author, relevance DESC
 LIMIT 10;
            title           |    author     | rating | relevance 
 ---------------------------+---------------+--------+-----------
- Advanced Science Research | Author Expert |      5 | 1.0189679
- Post 13                   | Author 4      |      4 | 1.0484424
- Post 14                   | Author 5      |      5 | 1.0484424
- Post 18                   | Author 4      |      4 | 1.0484424
- Post 19                   | Author 5      |      5 | 1.0484424
- Post 23                   | Author 4      |      4 | 1.0484424
- Post 24                   | Author 5      |      5 | 1.0484424
- Post 28                   | Author 4      |      4 | 1.0484424
- Post 29                   | Author 5      |      5 | 1.0484424
- Post 3                    | Author 4      |      4 | 1.0484424
+ Advanced Science Research | Author Expert |      5 |  1.022843
+ Post 13                   | Author 4      |      4 | 1.0609937
+ Post 14                   | Author 5      |      5 | 1.0605667
+ Post 18                   | Author 4      |      4 | 1.0589168
+ Post 19                   | Author 5      |      5 | 1.0589168
+ Post 23                   | Author 4      |      4 | 1.0573545
+ Post 24                   | Author 5      |      5 | 1.0566039
+ Post 28                   | Author 4      |      4 | 1.0551603
+ Post 29                   | Author 5      |      5 | 1.0551603
+ Post 3                    | Author 4      |      4 |   1.06562
 (10 rows)
 
 -- Test 5: Score function in subquery with mixed fields
@@ -540,48 +546,48 @@ WHERE sp.relevance > 0.5
 ORDER BY sp.title, sp.author, sp.relevance DESC;
            title            |    author     | relevance 
 ----------------------------+---------------+-----------
- Post 13                    | Author 4      |  1.014433
- Post 14                    | Author 5      |  1.014433
- Post 18                    | Author 4      |  1.014433
- Post 19                    | Author 5      |  1.014433
- Post 23                    | Author 4      |  1.014433
- Post 24                    | Author 5      |  1.014433
- Post 28                    | Author 4      |  1.014433
- Post 29                    | Author 5      |  1.014433
- Post 3                     | Author 4      |  1.014433
- Post 33                    | Author 4      |  1.014433
- Post 34                    | Author 5      |  1.014433
- Post 38                    | Author 4      |  1.014433
- Post 39                    | Author 5      |  1.014433
- Post 4                     | Author 5      |  1.014433
- Post 43                    | Author 4      |  1.014433
- Post 44                    | Author 5      |  1.014433
- Post 48                    | Author 4      |  1.014433
- Post 49                    | Author 5      |  1.014433
- Post 53                    | Author 4      |  1.014433
- Post 54                    | Author 5      |  1.014433
- Post 58                    | Author 4      |  1.014433
- Post 59                    | Author 5      |  1.014433
- Post 63                    | Author 4      |  1.014433
- Post 64                    | Author 5      |  1.014433
- Post 68                    | Author 4      |  1.014433
- Post 69                    | Author 5      |  1.014433
- Post 73                    | Author 4      |  1.014433
- Post 74                    | Author 5      |  1.014433
- Post 78                    | Author 4      |  1.014433
- Post 79                    | Author 5      |  1.014433
- Post 8                     | Author 4      |  1.014433
- Post 83                    | Author 4      |  1.014433
- Post 84                    | Author 5      |  1.014433
- Post 88                    | Author 4      |  1.014433
- Post 89                    | Author 5      |  1.014433
- Post 9                     | Author 5      |  1.014433
- Post 93                    | Author 4      |  1.014433
- Post 94                    | Author 5      |  1.014433
- Post 98                    | Author 4      |  1.014433
- Post 99                    | Author 5      |  1.014433
- Special Technology Post    | Author Expert | 1.0184412
- Technology Trends Analysis | Author Expert | 1.0184412
+ Post 13                    | Author 4      | 1.0181726
+ Post 14                    | Author 5      | 1.0180454
+ Post 18                    | Author 4      | 1.0175538
+ Post 19                    | Author 5      | 1.0175538
+ Post 23                    | Author 4      | 1.0170883
+ Post 24                    | Author 5      | 1.0168648
+ Post 28                    | Author 4      | 1.0164347
+ Post 29                    | Author 5      | 1.0164347
+ Post 3                     | Author 4      |  1.019551
+ Post 33                    | Author 4      | 1.0160259
+ Post 34                    | Author 5      | 1.0160259
+ Post 38                    | Author 4      |  1.015637
+ Post 39                    | Author 5      |  1.015637
+ Post 4                     | Author 5      | 1.0194038
+ Post 43                    | Author 4      | 1.0152665
+ Post 44                    | Author 5      | 1.0149133
+ Post 48                    | Author 4      |  1.014576
+ Post 49                    | Author 5      |  1.014576
+ Post 53                    | Author 4      | 1.0142535
+ Post 54                    | Author 5      | 1.0142535
+ Post 58                    | Author 4      | 1.0139451
+ Post 59                    | Author 5      | 1.0139451
+ Post 63                    | Author 4      | 1.0136497
+ Post 64                    | Author 5      | 1.0133666
+ Post 68                    | Author 4      | 1.0133666
+ Post 69                    | Author 5      | 1.0133666
+ Post 73                    | Author 4      | 1.0128342
+ Post 74                    | Author 5      | 1.0128342
+ Post 78                    | Author 4      | 1.0128342
+ Post 79                    | Author 5      | 1.0128342
+ Post 8                     | Author 4      | 1.0188366
+ Post 83                    | Author 4      | 1.0123426
+ Post 84                    | Author 5      | 1.0123426
+ Post 88                    | Author 4      | 1.0118872
+ Post 89                    | Author 5      | 1.0118872
+ Post 9                     | Author 5      |    1.0187
+ Post 93                    | Author 4      | 1.0118872
+ Post 94                    | Author 5      | 1.0118872
+ Post 98                    | Author 4      | 1.0114642
+ Post 99                    | Author 5      | 1.0114642
+ Special Technology Post    | Author Expert | 1.0226423
+ Technology Trends Analysis | Author Expert | 1.0226423
 (42 rows)
 
 -- Test 6: Score function with UNION
@@ -630,31 +636,27 @@ FROM score_test
 WHERE content @@@ 'science' AND NOT (title @@@ 'technology')
 ORDER BY title, author, relevance DESC
 LIMIT 10;
-  title   |  author  |  relevance   
-----------+----------+--------------
- Post 1   | Author 2 |   0.03400928
- Post 1   | Author 2 | 0.0144330505
- Post 10  | Author 1 |   0.03400928
- Post 10  | Author 1 | 0.0144330505
- Post 100 | Author 1 |   0.03400928
- Post 100 | Author 1 | 0.0144330505
- Post 11  | Author 2 |   0.03400928
- Post 11  | Author 2 | 0.0144330505
- Post 12  | Author 3 |   0.03400928
- Post 12  | Author 3 | 0.0144330505
+  title   |  author  |  relevance  
+----------+----------+-------------
+ Post 1   | Author 2 | 0.046778545
+ Post 1   | Author 2 | 0.019852143
+ Post 10  | Author 1 |  0.04374626
+ Post 10  | Author 1 | 0.018565284
+ Post 100 | Author 1 | 0.027013674
+ Post 100 | Author 1 | 0.011464216
+ Post 11  | Author 2 |  0.04343343
+ Post 11  | Author 2 | 0.018432524
+ Post 12  | Author 3 |  0.04312505
+ Post 12  | Author 3 |  0.01830165
 (10 rows)
 
 -- Test 7: Score function with JOIN using mixed fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT a.title, a.author, a.rating, a.score, b.title as related_title
 FROM (
-    SELECT title, author, rating, score
-    FROM (SELECT *, paradedb.score(id) as score
+    SELECT title, author, rating, paradedb.score(id) as score
           FROM score_test
           WHERE content @@@ 'technology'
-          ORDER BY score DESC, title, author, rating
-          OFFSET 0) x
-    WHERE content @@@ 'technology'
     ORDER BY score DESC
     LIMIT 5
 ) a
@@ -664,31 +666,27 @@ JOIN (
     WHERE author IN (SELECT author FROM score_test WHERE content @@@ 'technology')
 ) b ON a.author = b.author AND a.title <> b.title
 ORDER BY a.title, a.author, a.rating, a.score, b.title;
-                                                                                                          QUERY PLAN                                                                                                           
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                     QUERY PLAN                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
-   Sort Key: x.title, x.author, x.rating, x.score, score_test.title
+   Sort Key: score_test_2.title, score_test_2.author, score_test_2.rating, (paradedb.score(score_test_2.id)), score_test.title
    ->  Hash Semi Join
          Hash Cond: (score_test.author = score_test_1.author)
          ->  Hash Join
-               Hash Cond: (x.author = score_test.author)
-               Join Filter: (x.title <> score_test.title)
-               ->  Limit
-                     ->  Subquery Scan on x
-                           Filter: (x.id @@@ '{"with_index":{"oid":41800827,"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
-                           ->  Sort
-                                 Sort Key: (paradedb.score(score_test_2.id)) DESC, score_test_2.title, score_test_2.author, score_test_2.rating
-                                 ->  Custom Scan (ParadeDB Scan) on score_test score_test_2
-                                       Table: score_test
-                                       Index: score_test_idx
-                                       Exec Method: MixedFastFieldExecState
-                                       Fast Fields: author, title, id, rating
-                                       String Fast Fields: author, title
-                                       Numeric Fast Fields: id, rating
-                                       Scores: true
-                                       Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+               Hash Cond: (score_test.author = score_test_2.author)
+               Join Filter: (score_test_2.title <> score_test.title)
+               ->  Seq Scan on score_test
                ->  Hash
-                     ->  Seq Scan on score_test
+                     ->  Limit
+                           ->  Custom Scan (ParadeDB Scan) on score_test score_test_2
+                                 Table: score_test
+                                 Index: score_test_idx
+                                 Exec Method: TopNScanExecState
+                                 Scores: true
+                                    Sort Field: paradedb.score()
+                                    Sort Direction: desc
+                                    Top N Limit: 5
+                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
          ->  Hash
                ->  Custom Scan (ParadeDB Scan) on score_test score_test_1
                      Table: score_test
@@ -700,17 +698,13 @@ ORDER BY a.title, a.author, a.rating, a.score, b.title;
                         Sort Field: title
                         Sort Direction: asc
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-(34 rows)
+(30 rows)
 
 SELECT a.title, a.author, a.rating, a.score, b.title as related_title
 FROM (
-    SELECT title, author, rating, score
-    FROM (SELECT *, paradedb.score(id) as score
+    SELECT title, author, rating, paradedb.score(id) as score
           FROM score_test
           WHERE content @@@ 'technology'
-          ORDER BY score DESC, title, author, rating
-          OFFSET 0) x
-    WHERE content @@@ 'technology'
     ORDER BY score DESC
     LIMIT 5
 ) a
@@ -720,78 +714,78 @@ JOIN (
     WHERE author IN (SELECT author FROM score_test WHERE content @@@ 'technology')
 ) b ON a.author = b.author AND a.title <> b.title
 ORDER BY a.title, a.author, a.rating, a.score, b.title;
-           title            |    author     | rating |    score     |       related_title        
-----------------------------+---------------+--------+--------------+----------------------------
- Post 1                     | Author 2      |      2 | 0.0144330505 | Post 11
- Post 1                     | Author 2      |      2 | 0.0144330505 | Post 16
- Post 1                     | Author 2      |      2 | 0.0144330505 | Post 21
- Post 1                     | Author 2      |      2 | 0.0144330505 | Post 26
- Post 1                     | Author 2      |      2 | 0.0144330505 | Post 31
- Post 1                     | Author 2      |      2 | 0.0144330505 | Post 36
- Post 1                     | Author 2      |      2 | 0.0144330505 | Post 41
- Post 1                     | Author 2      |      2 | 0.0144330505 | Post 46
- Post 1                     | Author 2      |      2 | 0.0144330505 | Post 51
- Post 1                     | Author 2      |      2 | 0.0144330505 | Post 56
- Post 1                     | Author 2      |      2 | 0.0144330505 | Post 6
- Post 1                     | Author 2      |      2 | 0.0144330505 | Post 61
- Post 1                     | Author 2      |      2 | 0.0144330505 | Post 66
- Post 1                     | Author 2      |      2 | 0.0144330505 | Post 71
- Post 1                     | Author 2      |      2 | 0.0144330505 | Post 76
- Post 1                     | Author 2      |      2 | 0.0144330505 | Post 81
- Post 1                     | Author 2      |      2 | 0.0144330505 | Post 86
- Post 1                     | Author 2      |      2 | 0.0144330505 | Post 91
- Post 1                     | Author 2      |      2 | 0.0144330505 | Post 96
- Post 10                    | Author 1      |      1 | 0.0144330505 | Post 100
- Post 10                    | Author 1      |      1 | 0.0144330505 | Post 15
- Post 10                    | Author 1      |      1 | 0.0144330505 | Post 20
- Post 10                    | Author 1      |      1 | 0.0144330505 | Post 25
- Post 10                    | Author 1      |      1 | 0.0144330505 | Post 30
- Post 10                    | Author 1      |      1 | 0.0144330505 | Post 35
- Post 10                    | Author 1      |      1 | 0.0144330505 | Post 40
- Post 10                    | Author 1      |      1 | 0.0144330505 | Post 45
- Post 10                    | Author 1      |      1 | 0.0144330505 | Post 5
- Post 10                    | Author 1      |      1 | 0.0144330505 | Post 50
- Post 10                    | Author 1      |      1 | 0.0144330505 | Post 55
- Post 10                    | Author 1      |      1 | 0.0144330505 | Post 60
- Post 10                    | Author 1      |      1 | 0.0144330505 | Post 65
- Post 10                    | Author 1      |      1 | 0.0144330505 | Post 70
- Post 10                    | Author 1      |      1 | 0.0144330505 | Post 75
- Post 10                    | Author 1      |      1 | 0.0144330505 | Post 80
- Post 10                    | Author 1      |      1 | 0.0144330505 | Post 85
- Post 10                    | Author 1      |      1 | 0.0144330505 | Post 90
- Post 10                    | Author 1      |      1 | 0.0144330505 | Post 95
- Post 100                   | Author 1      |      1 | 0.0144330505 | Post 10
- Post 100                   | Author 1      |      1 | 0.0144330505 | Post 15
- Post 100                   | Author 1      |      1 | 0.0144330505 | Post 20
- Post 100                   | Author 1      |      1 | 0.0144330505 | Post 25
- Post 100                   | Author 1      |      1 | 0.0144330505 | Post 30
- Post 100                   | Author 1      |      1 | 0.0144330505 | Post 35
- Post 100                   | Author 1      |      1 | 0.0144330505 | Post 40
- Post 100                   | Author 1      |      1 | 0.0144330505 | Post 45
- Post 100                   | Author 1      |      1 | 0.0144330505 | Post 5
- Post 100                   | Author 1      |      1 | 0.0144330505 | Post 50
- Post 100                   | Author 1      |      1 | 0.0144330505 | Post 55
- Post 100                   | Author 1      |      1 | 0.0144330505 | Post 60
- Post 100                   | Author 1      |      1 | 0.0144330505 | Post 65
- Post 100                   | Author 1      |      1 | 0.0144330505 | Post 70
- Post 100                   | Author 1      |      1 | 0.0144330505 | Post 75
- Post 100                   | Author 1      |      1 | 0.0144330505 | Post 80
- Post 100                   | Author 1      |      1 | 0.0144330505 | Post 85
- Post 100                   | Author 1      |      1 | 0.0144330505 | Post 90
- Post 100                   | Author 1      |      1 | 0.0144330505 | Post 95
- Special Technology Post    | Author Expert |      5 |  0.018441152 | Advanced Science Research
- Special Technology Post    | Author Expert |      5 |  0.018441152 | Technology Trends Analysis
- Technology Trends Analysis | Author Expert |      4 |  0.018441152 | Advanced Science Research
- Technology Trends Analysis | Author Expert |      4 |  0.018441152 | Special Technology Post
+           title            |    author     | rating |    score    |       related_title        
+----------------------------+---------------+--------+-------------+----------------------------
+ Post 1                     | Author 2      |      2 | 0.019852143 | Post 11
+ Post 1                     | Author 2      |      2 | 0.019852143 | Post 16
+ Post 1                     | Author 2      |      2 | 0.019852143 | Post 21
+ Post 1                     | Author 2      |      2 | 0.019852143 | Post 26
+ Post 1                     | Author 2      |      2 | 0.019852143 | Post 31
+ Post 1                     | Author 2      |      2 | 0.019852143 | Post 36
+ Post 1                     | Author 2      |      2 | 0.019852143 | Post 41
+ Post 1                     | Author 2      |      2 | 0.019852143 | Post 46
+ Post 1                     | Author 2      |      2 | 0.019852143 | Post 51
+ Post 1                     | Author 2      |      2 | 0.019852143 | Post 56
+ Post 1                     | Author 2      |      2 | 0.019852143 | Post 6
+ Post 1                     | Author 2      |      2 | 0.019852143 | Post 61
+ Post 1                     | Author 2      |      2 | 0.019852143 | Post 66
+ Post 1                     | Author 2      |      2 | 0.019852143 | Post 71
+ Post 1                     | Author 2      |      2 | 0.019852143 | Post 76
+ Post 1                     | Author 2      |      2 | 0.019852143 | Post 81
+ Post 1                     | Author 2      |      2 | 0.019852143 | Post 86
+ Post 1                     | Author 2      |      2 | 0.019852143 | Post 91
+ Post 1                     | Author 2      |      2 | 0.019852143 | Post 96
+ Post 2                     | Author 3      |      3 | 0.019700415 | Post 12
+ Post 2                     | Author 3      |      3 | 0.019700415 | Post 17
+ Post 2                     | Author 3      |      3 | 0.019700415 | Post 22
+ Post 2                     | Author 3      |      3 | 0.019700415 | Post 27
+ Post 2                     | Author 3      |      3 | 0.019700415 | Post 32
+ Post 2                     | Author 3      |      3 | 0.019700415 | Post 37
+ Post 2                     | Author 3      |      3 | 0.019700415 | Post 42
+ Post 2                     | Author 3      |      3 | 0.019700415 | Post 47
+ Post 2                     | Author 3      |      3 | 0.019700415 | Post 52
+ Post 2                     | Author 3      |      3 | 0.019700415 | Post 57
+ Post 2                     | Author 3      |      3 | 0.019700415 | Post 62
+ Post 2                     | Author 3      |      3 | 0.019700415 | Post 67
+ Post 2                     | Author 3      |      3 | 0.019700415 | Post 7
+ Post 2                     | Author 3      |      3 | 0.019700415 | Post 72
+ Post 2                     | Author 3      |      3 | 0.019700415 | Post 77
+ Post 2                     | Author 3      |      3 | 0.019700415 | Post 82
+ Post 2                     | Author 3      |      3 | 0.019700415 | Post 87
+ Post 2                     | Author 3      |      3 | 0.019700415 | Post 92
+ Post 2                     | Author 3      |      3 | 0.019700415 | Post 97
+ Post 3                     | Author 4      |      4 | 0.019550992 | Post 13
+ Post 3                     | Author 4      |      4 | 0.019550992 | Post 18
+ Post 3                     | Author 4      |      4 | 0.019550992 | Post 23
+ Post 3                     | Author 4      |      4 | 0.019550992 | Post 28
+ Post 3                     | Author 4      |      4 | 0.019550992 | Post 33
+ Post 3                     | Author 4      |      4 | 0.019550992 | Post 38
+ Post 3                     | Author 4      |      4 | 0.019550992 | Post 43
+ Post 3                     | Author 4      |      4 | 0.019550992 | Post 48
+ Post 3                     | Author 4      |      4 | 0.019550992 | Post 53
+ Post 3                     | Author 4      |      4 | 0.019550992 | Post 58
+ Post 3                     | Author 4      |      4 | 0.019550992 | Post 63
+ Post 3                     | Author 4      |      4 | 0.019550992 | Post 68
+ Post 3                     | Author 4      |      4 | 0.019550992 | Post 73
+ Post 3                     | Author 4      |      4 | 0.019550992 | Post 78
+ Post 3                     | Author 4      |      4 | 0.019550992 | Post 8
+ Post 3                     | Author 4      |      4 | 0.019550992 | Post 83
+ Post 3                     | Author 4      |      4 | 0.019550992 | Post 88
+ Post 3                     | Author 4      |      4 | 0.019550992 | Post 93
+ Post 3                     | Author 4      |      4 | 0.019550992 | Post 98
+ Special Technology Post    | Author Expert |      5 |  0.02264229 | Advanced Science Research
+ Special Technology Post    | Author Expert |      5 |  0.02264229 | Technology Trends Analysis
+ Technology Trends Analysis | Author Expert |      4 |  0.02264229 | Advanced Science Research
+ Technology Trends Analysis | Author Expert |      4 |  0.02264229 | Special Technology Post
 (61 rows)
 
 -- Test 8: Score function with CASE expression and mixed fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT 
-    title, 
+SELECT
+    title,
     author,
     rating,
-    CASE 
+    CASE
         WHEN paradedb.score(id) > 0.8 THEN 'High Relevance'
         WHEN paradedb.score(id) > 0.5 THEN 'Medium Relevance'
         ELSE 'Low Relevance'
@@ -814,11 +808,11 @@ ORDER BY title, author, paradedb.score(id) DESC;
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"research OR development","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":4},"upper_bound":null,"is_datetime":false}}]}}
 (11 rows)
 
-SELECT 
-    title, 
+SELECT
+    title,
     author,
     rating,
-    CASE 
+    CASE
         WHEN paradedb.score(id) > 0.8 THEN 'High Relevance'
         WHEN paradedb.score(id) > 0.5 THEN 'Medium Relevance'
         ELSE 'Low Relevance'
@@ -859,27 +853,27 @@ WHERE content @@@ 'technology' AND rating > 4
 ORDER BY title, author, relevance DESC;
           title          |    author     | rating | relevance 
 -------------------------+---------------+--------+-----------
- Post 14                 | Author 5      |      5 |  1.014433
- Post 19                 | Author 5      |      5 |  1.014433
- Post 24                 | Author 5      |      5 |  1.014433
- Post 29                 | Author 5      |      5 |  1.014433
- Post 34                 | Author 5      |      5 |  1.014433
- Post 39                 | Author 5      |      5 |  1.014433
- Post 4                  | Author 5      |      5 |  1.014433
- Post 44                 | Author 5      |      5 |  1.014433
- Post 49                 | Author 5      |      5 |  1.014433
- Post 54                 | Author 5      |      5 |  1.014433
- Post 59                 | Author 5      |      5 |  1.014433
- Post 64                 | Author 5      |      5 |  1.014433
- Post 69                 | Author 5      |      5 |  1.014433
- Post 74                 | Author 5      |      5 |  1.014433
- Post 79                 | Author 5      |      5 |  1.014433
- Post 84                 | Author 5      |      5 |  1.014433
- Post 89                 | Author 5      |      5 |  1.014433
- Post 9                  | Author 5      |      5 |  1.014433
- Post 94                 | Author 5      |      5 |  1.014433
- Post 99                 | Author 5      |      5 |  1.014433
- Special Technology Post | Author Expert |      5 | 1.0184412
+ Post 14                 | Author 5      |      5 | 1.0180454
+ Post 19                 | Author 5      |      5 | 1.0175538
+ Post 24                 | Author 5      |      5 | 1.0168648
+ Post 29                 | Author 5      |      5 | 1.0164347
+ Post 34                 | Author 5      |      5 | 1.0160259
+ Post 39                 | Author 5      |      5 |  1.015637
+ Post 4                  | Author 5      |      5 | 1.0194038
+ Post 44                 | Author 5      |      5 | 1.0149133
+ Post 49                 | Author 5      |      5 |  1.014576
+ Post 54                 | Author 5      |      5 | 1.0142535
+ Post 59                 | Author 5      |      5 | 1.0139451
+ Post 64                 | Author 5      |      5 | 1.0133666
+ Post 69                 | Author 5      |      5 | 1.0133666
+ Post 74                 | Author 5      |      5 | 1.0128342
+ Post 79                 | Author 5      |      5 | 1.0128342
+ Post 84                 | Author 5      |      5 | 1.0123426
+ Post 89                 | Author 5      |      5 | 1.0118872
+ Post 9                  | Author 5      |      5 |    1.0187
+ Post 94                 | Author 5      |      5 | 1.0118872
+ Post 99                 | Author 5      |      5 | 1.0114642
+ Special Technology Post | Author Expert |      5 | 1.0226423
 (21 rows)
 
 \i common/mixedff_advanced_cleanup.sql

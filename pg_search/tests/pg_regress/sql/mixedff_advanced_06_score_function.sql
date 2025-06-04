@@ -157,8 +157,12 @@ LIMIT 10;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT a.title, a.author, a.rating, a.score, b.title as related_title
 FROM (
-    SELECT title, author, rating, paradedb.score(id) as score
-    FROM score_test
+    SELECT title, author, rating, score
+    FROM (SELECT *, paradedb.score(id) as score
+          FROM score_test
+          WHERE content @@@ 'technology'
+          ORDER BY score DESC, title, author, rating
+          OFFSET 0) x
     WHERE content @@@ 'technology'
     ORDER BY score DESC
     LIMIT 5
@@ -172,8 +176,12 @@ ORDER BY a.title, a.author, a.rating, a.score, b.title;
 
 SELECT a.title, a.author, a.rating, a.score, b.title as related_title
 FROM (
-    SELECT title, author, rating, paradedb.score(id) as score
-    FROM score_test
+    SELECT title, author, rating, score
+    FROM (SELECT *, paradedb.score(id) as score
+          FROM score_test
+          WHERE content @@@ 'technology'
+          ORDER BY score DESC, title, author, rating
+          OFFSET 0) x
     WHERE content @@@ 'technology'
     ORDER BY score DESC
     LIMIT 5

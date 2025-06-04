@@ -730,6 +730,189 @@ unsafe fn booltest(
     }
 }
 
+/// Extract join-level search predicates that are relevant for snippet generation
+/// This captures search predicates that reference specific fields but may not be
+/// pushed down to the current scan due to join conditions
+pub unsafe fn extract_join_snippet_predicates(
+    root: *mut pg_sys::PlannerInfo,
+    current_rti: pg_sys::Index,
+    pdbopoid: pg_sys::Oid,
+    schema: &SearchIndexSchema,
+) -> crate::api::HashMap<crate::api::index::FieldName, SearchQueryInput> {
+    use crate::api::HashMap;
+
+    let mut snippet_predicates = HashMap::default();
+
+    // Look through all relations and their join clauses for search predicates
+    // that reference our target relation and specific fields
+    if (*root).simple_rel_array.is_null() {
+        return snippet_predicates;
+    }
+
+    let array_size = (*root).simple_rel_array_size;
+    for i in 1..array_size {
+        let rel = *(*root).simple_rel_array.add(i as usize);
+        if rel.is_null() {
+            continue;
+        }
+
+        // Check baserestrictinfo for this relation
+        let baserestrictinfo = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
+        for ri in baserestrictinfo.iter_ptr() {
+            extract_snippet_predicates_from_node(
+                (*ri).clause.cast(),
+                current_rti,
+                pdbopoid,
+                &mut snippet_predicates,
+            );
+        }
+
+        // Check joininfo for join clauses involving our relation
+        let joininfo = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).joininfo);
+        for ri in joininfo.iter_ptr() {
+            extract_snippet_predicates_from_node(
+                (*ri).clause.cast(),
+                current_rti,
+                pdbopoid,
+                &mut snippet_predicates,
+            );
+        }
+    }
+
+    snippet_predicates
+}
+
+/// Extract snippet predicates from a single node (recursive)
+unsafe fn extract_snippet_predicates_from_node(
+    node: *mut pg_sys::Node,
+    target_rti: pg_sys::Index,
+    pdbopoid: pg_sys::Oid,
+    snippet_predicates: &mut crate::api::HashMap<crate::api::index::FieldName, SearchQueryInput>,
+) {
+    if node.is_null() {
+        return;
+    }
+
+    match (*node).type_ {
+        pg_sys::NodeTag::T_OpExpr => {
+            let opexpr = nodecast!(OpExpr, T_OpExpr, node);
+            if let Some(opexpr) = opexpr {
+                if (*opexpr).opno == pdbopoid {
+                    // This is our search operator, check if it references our target relation
+                    let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
+                    if args.len() == 2 {
+                        let lhs = args.get_ptr(0).unwrap();
+                        let rhs = args.get_ptr(1).unwrap();
+
+                        // Check if LHS is a Var that references our target relation
+                        if let Some(var) = nodecast!(Var, T_Var, lhs) {
+                            if (*var).varno as pg_sys::Index == target_rti {
+                                // Convert the RHS to a search query to extract field information
+                                if let Some(const_node) = nodecast!(Const, T_Const, rhs) {
+                                    if let Some(search_query) = SearchQueryInput::from_datum(
+                                        (*const_node).constvalue,
+                                        (*const_node).constisnull,
+                                    ) {
+                                        // Extract the field name from the search query itself
+                                        if let Some(field_name) =
+                                            extract_field_from_search_query(&search_query)
+                                        {
+                                            snippet_predicates.insert(field_name, search_query);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        pg_sys::NodeTag::T_BoolExpr => {
+            let boolexpr = nodecast!(BoolExpr, T_BoolExpr, node);
+            if let Some(boolexpr) = boolexpr {
+                let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
+                for arg in args.iter_ptr() {
+                    extract_snippet_predicates_from_node(
+                        arg,
+                        target_rti,
+                        pdbopoid,
+                        snippet_predicates,
+                    );
+                }
+            }
+        }
+
+        pg_sys::NodeTag::T_RestrictInfo => {
+            let ri = nodecast!(RestrictInfo, T_RestrictInfo, node);
+            if let Some(ri) = ri {
+                let clause = if !(*ri).orclause.is_null() {
+                    (*ri).orclause
+                } else {
+                    (*ri).clause
+                };
+                extract_snippet_predicates_from_node(
+                    clause.cast(),
+                    target_rti,
+                    pdbopoid,
+                    snippet_predicates,
+                );
+            }
+        }
+
+        _ => {
+            // For other node types, we might need to recurse into their children
+            // For now, we'll focus on the common cases above
+        }
+    }
+}
+
+/// Extract the field name from a SearchQueryInput
+unsafe fn extract_field_from_search_query(
+    query: &SearchQueryInput,
+) -> Option<crate::api::index::FieldName> {
+    match query {
+        SearchQueryInput::ParseWithField { field, .. } => Some(field.clone()),
+        SearchQueryInput::Term {
+            field: Some(field), ..
+        } => Some(field.clone()),
+        SearchQueryInput::Phrase { field, .. } => Some(field.clone()),
+        SearchQueryInput::PhrasePrefix { field, .. } => Some(field.clone()),
+        SearchQueryInput::FuzzyTerm { field, .. } => Some(field.clone()),
+        SearchQueryInput::Match { field, .. } => Some(field.clone()),
+        SearchQueryInput::Regex { field, .. } => Some(field.clone()),
+        SearchQueryInput::RegexPhrase { field, .. } => Some(field.clone()),
+        SearchQueryInput::Range { field, .. } => Some(field.clone()),
+        SearchQueryInput::RangeContains { field, .. } => Some(field.clone()),
+        SearchQueryInput::RangeIntersects { field, .. } => Some(field.clone()),
+        SearchQueryInput::RangeTerm { field, .. } => Some(field.clone()),
+        SearchQueryInput::RangeWithin { field, .. } => Some(field.clone()),
+        SearchQueryInput::Exists { field } => Some(field.clone()),
+        SearchQueryInput::FastFieldRangeWeight { field, .. } => Some(field.clone()),
+        SearchQueryInput::WithIndex { query, .. } => extract_field_from_search_query(query),
+        SearchQueryInput::Boolean { should, must, .. } => {
+            // Check the first query that has a field
+            for sub_query in must.iter().chain(should.iter()) {
+                if let Some(field) = extract_field_from_search_query(sub_query) {
+                    return Some(field);
+                }
+            }
+            None
+        }
+        SearchQueryInput::Boost { query, .. } => extract_field_from_search_query(query),
+        SearchQueryInput::ConstScore { query, .. } => extract_field_from_search_query(query),
+        SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
+            for sub_query in disjuncts {
+                if let Some(field) = extract_field_from_search_query(sub_query) {
+                    return Some(field);
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {

@@ -105,13 +105,39 @@ impl ParallelAggregation {
 
 struct ParallelAggregationWorker<'a> {
     state: &'a mut State,
-    config: &'a Config,
-    agg_req_bytes: &'a [u8],
-    query_bytes: &'a [u8],
-    segment_ids: &'a [SegmentId],
+    config: Config,
+    aggregation: Aggregations,
+    query: SearchQueryInput,
+    segment_ids: Vec<SegmentId>,
 }
 
-impl ParallelAggregationWorker<'_> {
+impl<'a> ParallelAggregationWorker<'a> {
+    #[allow(clippy::too_many_arguments)]
+    fn new_local(
+        aggregation: Aggregations,
+        query: SearchQueryInput,
+        segment_ids: Vec<SegmentId>,
+        indexrelid: pg_sys::Oid,
+        solve_mvcc: bool,
+        memory_limit: u64,
+        bucket_limit: u32,
+        state: &'a mut State,
+    ) -> Self {
+        Self {
+            state,
+            config: Config {
+                indexrelid,
+                total_segments: segment_ids.len(),
+                solve_mvcc,
+                memory_limit,
+                bucket_limit,
+            },
+            aggregation,
+            query,
+            segment_ids,
+        }
+    }
+
     fn checkout_segments(&mut self, worker_number: i32) -> FxHashSet<SegmentId> {
         /*
             // thanks, Daniel Lemire:  https://x.com/lemire/status/1925609310274400509
@@ -176,16 +202,13 @@ impl ParallelAggregationWorker<'_> {
         if segment_ids.is_empty() {
             return Ok(None);
         }
-        let agg_req = serde_json::from_slice::<Aggregations>(self.agg_req_bytes)?;
-        let query = serde_json::from_slice::<SearchQueryInput>(self.query_bytes)?;
-
         let indexrel =
             unsafe { PgRelation::with_lock(self.config.indexrelid, pg_sys::AccessShareLock as _) };
         let reader =
             SearchIndexReader::open(&indexrel, MvccSatisfies::ParallelWorker(segment_ids))?;
 
         let base_collector = DistributedAggregationCollector::from_aggs(
-            agg_req,
+            self.aggregation.clone(),
             AggregationLimitsGuard::new(
                 Some(self.config.memory_limit),
                 Some(self.config.bucket_limit),
@@ -202,9 +225,9 @@ impl ParallelAggregationWorker<'_> {
                     pg_sys::GetActiveSnapshot()
                 }),
             );
-            reader.collect(&query, mvcc_collector, false)
+            reader.collect(&self.query, mvcc_collector, false)
         } else {
-            reader.collect(&query, base_collector, false)
+            reader.collect(&self.query, base_collector, false)
         };
         Ok(Some(intermediate_results))
     }
@@ -212,27 +235,37 @@ impl ParallelAggregationWorker<'_> {
 
 impl ParallelWorker for ParallelAggregationWorker<'_> {
     fn new(state_manager: ParallelStateManager) -> Self {
+        let state = state_manager
+            .object::<State>(0)
+            .expect("wrong type for state")
+            .expect("missing state value");
+        let config = state_manager
+            .object::<Config>(1)
+            .expect("wrong type for config")
+            .expect("missing config value");
+        let agg_req_bytes = state_manager
+            .slice::<u8>(2)
+            .expect("wrong type for agg_req_bytes")
+            .expect("missing agg_req_bytes value");
+        let query_bytes = state_manager
+            .slice::<u8>(3)
+            .expect("wrong type for query_bytes")
+            .expect("missing query_bytes value");
+        let segment_ids = state_manager
+            .slice::<SegmentId>(4)
+            .expect("wrong type for segment_ids")
+            .expect("missing segment_ids value");
+
+        let aggregation = serde_json::from_slice::<Aggregations>(agg_req_bytes)
+            .expect("agg_req_bytes should deserialize into an Aggregations");
+        let query = serde_json::from_slice::<SearchQueryInput>(query_bytes)
+            .expect("query_bytes should deserialize into an SearchQueryInput");
         Self {
-            state: state_manager
-                .object(0)
-                .expect("wrong type for state")
-                .expect("missing state value"),
-            config: state_manager
-                .object(1)
-                .expect("wrong type for config")
-                .expect("missing config value"),
-            agg_req_bytes: state_manager
-                .slice(2)
-                .expect("wrong type for agg_req_bytes")
-                .expect("missing agg_req_bytes value"),
-            query_bytes: state_manager
-                .slice(3)
-                .expect("wrong type for query_bytes")
-                .expect("missing query_bytes value"),
-            segment_ids: state_manager
-                .slice(4)
-                .expect("wrong type for segment_ids")
-                .expect("missing segment_ids value"),
+            state,
+            config: *config,
+            aggregation,
+            query,
+            segment_ids: segment_ids.to_vec(),
         }
     }
 
@@ -277,62 +310,92 @@ pub fn aggregate(
         // limit number of workers to the number of segments
         let nworkers =
             (pg_sys::max_parallel_workers_per_gather as usize).min(reader.segment_readers().len());
-        let mut process = launch_parallel_process!(
+        if let Some(mut process) = launch_parallel_process!(
             ParallelAggregation<ParallelAggregationWorker>,
             process,
             nworkers,
             16384
-        )
-        .expect("should be able to launch parallel process");
+        ) {
+            // signal our workers with the number of workers actually launched
+            // they need this before they can begin checking out the correct segment counts
+            let mut nlaunched = process.launched_workers();
+            if pg_sys::parallel_leader_participation {
+                nlaunched += 1;
+            }
 
-        // signal our workers with the number of workers actually launched
-        // they need this before they can begin checking out the correct segment counts
-        let mut nlaunched = process.launched_workers();
-        if pg_sys::parallel_leader_participation {
-            nlaunched += 1;
-        }
+            process
+                .state_manager_mut()
+                .object::<State>(0)?
+                .unwrap()
+                .set_launched_workers(nlaunched);
 
-        process
-            .state_manager_mut()
-            .object::<State>(0)?
-            .unwrap()
-            .set_launched_workers(nlaunched);
+            // leader participation
+            let mut agg_results = Vec::with_capacity(nlaunched);
+            if pg_sys::parallel_leader_participation {
+                let mut worker = ParallelAggregationWorker::new(*process.state_manager());
+                if let Some(result) = worker.execute_aggregate(-1)? {
+                    agg_results.push(Ok(result));
+                }
+            }
 
-        // leader participation
-        let mut agg_results = Vec::with_capacity(nlaunched);
-        if pg_sys::parallel_leader_participation {
-            let mut worker = ParallelAggregationWorker::new(*process.state_manager());
-            if let Some(result) = worker.execute_aggregate(-1)? {
-                agg_results.push(Ok(result));
+            // wait for workers to finish, collecting their intermediate aggregate results
+            for (_worker_number, message) in process {
+                let worker_results =
+                    postcard::from_bytes::<IntermediateAggregationResults>(&message)?;
+
+                agg_results.push(Ok(worker_results));
+            }
+
+            // have tantivy finalize the intermediate results from each worker
+            let merged = {
+                let collector = DistributedAggregationCollector::from_aggs(
+                    agg_req.clone(),
+                    AggregationLimitsGuard::new(
+                        Some(memory_limit.try_into()?),
+                        Some(bucket_limit.try_into()?),
+                    ),
+                );
+                collector.merge_fruits(agg_results)?.into_final_result(
+                    agg_req,
+                    AggregationLimitsGuard::new(
+                        Some(memory_limit.try_into()?),
+                        Some(bucket_limit.try_into()?),
+                    ),
+                )?
+            };
+
+            Ok(JsonB(serde_json::to_value(merged)?))
+        } else {
+            // couldn't launch any workers, so we just execute the aggregate right here in this backend
+            let segment_ids = reader.segment_ids();
+            let mut state = State {
+                mutex: Spinlock::default(),
+                nlaunched: 1,
+                remaining_segments: segment_ids.len(),
+            };
+            let mut worker = ParallelAggregationWorker::new_local(
+                agg_req.clone(),
+                query,
+                segment_ids,
+                index.oid(),
+                solve_mvcc,
+                memory_limit as _,
+                bucket_limit as _,
+                &mut state,
+            );
+            if let Some(agg_results) = worker.execute_aggregate(-1)? {
+                let result = agg_results.into_final_result(
+                    agg_req,
+                    AggregationLimitsGuard::new(
+                        Some(memory_limit.try_into()?),
+                        Some(bucket_limit.try_into()?),
+                    ),
+                )?;
+                Ok(JsonB(serde_json::to_value(result)?))
+            } else {
+                Ok(JsonB(serde_json::Value::Null))
             }
         }
-
-        // wait for workers to finish, collecting their intermediate aggregate results
-        for (_worker_number, message) in process {
-            let worker_results = postcard::from_bytes::<IntermediateAggregationResults>(&message)?;
-
-            agg_results.push(Ok(worker_results));
-        }
-
-        // have tantivy finalize the intermediate results from each worker
-        let merged = {
-            let collector = DistributedAggregationCollector::from_aggs(
-                agg_req.clone(),
-                AggregationLimitsGuard::new(
-                    Some(memory_limit.try_into()?),
-                    Some(bucket_limit.try_into()?),
-                ),
-            );
-            collector.merge_fruits(agg_results)?.into_final_result(
-                agg_req,
-                AggregationLimitsGuard::new(
-                    Some(memory_limit.try_into()?),
-                    Some(bucket_limit.try_into()?),
-                ),
-            )?
-        };
-
-        Ok(JsonB(serde_json::to_value(merged)?))
     }
 }
 

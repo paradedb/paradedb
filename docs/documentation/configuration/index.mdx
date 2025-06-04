@@ -32,7 +32,7 @@ In addition to improving build times, this setting also affects the number of se
 
 ### Parallel Indexing Processes
 
-ParadeDB uses Postgres' `max_parallel_maintenance_workers` setting to determine the degree of parallelism during `CREATE INDEX`/`REINDEX`. Postgres' default is `2`, which may not be a reasonable number depending on the table's size.0
+ParadeDB uses Postgres' `max_parallel_maintenance_workers` setting to determine the degree of parallelism during `CREATE INDEX`/`REINDEX`. Postgres' default is `2`, which may not be a reasonable number depending on the table's size.
 
 Consider using a value closer to the number of CPU threads on the host computer.
 

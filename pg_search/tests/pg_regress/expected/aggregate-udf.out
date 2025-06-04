@@ -59,11 +59,15 @@ SELECT * FROM paradedb.aggregate(index=>'idxpr2625', query=>paradedb.all(), agg=
 (1 row)
 
 --
--- this one should generate an ERROR
+-- this one will execute serially in the current backend
 --
 SET parallel_leader_participation = false;
 SET max_parallel_workers = 0;
 SELECT * FROM paradedb.aggregate(index=>'idxpr2625', query=>paradedb.all(), agg=>'{"average": { "avg": { "field": "v" }}}', solve_mvcc=>true);
-ERROR:  should be able to launch parallel process
+           aggregate           
+-------------------------------
+ {"average": {"value": 500.5}}
+(1 row)
+
 RESET parallel_leader_participation;
 RESET max_parallel_workers;

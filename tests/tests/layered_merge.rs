@@ -146,7 +146,5 @@ fn force_merge_create_index_segments(mut conn: PgConnection) {
     let (nsegments_after,) = "select count(*) from paradedb.index_info('idxforce_merge');"
         .fetch_one::<(i64,)>(&mut conn);
 
-    eprintln!("before={nsegments_before}, after={nsegments_after}");
-
     assert!(nsegments_after < nsegments_before);
 }

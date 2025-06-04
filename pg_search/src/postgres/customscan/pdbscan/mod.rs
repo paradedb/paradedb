@@ -134,11 +134,11 @@ impl PdbScan {
                     .join_snippet_predicates
                     .get(snippet_type.field())
                 {
-                    // Combine base query with join predicate using Boolean OR
+                    // Combine base query with join predicate using Boolean AND
                     let base_query = state.custom_state().search_query_input();
                     let combined_query = SearchQueryInput::Boolean {
-                        must: vec![],
-                        should: vec![base_query.clone(), join_predicate.clone()],
+                        must: vec![base_query.clone(), join_predicate.clone()],
+                        should: vec![],
                         must_not: vec![],
                     };
 

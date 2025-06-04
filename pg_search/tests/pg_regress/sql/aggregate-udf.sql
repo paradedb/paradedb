@@ -36,7 +36,7 @@ SELECT * FROM paradedb.aggregate(index=>'idxpr2625', query=>paradedb.all(), agg=
 
 
 --
--- this one should generate an ERROR
+-- this one will execute serially in the current backend
 --
 SET parallel_leader_participation = false;
 SET max_parallel_workers = 0;

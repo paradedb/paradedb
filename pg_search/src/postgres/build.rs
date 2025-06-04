@@ -24,8 +24,11 @@ use crate::postgres::storage::block::{
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::metadata::MetaPageMut;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
+use crate::schema::SearchFieldConfig;
+use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::*;
 use tantivy::{Index, IndexSettings};
+use tokenizers::SearchTokenizer;
 
 #[pg_guard]
 pub extern "C-unwind" fn ambuild(
@@ -82,6 +85,32 @@ pub extern "C-unwind" fn ambuild(
 #[pg_guard]
 pub unsafe extern "C-unwind" fn ambuildempty(index_relation: pg_sys::Relation) {
     let indexrel = unsafe { PgRelation::from_pg(index_relation) };
+    let schema =
+        get_index_schema(&indexrel).expect("should be able to get schema for USING bm25 index");
+
+    // warn that the `raw` tokenizer is deprecated
+    for field in &schema.fields {
+        #[allow(deprecated)]
+        if matches!(
+            field.config,
+            SearchFieldConfig::Text {
+                tokenizer: SearchTokenizer::Raw(_),
+                ..
+            } | SearchFieldConfig::Json {
+                tokenizer: SearchTokenizer::Raw(_),
+                ..
+            }
+        ) {
+            ErrorReport::new(
+                PgSqlErrorCode::ERRCODE_WARNING_DEPRECATED_FEATURE,
+                "the `raw` tokenizer is deprecated",
+                function_name!(),
+            )
+                .set_detail("the `raw` tokenizer is deprecated as it also lowercases and truncates the input and this is probably not what you want")
+                .set_hint("use `keyword` instead").report(PgLogLevel::WARNING);
+        }
+    }
+
     unsafe {
         init_fixed_buffers(&indexrel);
     }

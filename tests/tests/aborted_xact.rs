@@ -24,7 +24,8 @@ use sqlx::PgConnection;
 #[rstest]
 fn aborted_segments_not_visible(mut conn: PgConnection) {
     r#"
-        SET paradedb.create_index_parallelism = 1;
+        SET max_parallel_maintenance_workers = 0;
+        SET parallel_leader_participation = false;
         SET paradedb.statement_parallelism = 1;
         DROP TABLE IF EXISTS test_table;
         CREATE TABLE test_table (id SERIAL PRIMARY KEY, value TEXT NOT NULL);

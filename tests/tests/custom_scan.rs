@@ -1029,6 +1029,7 @@ fn nested_loop_rescan_issue_2472(mut conn: PgConnection) {
 #[rstest]
 fn uses_max_parallel_workers_per_gather_issue2515(mut conn: PgConnection) {
     r#"
+    SET paradedb.create_index_memory_budget = '10MB';
     SET max_parallel_workers = 8;
     SET max_parallel_workers_per_gather = 2;
 

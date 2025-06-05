@@ -54,12 +54,6 @@ static MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD_NAME: &str =
 /// it logically can.
 static PER_TUPLE_COST: GucSetting<f64> = GucSetting::<f64>::new(100_000_000.0);
 
-/// Should we log the progress of the CREATE INDEX operation?  Default is `false`.
-static LOG_CREATE_INDEX_PROGRESS: GucSetting<bool> = GucSetting::<bool>::new(false);
-
-/// How many threads should tantivy use during CREATE INDEX?
-static CREATE_INDEX_PARALLELISM: GucSetting<i32> = GucSetting::<i32>::new(0);
-
 /// How much memory should tantivy use during CREATE INDEX.  This value is decided to each indexing
 /// thread.  So if there's 10 threads and this value is 100MB, then a total of 1GB will be allocated.
 static CREATE_INDEX_MEMORY_BUDGET: GucSetting<i32> = GucSetting::<i32>::new(1024);
@@ -126,34 +120,10 @@ pub fn init() {
         GucFlags::default(),
     );
 
-    GucRegistry::define_bool_guc(
-        "paradedb.log_create_index_progress",
-        "Log CREATE INDEX progress every 100,000 rows",
-        "",
-        &LOG_CREATE_INDEX_PROGRESS,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
-
-    GucRegistry::define_int_guc(
-        "paradedb.create_index_parallelism",
-        "The number of threads to use when creating an index",
-        "Default is 0, which means a thread for each core in the machine",
-        &CREATE_INDEX_PARALLELISM,
-        0,
-        std::thread::available_parallelism()
-            .expect("your computer should have at least one core")
-            .get()
-            .try_into()
-            .expect("your computer has too many cores"),
-        GucContext::Userset,
-        GucFlags::default(),
-    );
-
     GucRegistry::define_int_guc(
         "paradedb.create_index_memory_budget",
-        "The amount of memory to allocate to 1 thread during indexing",
-        "Default is `1GB`, which is allocated to each thread defined by `paradedb.create_index_parallelism`",
+        "The amount of memory to allocate to 1 indexing process",
+        "Default is `1GB`, which is allocated to each indexing process defined by `max_parallel_maintenance_workers`",
         &CREATE_INDEX_MEMORY_BUDGET,
         0,
         i32::MAX,
@@ -209,16 +179,20 @@ pub fn per_tuple_cost() -> f64 {
     PER_TUPLE_COST.get()
 }
 
-pub fn log_create_index_progress() -> bool {
-    LOG_CREATE_INDEX_PROGRESS.get()
-}
-
 pub fn create_index_parallelism() -> NonZeroUsize {
-    adjust_nthreads(CREATE_INDEX_PARALLELISM.get())
+    let nthreads = unsafe {
+        let mut nthreads = pg_sys::max_parallel_maintenance_workers;
+        if pg_sys::parallel_leader_participation {
+            nthreads += 1
+        }
+        nthreads
+    };
+    adjust_nthreads(nthreads)
 }
 
 pub fn create_index_memory_budget() -> usize {
-    adjust_budget(CREATE_INDEX_MEMORY_BUDGET.get(), create_index_parallelism())
+    let memory_budget = CREATE_INDEX_MEMORY_BUDGET.get();
+    adjust_budget(memory_budget, create_index_parallelism())
 }
 
 pub fn statement_parallelism() -> NonZeroUsize {
@@ -251,9 +225,10 @@ fn adjust_budget(per_thread_budget: i32, parallelism: Parallelism) -> usize {
         // in the `memory_arena` goes below MARGIN_IN_BYTES.
         pub const MARGIN_IN_BYTES: usize = 1_000_000;
 
-        // We impose the memory per thread to be at least 15 MB, as the baseline consumption is 12MB.
+        // We impose the memory per thread to be at least 15 MB, as the baseline consumption is 12MB,
+        // and no greater than 4GB as that's tantivy's limit
         pub const MEMORY_BUDGET_NUM_BYTES_MIN: usize = ((MARGIN_IN_BYTES as u32) * 15u32) as usize;
-        pub const MEMORY_BUDGET_NUM_BYTES_MAX: usize = u32::MAX as usize - MARGIN_IN_BYTES;
+        pub const MEMORY_BUDGET_NUM_BYTES_MAX: usize = (4 * 1024 * 1024 * 1024) - MARGIN_IN_BYTES;
     }
 
     let per_thread_budget = if per_thread_budget <= 0 {

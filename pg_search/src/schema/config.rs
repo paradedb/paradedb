@@ -194,7 +194,7 @@ impl SearchFieldConfig {
     }
 
     pub fn default_range() -> Self {
-        Self::from_json(json!({"Range": {}}))
+        Self::from_json(json!({"Json": {"fast": true}}))
     }
 }
 

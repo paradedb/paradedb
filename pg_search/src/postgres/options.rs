@@ -493,7 +493,7 @@ impl SearchIndexOptionsData {
         let config = self.get_str(self.range_fields_offset, "".to_string());
         if !config.is_empty() {
             let mut deserialized =
-                deserialize_config_fields(config, &SearchFieldConfig::json_from_json);
+                deserialize_config_fields(config, &SearchFieldConfig::range_from_json);
             for (field_name, config) in deserialized.drain() {
                 configs.insert(field_name, config);
             }

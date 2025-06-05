@@ -57,7 +57,7 @@ pub unsafe fn index_fields(index: PgRelation) -> anyhow::Result<JsonB> {
 pub unsafe fn layer_sizes(index: PgRelation) -> Vec<AnyNumeric> {
     let options = SearchIndexOptions::from_relation(&index);
     options
-        .layer_sizes(crate::postgres::insert::DEFAULT_LAYER_SIZES)
+        .layer_sizes()
         .into_iter()
         .map(|layer_size| layer_size.into())
         .collect()

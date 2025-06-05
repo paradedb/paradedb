@@ -231,7 +231,7 @@ unsafe fn do_merge(indexrelid: pg_sys::Oid) -> (NumCandidates, NumMerged) {
     };
 
     let index_options = SearchIndexOptions::from_relation(&indexrel);
-    let merge_policy = LayeredMergePolicy::new(index_options.layer_sizes(DEFAULT_LAYER_SIZES));
+    let merge_policy = LayeredMergePolicy::new(index_options.layer_sizes());
 
     merge_index_with_policy(indexrel, merge_policy, false, false, false)
 }

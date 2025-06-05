@@ -17,6 +17,7 @@
 
 use crate::api::index::FieldName;
 use crate::api::HashMap;
+use crate::postgres::insert::DEFAULT_LAYER_SIZES;
 use crate::schema::IndexRecordOption;
 use crate::schema::{SearchFieldConfig, SearchFieldType};
 
@@ -31,7 +32,7 @@ use tokenizers::{SearchNormalizer, SearchTokenizer};
 
 /* ADDING OPTIONS
  * in init(), call pg_sys::add_{type}_reloption (check postgres docs for what args you need)
- * add the corresponding entries to SearchIndexOptions struct definition
+ * add the corresponding entries to SearchIndexOptionsData struct definition
  * in amoptions(), add a relopt_parse_elt entry to the options array and change NUM_REL_OPTS
  * Note that for string options, postgres will give you the offset of the string, and you have to read the string
  * yourself (see get_tokenizer)
@@ -39,8 +40,8 @@ use tokenizers::{SearchNormalizer, SearchTokenizer};
 
 /* READING OPTIONS
  * options are placed in relation.rd_options
- * As in ambuild(), cast relation.rd_options into SearchIndexOptions using PgBox
- * (because SearchIndexOptions is a postgres-allocated object) and use getters and setters
+ * As in ambuild(), cast relation.rd_options into SearchIndexOptionsData using PgBox
+ * (because SearchIndexOptionsData is a postgres-allocated object) and use getters and setters
 */
 
 static mut RELOPT_KIND_PDB: pg_sys::relopt_kind::Type = 0;
@@ -48,7 +49,7 @@ static mut RELOPT_KIND_PDB: pg_sys::relopt_kind::Type = 0;
 // Postgres handles string options by placing each option offset bytes from the start of rdopts and
 // plops the offset in the struct
 #[repr(C)]
-pub struct SearchIndexOptions {
+pub struct SearchIndexOptionsData {
     // varlena header (needed bc postgres treats this as bytea)
     vl_len_: i32,
     text_fields_offset: i32,
@@ -184,42 +185,42 @@ pub unsafe extern "C-unwind" fn amoptions(
         pg_sys::relopt_parse_elt {
             optname: "text_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
-            offset: offset_of!(SearchIndexOptions, text_fields_offset) as i32,
+            offset: offset_of!(SearchIndexOptionsData, text_fields_offset) as i32,
         },
         pg_sys::relopt_parse_elt {
             optname: "numeric_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
-            offset: offset_of!(SearchIndexOptions, numeric_fields_offset) as i32,
+            offset: offset_of!(SearchIndexOptionsData, numeric_fields_offset) as i32,
         },
         pg_sys::relopt_parse_elt {
             optname: "boolean_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
-            offset: offset_of!(SearchIndexOptions, boolean_fields_offset) as i32,
+            offset: offset_of!(SearchIndexOptionsData, boolean_fields_offset) as i32,
         },
         pg_sys::relopt_parse_elt {
             optname: "json_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
-            offset: offset_of!(SearchIndexOptions, json_fields_offset) as i32,
+            offset: offset_of!(SearchIndexOptionsData, json_fields_offset) as i32,
         },
         pg_sys::relopt_parse_elt {
             optname: "range_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
-            offset: offset_of!(SearchIndexOptions, range_fields_offset) as i32,
+            offset: offset_of!(SearchIndexOptionsData, range_fields_offset) as i32,
         },
         pg_sys::relopt_parse_elt {
             optname: "datetime_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
-            offset: offset_of!(SearchIndexOptions, datetime_fields_offset) as i32,
+            offset: offset_of!(SearchIndexOptionsData, datetime_fields_offset) as i32,
         },
         pg_sys::relopt_parse_elt {
             optname: "key_field".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
-            offset: offset_of!(SearchIndexOptions, key_field_offset) as i32,
+            offset: offset_of!(SearchIndexOptionsData, key_field_offset) as i32,
         },
         pg_sys::relopt_parse_elt {
             optname: "layer_sizes".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
-            offset: offset_of!(SearchIndexOptions, layer_sizes_offset) as i32,
+            offset: offset_of!(SearchIndexOptionsData, layer_sizes_offset) as i32,
         },
     ];
     build_relopts(reloptions, validate, options)
@@ -234,7 +235,7 @@ unsafe fn build_relopts(
         reloptions,
         validate,
         RELOPT_KIND_PDB,
-        std::mem::size_of::<SearchIndexOptions>(), // TODO: proper size calculator
+        std::mem::size_of::<SearchIndexOptionsData>(), // TODO: proper size calculator
         options.as_ptr(),
         NUM_REL_OPTS as i32,
     );
@@ -242,32 +243,39 @@ unsafe fn build_relopts(
     rdopts as *mut pg_sys::bytea
 }
 
+#[derive(Debug)]
+pub struct SearchIndexOptions {
+    layer_sizes: Vec<u64>,
+    key_field_name: FieldName,
+    text_configs: HashMap<FieldName, SearchFieldConfig>,
+    numeric_configs: HashMap<FieldName, SearchFieldConfig>,
+    boolean_configs: HashMap<FieldName, SearchFieldConfig>,
+    json_configs: HashMap<FieldName, SearchFieldConfig>,
+    range_configs: HashMap<FieldName, SearchFieldConfig>,
+    datetime_configs: HashMap<FieldName, SearchFieldConfig>,
+}
+
 impl SearchIndexOptions {
-    pub unsafe fn from_relation(indexrel: &PgRelation) -> &Self {
-        let mut ptr = indexrel.rd_options as *const Self;
-        if ptr.is_null() {
-            ptr = pg_sys::palloc0(std::mem::size_of::<Self>()) as *const Self;
+    pub unsafe fn from_relation(indexrel: &PgRelation) -> Self {
+        let data = SearchIndexOptionsData::from_relation(indexrel);
+        Self {
+            layer_sizes: data.layer_sizes(),
+            key_field_name: data.key_field_name(),
+            text_configs: data.text_configs(),
+            numeric_configs: data.numeric_configs(),
+            boolean_configs: data.boolean_configs(),
+            json_configs: data.json_configs(),
+            range_configs: data.range_configs(),
+            datetime_configs: data.datetime_configs(),
         }
-        ptr.as_ref().unwrap()
     }
 
-    /// Returns the configured `layer_sizes`, split into a [`Vec<u64>`] of byte sizes.
-    ///
-    /// If none is applied to the index, the specified `default` sizes are used.
-    pub fn layer_sizes(&self, default: &[u64]) -> Vec<u64> {
-        let layer_sizes_str = self.get_str(self.layer_sizes_offset, Default::default());
-        if layer_sizes_str.trim().is_empty() {
-            return default.to_vec();
-        }
-        get_layer_sizes(&layer_sizes_str).collect()
+    pub fn layer_sizes(&self) -> Vec<u64> {
+        self.layer_sizes.clone()
     }
 
     pub fn key_field_name(&self) -> FieldName {
-        let key_field_name = self.get_str(self.key_field_offset, "".to_string());
-        if key_field_name.is_empty() {
-            panic!("key_field WITH option should be configured");
-        }
-        key_field_name.into()
+        self.key_field_name.clone()
     }
 
     pub fn field_config_or_default(
@@ -300,79 +308,22 @@ impl SearchIndexOptions {
             return Some(key_field_config(&self.field_type(field_name, relation_oid)));
         }
 
-        // Text fields
-        let config = self.get_str(self.text_fields_offset, "".to_string());
-        if !config.is_empty() {
-            let mut deserialized =
-                deserialize_config_fields(config, &SearchFieldConfig::text_from_json);
-            if let Some(config) = deserialized.remove(field_name) {
-                return Some(config);
-            }
-        }
-
-        // Numeric fields
-        let config = self.get_str(self.numeric_fields_offset, "".to_string());
-        if !config.is_empty() {
-            let mut deserialized =
-                deserialize_config_fields(config, &SearchFieldConfig::numeric_from_json);
-            if let Some(config) = deserialized.remove(field_name) {
-                return Some(config);
-            }
-        }
-
-        // Boolean fields
-        let config = self.get_str(self.boolean_fields_offset, "".to_string());
-        if !config.is_empty() {
-            let mut deserialized =
-                deserialize_config_fields(config, &SearchFieldConfig::boolean_from_json);
-            if let Some(config) = deserialized.remove(field_name) {
-                return Some(config);
-            }
-        }
-
-        // JSON fields
-        let config = self.get_str(self.json_fields_offset, "".to_string());
-        if !config.is_empty() {
-            let mut deserialized =
-                deserialize_config_fields(config, &SearchFieldConfig::json_from_json);
-            if let Some(config) = deserialized.remove(field_name) {
-                return Some(config);
-            }
-        }
-
-        // Range fields
-        let config = self.get_str(self.range_fields_offset, "".to_string());
-        if !config.is_empty() {
-            let mut deserialized =
-                deserialize_config_fields(config, &SearchFieldConfig::json_from_json);
-            if let Some(config) = deserialized.remove(field_name) {
-                return Some(config);
-            }
-        }
-
-        // Date/time fields
-        let config = self.get_str(self.datetime_fields_offset, "".to_string());
-        if !config.is_empty() {
-            let mut deserialized =
-                deserialize_config_fields(config, &SearchFieldConfig::date_from_json);
-            if let Some(config) = deserialized.remove(field_name) {
-                return Some(config);
-            }
-        }
-
-        None
+        self.text_configs
+            .get(field_name)
+            .cloned()
+            .or_else(|| self.numeric_configs.get(field_name).cloned())
+            .or_else(|| self.boolean_configs.get(field_name).cloned())
+            .or_else(|| self.json_configs.get(field_name).cloned())
+            .or_else(|| self.range_configs.get(field_name).cloned())
+            .or_else(|| self.datetime_configs.get(field_name).cloned())
     }
 
     pub fn get_aliased_text_configs(
         &self,
         relation_oid: pg_sys::Oid,
     ) -> HashMap<FieldName, SearchFieldConfig> {
-        let config = self.get_str(self.text_fields_offset, "".to_string());
-        if config.is_empty() {
-            return HashMap::default();
-        }
-
-        deserialize_config_fields(config, &SearchFieldConfig::text_from_json)
+        self.text_configs
+            .clone()
             .into_iter()
             .filter(|(_field_name, config)| {
                 if let Some(alias) = config.alias() {
@@ -392,11 +343,8 @@ impl SearchIndexOptions {
         &self,
         relation_oid: pg_sys::Oid,
     ) -> HashMap<FieldName, SearchFieldConfig> {
-        let config = self.get_str(self.json_fields_offset, "".to_string());
-        if config.is_empty() {
-            return HashMap::default();
-        }
-        deserialize_config_fields(config, &SearchFieldConfig::json_from_json)
+        self.json_configs
+            .clone()
             .into_iter()
             .filter(|(_field_name, config)| {
                 if let Some(alias) = config.alias() {
@@ -436,6 +384,120 @@ impl SearchIndexOptions {
             .unwrap()
             .type_oid();
         (&attribute_oid).try_into().unwrap()
+    }
+}
+
+impl SearchIndexOptionsData {
+    pub unsafe fn from_relation(indexrel: &PgRelation) -> PgBox<Self> {
+        if indexrel.rd_options.is_null() {
+            let ops = unsafe { PgBox::<Self>::alloc0() };
+            unsafe {
+                pgrx::varlena::set_varsize_4b(
+                    ops.as_ptr().cast(),
+                    std::mem::size_of::<Self>() as i32,
+                );
+            }
+            ops.into_pg_boxed()
+        } else {
+            PgBox::from_pg(indexrel.rd_options as *mut Self)
+        }
+    }
+
+    /// Returns the configured `layer_sizes`, split into a [`Vec<u64>`] of byte sizes.
+    ///
+    /// If none is applied to the index, the specified `default` sizes are used.
+    pub fn layer_sizes(&self) -> Vec<u64> {
+        let layer_sizes_str = self.get_str(self.layer_sizes_offset, Default::default());
+        if layer_sizes_str.trim().is_empty() {
+            return DEFAULT_LAYER_SIZES.to_vec();
+        }
+        get_layer_sizes(&layer_sizes_str).collect()
+    }
+
+    pub fn key_field_name(&self) -> FieldName {
+        let key_field_name = self.get_str(self.key_field_offset, "".to_string());
+        if key_field_name.is_empty() {
+            panic!("key_field WITH option should be configured");
+        }
+        key_field_name.into()
+    }
+
+    pub fn text_configs(&self) -> HashMap<FieldName, SearchFieldConfig> {
+        let mut configs = HashMap::default();
+        let config = self.get_str(self.text_fields_offset, "".to_string());
+        if !config.is_empty() {
+            let mut deserialized =
+                deserialize_config_fields(config, &SearchFieldConfig::text_from_json);
+            for (field_name, config) in deserialized.drain() {
+                configs.insert(field_name, config);
+            }
+        }
+        configs
+    }
+
+    pub fn numeric_configs(&self) -> HashMap<FieldName, SearchFieldConfig> {
+        let mut configs = HashMap::default();
+        let config = self.get_str(self.numeric_fields_offset, "".to_string());
+        if !config.is_empty() {
+            let mut deserialized =
+                deserialize_config_fields(config, &SearchFieldConfig::numeric_from_json);
+            for (field_name, config) in deserialized.drain() {
+                configs.insert(field_name, config);
+            }
+        }
+        configs
+    }
+
+    pub fn boolean_configs(&self) -> HashMap<FieldName, SearchFieldConfig> {
+        let mut configs = HashMap::default();
+        let config = self.get_str(self.boolean_fields_offset, "".to_string());
+        if !config.is_empty() {
+            let mut deserialized =
+                deserialize_config_fields(config, &SearchFieldConfig::boolean_from_json);
+            for (field_name, config) in deserialized.drain() {
+                configs.insert(field_name, config);
+            }
+        }
+        configs
+    }
+
+    pub fn json_configs(&self) -> HashMap<FieldName, SearchFieldConfig> {
+        let mut configs = HashMap::default();
+        let config = self.get_str(self.json_fields_offset, "".to_string());
+        if !config.is_empty() {
+            let mut deserialized =
+                deserialize_config_fields(config, &SearchFieldConfig::json_from_json);
+            for (field_name, config) in deserialized.drain() {
+                configs.insert(field_name, config);
+            }
+        }
+        configs
+    }
+
+    pub fn range_configs(&self) -> HashMap<FieldName, SearchFieldConfig> {
+        let mut configs = HashMap::default();
+        let config = self.get_str(self.range_fields_offset, "".to_string());
+        if !config.is_empty() {
+            let mut deserialized =
+                deserialize_config_fields(config, &SearchFieldConfig::json_from_json);
+            for (field_name, config) in deserialized.drain() {
+                configs.insert(field_name, config);
+            }
+        }
+        configs
+    }
+
+    pub fn datetime_configs(&self) -> HashMap<FieldName, SearchFieldConfig> {
+        let mut configs = HashMap::default();
+        let config = self.get_str(self.datetime_fields_offset, "".to_string());
+        if !config.is_empty() {
+            let mut deserialized =
+                deserialize_config_fields(config, &SearchFieldConfig::date_from_json);
+            for (field_name, config) in deserialized.drain() {
+                configs.insert(field_name, config);
+            }
+        }
+        configs
     }
 
     fn get_str(&self, offset: i32, default: String) -> String {

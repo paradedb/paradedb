@@ -68,7 +68,6 @@ impl SearchIndexDeleter {
                 })
                 .expect("scoped thread should not fail")?
         };
-        let schema = SearchIndexSchema::open(index_relation.oid())?;
         setup_tokenizers(index_relation.oid(), &mut index)?;
 
         let index_clone = index.clone();

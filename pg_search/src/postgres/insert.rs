@@ -28,7 +28,7 @@ use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use crate::postgres::utils::{
     categorize_fields, item_pointer_to_u64, row_to_search_document, CategorizedFieldData,
 };
-use crate::schema::{SearchDocument, SearchField};
+use crate::schema::{SearchField, SearchIndexSchema};
 use pgrx::{check_for_interrupts, pg_guard, pg_sys, PgMemoryContexts, PgRelation, PgTupleDesc};
 use std::panic::{catch_unwind, resume_unwind};
 use tantivy::{SegmentMeta, TantivyDocument};
@@ -150,7 +150,7 @@ pub unsafe extern "C-unwind" fn aminsert(
             let key_field_name = &state.key_field_name;
             let writer = state.writer.as_mut().expect("writer should not be null");
 
-            let mut search_document = tantivy::TantivyDocument::new();
+            let mut search_document = TantivyDocument::new();
 
             row_to_search_document(
                 values,

@@ -37,15 +37,11 @@ use crate::{
 };
 
 // NB:  should this be a GUC?  Could be useful or could just complicate things for the user
-/// How big should our insert queue get before we go ahead and add them to the tantivy index?
-const MAX_INSERT_QUEUE_SIZE: usize = 1000;
+/// How big should our delete queue get before we go ahead and remove them?
+const MAX_DELETE_QUEUE_SIZE: usize = 1000;
 
-/// The entity that interfaces with Tantivy indexes.
-pub struct SearchIndexWriter {
-    pub indexrelid: pg_sys::Oid,
-    pub schema: SearchIndexSchema,
-    ctid_field: Field,
-
+/// Responsible for deleting documents from a tantivy index
+pub struct SearchIndexDeleter {
     // keep all these private -- leaking them to the public API would allow callers to
     // mis-use the IndexWriter in particular.
     writer: IndexWriter,
@@ -55,7 +51,7 @@ pub struct SearchIndexWriter {
     cnt: usize,
 }
 
-impl SearchIndexWriter {
+impl SearchIndexDeleter {
     pub fn open(
         index_relation: &PgRelation,
         directory_type: MvccSatisfies,
@@ -87,16 +83,10 @@ impl SearchIndexWriter {
             })
             .expect("scoped thread should not fail")?;
 
-        let schema = SearchIndexSchema::open(index.schema(), index_relation);
-        let ctid_field = schema.schema.get_field("ctid")?;
-
         Ok(Self {
-            indexrelid: index_relation.oid(),
             writer,
-            schema,
             handler,
-            ctid_field,
-            insert_queue: Vec::with_capacity(MAX_INSERT_QUEUE_SIZE),
+            insert_queue: Vec::with_capacity(MAX_DELETE_QUEUE_SIZE),
             cnt: 0,
         })
     }
@@ -113,21 +103,7 @@ impl SearchIndexWriter {
     pub fn delete_document(&mut self, segment_id: SegmentId, doc_id: DocId) -> Result<()> {
         self.insert_queue
             .push(UserOperation::DeleteByAddress(segment_id, doc_id));
-        if self.insert_queue.len() >= MAX_INSERT_QUEUE_SIZE {
-            self.drain_insert_queue()?;
-        }
-        Ok(())
-    }
-
-    pub fn insert(&mut self, document: SearchDocument, ctid: u64) -> Result<()> {
-        self.cnt += 1;
-        let mut tantivy_document: TantivyDocument = document.into();
-
-        tantivy_document.add_u64(self.ctid_field, ctid);
-
-        self.insert_queue.push(UserOperation::Add(tantivy_document));
-
-        if self.insert_queue.len() >= MAX_INSERT_QUEUE_SIZE {
+        if self.insert_queue.len() >= MAX_DELETE_QUEUE_SIZE {
             self.drain_insert_queue()?;
         }
         Ok(())
@@ -164,6 +140,7 @@ impl SearchIndexWriter {
 /// Unlike Tantivy's IndexWriter, the SerialIndexWriter does not spin up any threads.
 /// Everything happens in the foreground, making it ideal for Postgres.
 pub struct SerialIndexWriter {
+    indexrelid: pg_sys::Oid,
     ctid_field: Field,
     current_segment: Option<(Segment, SegmentWriter)>,
     memory_budget: usize,
@@ -173,7 +150,15 @@ pub struct SerialIndexWriter {
 
 impl SerialIndexWriter {
     pub fn open(index_relation: &PgRelation, memory_budget: usize) -> Result<Self> {
-        let directory = MVCCDirectory::snapshot(index_relation.oid());
+        Self::with_mvcc(index_relation, MvccSatisfies::Snapshot, memory_budget)
+    }
+
+    pub fn with_mvcc(
+        index_relation: &PgRelation,
+        mvcc_satisfies: MvccSatisfies,
+        memory_budget: usize,
+    ) -> Result<Self> {
+        let directory = mvcc_satisfies.directory(index_relation);
         let mut index = Index::open(directory)?;
         let schema = SearchIndexSchema::open(index.schema(), index_relation);
 
@@ -181,12 +166,17 @@ impl SerialIndexWriter {
         let ctid_field = schema.schema.get_field("ctid")?;
 
         Ok(Self {
+            indexrelid: index_relation.oid(),
             ctid_field,
             memory_budget,
             index,
             current_segment: Default::default(),
             new_metas: Default::default(),
         })
+    }
+
+    pub fn index_oid(&self) -> pg_sys::Oid {
+        self.indexrelid
     }
 
     pub fn insert(&mut self, document: SearchDocument, ctid: u64) -> Result<()> {

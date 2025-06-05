@@ -17,7 +17,7 @@
 
 use crate::api::index::FieldName;
 use crate::index::writer::index::SerialIndexWriter;
-use crate::index::{get_index_schema, WriterResources};
+use crate::index::WriterResources;
 use crate::launch_parallel_process;
 use crate::parallel_worker::mqueue::MessageQueueSender;
 use crate::parallel_worker::{
@@ -26,7 +26,7 @@ use crate::parallel_worker::{
 };
 use crate::postgres::spinlock::Spinlock;
 use crate::postgres::utils::{categorize_fields, row_to_search_document, CategorizedFieldData};
-use crate::schema::{SearchDocument, SearchField};
+use crate::schema::{SearchField, SearchIndexSchema};
 use pgrx::{check_for_interrupts, pg_guard, pg_sys, PgMemoryContexts, PgRelation};
 use std::ptr::{addr_of_mut, NonNull};
 use tantivy::index::SegmentId;
@@ -239,10 +239,10 @@ impl WorkerBuildState {
         let (parallelism, memory_budget) = WriterResources::CreateIndex.resources();
         let memory_budget = memory_budget / parallelism;
         let writer = SerialIndexWriter::open(indexrel, memory_budget)?;
-        let schema = get_index_schema(indexrel)?;
+        let schema = SearchIndexSchema::open(indexrel.oid())?;
         let tupdesc = indexrel.tuple_desc();
         let categorized_fields = categorize_fields(&tupdesc, &schema);
-        let key_field_name = schema.key_field().name;
+        let key_field_name = schema.key_field().field_name();
         Ok(Self {
             writer,
             categorized_fields,
@@ -267,10 +267,7 @@ unsafe extern "C-unwind" fn build_callback(
     let ctid_u64 = crate::postgres::utils::item_pointer_to_u64(*ctid);
 
     build_state.per_row_context.switch_to(|_| {
-        let mut doc = SearchDocument {
-            doc: TantivyDocument::new(),
-        };
-
+        let mut doc = TantivyDocument::new();
         row_to_search_document(
             values,
             isnull,
@@ -288,7 +285,7 @@ unsafe extern "C-unwind" fn build_callback(
     build_state.per_row_context.reset();
 }
 
-/// Build an index.  This is the workhorse behind `CREATE INDEX` and `REINDEX`.  
+/// Build an index.  This is the workhorse behind `CREATE INDEX` and `REINDEX`.
 ///
 /// If the system allows, it will build the index in parallel.  Otherwise the index is built in
 /// serially in this connected backend.

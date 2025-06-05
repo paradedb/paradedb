@@ -26,7 +26,7 @@ use crate::postgres::utils::convert_pg_date_string;
 use crate::query::more_like_this::MoreLikeThisQuery;
 use crate::query::range::{Comparison, RangeField};
 use crate::query::score::ScoreFilter;
-use crate::schema::IndexRecordOption;
+use crate::schema::{IndexRecordOption, SearchIndexSchema};
 use anyhow::Result;
 use core::panic;
 use pgrx::{pg_sys, PgBuiltInOids, PgOid, PostgresType};
@@ -479,124 +479,6 @@ impl TryFrom<SearchQueryInput> for TermInput {
     }
 }
 
-#[allow(dead_code)]
-pub trait AsFieldType<T> {
-    fn fields(&self) -> Vec<(FieldType, PgOid, Field)>;
-
-    fn key_field(&self) -> (FieldType, PgOid, Field);
-
-    fn as_field_type(&self, from: &T) -> Option<(FieldType, PgOid, Field)>;
-
-    fn coerce_value_to_field_type(&self, from: &T, value: OwnedValue) -> Option<OwnedValue> {
-        let (ft, _, _) = self.as_field_type(from)?;
-
-        match (ft, &value) {
-            (FieldType::Str(_), OwnedValue::Str(_))
-            | (FieldType::U64(_), OwnedValue::U64(_))
-            | (FieldType::I64(_), OwnedValue::I64(_))
-            | (FieldType::F64(_), OwnedValue::F64(_))
-            | (FieldType::Bool(_), OwnedValue::Bool(_))
-            | (FieldType::Date(_), OwnedValue::Date(_))
-            | (FieldType::Facet(_), OwnedValue::Facet(_))
-            | (FieldType::Bytes(_), OwnedValue::Bytes(_))
-            | (FieldType::JsonObject(_), OwnedValue::Object(_))
-            | (FieldType::IpAddr(_), OwnedValue::IpAddr(_)) => Some(value),
-
-            (FieldType::U64(_), OwnedValue::I64(v)) => (*v).try_into().ok().map(OwnedValue::U64),
-            (FieldType::I64(_), OwnedValue::U64(v)) => (*v).try_into().ok().map(OwnedValue::I64),
-
-            _ => None,
-        }
-    }
-
-    fn as_str(&self, from: &T) -> Option<Field> {
-        self.as_field_type(from)
-            .and_then(|(ft, _, field)| match ft {
-                FieldType::Str(_) => Some(field),
-                _ => None,
-            })
-    }
-    fn as_u64(&self, from: &T) -> Option<Field> {
-        self.as_field_type(from)
-            .and_then(|(ft, _, field)| match ft {
-                FieldType::U64(_) => Some(field),
-                _ => None,
-            })
-    }
-    fn as_i64(&self, from: &T) -> Option<Field> {
-        self.as_field_type(from)
-            .and_then(|(ft, _, field)| match ft {
-                FieldType::I64(_) => Some(field),
-                _ => None,
-            })
-    }
-    fn as_f64(&self, from: &T) -> Option<Field> {
-        self.as_field_type(from)
-            .and_then(|(ft, _, field)| match ft {
-                FieldType::F64(_) => Some(field),
-                _ => None,
-            })
-    }
-    fn as_bool(&self, from: &T) -> Option<Field> {
-        self.as_field_type(from)
-            .and_then(|(ft, _, field)| match ft {
-                FieldType::Bool(_) => Some(field),
-                _ => None,
-            })
-    }
-    fn as_date(&self, from: &T) -> Option<Field> {
-        self.as_field_type(from)
-            .and_then(|(ft, _, field)| match ft {
-                FieldType::Date(_) => Some(field),
-                _ => None,
-            })
-    }
-    fn as_facet(&self, from: &T) -> Option<Field> {
-        self.as_field_type(from)
-            .and_then(|(ft, _, field)| match ft {
-                FieldType::Facet(_) => Some(field),
-                _ => None,
-            })
-    }
-    fn as_bytes(&self, from: &T) -> Option<Field> {
-        self.as_field_type(from)
-            .and_then(|(ft, _, field)| match ft {
-                FieldType::Bytes(_) => Some(field),
-                _ => None,
-            })
-    }
-    fn as_json_object(&self, from: &T) -> Option<Field> {
-        self.as_field_type(from)
-            .and_then(|(ft, _, field)| match ft {
-                FieldType::JsonObject(_) => Some(field),
-                _ => None,
-            })
-    }
-    fn as_ip_addr(&self, from: &T) -> Option<Field> {
-        self.as_field_type(from)
-            .and_then(|(ft, _, field)| match ft {
-                FieldType::IpAddr(_) => Some(field),
-                _ => None,
-            })
-    }
-}
-
-fn is_datetime_typeoid(typeoid: PgOid) -> bool {
-    matches!(
-        typeoid,
-        PgOid::BuiltIn(
-            PgBuiltInOids::DATEOID
-                | PgBuiltInOids::DATERANGEOID
-                | PgBuiltInOids::TIMESTAMPOID
-                | PgBuiltInOids::TSRANGEOID
-                | PgBuiltInOids::TIMESTAMPTZOID
-                | PgBuiltInOids::TSTZRANGEOID
-                | PgBuiltInOids::TIMEOID
-                | PgBuiltInOids::TIMETZOID
-        )
-    )
-}
-
 fn check_range_bounds(
     typeoid: PgOid,
     lower_bound: Bound<OwnedValue>,
@@ -719,7 +601,7 @@ fn coerce_bound_to_field_type(
 impl SearchQueryInput {
     pub fn into_tantivy_query(
         self,
-        field_lookup: &impl AsFieldType<String>,
+        schema: &SearchIndexSchema,
         parser: &mut QueryParser,
         searcher: &Searcher,
         index_oid: pg_sys::Oid,
@@ -736,36 +618,36 @@ impl SearchQueryInput {
                 for input in must {
                     subqueries.push((
                         Occur::Must,
-                        input.into_tantivy_query(field_lookup, parser, searcher, index_oid)?,
+                        input.into_tantivy_query(schema, parser, searcher, index_oid)?,
                     ));
                 }
                 for input in should {
                     subqueries.push((
                         Occur::Should,
-                        input.into_tantivy_query(field_lookup, parser, searcher, index_oid)?,
+                        input.into_tantivy_query(schema, parser, searcher, index_oid)?,
                     ));
                 }
                 for input in must_not {
                     subqueries.push((
                         Occur::MustNot,
-                        input.into_tantivy_query(field_lookup, parser, searcher, index_oid)?,
+                        input.into_tantivy_query(schema, parser, searcher, index_oid)?,
                     ));
                 }
                 Ok(Box::new(BooleanQuery::new(subqueries)))
             }
             Self::Boost { query, factor } => Ok(Box::new(BoostQuery::new(
-                query.into_tantivy_query(field_lookup, parser, searcher, index_oid)?,
+                query.into_tantivy_query(schema, parser, searcher, index_oid)?,
                 factor,
             ))),
             Self::ConstScore { query, score } => Ok(Box::new(ConstScoreQuery::new(
-                query.into_tantivy_query(field_lookup, parser, searcher, index_oid)?,
+                query.into_tantivy_query(schema, parser, searcher, index_oid)?,
                 score,
             ))),
             Self::ScoreFilter { bounds, query } => Ok(Box::new(ScoreFilter::new(
                 bounds,
                 query
                     .expect("ScoreFilter's query should have been set")
-                    .into_tantivy_query(field_lookup, parser, searcher, index_oid)?,
+                    .into_tantivy_query(schema, parser, searcher, index_oid)?,
             ))),
             Self::DisjunctionMax {
                 disjuncts,
@@ -773,9 +655,7 @@ impl SearchQueryInput {
             } => {
                 let disjuncts = disjuncts
                     .into_iter()
-                    .map(|query| {
-                        query.into_tantivy_query(field_lookup, parser, searcher, index_oid)
-                    })
+                    .map(|query| query.into_tantivy_query(schema, parser, searcher, index_oid))
                     .collect::<Result<_, _>>()?;
                 if let Some(tie_breaker) = tie_breaker {
                     Ok(Box::new(DisjunctionMaxQuery::with_tie_breaker(
@@ -801,12 +681,7 @@ impl SearchQueryInput {
                 lower_bound,
                 upper_bound,
             } => {
-                let field = field.root();
-                let field = field_lookup
-                    .as_u64(&field)
-                    .or_else(|| field_lookup.as_i64(&field))
-                    .ok_or_else(|| QueryError::WrongFieldType(field.clone()))?;
-
+                let field = schema.search_field(field.root()).unwrap().field();
                 let new_lower_bound = match lower_bound {
                     Bound::Excluded(v) => Bound::Excluded(Term::from_field_u64(field, v)),
                     Bound::Included(v) => Bound::Included(Term::from_field_u64(field, v)),
@@ -831,15 +706,15 @@ impl SearchQueryInput {
                 transposition_cost_one,
                 prefix,
             } => {
-                let (field, path) = (field.root(), field.path());
-                let (field_type, _, field) = field_lookup
-                    .as_field_type(&field)
-                    .ok_or(QueryError::NonIndexedField(field))?;
+                let search_field = schema
+                    .search_field(field.root())
+                    .ok_or(QueryError::NonIndexedField(field.clone()))?;
+                let field_type = search_field.field_entry().field_type();
                 let term = value_to_term(
-                    field,
+                    search_field.field(),
                     &OwnedValue::Str(value),
-                    &field_type,
-                    path.as_deref(),
+                    field_type,
+                    field.path().as_deref(),
                     false,
                 )?;
                 let distance = distance.unwrap_or(2);
@@ -867,16 +742,15 @@ impl SearchQueryInput {
                 prefix,
                 conjunction_mode,
             } => {
-                let (field, path) = (field.root(), field.path());
                 let distance = distance.unwrap_or(0);
                 let transposition_cost_one = transposition_cost_one.unwrap_or(true);
                 let conjunction_mode = conjunction_mode.unwrap_or(false);
                 let prefix = prefix.unwrap_or(false);
 
-                let (field_type, _, field) = field_lookup
-                    .as_field_type(&field)
-                    .ok_or(QueryError::NonIndexedField(field))?;
-
+                let search_field = schema
+                    .search_field(field.root())
+                    .ok_or(QueryError::NonIndexedField(field.clone()))?;
+                let field_type = search_field.field_entry().field_type();
                 let mut analyzer = match tokenizer {
                     Some(tokenizer) => {
                         let tokenizer = SearchTokenizer::from_json_value(&tokenizer)
@@ -885,7 +759,7 @@ impl SearchQueryInput {
                             .to_tantivy_tokenizer()
                             .ok_or(QueryError::InvalidTokenizer)?
                     }
-                    None => searcher.index().tokenizer_for_field(field)?,
+                    None => searcher.index().tokenizer_for_field(search_field.field())?,
                 };
                 let mut stream = analyzer.token_stream(&value);
                 let mut terms = Vec::new();
@@ -893,10 +767,10 @@ impl SearchQueryInput {
                 while stream.advance() {
                     let token = stream.token().text.clone();
                     let term = value_to_term(
-                        field,
+                        search_field.field(),
                         &OwnedValue::Str(token),
-                        &field_type,
-                        path.as_deref(),
+                        field_type,
+                        field.path().as_deref(),
                         false,
                     )?;
                     let term_query: Box<dyn Query> = match (distance, prefix) {
@@ -970,19 +844,16 @@ impl SearchQueryInput {
                     }
                     (None, Some(doc_fields)) => {
                         let mut fields_map = HashMap::default();
-                        for (field_name, value) in doc_fields {
-                            let value = field_lookup
-                                .coerce_value_to_field_type(&field_name, value)
-                                // None means we couldn't coerce the type
-                                .ok_or_else(|| QueryError::WrongFieldType(field_name.clone()))?;
+                        for (field, mut value) in doc_fields {
+                            let search_field = schema
+                                .search_field(&field)
+                                .ok_or(QueryError::NonIndexedField(field.into()))?;
+                            search_field.try_coerce(&mut value)?;
+                            fields_map
+                                .entry(search_field.field())
+                                .or_insert_with(std::vec::Vec::new);
 
-                            let (_, _, field) = field_lookup
-                                .as_field_type(&field_name)
-                                .ok_or_else(|| QueryError::WrongFieldType(field_name.clone()))?;
-
-                            fields_map.entry(field).or_insert_with(std::vec::Vec::new);
-
-                            if let Some(vec) = fields_map.get_mut(&field) {
+                            if let Some(vec) = fields_map.get_mut(&search_field.field()) {
                                 vec.push(value)
                             }
                         }
@@ -1003,16 +874,16 @@ impl SearchQueryInput {
                 phrases,
                 max_expansions,
             } => {
-                let (field, path) = (field.root(), field.path());
-                let (field_type, _, field) = field_lookup
-                    .as_field_type(&field)
-                    .ok_or(QueryError::NonIndexedField(field))?;
+                let search_field = schema
+                    .search_field(field.root())
+                    .ok_or(QueryError::NonIndexedField(field.clone()))?;
+                let field_type = search_field.field_entry().field_type();
                 let terms = phrases.clone().into_iter().map(|phrase| {
                     value_to_term(
-                        field,
+                        search_field.field(),
                         &OwnedValue::Str(phrase),
-                        &field_type,
-                        path.as_deref(),
+                        field_type,
+                        field.path().as_deref(),
                         false,
                     )
                     .unwrap()
@@ -1056,20 +927,20 @@ impl SearchQueryInput {
                     lenient,
                     conjunction_mode,
                 }
-                .into_tantivy_query(field_lookup, parser, searcher, index_oid)
+                .into_tantivy_query(schema, parser, searcher, index_oid)
             }
             Self::Phrase {
                 field,
                 phrases,
                 slop,
             } => {
-                let (field, path) = (field.root(), field.path());
-                let (field_type, _, field) = field_lookup
-                    .as_field_type(&field)
-                    .ok_or(QueryError::NonIndexedField(field))?;
+                let search_field = schema
+                    .search_field(field.root())
+                    .ok_or(QueryError::NonIndexedField(field.clone()))?;
+                let field_type = search_field.field_entry().field_type();
 
                 let mut terms = Vec::new();
-                let mut analyzer = searcher.index().tokenizer_for_field(field)?;
+                let mut analyzer = searcher.index().tokenizer_for_field(search_field.field())?;
                 let mut should_warn = false;
 
                 for phrase in phrases.into_iter() {
@@ -1079,10 +950,10 @@ impl SearchQueryInput {
                     while stream.advance() {
                         let token = stream.token().text.clone();
                         let term = value_to_term(
-                            field,
+                            search_field.field(),
                             &OwnedValue::Str(token),
-                            &field_type,
-                            path.as_deref(),
+                            field_type,
+                            field.path().as_deref(),
                             false,
                         )?;
 
@@ -1114,32 +985,31 @@ impl SearchQueryInput {
                 upper_bound,
                 is_datetime,
             } => {
-                let (field, path) = (field.root(), field.path());
-                let field_name = field;
-                let (field_type, typeoid, field) = field_lookup
-                    .as_field_type(&field_name)
-                    .ok_or_else(|| QueryError::WrongFieldType(field_name.clone()))?;
+                let search_field = schema
+                    .search_field(field.root())
+                    .ok_or(QueryError::NonIndexedField(field.clone()))?;
+                let field_type = search_field.field_entry().field_type();
+                let typeoid = search_field.field_type().typeoid();
+                let is_datetime = search_field.is_datetime() || is_datetime;
 
-                let is_datetime = is_datetime_typeoid(typeoid) || is_datetime;
-
-                let lower_bound = coerce_bound_to_field_type(lower_bound, &field_type);
-                let upper_bound = coerce_bound_to_field_type(upper_bound, &field_type);
+                let lower_bound = coerce_bound_to_field_type(lower_bound, field_type);
+                let upper_bound = coerce_bound_to_field_type(upper_bound, field_type);
                 let (lower_bound, upper_bound) =
-                    check_range_bounds(typeoid, lower_bound, upper_bound)?;
+                    check_range_bounds(typeoid.into(), lower_bound, upper_bound)?;
 
                 let lower_bound = match lower_bound {
                     Bound::Included(value) => Bound::Included(value_to_term(
-                        field,
+                        search_field.field(),
                         &value,
-                        &field_type,
-                        path.as_deref(),
+                        field_type,
+                        field.path().as_deref(),
                         is_datetime,
                     )?),
                     Bound::Excluded(value) => Bound::Excluded(value_to_term(
-                        field,
+                        search_field.field(),
                         &value,
-                        &field_type,
-                        path.as_deref(),
+                        field_type,
+                        field.path().as_deref(),
                         is_datetime,
                     )?),
                     Bound::Unbounded => Bound::Unbounded,
@@ -1147,17 +1017,17 @@ impl SearchQueryInput {
 
                 let upper_bound = match upper_bound {
                     Bound::Included(value) => Bound::Included(value_to_term(
-                        field,
+                        search_field.field(),
                         &value,
-                        &field_type,
-                        path.as_deref(),
+                        field_type,
+                        field.path().as_deref(),
                         is_datetime,
                     )?),
                     Bound::Excluded(value) => Bound::Excluded(value_to_term(
-                        field,
+                        search_field.field(),
                         &value,
-                        &field_type,
-                        path.as_deref(),
+                        field_type,
+                        field.path().as_deref(),
                         is_datetime,
                     )?),
                     Bound::Unbounded => Bound::Unbounded,
@@ -1171,21 +1041,14 @@ impl SearchQueryInput {
                 upper_bound,
                 is_datetime,
             } => {
-                let field = field.root();
-                let (_, typeoid, _) = field_lookup
-                    .as_field_type(&field)
-                    .ok_or_else(|| QueryError::NonIndexedField(field.clone()))?;
-
-                let is_datetime = is_datetime_typeoid(typeoid) || is_datetime;
+                let search_field = schema
+                    .search_field(field.root())
+                    .ok_or(QueryError::NonIndexedField(field.clone()))?;
+                let typeoid = search_field.field_type().typeoid();
+                let is_datetime = search_field.is_datetime() || is_datetime;
                 let (lower_bound, upper_bound) =
-                    check_range_bounds(typeoid, lower_bound, upper_bound)?;
-
-                let range_field = RangeField::new(
-                    field_lookup
-                        .as_json_object(&field)
-                        .ok_or_else(|| QueryError::WrongFieldType(field.clone()))?,
-                    is_datetime,
-                );
+                    check_range_bounds(typeoid.into(), lower_bound, upper_bound)?;
+                let range_field = RangeField::new(search_field.field(), is_datetime);
 
                 let mut satisfies_lower_bound: Vec<(Occur, Box<dyn Query>)> = vec![];
                 let mut satisfies_upper_bound: Vec<(Occur, Box<dyn Query>)> = vec![];
@@ -1332,21 +1195,15 @@ impl SearchQueryInput {
                 is_datetime,
                 ..
             } => {
-                let field = field.root();
-                let (_, typeoid, _) = field_lookup
-                    .as_field_type(&field)
-                    .ok_or_else(|| QueryError::NonIndexedField(field.clone()))?;
+                let search_field = schema
+                    .search_field(field.root())
+                    .ok_or(QueryError::NonIndexedField(field.clone()))?;
+                let typeoid = search_field.field_type().typeoid();
+                let is_datetime = search_field.is_datetime() || is_datetime;
 
-                let is_datetime = is_datetime_typeoid(typeoid) || is_datetime;
                 let (lower_bound, upper_bound) =
-                    check_range_bounds(typeoid, lower_bound, upper_bound)?;
-
-                let range_field = RangeField::new(
-                    field_lookup
-                        .as_json_object(&field)
-                        .ok_or_else(|| QueryError::WrongFieldType(field.clone()))?,
-                    is_datetime,
-                );
+                    check_range_bounds(typeoid.into(), lower_bound, upper_bound)?;
+                let range_field = RangeField::new(search_field.field(), is_datetime);
 
                 let mut satisfies_lower_bound: Vec<(Occur, Box<dyn Query>)> = vec![];
                 let mut satisfies_upper_bound: Vec<(Occur, Box<dyn Query>)> = vec![];
@@ -1504,13 +1361,10 @@ impl SearchQueryInput {
                 value,
                 is_datetime,
             } => {
-                let field = field.root();
-                let range_field = RangeField::new(
-                    field_lookup
-                        .as_json_object(&field)
-                        .ok_or_else(|| QueryError::WrongFieldType(field.clone()))?,
-                    is_datetime,
-                );
+                let search_field = schema
+                    .search_field(field.root())
+                    .ok_or(QueryError::NonIndexedField(field.clone()))?;
+                let range_field = RangeField::new(search_field.field(), is_datetime);
 
                 let satisfies_lower_bound = BooleanQuery::new(vec![
                     (
@@ -1612,21 +1466,15 @@ impl SearchQueryInput {
                 upper_bound,
                 is_datetime,
             } => {
-                let field = field.root();
-                let (_, typeoid, _) = field_lookup
-                    .as_field_type(&field)
-                    .ok_or_else(|| QueryError::NonIndexedField(field.clone()))?;
-
-                let is_datetime = is_datetime_typeoid(typeoid) || is_datetime;
+                let search_field = schema
+                    .search_field(field.root())
+                    .ok_or(QueryError::NonIndexedField(field.clone()))?;
+                let typeoid = search_field.field_type().typeoid();
+                let is_datetime = search_field.is_datetime() || is_datetime;
                 let (lower_bound, upper_bound) =
-                    check_range_bounds(typeoid, lower_bound, upper_bound)?;
+                    check_range_bounds(typeoid.into(), lower_bound, upper_bound)?;
 
-                let range_field = RangeField::new(
-                    field_lookup
-                        .as_json_object(&field)
-                        .ok_or_else(|| QueryError::WrongFieldType(field.clone()))?,
-                    is_datetime,
-                );
+                let range_field = RangeField::new(search_field.field(), is_datetime);
 
                 let mut satisfies_lower_bound: Vec<(Occur, Box<dyn Query>)> = vec![];
                 let mut satisfies_upper_bound: Vec<(Occur, Box<dyn Query>)> = vec![];
@@ -1778,15 +1626,13 @@ impl SearchQueryInput {
                 }
             }
             Self::Regex { field, pattern } => {
-                let field = field.root();
+                let search_field = schema
+                    .search_field(field.root())
+                    .ok_or(QueryError::NonIndexedField(field.clone()))?;
+
                 Ok(Box::new(
-                    RegexQuery::from_pattern(
-                        &pattern,
-                        field_lookup
-                            .as_str(&field)
-                            .ok_or_else(|| QueryError::WrongFieldType(field.clone()))?,
-                    )
-                    .map_err(|err| QueryError::RegexError(err, pattern.clone()))?,
+                    RegexQuery::from_pattern(&pattern, search_field.field())
+                        .map_err(|err| QueryError::RegexError(err, pattern.clone()))?,
                 ))
             }
             Self::RegexPhrase {
@@ -1795,12 +1641,10 @@ impl SearchQueryInput {
                 slop,
                 max_expansions,
             } => {
-                let field = field.root();
-                let (_, _, field) = field_lookup
-                    .as_field_type(&field)
-                    .ok_or(QueryError::NonIndexedField(field))?;
-
-                let mut query = RegexPhraseQuery::new(field, regexes);
+                let search_field = schema
+                    .search_field(field.root())
+                    .ok_or(QueryError::NonIndexedField(field.clone()))?;
+                let mut query = RegexPhraseQuery::new(search_field.field(), regexes);
 
                 if let Some(slop) = slop {
                     query.set_slop(slop)
@@ -1818,23 +1662,28 @@ impl SearchQueryInput {
             } => {
                 let record_option = IndexRecordOption::WithFreqsAndPositions;
                 if let Some(field) = field {
-                    let (field, path) = (field.root(), field.path());
-                    let (field_type, typeoid, field) = field_lookup
-                        .as_field_type(&field)
-                        .ok_or(QueryError::NonIndexedField(field))?;
-
-                    let is_datetime = is_datetime_typeoid(typeoid) || is_datetime;
-                    let term =
-                        value_to_term(field, &value, &field_type, path.as_deref(), is_datetime)?;
+                    let search_field = schema
+                        .search_field(field.root())
+                        .ok_or(QueryError::NonIndexedField(field.clone()))?;
+                    let field_type = search_field.field_entry().field_type();
+                    let is_datetime = search_field.is_datetime() || is_datetime;
+                    let term = value_to_term(
+                        search_field.field(),
+                        &value,
+                        field_type,
+                        field.path().as_deref(),
+                        is_datetime,
+                    )?;
 
                     Ok(Box::new(TermQuery::new(term, record_option.into())))
                 } else {
                     // If no field is passed, then search all fields.
-                    let all_fields = field_lookup.fields();
+                    let all_fields = schema.fields();
                     let mut terms = vec![];
-                    for (field_type, _, field) in all_fields {
+                    for (field, field_entry) in all_fields {
+                        let field_type = field_entry.field_type();
                         if let Ok(term) =
-                            value_to_term(field, &value, &field_type, None, is_datetime)
+                            value_to_term(field, &value, field_type, None, is_datetime)
                         {
                             terms.push(term);
                         }
@@ -1851,17 +1700,16 @@ impl SearchQueryInput {
                     is_datetime,
                 } in fields
                 {
-                    let (field, path) = (field.root(), field.path());
-                    let (field_type, typeoid, field) = field_lookup
-                        .as_field_type(&field)
-                        .ok_or(QueryError::NonIndexedField(field))?;
-
-                    let is_datetime = is_datetime_typeoid(typeoid) || is_datetime;
+                    let search_field = schema
+                        .search_field(field.root())
+                        .ok_or(QueryError::NonIndexedField(field.clone()))?;
+                    let field_type = search_field.field_entry().field_type();
+                    let is_datetime = search_field.is_datetime() || is_datetime;
                     terms.push(value_to_term(
-                        field,
+                        search_field.field(),
                         &value,
-                        &field_type,
-                        path.as_deref(),
+                        field_type,
+                        field.path().as_deref(),
                         is_datetime,
                     )?);
                 }
@@ -1869,7 +1717,7 @@ impl SearchQueryInput {
                 Ok(Box::new(TermSetQuery::new(terms)))
             }
             Self::WithIndex { query, .. } => {
-                query.into_tantivy_query(field_lookup, parser, searcher, index_oid)
+                query.into_tantivy_query(schema, parser, searcher, index_oid)
             }
             Self::PostgresExpression { .. } => panic!("postgres expressions have not been solved"),
         }
@@ -2011,7 +1859,7 @@ enum QueryError {
     #[error("invalid tokenizer setting, expected paradedb.tokenizer()")]
     InvalidTokenizer,
     #[error("field '{0}' is not part of the pg_search index")]
-    NonIndexedField(String),
+    NonIndexedField(FieldName),
     #[error("wrong type given for field")]
     FieldTypeMismatch,
     #[error("could not build regex with pattern '{1}': {0}")]

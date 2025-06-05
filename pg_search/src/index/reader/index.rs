@@ -29,13 +29,12 @@ use crate::schema::SearchIndexSchema;
 use anyhow::Result;
 use pgrx::{pg_sys, PgRelation};
 use std::cmp::Ordering;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tantivy::collector::{Collector, TopDocs};
 use tantivy::index::{Index, SegmentId};
 use tantivy::query::{EnableScoring, QueryClone, QueryParser};
-use tantivy::schema::FieldType;
 use tantivy::snippet::SnippetGenerator;
 use tantivy::{
     query::Query, DocAddress, DocId, DocSet, Executor, IndexReader, Order, ReloadPolicy, Score,
@@ -259,9 +258,9 @@ impl SearchIndexReader {
 
         let directory = mvcc_style.directory(index_relation);
         let mut index = Index::open(directory)?;
-        let schema = SearchIndexSchema::open(index.schema(), index_relation);
+        let schema = SearchIndexSchema::open(index_relation.oid())?;
+        setup_tokenizers(index_relation.oid(), &mut index)?;
 
-        setup_tokenizers(&mut index, index_relation);
         let reader = index
             .reader_builder()
             .reload_policy(ReloadPolicy::Manual)
@@ -294,22 +293,13 @@ impl SearchIndexReader {
         let mut parser = QueryParser::for_index(
             &self.underlying_index,
             self.schema
-                .fields
-                .iter()
-                .map(|search_field| search_field.id.0)
+                .fields()
+                .map(|(field, _)| field)
                 .collect::<Vec<_>>(),
         );
         search_query_input
             .clone()
-            .into_tantivy_query(
-                &(
-                    unsafe { &PgRelation::with_lock(self.index_oid, pg_sys::AccessShareLock as _) },
-                    &self.schema,
-                ),
-                &mut parser,
-                &self.searcher,
-                self.index_oid,
-            )
+            .into_tantivy_query(&self.schema, &mut parser, &self.searcher, self.index_oid)
             .expect("must be able to parse query")
     }
 
@@ -344,22 +334,19 @@ impl SearchIndexReader {
 
     pub fn snippet_generator(
         &self,
-        field_name: &FieldName,
+        field_name: impl AsRef<str> + Display,
         query: &SearchQueryInput,
     ) -> (tantivy::schema::Field, SnippetGenerator) {
-        let field = self
-            .schema
-            .get_search_field(field_name)
-            .expect("cannot generate snippet, field does not exist");
-
-        match self.schema.schema.get_field_entry(field.into()).field_type() {
-            FieldType::Str(_) => {
-                let field:tantivy::schema::Field = field.into();
-                let generator = SnippetGenerator::create(&self.searcher, &self.query(query), field)
-                    .unwrap_or_else(|err| panic!("failed to create snippet generator for field: {field_name}... {err}"));
-                (field, generator)
-            }
-            _ => panic!("failed to create snippet generator for field: {field_name}... can only highlight text fields")
+        let search_field = self.schema.search_field(&field_name).unwrap();
+        if search_field.is_text() {
+            let field = search_field.field();
+            let generator = SnippetGenerator::create(&self.searcher, &self.query(query), field)
+                .unwrap_or_else(|err| {
+                    panic!("failed to create snippet generator for field: {field_name}... {err}")
+                });
+            (field, generator)
+        } else {
+            panic!("failed to create snippet generator for field: {field_name}... can only highlight text fields")
         }
     }
 
@@ -455,15 +442,9 @@ impl SearchIndexReader {
             );
             let field = self
                 .schema
-                .get_search_field(&sort_field)
+                .search_field(&sort_field)
                 .expect("sort field should exist in index schema");
-            match self
-                .schema
-                .schema
-                .get_field_entry(field.into())
-                .field_type()
-                .value_type()
-            {
+            match field.field_entry().field_type().value_type() {
                 tantivy::schema::Type::Str => self.top_by_string_field_in_segments(
                     segment_ids,
                     query,
@@ -497,7 +478,7 @@ impl SearchIndexReader {
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
         query: &SearchQueryInput,
-        sort_field: FieldName,
+        sort_field: impl AsRef<str> + Display,
         sortdir: SortDirection,
         n: usize,
         offset: usize,

@@ -252,7 +252,8 @@ impl CustomScan for PdbScan {
 
             let directory = MVCCDirectory::snapshot(bm25_index.oid());
             let index = Index::open(directory).expect("custom_scan: should be able to open index");
-            let schema = SearchIndexSchema::open(index.schema(), &bm25_index);
+            let schema = SearchIndexSchema::open(bm25_index.oid())
+                .expect("custom_scan: should be able to open schema");
             let pathkey = pullup_orderby_pathkey(&mut builder, rti, &schema, root);
 
             #[cfg(any(feature = "pg14", feature = "pg15"))]
@@ -312,7 +313,6 @@ impl CustomScan for PdbScan {
             //
             // look for quals we can support
             //
-            let mut uses_our_operator = false;
             let quals = extract_quals(
                 root,
                 rti,
@@ -320,21 +320,7 @@ impl CustomScan for PdbScan {
                 anyelement_query_input_opoid(),
                 ri_type,
                 &schema,
-                &mut uses_our_operator,
             );
-
-            if !uses_our_operator {
-                // for now, we're not going to submit our custom scan for queries that don't also
-                // use our `@@@` operator.  Perhaps in the future we can do this, but we don't want to
-                // circumvent Postgres' other possible plans that might do index scans over a btree
-                // index or something
-
-                // Check if our operator is used in join conditions involving this relation
-                if !uses_our_operator_in_join_conditions(root, rti, anyelement_query_input_opoid())
-                {
-                    return None;
-                }
-            }
 
             let Some(quals) = quals else {
                 // if we are not able to push down all of the quals, then do not propose the custom
@@ -587,7 +573,8 @@ impl CustomScan for PdbScan {
             let directory = MVCCDirectory::snapshot(indexrel.oid());
             let index = Index::open(directory)
                 .expect("should be able to open index for snippet extraction");
-            let schema = SearchIndexSchema::open(index.schema(), &indexrel);
+            let schema = SearchIndexSchema::open(indexrelid)
+                .expect("should be able to open schema for snippet extraction");
 
             let base_query = builder
                 .custom_private()
@@ -1197,7 +1184,8 @@ fn compute_exec_which_fast_fields(
         let directory = MVCCDirectory::snapshot(indexrel.oid());
         let index =
             Index::open(directory).expect("create_custom_scan_state: should be able to open index");
-        let schema = SearchIndexSchema::open(index.schema(), &indexrel);
+        let schema = SearchIndexSchema::open(indexrel.oid())
+            .expect("custom_scan: should be able to open schema");
 
         // Calculate the ordered set of fast fields which have actually been requested in
         // the target list.
@@ -1306,8 +1294,10 @@ unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
                 let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                 let tupdesc = heaprel.tuple_desc();
                 if let Some(att) = tupdesc.get(attno as usize - 1) {
-                    if schema.is_field_lower_sortable(&att.name().into()) {
-                        return Some(OrderByStyle::Field(first_pathkey, att.name().into()));
+                    if let Some(search_field) = schema.search_field(att.name()) {
+                        if search_field.is_lower_sortable() {
+                            return Some(OrderByStyle::Field(first_pathkey, att.name().into()));
+                        }
                     }
                 }
             } else if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expr) {
@@ -1316,8 +1306,10 @@ unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
                     let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                     let tupdesc = heaprel.tuple_desc();
                     if let Some(att) = tupdesc.get(attno as usize - 1) {
-                        if schema.is_field_raw_sortable(&att.name().into()) {
-                            return Some(OrderByStyle::Field(first_pathkey, att.name().into()));
+                        if let Some(search_field) = schema.search_field(att.name()) {
+                            if search_field.is_raw_sortable() {
+                                return Some(OrderByStyle::Field(first_pathkey, att.name().into()));
+                            }
                         }
                     }
                 }
@@ -1329,8 +1321,10 @@ unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
                 let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                 let tupdesc = heaprel.tuple_desc();
                 if let Some(att) = tupdesc.get(attno as usize - 1) {
-                    if schema.is_field_raw_sortable(&att.name().into()) {
-                        return Some(OrderByStyle::Field(first_pathkey, att.name().into()));
+                    if let Some(search_field) = schema.search_field(att.name()) {
+                        if search_field.is_raw_sortable() {
+                            return Some(OrderByStyle::Field(first_pathkey, att.name().into()));
+                        }
                     }
                 }
             }
@@ -1486,166 +1480,4 @@ unsafe fn collect_maybe_fast_field_referenced_columns(
     }
 
     referenced_columns
-}
-
-/// Check if our @@@ operator is used in join conditions involving the specified relation
-unsafe fn uses_our_operator_in_join_conditions(
-    root: *mut pg_sys::PlannerInfo,
-    rti: pg_sys::Index,
-    our_operator_oid: pg_sys::Oid,
-) -> bool {
-    // Get the query tree
-    let parse = (*root).parse;
-    if parse.is_null() {
-        return false;
-    }
-
-    // Check the main jointree for join conditions
-    let jointree = (*parse).jointree;
-    if jointree.is_null() {
-        return false;
-    }
-
-    check_node_for_our_operator(jointree.cast(), rti, our_operator_oid)
-}
-
-/// Recursively check a node and its children for our @@@ operator involving the specified relation
-unsafe fn check_node_for_our_operator(
-    node: *mut pg_sys::Node,
-    rti: pg_sys::Index,
-    our_operator_oid: pg_sys::Oid,
-) -> bool {
-    if node.is_null() {
-        return false;
-    }
-
-    match (*node).type_ {
-        pg_sys::NodeTag::T_FromExpr => {
-            let from_expr = node.cast::<pg_sys::FromExpr>();
-
-            // Check quals (join conditions) in this FromExpr
-            if !(*from_expr).quals.is_null()
-                && check_expr_for_our_operator((*from_expr).quals.cast(), rti, our_operator_oid)
-            {
-                return true;
-            }
-
-            // Recursively check child nodes
-            if !(*from_expr).fromlist.is_null() {
-                let fromlist = PgList::<pg_sys::Node>::from_pg((*from_expr).fromlist);
-                for child_node in fromlist.iter_ptr() {
-                    if check_node_for_our_operator(child_node, rti, our_operator_oid) {
-                        return true;
-                    }
-                }
-            }
-        }
-
-        pg_sys::NodeTag::T_JoinExpr => {
-            let join_expr = node.cast::<pg_sys::JoinExpr>();
-
-            // Check join quals
-            if !(*join_expr).quals.is_null()
-                && check_expr_for_our_operator((*join_expr).quals.cast(), rti, our_operator_oid)
-            {
-                return true;
-            }
-
-            // Recursively check left and right subtrees
-            if check_node_for_our_operator((*join_expr).larg, rti, our_operator_oid)
-                || check_node_for_our_operator((*join_expr).rarg, rti, our_operator_oid)
-            {
-                return true;
-            }
-        }
-
-        _ => {
-            // For other node types, we don't expect join conditions
-        }
-    }
-
-    false
-}
-
-/// Check if an expression contains our @@@ operator involving the specified relation
-unsafe fn check_expr_for_our_operator(
-    expr: *mut pg_sys::Expr,
-    rti: pg_sys::Index,
-    our_operator_oid: pg_sys::Oid,
-) -> bool {
-    if expr.is_null() {
-        return false;
-    }
-
-    match (*expr.cast::<pg_sys::Node>()).type_ {
-        pg_sys::NodeTag::T_OpExpr => {
-            let op_expr = expr.cast::<pg_sys::OpExpr>();
-
-            // Check if this is our @@@ operator
-            if (*op_expr).opno == our_operator_oid {
-                // Check if any argument references our relation
-                let args = PgList::<pg_sys::Node>::from_pg((*op_expr).args);
-                for arg in args.iter_ptr() {
-                    if expr_references_relation(arg, rti) {
-                        return true;
-                    }
-                }
-            }
-        }
-
-        pg_sys::NodeTag::T_BoolExpr => {
-            let bool_expr = expr.cast::<pg_sys::BoolExpr>();
-            let args = PgList::<pg_sys::Expr>::from_pg((*bool_expr).args);
-
-            // Recursively check all arguments
-            for arg in args.iter_ptr() {
-                if check_expr_for_our_operator(arg, rti, our_operator_oid) {
-                    return true;
-                }
-            }
-        }
-
-        pg_sys::NodeTag::T_List => {
-            let list = expr.cast::<pg_sys::List>();
-            let list_elements = PgList::<pg_sys::Node>::from_pg(list);
-
-            // Recursively check all list elements
-            for element in list_elements.iter_ptr() {
-                if check_expr_for_our_operator(element.cast(), rti, our_operator_oid) {
-                    return true;
-                }
-            }
-        }
-
-        _ => {
-            // For other expression types, we assume they don't contain our operator
-        }
-    }
-
-    false
-}
-
-/// Check if an expression references the specified relation
-unsafe fn expr_references_relation(expr: *mut pg_sys::Node, rti: pg_sys::Index) -> bool {
-    if expr.is_null() {
-        return false;
-    }
-
-    match (*expr).type_ {
-        pg_sys::NodeTag::T_Var => {
-            let var = expr.cast::<pg_sys::Var>();
-            (*var).varno as pg_sys::Index == rti
-        }
-
-        pg_sys::NodeTag::T_RelabelType => {
-            let relabel = expr.cast::<pg_sys::RelabelType>();
-            expr_references_relation((*relabel).arg.cast(), rti)
-        }
-
-        _ => {
-            // For other node types, assume they don't reference our relation
-            // We could extend this to handle more cases if needed
-            false
-        }
-    }
 }

@@ -19,32 +19,26 @@ use crate::api::{HashMap, HashSet};
 use anyhow::Result;
 use pgrx::{pg_sys, PgRelation};
 use tantivy::index::SegmentId;
-use tantivy::indexer::{NoMergePolicy, UserOperation};
+use tantivy::indexer::{AddOperation, NoMergePolicy, SegmentWriter, UserOperation};
 use tantivy::schema::Field;
 use tantivy::{
-    DocId, Index, IndexSettings, IndexWriter, Opstamp, SegmentMeta, TantivyDocument, TantivyError,
+    Directory, DocId, Index, IndexMeta, IndexWriter, Opstamp, Segment, SegmentMeta,
+    TantivyDocument, TantivyError,
 };
 use thiserror::Error;
 
 use crate::index::channel::{ChannelDirectory, ChannelRequestHandler};
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
-use crate::index::{get_index_schema, setup_tokenizers, WriterResources};
+use crate::index::{setup_tokenizers, WriterResources};
 use crate::postgres::storage::block::SegmentMetaEntry;
-use crate::{
-    postgres::types::TantivyValueError,
-    schema::{SearchDocument, SearchIndexSchema},
-};
+use crate::{postgres::types::TantivyValueError, schema::SearchIndexSchema};
 
 // NB:  should this be a GUC?  Could be useful or could just complicate things for the user
-/// How big should our insert queue get before we go ahead and add them to the tantivy index?
-const MAX_INSERT_QUEUE_SIZE: usize = 1000;
+/// How big should our delete queue get before we go ahead and remove them?
+const MAX_DELETE_QUEUE_SIZE: usize = 1000;
 
-/// The entity that interfaces with Tantivy indexes.
-pub struct SearchIndexWriter {
-    pub indexrelid: pg_sys::Oid,
-    pub schema: SearchIndexSchema,
-    ctid_field: Field,
-
+/// Responsible for deleting documents from a tantivy index
+pub struct SearchIndexDeleter {
     // keep all these private -- leaking them to the public API would allow callers to
     // mis-use the IndexWriter in particular.
     writer: IndexWriter,
@@ -54,7 +48,7 @@ pub struct SearchIndexWriter {
     cnt: usize,
 }
 
-impl SearchIndexWriter {
+impl SearchIndexDeleter {
     pub fn open(
         index_relation: &PgRelation,
         directory_type: MvccSatisfies,
@@ -74,7 +68,7 @@ impl SearchIndexWriter {
                 })
                 .expect("scoped thread should not fail")?
         };
-        setup_tokenizers(&mut index, index_relation);
+        setup_tokenizers(index_relation.oid(), &mut index)?;
 
         let index_clone = index.clone();
         let writer = handler
@@ -86,62 +80,10 @@ impl SearchIndexWriter {
             })
             .expect("scoped thread should not fail")?;
 
-        let schema = SearchIndexSchema::open(index.schema(), index_relation);
-        let ctid_field = schema.schema.get_field("ctid")?;
-
         Ok(Self {
-            indexrelid: index_relation.oid(),
             writer,
-            schema,
             handler,
-            ctid_field,
-            insert_queue: Vec::with_capacity(MAX_INSERT_QUEUE_SIZE),
-            cnt: 0,
-        })
-    }
-
-    pub fn create_index(index_relation: &PgRelation) -> Result<Self> {
-        let schema = get_index_schema(index_relation)?;
-        let (parallelism, memory_budget) = WriterResources::CreateIndex.resources();
-
-        let (req_sender, req_receiver) = crossbeam::channel::bounded(1);
-        let channel_dir = ChannelDirectory::new(req_sender);
-        let mut handler =
-            MvccSatisfies::Snapshot.channel_request_handler(index_relation, req_receiver);
-
-        let mut index = {
-            let schema = schema.clone();
-            let settings = IndexSettings {
-                docstore_compress_dedicated_thread: false,
-                ..IndexSettings::default()
-            };
-
-            handler
-                .wait_for(move || {
-                    let index = Index::create(channel_dir, schema.schema.clone(), settings)?;
-                    tantivy::Result::Ok(index)
-                })
-                .expect("scoped thread should not fail")?
-        };
-        setup_tokenizers(&mut index, index_relation);
-
-        let writer = handler
-            .wait_for(move || {
-                let writer = index.writer_with_num_threads(parallelism.get(), memory_budget)?;
-                writer.set_merge_policy(Box::new(NoMergePolicy));
-                tantivy::Result::Ok(writer)
-            })
-            .expect("scoped thread should not fail")?;
-
-        let ctid_field = schema.schema.get_field("ctid")?;
-
-        Ok(Self {
-            indexrelid: index_relation.oid(),
-            writer,
-            schema,
-            ctid_field,
-            handler,
-            insert_queue: Vec::with_capacity(MAX_INSERT_QUEUE_SIZE),
+            insert_queue: Vec::with_capacity(MAX_DELETE_QUEUE_SIZE),
             cnt: 0,
         })
     }
@@ -158,21 +100,7 @@ impl SearchIndexWriter {
     pub fn delete_document(&mut self, segment_id: SegmentId, doc_id: DocId) -> Result<()> {
         self.insert_queue
             .push(UserOperation::DeleteByAddress(segment_id, doc_id));
-        if self.insert_queue.len() >= MAX_INSERT_QUEUE_SIZE {
-            self.drain_insert_queue()?;
-        }
-        Ok(())
-    }
-
-    pub fn insert(&mut self, document: SearchDocument, ctid: u64) -> Result<()> {
-        self.cnt += 1;
-        let mut tantivy_document: TantivyDocument = document.into();
-
-        tantivy_document.add_u64(self.ctid_field, ctid);
-
-        self.insert_queue.push(UserOperation::Add(tantivy_document));
-
-        if self.insert_queue.len() >= MAX_INSERT_QUEUE_SIZE {
+        if self.insert_queue.len() >= MAX_DELETE_QUEUE_SIZE {
             self.drain_insert_queue()?;
         }
         Ok(())
@@ -203,6 +131,106 @@ impl SearchIndexWriter {
         self.handler
             .wait_for(move || writer.run(insert_queue))
             .expect("spawned thread should not fail")
+    }
+}
+
+/// Unlike Tantivy's IndexWriter, the SerialIndexWriter does not spin up any threads.
+/// Everything happens in the foreground, making it ideal for Postgres.
+pub struct SerialIndexWriter {
+    indexrelid: pg_sys::Oid,
+    ctid_field: Field,
+    current_segment: Option<(Segment, SegmentWriter)>,
+    memory_budget: usize,
+    index: Index,
+    new_metas: Vec<SegmentMeta>,
+}
+
+impl SerialIndexWriter {
+    pub fn open(index_relation: &PgRelation, memory_budget: usize) -> Result<Self> {
+        Self::with_mvcc(index_relation, MvccSatisfies::Snapshot, memory_budget)
+    }
+
+    pub fn with_mvcc(
+        index_relation: &PgRelation,
+        mvcc_satisfies: MvccSatisfies,
+        memory_budget: usize,
+    ) -> Result<Self> {
+        let directory = mvcc_satisfies.directory(index_relation);
+        let mut index = Index::open(directory)?;
+        let schema = SearchIndexSchema::open(index_relation.oid())?;
+        setup_tokenizers(index_relation.oid(), &mut index)?;
+        let ctid_field = schema.ctid_field();
+
+        Ok(Self {
+            indexrelid: index_relation.oid(),
+            ctid_field,
+            memory_budget,
+            index,
+            current_segment: Default::default(),
+            new_metas: Default::default(),
+        })
+    }
+
+    pub fn index_oid(&self) -> pg_sys::Oid {
+        self.indexrelid
+    }
+
+    pub fn insert(&mut self, mut document: TantivyDocument, ctid: u64) -> Result<()> {
+        document.add_u64(self.ctid_field, ctid);
+
+        if self.current_segment.is_none() {
+            let new_segment = self.index.new_segment();
+            let new_writer = SegmentWriter::for_segment(self.memory_budget, new_segment.clone())?;
+            self.current_segment = Some((new_segment, new_writer));
+        }
+
+        self.current_segment
+            .as_mut()
+            .unwrap()
+            .1
+            .add_document(AddOperation {
+                opstamp: 0,
+                document,
+            })?;
+
+        if self.memory_budget <= self.current_segment.as_ref().unwrap().1.mem_usage() {
+            self.finalize_segment()?;
+        }
+
+        Ok(())
+    }
+
+    pub fn commit(mut self) -> Result<Vec<SegmentId>> {
+        self.finalize_segment()?;
+
+        // Save new metas
+        let current_metas = self.index.load_metas()?;
+        let current_segments = current_metas.clone().segments;
+        let segment_ids = current_segments
+            .iter()
+            .map(|meta| meta.id())
+            .collect::<Vec<_>>();
+        let new_metas = IndexMeta {
+            segments: [self.new_metas, current_segments].concat(),
+            ..current_metas.clone()
+        };
+        self.index
+            .directory()
+            .save_metas(&new_metas, &current_metas, &mut ())?;
+        Ok(segment_ids)
+    }
+
+    fn finalize_segment(&mut self) -> Result<()> {
+        let Some((segment, writer)) = self.current_segment.take() else {
+            // no docs were ever added
+            return Ok(());
+        };
+
+        let max_doc = writer.max_doc();
+        writer.finalize()?;
+        let segment = segment.with_max_doc(max_doc);
+        self.new_metas.push(segment.meta().clone());
+        Ok(())
     }
 }
 

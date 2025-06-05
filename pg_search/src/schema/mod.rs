@@ -428,7 +428,6 @@ mod tests {
             "indexed": true,
             "fast": false,
             "fieldnorms": true,
-            "type": "default",
             "record": "basic",
             "normalizer": "raw"
         }"#;
@@ -451,7 +450,6 @@ mod tests {
     fn test_search_numeric_options() {
         let json = r#"{
             "indexed": true,
-            "fieldnorms": false,
             "fast": true
         }"#;
         let config: serde_json::Value = serde_json::from_str(json).unwrap();
@@ -466,7 +464,6 @@ mod tests {
     fn test_search_boolean_options() {
         let json = r#"{
             "indexed": true,
-            "fieldnorms": false,
             "fast": true
         }"#;
         let config: serde_json::Value = serde_json::from_str(json).unwrap();
@@ -483,7 +480,6 @@ mod tests {
             "indexed": true,
             "fast": false,
             "expand_dots": true,
-            "type": "default",
             "record": "basic",
             "normalizer": "raw"
         }"#;

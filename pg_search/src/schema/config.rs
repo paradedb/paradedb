@@ -137,7 +137,7 @@ impl SearchFieldConfig {
         }
     }
 
-    pub fn column(&self) -> Option<&str> {
+    pub fn alias(&self) -> Option<&str> {
         match self {
             Self::Text { column, .. } | Self::Json { column, .. } => column.as_deref(),
             _ => None,
@@ -162,21 +162,19 @@ impl SearchFieldConfig {
         Self::from_json(json!({"Text": {}}))
     }
 
+    #[allow(deprecated)]
     pub fn default_uuid() -> Self {
-        SearchFieldConfig::Text {
-            indexed: true,
-            fast: true,
-            fieldnorms: false,
-
+        let mut config = Self::from_json(json!({"Text": {}}));
+        if let SearchFieldConfig::Text {
+            ref mut tokenizer, ..
+        } = config
+        {
             // NB:  This should use the `SearchTokenizer::Keyword` tokenizer but for historical
             // reasons it uses the `SearchTokenizer::Raw` tokenizer but with the same filters
             // configuration as the `SearchTokenizer::Keyword` tokenizer.
-            #[allow(deprecated)]
-            tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::keyword().clone()),
-            record: IndexRecordOption::Basic,
-            normalizer: SearchNormalizer::Raw,
-            column: None,
+            *tokenizer = SearchTokenizer::Raw(SearchTokenizerFilters::keyword().clone());
         }
+        config
     }
 
     pub fn default_numeric() -> Self {

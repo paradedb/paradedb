@@ -280,8 +280,8 @@ impl SearchIndexOptions {
             return config;
         }
 
-        let field_type = match field_config.as_ref().and_then(|config| config.column()) {
-            Some(column) => self.aliased_field_type(column, relation_oid),
+        let field_type = match field_config.as_ref().and_then(|config| config.alias()) {
+            Some(alias) => self.aliased_field_type(alias, relation_oid),
             None => self.field_type(field_name, relation_oid),
         };
         field_config.unwrap_or_else(|| field_type.default_config())
@@ -375,9 +375,9 @@ impl SearchIndexOptions {
         deserialize_config_fields(config, &SearchFieldConfig::text_from_json)
             .into_iter()
             .filter(|(_field_name, config)| {
-                if let Some(column) = config.column() {
+                if let Some(alias) = config.alias() {
                     assert!(matches!(
-                        self.aliased_field_type(column, relation_oid),
+                        self.aliased_field_type(alias, relation_oid),
                         SearchFieldType::Text(_)
                     ));
                     true
@@ -399,9 +399,9 @@ impl SearchIndexOptions {
         deserialize_config_fields(config, &SearchFieldConfig::json_from_json)
             .into_iter()
             .filter(|(_field_name, config)| {
-                if let Some(column) = config.column() {
+                if let Some(alias) = config.alias() {
                     assert!(matches!(
-                        self.aliased_field_type(column, relation_oid),
+                        self.aliased_field_type(alias, relation_oid),
                         SearchFieldType::Json(_)
                     ));
                     true
@@ -542,9 +542,10 @@ fn deserialize_config_fields(
         .into_iter()
         .map(|(field_name, field_config)| {
             (
-                field_name.into(),
-                parser(field_config)
-                    .expect("field config should be valid for SearchFieldConfig::{field_name}"),
+                field_name.clone().into(),
+                parser(field_config).unwrap_or_else(|_| {
+                    panic!("field config should be valid for SearchFieldConfig::{field_name}")
+                }),
             )
         })
         .collect()

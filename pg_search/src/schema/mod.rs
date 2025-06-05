@@ -218,27 +218,27 @@ impl SearchIndexSchema {
         let aliased_json_configs = options.get_aliased_json_configs(self.relation_oid);
 
         for (alias_name, config) in aliased_text_configs {
-            let column = config
-                .column()
-                .expect("aliased text config must have a column");
+            let alias = config
+                .alias()
+                .expect("aliased text config must have an alias");
             let alias_field = self
                 .search_field(alias_name)
                 .expect("aliased text config must have a search field");
             lookup
-                .entry(column.to_string())
+                .entry(alias.to_string())
                 .or_insert_with(Vec::new)
                 .push(alias_field);
         }
 
         for (alias_name, config) in aliased_json_configs {
-            let column = config
-                .column()
-                .expect("aliased json config must have a column");
+            let alias = config
+                .alias()
+                .expect("aliased json config must have an alias");
             let alias_field = self
                 .search_field(alias_name)
                 .expect("aliased json config must have a search field");
             lookup
-                .entry(column.to_string())
+                .entry(alias.to_string())
                 .or_insert_with(Vec::new)
                 .push(alias_field);
         }
@@ -263,7 +263,7 @@ impl SearchField {
         let field_name = schema.get_field_name(field);
         let field_config =
             options.field_config_or_default(&FieldName::from(field_name), relation_oid);
-        let attribute_name = field_config.column().unwrap_or(field_name);
+        let attribute_name = field_config.alias().unwrap_or(field_name);
         let tuple_desc = index_relation.tuple_desc();
         let attribute = tuple_desc
             .iter()

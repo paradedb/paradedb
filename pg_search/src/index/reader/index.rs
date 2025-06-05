@@ -442,15 +442,9 @@ impl SearchIndexReader {
             );
             let field = self
                 .schema
-                .get_search_field(&sort_field)
+                .search_field(&sort_field)
                 .expect("sort field should exist in index schema");
-            match self
-                .schema
-                .schema
-                .get_field_entry(field.into())
-                .field_type()
-                .value_type()
-            {
+            match field.field_entry().field_type().value_type() {
                 tantivy::schema::Type::Str => self.top_by_string_field_in_segments(
                     segment_ids,
                     query,

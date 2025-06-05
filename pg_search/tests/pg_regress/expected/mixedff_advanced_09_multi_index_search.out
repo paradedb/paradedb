@@ -590,8 +590,12 @@ ORDER BY pr.avg_rating DESC, paradedb.score(tp.id), tp.price DESC;
                                        ->  Seq Scan on reviews r
                                              Filter: (rating >= 3)
                ->  Hash
-                     ->  Seq Scan on categories c
-                           Filter: is_active
+                     ->  Custom Scan (ParadeDB Scan) on categories c
+                           Table: categories
+                           Index: categories_idx
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"term":{"field":"is_active","value":true,"is_datetime":false}}
          ->  Hash
                ->  Subquery Scan on tp
                      ->  Limit
@@ -604,7 +608,7 @@ ORDER BY pr.avg_rating DESC, paradedb.score(tp.id), tp.price DESC;
                                     Sort Direction: desc
                                     Top N Limit: 50
                                  Tantivy Query: {"boolean":{"must":[{"range":{"field":"price","lower_bound":{"included":100.0},"upper_bound":null,"is_datetime":false}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":800.0},"is_datetime":false}},{"term":{"field":"is_available","value":true,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}}]}}
-(31 rows)
+(35 rows)
 
 WITH top_products AS (
     SELECT p.id, p.name, p.price, p.stock_count

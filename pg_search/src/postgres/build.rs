@@ -175,7 +175,7 @@ fn create_index(index_relation: &PgRelation) -> Result<()> {
                 attribute.name()
             )
         });
-        let config = options.field_config_or_default(&name, index_relation.oid());
+        let config = options.field_config_or_default(&name);
 
         match field_type {
             SearchFieldType::Text(_) => builder.add_text_field(name.as_ref(), config.clone()),
@@ -191,17 +191,17 @@ fn create_index(index_relation: &PgRelation) -> Result<()> {
     }
 
     // Now add any aliased fields
-    for (name, config) in options.get_aliased_text_configs(index_relation.oid()) {
+    for (name, config) in options.aliased_text_configs() {
         builder.add_text_field(name.as_ref(), config.clone());
     }
-    for (name, config) in options.get_aliased_json_configs(index_relation.oid()) {
+    for (name, config) in options.aliased_json_configs() {
         builder.add_json_field(name.as_ref(), config.clone());
     }
 
     // Add ctid field
     builder.add_u64_field(
         "ctid",
-        options.field_config_or_default(&FieldName::from("ctid"), index_relation.oid()),
+        options.field_config_or_default(&FieldName::from("ctid")),
     );
 
     let schema = builder.build();

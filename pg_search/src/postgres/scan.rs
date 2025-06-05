@@ -125,8 +125,8 @@ pub extern "C-unwind" fn amrescan(
     unsafe {
         parallel::maybe_init_parallel_scan(scan, &search_reader);
 
-        let options = (*(*scan).indexRelation).rd_options as *mut SearchIndexOptions;
-        let key_field = (*options).key_field_name();
+        let options = SearchIndexOptions::from_relation(&indexrel);
+        let key_field = options.key_field_name();
         let key_field_type = search_reader.key_field().field_type().into();
 
         let need_scores = search_query_input.need_scores();

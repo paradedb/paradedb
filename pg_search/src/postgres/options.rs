@@ -46,22 +46,6 @@ use tokenizers::{SearchNormalizer, SearchTokenizer};
 
 static mut RELOPT_KIND_PDB: pg_sys::relopt_kind::Type = 0;
 
-// Postgres handles string options by placing each option offset bytes from the start of rdopts and
-// plops the offset in the struct
-#[repr(C)]
-pub struct SearchIndexOptionsData {
-    // varlena header (needed bc postgres treats this as bytea)
-    vl_len_: i32,
-    text_fields_offset: i32,
-    numeric_fields_offset: i32,
-    boolean_fields_offset: i32,
-    json_fields_offset: i32,
-    range_fields_offset: i32,
-    datetime_fields_offset: i32,
-    key_field_offset: i32,
-    layer_sizes_offset: i32,
-}
-
 #[pg_guard]
 extern "C-unwind" fn validate_text_fields(value: *const std::os::raw::c_char) {
     let json_str = cstr_to_rust_str(value);
@@ -243,7 +227,7 @@ unsafe fn build_relopts(
     rdopts as *mut pg_sys::bytea
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct SearchIndexOptions {
     layer_sizes: Vec<u64>,
     key_field_name: FieldName,
@@ -253,6 +237,7 @@ pub struct SearchIndexOptions {
     json_configs: HashMap<FieldName, SearchFieldConfig>,
     range_configs: HashMap<FieldName, SearchFieldConfig>,
     datetime_configs: HashMap<FieldName, SearchFieldConfig>,
+    relation_oid: pg_sys::Oid,
 }
 
 impl SearchIndexOptions {
@@ -267,6 +252,7 @@ impl SearchIndexOptions {
             json_configs: data.json_configs(),
             range_configs: data.range_configs(),
             datetime_configs: data.datetime_configs(),
+            relation_oid: indexrel.oid(),
         }
     }
 
@@ -278,34 +264,29 @@ impl SearchIndexOptions {
         self.key_field_name.clone()
     }
 
-    pub fn field_config_or_default(
-        &self,
-        field_name: &FieldName,
-        relation_oid: pg_sys::Oid,
-    ) -> SearchFieldConfig {
-        let field_config = self.field_config(field_name, relation_oid);
+    /// Returns either the config explicitly set in the CREATE INDEX WITH options,
+    /// falling back to the default config for the field type.
+    pub fn field_config_or_default(&self, field_name: &FieldName) -> SearchFieldConfig {
+        let field_config = self.field_config(field_name);
         if let Some(config) = field_config {
             return config;
         }
 
         let field_type = match field_config.as_ref().and_then(|config| config.alias()) {
-            Some(alias) => self.aliased_field_type(alias, relation_oid),
-            None => self.field_type(field_name, relation_oid),
+            Some(alias) => self.aliased_field_type(alias),
+            None => self.field_type(field_name),
         };
         field_config.unwrap_or_else(|| field_type.default_config())
     }
 
-    pub fn field_config(
-        &self,
-        field_name: &FieldName,
-        relation_oid: pg_sys::Oid,
-    ) -> Option<SearchFieldConfig> {
+    /// Returns the config only if it is explicitly set in the CREATE INDEX WITH options
+    pub fn field_config(&self, field_name: &FieldName) -> Option<SearchFieldConfig> {
         if field_name.is_ctid() {
             return Some(ctid_field_config());
         }
 
-        if field_name.root() == self.key_field_name().root() {
-            return Some(key_field_config(&self.field_type(field_name, relation_oid)));
+        if field_name.root() == self.key_field_name.root() {
+            return Some(key_field_config(&self.field_type(field_name)));
         }
 
         self.text_configs
@@ -318,17 +299,15 @@ impl SearchIndexOptions {
             .or_else(|| self.datetime_configs.get(field_name).cloned())
     }
 
-    pub fn get_aliased_text_configs(
-        &self,
-        relation_oid: pg_sys::Oid,
-    ) -> HashMap<FieldName, SearchFieldConfig> {
+    /// Returns a `HashMap` of aliased text field names and their configs.
+    pub fn aliased_text_configs(&self) -> HashMap<FieldName, SearchFieldConfig> {
         self.text_configs
             .clone()
             .into_iter()
             .filter(|(_field_name, config)| {
                 if let Some(alias) = config.alias() {
                     assert!(matches!(
-                        self.aliased_field_type(alias, relation_oid),
+                        self.aliased_field_type(alias),
                         SearchFieldType::Text(_)
                     ));
                     true
@@ -339,17 +318,15 @@ impl SearchIndexOptions {
             .collect()
     }
 
-    pub fn get_aliased_json_configs(
-        &self,
-        relation_oid: pg_sys::Oid,
-    ) -> HashMap<FieldName, SearchFieldConfig> {
+    /// Returns a `HashMap` of aliased JSON field names and their configs.
+    pub fn aliased_json_configs(&self) -> HashMap<FieldName, SearchFieldConfig> {
         self.json_configs
             .clone()
             .into_iter()
             .filter(|(_field_name, config)| {
                 if let Some(alias) = config.alias() {
                     assert!(matches!(
-                        self.aliased_field_type(alias, relation_oid),
+                        self.aliased_field_type(alias),
                         SearchFieldType::Json(_)
                     ));
                     true
@@ -360,12 +337,12 @@ impl SearchIndexOptions {
             .collect()
     }
 
-    fn aliased_field_type(&self, alias: &str, relation_oid: pg_sys::Oid) -> SearchFieldType {
+    fn aliased_field_type(&self, alias: &str) -> SearchFieldType {
         if alias == self.key_field_name().root() {
             panic!("key field cannot be aliased");
         }
 
-        let index_relation = unsafe { PgRelation::open(relation_oid) };
+        let index_relation = unsafe { PgRelation::open(self.relation_oid) };
         let tuple_desc = index_relation.tuple_desc();
         let attribute_oid = tuple_desc
             .iter()
@@ -375,8 +352,8 @@ impl SearchIndexOptions {
         (&attribute_oid).try_into().unwrap()
     }
 
-    fn field_type(&self, field_name: &FieldName, relation_oid: pg_sys::Oid) -> SearchFieldType {
-        let index_relation = unsafe { PgRelation::open(relation_oid) };
+    fn field_type(&self, field_name: &FieldName) -> SearchFieldType {
+        let index_relation = unsafe { PgRelation::open(self.relation_oid) };
         let tuple_desc = index_relation.tuple_desc();
         let attribute_oid = tuple_desc
             .iter()
@@ -387,20 +364,29 @@ impl SearchIndexOptions {
     }
 }
 
+// Postgres handles string options by placing each option offset bytes from the start of rdopts and
+// plops the offset in the struct
+#[repr(C)]
+struct SearchIndexOptionsData {
+    // varlena header (needed bc postgres treats this as bytea)
+    vl_len_: i32,
+    text_fields_offset: i32,
+    numeric_fields_offset: i32,
+    boolean_fields_offset: i32,
+    json_fields_offset: i32,
+    range_fields_offset: i32,
+    datetime_fields_offset: i32,
+    key_field_offset: i32,
+    layer_sizes_offset: i32,
+}
+
 impl SearchIndexOptionsData {
-    pub unsafe fn from_relation(indexrel: &PgRelation) -> PgBox<Self> {
-        if indexrel.rd_options.is_null() {
-            let ops = unsafe { PgBox::<Self>::alloc0() };
-            unsafe {
-                pgrx::varlena::set_varsize_4b(
-                    ops.as_ptr().cast(),
-                    std::mem::size_of::<Self>() as i32,
-                );
-            }
-            ops.into_pg_boxed()
-        } else {
-            PgBox::from_pg(indexrel.rd_options as *mut Self)
+    pub unsafe fn from_relation(indexrel: &PgRelation) -> &Self {
+        let mut ptr = indexrel.rd_options as *const Self;
+        if ptr.is_null() {
+            ptr = pg_sys::palloc0(std::mem::size_of::<Self>()) as *const Self;
         }
+        ptr.as_ref().unwrap()
     }
 
     /// Returns the configured `layer_sizes`, split into a [`Vec<u64>`] of byte sizes.

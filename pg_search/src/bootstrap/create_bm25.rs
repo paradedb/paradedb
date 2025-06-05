@@ -45,8 +45,7 @@ pub unsafe fn index_fields(index: PgRelation) -> anyhow::Result<JsonB> {
     let mut name_and_config = HashMap::default();
     for (_, field_entry) in schema.fields() {
         let field_name = field_entry.name();
-        let field_config =
-            options.field_config_or_default(&FieldName::from(field_name), index.oid());
+        let field_config = options.field_config_or_default(&FieldName::from(field_name));
         name_and_config.insert(field_name, field_config);
     }
 

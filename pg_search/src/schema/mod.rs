@@ -214,8 +214,8 @@ impl SearchIndexSchema {
         let index_relation = unsafe { PgRelation::open(self.relation_oid) };
 
         let options = unsafe { SearchIndexOptions::from_relation(&index_relation) };
-        let aliased_text_configs = options.get_aliased_text_configs(self.relation_oid);
-        let aliased_json_configs = options.get_aliased_json_configs(self.relation_oid);
+        let aliased_text_configs = options.aliased_text_configs();
+        let aliased_json_configs = options.aliased_json_configs();
 
         for (alias_name, config) in aliased_text_configs {
             let alias = config
@@ -261,8 +261,7 @@ impl SearchField {
         let options = unsafe { SearchIndexOptions::from_relation(&index_relation) };
 
         let field_name = schema.get_field_name(field);
-        let field_config =
-            options.field_config_or_default(&FieldName::from(field_name), relation_oid);
+        let field_config = options.field_config_or_default(&FieldName::from(field_name));
         let attribute_name = field_config.alias().unwrap_or(field_name);
         let tuple_desc = index_relation.tuple_desc();
         let attribute = tuple_desc

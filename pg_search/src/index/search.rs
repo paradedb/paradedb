@@ -68,7 +68,7 @@ pub fn setup_tokenizers(relation_oid: pg_sys::Oid, index: &mut Index) -> Result<
             continue;
         }
 
-        let config = options.field_config_or_default(&search_field.field_name(), relation_oid);
+        let config = options.field_config_or_default(&search_field.field_name());
         if let Some(tokenizer) = config.tokenizer().cloned() {
             tokenizers.push(tokenizer);
         }

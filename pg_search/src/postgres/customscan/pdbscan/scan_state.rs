@@ -201,8 +201,8 @@ impl PdbScanState {
     pub fn determine_key_field(&self) -> FieldName {
         unsafe {
             let indexrel = PgRelation::with_lock(self.indexrelid, pg_sys::AccessShareLock as _);
-            let ops = indexrel.rd_options as *mut SearchIndexOptions;
-            (*ops).key_field_name()
+            let ops = SearchIndexOptions::from_relation(&indexrel);
+            ops.key_field_name()
         }
     }
 

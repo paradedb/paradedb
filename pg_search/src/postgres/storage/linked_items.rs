@@ -235,7 +235,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
 
                 // return it to the FSM. Doing so will also drop the lock, but we are still
                 // holding the lock on the previous page, so hand-over-hand is ensured.
-                buffer.return_to_fsm(&mut self.bman);
+                self.bman.add_to_fsm_queue(buffer.number());
             } else {
                 // this is either the start page, or a page containing valid data. move its buffer
                 // into previous_buffer to ensure that it is held hand-over-hand until we decide
@@ -292,7 +292,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
                     buffer = self.bman.get_buffer_mut(next_blockno);
                 } else {
                     // need to create new block and link it to this one
-                    let mut new_page = self.bman.extend_relation();
+                    let mut new_page = self.bman.new_buffer();
                     let new_blockno = new_page.number();
                     new_page.init_page();
 
@@ -477,7 +477,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> AtomicGuard<'_,
             *original_metadata = *cloned_header_page.contents_mut::<LinkedListData>();
 
             // Finally, garbage collect the cloned header block.
-            cloned_header_buffer.return_to_fsm(&mut self.cloned.bman);
+            self.bman.add_to_fsm_queue(cloned_header_buffer.number());
 
             old_start_blockno
         };
@@ -490,8 +490,10 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> AtomicGuard<'_,
         while blockno != pg_sys::InvalidBlockNumber {
             let buffer = original.bman_mut().get_buffer_mut(blockno);
             blockno = buffer.page().next_blockno();
-            buffer.return_to_fsm(&mut original.bman);
+            self.bman.add_to_fsm_queue(buffer.number());
         }
+
+        self.bman.flush_fsm_queue();
     }
 }
 
@@ -517,12 +519,14 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> Drop for Atomic
             .page()
             .contents::<LinkedListData>()
             .start_blockno;
-        header_buffer.return_to_fsm(bman);
+        bman.add_to_fsm_queue(header_blockno);
         while blockno != pg_sys::InvalidBlockNumber {
             let buffer = bman.get_buffer_mut(blockno);
             blockno = buffer.page().next_blockno();
-            buffer.return_to_fsm(bman);
+            bman.add_to_fsm_queue(buffer.number());
         }
+
+        bman.flush_fsm_queue();
     }
 }
 

@@ -101,20 +101,6 @@ impl BufferMut {
     pub fn page_size(&self) -> pg_sys::Size {
         self.inner.page_size()
     }
-
-    /// Return this [`BufferMut`] instance back to Postgres' Free Space Map, making
-    /// it available for future reuse as a new buffer.
-    ///
-    /// It's the caller's responsibility to later call [`pg_sys::IndexFreeSpaceMapVacuum`]
-    /// if necessary.
-    pub fn return_to_fsm(self, bman: &mut BufferManager) {
-        unsafe {
-            let metadata = MetaPage::open_or_init(bman.relation_oid());
-            let mut fsm = metadata.fsm();
-            let blockno = self.inner.number();
-            fsm.append_list(&[FreeBlockNumber::from(blockno)]);
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -415,12 +401,14 @@ impl PageHeaderMethods for pg_sys::PageHeaderData {
 #[derive(Debug)]
 pub struct BufferManager {
     bcache: BM25BufferCache,
+    fsm_queue: Vec<FreeBlockNumber>,
 }
 
 impl BufferManager {
     pub fn new(indexrelid: pg_sys::Oid) -> Self {
         Self {
             bcache: BM25BufferCache::open(indexrelid),
+            fsm_queue: Vec::new(),
         }
     }
 
@@ -559,5 +547,16 @@ impl BufferManager {
 
     pub fn page_is_empty(&self, blockno: pg_sys::BlockNumber) -> bool {
         self.get_buffer(blockno).page().is_empty()
+    }
+
+    pub fn add_to_fsm_queue(&mut self, blockno: impl Into<FreeBlockNumber>) {
+        self.fsm_queue.push(blockno.into());
+    }
+
+    pub fn flush_fsm_queue(&mut self) {
+        let metadata = unsafe { MetaPage::open_or_init(self.relation_oid()) };
+        let mut fsm = metadata.fsm();
+        let blocknos: Vec<_> = self.fsm_queue.drain(..).collect();
+        unsafe { fsm.append_list(&blocknos) };
     }
 }

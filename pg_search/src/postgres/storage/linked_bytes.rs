@@ -309,13 +309,13 @@ impl LinkedBytesList {
                 let page = buffer.page();
                 let special = page.special::<BM25PageSpecialData>();
 
+                self.bman.add_to_fsm_queue(blockno);
                 blockno = special.next_blockno;
-                buffer.return_to_fsm(&mut self.bman);
             }
         }
 
-        let header_buffer = self.bman.get_buffer_mut(self.header_blockno);
-        header_buffer.return_to_fsm(&mut self.bman);
+        self.bman.add_to_fsm_queue(self.header_blockno);
+        self.bman.flush_fsm_queue();
     }
 
     pub fn is_empty(&self) -> bool {

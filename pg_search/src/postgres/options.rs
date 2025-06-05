@@ -243,17 +243,18 @@ pub struct SearchIndexOptions {
 impl SearchIndexOptions {
     pub unsafe fn from_relation(indexrel: &PgRelation) -> Self {
         let data = SearchIndexOptionsData::from_relation(indexrel);
+        let key_field_name = data.key_field_name();
 
         let text_configs = data.text_configs();
         for (field_name, config) in &text_configs {
-            validate_field_name(field_name, config, indexrel.oid(), |t| {
+            validate_field_config(field_name, &key_field_name, config, indexrel.oid(), |t| {
                 matches!(t, SearchFieldType::Text(_) | SearchFieldType::Uuid(_))
             });
         }
 
         let numeric_configs = data.numeric_configs();
         for (field_name, config) in &numeric_configs {
-            validate_field_name(field_name, config, indexrel.oid(), |t| {
+            validate_field_config(field_name, &key_field_name, config, indexrel.oid(), |t| {
                 matches!(
                     t,
                     SearchFieldType::I64(_) | SearchFieldType::U64(_) | SearchFieldType::F64(_)
@@ -263,35 +264,35 @@ impl SearchIndexOptions {
 
         let boolean_configs = data.boolean_configs();
         for (field_name, config) in &boolean_configs {
-            validate_field_name(field_name, config, indexrel.oid(), |t| {
+            validate_field_config(field_name, &key_field_name, config, indexrel.oid(), |t| {
                 matches!(t, SearchFieldType::Bool(_))
             });
         }
 
         let json_configs = data.json_configs();
         for (field_name, config) in &json_configs {
-            validate_field_name(field_name, config, indexrel.oid(), |t| {
+            validate_field_config(field_name, &key_field_name, config, indexrel.oid(), |t| {
                 matches!(t, SearchFieldType::Json(_))
             });
         }
 
         let range_configs = data.range_configs();
         for (field_name, config) in &range_configs {
-            validate_field_name(field_name, config, indexrel.oid(), |t| {
+            validate_field_config(field_name, &key_field_name, config, indexrel.oid(), |t| {
                 matches!(t, SearchFieldType::Range(_))
             });
         }
 
         let datetime_configs = data.datetime_configs();
         for (field_name, config) in &datetime_configs {
-            validate_field_name(field_name, config, indexrel.oid(), |t| {
+            validate_field_config(field_name, &key_field_name, config, indexrel.oid(), |t| {
                 matches!(t, SearchFieldType::Date(_))
             });
         }
 
         Self {
             layer_sizes: data.layer_sizes(),
-            key_field_name: data.key_field_name(),
+            key_field_name,
             text_configs,
             numeric_configs,
             boolean_configs,
@@ -319,12 +320,7 @@ impl SearchIndexOptions {
         }
 
         let field_type = match field_config.as_ref().and_then(|config| config.alias()) {
-            Some(alias) => {
-                if alias == self.key_field_name().root() {
-                    panic!("key field cannot be aliased");
-                }
-                get_field_type(alias, self.relation_oid)
-            }
+            Some(alias) => get_field_type(alias, self.relation_oid),
             None => get_field_type(field_name, self.relation_oid),
         };
         field_config.unwrap_or_else(|| field_type.default_config())
@@ -437,76 +433,50 @@ impl SearchIndexOptionsData {
     }
 
     pub fn text_configs(&self) -> HashMap<FieldName, SearchFieldConfig> {
-        let mut configs = HashMap::default();
-        let config = self.get_str(self.text_fields_offset, "".to_string());
-        if !config.is_empty() {
-            let mut deserialized =
-                deserialize_config_fields(config, &SearchFieldConfig::text_from_json);
-            for (field_name, config) in deserialized.drain() {
-                configs.insert(field_name, config);
-            }
-        }
-        configs
+        self.deserialize_configs(self.text_fields_offset, &SearchFieldConfig::text_from_json)
     }
 
     pub fn numeric_configs(&self) -> HashMap<FieldName, SearchFieldConfig> {
-        let mut configs = HashMap::default();
-        let config = self.get_str(self.numeric_fields_offset, "".to_string());
-        if !config.is_empty() {
-            let mut deserialized =
-                deserialize_config_fields(config, &SearchFieldConfig::numeric_from_json);
-            for (field_name, config) in deserialized.drain() {
-                configs.insert(field_name, config);
-            }
-        }
-        configs
+        self.deserialize_configs(
+            self.numeric_fields_offset,
+            &SearchFieldConfig::numeric_from_json,
+        )
     }
 
     pub fn boolean_configs(&self) -> HashMap<FieldName, SearchFieldConfig> {
-        let mut configs = HashMap::default();
-        let config = self.get_str(self.boolean_fields_offset, "".to_string());
-        if !config.is_empty() {
-            let mut deserialized =
-                deserialize_config_fields(config, &SearchFieldConfig::boolean_from_json);
-            for (field_name, config) in deserialized.drain() {
-                configs.insert(field_name, config);
-            }
-        }
-        configs
+        self.deserialize_configs(
+            self.boolean_fields_offset,
+            &SearchFieldConfig::boolean_from_json,
+        )
     }
 
     pub fn json_configs(&self) -> HashMap<FieldName, SearchFieldConfig> {
-        let mut configs = HashMap::default();
-        let config = self.get_str(self.json_fields_offset, "".to_string());
-        if !config.is_empty() {
-            let mut deserialized =
-                deserialize_config_fields(config, &SearchFieldConfig::json_from_json);
-            for (field_name, config) in deserialized.drain() {
-                configs.insert(field_name, config);
-            }
-        }
-        configs
+        self.deserialize_configs(self.json_fields_offset, &SearchFieldConfig::json_from_json)
     }
 
     pub fn range_configs(&self) -> HashMap<FieldName, SearchFieldConfig> {
-        let mut configs = HashMap::default();
-        let config = self.get_str(self.range_fields_offset, "".to_string());
-        if !config.is_empty() {
-            let mut deserialized =
-                deserialize_config_fields(config, &SearchFieldConfig::range_from_json);
-            for (field_name, config) in deserialized.drain() {
-                configs.insert(field_name, config);
-            }
-        }
-        configs
+        self.deserialize_configs(
+            self.range_fields_offset,
+            &SearchFieldConfig::range_from_json,
+        )
     }
 
     pub fn datetime_configs(&self) -> HashMap<FieldName, SearchFieldConfig> {
+        self.deserialize_configs(
+            self.datetime_fields_offset,
+            &SearchFieldConfig::date_from_json,
+        )
+    }
+
+    fn deserialize_configs(
+        &self,
+        offset: i32,
+        parser: &dyn Fn(serde_json::Value) -> Result<SearchFieldConfig>,
+    ) -> HashMap<FieldName, SearchFieldConfig> {
         let mut configs = HashMap::default();
-        let config = self.get_str(self.datetime_fields_offset, "".to_string());
+        let config = self.get_str(offset, "".to_string());
         if !config.is_empty() {
-            let mut deserialized =
-                deserialize_config_fields(config, &SearchFieldConfig::date_from_json);
+            let mut deserialized = deserialize_config_fields(config, parser);
             for (field_name, config) in deserialized.drain() {
                 configs.insert(field_name, config);
             }
@@ -682,23 +652,48 @@ fn ctid_field_config() -> SearchFieldConfig {
     }
 }
 
-fn get_field_type(field_name: &str, relation_oid: pg_sys::Oid) -> SearchFieldType {
+fn get_attribute_oid(field_name: &str, relation_oid: pg_sys::Oid) -> Option<PgOid> {
     let index_relation = unsafe { PgRelation::open(relation_oid) };
     let tuple_desc = index_relation.tuple_desc();
-    let attribute_oid = tuple_desc
+    tuple_desc
         .iter()
         .find(|attribute| attribute.name() == field_name)
-        .unwrap_or_else(|| panic!("field type should have been set for `{}`", field_name))
-        .type_oid();
+        .map(|attribute| attribute.type_oid())
+}
+
+fn get_field_type(field_name: &str, relation_oid: pg_sys::Oid) -> SearchFieldType {
+    let attribute_oid = get_attribute_oid(field_name, relation_oid)
+        .unwrap_or_else(|| panic!("field type should have been set for `{}`", field_name));
     (&attribute_oid).try_into().unwrap()
 }
 
-fn validate_field_name(
-    field_name: &str,
+fn validate_field_config(
+    field_name: &FieldName,
+    key_field_name: &FieldName,
     config: &SearchFieldConfig,
     relation_oid: pg_sys::Oid,
     matches: fn(&SearchFieldType) -> bool,
 ) {
+    if field_name.is_ctid() {
+        panic!("the name `ctid` is reserved by pg_search");
+    }
+
+    if field_name.root() == key_field_name.root() {
+        panic!(
+            "cannot override BM25 configuration for key_field '{}', you must use an aliased field name and 'column' configuration key",
+            field_name
+        );
+    }
+
+    if let Some(alias) = config.alias() {
+        if get_attribute_oid(alias, relation_oid).is_none() {
+            panic!(
+                "the column `{}` referenced by the field configuration for '{}' does not exist",
+                alias, field_name
+            );
+        }
+    }
+
     let field_name = config.alias().unwrap_or(field_name);
     let field_type = get_field_type(field_name, relation_oid);
     if matches(&field_type) {

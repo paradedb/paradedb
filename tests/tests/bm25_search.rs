@@ -1343,19 +1343,18 @@ fn multiple_tokenizers_with_alias(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[ignore]
 fn alias_cannot_be_key_field(mut conn: PgConnection) {
     // Create the table
     "CREATE TABLE products (
-        id SERIAL PRIMARY KEY,
+        id TEXT PRIMARY KEY,
         name TEXT,
         description TEXT
     );
-        INSERT INTO products (name, description) VALUES
-        ('apple', 'fruit'),
-        ('banana', 'fruit'),
-        ('cherry', 'fruit'),
-        ('banana split', 'fruit');
+        INSERT INTO products (id,name, description) VALUES
+        ('id1', 'apple', 'fruit'),
+        ('id2', 'banana', 'fruit'),
+        ('id3', 'cherry', 'fruit'),
+        ('id4', 'banana split', 'fruit');
     "
     .execute(&mut conn);
 
@@ -1392,9 +1391,7 @@ fn alias_cannot_be_key_field(mut conn: PgConnection) {
         text_fields='{
             "name": {
                 "tokenizer": {"type": "default"}
-            }
-        }',
-        numeric_fields='{
+            },
             "id_aliased": {
                 "column": "id"
             }
@@ -1402,10 +1399,10 @@ fn alias_cannot_be_key_field(mut conn: PgConnection) {
     );"#
     .execute(&mut conn);
 
-    let rows: Vec<(i32,)> =
-        "SELECT id FROM products WHERE id @@@ paradedb.parse('id_aliased:1')".fetch(&mut conn);
+    let rows: Vec<(String,)> =
+        "SELECT id FROM products WHERE id @@@ paradedb.parse('id_aliased:id1')".fetch(&mut conn);
 
-    assert_eq!(rows, vec![(1,)])
+    assert_eq!(rows, vec![("id1".to_string(),)]);
 }
 
 #[rstest]
@@ -1589,7 +1586,6 @@ fn multiple_aliases_same_column(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[ignore]
 fn cant_name_a_field_ctid(mut conn: PgConnection) {
     "CREATE TABLE missing_source (
         id SERIAL PRIMARY KEY,
@@ -1642,7 +1638,6 @@ fn can_index_only_key_field(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[ignore]
 fn missing_source_column(mut conn: PgConnection) {
     "CREATE TABLE missing_source (
         id SERIAL PRIMARY KEY,
@@ -1667,7 +1662,7 @@ fn missing_source_column(mut conn: PgConnection) {
     assert!(result.is_err());
     assert_eq!(
         result.unwrap_err().to_string(),
-        "error returned from database: the column `nonexistent_column referenced by the field configuration for 'alias' does not exist"
+        "error returned from database: the column `nonexistent_column` referenced by the field configuration for 'alias' does not exist"
     );
 }
 
@@ -1727,24 +1722,22 @@ fn alias_chain_validation(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[ignore]
 fn mixed_field_types_with_aliases(mut conn: PgConnection) {
     // Test mixing different field types with aliases
     "CREATE TABLE mixed_fields (
         id SERIAL PRIMARY KEY,
         text_content TEXT,
-        num_value INTEGER,
-        bool_flag BOOLEAN
+        json_content JSONB
     );"
     .execute(&mut conn);
 
-    "INSERT INTO mixed_fields (text_content, num_value, bool_flag) VALUES
-    ('test content', 42, true),
-    ('another test', 100, false);"
+    "INSERT INTO mixed_fields (text_content, json_content) VALUES
+    ('test content', '{\"key\": \"value1\"}'),
+    ('another test', '{\"key\": \"value2\"}');"
         .execute(&mut conn);
 
     r#"CREATE INDEX mixed_fields_idx ON mixed_fields
-    USING bm25 (id, text_content, num_value, bool_flag)
+    USING bm25 (id, text_content, json_content)
     WITH (
         key_field='id',
         text_fields='{
@@ -1753,14 +1746,9 @@ fn mixed_field_types_with_aliases(mut conn: PgConnection) {
                 "tokenizer": {"type": "default"}
             }
         }',
-        numeric_fields='{
-            "num_alias": {
-                "column": "num_value"
-            }
-        }',
-        boolean_fields='{
-            "bool_alias": {
-                "column": "bool_flag"
+        json_fields='{
+            "json_alias": {
+                "column": "json_content"
             }
         }'
     );"#
@@ -1772,10 +1760,7 @@ fn mixed_field_types_with_aliases(mut conn: PgConnection) {
     assert_eq!(rows.len(), 2);
 
     let rows: Vec<(i32,)> =
-        "SELECT id FROM mixed_fields WHERE mixed_fields @@@ 'num_alias:42'".fetch(&mut conn);
-    assert_eq!(rows.len(), 1);
-
-    let rows: Vec<(i32,)> =
-        "SELECT id FROM mixed_fields WHERE mixed_fields @@@ 'bool_alias:true'".fetch(&mut conn);
+        "SELECT id FROM mixed_fields WHERE mixed_fields @@@ 'json_alias.key:value1'"
+            .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
 }

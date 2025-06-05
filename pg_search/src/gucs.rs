@@ -58,9 +58,6 @@ static PER_TUPLE_COST: GucSetting<f64> = GucSetting::<f64>::new(100_000_000.0);
 /// thread.  So if there's 10 threads and this value is 100MB, then a total of 1GB will be allocated.
 static CREATE_INDEX_MEMORY_BUDGET: GucSetting<i32> = GucSetting::<i32>::new(1024);
 
-/// How many threads should tantivy use during a regular INSERT/UPDATE/COPY statement?
-static STATEMENT_PARALLELISM: GucSetting<i32> = GucSetting::<i32>::new(1);
-
 /// How much memory should tantivy use during a regular INSERT/UPDATE/COPY statement?  This value is decided to each indexing
 /// thread.  So if there's 10 threads and this value is 100MB, then a total of 1GB will be allocated.
 static STATEMENT_MEMORY_BUDGET: GucSetting<i32> = GucSetting::<i32>::new(1024);
@@ -132,17 +129,6 @@ pub fn init() {
     );
 
     GucRegistry::define_int_guc(
-        "paradedb.statement_parallelism",
-        "The number of threads to use when indexing during an INSERT/UPDATE/COPY statement",
-        "Default is 1.  Recommended value is generally 1.  Value of zero means a thread for as many cores in the machine",
-        &STATEMENT_PARALLELISM,
-        0,
-        std::thread::available_parallelism().expect("your computer should have at least one core").get().try_into().expect("your computer has too many cores"),
-        GucContext::Userset,
-        GucFlags::default(),
-    );
-
-    GucRegistry::define_int_guc(
         "paradedb.statement_memory_budget",
         "The amount of memory to allocate to 1 thread during an INSERT/UPDATE/COPY statement",
         "Default is `1GB`, which is allocated to each thread defined by `paradedb.statement_parallelism`",
@@ -195,8 +181,9 @@ pub fn create_index_memory_budget() -> usize {
     adjust_budget(memory_budget, create_index_parallelism())
 }
 
+// NB:  this is always `1` (one).  There's no (longer) a concept of parallelism during INSERTS/UPDATES
 pub fn statement_parallelism() -> NonZeroUsize {
-    adjust_nthreads(STATEMENT_PARALLELISM.get())
+    unsafe { NonZeroUsize::new_unchecked(1) }
 }
 
 pub fn statement_memory_budget() -> usize {

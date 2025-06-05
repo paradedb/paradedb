@@ -295,7 +295,6 @@ impl CustomScan for PdbScan {
             //
             // look for quals we can support
             //
-            let mut uses_our_operator = false;
             let quals = extract_quals(
                 root,
                 rti,
@@ -303,16 +302,7 @@ impl CustomScan for PdbScan {
                 anyelement_query_input_opoid(),
                 ri_type,
                 &schema,
-                &mut uses_our_operator,
             );
-
-            if !uses_our_operator {
-                // for now, we're not going to submit our custom scan for queries that don't also
-                // use our `@@@` operator.  Perhaps in the future we can do this, but we don't want to
-                // circumvent Postgres' other possible plans that might do index scans over a btree
-                // index or something
-                return None;
-            }
 
             let Some(quals) = quals else {
                 // if we are not able to push down all of the quals, then do not propose the custom

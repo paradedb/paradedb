@@ -15,19 +15,22 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::index::FieldName;
 use crate::index::mvcc::MVCCDirectory;
 use crate::postgres::build_parallel::build_index;
+use crate::postgres::options::SearchIndexOptions;
 use crate::postgres::storage::block::{
     SegmentMetaEntry, CLEANUP_LOCK, METADATA, SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
 };
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::metadata::MetaPageMut;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
-use crate::schema::{SearchFieldConfig, SearchIndexSchema};
+use crate::schema::{SearchFieldType, SearchIndexSchema};
+use anyhow::Result;
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::*;
+use tantivy::schema::Schema;
 use tantivy::{Index, IndexSettings};
-use tokenizers::SearchTokenizer;
 
 #[pg_guard]
 pub extern "C-unwind" fn ambuild(
@@ -83,11 +86,16 @@ pub extern "C-unwind" fn ambuild(
 
 #[pg_guard]
 pub unsafe extern "C-unwind" fn ambuildempty(index_relation: pg_sys::Relation) {
-    let indexrel = unsafe { PgRelation::from_pg(index_relation) };
-    let schema = SearchIndexSchema::open(indexrel.oid())
-        .expect("should be able to get schema for USING bm25 index");
+    let index_relation = unsafe { PgRelation::from_pg(index_relation) };
+
+    unsafe {
+        init_fixed_buffers(&index_relation);
+    }
+
+    create_index(&index_relation).unwrap_or_else(|e| panic!("{e}"));
 
     // warn that the `raw` tokenizer is deprecated
+    let schema = SearchIndexSchema::open(index_relation.oid()).unwrap_or_else(|e| panic!("{e}"));
     for search_field in schema.search_fields() {
         #[allow(deprecated)]
         if search_field.uses_raw_tokenizer() {
@@ -100,17 +108,6 @@ pub unsafe extern "C-unwind" fn ambuildempty(index_relation: pg_sys::Relation) {
                     .set_hint("use `keyword` instead").report(PgLogLevel::WARNING);
         }
     }
-
-    unsafe {
-        init_fixed_buffers(&indexrel);
-    }
-
-    let directory = MVCCDirectory::snapshot(indexrel.oid());
-    let settings = IndexSettings {
-        docstore_compress_dedicated_thread: false,
-        ..Default::default()
-    };
-    Index::create(directory, schema.into(), settings).unwrap_or_else(|e| panic!("{e}"));
 }
 
 pub fn is_bm25_index(indexrel: &PgRelation) -> bool {

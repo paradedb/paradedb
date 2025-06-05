@@ -158,10 +158,9 @@ impl SerialIndexWriter {
     ) -> Result<Self> {
         let directory = mvcc_satisfies.directory(index_relation);
         let mut index = Index::open(directory)?;
-        let schema = SearchIndexSchema::open(index.schema(), index_relation);
-
-        setup_tokenizers(&mut index, index_relation);
-        let ctid_field = schema.schema.get_field("ctid")?;
+        let schema = SearchIndexSchema::open(index_relation.oid())?;
+        setup_tokenizers(index_relation.oid(), &mut index)?;
+        let ctid_field = schema.ctid_field();
 
         Ok(Self {
             indexrelid: index_relation.oid(),
@@ -177,9 +176,8 @@ impl SerialIndexWriter {
         self.indexrelid
     }
 
-    pub fn insert(&mut self, document: SearchDocument, ctid: u64) -> Result<()> {
-        let mut tantivy_document: TantivyDocument = document.into();
-        tantivy_document.add_u64(self.ctid_field, ctid);
+    pub fn insert(&mut self, mut document: TantivyDocument, ctid: u64) -> Result<()> {
+        document.add_u64(self.ctid_field, ctid);
 
         if self.current_segment.is_none() {
             let new_segment = self.index.new_segment();
@@ -193,7 +191,7 @@ impl SerialIndexWriter {
             .1
             .add_document(AddOperation {
                 opstamp: 0,
-                document: tantivy_document,
+                document,
             })?;
 
         if self.memory_budget <= self.current_segment.as_ref().unwrap().1.mem_usage() {

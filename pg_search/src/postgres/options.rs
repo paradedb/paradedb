@@ -243,15 +243,61 @@ pub struct SearchIndexOptions {
 impl SearchIndexOptions {
     pub unsafe fn from_relation(indexrel: &PgRelation) -> Self {
         let data = SearchIndexOptionsData::from_relation(indexrel);
+
+        let text_configs = data.text_configs();
+        for (field_name, config) in &text_configs {
+            validate_field_name(field_name, config, indexrel.oid(), |t| {
+                matches!(t, SearchFieldType::Text(_) | SearchFieldType::Uuid(_))
+            });
+        }
+
+        let numeric_configs = data.numeric_configs();
+        for (field_name, config) in &numeric_configs {
+            validate_field_name(field_name, config, indexrel.oid(), |t| {
+                matches!(
+                    t,
+                    SearchFieldType::I64(_) | SearchFieldType::U64(_) | SearchFieldType::F64(_)
+                )
+            });
+        }
+
+        let boolean_configs = data.boolean_configs();
+        for (field_name, config) in &boolean_configs {
+            validate_field_name(field_name, config, indexrel.oid(), |t| {
+                matches!(t, SearchFieldType::Bool(_))
+            });
+        }
+
+        let json_configs = data.json_configs();
+        for (field_name, config) in &json_configs {
+            validate_field_name(field_name, config, indexrel.oid(), |t| {
+                matches!(t, SearchFieldType::Json(_))
+            });
+        }
+
+        let range_configs = data.range_configs();
+        for (field_name, config) in &range_configs {
+            validate_field_name(field_name, config, indexrel.oid(), |t| {
+                matches!(t, SearchFieldType::Range(_))
+            });
+        }
+
+        let datetime_configs = data.datetime_configs();
+        for (field_name, config) in &datetime_configs {
+            validate_field_name(field_name, config, indexrel.oid(), |t| {
+                matches!(t, SearchFieldType::Date(_))
+            });
+        }
+
         Self {
             layer_sizes: data.layer_sizes(),
             key_field_name: data.key_field_name(),
-            text_configs: data.text_configs(),
-            numeric_configs: data.numeric_configs(),
-            boolean_configs: data.boolean_configs(),
-            json_configs: data.json_configs(),
-            range_configs: data.range_configs(),
-            datetime_configs: data.datetime_configs(),
+            text_configs,
+            numeric_configs,
+            boolean_configs,
+            json_configs,
+            range_configs,
+            datetime_configs,
             relation_oid: indexrel.oid(),
         }
     }
@@ -273,8 +319,13 @@ impl SearchIndexOptions {
         }
 
         let field_type = match field_config.as_ref().and_then(|config| config.alias()) {
-            Some(alias) => self.aliased_field_type(alias),
-            None => self.field_type(field_name),
+            Some(alias) => {
+                if alias == self.key_field_name().root() {
+                    panic!("key field cannot be aliased");
+                }
+                get_field_type(alias, self.relation_oid)
+            }
+            None => get_field_type(field_name, self.relation_oid),
         };
         field_config.unwrap_or_else(|| field_type.default_config())
     }
@@ -286,7 +337,10 @@ impl SearchIndexOptions {
         }
 
         if field_name.root() == self.key_field_name.root() {
-            return Some(key_field_config(&self.field_type(field_name)));
+            return Some(key_field_config(&get_field_type(
+                field_name,
+                self.relation_oid,
+            )));
         }
 
         self.text_configs
@@ -307,7 +361,7 @@ impl SearchIndexOptions {
             .filter(|(_field_name, config)| {
                 if let Some(alias) = config.alias() {
                     assert!(matches!(
-                        self.aliased_field_type(alias),
+                        get_field_type(alias, self.relation_oid),
                         SearchFieldType::Text(_)
                     ));
                     true
@@ -326,7 +380,7 @@ impl SearchIndexOptions {
             .filter(|(_field_name, config)| {
                 if let Some(alias) = config.alias() {
                     assert!(matches!(
-                        self.aliased_field_type(alias),
+                        get_field_type(alias, self.relation_oid),
                         SearchFieldType::Json(_)
                     ));
                     true
@@ -335,32 +389,6 @@ impl SearchIndexOptions {
                 }
             })
             .collect()
-    }
-
-    fn aliased_field_type(&self, alias: &str) -> SearchFieldType {
-        if alias == self.key_field_name().root() {
-            panic!("key field cannot be aliased");
-        }
-
-        let index_relation = unsafe { PgRelation::open(self.relation_oid) };
-        let tuple_desc = index_relation.tuple_desc();
-        let attribute_oid = tuple_desc
-            .iter()
-            .find(|attribute| attribute.name() == alias)
-            .unwrap()
-            .type_oid();
-        (&attribute_oid).try_into().unwrap()
-    }
-
-    fn field_type(&self, field_name: &FieldName) -> SearchFieldType {
-        let index_relation = unsafe { PgRelation::open(self.relation_oid) };
-        let tuple_desc = index_relation.tuple_desc();
-        let attribute_oid = tuple_desc
-            .iter()
-            .find(|attribute| attribute.name() == field_name.root())
-            .unwrap()
-            .type_oid();
-        (&attribute_oid).try_into().unwrap()
     }
 }
 
@@ -591,8 +619,10 @@ fn deserialize_config_fields(
         .map(|(field_name, field_config)| {
             (
                 field_name.clone().into(),
-                parser(field_config).unwrap_or_else(|_| {
-                    panic!("field config should be valid for SearchFieldConfig::{field_name}")
+                parser(field_config).unwrap_or_else(|err| {
+                    panic!(
+                        "field config should be valid for SearchFieldConfig::{field_name}: {err}"
+                    )
                 }),
             )
         })
@@ -650,4 +680,29 @@ fn ctid_field_config() -> SearchFieldConfig {
         indexed: true,
         fast: true,
     }
+}
+
+fn get_field_type(field_name: &str, relation_oid: pg_sys::Oid) -> SearchFieldType {
+    let index_relation = unsafe { PgRelation::open(relation_oid) };
+    let tuple_desc = index_relation.tuple_desc();
+    let attribute_oid = tuple_desc
+        .iter()
+        .find(|attribute| attribute.name() == field_name)
+        .unwrap_or_else(|| panic!("field type should have been set for `{}`", field_name))
+        .type_oid();
+    (&attribute_oid).try_into().unwrap()
+}
+
+fn validate_field_name(
+    field_name: &str,
+    config: &SearchFieldConfig,
+    relation_oid: pg_sys::Oid,
+    matches: fn(&SearchFieldType) -> bool,
+) {
+    let field_name = config.alias().unwrap_or(field_name);
+    let field_type = get_field_type(field_name, relation_oid);
+    if matches(&field_type) {
+        return;
+    }
+    panic!("`{}` was configured with the wrong type", field_name);
 }

@@ -382,7 +382,6 @@ pub unsafe fn extract_quals(
     pdbopoid: pg_sys::Oid,
     ri_type: RestrictInfoType,
     schema: &SearchIndexSchema,
-    uses_our_operator: &mut bool,
 ) -> Option<Qual> {
     if node.is_null() {
         return None;
@@ -390,15 +389,7 @@ pub unsafe fn extract_quals(
 
     match (*node).type_ {
         pg_sys::NodeTag::T_List => {
-            let mut quals = list(
-                root,
-                rti,
-                node.cast(),
-                pdbopoid,
-                ri_type,
-                schema,
-                uses_our_operator,
-            )?;
+            let mut quals = list(root, rti, node.cast(), pdbopoid, ri_type, schema)?;
             if quals.len() == 1 {
                 quals.pop()
             } else {
@@ -413,39 +404,15 @@ pub unsafe fn extract_quals(
             } else {
                 (*ri).clause
             };
-            extract_quals(
-                root,
-                rti,
-                clause.cast(),
-                pdbopoid,
-                ri_type,
-                schema,
-                uses_our_operator,
-            )
+            extract_quals(root, rti, clause.cast(), pdbopoid, ri_type, schema)
         }
 
-        pg_sys::NodeTag::T_OpExpr => opexpr(
-            root,
-            rti,
-            node,
-            pdbopoid,
-            ri_type,
-            schema,
-            uses_our_operator,
-        ),
+        pg_sys::NodeTag::T_OpExpr => opexpr(root, rti, node, pdbopoid, ri_type, schema),
 
         pg_sys::NodeTag::T_BoolExpr => {
             let boolexpr = nodecast!(BoolExpr, T_BoolExpr, node)?;
             let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
-            let mut quals = list(
-                root,
-                rti,
-                (*boolexpr).args,
-                pdbopoid,
-                ri_type,
-                schema,
-                uses_our_operator,
-            )?;
+            let mut quals = list(root, rti, (*boolexpr).args, pdbopoid, ri_type, schema)?;
 
             match (*boolexpr).boolop {
                 pg_sys::BoolExprType::AND_EXPR => Some(Qual::And(quals)),
@@ -463,29 +430,20 @@ pub unsafe fn extract_quals(
         pg_sys::NodeTag::T_NullTest => {
             let nulltest = nodecast!(NullTest, T_NullTest, node)?;
             if let Some(field) = PushdownField::try_new(root, (*nulltest).arg.cast(), schema) {
-                if schema.is_fast_field(&field.attname()) {
-                    if (*nulltest).nulltesttype == pg_sys::NullTestType::IS_NOT_NULL {
-                        Some(Qual::PushdownIsNotNull { field })
-                    } else {
-                        Some(Qual::Not(Box::new(Qual::PushdownIsNotNull { field })))
+                if let Some(search_field) = schema.search_field(field.attname()) {
+                    if search_field.is_fast() {
+                        if (*nulltest).nulltesttype == pg_sys::NullTestType::IS_NOT_NULL {
+                            return Some(Qual::PushdownIsNotNull { field });
+                        } else {
+                            return Some(Qual::Not(Box::new(Qual::PushdownIsNotNull { field })));
+                        }
                     }
-                } else {
-                    None
                 }
-            } else {
-                None
             }
+            None
         }
 
-        pg_sys::NodeTag::T_BooleanTest => booltest(
-            root,
-            rti,
-            node,
-            pdbopoid,
-            ri_type,
-            schema,
-            uses_our_operator,
-        ),
+        pg_sys::NodeTag::T_BooleanTest => booltest(root, rti, node, pdbopoid, ri_type, schema),
 
         pg_sys::NodeTag::T_Const => {
             // Handle constants that result from join clause simplification
@@ -514,20 +472,11 @@ unsafe fn list(
     pdbopoid: pg_sys::Oid,
     ri_type: RestrictInfoType,
     schema: &SearchIndexSchema,
-    uses_our_operator: &mut bool,
 ) -> Option<Vec<Qual>> {
     let args = PgList::<pg_sys::Node>::from_pg(list);
     let mut quals = Vec::new();
     for child in args.iter_ptr() {
-        quals.push(extract_quals(
-            root,
-            rti,
-            child,
-            pdbopoid,
-            ri_type,
-            schema,
-            uses_our_operator,
-        )?)
+        quals.push(extract_quals(root, rti, child, pdbopoid, ri_type, schema)?)
     }
     Some(quals)
 }
@@ -539,7 +488,6 @@ unsafe fn opexpr(
     pdbopoid: pg_sys::Oid,
     ri_type: RestrictInfoType,
     schema: &SearchIndexSchema,
-    uses_our_operator: &mut bool,
 ) -> Option<Qual> {
     let opexpr = nodecast!(OpExpr, T_OpExpr, node)?;
     let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
@@ -556,17 +504,9 @@ unsafe fn opexpr(
     }
 
     match (*lhs).type_ {
-        pg_sys::NodeTag::T_Var => var_opexpr(
-            root,
-            rti,
-            pdbopoid,
-            ri_type,
-            schema,
-            uses_our_operator,
-            opexpr,
-            lhs,
-            rhs,
-        ),
+        pg_sys::NodeTag::T_Var => {
+            var_opexpr(root, rti, pdbopoid, ri_type, schema, opexpr, lhs, rhs)
+        }
 
         pg_sys::NodeTag::T_FuncExpr => {
             // direct support for paradedb.score() in the WHERE clause
@@ -596,7 +536,6 @@ unsafe fn var_opexpr(
     pdbopoid: pg_sys::Oid,
     ri_type: RestrictInfoType,
     schema: &SearchIndexSchema,
-    uses_our_operator: &mut bool,
     opexpr: *mut pg_sys::OpExpr,
     lhs: *mut pg_sys::Node,
     mut rhs: *mut pg_sys::Node,
@@ -622,7 +561,6 @@ unsafe fn var_opexpr(
                 // it uses our operator, so we directly know how to handle it
                 // this is the case of:  field @@@ paradedb.xxx(EXPR) where EXPR likely includes something
                 // that's parameterized
-                *uses_our_operator = true;
                 return Some(Qual::Expr {
                     node: rhs,
                     expr_state: std::ptr::null_mut(),
@@ -637,7 +575,7 @@ unsafe fn var_opexpr(
             } else {
                 // it doesn't use our operator.
                 // we'll try to convert it into a pushdown
-                return try_pushdown(root, opexpr, schema);
+                return try_pushdown(root, rti, opexpr, schema);
             }
         }
     }
@@ -648,7 +586,6 @@ unsafe fn var_opexpr(
 
         if (*lhs).varno as i32 == rti as i32 {
             // the var comes from this range table entry, so we can use the full expression directly
-            *uses_our_operator = true;
             Some(Qual::OpExpr {
                 var: lhs,
                 opno: (*opexpr).opno,
@@ -668,7 +605,7 @@ unsafe fn var_opexpr(
     } else {
         // it doesn't use our operator.
         // we'll try to convert it into a pushdown
-        try_pushdown(root, opexpr, schema)
+        try_pushdown(root, rti, opexpr, schema)
     }
 }
 
@@ -720,7 +657,6 @@ unsafe fn booltest(
     pdbopoid: pg_sys::Oid,
     ri_type: RestrictInfoType,
     schema: &SearchIndexSchema,
-    uses_our_operator: &mut bool,
 ) -> Option<Qual> {
     let booltest = nodecast!(BooleanTest, T_BooleanTest, node)?;
     let arg = (*booltest).arg;
@@ -788,7 +724,6 @@ pub unsafe fn extract_join_predicates(
             simplify_join_clause_for_relation((*ri).clause.cast(), current_rti)
         {
             // Extract search predicates from the simplified expression
-            let mut uses_our_operator = false;
             if let Some(qual) = extract_quals(
                 root,
                 current_rti,
@@ -796,15 +731,12 @@ pub unsafe fn extract_join_predicates(
                 pdbopoid,
                 RestrictInfoType::BaseRelation,
                 schema,
-                &mut uses_our_operator,
             ) {
-                if uses_our_operator {
-                    // Convert qual to SearchQueryInput and return the entire expression
-                    let search_input = SearchQueryInput::from(&qual);
-                    // Return the entire simplified expression for scoring
-                    // This preserves OR structures like (TRUE OR name:"Rowling")
-                    return Some(search_input);
-                }
+                // Convert qual to SearchQueryInput and return the entire expression
+                let search_input = SearchQueryInput::from(&qual);
+                // Return the entire simplified expression for scoring
+                // This preserves OR structures like (TRUE OR name:"Rowling")
+                return Some(search_input);
             }
         }
     }

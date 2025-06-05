@@ -30,7 +30,6 @@ use crate::postgres::utils::{
 };
 use crate::schema::SearchField;
 use pgrx::{check_for_interrupts, pg_guard, pg_sys, PgMemoryContexts, PgRelation, PgTupleDesc};
-use std::ffi::CStr;
 use std::panic::{catch_unwind, resume_unwind};
 use tantivy::SegmentMeta;
 
@@ -167,13 +166,7 @@ unsafe fn aminsert_internal(
                 categorized_fields,
                 &mut search_document,
             )
-            .unwrap_or_else(|err| {
-                panic!(
-                    "error creating index entries for index '{}': {err}",
-                    CStr::from_ptr((*(*index_relation).rd_rel).relname.data.as_ptr())
-                        .to_string_lossy()
-                );
-            });
+            .unwrap_or_else(|err| panic!("{err}"));
             writer
                 .insert(search_document, item_pointer_to_u64(*ctid))
                 .expect("insertion into index should succeed");

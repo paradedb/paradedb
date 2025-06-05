@@ -55,22 +55,6 @@ pub enum SearchFieldType {
 }
 
 impl SearchFieldType {
-    #[allow(clippy::match_like_matches_macro)] // this is easier to read as a match statement, clippy is drunk on this one
-    pub fn is_compatible_with(&self, config: &SearchFieldConfig) -> bool {
-        match (self, config) {
-            (SearchFieldType::Text(_), SearchFieldConfig::Text { .. }) => true,
-            (SearchFieldType::Uuid(_), SearchFieldConfig::Text { .. }) => true,
-            (SearchFieldType::I64(_), SearchFieldConfig::Numeric { .. }) => true,
-            (SearchFieldType::F64(_), SearchFieldConfig::Numeric { .. }) => true,
-            (SearchFieldType::U64(_), SearchFieldConfig::Numeric { .. }) => true,
-            (SearchFieldType::Bool(_), SearchFieldConfig::Boolean { .. }) => true,
-            (SearchFieldType::Json(_), SearchFieldConfig::Json { .. }) => true,
-            (SearchFieldType::Date(_), SearchFieldConfig::Date { .. }) => true,
-            (SearchFieldType::Range(_), SearchFieldConfig::Range { .. }) => true,
-            _ => false,
-        }
-    }
-
     pub fn default_config(&self) -> SearchFieldConfig {
         match self {
             SearchFieldType::Text(_) => SearchFieldConfig::default_text(),

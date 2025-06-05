@@ -18,7 +18,7 @@
 use crate::postgres::storage::block::{
     block_number_is_valid, BM25PageSpecialData, LinkedList, SegmentMetaEntry, METADATA,
 };
-use crate::postgres::storage::buffer::{BufferManager, BufferMut};
+use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::fsm::FreeBlockList;
 use crate::postgres::storage::merge::{MergeLock, SegmentIdBytes, VacuumList, VacuumSentinel};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
@@ -65,6 +65,17 @@ pub struct MetaPage {
 
 impl MetaPage {
     pub unsafe fn open(relation_oid: pg_sys::Oid) -> Self {
+        let bman = BufferManager::new(relation_oid);
+        let buffer = bman.get_buffer(METADATA);
+        let page = buffer.page();
+        let metadata = page.contents::<MetaPageData>();
+        Self {
+            data: metadata,
+            bman,
+        }
+    }
+
+    pub unsafe fn open_or_init(relation_oid: pg_sys::Oid) -> Self {
         let mut bman = BufferManager::new(relation_oid);
         let buffer = bman.get_buffer(METADATA);
         let page = buffer.page();
@@ -207,15 +218,13 @@ impl MetaPage {
 /// For actions that dirty the metadata page -- takes an exclusive lock on the metadata page
 /// and holds it until `MetaPageMut` is dropped.
 pub struct MetaPageMut {
-    buffer: BufferMut,
     bman: BufferManager,
 }
 
 impl MetaPageMut {
     pub fn new(relation_oid: pg_sys::Oid) -> Self {
-        let mut bman = BufferManager::new(relation_oid);
-        let buffer = bman.get_buffer_mut(METADATA);
-        Self { buffer, bman }
+        let bman = BufferManager::new(relation_oid);
+        Self { bman }
     }
 
     pub unsafe fn record_create_index_segment_ids<'a>(
@@ -231,7 +240,8 @@ impl MetaPageMut {
         writer.write(&segment_id_bytes)?;
         let segment_ids_list = writer.into_inner()?;
 
-        let mut page = self.buffer.page_mut();
+        let mut buffer = self.bman.get_buffer_mut(METADATA);
+        let mut page = buffer.page_mut();
         let metadata = page.contents_mut::<MetaPageData>();
         metadata.create_index_list = segment_ids_list.get_header_blockno();
 

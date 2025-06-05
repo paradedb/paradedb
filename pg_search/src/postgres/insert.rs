@@ -250,7 +250,7 @@ pub unsafe fn merge_index_with_policy(
     // before it decides to find the segments it should vacuum.  The reason is that it needs to see
     // the final merged segment, not the original segments that will be deleted
     let cleanup_lock = BufferManager::new(indexrelid).get_buffer(CLEANUP_LOCK);
-    let metadata = MetaPage::open(indexrelid);
+    let metadata = MetaPage::open_or_init(indexrelid);
     let merge_lock = metadata.acquire_merge_lock();
     let mut merger =
         SearchIndexMerger::open(indexrelid).expect("should be able to open a SearchIndexMerger");

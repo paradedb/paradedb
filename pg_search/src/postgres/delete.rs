@@ -47,7 +47,7 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     // first, we need an exclusive lock on the CLEANUP_LOCK.  Once we get it, we know that there
     // are no concurrent merges happening
     let cleanup_lock = BufferManager::new(index_relation.oid()).get_buffer_mut(CLEANUP_LOCK);
-    let mut metadata = MetaPage::open(index_relation.oid());
+    let mut metadata = MetaPage::open_or_init(index_relation.oid());
 
     // take the MergeLock
     let merge_lock = metadata.acquire_merge_lock();

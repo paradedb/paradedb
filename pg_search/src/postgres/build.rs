@@ -146,7 +146,7 @@ unsafe fn init_fixed_buffers(index_relation: &PgRelation) {
     drop(metadata);
 
     // Init cleanup lock buffer
-    let mut cleanup_lock = bman.new_buffer();
+    let mut cleanup_lock = bman.extend_relation();
     assert_eq!(cleanup_lock.number(), CLEANUP_LOCK);
     cleanup_lock.init_page();
 

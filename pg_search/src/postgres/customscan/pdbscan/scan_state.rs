@@ -91,8 +91,8 @@ pub struct PdbScanState {
     pub var_attname_lookup: HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
     pub placeholder_targetlist: Option<*mut pg_sys::List>,
 
-    // Additional search predicates from join filters for snippet generation
-    pub join_predicates: HashMap<FieldName, SearchQueryInput>,
+    // Store join-level search predicates for enhanced scoring/snippet generation
+    pub join_predicates: Option<SearchQueryInput>,
 
     pub exec_method_type: ExecMethodType,
     exec_method: UnsafeCell<Box<dyn ExecMethod>>,

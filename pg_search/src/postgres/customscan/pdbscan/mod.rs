@@ -25,7 +25,6 @@ mod qual_inspect;
 mod scan_state;
 mod solve_expr;
 
-use crate::api::index::FieldName;
 use crate::api::operator::{anyelement_query_input_opoid, estimate_selectivity};
 use crate::api::Cardinality;
 use crate::api::{HashMap, HashSet};
@@ -124,30 +123,24 @@ impl PdbScan {
                 .drain()
                 .collect();
 
-            // Pre-compute enhanced queries for each snippet field that has join predicates
-            let mut enhanced_queries: HashMap<FieldName, SearchQueryInput> = HashMap::default();
-            for snippet_type in snippet_generators.keys() {
-                if let Some(join_predicate) = state
-                    .custom_state()
-                    .join_predicates
-                    .get(snippet_type.field())
-                {
-                    // Combine base query with join predicate using Boolean AND
+            // Pre-compute enhanced queries for snippet generation if we have join predicates
+            let enhanced_query_for_snippets =
+                if let Some(ref join_predicate) = state.custom_state().join_predicates {
+                    // Combine base query with join predicate for snippet generation
                     let base_query = state.custom_state().search_query_input();
-                    let combined_query = SearchQueryInput::Boolean {
-                        must: vec![base_query.clone(), join_predicate.clone()],
-                        should: vec![],
+                    Some(SearchQueryInput::Boolean {
+                        must: vec![base_query.clone()],
+                        should: vec![join_predicate.clone()],
                         must_not: vec![],
-                    };
-
-                    enhanced_queries.insert(snippet_type.field().clone(), combined_query);
-                }
-            }
+                    })
+                } else {
+                    None
+                };
 
             for (snippet_type, generator) in &mut snippet_generators {
                 // Use enhanced query if available, otherwise use base query
-                let query_to_use = enhanced_queries
-                    .get(snippet_type.field())
+                let query_to_use = enhanced_query_for_snippets
+                    .as_ref()
                     .unwrap_or_else(|| state.custom_state().search_query_input());
 
                 let mut new_generator = state
@@ -335,7 +328,12 @@ impl CustomScan for PdbScan {
                 // use our `@@@` operator.  Perhaps in the future we can do this, but we don't want to
                 // circumvent Postgres' other possible plans that might do index scans over a btree
                 // index or something
-                return None;
+
+                // Check if our operator is used in join conditions involving this relation
+                if !uses_our_operator_in_join_conditions(root, rti, anyelement_query_input_opoid())
+                {
+                    return None;
+                }
             }
 
             let Some(quals) = quals else {
@@ -591,11 +589,17 @@ impl CustomScan for PdbScan {
                 .expect("should be able to open index for snippet extraction");
             let schema = SearchIndexSchema::open(index.schema(), &indexrel);
 
+            let base_query = builder
+                .custom_private()
+                .query()
+                .clone()
+                .expect("should have a SearchQueryInput");
             let join_predicates = extract_join_predicates(
                 builder.args().root,
                 rti as pg_sys::Index,
                 anyelement_query_input_opoid(),
                 &schema,
+                &base_query,
             );
 
             builder
@@ -1482,4 +1486,166 @@ unsafe fn collect_maybe_fast_field_referenced_columns(
     }
 
     referenced_columns
+}
+
+/// Check if our @@@ operator is used in join conditions involving the specified relation
+unsafe fn uses_our_operator_in_join_conditions(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+    our_operator_oid: pg_sys::Oid,
+) -> bool {
+    // Get the query tree
+    let parse = (*root).parse;
+    if parse.is_null() {
+        return false;
+    }
+
+    // Check the main jointree for join conditions
+    let jointree = (*parse).jointree;
+    if jointree.is_null() {
+        return false;
+    }
+
+    check_node_for_our_operator(jointree.cast(), rti, our_operator_oid)
+}
+
+/// Recursively check a node and its children for our @@@ operator involving the specified relation
+unsafe fn check_node_for_our_operator(
+    node: *mut pg_sys::Node,
+    rti: pg_sys::Index,
+    our_operator_oid: pg_sys::Oid,
+) -> bool {
+    if node.is_null() {
+        return false;
+    }
+
+    match (*node).type_ {
+        pg_sys::NodeTag::T_FromExpr => {
+            let from_expr = node.cast::<pg_sys::FromExpr>();
+
+            // Check quals (join conditions) in this FromExpr
+            if !(*from_expr).quals.is_null()
+                && check_expr_for_our_operator((*from_expr).quals.cast(), rti, our_operator_oid)
+            {
+                return true;
+            }
+
+            // Recursively check child nodes
+            if !(*from_expr).fromlist.is_null() {
+                let fromlist = PgList::<pg_sys::Node>::from_pg((*from_expr).fromlist);
+                for child_node in fromlist.iter_ptr() {
+                    if check_node_for_our_operator(child_node, rti, our_operator_oid) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        pg_sys::NodeTag::T_JoinExpr => {
+            let join_expr = node.cast::<pg_sys::JoinExpr>();
+
+            // Check join quals
+            if !(*join_expr).quals.is_null()
+                && check_expr_for_our_operator((*join_expr).quals.cast(), rti, our_operator_oid)
+            {
+                return true;
+            }
+
+            // Recursively check left and right subtrees
+            if check_node_for_our_operator((*join_expr).larg, rti, our_operator_oid)
+                || check_node_for_our_operator((*join_expr).rarg, rti, our_operator_oid)
+            {
+                return true;
+            }
+        }
+
+        _ => {
+            // For other node types, we don't expect join conditions
+        }
+    }
+
+    false
+}
+
+/// Check if an expression contains our @@@ operator involving the specified relation
+unsafe fn check_expr_for_our_operator(
+    expr: *mut pg_sys::Expr,
+    rti: pg_sys::Index,
+    our_operator_oid: pg_sys::Oid,
+) -> bool {
+    if expr.is_null() {
+        return false;
+    }
+
+    match (*expr.cast::<pg_sys::Node>()).type_ {
+        pg_sys::NodeTag::T_OpExpr => {
+            let op_expr = expr.cast::<pg_sys::OpExpr>();
+
+            // Check if this is our @@@ operator
+            if (*op_expr).opno == our_operator_oid {
+                // Check if any argument references our relation
+                let args = PgList::<pg_sys::Node>::from_pg((*op_expr).args);
+                for arg in args.iter_ptr() {
+                    if expr_references_relation(arg, rti) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        pg_sys::NodeTag::T_BoolExpr => {
+            let bool_expr = expr.cast::<pg_sys::BoolExpr>();
+            let args = PgList::<pg_sys::Expr>::from_pg((*bool_expr).args);
+
+            // Recursively check all arguments
+            for arg in args.iter_ptr() {
+                if check_expr_for_our_operator(arg, rti, our_operator_oid) {
+                    return true;
+                }
+            }
+        }
+
+        pg_sys::NodeTag::T_List => {
+            let list = expr.cast::<pg_sys::List>();
+            let list_elements = PgList::<pg_sys::Node>::from_pg(list);
+
+            // Recursively check all list elements
+            for element in list_elements.iter_ptr() {
+                if check_expr_for_our_operator(element.cast(), rti, our_operator_oid) {
+                    return true;
+                }
+            }
+        }
+
+        _ => {
+            // For other expression types, we assume they don't contain our operator
+        }
+    }
+
+    false
+}
+
+/// Check if an expression references the specified relation
+unsafe fn expr_references_relation(expr: *mut pg_sys::Node, rti: pg_sys::Index) -> bool {
+    if expr.is_null() {
+        return false;
+    }
+
+    match (*expr).type_ {
+        pg_sys::NodeTag::T_Var => {
+            let var = expr.cast::<pg_sys::Var>();
+            (*var).varno as pg_sys::Index == rti
+        }
+
+        pg_sys::NodeTag::T_RelabelType => {
+            let relabel = expr.cast::<pg_sys::RelabelType>();
+            expr_references_relation((*relabel).arg.cast(), rti)
+        }
+
+        _ => {
+            // For other node types, assume they don't reference our relation
+            // We could extend this to handle more cases if needed
+            false
+        }
+    }
 }

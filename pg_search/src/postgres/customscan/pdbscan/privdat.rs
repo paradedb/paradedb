@@ -48,8 +48,8 @@ pub struct PrivateData {
     need_scores: bool,
     exec_method_type: ExecMethodType,
     // Additional search predicates from join filters that are relevant for snippet/score generation
-    // Maps field names to their corresponding search queries from join predicates
-    join_predicates: HashMap<FieldName, SearchQueryInput>,
+    // Stores the entire simplified Boolean expression to preserve OR structures like (TRUE OR name:"Rowling")
+    join_predicates: Option<SearchQueryInput>,
 }
 
 mod var_attname_lookup_serializer {
@@ -220,7 +220,7 @@ impl PrivateData {
         self.need_scores = maybe;
     }
 
-    pub fn set_join_predicates(&mut self, predicates: HashMap<FieldName, SearchQueryInput>) {
+    pub fn set_join_predicates(&mut self, predicates: Option<SearchQueryInput>) {
         self.join_predicates = predicates;
     }
 }
@@ -295,7 +295,7 @@ impl PrivateData {
         self.need_scores
     }
 
-    pub fn join_predicates(&self) -> &HashMap<FieldName, SearchQueryInput> {
+    pub fn join_predicates(&self) -> &Option<SearchQueryInput> {
         &self.join_predicates
     }
 }

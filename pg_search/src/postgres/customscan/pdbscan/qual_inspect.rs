@@ -22,7 +22,8 @@ use crate::postgres::customscan::pdbscan::projections::score::score_funcoid;
 use crate::postgres::customscan::pdbscan::pushdown::{is_complex, try_pushdown, PushdownField};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
-use pgrx::{pg_sys, FromDatum, PgList};
+use pg_sys::BoolExprType;
+use pgrx::{pg_sys, FromDatum, IntoDatum, PgList};
 use std::ops::Bound;
 use tantivy::schema::OwnedValue;
 
@@ -383,6 +384,10 @@ pub unsafe fn extract_quals(
     schema: &SearchIndexSchema,
     uses_our_operator: &mut bool,
 ) -> Option<Qual> {
+    if node.is_null() {
+        return None;
+    }
+
     match (*node).type_ {
         pg_sys::NodeTag::T_List => {
             let mut quals = list(
@@ -481,6 +486,21 @@ pub unsafe fn extract_quals(
             schema,
             uses_our_operator,
         ),
+
+        pg_sys::NodeTag::T_Const => {
+            // Handle constants that result from join clause simplification
+            let const_node = nodecast!(Const, T_Const, node)?;
+            if (*const_node).consttype == pg_sys::BOOLOID && !(*const_node).constisnull {
+                let bool_value = bool::from_datum((*const_node).constvalue, false).unwrap_or(false);
+                if bool_value {
+                    Some(Qual::All)
+                } else {
+                    Some(Qual::Not(Box::new(Qual::All)))
+                }
+            } else {
+                None
+            }
+        }
 
         // we don't understand this clause so we can't do anything
         _ => None,
@@ -732,185 +752,277 @@ unsafe fn booltest(
 
 /// Extract join-level search predicates that are relevant for snippet generation
 /// This captures search predicates that reference specific fields but may not be
-/// pushed down to the current scan due to join conditions
+/// pushed down to the current scan due to join conditions.
+/// Returns the entire simplified Boolean expression to preserve OR structures.
 pub unsafe fn extract_join_predicates(
     root: *mut pg_sys::PlannerInfo,
     current_rti: pg_sys::Index,
     pdbopoid: pg_sys::Oid,
     schema: &SearchIndexSchema,
-) -> crate::api::HashMap<crate::api::index::FieldName, SearchQueryInput> {
-    use crate::api::HashMap;
-
-    let mut snippet_predicates = HashMap::default();
-
-    // Look through all relations and their join clauses for search predicates
-    // that reference our target relation and specific fields
-    if (*root).simple_rel_array.is_null() {
-        return snippet_predicates;
+    base_query: &SearchQueryInput,
+) -> Option<SearchQueryInput> {
+    // Only look at the current relation's join clauses
+    if (*root).simple_rel_array.is_null()
+        || current_rti == 0
+        || current_rti as usize >= (*root).simple_rel_array_size as usize
+    {
+        return None;
     }
 
-    let array_size = (*root).simple_rel_array_size;
-    for i in 1..array_size {
-        let rel = *(*root).simple_rel_array.add(i as usize);
-        if rel.is_null() {
-            continue;
-        }
+    let relinfo = *(*root).simple_rel_array.add(current_rti as usize);
+    if relinfo.is_null() {
+        return None;
+    }
 
-        // Check baserestrictinfo for this relation
-        let baserestrictinfo = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
-        for ri in baserestrictinfo.iter_ptr() {
-            extract_snippet_predicates_from_node(
-                (*ri).clause.cast(),
-                current_rti,
-                pdbopoid,
-                &mut snippet_predicates,
-            );
-        }
+    let joinlist = (*relinfo).joininfo;
+    if joinlist.is_null() {
+        return None;
+    }
 
-        // Check joininfo for join clauses involving our relation
-        let joininfo = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).joininfo);
-        for ri in joininfo.iter_ptr() {
-            extract_snippet_predicates_from_node(
-                (*ri).clause.cast(),
+    // Check joininfo for join clauses involving our current relation
+    let joininfo = PgList::<pg_sys::RestrictInfo>::from_pg(joinlist);
+
+    for ri in joininfo.iter_ptr() {
+        // Transform the join clause by replacing expressions from other relations with TRUE
+        if let Some(simplified_node) =
+            simplify_join_clause_for_relation((*ri).clause.cast(), current_rti)
+        {
+            // Extract search predicates from the simplified expression
+            let mut uses_our_operator = false;
+            if let Some(qual) = extract_quals(
+                root,
                 current_rti,
+                simplified_node.cast(),
                 pdbopoid,
-                &mut snippet_predicates,
-            );
+                RestrictInfoType::BaseRelation,
+                schema,
+                &mut uses_our_operator,
+            ) {
+                if uses_our_operator {
+                    // Convert qual to SearchQueryInput and return the entire expression
+                    let search_input = SearchQueryInput::from(&qual);
+                    // Return the entire simplified expression for scoring
+                    // This preserves OR structures like (TRUE OR name:"Rowling")
+                    return Some(search_input);
+                }
+            }
         }
     }
 
-    snippet_predicates
+    None
 }
 
-/// Extract snippet predicates from a single node (recursive)
-unsafe fn extract_snippet_predicates_from_node(
+/// Transform a join clause by replacing expressions from other relations with TRUE
+/// Returns a new node representing the simplified expression
+unsafe fn simplify_join_clause_for_relation(
     node: *mut pg_sys::Node,
-    target_rti: pg_sys::Index,
-    pdbopoid: pg_sys::Oid,
-    snippet_predicates: &mut crate::api::HashMap<crate::api::index::FieldName, SearchQueryInput>,
-) {
+    current_rti: pg_sys::Index,
+) -> Option<*mut pg_sys::Node> {
     if node.is_null() {
-        return;
+        return None;
     }
+
+    let input_type = (*node).type_;
 
     match (*node).type_ {
         pg_sys::NodeTag::T_OpExpr => {
-            let opexpr = nodecast!(OpExpr, T_OpExpr, node);
-            if let Some(opexpr) = opexpr {
-                if (*opexpr).opno == pdbopoid {
-                    // This is our search operator, check if it references our target relation
-                    let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
-                    if args.len() == 2 {
-                        let lhs = args.get_ptr(0).unwrap();
-                        let rhs = args.get_ptr(1).unwrap();
+            let opexpr = nodecast!(OpExpr, T_OpExpr, node)?;
 
-                        // Check if LHS is a Var that references our target relation
-                        if let Some(var) = nodecast!(Var, T_Var, lhs) {
-                            if (*var).varno as pg_sys::Index == target_rti {
-                                // Convert the RHS to a search query to extract field information
-                                if let Some(const_node) = nodecast!(Const, T_Const, rhs) {
-                                    if let Some(search_query) = SearchQueryInput::from_datum(
-                                        (*const_node).constvalue,
-                                        (*const_node).constisnull,
-                                    ) {
-                                        // Extract the field name from the search query itself
-                                        if let Some(field_name) =
-                                            extract_field_from_search_query(&search_query)
-                                        {
-                                            snippet_predicates.insert(field_name, search_query);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+            // Check if this operation involves our current relation
+            if contains_relation_reference(node, current_rti) {
+                // Keep the original expression if it involves our relation
+                Some(node)
+            } else if contains_any_relation_reference(node) {
+                // Replace with TRUE if it only involves other relations
+                create_bool_const_true()
+            } else {
+                // Keep non-relation expressions (constants, etc.)
+                Some(node)
             }
         }
 
         pg_sys::NodeTag::T_BoolExpr => {
-            let boolexpr = nodecast!(BoolExpr, T_BoolExpr, node);
-            if let Some(boolexpr) = boolexpr {
-                let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
-                for arg in args.iter_ptr() {
-                    extract_snippet_predicates_from_node(
-                        arg,
-                        target_rti,
-                        pdbopoid,
-                        snippet_predicates,
-                    );
+            let boolexpr = nodecast!(BoolExpr, T_BoolExpr, node)?;
+            let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
+            let mut simplified_args = Vec::new();
+
+            // Recursively simplify each argument
+            for (i, arg) in args.iter_ptr().enumerate() {
+                if let Some(simplified_arg) = simplify_join_clause_for_relation(arg, current_rti) {
+                    simplified_args.push(simplified_arg);
                 }
+            }
+
+            if simplified_args.is_empty() {
+                return None;
+            }
+
+            match (*boolexpr).boolop {
+                pg_sys::BoolExprType::AND_EXPR => {
+                    // For AND: preserve the Boolean structure, keep TRUE values
+                    // This maintains the original structure like: (TRUE AND a.age @@@ '>50')
+                    match simplified_args.len() {
+                        0 => None,
+                        1 => Some(simplified_args[0]),
+                        _ => create_bool_expr(pg_sys::BoolExprType::AND_EXPR, simplified_args),
+                    }
+                }
+                pg_sys::BoolExprType::OR_EXPR => {
+                    // For OR: preserve the Boolean structure, don't simplify even if TRUE is present
+                    // This allows scoring to see search predicates like: (TRUE OR a.name @@@ 'Rowling')
+                    match simplified_args.len() {
+                        0 => None,
+                        1 => Some(simplified_args[0]),
+                        _ => create_bool_expr(pg_sys::BoolExprType::OR_EXPR, simplified_args),
+                    }
+                }
+                pg_sys::BoolExprType::NOT_EXPR => {
+                    // For NOT: apply to the single simplified argument
+                    if simplified_args.len() == 1 {
+                        let arg = simplified_args[0];
+                        if is_bool_const_true(arg) {
+                            create_bool_const_false()
+                        } else {
+                            create_bool_expr(pg_sys::BoolExprType::NOT_EXPR, simplified_args)
+                        }
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
             }
         }
 
         pg_sys::NodeTag::T_RestrictInfo => {
-            let ri = nodecast!(RestrictInfo, T_RestrictInfo, node);
-            if let Some(ri) = ri {
-                let clause = if !(*ri).orclause.is_null() {
-                    (*ri).orclause
-                } else {
-                    (*ri).clause
-                };
-                extract_snippet_predicates_from_node(
-                    clause.cast(),
-                    target_rti,
-                    pdbopoid,
-                    snippet_predicates,
-                );
-            }
+            let ri = nodecast!(RestrictInfo, T_RestrictInfo, node)?;
+            let clause = if !(*ri).orclause.is_null() {
+                (*ri).orclause
+            } else {
+                (*ri).clause
+            };
+            simplify_join_clause_for_relation(clause.cast(), current_rti)
         }
 
         _ => {
-            // For other node types, we might need to recurse into their children
-            // For now, we'll focus on the common cases above
+            // For other node types, check if they reference our relation
+            if contains_relation_reference(node, current_rti) {
+                Some(node)
+            } else if contains_any_relation_reference(node) {
+                create_bool_const_true()
+            } else {
+                Some(node)
+            }
         }
     }
 }
 
-/// Extract the field name from a SearchQueryInput
-unsafe fn extract_field_from_search_query(
-    query: &SearchQueryInput,
-) -> Option<crate::api::index::FieldName> {
-    match query {
-        SearchQueryInput::ParseWithField { field, .. } => Some(field.clone()),
-        SearchQueryInput::Term {
-            field: Some(field), ..
-        } => Some(field.clone()),
-        SearchQueryInput::Phrase { field, .. } => Some(field.clone()),
-        SearchQueryInput::PhrasePrefix { field, .. } => Some(field.clone()),
-        SearchQueryInput::FuzzyTerm { field, .. } => Some(field.clone()),
-        SearchQueryInput::Match { field, .. } => Some(field.clone()),
-        SearchQueryInput::Regex { field, .. } => Some(field.clone()),
-        SearchQueryInput::RegexPhrase { field, .. } => Some(field.clone()),
-        SearchQueryInput::Range { field, .. } => Some(field.clone()),
-        SearchQueryInput::RangeContains { field, .. } => Some(field.clone()),
-        SearchQueryInput::RangeIntersects { field, .. } => Some(field.clone()),
-        SearchQueryInput::RangeTerm { field, .. } => Some(field.clone()),
-        SearchQueryInput::RangeWithin { field, .. } => Some(field.clone()),
-        SearchQueryInput::Exists { field } => Some(field.clone()),
-        SearchQueryInput::FastFieldRangeWeight { field, .. } => Some(field.clone()),
-        SearchQueryInput::WithIndex { query, .. } => extract_field_from_search_query(query),
-        SearchQueryInput::Boolean { should, must, .. } => {
-            // Check the first query that has a field
-            for sub_query in must.iter().chain(should.iter()) {
-                if let Some(field) = extract_field_from_search_query(sub_query) {
-                    return Some(field);
-                }
-            }
-            None
-        }
-        SearchQueryInput::Boost { query, .. } => extract_field_from_search_query(query),
-        SearchQueryInput::ConstScore { query, .. } => extract_field_from_search_query(query),
-        SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
-            for sub_query in disjuncts {
-                if let Some(field) = extract_field_from_search_query(sub_query) {
-                    return Some(field);
-                }
-            }
-            None
-        }
-        _ => None,
+/// Create a boolean constant TRUE node
+unsafe fn create_bool_const_true() -> Option<*mut pg_sys::Node> {
+    let const_node = pg_sys::makeConst(
+        pg_sys::BOOLOID,
+        -1,
+        pg_sys::InvalidOid as pg_sys::Oid,
+        1,
+        true.into_datum().unwrap(),
+        false,
+        true,
+    );
+    Some(const_node.cast())
+}
+
+/// Create a boolean constant FALSE node
+unsafe fn create_bool_const_false() -> Option<*mut pg_sys::Node> {
+    let const_node = pg_sys::makeConst(
+        pg_sys::BOOLOID,
+        -1,
+        pg_sys::InvalidOid as pg_sys::Oid,
+        1,
+        false.into_datum().unwrap(),
+        false,
+        true,
+    );
+    Some(const_node.cast())
+}
+
+/// Check if a node is a boolean constant TRUE
+unsafe fn is_bool_const_true(node: *mut pg_sys::Node) -> bool {
+    if let Some(const_node) = nodecast!(Const, T_Const, node) {
+        (*const_node).consttype == pg_sys::BOOLOID
+            && !(*const_node).constisnull
+            && bool::from_datum((*const_node).constvalue, false).unwrap_or(false)
+    } else {
+        false
     }
+}
+
+/// Create a boolean expression node with the given operator and arguments
+unsafe fn create_bool_expr(
+    boolop: BoolExprType::Type,
+    args: Vec<*mut pg_sys::Node>,
+) -> Option<*mut pg_sys::Node> {
+    if args.is_empty() {
+        return None;
+    }
+
+    // Create the first list item
+    let mut args_list = std::ptr::null_mut();
+    for &arg in &args {
+        args_list = pg_sys::lappend(args_list, arg.cast::<core::ffi::c_void>());
+    }
+
+    // Allocate and initialize BoolExpr node
+    let boolexpr =
+        pg_sys::palloc0(std::mem::size_of::<pg_sys::BoolExpr>()).cast::<pg_sys::BoolExpr>();
+    (*boolexpr).xpr.type_ = pg_sys::NodeTag::T_BoolExpr;
+    (*boolexpr).boolop = boolop;
+    (*boolexpr).args = args_list;
+    (*boolexpr).location = -1;
+
+    Some(boolexpr.cast())
+}
+
+/// Check if a node contains a reference to the specified relation
+unsafe fn contains_relation_reference(node: *mut pg_sys::Node, target_rti: pg_sys::Index) -> bool {
+    if node.is_null() {
+        return false;
+    }
+
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        context: *mut core::ffi::c_void,
+    ) -> bool {
+        let target_rti = context as pg_sys::Index;
+
+        if let Some(var) = nodecast!(Var, T_Var, node) {
+            if (*var).varno as pg_sys::Index == target_rti {
+                return true;
+            }
+        }
+
+        pg_sys::expression_tree_walker(node, Some(walker), context)
+    }
+
+    walker(node, target_rti as *mut core::ffi::c_void)
+}
+
+/// Check if a node contains any relation reference (Var nodes)
+unsafe fn contains_any_relation_reference(node: *mut pg_sys::Node) -> bool {
+    if node.is_null() {
+        return false;
+    }
+
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        _context: *mut core::ffi::c_void,
+    ) -> bool {
+        if nodecast!(Var, T_Var, node).is_some() {
+            return true;
+        }
+
+        pg_sys::expression_tree_walker(node, Some(walker), std::ptr::null_mut())
+    }
+
+    walker(node, std::ptr::null_mut())
 }
 
 #[cfg(any(test, feature = "pg_test"))]

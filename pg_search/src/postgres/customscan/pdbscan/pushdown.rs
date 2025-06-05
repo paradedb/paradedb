@@ -45,7 +45,7 @@ impl PushdownField {
             return None;
         }
         let field = fieldname_from_var(heaprelid, var, varattno)?;
-        schema.get_search_field(&field).map(|_| Self(field))
+        schema.search_field(&field).map(|_| Self(field))
     }
 
     /// Create a new [`PushdownField`] from an attribute name.
@@ -59,8 +59,8 @@ impl PushdownField {
         self.0.clone()
     }
 
-    pub fn search_field<'a>(&self, schema: &'a SearchIndexSchema) -> Option<&'a SearchField> {
-        schema.get_search_field(&self.0)
+    pub fn search_field(&self, schema: &SearchIndexSchema) -> Option<SearchField> {
+        schema.search_field(&self.0)
     }
 }
 

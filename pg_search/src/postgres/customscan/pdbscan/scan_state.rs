@@ -24,7 +24,7 @@ use crate::postgres::customscan::pdbscan::exec_methods::ExecMethod;
 use crate::postgres::customscan::pdbscan::projections::snippet::SnippetType;
 use crate::postgres::customscan::pdbscan::qual_inspect::Qual;
 use crate::postgres::customscan::CustomScanState;
-use crate::postgres::options::SearchIndexCreateOptions;
+use crate::postgres::options::SearchIndexOptions;
 use crate::postgres::utils::u64_to_item_pointer;
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::postgres::ParallelScanState;
@@ -201,10 +201,8 @@ impl PdbScanState {
     pub fn determine_key_field(&self) -> FieldName {
         unsafe {
             let indexrel = PgRelation::with_lock(self.indexrelid, pg_sys::AccessShareLock as _);
-            let ops = indexrel.rd_options as *mut SearchIndexCreateOptions;
-            (*ops)
-                .get_key_field()
-                .expect("`USING bm25` index should have a valued `key_field` option")
+            let ops = SearchIndexOptions::from_relation(&indexrel);
+            ops.key_field_name()
         }
     }
 

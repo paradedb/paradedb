@@ -19,8 +19,8 @@ use crate::api::index::FieldName;
 use crate::index::merge_policy::{LayeredMergePolicy, NumCandidates, NumMerged};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{Mergeable, SearchIndexMerger, SerialIndexWriter};
-use crate::index::{get_index_schema, WriterResources};
-use crate::postgres::options::SearchIndexCreateOptions;
+use crate::index::WriterResources;
+use crate::postgres::options::SearchIndexOptions;
 use crate::postgres::storage::block::{SegmentMetaEntry, CLEANUP_LOCK, SEGMENT_METAS_START};
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::metadata::MetaPage;
@@ -28,7 +28,7 @@ use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use crate::postgres::utils::{
     categorize_fields, item_pointer_to_u64, row_to_search_document, CategorizedFieldData,
 };
-use crate::schema::{SearchDocument, SearchField};
+use crate::schema::{SearchField, SearchIndexSchema};
 use pgrx::{check_for_interrupts, pg_guard, pg_sys, PgMemoryContexts, PgRelation, PgTupleDesc};
 use std::panic::{catch_unwind, resume_unwind};
 use tantivy::{SegmentMeta, TantivyDocument};
@@ -51,10 +51,10 @@ impl InsertState {
         let memory_budget = memory_budget / parallelism;
         let writer =
             SerialIndexWriter::with_mvcc(indexrel, MvccSatisfies::Mergeable, memory_budget)?;
-        let schema = get_index_schema(indexrel)?;
+        let schema = SearchIndexSchema::open(indexrel.oid())?;
         let tupdesc = unsafe { PgTupleDesc::from_pg_unchecked(indexrel.rd_att) };
         let categorized_fields = categorize_fields(&tupdesc, &schema);
-        let key_field_name = schema.key_field().name;
+        let key_field_name = schema.key_field().field_name();
 
         let per_row_context = pg_sys::AllocSetContextCreateExtended(
             PgMemoryContexts::CurrentMemoryContext.value(),
@@ -150,9 +150,7 @@ pub unsafe extern "C-unwind" fn aminsert(
             let key_field_name = &state.key_field_name;
             let writer = state.writer.as_mut().expect("writer should not be null");
 
-            let mut search_document = SearchDocument {
-                doc: TantivyDocument::new(),
-            };
+            let mut search_document = TantivyDocument::new();
 
             row_to_search_document(
                 values,
@@ -232,8 +230,8 @@ unsafe fn do_merge(indexrelid: pg_sys::Oid) -> (NumCandidates, NumMerged) {
         indexrel
     };
 
-    let index_options = SearchIndexCreateOptions::from_relation(&indexrel);
-    let merge_policy = LayeredMergePolicy::new(index_options.layer_sizes(DEFAULT_LAYER_SIZES));
+    let index_options = SearchIndexOptions::from_relation(&indexrel);
+    let merge_policy = LayeredMergePolicy::new(index_options.layer_sizes());
 
     merge_index_with_policy(indexrel, merge_policy, false, false, false)
 }

@@ -235,7 +235,8 @@ impl CustomScan for PdbScan {
 
             let directory = MVCCDirectory::snapshot(bm25_index.oid());
             let index = Index::open(directory).expect("custom_scan: should be able to open index");
-            let schema = SearchIndexSchema::open(index.schema(), &bm25_index);
+            let schema = SearchIndexSchema::open(bm25_index.oid())
+                .expect("custom_scan: should be able to open schema");
             let pathkey = pullup_orderby_pathkey(&mut builder, rti, &schema, root);
 
             #[cfg(any(feature = "pg14", feature = "pg15"))]
@@ -1133,7 +1134,8 @@ fn compute_exec_which_fast_fields(
         let directory = MVCCDirectory::snapshot(indexrel.oid());
         let index =
             Index::open(directory).expect("create_custom_scan_state: should be able to open index");
-        let schema = SearchIndexSchema::open(index.schema(), &indexrel);
+        let schema = SearchIndexSchema::open(indexrel.oid())
+            .expect("custom_scan: should be able to open schema");
 
         // Calculate the ordered set of fast fields which have actually been requested in
         // the target list.
@@ -1242,8 +1244,10 @@ unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
                 let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                 let tupdesc = heaprel.tuple_desc();
                 if let Some(att) = tupdesc.get(attno as usize - 1) {
-                    if schema.is_field_lower_sortable(&att.name().into()) {
-                        return Some(OrderByStyle::Field(first_pathkey, att.name().into()));
+                    if let Some(search_field) = schema.search_field(att.name()) {
+                        if search_field.is_lower_sortable() {
+                            return Some(OrderByStyle::Field(first_pathkey, att.name().into()));
+                        }
                     }
                 }
             } else if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expr) {
@@ -1252,8 +1256,10 @@ unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
                     let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                     let tupdesc = heaprel.tuple_desc();
                     if let Some(att) = tupdesc.get(attno as usize - 1) {
-                        if schema.is_field_raw_sortable(&att.name().into()) {
-                            return Some(OrderByStyle::Field(first_pathkey, att.name().into()));
+                        if let Some(search_field) = schema.search_field(att.name()) {
+                            if search_field.is_raw_sortable() {
+                                return Some(OrderByStyle::Field(first_pathkey, att.name().into()));
+                            }
                         }
                     }
                 }
@@ -1265,8 +1271,10 @@ unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
                 let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                 let tupdesc = heaprel.tuple_desc();
                 if let Some(att) = tupdesc.get(attno as usize - 1) {
-                    if schema.is_field_raw_sortable(&att.name().into()) {
-                        return Some(OrderByStyle::Field(first_pathkey, att.name().into()));
+                    if let Some(search_field) = schema.search_field(att.name()) {
+                        if search_field.is_raw_sortable() {
+                            return Some(OrderByStyle::Field(first_pathkey, att.name().into()));
+                        }
                     }
                 }
             }

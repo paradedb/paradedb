@@ -41,6 +41,9 @@ impl PushdownField {
         schema: &SearchIndexSchema,
     ) -> Option<Self> {
         let (heaprelid, varattno, _) = find_var_relation(var, root);
+        if heaprelid == pg_sys::Oid::INVALID {
+            return None;
+        }
         let field = fieldname_from_var(heaprelid, var, varattno)?;
         schema.get_search_field(&field).map(|_| Self(field))
     }

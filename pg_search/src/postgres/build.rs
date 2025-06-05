@@ -15,20 +15,22 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::get_index_schema;
+use crate::api::index::FieldName;
 use crate::index::mvcc::MVCCDirectory;
 use crate::postgres::build_parallel::build_index;
+use crate::postgres::options::SearchIndexOptions;
 use crate::postgres::storage::block::{
     SegmentMetaEntry, CLEANUP_LOCK, METADATA, SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
 };
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::metadata::MetaPageMut;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
-use crate::schema::SearchFieldConfig;
+use crate::schema::{SearchFieldType, SearchIndexSchema};
+use anyhow::Result;
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::*;
+use tantivy::schema::Schema;
 use tantivy::{Index, IndexSettings};
-use tokenizers::SearchTokenizer;
 
 #[pg_guard]
 pub extern "C-unwind" fn ambuild(
@@ -84,44 +86,28 @@ pub extern "C-unwind" fn ambuild(
 
 #[pg_guard]
 pub unsafe extern "C-unwind" fn ambuildempty(index_relation: pg_sys::Relation) {
-    let indexrel = unsafe { PgRelation::from_pg(index_relation) };
-    let schema =
-        get_index_schema(&indexrel).expect("should be able to get schema for USING bm25 index");
-
-    // warn that the `raw` tokenizer is deprecated
-    for field in &schema.fields {
-        #[allow(deprecated)]
-        if matches!(
-            field.config,
-            SearchFieldConfig::Text {
-                tokenizer: SearchTokenizer::Raw(_),
-                ..
-            } | SearchFieldConfig::Json {
-                tokenizer: SearchTokenizer::Raw(_),
-                ..
-            }
-        ) {
-            ErrorReport::new(
-                PgSqlErrorCode::ERRCODE_WARNING_DEPRECATED_FEATURE,
-                "the `raw` tokenizer is deprecated",
-                function_name!(),
-            )
-                .set_detail("the `raw` tokenizer is deprecated as it also lowercases and truncates the input and this is probably not what you want")
-                .set_hint("use `keyword` instead").report(PgLogLevel::WARNING);
-        }
-    }
+    let index_relation = unsafe { PgRelation::from_pg(index_relation) };
 
     unsafe {
-        init_fixed_buffers(&indexrel);
+        init_fixed_buffers(&index_relation);
     }
 
-    let schema = get_index_schema(&indexrel).unwrap_or_else(|e| panic!("{e}"));
-    let directory = MVCCDirectory::snapshot(indexrel.oid());
-    let settings = IndexSettings {
-        docstore_compress_dedicated_thread: false,
-        ..Default::default()
-    };
-    Index::create(directory, schema.into(), settings).unwrap_or_else(|e| panic!("{e}"));
+    create_index(&index_relation).unwrap_or_else(|e| panic!("{e}"));
+
+    // warn that the `raw` tokenizer is deprecated
+    let schema = SearchIndexSchema::open(index_relation.oid()).unwrap_or_else(|e| panic!("{e}"));
+    for search_field in schema.search_fields() {
+        #[allow(deprecated)]
+        if search_field.uses_raw_tokenizer() {
+            ErrorReport::new(
+                    PgSqlErrorCode::ERRCODE_WARNING_DEPRECATED_FEATURE,
+                    "the `raw` tokenizer is deprecated",
+                    function_name!(),
+                )
+                    .set_detail("the `raw` tokenizer is deprecated as it also lowercases and truncates the input and this is probably not what you want")
+                    .set_hint("use `keyword` instead").report(PgLogLevel::WARNING);
+        }
+    }
 }
 
 pub fn is_bm25_index(indexrel: &PgRelation) -> bool {
@@ -171,4 +157,56 @@ unsafe fn init_fixed_buffers(index_relation: &PgRelation) {
     assert_eq!(schema.header_blockno, SCHEMA_START);
     assert_eq!(settings.header_blockno, SETTINGS_START);
     assert_eq!(segment_metas.header_blockno, SEGMENT_METAS_START);
+}
+
+fn create_index(index_relation: &PgRelation) -> Result<()> {
+    let options = unsafe { SearchIndexOptions::from_relation(index_relation) };
+    let tuple_desc = index_relation.tuple_desc();
+    let mut builder = Schema::builder();
+
+    for attribute in tuple_desc.iter() {
+        let name = FieldName::from(attribute.name());
+        let field_type: SearchFieldType = (&attribute.type_oid()).try_into().unwrap_or_else(|_| {
+            panic!(
+                "failed to convert attribute {} to search field type",
+                attribute.name()
+            )
+        });
+        let config = options.field_config_or_default(&name);
+
+        match field_type {
+            SearchFieldType::Text(_) => builder.add_text_field(name.as_ref(), config.clone()),
+            SearchFieldType::Uuid(_) => builder.add_text_field(name.as_ref(), config.clone()),
+            SearchFieldType::I64(_) => builder.add_i64_field(name.as_ref(), config.clone()),
+            SearchFieldType::U64(_) => builder.add_u64_field(name.as_ref(), config.clone()),
+            SearchFieldType::F64(_) => builder.add_f64_field(name.as_ref(), config.clone()),
+            SearchFieldType::Bool(_) => builder.add_bool_field(name.as_ref(), config.clone()),
+            SearchFieldType::Json(_) => builder.add_json_field(name.as_ref(), config.clone()),
+            SearchFieldType::Range(_) => builder.add_json_field(name.as_ref(), config.clone()),
+            SearchFieldType::Date(_) => builder.add_date_field(name.as_ref(), config.clone()),
+        };
+    }
+
+    // Now add any aliased fields
+    for (name, config) in options.aliased_text_configs() {
+        builder.add_text_field(name.as_ref(), config.clone());
+    }
+    for (name, config) in options.aliased_json_configs() {
+        builder.add_json_field(name.as_ref(), config.clone());
+    }
+
+    // Add ctid field
+    builder.add_u64_field(
+        "ctid",
+        options.field_config_or_default(&FieldName::from("ctid")),
+    );
+
+    let schema = builder.build();
+    let directory = MVCCDirectory::snapshot(index_relation.oid());
+    let settings = IndexSettings {
+        docstore_compress_dedicated_thread: false,
+        ..IndexSettings::default()
+    };
+    let _ = Index::create(directory, schema, settings)?;
+    Ok(())
 }

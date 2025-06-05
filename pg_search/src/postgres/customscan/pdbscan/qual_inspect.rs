@@ -425,18 +425,17 @@ pub unsafe fn extract_quals(
         pg_sys::NodeTag::T_NullTest => {
             let nulltest = nodecast!(NullTest, T_NullTest, node)?;
             if let Some(field) = PushdownField::try_new(root, (*nulltest).arg.cast(), schema) {
-                if schema.is_fast_field(&field.attname()) {
-                    if (*nulltest).nulltesttype == pg_sys::NullTestType::IS_NOT_NULL {
-                        Some(Qual::PushdownIsNotNull { field })
-                    } else {
-                        Some(Qual::Not(Box::new(Qual::PushdownIsNotNull { field })))
+                if let Some(search_field) = schema.search_field(field.attname()) {
+                    if search_field.is_fast() {
+                        if (*nulltest).nulltesttype == pg_sys::NullTestType::IS_NOT_NULL {
+                            return Some(Qual::PushdownIsNotNull { field });
+                        } else {
+                            return Some(Qual::Not(Box::new(Qual::PushdownIsNotNull { field })));
+                        }
                     }
-                } else {
-                    None
                 }
-            } else {
-                None
             }
+            None
         }
 
         pg_sys::NodeTag::T_BooleanTest => booltest(root, rti, node, pdbopoid, ri_type, schema),

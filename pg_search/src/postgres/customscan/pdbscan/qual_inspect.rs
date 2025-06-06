@@ -384,7 +384,7 @@ pub unsafe fn extract_quals(
     ri_type: RestrictInfoType,
     schema: &SearchIndexSchema,
     convert_external_to_all: bool,
-    uses_our_operator: &mut bool,
+    uses_tantivy_to_query: &mut bool,
 ) -> Option<Qual> {
     if node.is_null() {
         return None;
@@ -400,7 +400,7 @@ pub unsafe fn extract_quals(
                 ri_type,
                 schema,
                 convert_external_to_all,
-                uses_our_operator,
+                uses_tantivy_to_query,
             )?;
             if quals.len() == 1 {
                 quals.pop()
@@ -424,7 +424,7 @@ pub unsafe fn extract_quals(
                 ri_type,
                 schema,
                 convert_external_to_all,
-                uses_our_operator,
+                uses_tantivy_to_query,
             )
         }
 
@@ -436,7 +436,7 @@ pub unsafe fn extract_quals(
             ri_type,
             schema,
             convert_external_to_all,
-            uses_our_operator,
+            uses_tantivy_to_query,
         ),
 
         pg_sys::NodeTag::T_BoolExpr => {
@@ -450,7 +450,7 @@ pub unsafe fn extract_quals(
                 ri_type,
                 schema,
                 convert_external_to_all,
-                uses_our_operator,
+                uses_tantivy_to_query,
             )?;
 
             match (*boolexpr).boolop {
@@ -490,7 +490,7 @@ pub unsafe fn extract_quals(
             ri_type,
             schema,
             convert_external_to_all,
-            uses_our_operator,
+            uses_tantivy_to_query,
         ),
 
         pg_sys::NodeTag::T_Const => {
@@ -522,7 +522,7 @@ unsafe fn list(
     ri_type: RestrictInfoType,
     schema: &SearchIndexSchema,
     convert_external_to_all: bool,
-    uses_our_operator: &mut bool,
+    uses_tantivy_to_query: &mut bool,
 ) -> Option<Vec<Qual>> {
     let args = PgList::<pg_sys::Node>::from_pg(list);
     let mut quals = Vec::new();
@@ -535,7 +535,7 @@ unsafe fn list(
             ri_type,
             schema,
             convert_external_to_all,
-            uses_our_operator,
+            uses_tantivy_to_query,
         )?)
     }
     Some(quals)
@@ -550,7 +550,7 @@ unsafe fn opexpr(
     ri_type: RestrictInfoType,
     schema: &SearchIndexSchema,
     convert_external_to_all: bool,
-    uses_our_operator: &mut bool,
+    uses_tantivy_to_query: &mut bool,
 ) -> Option<Qual> {
     let opexpr = nodecast!(OpExpr, T_OpExpr, node)?;
     let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
@@ -573,7 +573,7 @@ unsafe fn opexpr(
             pdbopoid,
             ri_type,
             schema,
-            uses_our_operator,
+            uses_tantivy_to_query,
             opexpr,
             lhs,
             rhs,
@@ -608,7 +608,7 @@ unsafe fn var_opexpr(
     pdbopoid: pg_sys::Oid,
     ri_type: RestrictInfoType,
     schema: &SearchIndexSchema,
-    uses_our_operator: &mut bool,
+    uses_tantivy_to_query: &mut bool,
     opexpr: *mut pg_sys::OpExpr,
     lhs: *mut pg_sys::Node,
     mut rhs: *mut pg_sys::Node,
@@ -635,7 +635,7 @@ unsafe fn var_opexpr(
                 // it uses our operator, so we directly know how to handle it
                 // this is the case of:  field @@@ paradedb.xxx(EXPR) where EXPR likely includes something
                 // that's parameterized
-                *uses_our_operator = true;
+                *uses_tantivy_to_query = true;
                 return Some(Qual::Expr {
                     node: rhs,
                     expr_state: std::ptr::null_mut(),
@@ -658,6 +658,7 @@ unsafe fn var_opexpr(
                 if result.is_none() && convert_external_to_all {
                     return Some(Qual::All);
                 }
+                *uses_tantivy_to_query = true;
                 return result;
             }
         }
@@ -669,7 +670,7 @@ unsafe fn var_opexpr(
 
         if (*lhs).varno as i32 == rti as i32 {
             // the var comes from this range table entry, so we can use the full expression directly
-            *uses_our_operator = true;
+            *uses_tantivy_to_query = true;
             Some(Qual::OpExpr {
                 var: lhs,
                 opno: (*opexpr).opno,
@@ -697,6 +698,7 @@ unsafe fn var_opexpr(
         if result.is_none() && convert_external_to_all {
             Some(Qual::All)
         } else {
+            *uses_tantivy_to_query = true;
             result
         }
     }
@@ -751,7 +753,7 @@ unsafe fn booltest(
     ri_type: RestrictInfoType,
     schema: &SearchIndexSchema,
     convert_external_to_all: bool,
-    uses_our_operator: &mut bool,
+    uses_tantivy_to_query: &mut bool,
 ) -> Option<Qual> {
     let booltest = nodecast!(BooleanTest, T_BooleanTest, node)?;
     let arg = (*booltest).arg;
@@ -818,7 +820,7 @@ pub unsafe fn extract_join_predicates(
         if let Some(simplified_node) =
             simplify_join_clause_for_relation((*ri).clause.cast(), current_rti)
         {
-            let mut uses_our_operator = false;
+            let mut uses_tantivy_to_query = false;
             // Extract search predicates from the simplified expression
             if let Some(qual) = extract_quals(
                 root,
@@ -828,9 +830,9 @@ pub unsafe fn extract_join_predicates(
                 RestrictInfoType::BaseRelation,
                 schema,
                 true,
-                &mut uses_our_operator,
+                &mut uses_tantivy_to_query,
             ) {
-                if uses_our_operator {
+                if uses_tantivy_to_query {
                     // Convert qual to SearchQueryInput and return the entire expression
                     let search_input = SearchQueryInput::from(&qual);
                     // Return the entire simplified expression for scoring

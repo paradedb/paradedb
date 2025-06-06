@@ -239,6 +239,7 @@ impl PdbScan {
         ri_type: RestrictInfoType,
         schema: &SearchIndexSchema,
     ) -> (Option<Qual>, RestrictInfoType, PgList<pg_sys::RestrictInfo>) {
+        let mut uses_our_operator = false;
         let quals = extract_quals(
             root,
             rti,
@@ -246,6 +247,7 @@ impl PdbScan {
             pdbopoid,
             ri_type,
             schema,
+            &mut uses_our_operator,
         );
 
         if quals.is_none() && matches!(ri_type, RestrictInfoType::BaseRelation) {
@@ -259,6 +261,7 @@ impl PdbScan {
                 anyelement_query_input_opoid(),
                 RestrictInfoType::Join,
                 schema,
+                &mut uses_our_operator,
             );
             (quals, ri_type, joinri)
         } else {

@@ -315,7 +315,7 @@ impl PdbScanState {
 
     /// Given a ctid and field name, get the corresponding value from the heap
     ///
-    /// This function supports text and text[] fields
+    /// This function supports text, text[], and json/jsonb fields
     unsafe fn doc_from_heap(&self, ctid: u64, field: &FieldName) -> Option<String> {
         let heaprel = self
             .heaprel
@@ -371,9 +371,55 @@ impl PdbScanState {
                 .join(" "),
             )
         } else {
-            heap_tuple
-                .get_by_name(&field.root())
-                .unwrap_or_else(|_| panic!("{} should exist in the heap tuple", field))
+            match (field.root(), field.path()) {
+                (root, Some(path)) => {
+                    let pointer = format!("/{}", path.replace('.', "/"));
+                    let field = match attribute.type_oid().value() {
+                        pg_sys::JSONOID => {
+                            let json_value = heap_tuple
+                                .get_by_name::<pgrx::datum::Json>(&root)
+                                .unwrap_or_else(|_| {
+                                    panic!(
+                                        "doc_from_heap: should be able to read json field {}",
+                                        root
+                                    )
+                                })?
+                                .0;
+                            json_value.pointer(&pointer).cloned()?
+                        }
+                        pg_sys::JSONBOID => {
+                            let json_value = heap_tuple
+                                .get_by_name::<pgrx::datum::JsonB>(&root)
+                                .unwrap_or_else(|_| {
+                                    panic!(
+                                        "doc_from_heap: should be able to read jsonb field {}",
+                                        root
+                                    )
+                                })?
+                                .0;
+                            json_value.pointer(&pointer).cloned()?
+                        }
+                        unsupported => {
+                            return None;
+                        }
+                    };
+
+                    match field {
+                        serde_json::Value::String(val) => Some(val),
+                        serde_json::Value::Array(array) => Some(array.iter().filter_map(|v| match v {
+                            serde_json::Value::String(s) => Some(s.to_owned()),
+                            _ => None
+                        }).collect::<Vec<_>>().join(" ")),
+                        val => unimplemented!(
+                            "only text fields for json/jsonb are supported for snippets, found {:?}",
+                            val
+                        ),
+                    }
+                }
+                (root, None) => heap_tuple
+                    .get_by_name(&root)
+                    .unwrap_or_else(|_| panic!("doc_from_heap: should be able to read {}", root)),
+            }
         }
     }
 }

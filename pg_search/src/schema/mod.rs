@@ -354,6 +354,10 @@ impl SearchField {
             .is_str()
     }
 
+    pub fn is_json(&self) -> bool {
+        matches!(self.field_type, SearchFieldType::Json(_))
+    }
+
     #[allow(deprecated)]
     pub fn is_keyword(&self) -> bool {
         self.field_config

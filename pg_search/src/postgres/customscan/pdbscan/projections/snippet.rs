@@ -227,7 +227,7 @@ unsafe fn extract_snippet_positions(
 ) -> Option<SnippetType> {
     assert!(args.len() == 1);
 
-    let field_arg = nodecast!(Var, T_Var, args.get_ptr(0).unwrap());
+    let field_arg = find_one_var(args.get_ptr(0).unwrap());
 
     if let Some(field_arg) = field_arg {
         let attname = (*context)

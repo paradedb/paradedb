@@ -244,25 +244,32 @@ impl SearchField {
         let index_relation = unsafe { PgRelation::open(relation_oid) };
         let options = unsafe { SearchIndexOptions::from_relation(&index_relation) };
 
-        let field_name = schema.get_field_name(field);
-        let field_config = options.field_config_or_default(&FieldName::from(field_name));
-        let attribute_name = field_config.alias().unwrap_or(field_name);
+        let field_name: FieldName = schema.get_field_name(field).into();
+        let field_config = options.field_config_or_default(&field_name);
+        let attribute_name = field_config.alias().unwrap_or(field_name.as_ref());
         let tuple_desc = index_relation.tuple_desc();
-        let attribute = tuple_desc
-            .iter()
-            .find(|attribute| attribute.name() == attribute_name)
-            .unwrap_or_else(|| {
+
+        let field_type: SearchFieldType = if field_name.is_ctid() {
+            // the "ctid" field isn't an attribute, per se, in the index itself
+            // it's one we add directly, so we need to account for it here
+            SearchFieldType::U64(pg_sys::TIDOID)
+        } else {
+            let attribute = tuple_desc
+                .iter()
+                .find(|attribute| attribute.name() == attribute_name)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "the column {} referenced by the field configuration for {} should exist",
+                        field_name, attribute_name
+                    )
+                });
+            (&attribute.type_oid()).try_into().unwrap_or_else(|_| {
                 panic!(
-                    "the column {} referenced by the field configuration for {} should exist",
-                    field_name, attribute_name
+                    "failed to convert attribute {} to search field type",
+                    attribute_name
                 )
-            });
-        let field_type: SearchFieldType = (&attribute.type_oid()).try_into().unwrap_or_else(|_| {
-            panic!(
-                "failed to convert attribute {} to search field type",
-                attribute_name
-            )
-        });
+            })
+        };
 
         Self {
             field,

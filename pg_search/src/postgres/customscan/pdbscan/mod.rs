@@ -247,13 +247,16 @@ impl PdbScan {
             pdbopoid,
             ri_type,
             schema,
+            false, // Base relation quals should not convert external to all
             &mut uses_our_operator,
         );
 
-        if quals.is_none() && matches!(ri_type, RestrictInfoType::BaseRelation) {
+        // If we couldn't push down quals, try to push down quals from the join
+        // This is only done if we have a join predicate, and only if we have used our operator
+        if quals.is_none() {
             let joinri: PgList<pg_sys::RestrictInfo> =
                 PgList::from_pg(builder.args().rel().joininfo);
-            let ri_type = RestrictInfoType::Join;
+            let mut join_uses_our_operator = false;
             let quals = extract_quals(
                 root,
                 rti,
@@ -261,9 +264,16 @@ impl PdbScan {
                 anyelement_query_input_opoid(),
                 RestrictInfoType::Join,
                 schema,
-                &mut uses_our_operator,
+                true, // Join quals should convert external to all
+                &mut join_uses_our_operator,
             );
-            (quals, ri_type, joinri)
+            // If we have used our operator in the join, or if we have used our operator in the
+            // base relation, then we can use the join quals
+            if uses_our_operator || join_uses_our_operator {
+                (quals, RestrictInfoType::Join, joinri)
+            } else {
+                (quals, ri_type, restrict_info)
+            }
         } else {
             (quals, ri_type, restrict_info)
         }

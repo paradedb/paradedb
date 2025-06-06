@@ -164,8 +164,8 @@ JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') OR a.age > 60;
  book_id | author_name  | author_score | book_score 
 ---------+--------------+--------------+------------
-       1 | J.K. Rowling |            0 |           
-       2 | Stephen King |    2.5308118 |           
+       1 | J.K. Rowling |            0 | 0.44333255
+       2 | Stephen King |    2.5308118 |  0.7432616
 (2 rows)
 
 -- Test score comparison - direct vs join query

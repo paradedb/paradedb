@@ -375,6 +375,7 @@ impl From<&Qual> for SearchQueryInput {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub unsafe fn extract_quals(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
@@ -382,6 +383,7 @@ pub unsafe fn extract_quals(
     pdbopoid: pg_sys::Oid,
     ri_type: RestrictInfoType,
     schema: &SearchIndexSchema,
+    convert_external_to_all: bool,
     uses_our_operator: &mut bool,
 ) -> Option<Qual> {
     if node.is_null() {
@@ -397,6 +399,7 @@ pub unsafe fn extract_quals(
                 pdbopoid,
                 ri_type,
                 schema,
+                convert_external_to_all,
                 uses_our_operator,
             )?;
             if quals.len() == 1 {
@@ -420,6 +423,7 @@ pub unsafe fn extract_quals(
                 pdbopoid,
                 ri_type,
                 schema,
+                convert_external_to_all,
                 uses_our_operator,
             )
         }
@@ -431,6 +435,7 @@ pub unsafe fn extract_quals(
             pdbopoid,
             ri_type,
             schema,
+            convert_external_to_all,
             uses_our_operator,
         ),
 
@@ -444,6 +449,7 @@ pub unsafe fn extract_quals(
                 pdbopoid,
                 ri_type,
                 schema,
+                convert_external_to_all,
                 uses_our_operator,
             )?;
 
@@ -483,6 +489,7 @@ pub unsafe fn extract_quals(
             pdbopoid,
             ri_type,
             schema,
+            convert_external_to_all,
             uses_our_operator,
         ),
 
@@ -506,6 +513,7 @@ pub unsafe fn extract_quals(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 unsafe fn list(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
@@ -513,6 +521,7 @@ unsafe fn list(
     pdbopoid: pg_sys::Oid,
     ri_type: RestrictInfoType,
     schema: &SearchIndexSchema,
+    convert_external_to_all: bool,
     uses_our_operator: &mut bool,
 ) -> Option<Vec<Qual>> {
     let args = PgList::<pg_sys::Node>::from_pg(list);
@@ -525,12 +534,14 @@ unsafe fn list(
             pdbopoid,
             ri_type,
             schema,
+            convert_external_to_all,
             uses_our_operator,
         )?)
     }
     Some(quals)
 }
 
+#[allow(clippy::too_many_arguments)]
 unsafe fn opexpr(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
@@ -538,6 +549,7 @@ unsafe fn opexpr(
     pdbopoid: pg_sys::Oid,
     ri_type: RestrictInfoType,
     schema: &SearchIndexSchema,
+    convert_external_to_all: bool,
     uses_our_operator: &mut bool,
 ) -> Option<Qual> {
     let opexpr = nodecast!(OpExpr, T_OpExpr, node)?;
@@ -565,6 +577,7 @@ unsafe fn opexpr(
             opexpr,
             lhs,
             rhs,
+            convert_external_to_all,
         ),
 
         pg_sys::NodeTag::T_FuncExpr => {
@@ -599,6 +612,7 @@ unsafe fn var_opexpr(
     opexpr: *mut pg_sys::OpExpr,
     lhs: *mut pg_sys::Node,
     mut rhs: *mut pg_sys::Node,
+    convert_external_to_all: bool,
 ) -> Option<Qual> {
     while let Some(relabel_target) = nodecast!(RelabelType, T_RelabelType, rhs) {
         rhs = (*relabel_target).arg.cast();
@@ -632,11 +646,19 @@ unsafe fn var_opexpr(
             if contains_var(rhs) {
                 // the rhs is (or contains) a Var too, which likely means its part of a join condition
                 // we choose to just select everything in this situation
-                return Some(Qual::ExternalVar);
+                if convert_external_to_all {
+                    return Some(Qual::All);
+                } else {
+                    return Some(Qual::ExternalVar);
+                }
             } else {
                 // it doesn't use our operator.
                 // we'll try to convert it into a pushdown
-                return try_pushdown(root, rti, opexpr, schema);
+                let result = try_pushdown(root, rti, opexpr, schema);
+                if result.is_none() && convert_external_to_all {
+                    return Some(Qual::All);
+                }
+                return result;
             }
         }
     }
@@ -657,7 +679,11 @@ unsafe fn var_opexpr(
             // the var comes from a different range table
             if matches!(ri_type, RestrictInfoType::Join) {
                 // and we're doing a join, so in this case we choose to just select everything
-                Some(Qual::ExternalVar)
+                if convert_external_to_all {
+                    Some(Qual::All)
+                } else {
+                    Some(Qual::ExternalVar)
+                }
             } else {
                 // the var comes from a different range table and we're not doing a join (how is that possible?!)
                 // so we don't do anything
@@ -667,7 +693,12 @@ unsafe fn var_opexpr(
     } else {
         // it doesn't use our operator.
         // we'll try to convert it into a pushdown
-        try_pushdown(root, rti, opexpr, schema)
+        let result = try_pushdown(root, rti, opexpr, schema);
+        if result.is_none() && convert_external_to_all {
+            Some(Qual::All)
+        } else {
+            result
+        }
     }
 }
 
@@ -719,6 +750,7 @@ unsafe fn booltest(
     pdbopoid: pg_sys::Oid,
     ri_type: RestrictInfoType,
     schema: &SearchIndexSchema,
+    convert_external_to_all: bool,
     uses_our_operator: &mut bool,
 ) -> Option<Qual> {
     let booltest = nodecast!(BooleanTest, T_BooleanTest, node)?;
@@ -795,6 +827,7 @@ pub unsafe fn extract_join_predicates(
                 pdbopoid,
                 RestrictInfoType::BaseRelation,
                 schema,
+                true,
                 &mut uses_our_operator,
             ) {
                 if uses_our_operator {

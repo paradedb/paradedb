@@ -65,9 +65,9 @@ JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50';
  book_id | author_name  | author_score | book_score 
 ---------+--------------+--------------+------------
-       1 | J.K. Rowling |            1 | 0.20342469
+       1 | J.K. Rowling |    2.3042111 | 0.20342469
        2 | Stephen King |            1 | 0.13515766
-       3 | J.K. Rowling |            1 |  0.2152619
+       3 | J.K. Rowling |    2.3042111 |  0.2152619
 (3 rows)
 
 -- For comparison, show a working case where predicates can be pushed down
@@ -124,8 +124,22 @@ JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') AND a.age > 70;
  book_id | author_name  | author_score | book_score 
 ---------+--------------+--------------+------------
-       2 | Stephen King |            1 |  0.7432616
+       2 | Stephen King |    2.5308118 |  0.7432616
 (1 row)
+
+SELECT
+    b.id as book_id,
+    a.name as author_name,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM books b
+JOIN authors a ON b.author_id = a.id
+WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring');
+ book_id | author_name  | author_score | book_score 
+---------+--------------+--------------+------------
+       1 | J.K. Rowling |            0 | 0.44333255
+       2 | Stephen King |    1.5308117 |  0.7432616
+(2 rows)
 
 -- Test score comparison - direct vs join query
 -- Show how the same author gets different scores in different query contexts
@@ -169,9 +183,9 @@ LEFT JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50';
  book_id | author_name  | author_score | book_score 
 ---------+--------------+--------------+------------
-       1 | J.K. Rowling |            1 | 0.20342469
+       1 | J.K. Rowling |    2.3042111 | 0.20342469
        2 | Stephen King |            1 | 0.13515766
-       3 | J.K. Rowling |            1 |  0.2152619
+       3 | J.K. Rowling |    2.3042111 |  0.2152619
 (3 rows)
 
 -- RIGHT JOIN case
@@ -186,7 +200,7 @@ WHERE (a.name @@@ 'Christie' OR b.content @@@ 'test') AND a.age > 60;
  author_id |   author_name   | author_score | book_score 
 -----------+-----------------+--------------+------------
          2 | Stephen King    |            1 | 0.13515766
-         3 | Agatha Christie |            1 |          0
+         3 | Agatha Christie |    2.5308118 |          0
 (2 rows)
 
 -- Test multiple score functions in same query
@@ -204,7 +218,7 @@ WHERE (b.content @@@ 'function' OR a.name @@@ 'King') AND a.age @@@ '>50';
  book_id | author_name  | author_score_1 | author_score_2 | book_score_1 | book_score_2 
 ---------+--------------+----------------+----------------+--------------+--------------
        1 | J.K. Rowling |              1 |              1 |   0.12595399 |   0.12595399
-       2 | Stephen King |              1 |              1 |   0.13515766 |   0.13515766
+       2 | Stephen King |      2.5308118 |      2.5308118 |   0.13515766 |   0.13515766
        3 | J.K. Rowling |              1 |              1 |    0.2152619 |    0.2152619
 (3 rows)
 
@@ -221,8 +235,8 @@ WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
 ORDER BY paradedb.score(a.id) DESC, paradedb.score(b.id) DESC;
  book_id | author_name  | author_score | book_score 
 ---------+--------------+--------------+------------
-       3 | J.K. Rowling |            1 |  0.2152619
-       1 | J.K. Rowling |            1 | 0.20342469
+       3 | J.K. Rowling |    2.3042111 |  0.2152619
+       1 | J.K. Rowling |    2.3042111 | 0.20342469
        2 | Stephen King |            1 | 0.13515766
 (3 rows)
 
@@ -240,9 +254,9 @@ JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50';
  book_id | author_name  | author_score |   author_snippet    | book_score |                                       book_snippet                                        
 ---------+--------------+--------------+---------------------+------------+-------------------------------------------------------------------------------------------
-       1 | J.K. Rowling |            1 | J.K. <b>Rowling</b> | 0.20342469 | This is a <b>test</b> <b>test</b> of the scoring function with multiple <b>test</b> words
+       1 | J.K. Rowling |    2.3042111 | J.K. <b>Rowling</b> | 0.20342469 | This is a <b>test</b> <b>test</b> of the scoring function with multiple <b>test</b> words
        2 | Stephen King |            1 |                     | 0.13515766 | Another <b>test</b> of the scoring scoring function with repeated scoring words
-       3 | J.K. Rowling |            1 | J.K. <b>Rowling</b> |  0.2152619 | Yet another <b>test</b> <b>test</b> <b>test</b> of the function function function
+       3 | J.K. Rowling |    2.3042111 | J.K. <b>Rowling</b> |  0.2152619 | Yet another <b>test</b> <b>test</b> <b>test</b> of the function function function
 (3 rows)
 
 -- Cleanup

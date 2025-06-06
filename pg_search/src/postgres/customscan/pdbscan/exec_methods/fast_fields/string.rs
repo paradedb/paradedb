@@ -75,7 +75,7 @@ impl ExecMethod for StringFastFieldExecState {
                 let searcher = StringAggSearcher(state.search_reader.as_ref().unwrap());
                 self.search_results = searcher.string_agg_by_segment(
                     state.need_scores(),
-                    state.search_query_input(),
+                    state.enhanced_search_query_input(),
                     &self.field,
                     segment_id,
                 );
@@ -91,8 +91,11 @@ impl ExecMethod for StringFastFieldExecState {
         } else {
             // not parallel, first time query
             let searcher = StringAggSearcher(state.search_reader.as_ref().unwrap());
-            self.search_results =
-                searcher.string_agg(state.need_scores(), state.search_query_input(), &self.field);
+            self.search_results = searcher.string_agg(
+                state.need_scores(),
+                state.enhanced_search_query_input(),
+                &self.field,
+            );
             self.inner.did_query = true;
             true
         }

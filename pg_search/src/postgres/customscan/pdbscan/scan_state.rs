@@ -94,6 +94,9 @@ pub struct PdbScanState {
     // Store join-level search predicates for enhanced scoring/snippet generation
     pub join_predicates: Option<SearchQueryInput>,
 
+    // Enhanced query for score calculation that includes join predicates
+    pub enhanced_score_query: Option<SearchQueryInput>,
+
     pub exec_method_type: ExecMethodType,
     exec_method: UnsafeCell<Box<dyn ExecMethod>>,
     exec_method_name: String,
@@ -131,6 +134,20 @@ impl PdbScanState {
             panic!("search_query_input should be initialized");
         }
         &self.search_query_input
+    }
+
+    /// Get the original base search query input before any modifications
+    pub fn base_search_query_input(&self) -> &SearchQueryInput {
+        &self.base_search_query_input
+    }
+
+    /// Use enhanced score query if available, otherwise use base query
+    pub fn enhanced_search_query_input(&self) -> &SearchQueryInput {
+        let result = self
+            .enhanced_score_query
+            .as_ref()
+            .unwrap_or_else(|| self.search_query_input());
+        result
     }
 
     #[inline(always)]

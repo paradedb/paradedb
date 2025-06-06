@@ -112,6 +112,33 @@ FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') AND a.age > 70;
 
+SELECT
+    b.id as book_id,
+    a.name as author_name,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM books b
+JOIN authors a ON b.author_id = a.id
+WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring');
+
+SELECT
+    b.id as book_id,
+    a.name as author_name,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM books b
+JOIN authors a ON b.author_id = a.id
+WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') AND a.age > 60;
+
+SELECT
+    b.id as book_id,
+    a.name as author_name,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM books b
+JOIN authors a ON b.author_id = a.id
+WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') OR a.age > 60;
+
 -- Test score comparison - direct vs join query
 -- Show how the same author gets different scores in different query contexts
 -- Direct query (should work)

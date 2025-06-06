@@ -141,6 +141,33 @@ WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring');
        2 | Stephen King |    1.5308117 |  0.7432616
 (2 rows)
 
+SELECT
+    b.id as book_id,
+    a.name as author_name,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM books b
+JOIN authors a ON b.author_id = a.id
+WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') AND a.age > 60;
+ book_id | author_name  | author_score | book_score 
+---------+--------------+--------------+------------
+       2 | Stephen King |    2.5308118 |  0.7432616
+(1 row)
+
+SELECT
+    b.id as book_id,
+    a.name as author_name,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM books b
+JOIN authors a ON b.author_id = a.id
+WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') OR a.age > 60;
+ book_id | author_name  | author_score | book_score 
+---------+--------------+--------------+------------
+       1 | J.K. Rowling |            0 |           
+       2 | Stephen King |    2.5308118 |           
+(2 rows)
+
 -- Test score comparison - direct vs join query
 -- Show how the same author gets different scores in different query contexts
 -- Direct query (should work)

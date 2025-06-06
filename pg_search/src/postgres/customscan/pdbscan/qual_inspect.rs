@@ -31,6 +31,7 @@ use tantivy::schema::OwnedValue;
 pub enum Qual {
     All,
     ExternalVar,
+    ExternalExpr,
     OpExpr {
         var: *mut pg_sys::Var,
         opno: pg_sys::Oid,
@@ -88,6 +89,7 @@ impl Qual {
         match self {
             Qual::All => true,
             Qual::ExternalVar => false,
+            Qual::ExternalExpr => false,
             Qual::OpExpr { .. } => false,
             Qual::Expr { .. } => false,
             Qual::PushdownExpr { .. } => false,
@@ -107,6 +109,7 @@ impl Qual {
         match self {
             Qual::All => false,
             Qual::ExternalVar => true,
+            Qual::ExternalExpr => true,
             Qual::OpExpr { .. } => false,
             Qual::Expr { .. } => false,
             Qual::PushdownExpr { .. } => false,
@@ -126,6 +129,7 @@ impl Qual {
         match self {
             Qual::All => false,
             Qual::ExternalVar => false,
+            Qual::ExternalExpr => false,
             Qual::OpExpr { .. } => false,
             Qual::Expr { node, .. } => contains_exec_param(*node),
             Qual::PushdownExpr { .. } => false,
@@ -145,6 +149,7 @@ impl Qual {
         match self {
             Qual::All => false,
             Qual::ExternalVar => false,
+            Qual::ExternalExpr => false,
             Qual::OpExpr { .. } => false,
             Qual::Expr { .. } => true,
             Qual::PushdownExpr { .. } => false,
@@ -164,6 +169,7 @@ impl Qual {
         match self {
             Qual::All => false,
             Qual::ExternalVar => false,
+            Qual::ExternalExpr => false,
             Qual::OpExpr { .. } => false,
             Qual::Expr { .. } => false,
             Qual::PushdownExpr { .. } => false,
@@ -196,6 +202,7 @@ impl From<&Qual> for SearchQueryInput {
         match value {
             Qual::All => SearchQueryInput::All,
             Qual::ExternalVar => SearchQueryInput::All,
+            Qual::ExternalExpr => SearchQueryInput::All,
             Qual::OpExpr { val, .. } => unsafe {
                 SearchQueryInput::from_datum((**val).constvalue, (**val).constisnull)
                     .expect("rhs of @@@ operator Qual must not be null")
@@ -357,6 +364,11 @@ impl From<&Qual> for SearchQueryInput {
                     // is "all" rather than "NOT all"
                     Qual::ExternalVar => SearchQueryInput::All,
 
+                    // If the Qual represents a placeholder to another Expr elsewhere in the plan,
+                    // that means it's a JOIN of some kind and what we actually need to return, in its place,
+                    // is "all" rather than "NOT all"
+                    Qual::ExternalExpr => SearchQueryInput::All,
+
                     // For other types of negation, use the standard Boolean query with must_not
                     // Note that when negating an IS operator (e.g., IS NOT TRUE), PostgreSQL handles
                     // NULL values differently than when negating equality operators
@@ -383,7 +395,7 @@ pub unsafe fn extract_quals(
     pdbopoid: pg_sys::Oid,
     ri_type: RestrictInfoType,
     schema: &SearchIndexSchema,
-    convert_external_to_all: bool,
+    convert_external_to_special_qual: bool,
     uses_tantivy_to_query: &mut bool,
 ) -> Option<Qual> {
     if node.is_null() {
@@ -399,7 +411,7 @@ pub unsafe fn extract_quals(
                 pdbopoid,
                 ri_type,
                 schema,
-                convert_external_to_all,
+                convert_external_to_special_qual,
                 uses_tantivy_to_query,
             )?;
             if quals.len() == 1 {
@@ -423,7 +435,7 @@ pub unsafe fn extract_quals(
                 pdbopoid,
                 ri_type,
                 schema,
-                convert_external_to_all,
+                convert_external_to_special_qual,
                 uses_tantivy_to_query,
             )
         }
@@ -435,7 +447,7 @@ pub unsafe fn extract_quals(
             pdbopoid,
             ri_type,
             schema,
-            convert_external_to_all,
+            convert_external_to_special_qual,
             uses_tantivy_to_query,
         ),
 
@@ -449,7 +461,7 @@ pub unsafe fn extract_quals(
                 pdbopoid,
                 ri_type,
                 schema,
-                convert_external_to_all,
+                convert_external_to_special_qual,
                 uses_tantivy_to_query,
             )?;
 
@@ -489,7 +501,7 @@ pub unsafe fn extract_quals(
             pdbopoid,
             ri_type,
             schema,
-            convert_external_to_all,
+            convert_external_to_special_qual,
             uses_tantivy_to_query,
         ),
 
@@ -521,7 +533,7 @@ unsafe fn list(
     pdbopoid: pg_sys::Oid,
     ri_type: RestrictInfoType,
     schema: &SearchIndexSchema,
-    convert_external_to_all: bool,
+    convert_external_to_special_qual: bool,
     uses_tantivy_to_query: &mut bool,
 ) -> Option<Vec<Qual>> {
     let args = PgList::<pg_sys::Node>::from_pg(list);
@@ -534,7 +546,7 @@ unsafe fn list(
             pdbopoid,
             ri_type,
             schema,
-            convert_external_to_all,
+            convert_external_to_special_qual,
             uses_tantivy_to_query,
         )?)
     }
@@ -549,7 +561,7 @@ unsafe fn opexpr(
     pdbopoid: pg_sys::Oid,
     ri_type: RestrictInfoType,
     schema: &SearchIndexSchema,
-    convert_external_to_all: bool,
+    convert_external_to_special_qual: bool,
     uses_tantivy_to_query: &mut bool,
 ) -> Option<Qual> {
     let opexpr = nodecast!(OpExpr, T_OpExpr, node)?;
@@ -577,7 +589,7 @@ unsafe fn opexpr(
             opexpr,
             lhs,
             rhs,
-            convert_external_to_all,
+            convert_external_to_special_qual,
         ),
 
         pg_sys::NodeTag::T_FuncExpr => {
@@ -612,7 +624,7 @@ unsafe fn var_opexpr(
     opexpr: *mut pg_sys::OpExpr,
     lhs: *mut pg_sys::Node,
     mut rhs: *mut pg_sys::Node,
-    convert_external_to_all: bool,
+    convert_external_to_special_qual: bool,
 ) -> Option<Qual> {
     while let Some(relabel_target) = nodecast!(RelabelType, T_RelabelType, rhs) {
         rhs = (*relabel_target).arg.cast();
@@ -646,17 +658,17 @@ unsafe fn var_opexpr(
             if contains_var(rhs) {
                 // the rhs is (or contains) a Var too, which likely means its part of a join condition
                 // we choose to just select everything in this situation
-                if convert_external_to_all {
-                    return Some(Qual::All);
-                } else {
-                    return Some(Qual::ExternalVar);
-                }
+                return Some(Qual::ExternalVar);
             } else {
                 // it doesn't use our operator.
                 // we'll try to convert it into a pushdown
                 let result = try_pushdown(root, rti, opexpr, schema);
-                if result.is_none() && convert_external_to_all {
-                    return Some(Qual::All);
+                if result.is_none() {
+                    if convert_external_to_special_qual {
+                        return Some(Qual::ExternalExpr);
+                    } else {
+                        return None;
+                    }
                 }
                 *uses_tantivy_to_query = true;
                 return result;
@@ -680,11 +692,7 @@ unsafe fn var_opexpr(
             // the var comes from a different range table
             if matches!(ri_type, RestrictInfoType::Join) {
                 // and we're doing a join, so in this case we choose to just select everything
-                if convert_external_to_all {
-                    Some(Qual::All)
-                } else {
-                    Some(Qual::ExternalVar)
-                }
+                Some(Qual::ExternalVar)
             } else {
                 // the var comes from a different range table and we're not doing a join (how is that possible?!)
                 // so we don't do anything
@@ -695,8 +703,12 @@ unsafe fn var_opexpr(
         // it doesn't use our operator.
         // we'll try to convert it into a pushdown
         let result = try_pushdown(root, rti, opexpr, schema);
-        if result.is_none() && convert_external_to_all {
-            Some(Qual::All)
+        if result.is_none() {
+            if convert_external_to_special_qual {
+                Some(Qual::ExternalExpr)
+            } else {
+                None
+            }
         } else {
             *uses_tantivy_to_query = true;
             result
@@ -752,7 +764,7 @@ unsafe fn booltest(
     pdbopoid: pg_sys::Oid,
     ri_type: RestrictInfoType,
     schema: &SearchIndexSchema,
-    convert_external_to_all: bool,
+    convert_external_to_special_qual: bool,
     uses_tantivy_to_query: &mut bool,
 ) -> Option<Qual> {
     let booltest = nodecast!(BooleanTest, T_BooleanTest, node)?;

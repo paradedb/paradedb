@@ -405,9 +405,9 @@ impl PdbScanState {
                     };
 
                     match field {
-                        serde_json::Value::String(val) => Some(val.to_string()),
+                        serde_json::Value::String(val) => Some(val),
                         serde_json::Value::Array(array) => Some(array.iter().filter_map(|v| match v {
-                            serde_json::Value::String(s) => Some(s.to_string()),
+                            serde_json::Value::String(s) => Some(s.to_owned()),
                             _ => None
                         }).collect::<Vec<_>>().join(" ")),
                         val => unimplemented!(

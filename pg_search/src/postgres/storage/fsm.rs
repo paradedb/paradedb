@@ -1,4 +1,4 @@
-use crate::postgres::storage::block::{BM25PageSpecialData, PgItem};
+use crate::postgres::storage::block::PgItem;
 use crate::postgres::storage::buffer::BufferManager;
 use pgrx::pg_sys;
 
@@ -49,7 +49,26 @@ pub struct FreeBlockList {
     bman: BufferManager,
 }
 
+#[derive(Clone, Debug)]
+pub struct FreeBlockListSpecialData {
+    pub next_blockno: pg_sys::BlockNumber,
+    pub previous_blockno: pg_sys::BlockNumber,
+    pub end_blockno: pg_sys::BlockNumber,
+}
+
 impl FreeBlockList {
+    pub fn create(relation_oid: pg_sys::Oid) -> pg_sys::BlockNumber {
+        let mut bman = BufferManager::new(relation_oid);
+        let mut start_buffer = bman.extend_relation();
+        let start_blockno = start_buffer.number();
+        let mut start_page = start_buffer.init_fsm_page();
+
+        let special = start_page.special_mut::<FreeBlockListSpecialData>();
+        special.end_blockno = start_blockno;
+
+        start_blockno
+    }
+
     ///
     /// Open a new [`FreeBlockList`].
     ///
@@ -73,29 +92,17 @@ impl FreeBlockList {
     /// A [`FreeBlockNumber`] if one is available, or `None` if the list is empty.
     pub fn pop(&mut self) -> Option<FreeBlockNumber> {
         // Go to the end of the list, creating a list of block numbers along the way
-        let mut blockno = self.start_block_number;
-        let mut buffer = self.bman.get_buffer(blockno);
-        let mut blocknos = Vec::new();
-
-        while blockno != pg_sys::InvalidBlockNumber {
-            if blockno != self.start_block_number {
-                buffer = self.bman.get_buffer_exchange(blockno, buffer);
-            }
-
-            blocknos.push(blockno);
-            let page = buffer.page();
-            blockno = page.next_blockno();
-        }
-
-        drop(buffer);
+        let mut blockno = self.get_end_blockno();
 
         // Pop a [`FreeBlockNumber`] from the end of the list
-        for blockno in blocknos.into_iter().rev() {
+        while blockno != pg_sys::InvalidBlockNumber {
             let mut buffer = self.bman.get_buffer_mut(blockno);
             let mut page = buffer.page_mut();
             let max_offset = page.max_offset_number();
 
             if max_offset == pg_sys::InvalidOffsetNumber {
+                let special = page.special::<FreeBlockListSpecialData>();
+                blockno = special.previous_blockno;
                 drop(buffer);
                 continue;
             }
@@ -104,6 +111,9 @@ impl FreeBlockList {
                 page.delete_item(max_offset);
                 return Some(item);
             }
+
+            let special = page.special::<FreeBlockListSpecialData>();
+            blockno = special.previous_blockno;
         }
 
         None
@@ -122,28 +132,49 @@ impl FreeBlockList {
             let PgItem(pg_item, size) = item.clone().into();
 
             'append_loop: loop {
+                let blockno = buffer.number();
                 let mut page = buffer.page_mut();
                 let offsetno = page.append_item(pg_item, size, 0);
                 if offsetno != pg_sys::InvalidOffsetNumber {
                     // it added to this block
                     break 'append_loop;
-                } else if page.next_blockno() != pg_sys::InvalidBlockNumber {
-                    // go to the next block
-                    let next_blockno = page.next_blockno();
-                    buffer = self.bman.get_buffer_mut(next_blockno);
                 } else {
-                    // The FSM cannot call new_buffer() because it would cause a circular dependency
-                    // new_buffer() itself relies on the FSM - we have to extend the relation here
-                    let mut new_page = self.bman.extend_relation();
-                    let new_blockno = new_page.number();
-                    new_page.init_page();
+                    let special = page.special::<FreeBlockListSpecialData>();
+                    let next_blockno = special.next_blockno;
+                    if next_blockno != pg_sys::InvalidBlockNumber {
+                        // go to the next block
+                        buffer = self.bman.get_buffer_mut(next_blockno);
+                    } else {
+                        // The FSM cannot call new_buffer() because it would cause a circular dependency
+                        // new_buffer() itself relies on the FSM - we have to extend the relation here
+                        let mut new_buffer = self.bman.extend_relation();
+                        let new_blockno = new_buffer.number();
+                        let mut new_page = new_buffer.init_fsm_page();
+                        let new_special = new_page.special_mut::<FreeBlockListSpecialData>();
+                        new_special.previous_blockno = blockno;
 
-                    let special = page.special_mut::<BM25PageSpecialData>();
-                    special.next_blockno = new_blockno;
+                        let special = page.special_mut::<FreeBlockListSpecialData>();
+                        special.next_blockno = new_blockno;
 
-                    buffer = new_page;
+                        buffer = new_buffer;
+                        self.set_end_blockno(new_blockno);
+                    }
                 }
             }
         }
+    }
+
+    fn get_end_blockno(&self) -> pg_sys::BlockNumber {
+        let buffer = self.bman.get_buffer(self.start_block_number);
+        let page = buffer.page();
+        let special = page.special::<FreeBlockListSpecialData>();
+        special.end_blockno
+    }
+
+    fn set_end_blockno(&mut self, blockno: pg_sys::BlockNumber) {
+        let mut buffer = self.bman.get_buffer_mut(self.start_block_number);
+        let mut page = buffer.page_mut();
+        let special = page.special_mut::<FreeBlockListSpecialData>();
+        special.end_blockno = blockno;
     }
 }

@@ -1,4 +1,5 @@
 use crate::postgres::storage::block::{BM25PageSpecialData, PgItem};
+use crate::postgres::storage::fsm::FreeBlockListSpecialData;
 use crate::postgres::storage::fsm::FreeBlockNumber;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
@@ -72,6 +73,25 @@ impl BufferMut {
             let special = pg_sys::PageGetSpecialPointer(page.pg_page) as *mut BM25PageSpecialData;
             (*special).next_blockno = pg_sys::InvalidBlockNumber;
             (*special).xmax = pg_sys::InvalidTransactionId;
+        }
+        page
+    }
+
+    pub fn init_fsm_page(&mut self) -> PageMut {
+        let page_size = self.page_size();
+        let page = self.page_mut();
+        page.buffer.dirty = true;
+        unsafe {
+            pg_sys::PageInit(
+                page.pg_page,
+                page_size,
+                size_of::<FreeBlockListSpecialData>(),
+            );
+
+            let special =
+                pg_sys::PageGetSpecialPointer(page.pg_page) as *mut FreeBlockListSpecialData;
+            (*special).next_blockno = pg_sys::InvalidBlockNumber;
+            (*special).previous_blockno = pg_sys::InvalidBlockNumber;
         }
         page
     }

@@ -105,7 +105,7 @@ impl MetaPage {
             let segment_meta_garbage = needs_segment_meta_garbage
                 .then(|| LinkedItemList::<SegmentMetaEntry>::create(relation_oid));
             let merge_lock = needs_merge_lock.then(|| new_buffer_and_init_page(relation_oid));
-            let fsm = needs_fsm.then(|| new_buffer_and_init_page(relation_oid));
+            let fsm = needs_fsm.then(|| FreeBlockList::create(relation_oid));
 
             // It's important to acquire the exclusive lock after the above structures have been created,
             // because those structures call new_buffer(), which opens the MetaPage to read the FSM,

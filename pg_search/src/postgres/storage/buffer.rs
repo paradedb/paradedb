@@ -1,6 +1,7 @@
-use crate::postgres::storage::block::{
-    bm25_max_free_space, BM25PageSpecialData, PgItem, FIXED_BLOCK_NUMBERS,
-};
+use crate::postgres::storage::block::{BM25PageSpecialData, PgItem};
+use crate::postgres::storage::fsm::FreeBlockListSpecialData;
+use crate::postgres::storage::fsm::FreeBlockNumber;
+use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
 use pgrx::pg_sys;
 
@@ -76,6 +77,25 @@ impl BufferMut {
         page
     }
 
+    pub fn init_fsm_page(&mut self) -> PageMut {
+        let page_size = self.page_size();
+        let page = self.page_mut();
+        page.buffer.dirty = true;
+        unsafe {
+            pg_sys::PageInit(
+                page.pg_page,
+                page_size,
+                size_of::<FreeBlockListSpecialData>(),
+            );
+
+            let special =
+                pg_sys::PageGetSpecialPointer(page.pg_page) as *mut FreeBlockListSpecialData;
+            (*special).next_blockno = pg_sys::InvalidBlockNumber;
+            (*special).previous_blockno = pg_sys::InvalidBlockNumber;
+        }
+        page
+    }
+
     #[allow(dead_code)]
     pub fn page(&self) -> Page {
         unsafe {
@@ -100,22 +120,6 @@ impl BufferMut {
 
     pub fn page_size(&self) -> pg_sys::Size {
         self.inner.page_size()
-    }
-
-    /// Return this [`BufferMut`] instance back to Postgres' Free Space Map, making
-    /// it available for future reuse as a new buffer.
-    ///
-    /// It's the caller's responsibility to later call [`pg_sys::IndexFreeSpaceMapVacuum`]
-    /// if necessary.
-    pub fn return_to_fsm(mut self, bman: &mut BufferManager) {
-        unsafe {
-            let blockno = self.page_mut().mark_deleted();
-            debug_assert!(
-                FIXED_BLOCK_NUMBERS.iter().all(|fb| *fb != blockno),
-                "record_free_index_page: blockno {blockno} cannot ever be recycled"
-            );
-            pg_sys::RecordPageWithFreeSpace(bman.bcache.indexrel(), blockno, bm25_max_free_space());
-        }
     }
 }
 
@@ -215,22 +219,6 @@ pub struct PageMut<'a> {
 }
 
 impl PageMut<'_> {
-    fn mark_deleted(mut self) -> pg_sys::BlockNumber {
-        let blockno = self.buffer.number();
-        let special = self.special_mut::<BM25PageSpecialData>();
-
-        assert!(
-            special.xmax == pg_sys::InvalidTransactionId
-                || special.xmax == pg_sys::FrozenTransactionId,
-            "page {} is already marked deleted with xid={}",
-            blockno,
-            special.xmax
-        );
-        special.xmax = pg_sys::FrozenTransactionId;
-        self.buffer.dirty = true;
-        blockno
-    }
-
     pub fn max_offset_number(&self) -> pg_sys::OffsetNumber {
         unsafe { pg_sys::PageGetMaxOffsetNumber(self.pg_page) }
     }
@@ -333,6 +321,7 @@ impl PageMut<'_> {
         header
     }
 
+    #[allow(dead_code)]
     pub fn special<T>(&self) -> &T {
         unsafe { &*(pg_sys::PageGetSpecialPointer(self.pg_page) as *const T) }
     }
@@ -432,12 +421,14 @@ impl PageHeaderMethods for pg_sys::PageHeaderData {
 #[derive(Debug)]
 pub struct BufferManager {
     bcache: BM25BufferCache,
+    fsm_queue: Vec<FreeBlockNumber>,
 }
 
 impl BufferManager {
     pub fn new(indexrelid: pg_sys::Oid) -> Self {
         Self {
             bcache: BM25BufferCache::open(indexrelid),
+            fsm_queue: Vec::new(),
         }
     }
 
@@ -456,6 +447,20 @@ impl BufferManager {
                 dirty: false,
                 inner: Buffer {
                     pg_buffer: self.bcache.new_buffer(),
+                },
+            }
+        }
+    }
+
+    /// Like new_buffer, but explicitly disable use of the buffer cache and force a new page to be created.
+    ///
+    /// This is used to create pages during index initialization (e.g. ambuild).
+    pub fn extend_relation(&mut self) -> BufferMut {
+        unsafe {
+            BufferMut {
+                dirty: false,
+                inner: Buffer {
+                    pg_buffer: self.bcache.extend_relation(),
                 },
             }
         }
@@ -562,5 +567,16 @@ impl BufferManager {
 
     pub fn page_is_empty(&self, blockno: pg_sys::BlockNumber) -> bool {
         self.get_buffer(blockno).page().is_empty()
+    }
+
+    pub fn add_to_fsm_queue(&mut self, blockno: impl Into<FreeBlockNumber>) {
+        self.fsm_queue.push(blockno.into());
+    }
+
+    pub fn flush_fsm_queue(&mut self) {
+        let metadata = unsafe { MetaPage::open_or_init(self.relation_oid()) };
+        let mut fsm = metadata.fsm();
+        let blocknos: Vec<_> = self.fsm_queue.drain(..).collect();
+        unsafe { fsm.append_list(&blocknos) };
     }
 }

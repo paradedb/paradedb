@@ -369,7 +369,9 @@ pub unsafe fn load_metas(
             {
                 // If we haven't tried the `segment_metas_garbage` list, try that next.
                 if !exhausted_metas_lists {
-                    if let Some(garbage) = MetaPage::open(relation_oid).segment_metas_garbage() {
+                    if let Some(garbage) =
+                        MetaPage::open_or_init(relation_oid).segment_metas_garbage()
+                    {
                         segment_metas = garbage;
                         exhausted_metas_lists = true;
                         continue;

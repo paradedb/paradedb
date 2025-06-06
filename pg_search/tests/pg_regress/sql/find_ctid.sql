@@ -1,3 +1,4 @@
+DROP TABLE IF EXISTS tblfind_ctid;
 CREATE TABLE tblfind_ctid (id bigint);
 CREATE INDEX idxfind_ctid ON tblfind_ctid USING bm25 (id) WITH (key_field = 'id');
 INSERT INTO tblfind_ctid (id) VALUES (1);

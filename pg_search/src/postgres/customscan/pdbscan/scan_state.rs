@@ -91,6 +91,9 @@ pub struct PdbScanState {
     pub var_attname_lookup: HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
     pub placeholder_targetlist: Option<*mut pg_sys::List>,
 
+    // Store join-level search predicates for enhanced scoring/snippet generation
+    pub join_predicates: Option<SearchQueryInput>,
+
     pub exec_method_type: ExecMethodType,
     exec_method: UnsafeCell<Box<dyn ExecMethod>>,
     exec_method_name: String,
@@ -277,8 +280,7 @@ impl PdbScanState {
             None
         } else {
             Some(
-                snippet
-                    .highlighted()
+                highlighted
                     .iter()
                     .map(|span| vec![span.start as i32, span.end as i32])
                     .collect(),

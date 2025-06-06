@@ -54,7 +54,7 @@ use crate::postgres::customscan::pdbscan::projections::snippet::{
 use crate::postgres::customscan::pdbscan::projections::{
     inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
 };
-use crate::postgres::customscan::pdbscan::qual_inspect::extract_quals;
+use crate::postgres::customscan::pdbscan::qual_inspect::{extract_join_predicates, extract_quals};
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::customscan::{self, CustomScan, CustomScanState};
 use crate::postgres::rel_get_bm25_index;
@@ -122,16 +122,33 @@ impl PdbScan {
                 .snippet_generators
                 .drain()
                 .collect();
+
+            // Pre-compute enhanced queries for snippet generation if we have join predicates
+            let enhanced_query_for_snippets =
+                if let Some(ref join_predicate) = state.custom_state().join_predicates {
+                    // Combine base query with join predicate for snippet generation
+                    let base_query = state.custom_state().search_query_input();
+                    Some(SearchQueryInput::Boolean {
+                        must: vec![base_query.clone()],
+                        should: vec![join_predicate.clone()],
+                        must_not: vec![],
+                    })
+                } else {
+                    None
+                };
+
             for (snippet_type, generator) in &mut snippet_generators {
+                // Use enhanced query if available, otherwise use base query
+                let query_to_use = enhanced_query_for_snippets
+                    .as_ref()
+                    .unwrap_or_else(|| state.custom_state().search_query_input());
+
                 let mut new_generator = state
                     .custom_state()
                     .search_reader
                     .as_ref()
                     .unwrap()
-                    .snippet_generator(
-                        snippet_type.field(),
-                        state.custom_state().search_query_input(),
-                    );
+                    .snippet_generator(snippet_type.field(), query_to_use);
 
                 // If SnippetType::Positions, set max_num_chars to u32::MAX because the entire doc must be considered
                 // This assumes text fields can be no more than u32::MAX bytes
@@ -547,6 +564,35 @@ impl CustomScan for PdbScan {
                 }
             }
 
+            // Extract join-level snippet predicates for this relation
+            // Get values we need before the mutable borrow
+
+            // Extract the indexrelid early to avoid borrow checker issues later
+            let indexrelid = private_data.indexrelid().expect("indexrelid should be set");
+            let indexrel = PgRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
+            let directory = MVCCDirectory::snapshot(indexrel.oid());
+            let index = Index::open(directory)
+                .expect("should be able to open index for snippet extraction");
+            let schema = SearchIndexSchema::open(indexrelid)
+                .expect("should be able to open schema for snippet extraction");
+
+            let base_query = builder
+                .custom_private()
+                .query()
+                .clone()
+                .expect("should have a SearchQueryInput");
+            let join_predicates = extract_join_predicates(
+                builder.args().root,
+                rti as pg_sys::Index,
+                anyelement_query_input_opoid(),
+                &schema,
+                &base_query,
+            );
+
+            builder
+                .custom_private_mut()
+                .set_join_predicates(join_predicates);
+
             builder
                 .custom_private_mut()
                 .set_var_attname_lookup(attname_lookup);
@@ -626,6 +672,10 @@ impl CustomScan for PdbScan {
             .into_iter()
             .map(|field| (field, None))
             .collect();
+
+            // Store join snippet predicates in the scan state
+            builder.custom_state().join_predicates =
+                builder.custom_private().join_predicates().clone();
 
             assign_exec_method(&mut builder);
 
@@ -1409,6 +1459,7 @@ unsafe fn is_partitioned_table_setup(
 /// This function is critical for issue #2505/#2556 where we need to detect all columns used in JOIN
 /// conditions to ensure we select the right execution method. Previously, only looking at the
 /// target list would miss columns referenced in JOIN conditions, leading to execution-time errors.
+///
 unsafe fn collect_maybe_fast_field_referenced_columns(
     rte_index: pg_sys::Index,
     rel: *mut pg_sys::RelOptInfo,

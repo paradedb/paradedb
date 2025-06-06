@@ -338,7 +338,7 @@ impl SearchIndexReader {
         query: &SearchQueryInput,
     ) -> (tantivy::schema::Field, SnippetGenerator) {
         let search_field = self.schema.search_field(&field_name).unwrap();
-        if search_field.is_text() {
+        if search_field.is_text() || search_field.is_json() {
             let field = search_field.field();
             let generator = SnippetGenerator::create(&self.searcher, &self.query(query), field)
                 .unwrap_or_else(|err| {

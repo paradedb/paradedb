@@ -19,6 +19,7 @@ use crate::api::index::FieldName;
 use crate::api::HashMap;
 use crate::api::Varno;
 use crate::nodecast;
+use crate::postgres::var::find_one_var;
 use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{
     default, direct_function_call, extension_sql, pg_extern, pg_guard, pg_sys, AnyElement,
@@ -185,7 +186,7 @@ unsafe fn extract_snippet_text(
 ) -> Option<SnippetType> {
     assert!(args.len() == 4);
 
-    let field_arg = nodecast!(Var, T_Var, args.get_ptr(0).unwrap());
+    let field_arg = find_one_var(args.get_ptr(0).unwrap());
     let start_arg = nodecast!(Const, T_Const, args.get_ptr(1).unwrap());
     let end_arg = nodecast!(Const, T_Const, args.get_ptr(2).unwrap());
     let max_num_chars_arg = nodecast!(Const, T_Const, args.get_ptr(3).unwrap());

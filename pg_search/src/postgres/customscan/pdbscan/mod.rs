@@ -166,34 +166,6 @@ impl PdbScan {
             state.custom_state_mut().snippet_generators = snippet_generators;
         }
 
-        // Pre-compute enhanced score query if we have join predicates that could affect scoring
-        let mut enhanced_score_query = None;
-        if let Some(ref join_predicate) = state.custom_state().join_predicates {
-            // Check the ORIGINAL base query for this relation, not the modified search_query_input
-            // which may contain simplified join predicates from other relations
-            let original_base_query = state.custom_state().base_search_query_input();
-
-            // Only enhance scoring if the base query doesn't already have search predicates
-            // If base query has @@@ conditions, it already provides scoring context
-            if !base_query_has_search_predicates(
-                original_base_query,
-                state.custom_state().indexrelid,
-            ) {
-                // Combine base query with join predicate using Boolean structure
-                // This provides enhanced search context for scoring while maintaining
-                // the same filtering behavior as the base query
-                enhanced_score_query = Some(SearchQueryInput::Boolean {
-                    must: vec![original_base_query.clone()],
-                    should: vec![join_predicate.clone()],
-                    must_not: vec![],
-                });
-            }
-        }
-
-        // Store enhanced score query for use during search execution
-        // This will be None for single-table queries, which is correct
-        state.custom_state_mut().enhanced_score_query = enhanced_score_query;
-
         unsafe {
             inject_score_and_snippet_placeholders(state);
         }
@@ -737,6 +709,38 @@ impl CustomScan for PdbScan {
                 builder.custom_state().execution_rti,
             );
 
+            // Store join snippet predicates in the scan state
+            builder.custom_state().join_predicates =
+                builder.custom_private().join_predicates().clone();
+
+            if builder.custom_state().need_scores {
+                let state = builder.custom_state();
+                // Pre-compute enhanced score query if we have join predicates that could affect scoring
+                let mut enhanced_score_query = None;
+                if let Some(ref join_predicate) = state.join_predicates {
+                    // Check the ORIGINAL base query for this relation, not the modified search_query_input
+                    // which may contain simplified join predicates from other relations
+                    let original_base_query = state.base_search_query_input();
+
+                    // Only enhance scoring if the base query doesn't already have search predicates
+                    // If base query has @@@ conditions, it already provides scoring context
+                    if !base_query_has_search_predicates(original_base_query, state.indexrelid) {
+                        // Combine base query with join predicate using Boolean structure
+                        // This provides enhanced search context for scoring while maintaining
+                        // the same filtering behavior as the base query
+                        enhanced_score_query = Some(SearchQueryInput::Boolean {
+                            must: vec![original_base_query.clone()],
+                            should: vec![join_predicate.clone()],
+                            must_not: vec![],
+                        });
+                    }
+                }
+
+                // Store enhanced score query for use during search execution
+                // This will be None for single-table queries, which is correct
+                builder.custom_state().enhanced_score_query = enhanced_score_query;
+            }
+
             let node = builder.target_list().as_ptr().cast();
             builder.custom_state().planning_rti = builder
                 .custom_private()
@@ -752,10 +756,6 @@ impl CustomScan for PdbScan {
             .into_iter()
             .map(|field| (field, None))
             .collect();
-
-            // Store join snippet predicates in the scan state
-            builder.custom_state().join_predicates =
-                builder.custom_private().join_predicates().clone();
 
             assign_exec_method(&mut builder);
 

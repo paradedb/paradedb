@@ -32,13 +32,13 @@ use std::cmp::Ordering;
 use std::fmt::{Debug, Display};
 use std::path::PathBuf;
 use std::sync::Arc;
-use tantivy::collector::{Collector, TopDocs};
+use tantivy::collector::{Collector, Feature, FieldFeature, ScoreFeature, TopDocs};
 use tantivy::index::{Index, SegmentId};
 use tantivy::query::{EnableScoring, QueryClone, QueryParser};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::{
-    query::Query, DocAddress, DocId, DocSet, Executor, IndexReader, Order, ReloadPolicy, Score,
-    Searcher, SegmentOrdinal, SegmentReader, TantivyDocument,
+    query::Query, DocAddress, DocSet, Executor, IndexReader, Order, ReloadPolicy, Score, Searcher,
+    SegmentOrdinal, SegmentReader, TantivyDocument,
 };
 
 /// Represents a matching document from a tantivy search.  Typically, it is returned as an Iterator
@@ -419,8 +419,7 @@ impl SearchIndexReader {
 
     /// Search the Tantivy index for the "top N" matching documents in specific segments.
     ///
-    /// The documents are returned in score order.  Most relevant first if `sortdir` is [`SortDirection::Desc`],
-    /// or least relevant first if it's [`SortDirection::Asc`].
+    /// The documents are returned in either score or field order, in the given direction.
     ///
     /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
     /// handle that, if it's necessary.
@@ -433,37 +432,67 @@ impl SearchIndexReader {
         sortdir: SortDirection,
         n: usize,
         offset: usize,
-        need_scores: bool,
     ) -> SearchResults {
         if let Some(sort_field) = sort_field {
-            assert!(
-                !need_scores,
-                "cannot sort by field and get scores in the same query"
-            );
             let field = self
                 .schema
                 .search_field(&sort_field)
                 .expect("sort field should exist in index schema");
             match field.field_entry().field_type().value_type() {
-                tantivy::schema::Type::Str => self.top_by_string_field_in_segments(
+                tantivy::schema::Type::Str => self.top_in_segments(
                     segment_ids,
                     query,
-                    sort_field,
+                    FieldFeature::string(sort_field),
                     sortdir,
                     n,
                     offset,
                 ),
-                _ => self.top_by_field_in_segments(
+                tantivy::schema::Type::U64 => self.top_in_segments(
                     segment_ids,
                     query,
-                    sort_field,
+                    FieldFeature::u64(sort_field),
                     sortdir,
                     n,
                     offset,
                 ),
+                tantivy::schema::Type::I64 => self.top_in_segments(
+                    segment_ids,
+                    query,
+                    FieldFeature::i64(sort_field),
+                    sortdir,
+                    n,
+                    offset,
+                ),
+                tantivy::schema::Type::F64 => self.top_in_segments(
+                    segment_ids,
+                    query,
+                    FieldFeature::f64(sort_field),
+                    sortdir,
+                    n,
+                    offset,
+                ),
+                tantivy::schema::Type::Bool => self.top_in_segments(
+                    segment_ids,
+                    query,
+                    FieldFeature::bool(sort_field),
+                    sortdir,
+                    n,
+                    offset,
+                ),
+                tantivy::schema::Type::Date => self.top_in_segments(
+                    segment_ids,
+                    query,
+                    FieldFeature::datetime(sort_field),
+                    sortdir,
+                    n,
+                    offset,
+                ),
+                x => {
+                    panic!("Unsupported order-by field type: {x:?}");
+                }
             }
         } else {
-            self.top_by_score_in_segments(segment_ids, query, sortdir, n, offset, need_scores)
+            self.top_in_segments(segment_ids, query, ScoreFeature, sortdir, n, offset)
         }
     }
 
@@ -474,68 +503,18 @@ impl SearchIndexReader {
     ///
     /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
     /// handle that, if it's necessary.
-    fn top_by_field_in_segments(
+    fn top_in_segments<F: Feature>(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
         query: &SearchQueryInput,
-        sort_field: impl AsRef<str> + Display,
+        sort_feature: F,
         sortdir: SortDirection,
         n: usize,
         offset: usize,
     ) -> SearchResults {
         let collector = TopDocs::with_limit(n)
             .and_offset(offset)
-            .order_by_u64_field(&sort_field, sortdir.into());
-        let query = self.query(query);
-        let weight = query
-            .weight(tantivy::query::EnableScoring::Enabled {
-                searcher: &self.searcher,
-                statistics_provider: &self.searcher,
-            })
-            .expect("creating a Weight from a Query should not fail");
-
-        let top_docs = self.collect_segments(segment_ids, |segment_ord, segment_reader| {
-            collector
-                .collect_segment(weight.as_ref(), segment_ord, segment_reader)
-                .expect("should be able to collect top-n in segment")
-        });
-
-        let top_docs = collector
-            .merge_fruits(top_docs)
-            .expect("should be able to merge top-n in segments");
-        SearchResults::TopNByField(
-            self.searcher.clone(),
-            Default::default(),
-            // TODO: We are discarding a u64-encoded numeric field value here.
-            // To actually fetch it, we might switch the `TopDocs::order_by_u64_field` call to
-            // `TopDocs::order_by_fast_field`, which handles the decoding.
-            top_docs
-                .into_iter()
-                .map(|(_, doc)| doc)
-                .collect::<Vec<_>>()
-                .into_iter(),
-        )
-    }
-
-    /// Search the Tantivy index for the "top N" matching documents (ordered by a field) in the given segments.
-    ///
-    /// The documents are returned in field order.  Largest first if `sortdir` is [`SortDirection::Desc`],
-    /// or smallest first if it's [`SortDirection::Asc`].
-    ///
-    /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
-    /// handle that, if it's necessary.
-    fn top_by_string_field_in_segments(
-        &self,
-        segment_ids: impl Iterator<Item = SegmentId>,
-        query: &SearchQueryInput,
-        sort_field: FieldName,
-        sortdir: SortDirection,
-        n: usize,
-        offset: usize,
-    ) -> SearchResults {
-        let collector = TopDocs::with_limit(n)
-            .and_offset(offset)
-            .order_by_string_fast_field(&sort_field, sortdir.into());
+            .order_by(((sort_feature, sortdir.into()),));
         let query = self.query(query);
         let weight = query
             .weight(tantivy::query::EnableScoring::Enabled {
@@ -564,92 +543,6 @@ impl SearchIndexReader {
                 .collect::<Vec<_>>()
                 .into_iter(),
         )
-    }
-
-    /// Search the Tantivy index for the "top N" matching documents (ordered by score) in the given segments.
-    ///
-    /// The documents are returned in score order.  Most relevant first if `sortdir` is [`SortDirection::Desc`],
-    /// or least relevant first if it's [`SortDirection::Asc`].
-    ///
-    /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
-    /// handle that, if it's necessary.
-    fn top_by_score_in_segments(
-        &self,
-        segment_ids: impl Iterator<Item = SegmentId>,
-        query: &SearchQueryInput,
-        sortdir: SortDirection,
-        n: usize,
-        offset: usize,
-        need_scores: bool,
-    ) -> SearchResults {
-        match sortdir {
-            // requires tweaking the score, which is a bit slower
-            SortDirection::Asc => {
-                let query = self.query(query);
-                let weight = query
-                    .weight(tantivy::query::EnableScoring::Enabled {
-                        searcher: &self.searcher,
-                        statistics_provider: &self.searcher,
-                    })
-                    .expect("creating a Weight from a Query should not fail");
-
-                let collector = TopDocs::with_limit(n).and_offset(offset).tweak_score(
-                    move |_segment_reader: &tantivy::SegmentReader| {
-                        move |_doc: DocId, original_score: Score| TweakedScore {
-                            dir: sortdir,
-                            score: original_score,
-                        }
-                    },
-                );
-
-                let top_docs = self.collect_segments(segment_ids, |segment_ord, segment_reader| {
-                    collector
-                        .collect_segment(weight.as_ref(), segment_ord, segment_reader)
-                        .expect("should be able to collect top-n in segment")
-                });
-
-                let top_docs = collector
-                    .merge_fruits(top_docs)
-                    .expect("should be able to merge top-n in segment");
-
-                SearchResults::TopNByTweakedScore(
-                    self.searcher.clone(),
-                    Default::default(),
-                    top_docs.into_iter(),
-                )
-            }
-
-            // can use tantivy's score directly
-            SortDirection::Desc => {
-                let query = self.query(query);
-                let weight = query
-                    .weight(tantivy::query::EnableScoring::Enabled {
-                        searcher: &self.searcher,
-                        statistics_provider: &self.searcher,
-                    })
-                    .expect("creating a Weight from a Query should not fail");
-
-                let collector = TopDocs::with_limit(n).and_offset(offset);
-
-                let top_docs = self.collect_segments(segment_ids, |segment_ord, segment_reader| {
-                    collector
-                        .collect_segment(weight.as_ref(), segment_ord, segment_reader)
-                        .expect("should be able to collect top-n in segment")
-                });
-
-                let top_docs = collector
-                    .merge_fruits(top_docs)
-                    .expect("should be able to merge top-n in segment");
-
-                SearchResults::TopNByScore(
-                    self.searcher.clone(),
-                    Default::default(),
-                    top_docs.into_iter(),
-                )
-            }
-
-            SortDirection::None => self.search_segments(need_scores, segment_ids, query, offset),
-        }
     }
 
     pub fn estimate_docs(&self, search_query_input: &SearchQueryInput) -> Option<usize> {

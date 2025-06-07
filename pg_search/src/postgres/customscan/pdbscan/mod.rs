@@ -1061,7 +1061,6 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
             heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
             limit,
             sort_direction,
-            need_scores: privdata.need_scores(),
         }
     } else if fast_fields::is_numeric_fast_field_capable(privdata) {
         // Check for numeric-only fast fields first because they're more selective
@@ -1099,14 +1098,8 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>
             heaprelid,
             limit,
             sort_direction,
-            need_scores,
         } => builder.custom_state().assign_exec_method(
-            exec_methods::top_n::TopNScanExecState::new(
-                heaprelid,
-                limit,
-                sort_direction,
-                need_scores,
-            ),
+            exec_methods::top_n::TopNScanExecState::new(heaprelid, limit, sort_direction),
             None,
         ),
         ExecMethodType::FastFieldString {

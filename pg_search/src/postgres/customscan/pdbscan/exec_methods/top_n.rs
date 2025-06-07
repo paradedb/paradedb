@@ -38,7 +38,6 @@ pub struct TopNScanExecState {
     heaprelid: pg_sys::Oid,
     limit: usize,
     sort_direction: SortDirection,
-    need_scores: bool,
 
     // set during init
     search_query_input: Option<SearchQueryInput>,
@@ -58,17 +57,11 @@ pub struct TopNScanExecState {
 }
 
 impl TopNScanExecState {
-    pub fn new(
-        heaprelid: pg_sys::Oid,
-        limit: usize,
-        sort_direction: SortDirection,
-        need_scores: bool,
-    ) -> Self {
+    pub fn new(heaprelid: pg_sys::Oid, limit: usize, sort_direction: SortDirection) -> Self {
         Self {
             heaprelid,
             limit,
             sort_direction,
-            need_scores,
             search_query_input: None,
             search_reader: None,
             sort_field: None,
@@ -173,7 +166,6 @@ impl ExecMethod for TopNScanExecState {
                 self.sort_direction.into(),
                 local_limit,
                 self.offset,
-                self.need_scores,
             )
             .peekable();
 

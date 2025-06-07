@@ -133,6 +133,11 @@ impl PdbScanState {
         &self.search_query_input
     }
 
+    /// Get the original base search query input before any modifications
+    pub fn base_search_query_input(&self) -> &SearchQueryInput {
+        &self.base_search_query_input
+    }
+
     #[inline(always)]
     pub fn assign_exec_method<T: ExecMethod + 'static>(
         &mut self,

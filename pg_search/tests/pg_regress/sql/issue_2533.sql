@@ -293,7 +293,7 @@ SELECT (SELECT COUNT(*)
            OR ((users.name @@@ 'bob') AND (NOT (users.color @@@ 'blue'))));
 
 --
--- removing the `uses_our_operator` code so that we always push down quals if we can exposed
+-- removing the `uses_tantivy_to_query` code so that we always push down quals if we can exposed
 -- a bug where we'd confuse vars by their names if different tables in the query contain fields
 -- with the same names.  This tests for that
 --

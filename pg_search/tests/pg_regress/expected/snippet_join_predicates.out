@@ -140,9 +140,9 @@ JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50';
  book_id | author_name  |   author_snippet    | author_score | book_score 
 ---------+--------------+---------------------+--------------+------------
-       1 | J.K. Rowling | J.K. <b>Rowling</b> |            1 | 0.20342469
+       1 | J.K. Rowling | J.K. <b>Rowling</b> |    2.3042111 | 0.20342469
        2 | Stephen King |                     |            1 | 0.13515766
-       3 | J.K. Rowling | J.K. <b>Rowling</b> |            1 |  0.2152619
+       3 | J.K. Rowling | J.K. <b>Rowling</b> |    2.3042111 |  0.2152619
 (3 rows)
 
 -- Test with different join types to see if the issue persists

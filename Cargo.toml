@@ -23,7 +23,7 @@ lto = "thin"
 codegen-units = 32
 
 [workspace.dependencies]
-tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "55bd31e3539e6d6df6a8b2a7e48a5c2342caeac3", features = [
+tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", branch = "stuhood.generic-order-by", features = [
   "quickwit",        # for sstable support
   "stopwords",
   "lz4-compression",
@@ -34,4 +34,4 @@ tantivy-jieba = "0.11.0"
 
 [patch.crates-io]
 rust_icu_sys = { git = "https://github.com/google/rust_icu.git", rev = "53e98c8" }
-tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "55bd31e3539e6d6df6a8b2a7e48a5c2342caeac3" }
+tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", branch = "stuhood.generic-order-by" }

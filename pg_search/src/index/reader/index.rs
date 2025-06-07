@@ -32,7 +32,7 @@ use std::cmp::Ordering;
 use std::fmt::{Debug, Display};
 use std::path::PathBuf;
 use std::sync::Arc;
-use tantivy::collector::{Collector, TopDocs};
+use tantivy::collector::{Collector, FieldFeature, TopDocs};
 use tantivy::index::{Index, SegmentId};
 use tantivy::query::{EnableScoring, QueryClone, QueryParser};
 use tantivy::snippet::SnippetGenerator;
@@ -535,7 +535,7 @@ impl SearchIndexReader {
     ) -> SearchResults {
         let collector = TopDocs::with_limit(n)
             .and_offset(offset)
-            .order_by_string_fast_field(&sort_field, sortdir.into());
+            .order_by(((FieldFeature::string(sort_field), sortdir.into()),));
         let query = self.query(query);
         let weight = query
             .weight(tantivy::query::EnableScoring::Enabled {

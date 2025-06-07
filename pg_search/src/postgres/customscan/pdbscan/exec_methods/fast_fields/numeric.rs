@@ -51,7 +51,7 @@ impl ExecMethod for NumericFastFieldExecState {
                 self.inner.search_results = state.search_reader.as_ref().unwrap().search_segments(
                     state.need_scores(),
                     [segment_id].into_iter(),
-                    state.enhanced_search_query_input(),
+                    state.search_query_input(),
                     0,
                 );
                 return true;
@@ -68,7 +68,7 @@ impl ExecMethod for NumericFastFieldExecState {
             self.inner.search_results = state.search_reader.as_ref().unwrap().search(
                 state.need_scores(),
                 false,
-                state.enhanced_search_query_input(),
+                state.search_query_input(),
                 state.limit,
             );
             self.inner.did_query = true;

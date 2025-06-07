@@ -678,16 +678,6 @@ impl CustomScan for PdbScan {
             builder.custom_state().sort_field = builder.custom_private().sort_field();
             builder.custom_state().sort_direction = builder.custom_private().sort_direction();
 
-            // store our query into our custom state too
-            let base_query = builder
-                .custom_private()
-                .query()
-                .clone()
-                .expect("should have a SearchQueryInput");
-            builder
-                .custom_state()
-                .set_base_search_query_input(base_query);
-
             builder.custom_state().segment_count = builder.custom_private().segment_count();
             builder.custom_state().var_attname_lookup = builder
                 .custom_private()
@@ -712,6 +702,16 @@ impl CustomScan for PdbScan {
             // Store join snippet predicates in the scan state
             builder.custom_state().join_predicates =
                 builder.custom_private().join_predicates().clone();
+
+            // store our query into our custom state too
+            let base_query = builder
+                .custom_private()
+                .query()
+                .clone()
+                .expect("should have a SearchQueryInput");
+            builder
+                .custom_state()
+                .set_base_search_query_input(base_query);
 
             if builder.custom_state().need_scores {
                 let state = builder.custom_state();
@@ -738,7 +738,11 @@ impl CustomScan for PdbScan {
 
                 // Store enhanced score query for use during search execution
                 // This will be None for single-table queries, which is correct
-                builder.custom_state().enhanced_score_query = enhanced_score_query;
+                if let Some(enhanced_score_query) = enhanced_score_query {
+                    builder
+                        .custom_state()
+                        .set_base_search_query_input(enhanced_score_query);
+                }
             }
 
             let node = builder.target_list().as_ptr().cast();

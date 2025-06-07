@@ -146,7 +146,7 @@ impl ExecMethod for MixedFastFieldExecState {
                 let searcher = MixedAggSearcher(state.search_reader.as_ref().unwrap());
                 self.mixed_results = searcher.mixed_agg_by_segment(
                     state.need_scores(),
-                    state.enhanced_search_query_input(),
+                    state.search_query_input(),
                     &self.inner.which_fast_fields,
                     segment_id,
                 );
@@ -165,7 +165,7 @@ impl ExecMethod for MixedFastFieldExecState {
             let searcher = MixedAggSearcher(state.search_reader.as_ref().unwrap());
             self.mixed_results = searcher.mixed_agg(
                 state.need_scores(),
-                state.enhanced_search_query_input(),
+                state.search_query_input(),
                 &self.inner.which_fast_fields,
             );
             self.inner.did_query = true;

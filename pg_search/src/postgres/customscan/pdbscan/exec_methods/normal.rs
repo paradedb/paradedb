@@ -86,7 +86,7 @@ impl ExecMethod for NormalScanExecState {
                 self.search_results = state.search_reader.as_ref().unwrap().search_segments(
                     state.need_scores(),
                     [segment_id].into_iter(),
-                    state.enhanced_search_query_input(),
+                    state.search_query_input(),
                     0,
                 );
                 return true;
@@ -177,7 +177,7 @@ impl NormalScanExecState {
             .search(
                 state.need_scores(),
                 false,
-                state.enhanced_search_query_input(),
+                state.search_query_input(),
                 state.limit,
             );
         self.did_query = true;

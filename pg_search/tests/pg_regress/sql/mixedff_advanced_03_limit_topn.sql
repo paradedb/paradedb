@@ -84,13 +84,13 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, is_available, rating
 FROM limit_topn_test
 WHERE is_available = true
-ORDER BY rating DESC
+ORDER BY rating DESC, title ASC
 LIMIT 7;
 
 SELECT title, is_available, rating
 FROM limit_topn_test
 WHERE is_available = true
-ORDER BY rating DESC
+ORDER BY rating DESC, title ASC
 LIMIT 7;
 
 -- Test LIMIT with multiple numeric fields

@@ -36,6 +36,7 @@ use pgrx::IntoDatum;
 use tantivy::collector::Collector;
 use tantivy::index::SegmentId;
 use tantivy::query::Query;
+use tantivy::schema::Schema;
 use tantivy::termdict::TermOrdinal;
 use tantivy::{DocAddress, Executor, SegmentOrdinal};
 
@@ -241,6 +242,7 @@ impl StringAggSearcher<'_> {
         };
 
         let query = self.0.query(query);
+        let schema = Schema::from(self.0.schema().clone());
         let results = self
             .0
             .searcher()
@@ -255,7 +257,7 @@ impl StringAggSearcher<'_> {
                     }
                 } else {
                     tantivy::query::EnableScoring::Disabled {
-                        schema: &self.0.schema().schema,
+                        schema: &schema,
                         searcher_opt: Some(self.0.searcher()),
                     }
                 },
@@ -283,7 +285,7 @@ impl StringAggSearcher<'_> {
             need_scores,
             field: field.into(),
         };
-
+        let schema = Schema::from(self.0.schema().clone());
         let weight = self
             .0
             .query(query)
@@ -294,7 +296,7 @@ impl StringAggSearcher<'_> {
                 }
             } else {
                 tantivy::query::EnableScoring::Disabled {
-                    schema: &self.0.schema().schema,
+                    schema: &schema,
                     searcher_opt: Some(self.0.searcher()),
                 }
             })

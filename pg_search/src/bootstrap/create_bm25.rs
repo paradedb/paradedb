@@ -22,7 +22,7 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::index::IndexKind;
 use crate::postgres::insert::merge_index_with_policy;
-use crate::postgres::options::SearchIndexCreateOptions;
+use crate::postgres::options::SearchIndexOptions;
 use crate::postgres::storage::block::{
     LinkedList, MVCCEntry, SegmentMetaEntry, SEGMENT_METAS_START,
 };
@@ -30,7 +30,7 @@ use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::storage::LinkedItemList;
 use crate::postgres::utils::item_pointer_to_u64;
 use crate::query::SearchQueryInput;
-use crate::schema::SearchFieldConfig;
+use crate::schema::SearchIndexSchema;
 use anyhow::Result;
 use pgrx::prelude::*;
 use pgrx::JsonB;
@@ -39,21 +39,24 @@ use serde_json::Value;
 
 #[pg_extern]
 pub unsafe fn index_fields(index: PgRelation) -> anyhow::Result<JsonB> {
-    let options = SearchIndexCreateOptions::from_relation(&index);
-    let fields = options.get_all_fields(&index).collect::<Vec<_>>();
-    let name_and_config: HashMap<FieldName, SearchFieldConfig> = fields
-        .into_iter()
-        .map(|(field_name, field_config, _)| (field_name, field_config))
-        .collect();
+    let options = SearchIndexOptions::from_relation(&index);
+    let schema = SearchIndexSchema::open(index.oid())?;
+
+    let mut name_and_config = HashMap::default();
+    for (_, field_entry) in schema.fields() {
+        let field_name = field_entry.name();
+        let field_config = options.field_config_or_default(&FieldName::from(field_name));
+        name_and_config.insert(field_name, field_config);
+    }
 
     Ok(JsonB(serde_json::to_value(name_and_config)?))
 }
 
 #[pg_extern]
 pub unsafe fn layer_sizes(index: PgRelation) -> Vec<AnyNumeric> {
-    let options = SearchIndexCreateOptions::from_relation(&index);
+    let options = SearchIndexOptions::from_relation(&index);
     options
-        .layer_sizes(crate::postgres::insert::DEFAULT_LAYER_SIZES)
+        .layer_sizes()
         .into_iter()
         .map(|layer_size| layer_size.into())
         .collect()

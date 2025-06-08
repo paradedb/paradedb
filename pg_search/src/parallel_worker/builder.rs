@@ -17,7 +17,8 @@
 
 use crate::parallel_worker::mqueue::MessageQueueReceiver;
 use crate::parallel_worker::{
-    estimate_chunk, estimate_keys, ParallelProcess, ParallelStateManager, TocKeys, MAXALIGN_DOWN,
+    estimate_chunk, estimate_keys, ParallelProcess, ParallelStateManager, TocKeys, WorkerStyle,
+    MAXALIGN_DOWN,
 };
 use pgrx::pg_sys;
 use std::ffi::CString;
@@ -29,17 +30,16 @@ impl ParallelProcessBuilder {
     pub fn build<P: ParallelProcess>(
         process: P,
         fn_name: &'static str,
+        worker_style: WorkerStyle,
         nworkers: usize,
         mq_size: usize,
     ) -> Option<ParallelProcessLauncher> {
         unsafe {
-            let mut nworkers = nworkers
+            let nworkers = nworkers
                 .min(pg_sys::max_worker_processes as _)
-                .min(pg_sys::max_parallel_workers_per_gather as _)
+                .min(worker_style.max())
                 .min(pg_sys::max_parallel_workers as _);
-            if pg_sys::parallel_leader_participation && nworkers == 0 {
-                nworkers += 1;
-            }
+
             let mq_size = MAXALIGN_DOWN(mq_size);
             let fn_name = CString::new(fn_name).unwrap();
 
@@ -151,7 +151,6 @@ impl ParallelProcessLauncher {
 
                 // or none were launched because caller didn't ask for any, but the leader is supposed to participate
                 || ((*pcxt).nworkers_launched == 0
-                && (*pcxt).nworkers == 1
                 && pg_sys::parallel_leader_participation)
             {
                 // then we have a valid parallel process machine

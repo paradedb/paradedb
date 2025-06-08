@@ -407,18 +407,18 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY valid_period
 LIMIT 10;
-                                                                          QUERY PLAN                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: valid_period
-         ->  Custom Scan (ParadeDB Scan) on data_records
-               Table: data_records
-               Index: records_with_fast_idx
-               Exec Method: NormalScanExecState
-               Scores: false
-                  Top N Limit: 10
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
+   ->  Custom Scan (ParadeDB Scan) on data_records
+         Table: data_records
+         Index: records_with_fast_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            Sort Field: valid_period
+            Sort Direction: asc
+            Top N Limit: 10
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
 (10 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

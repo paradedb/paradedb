@@ -27,7 +27,9 @@ struct MessageQueueHandle {
 impl Drop for MessageQueueHandle {
     fn drop(&mut self) {
         unsafe {
-            pg_sys::shm_mq_detach(self.handle.as_ptr());
+            if pg_sys::IsInParallelMode() {
+                pg_sys::shm_mq_detach(self.handle.as_ptr());
+            }
         }
     }
 }

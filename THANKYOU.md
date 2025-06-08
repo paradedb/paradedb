@@ -36,10 +36,6 @@ the first PGRX extension and primary example, for the architecture of our own ex
 inspired by Apache Lucene, written entirely in Rust. ParadeDB uses Tantivy to power
 part of our search functionalities.
 
-## DuckDB
-
-[DuckDB](https://github.com/duckdb/duckdb) is a high-performance analytical database system. It is designed to be fast, reliable, portable, and easy to use. ParadeDB uses DuckDB do vectorized query processing for columnar data.
-
 ## Docker
 
 [Docker](https://www.docker.com) is a software platform that allows developers to

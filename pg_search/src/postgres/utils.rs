@@ -19,13 +19,14 @@ use crate::api::index::FieldName;
 use crate::index::writer::index::IndexError;
 use crate::postgres::build::is_bm25_index;
 use crate::postgres::types::TantivyValue;
-use crate::schema::{SearchDocument, SearchField, SearchIndexSchema};
+use crate::schema::{SearchField, SearchIndexSchema};
 use anyhow::{anyhow, Result};
 use chrono::{NaiveDate, NaiveTime};
 use pgrx::itemptr::{item_pointer_get_both, item_pointer_set_all};
 use pgrx::pg_sys::Oid;
 use pgrx::*;
 use std::str::FromStr;
+use tantivy::schema::OwnedValue;
 
 use super::expression::PG_SEARCH_PREFIX;
 
@@ -104,7 +105,7 @@ pub fn categorize_fields(
             let mut search_fields = alias_lookup.remove(&attname).unwrap_or_default();
 
             // If there's an indexed field with the same name as a this column, add it to the list.
-            if let Some(index_field) = schema.get_search_field(&attname.clone().into()) {
+            if let Some(index_field) = schema.search_field(&attname) {
                 search_fields.push(index_field)
             };
 
@@ -173,7 +174,7 @@ pub unsafe fn row_to_search_document(
     isnull: *mut bool,
     key_field_name: &FieldName,
     categorized_fields: &Vec<(SearchField, CategorizedFieldData)>,
-    document: &mut SearchDocument,
+    document: &mut tantivy::TantivyDocument,
 ) -> Result<(), IndexError> {
     for (
         search_field,
@@ -188,7 +189,7 @@ pub unsafe fn row_to_search_document(
         let datum = *values.add(*attno);
         let isnull = *isnull.add(*attno);
 
-        if isnull && *key_field_name == search_field.name {
+        if isnull && *key_field_name == search_field.field_name() {
             return Err(IndexError::KeyIdNull(key_field_name.to_string()));
         }
 
@@ -198,16 +199,16 @@ pub unsafe fn row_to_search_document(
 
         if *is_array {
             for value in TantivyValue::try_from_datum_array(datum, *base_oid)? {
-                document.insert(search_field.id, value.into());
+                document.add_field_value(search_field.field(), &OwnedValue::from(value));
             }
         } else if *is_json {
             for value in TantivyValue::try_from_datum_json(datum, *base_oid)? {
-                document.insert(search_field.id, value.into());
+                document.add_field_value(search_field.field(), &OwnedValue::from(value));
             }
         } else {
-            document.insert(
-                search_field.id,
-                TantivyValue::try_from_datum(datum, *base_oid)?.into(),
+            document.add_field_value(
+                search_field.field(),
+                &OwnedValue::from(TantivyValue::try_from_datum(datum, *base_oid)?),
             );
         }
     }

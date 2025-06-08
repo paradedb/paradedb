@@ -396,7 +396,7 @@ fn null_key_field_build(mut conn: PgConnection) {
         Ok(_) => panic!("should fail with null key_field"),
         Err(err) => assert_eq!(
             err.to_string(),
-            "error returned from database: error creating index entries for index 'index_config_index': key_field column 'id' cannot be NULL"
+            "error returned from database: key_field column 'id' cannot be NULL"
         ),
     };
 }
@@ -416,7 +416,7 @@ fn null_key_field_insert(mut conn: PgConnection) {
         Ok(_) => panic!("should fail with null key_field"),
         Err(err) => assert_eq!(
             err.to_string(),
-            "error returned from database: error creating index entries for index 'index_config_index': key_field column 'id' cannot be NULL"
+            "error returned from database: key_field column 'id' cannot be NULL"
         ),
     };
 }
@@ -1156,7 +1156,9 @@ fn expression_with_options(mut conn: PgConnection) {
         "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index') ORDER BY name"
             .fetch(&mut conn);
 
-    assert_eq!(rows[0], ("_pg_search_1".into(), "Str".into()));
-    assert_eq!(rows[1], ("ctid".into(), "U64".into()));
-    assert_eq!(rows[2], ("id".into(), "I64".into()));
+    println!(">>> {rows:#?}");
+
+    assert_eq!(rows[0], ("ctid".into(), "U64".into()));
+    assert_eq!(rows[1], ("id".into(), "I64".into()));
+    assert_eq!(rows[2], ("_pg_search_1".into(), "Str".into()));
 }

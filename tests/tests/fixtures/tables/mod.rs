@@ -16,23 +16,19 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 mod deliveries;
-mod duckdb_types;
 mod icu_amharic_posts;
 mod icu_arabic_posts;
 mod icu_czech_posts;
 mod icu_greek_posts;
-mod nyc_trips;
 mod partitioned;
 mod simple_products;
 mod user_session_logs;
 
 pub use deliveries::*;
-pub use duckdb_types::*;
 pub use icu_amharic_posts::*;
 pub use icu_arabic_posts::*;
 pub use icu_czech_posts::*;
 pub use icu_greek_posts::*;
-pub use nyc_trips::*;
 pub use partitioned::*;
 pub use simple_products::*;
 pub use user_session_logs::*;

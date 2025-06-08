@@ -446,30 +446,38 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, is_available, rating
 FROM limit_topn_test
 WHERE is_available = true
-ORDER BY rating DESC
+ORDER BY rating DESC, title ASC
 LIMIT 7;
-               QUERY PLAN                
------------------------------------------
+                                           QUERY PLAN                                            
+-------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: rating DESC
-         ->  Seq Scan on limit_topn_test
-               Filter: is_available
-(5 rows)
+   ->  Incremental Sort
+         Sort Key: rating DESC, title
+         Presorted Key: rating
+         ->  Custom Scan (ParadeDB Scan) on limit_topn_test
+               Table: limit_topn_test
+               Index: limit_topn_idx
+               Exec Method: TopNScanExecState
+               Scores: false
+                  Sort Field: rating
+                  Sort Direction: desc
+                  Top N Limit: 7
+               Tantivy Query: {"term":{"field":"is_available","value":true,"is_datetime":false}}
+(13 rows)
 
 SELECT title, is_available, rating
 FROM limit_topn_test
 WHERE is_available = true
-ORDER BY rating DESC
+ORDER BY rating DESC, title ASC
 LIMIT 7;
    title    | is_available | rating 
 ------------+--------------+--------
+ Product 14 | t            |      5
+ Product 24 | t            |      5
+ Product 34 | t            |      5
+ Product 4  | t            |      5
  Product 44 | t            |      5
  Product 54 | t            |      5
- Product 4  | t            |      5
- Product 34 | t            |      5
- Product 24 | t            |      5
- Product 14 | t            |      5
  Product 64 | t            |      5
 (7 rows)
 
@@ -480,14 +488,19 @@ FROM limit_topn_test
 WHERE rating > 3.0 AND price < 500
 ORDER BY price DESC
 LIMIT 12;
-                                           QUERY PLAN                                           
-------------------------------------------------------------------------------------------------
+                                                                                                                      QUERY PLAN                                                                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: price DESC
-         ->  Seq Scan on limit_topn_test
-               Filter: ((rating > '3'::double precision) AND (price < '500'::double precision))
-(5 rows)
+   ->  Custom Scan (ParadeDB Scan) on limit_topn_test
+         Table: limit_topn_test
+         Index: limit_topn_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            Sort Field: price
+            Sort Direction: desc
+            Top N Limit: 12
+         Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"excluded":3.0},"upper_bound":null,"is_datetime":false}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"excluded":500.0},"is_datetime":false}}]}}
+(10 rows)
 
 SELECT rating, price
 FROM limit_topn_test

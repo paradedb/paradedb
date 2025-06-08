@@ -92,7 +92,7 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
             // need to concern ourselves with the ones the writer is aware of
             continue;
         }
-        let mut index_writer = SegmentDeleter::open(&index_relation, segment_id)
+        let mut deleter = SegmentDeleter::open(&index_relation, segment_id)
             .expect("ambulkdelete: should be able to open a SegmentDeleter");
         let ctid_ff = FFType::new_ctid(segment_reader.fast_fields());
         let mut needs_commit = false;
@@ -107,12 +107,12 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
             if callback(ctid) {
                 did_delete = true;
                 needs_commit = true;
-                index_writer.delete_document(segment_reader.segment_id(), doc_id);
+                deleter.delete_document(segment_reader.segment_id(), doc_id);
             }
         }
 
         if needs_commit {
-            index_writer
+            deleter
                 .commit()
                 .expect("ambulkdelete: segment deletercommit should succeed");
         }

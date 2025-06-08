@@ -168,7 +168,8 @@ impl SegmentDeleter {
             .unwrap_or_else(|| panic!("segment meta not found for segment_id: {:?}", segment_id));
         let opstamp = segment_meta.delete_opstamp().unwrap_or_default();
 
-        // It's important to set the entry/cursor here, because the delete cursor can only look forward
+        // It's important to set the entry/cursor at the beginning vs. when commit() is called,
+        // because the delete cursor can only look forward
         let segment_entry = SegmentEntry::new(segment_meta.clone(), delete_cursor, None);
 
         Ok(Self {

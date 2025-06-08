@@ -21,7 +21,7 @@ use super::storage::block::CLEANUP_LOCK;
 use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
-use crate::index::writer::index::SearchIndexDeleter;
+use crate::index::writer::index::{SearchIndexDeleter, SerialIndexDeleter};
 use crate::index::WriterResources;
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::metadata::MetaPage;
@@ -64,12 +64,8 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     );
     drop(cleanup_lock);
 
-    let mut index_writer = SearchIndexDeleter::open(
-        &index_relation,
-        MvccSatisfies::Vacuum,
-        WriterResources::Vacuum,
-    )
-    .expect("ambulkdelete: should be able to open a SearchIndexWriter");
+    let mut index_writer = SerialIndexDeleter::open(&index_relation)
+        .expect("ambulkdelete: should be able to open a SerialIndexDeleter");
     let reader = SearchIndexReader::open(&index_relation, MvccSatisfies::Vacuum)
         .expect("ambulkdelete: should be able to open a SearchIndexReader");
 
@@ -104,9 +100,7 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
             let ctid = ctid_ff.as_u64(doc_id).expect("ctid should be present");
             if callback(ctid) {
                 did_delete = true;
-                index_writer
-                    .delete_document(segment_reader.segment_id(), doc_id)
-                    .expect("ambulkdelete: deleting document by segment and id should succeed");
+                index_writer.delete_document(segment_reader.segment_id(), doc_id);
             }
         }
     }
@@ -115,6 +109,7 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     drop(reader);
 
     // this won't merge as the `WriterResources::Vacuum` uses `AllowedMergePolicy::None`
+    pgrx::info!("committing index_writer");
     index_writer
         .commit()
         .expect("ambulkdelete: commit should succeed");

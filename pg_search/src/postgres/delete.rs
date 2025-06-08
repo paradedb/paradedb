@@ -21,7 +21,7 @@ use super::storage::block::CLEANUP_LOCK;
 use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
-use crate::index::writer::index::{SearchIndexDeleter, SerialIndexDeleter};
+use crate::index::writer::index::SegmentDeleter;
 use crate::index::WriterResources;
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::metadata::MetaPage;
@@ -64,12 +64,10 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     );
     drop(cleanup_lock);
 
-    let mut index_writer = SerialIndexDeleter::open(&index_relation)
-        .expect("ambulkdelete: should be able to open a SerialIndexDeleter");
+
     let reader = SearchIndexReader::open(&index_relation, MvccSatisfies::Vacuum)
         .expect("ambulkdelete: should be able to open a SearchIndexReader");
-
-    let writer_segment_ids = index_writer.segment_ids();
+    let writer_segment_ids = reader.segment_ids();
 
     // Write out the list of segment ids we're about to operate on
     // Then acquire a `vacuum_sentinel` to notify concurrent backends that a vacuum is happening
@@ -81,7 +79,8 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
 
     let mut did_delete = false;
     for segment_reader in reader.segment_readers() {
-        if !writer_segment_ids.contains(&segment_reader.segment_id()) {
+        let segment_id = segment_reader.segment_id();
+        if !writer_segment_ids.contains(&segment_id) {
             // the writer doesn't have this segment reader, and that's fine
             // we open the writer and reader in separate calls so it's possible
             // for the reader, which is opened second and outside of the MergeLock,
@@ -89,7 +88,10 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
             // need to concern ourselves with the ones the writer is aware of
             continue;
         }
+        let mut index_writer = SegmentDeleter::open(&index_relation, segment_id)
+            .expect("ambulkdelete: should be able to open a SegmentDeleter");
         let ctid_ff = FFType::new_ctid(segment_reader.fast_fields());
+        let mut needs_commit = false;
 
         for doc_id in 0..segment_reader.max_doc() {
             if doc_id % 100 == 0 {
@@ -100,19 +102,18 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
             let ctid = ctid_ff.as_u64(doc_id).expect("ctid should be present");
             if callback(ctid) {
                 did_delete = true;
+                needs_commit = true;
                 index_writer.delete_document(segment_reader.segment_id(), doc_id);
             }
+        }
+
+        if needs_commit {
+            index_writer.commit().expect("ambulkdelete: segment deletercommit should succeed");
         }
     }
     // no need to keep the reader around.  Also, it holds a pin on the CLEANUP_LOCK, which
     // will get in the way of our CLEANUP_LOCK barrier below
     drop(reader);
-
-    // this won't merge as the `WriterResources::Vacuum` uses `AllowedMergePolicy::None`
-    pgrx::info!("committing index_writer");
-    index_writer
-        .commit()
-        .expect("ambulkdelete: commit should succeed");
 
     if stats.is_null() {
         stats = unsafe {

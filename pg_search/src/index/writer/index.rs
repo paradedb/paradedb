@@ -19,7 +19,7 @@ use crate::api::{HashMap, HashSet};
 use anyhow::Result;
 use pgrx::{pg_sys, PgRelation};
 use tantivy::index::SegmentId;
-use tantivy::indexer::delete_queue::DeleteQueue;
+use tantivy::indexer::delete_queue::{DeleteCursor, DeleteQueue};
 use tantivy::indexer::{
     advance_deletes, apply_deletes, AddOperation, DeleteOperation, NoMergePolicy, SegmentEntry,
     SegmentWriter, UserOperation,
@@ -238,93 +238,72 @@ impl SerialIndexWriter {
     }
 }
 
-pub struct SerialIndexDeleter {
-    indexrelid: pg_sys::Oid,
+pub struct SegmentDeleter {
     delete_queue: DeleteQueue,
+    segment_entry: SegmentEntry,
+    opstamp: Opstamp,
     index: Index,
-    segment_ids: HashSet<SegmentId>,
 }
 
-impl SerialIndexDeleter {
-    pub fn open(index_relation: &PgRelation) -> Result<Self> {
+impl SegmentDeleter {
+    pub fn open(index_relation: &PgRelation, segment_id: SegmentId) -> Result<Self> {
         let delete_queue = DeleteQueue::new();
+        let delete_cursor = delete_queue.cursor();
+
         let directory = MVCCDirectory::vacuum(index_relation.oid());
         let index = Index::open(directory)?;
+        let searchable_segment_metas = index.searchable_segment_metas()?;
+        let segment_meta = searchable_segment_metas
+            .iter()
+            .find(|meta| meta.id() == segment_id)
+            .unwrap_or_else(|| panic!("segment meta not found for segment_id: {:?}", segment_id));
+
+        let segment = index.segment(segment_meta.clone());
+        let segment_entry = SegmentEntry::new(segment_meta.clone(), delete_cursor, None);
+
         Ok(Self {
-            indexrelid: index_relation.oid(),
             delete_queue,
+            segment_entry,
+            opstamp: Default::default(),
             index,
-            segment_ids: Default::default(),
         })
     }
 
     pub fn delete_document(&mut self, segment_id: SegmentId, doc_id: DocId) {
+        self.opstamp += 1;
         self.delete_queue.push(DeleteOperation::ByAddress {
-            opstamp: 0,
+            opstamp: self.opstamp,
             segment_id,
             doc_id,
         });
-        self.segment_ids.insert(segment_id);
     }
 
     pub fn commit(mut self) -> Result<()> {
-        for segment_id in self.segment_ids {
-            let searchable_segment_metas = self.index.searchable_segment_metas()?;
-            let segment_meta = match searchable_segment_metas
-                .iter()
-                .find(|meta| meta.id() == segment_id)
-            {
-                Some(meta) => meta,
-                None => continue,
-            };
-            let segment = self.index.segment(segment_meta.clone());
+        let target_opstamp = self.opstamp + 1;
+        let segment = self.index.segment(self.segment_entry.meta().clone());
+        advance_deletes(segment, &mut self.segment_entry, target_opstamp)?;
 
-            // let doc_opstamps: Vec<Opstamp> = vec![0; segment_meta.max_doc() as usize];
-            // let alive_bitset_opt =
-            //     apply_deletes(&segment, &mut self.delete_queue.cursor().clone(), &doc_opstamps)?;
-
-            // pgrx::info!("alive bitset opt is some {:?}", alive_bitset_opt.is_some());
-            // pgrx::info!("delete queue cursor is some {:?}", self.delete_queue.cursor().get().is_some());
-
-            let mut segment_entry = SegmentEntry::new(
-                segment_meta.clone(),
-                self.delete_queue.cursor(),
-                None,
-            );
-
-            let target_opstamp = segment_meta.delete_opstamp().unwrap_or(0) + 1;
-            advance_deletes(segment, &mut segment_entry, target_opstamp)?;
-
-            let current_metas = self.index.load_metas()?;
-            let modified_segments = current_metas
-                .segments
-                .clone()
-                .into_iter()
-                .map(|meta| {
-                    if meta.id() == segment_id {
-                        segment_entry.meta().clone()
-                    } else {
-                        meta
-                    }
-                })
-                .collect();
-            let new_metas = IndexMeta {
-                segments: modified_segments,
-                ..current_metas.clone()
-            };
-            self.index
-                .directory()
-                .save_metas(&new_metas, &current_metas, &mut ())?;
-        }
-        Ok(())
-    }
-
-    pub fn segment_ids(&self) -> HashSet<SegmentId> {
-        self.index
-            .searchable_segment_ids()
-            .unwrap()
+        let current_metas = self.index.load_metas()?;
+        let modified_segments = current_metas
+            .segments
+            .clone()
             .into_iter()
-            .collect()
+            .map(|meta| {
+                if meta.id() == self.segment_entry.meta().id() {
+                    self.segment_entry.meta().clone()
+                } else {
+                    meta
+                }
+            })
+            .collect();
+        let new_metas = IndexMeta {
+            segments: modified_segments,
+            ..current_metas.clone()
+        };
+        self.index
+            .directory()
+            .save_metas(&new_metas, &current_metas, &mut ())?;
+        Ok(())
     }
 }
 

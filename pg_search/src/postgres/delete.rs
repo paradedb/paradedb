@@ -107,7 +107,7 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
             if callback(ctid) {
                 did_delete = true;
                 needs_commit = true;
-                deleter.delete_document(segment_reader.segment_id(), doc_id);
+                deleter.delete_document(doc_id);
             }
         }
 
@@ -179,11 +179,11 @@ impl SegmentDeleter {
         })
     }
 
-    pub fn delete_document(&mut self, segment_id: SegmentId, doc_id: DocId) {
+    pub fn delete_document(&mut self, doc_id: DocId) {
         self.opstamp += 1;
         self.delete_queue.push(DeleteOperation::ByAddress {
             opstamp: self.opstamp,
-            segment_id,
+            segment_id: self.segment_entry.meta().id(),
             doc_id,
         });
     }

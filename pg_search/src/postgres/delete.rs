@@ -19,12 +19,17 @@ use pgrx::{pg_sys::ItemPointerData, *};
 
 use super::storage::block::CLEANUP_LOCK;
 use crate::index::fast_fields_helper::FFType;
-use crate::index::mvcc::MvccSatisfies;
+use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::reader::index::SearchIndexReader;
-use crate::index::writer::index::SegmentDeleter;
-use crate::index::WriterResources;
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::metadata::MetaPage;
+
+use anyhow::Result;
+use pgrx::{pg_sys, PgRelation};
+use tantivy::index::SegmentId;
+use tantivy::indexer::delete_queue::DeleteQueue;
+use tantivy::indexer::{advance_deletes, DeleteOperation, SegmentEntry};
+use tantivy::{Directory, DocId, Index, IndexMeta, Opstamp};
 
 #[pg_guard]
 pub unsafe extern "C-unwind" fn ambulkdelete(
@@ -63,7 +68,6 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
         "ambulkdelete cannot run concurrently with an active merge operation"
     );
     drop(cleanup_lock);
-
 
     let reader = SearchIndexReader::open(&index_relation, MvccSatisfies::Vacuum)
         .expect("ambulkdelete: should be able to open a SearchIndexReader");
@@ -108,7 +112,9 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
         }
 
         if needs_commit {
-            index_writer.commit().expect("ambulkdelete: segment deletercommit should succeed");
+            index_writer
+                .commit()
+                .expect("ambulkdelete: segment deletercommit should succeed");
         }
     }
     // no need to keep the reader around.  Also, it holds a pin on the CLEANUP_LOCK, which
@@ -139,4 +145,73 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     // we're done, no need to hold onto the sentinel any longer
     drop(vacuum_sentinel);
     stats.into_pg()
+}
+
+struct SegmentDeleter {
+    delete_queue: DeleteQueue,
+    segment_entry: SegmentEntry,
+    index: Index,
+    opstamp: Opstamp,
+}
+
+impl SegmentDeleter {
+    pub fn open(index_relation: &PgRelation, segment_id: SegmentId) -> Result<Self> {
+        let delete_queue = DeleteQueue::new();
+        let delete_cursor = delete_queue.cursor();
+
+        let directory = MVCCDirectory::vacuum(index_relation.oid());
+        let index = Index::open(directory)?;
+        let searchable_segment_metas = index.searchable_segment_metas()?;
+        let segment_meta = searchable_segment_metas
+            .iter()
+            .find(|meta| meta.id() == segment_id)
+            .unwrap_or_else(|| panic!("segment meta not found for segment_id: {:?}", segment_id));
+        let opstamp = segment_meta.delete_opstamp().unwrap_or_default();
+
+        // It's important to set the entry/cursor here, because the delete cursor can only look forward
+        let segment_entry = SegmentEntry::new(segment_meta.clone(), delete_cursor, None);
+
+        Ok(Self {
+            delete_queue,
+            segment_entry,
+            index,
+            opstamp,
+        })
+    }
+
+    pub fn delete_document(&mut self, segment_id: SegmentId, doc_id: DocId) {
+        self.opstamp += 1;
+        self.delete_queue.push(DeleteOperation::ByAddress {
+            opstamp: self.opstamp,
+            segment_id,
+            doc_id,
+        });
+    }
+
+    pub fn commit(mut self) -> Result<()> {
+        let segment = self.index.segment(self.segment_entry.meta().clone());
+        advance_deletes(segment, &mut self.segment_entry, self.opstamp + 1)?;
+
+        let current_metas = self.index.load_metas()?;
+        let modified_segments = current_metas
+            .segments
+            .clone()
+            .into_iter()
+            .map(|meta| {
+                if meta.id() == self.segment_entry.meta().id() {
+                    self.segment_entry.meta().clone()
+                } else {
+                    meta
+                }
+            })
+            .collect();
+        let new_metas = IndexMeta {
+            segments: modified_segments,
+            ..current_metas.clone()
+        };
+        self.index
+            .directory()
+            .save_metas(&new_metas, &current_metas, &mut ())?;
+        Ok(())
+    }
 }

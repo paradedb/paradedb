@@ -57,6 +57,15 @@ extern "C-unwind" fn validate_text_fields(value: *const std::os::raw::c_char) {
 }
 
 #[pg_guard]
+extern "C-unwind" fn validate_inet_fields(value: *const std::os::raw::c_char) {
+    let json_str = cstr_to_rust_str(value);
+    if json_str.is_empty() {
+        return;
+    }
+    deserialize_config_fields(json_str, &SearchFieldConfig::inet_from_json);
+}
+
+#[pg_guard]
 extern "C-unwind" fn validate_numeric_fields(value: *const std::os::raw::c_char) {
     let json_str = cstr_to_rust_str(value);
     if json_str.is_empty() {
@@ -160,7 +169,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
         .to_string()
 }
 
-const NUM_REL_OPTS: usize = 8;
+const NUM_REL_OPTS: usize = 9;
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amoptions(
     reloptions: pg_sys::Datum,
@@ -171,6 +180,11 @@ pub unsafe extern "C-unwind" fn amoptions(
             optname: "text_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: offset_of!(SearchIndexOptionsData, text_fields_offset) as i32,
+        },
+        pg_sys::relopt_parse_elt {
+            optname: "inet_fields".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
+            offset: offset_of!(SearchIndexOptionsData, inet_fields_offset) as i32,
         },
         pg_sys::relopt_parse_elt {
             optname: "numeric_fields".as_pg_cstr(),
@@ -233,6 +247,7 @@ pub struct SearchIndexOptions {
     layer_sizes: Vec<u64>,
     key_field_name: FieldName,
     text_configs: HashMap<FieldName, SearchFieldConfig>,
+    inet_configs: HashMap<FieldName, SearchFieldConfig>,
     numeric_configs: HashMap<FieldName, SearchFieldConfig>,
     boolean_configs: HashMap<FieldName, SearchFieldConfig>,
     json_configs: HashMap<FieldName, SearchFieldConfig>,
@@ -250,6 +265,13 @@ impl SearchIndexOptions {
         for (field_name, config) in &text_configs {
             validate_field_config(field_name, &key_field_name, config, indexrel, |t| {
                 matches!(t, SearchFieldType::Text(_) | SearchFieldType::Uuid(_))
+            });
+        }
+
+        let inet_configs = data.inet_configs();
+        for (field_name, config) in &inet_configs {
+            validate_field_config(field_name, &key_field_name, config, indexrel.oid(), |t| {
+                matches!(t, SearchFieldType::Inet(_))
             });
         }
 
@@ -295,6 +317,7 @@ impl SearchIndexOptions {
             layer_sizes: data.layer_sizes(),
             key_field_name,
             text_configs,
+            inet_configs,
             numeric_configs,
             boolean_configs,
             json_configs,
@@ -343,6 +366,7 @@ impl SearchIndexOptions {
         self.text_configs
             .get(field_name)
             .cloned()
+            .or_else(|| self.inet_configs.get(field_name).cloned())
             .or_else(|| self.numeric_configs.get(field_name).cloned())
             .or_else(|| self.boolean_configs.get(field_name).cloned())
             .or_else(|| self.json_configs.get(field_name).cloned())
@@ -396,6 +420,7 @@ struct SearchIndexOptionsData {
     // varlena header (needed bc postgres treats this as bytea)
     vl_len_: i32,
     text_fields_offset: i32,
+    inet_fields_offset: i32,
     numeric_fields_offset: i32,
     boolean_fields_offset: i32,
     json_fields_offset: i32,
@@ -435,6 +460,10 @@ impl SearchIndexOptionsData {
 
     pub fn text_configs(&self) -> HashMap<FieldName, SearchFieldConfig> {
         self.deserialize_configs(self.text_fields_offset, &SearchFieldConfig::text_from_json)
+    }
+
+    fn inet_configs(&self) -> HashMap<FieldName, SearchFieldConfig> {
+        self.deserialize_configs(self.inet_fields_offset, &SearchFieldConfig::inet_from_json)
     }
 
     pub fn numeric_configs(&self) -> HashMap<FieldName, SearchFieldConfig> {
@@ -621,6 +650,10 @@ fn key_field_config(field_type: &SearchFieldType) -> SearchFieldConfig {
             record: IndexRecordOption::Basic,
             normalizer: SearchNormalizer::Raw,
             column: None,
+        },
+        SearchFieldType::Inet(_) => SearchFieldConfig::Inet {
+            indexed: true,
+            fast: true,
         },
         SearchFieldType::Json(_) => SearchFieldConfig::Json {
             indexed: true,

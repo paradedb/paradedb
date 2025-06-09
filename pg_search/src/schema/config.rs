@@ -20,8 +20,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fmt::{Display, Formatter};
 use tantivy::schema::{
-    DateOptions, DateTimePrecision, JsonObjectOptions, NumericOptions, TextFieldIndexing,
-    TextOptions,
+    DateOptions, DateTimePrecision, IpAddrOptions, JsonObjectOptions, NumericOptions,
+    TextFieldIndexing, TextOptions,
 };
 use tokenizers::manager::SearchTokenizerFilters;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
@@ -45,6 +45,12 @@ pub enum SearchFieldConfig {
         normalizer: SearchNormalizer,
         #[serde(default)]
         column: Option<String>,
+    },
+    Inet {
+        #[serde(default = "default_as_true")]
+        indexed: bool,
+        #[serde(default = "default_as_true")]
+        fast: bool,
     },
     Json {
         #[serde(default = "default_as_true")]
@@ -96,6 +102,17 @@ impl SearchFieldConfig {
 
         match config {
             SearchFieldConfig::Text { .. } => Ok(config),
+            _ => Err(anyhow::anyhow!("Expected Text configuration")),
+        }
+    }
+
+    pub fn inet_from_json(value: serde_json::Value) -> Result<Self> {
+        let config: Self = serde_json::from_value(json!({
+            "Inet": value
+        }))?;
+
+        match config {
+            SearchFieldConfig::Inet { .. } => Ok(config),
             _ => Err(anyhow::anyhow!("Expected Text configuration")),
         }
     }
@@ -195,6 +212,10 @@ impl SearchFieldConfig {
         config
     }
 
+    pub fn default_inet() -> Self {
+        Self::from_json(json!({"Inet": {}}))
+    }
+
     pub fn default_numeric() -> Self {
         Self::from_json(json!({"Numeric": {}}))
     }
@@ -244,6 +265,28 @@ impl From<SearchFieldConfig> for TextOptions {
             _ => panic!("attempted to convert non-text search field config to tantivy text config"),
         }
         text_options
+    }
+}
+
+impl From<SearchFieldConfig> for IpAddrOptions {
+    fn from(config: SearchFieldConfig) -> Self {
+        let mut inet_options = IpAddrOptions::default();
+        match config {
+            SearchFieldConfig::Inet { indexed, fast, .. } => {
+                if fast {
+                    inet_options = inet_options.set_fast();
+                }
+                if indexed {
+                    inet_options = inet_options.set_indexed();
+                }
+            }
+            _ => {
+                panic!(
+                    "attempted to convert non-numeric search field config to tantivy ip addr config"
+                )
+            }
+        }
+        inet_options
     }
 }
 

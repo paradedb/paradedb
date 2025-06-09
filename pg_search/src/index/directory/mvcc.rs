@@ -17,7 +17,6 @@
 
 use super::utils::{load_metas, save_new_metas, save_schema, save_settings};
 use crate::api::{HashMap, HashSet};
-use crate::index::channel::{ChannelRequest, ChannelRequestHandler};
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
 use crate::postgres::storage::block::{
@@ -25,7 +24,6 @@ use crate::postgres::storage::block::{
 };
 use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
 use crate::postgres::storage::LinkedItemList;
-use crossbeam::channel::Receiver;
 use parking_lot::Mutex;
 use pgrx::{pg_sys, PgRelation};
 use std::any::Any;
@@ -65,17 +63,6 @@ impl MvccSatisfies {
             MvccSatisfies::Vacuum => MVCCDirectory::vacuum(index_relation.oid()),
             MvccSatisfies::Mergeable => MVCCDirectory::mergeable(index_relation.oid()),
         }
-    }
-    pub fn channel_request_handler(
-        self,
-        index_relation: &PgRelation,
-        receiver: Receiver<ChannelRequest>,
-    ) -> ChannelRequestHandler {
-        ChannelRequestHandler::open(
-            self.directory(index_relation),
-            index_relation.oid(),
-            receiver,
-        )
     }
 }
 
@@ -239,7 +226,6 @@ impl Directory for MVCCDirectory {
     }
 
     /// Returns a segment writer that implements std::io::Write
-    /// Our [`ChannelDirectory`] is what gets called for doing writes, not this impl
     fn open_write(&self, path: &Path) -> result::Result<WritePtr, OpenWriteError> {
         let writer = unsafe { SegmentComponentWriter::new(self.relation_oid, path) };
         self.new_files.lock().insert(

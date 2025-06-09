@@ -19,120 +19,15 @@ use crate::api::{HashMap, HashSet};
 use anyhow::Result;
 use pgrx::{pg_sys, PgRelation};
 use tantivy::index::SegmentId;
-use tantivy::indexer::{AddOperation, NoMergePolicy, SegmentWriter, UserOperation};
+use tantivy::indexer::{AddOperation, SegmentWriter};
 use tantivy::schema::Field;
-use tantivy::{
-    Directory, DocId, Index, IndexMeta, IndexWriter, Opstamp, Segment, SegmentMeta,
-    TantivyDocument, TantivyError,
-};
+use tantivy::{Directory, Index, IndexMeta, IndexWriter, Segment, SegmentMeta, TantivyDocument};
 use thiserror::Error;
 
-use crate::index::channel::{ChannelDirectory, ChannelRequestHandler};
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
-use crate::index::{setup_tokenizers, WriterResources};
+use crate::index::setup_tokenizers;
 use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::{postgres::types::TantivyValueError, schema::SearchIndexSchema};
-
-// NB:  should this be a GUC?  Could be useful or could just complicate things for the user
-/// How big should our delete queue get before we go ahead and remove them?
-const MAX_DELETE_QUEUE_SIZE: usize = 1000;
-
-/// Responsible for deleting documents from a tantivy index
-pub struct SearchIndexDeleter {
-    // keep all these private -- leaking them to the public API would allow callers to
-    // mis-use the IndexWriter in particular.
-    writer: IndexWriter,
-    handler: ChannelRequestHandler,
-    insert_queue: Vec<UserOperation>,
-
-    cnt: usize,
-}
-
-impl SearchIndexDeleter {
-    pub fn open(
-        index_relation: &PgRelation,
-        directory_type: MvccSatisfies,
-        resources: WriterResources,
-    ) -> Result<Self> {
-        let (parallelism, memory_budget) = resources.resources();
-
-        let (req_sender, req_receiver) = crossbeam::channel::bounded(1);
-        let channel_dir = ChannelDirectory::new(req_sender);
-        let mut handler = directory_type.channel_request_handler(index_relation, req_receiver);
-
-        let mut index = {
-            handler
-                .wait_for(move || {
-                    let index = Index::open(channel_dir)?;
-                    tantivy::Result::Ok(index)
-                })
-                .expect("scoped thread should not fail")?
-        };
-        setup_tokenizers(index_relation.oid(), &mut index)?;
-
-        let index_clone = index.clone();
-        let writer = handler
-            .wait_for(move || {
-                let writer =
-                    index_clone.writer_with_num_threads(parallelism.get(), memory_budget)?;
-                writer.set_merge_policy(Box::new(NoMergePolicy));
-                tantivy::Result::Ok(writer)
-            })
-            .expect("scoped thread should not fail")?;
-
-        Ok(Self {
-            writer,
-            handler,
-            insert_queue: Vec::with_capacity(MAX_DELETE_QUEUE_SIZE),
-            cnt: 0,
-        })
-    }
-
-    pub fn segment_ids(&mut self) -> HashSet<SegmentId> {
-        let index = self.writer.index().clone();
-        self.handler
-            .wait_for(move || index.searchable_segment_ids().unwrap())
-            .unwrap()
-            .into_iter()
-            .collect()
-    }
-
-    pub fn delete_document(&mut self, segment_id: SegmentId, doc_id: DocId) -> Result<()> {
-        self.insert_queue
-            .push(UserOperation::DeleteByAddress(segment_id, doc_id));
-        if self.insert_queue.len() >= MAX_DELETE_QUEUE_SIZE {
-            self.drain_insert_queue()?;
-        }
-        Ok(())
-    }
-
-    pub fn commit(mut self) -> Result<usize> {
-        self.drain_insert_queue()?;
-        let mut writer = self.writer;
-
-        let writer = self
-            .handler
-            .wait_for(move || {
-                writer.commit()?;
-                tantivy::Result::Ok(writer)
-            })
-            .expect("spawned thread should not fail")?;
-
-        self.handler
-            .wait_for_final(move || writer.wait_merging_threads())
-            .expect("spawned thread should not fail")?;
-
-        Ok(self.cnt)
-    }
-
-    fn drain_insert_queue(&mut self) -> Result<Opstamp, TantivyError> {
-        let insert_queue = std::mem::take(&mut self.insert_queue);
-        let writer = &self.writer;
-        self.handler
-            .wait_for(move || writer.run(insert_queue))
-            .expect("spawned thread should not fail")
-    }
-}
 
 /// Unlike Tantivy's IndexWriter, the SerialIndexWriter does not spin up any threads.
 /// Everything happens in the foreground, making it ideal for Postgres.

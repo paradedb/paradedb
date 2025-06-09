@@ -25,6 +25,7 @@ use crate::postgres::storage::block::{
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::metadata::MetaPageMut;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
+use crate::postgres::utils::extract_field_attributes;
 use crate::schema::{SearchFieldType, SearchIndexSchema};
 use anyhow::Result;
 use pgrx::pg_sys::panic::ErrorReport;
@@ -164,16 +165,13 @@ unsafe fn init_fixed_buffers(index_relation: &PgRelation) {
 
 fn create_index(index_relation: &PgRelation) -> Result<()> {
     let options = unsafe { SearchIndexOptions::from_relation(index_relation) };
-    let tuple_desc = index_relation.tuple_desc();
     let mut builder = Schema::builder();
 
-    for attribute in tuple_desc.iter() {
-        let name = FieldName::from(attribute.name());
-        let field_type: SearchFieldType = (&attribute.type_oid()).try_into().unwrap_or_else(|_| {
-            panic!(
-                "failed to convert attribute {} to search field type",
-                attribute.name()
-            )
+    for (name, type_oid) in extract_field_attributes(index_relation) {
+        let type_oid: PgOid = type_oid.into();
+        let name = FieldName::from(name);
+        let field_type: SearchFieldType = (&type_oid).try_into().unwrap_or_else(|_| {
+            panic!("failed to convert attribute {} to search field type", name)
         });
         let config = options.field_config_or_default(&name);
 

@@ -715,9 +715,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.5.39"
+version = "4.5.40"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd60e63e9be68e5fb56422e397cf9baddded06dae1d2e523401542383bc72a9f"
+checksum = "40b6887a1d8685cebccf115538db5c0efe625ccac9696ad45c409d96566e910f"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -736,9 +736,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.5.39"
+version = "4.5.40"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "89cc6392a1f72bbeb820d71f32108f61fdaf18bc526e1d23954168a67759ef51"
+checksum = "e0c66c08ce9f0c698cbce5c0279d0bb6ac936d8674174fe48f736533b964f59e"
 dependencies = [
  "anstream",
  "anstyle",
@@ -748,9 +748,9 @@ dependencies = [
 
 [[package]]
 name = "clap_derive"
-version = "4.5.32"
+version = "4.5.40"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09176aae279615badda0765c0c0b3f6ed53f4709118af73cf4655d85d1530cd7"
+checksum = "d2c7947ae4cc3d851207c1adb5b5e260ff0cca11446b1d6d1423788e442257ce"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -1902,7 +1902,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.61.2",
+ "windows-core",
 ]
 
 [[package]]
@@ -2369,9 +2369,9 @@ dependencies = [
 
 [[package]]
 name = "lindera"
-version = "0.42.4"
+version = "0.43.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "73b6ee48fa4ffaff0b34a0f56e8fe9e3a9f38ff097d7ffe11a189acac242efbf"
+checksum = "f20720cb4206e87b6844b05c66b23301e7bb532718f200ff55bbbdfbce9b7f2b"
 dependencies = [
  "anyhow",
  "bincode 1.3.3",
@@ -2399,9 +2399,9 @@ dependencies = [
 
 [[package]]
 name = "lindera-cc-cedict"
-version = "0.42.4"
+version = "0.43.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "88fb51b5730fd63b1baf677fb19ce3f3f00616a3fbaf430f923b676dce5fab39"
+checksum = "0f6ddd4aeaeaf1ce47ea5785bd6a273179d32df4af4b306d9b65a7a7f81a0e61"
 dependencies = [
  "bincode 1.3.3",
  "byteorder",
@@ -2412,9 +2412,9 @@ dependencies = [
 
 [[package]]
 name = "lindera-dictionary"
-version = "0.42.4"
+version = "0.43.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d5dafa44610860d21f66dbfee1ad387fd127824b204137b540ada4c1a744b19c"
+checksum = "f9b5e417c4c6e001459e019b178f65f759be9c2cbf2d9bd803ec5d8ed0e62124"
 dependencies = [
  "anyhow",
  "bincode 1.3.3",
@@ -2440,9 +2440,9 @@ dependencies = [
 
 [[package]]
 name = "lindera-ipadic"
-version = "0.42.4"
+version = "0.43.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d273907fdf1c14a8244a370afd7ac79126337ad450d25888b1613aee17b1262a"
+checksum = "c2867975f1b92d1093ccbb52c5c1664a56dfbd27a2fece0166c765ad1f043f31"
 dependencies = [
  "bincode 1.3.3",
  "byteorder",
@@ -2453,9 +2453,9 @@ dependencies = [
 
 [[package]]
 name = "lindera-ipadic-neologd"
-version = "0.42.4"
+version = "0.43.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d4371fbd6dc3ac5cc76990ed41061c553635f67953771159e4061d7f568d14f"
+checksum = "c54c4c2d3fb8b380d0ace5ae97111ca444bcfa7721966f552117d57f07d8b3b1"
 dependencies = [
  "bincode 1.3.3",
  "byteorder",
@@ -2466,9 +2466,9 @@ dependencies = [
 
 [[package]]
 name = "lindera-ko-dic"
-version = "0.42.4"
+version = "0.43.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "03f35d8e54e6d5f73e9f76da0fedfa336fa60a6d2ac7f7dcc8bcd15e338db291"
+checksum = "7f495e64f62deee60d9b71dbe3fd39b69b8688c9d591842f81f94e200eb4d81f"
 dependencies = [
  "bincode 1.3.3",
  "byteorder",
@@ -2479,9 +2479,9 @@ dependencies = [
 
 [[package]]
 name = "lindera-unidic"
-version = "0.42.4"
+version = "0.43.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "661aa828cf6af7ccd1c0c1142c087fd048af5f83776ccec6af9f9c56448bc626"
+checksum = "e85ff97ce04c519fbca0f05504ea028761ccc456b1e84cf1e75fac57f9b3caf1"
 dependencies = [
  "bincode 1.3.3",
  "byteorder",
@@ -3405,9 +3405,9 @@ dependencies = [
 
 [[package]]
 name = "proptest-derive"
-version = "0.5.1"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ee1c9ac207483d5e7db4940700de86a9aae46ef90c48b57f99fe7edb8345e49"
+checksum = "095a99f75c69734802359b682be8daaf8980296731f6470434ea2c652af1dd30"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5511,7 +5511,7 @@ version = "0.57.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "12342cb4d8e3b046f3d80effd474a7a02447231330ef77d71daa6fbc40681143"
 dependencies = [
- "windows-core 0.57.0",
+ "windows-core",
  "windows-targets 0.52.6",
 ]
 
@@ -5521,23 +5521,10 @@ version = "0.57.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2ed2439a290666cd67ecce2b0ffaad89c2a56b976b736e6ece670297897832d"
 dependencies = [
- "windows-implement 0.57.0",
- "windows-interface 0.57.0",
- "windows-result 0.1.2",
+ "windows-implement",
+ "windows-interface",
+ "windows-result",
  "windows-targets 0.52.6",
-]
-
-[[package]]
-name = "windows-core"
-version = "0.61.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0fdd3ddb90610c7638aa2b3a3ab2904fb9e5cdbecc643ddb3647212781c4ae3"
-dependencies = [
- "windows-implement 0.60.0",
- "windows-interface 0.59.1",
- "windows-link",
- "windows-result 0.3.4",
- "windows-strings",
 ]
 
 [[package]]
@@ -5552,32 +5539,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "windows-implement"
-version = "0.60.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a47fddd13af08290e67f4acabf4b459f647552718f683a7b415d290ac744a836"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.101",
-]
-
-[[package]]
 name = "windows-interface"
 version = "0.57.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29bee4b38ea3cde66011baa44dba677c432a78593e202392d1e9070cf2a7fca7"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.101",
-]
-
-[[package]]
-name = "windows-interface"
-version = "0.59.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd9211b69f8dcdfa817bfd14bf1c97c9188afa36f4750130fcdf3f400eca9fa8"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5597,24 +5562,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e383302e8ec8515204254685643de10811af0ed97ea37210dc26fb0032647f8"
 dependencies = [
  "windows-targets 0.52.6",
-]
-
-[[package]]
-name = "windows-result"
-version = "0.3.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56f42bd332cc6c8eac5af113fc0c1fd6a8fd2aa08a0119358686e5160d0586c6"
-dependencies = [
- "windows-link",
-]
-
-[[package]]
-name = "windows-strings"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56e6c93f3a0c3b36176cb1327a4958a0353d5d166c2a35cb268ace15e91d3b57"
-dependencies = [
- "windows-link",
 ]
 
 [[package]]

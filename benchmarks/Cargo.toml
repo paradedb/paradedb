@@ -4,10 +4,10 @@ version = { workspace = true }
 edition = { workspace = true }
 
 [dependencies]
-clap = { version = "4.5.37", features = ["derive", "env"] }
+clap = { version = "4.5.40", features = ["derive", "env"] }
 anyhow = "1.0"
 serde_json = "1.0"
-sqlx = { version = "0.8.5", features = [
+sqlx = { version = "0.8.6", features = [
   "postgres",
   "runtime-async-std",
   "time",
@@ -15,8 +15,8 @@ sqlx = { version = "0.8.5", features = [
   "uuid",
   "chrono",
 ] }
-pretty_assertions = "1.4.0"
-tokio = { version = "1.32", features = ["full"] }
+pretty_assertions = "1.4.1"
+tokio = { version = "1.45", features = ["full"] }
 
 [lib]
 name = "paradedb"

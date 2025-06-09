@@ -27,7 +27,6 @@ use crate::api::HashMap;
 use crate::index::mvcc::MVCCDirectory;
 use crate::postgres::options::SearchIndexOptions;
 use anyhow::bail;
-
 use anyhow::Result;
 use derive_more::Into;
 use pgrx::{pg_sys, PgBuiltInOids, PgOid, PgRelation};
@@ -45,6 +44,7 @@ use tokenizers::{SearchNormalizer, SearchTokenizer};
 pub enum SearchFieldType {
     Text(pg_sys::Oid),
     Uuid(pg_sys::Oid),
+    Inet(pg_sys::Oid),
     I64(pg_sys::Oid),
     F64(pg_sys::Oid),
     U64(pg_sys::Oid),
@@ -59,6 +59,7 @@ impl SearchFieldType {
         match self {
             SearchFieldType::Text(_) => SearchFieldConfig::default_text(),
             SearchFieldType::Uuid(_) => SearchFieldConfig::default_uuid(),
+            SearchFieldType::Inet(_) => SearchFieldConfig::default_inet(),
             SearchFieldType::I64(_) => SearchFieldConfig::default_numeric(),
             SearchFieldType::F64(_) => SearchFieldConfig::default_numeric(),
             SearchFieldType::U64(_) => SearchFieldConfig::default_numeric(),
@@ -73,6 +74,7 @@ impl SearchFieldType {
         match self {
             SearchFieldType::Text(oid) => *oid,
             SearchFieldType::Uuid(oid) => *oid,
+            SearchFieldType::Inet(oid) => *oid,
             SearchFieldType::I64(oid) => *oid,
             SearchFieldType::F64(oid) => *oid,
             SearchFieldType::U64(oid) => *oid,
@@ -99,6 +101,7 @@ impl TryFrom<&PgOid> for SearchFieldType {
                     Ok(SearchFieldType::Text((*builtin).into()))
                 }
                 PgBuiltInOids::UUIDOID => Ok(SearchFieldType::Uuid((*builtin).into())),
+                PgBuiltInOids::INETOID => Ok(SearchFieldType::Inet((*builtin).into())),
                 PgBuiltInOids::INT2OID | PgBuiltInOids::INT4OID | PgBuiltInOids::INT8OID => {
                     Ok(SearchFieldType::I64((*builtin).into()))
                 }
@@ -413,7 +416,7 @@ pub enum SearchIndexSchemaError {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use tantivy::schema::{JsonObjectOptions, NumericOptions, TextOptions};
+    use tantivy::schema::{IpAddrOptions, JsonObjectOptions, NumericOptions, TextOptions};
 
     use crate::schema::SearchFieldConfig;
 
@@ -439,6 +442,20 @@ mod tests {
 
         let text_options = text_options.set_fast(Some("index"));
         assert_ne!(expected.is_fast(), text_options.is_fast());
+    }
+
+    #[rstest]
+    fn test_search_inet_options() {
+        let json = r#"{
+            "indexed": true,
+            "fast": true
+        }"#;
+        let config: serde_json::Value = serde_json::from_str(json).unwrap();
+        let expected: SearchFieldConfig =
+            serde_json::from_value(serde_json::json!({"Inet": config})).unwrap();
+        let inet_options: IpAddrOptions = SearchFieldConfig::default_inet().into();
+
+        assert_eq!(inet_options, expected.into());
     }
 
     #[rstest]

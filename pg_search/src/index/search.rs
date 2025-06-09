@@ -30,7 +30,6 @@ use tokenizers::{create_normalizer_manager, create_tokenizer_manager, SearchToke
 pub enum WriterResources {
     CreateIndex,
     Statement,
-    Vacuum,
 }
 pub type Parallelism = NonZeroUsize;
 pub type MemoryBudget = usize;
@@ -44,10 +43,6 @@ impl WriterResources {
                 gucs::create_index_memory_budget(),
             ),
             WriterResources::Statement => (
-                gucs::statement_parallelism(),
-                gucs::statement_memory_budget(),
-            ),
-            WriterResources::Vacuum => (
                 gucs::statement_parallelism(),
                 gucs::statement_memory_budget(),
             ),

@@ -150,7 +150,7 @@ impl EphemeralPostgres {
 
         let init_db_path = Self::initdb_path();
         let tempdir = TempDir::new().expect("Failed to create temp dir");
-        let tempdir_path = tempdir.into_path();
+        let tempdir_path = tempdir.keep();
 
         // Initialize PostgreSQL data directory
         run_cmd!($init_db_path -D $tempdir_path &> /dev/null)
@@ -225,7 +225,7 @@ async fn test_ephemeral_postgres_with_pg_basebackup() -> Result<()> {
     assert_eq!(source_results.len(), 1);
 
     let target_tempdir = TempDir::new().expect("Failed to create temp dir");
-    let target_tempdir_path = target_tempdir.into_path();
+    let target_tempdir_path = target_tempdir.keep();
 
     // Permissions for the --pgdata directory passed to pg_basebackup
     // should be u=rwx (0700) or u=rwx,g=rx (0750)

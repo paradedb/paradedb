@@ -28,6 +28,7 @@ impl SegmentComponentWriter {
         }
     }
 
+    #[allow(unused)]
     pub fn path(&self) -> PathBuf {
         self.path.clone()
     }

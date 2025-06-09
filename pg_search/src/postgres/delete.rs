@@ -19,12 +19,17 @@ use pgrx::{pg_sys::ItemPointerData, *};
 
 use super::storage::block::CLEANUP_LOCK;
 use crate::index::fast_fields_helper::FFType;
-use crate::index::mvcc::MvccSatisfies;
+use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::reader::index::SearchIndexReader;
-use crate::index::writer::index::SearchIndexDeleter;
-use crate::index::WriterResources;
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::metadata::MetaPage;
+
+use anyhow::Result;
+use pgrx::{pg_sys, PgRelation};
+use tantivy::index::SegmentId;
+use tantivy::indexer::delete_queue::DeleteQueue;
+use tantivy::indexer::{advance_deletes, DeleteOperation, SegmentEntry};
+use tantivy::{Directory, DocId, Index, IndexMeta, Opstamp};
 
 #[pg_guard]
 pub unsafe extern "C-unwind" fn ambulkdelete(
@@ -64,16 +69,9 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     );
     drop(cleanup_lock);
 
-    let mut index_writer = SearchIndexDeleter::open(
-        &index_relation,
-        MvccSatisfies::Vacuum,
-        WriterResources::Vacuum,
-    )
-    .expect("ambulkdelete: should be able to open a SearchIndexWriter");
     let reader = SearchIndexReader::open(&index_relation, MvccSatisfies::Vacuum)
         .expect("ambulkdelete: should be able to open a SearchIndexReader");
-
-    let writer_segment_ids = index_writer.segment_ids();
+    let writer_segment_ids = reader.segment_ids();
 
     // Write out the list of segment ids we're about to operate on
     // Then acquire a `vacuum_sentinel` to notify concurrent backends that a vacuum is happening
@@ -85,7 +83,8 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
 
     let mut did_delete = false;
     for segment_reader in reader.segment_readers() {
-        if !writer_segment_ids.contains(&segment_reader.segment_id()) {
+        let segment_id = segment_reader.segment_id();
+        if !writer_segment_ids.contains(&segment_id) {
             // the writer doesn't have this segment reader, and that's fine
             // we open the writer and reader in separate calls so it's possible
             // for the reader, which is opened second and outside of the MergeLock,
@@ -93,7 +92,10 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
             // need to concern ourselves with the ones the writer is aware of
             continue;
         }
+        let mut deleter = SegmentDeleter::open(&index_relation, segment_id)
+            .expect("ambulkdelete: should be able to open a SegmentDeleter");
         let ctid_ff = FFType::new_ctid(segment_reader.fast_fields());
+        let mut needs_commit = false;
 
         for doc_id in 0..segment_reader.max_doc() {
             if doc_id % 100 == 0 {
@@ -104,20 +106,20 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
             let ctid = ctid_ff.as_u64(doc_id).expect("ctid should be present");
             if callback(ctid) {
                 did_delete = true;
-                index_writer
-                    .delete_document(segment_reader.segment_id(), doc_id)
-                    .expect("ambulkdelete: deleting document by segment and id should succeed");
+                needs_commit = true;
+                deleter.delete_document(doc_id);
             }
+        }
+
+        if needs_commit {
+            deleter
+                .commit()
+                .expect("ambulkdelete: segment deletercommit should succeed");
         }
     }
     // no need to keep the reader around.  Also, it holds a pin on the CLEANUP_LOCK, which
     // will get in the way of our CLEANUP_LOCK barrier below
     drop(reader);
-
-    // this won't merge as the `WriterResources::Vacuum` uses `AllowedMergePolicy::None`
-    index_writer
-        .commit()
-        .expect("ambulkdelete: commit should succeed");
 
     if stats.is_null() {
         stats = unsafe {
@@ -143,4 +145,74 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     // we're done, no need to hold onto the sentinel any longer
     drop(vacuum_sentinel);
     stats.into_pg()
+}
+
+struct SegmentDeleter {
+    delete_queue: DeleteQueue,
+    segment_entry: SegmentEntry,
+    index: Index,
+    opstamp: Opstamp,
+}
+
+impl SegmentDeleter {
+    pub fn open(index_relation: &PgRelation, segment_id: SegmentId) -> Result<Self> {
+        let delete_queue = DeleteQueue::new();
+        let delete_cursor = delete_queue.cursor();
+
+        let directory = MVCCDirectory::vacuum(index_relation.oid());
+        let index = Index::open(directory)?;
+        let searchable_segment_metas = index.searchable_segment_metas()?;
+        let segment_meta = searchable_segment_metas
+            .iter()
+            .find(|meta| meta.id() == segment_id)
+            .unwrap_or_else(|| panic!("segment meta not found for segment_id: {:?}", segment_id));
+        let opstamp = segment_meta.delete_opstamp().unwrap_or_default();
+
+        // It's important to set the entry/cursor at the beginning vs. when commit() is called,
+        // because the delete cursor can only look forward
+        let segment_entry = SegmentEntry::new(segment_meta.clone(), delete_cursor, None);
+
+        Ok(Self {
+            delete_queue,
+            segment_entry,
+            index,
+            opstamp,
+        })
+    }
+
+    pub fn delete_document(&mut self, doc_id: DocId) {
+        self.opstamp += 1;
+        self.delete_queue.push(DeleteOperation::ByAddress {
+            opstamp: self.opstamp,
+            segment_id: self.segment_entry.meta().id(),
+            doc_id,
+        });
+    }
+
+    pub fn commit(mut self) -> Result<()> {
+        let segment = self.index.segment(self.segment_entry.meta().clone());
+        advance_deletes(segment, &mut self.segment_entry, self.opstamp + 1)?;
+
+        let current_metas = self.index.load_metas()?;
+        let modified_segments = current_metas
+            .segments
+            .clone()
+            .into_iter()
+            .map(|meta| {
+                if meta.id() == self.segment_entry.meta().id() {
+                    self.segment_entry.meta().clone()
+                } else {
+                    meta
+                }
+            })
+            .collect();
+        let new_metas = IndexMeta {
+            segments: modified_segments,
+            ..current_metas.clone()
+        };
+        self.index
+            .directory()
+            .save_metas(&new_metas, &current_metas, &mut ())?;
+        Ok(())
+    }
 }

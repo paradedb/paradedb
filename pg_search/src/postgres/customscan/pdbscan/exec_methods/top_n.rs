@@ -52,7 +52,6 @@ pub struct TopNScanExecState {
     found: usize,
     offset: usize,
     chunk_size: usize,
-    retry_count: usize,
     // If parallel, the segments which have been claimed by this worker.
     claimed_segments: RefCell<Option<Vec<SegmentId>>>,
 }
@@ -78,7 +77,6 @@ impl TopNScanExecState {
             found: 0,
             offset: 0,
             chunk_size: 0,
-            retry_count: 0,
             claimed_segments: RefCell::default(),
         }
     }
@@ -151,12 +149,15 @@ impl ExecMethod for TopNScanExecState {
     /// Query more results.
     ///
     /// Called either because:
-    /// * We've never run a query before.
+    /// * We've never run a query before (did_query=False).
     /// * Some of the results that we returned were not visible, and so the `chunk_size`, or
     ///   `offset` values have changed.
     ///
     fn query(&mut self, state: &mut PdbScanState) -> bool {
         self.did_query = true;
+
+        // We track the total number of queries executed by Top-N (for any of the above reasons).
+        state.query_count += 1;
 
         // Calculate the limit for this query, and what the offset will be for the next query.
         let local_limit = self.limit.max(self.chunk_size);
@@ -214,9 +215,6 @@ impl ExecMethod for TopNScanExecState {
                     }
                 }
 
-                // we underflowed our tuples, so go get some more, if there are any
-                self.retry_count += 1;
-
                 // calculate a scaling factor to use against the limit
                 let factor = if self.chunk_size == 0 {
                     // if we haven't done any chunking yet, calculate the scaling factor
@@ -263,7 +261,6 @@ impl ExecMethod for TopNScanExecState {
         self.chunk_size = 0;
         self.offset = 0;
         self.found = 0;
-        self.retry_count = 0;
         self.claimed_segments.take();
     }
 }

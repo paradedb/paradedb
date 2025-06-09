@@ -54,7 +54,9 @@ use crate::postgres::customscan::pdbscan::projections::snippet::{
 use crate::postgres::customscan::pdbscan::projections::{
     inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
 };
-use crate::postgres::customscan::pdbscan::qual_inspect::{extract_join_predicates, extract_quals};
+use crate::postgres::customscan::pdbscan::qual_inspect::{
+    extract_join_predicates, extract_quals, Qual,
+};
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::customscan::{self, CustomScan, CustomScanState};
 use crate::postgres::rel_get_bm25_index;
@@ -199,6 +201,55 @@ impl PdbScan {
             _ => {}
         }
     }
+
+    unsafe fn extract_all_possible_quals(
+        builder: &mut CustomPathBuilder<PrivateData>,
+        root: *mut pg_sys::PlannerInfo,
+        rti: pg_sys::Index,
+        restrict_info: PgList<pg_sys::RestrictInfo>,
+        pdbopoid: pg_sys::Oid,
+        ri_type: RestrictInfoType,
+        schema: &SearchIndexSchema,
+    ) -> (Option<Qual>, RestrictInfoType, PgList<pg_sys::RestrictInfo>) {
+        let mut uses_tantivy_to_query = false;
+        let quals = extract_quals(
+            root,
+            rti,
+            restrict_info.as_ptr().cast(),
+            pdbopoid,
+            ri_type,
+            schema,
+            false, // Base relation quals should not convert external to all
+            &mut uses_tantivy_to_query,
+        );
+
+        // If we couldn't push down quals, try to push down quals from the join
+        // This is only done if we have a join predicate, and only if we have used our operator
+        if quals.is_none() {
+            let joinri: PgList<pg_sys::RestrictInfo> =
+                PgList::from_pg(builder.args().rel().joininfo);
+            let mut join_uses_tantivy_to_query = false;
+            let quals = extract_quals(
+                root,
+                rti,
+                joinri.as_ptr().cast(),
+                anyelement_query_input_opoid(),
+                RestrictInfoType::Join,
+                schema,
+                true, // Join quals should convert external to all
+                &mut join_uses_tantivy_to_query,
+            );
+            // If we have used our operator in the join, or if we have used our operator in the
+            // base relation, then we can use the join quals
+            if uses_tantivy_to_query || join_uses_tantivy_to_query {
+                (quals, RestrictInfoType::Join, joinri)
+            } else {
+                (quals, ri_type, restrict_info)
+            }
+        } else {
+            (quals, ri_type, restrict_info)
+        }
+    }
 }
 
 impl customscan::ExecMethod for PdbScan {
@@ -313,10 +364,11 @@ impl CustomScan for PdbScan {
             //
             // look for quals we can support
             //
-            let quals = extract_quals(
+            let (quals, ri_type, restrict_info) = Self::extract_all_possible_quals(
+                &mut builder,
                 root,
                 rti,
-                restrict_info.as_ptr().cast(),
+                restrict_info,
                 anyelement_query_input_opoid(),
                 ri_type,
                 &schema,
@@ -623,16 +675,6 @@ impl CustomScan for PdbScan {
             builder.custom_state().sort_field = builder.custom_private().sort_field();
             builder.custom_state().sort_direction = builder.custom_private().sort_direction();
 
-            // store our query into our custom state too
-            let base_query = builder
-                .custom_private()
-                .query()
-                .clone()
-                .expect("should have a SearchQueryInput");
-            builder
-                .custom_state()
-                .set_base_search_query_input(base_query);
-
             builder.custom_state().segment_count = builder.custom_private().segment_count();
             builder.custom_state().var_attname_lookup = builder
                 .custom_private()
@@ -654,6 +696,52 @@ impl CustomScan for PdbScan {
                 builder.custom_state().execution_rti,
             );
 
+            // Store join snippet predicates in the scan state
+            builder.custom_state().join_predicates =
+                builder.custom_private().join_predicates().clone();
+
+            // store our query into our custom state too
+            let base_query = builder
+                .custom_private()
+                .query()
+                .clone()
+                .expect("should have a SearchQueryInput");
+            builder
+                .custom_state()
+                .set_base_search_query_input(base_query);
+
+            if builder.custom_state().need_scores {
+                let state = builder.custom_state();
+                // Pre-compute enhanced score query if we have join predicates that could affect scoring
+                let mut enhanced_score_query = None;
+                if let Some(ref join_predicate) = state.join_predicates {
+                    // Check the ORIGINAL base query for this relation, not the modified search_query_input
+                    // which may contain simplified join predicates from other relations
+                    let original_base_query = state.base_search_query_input();
+
+                    // Only enhance scoring if the base query doesn't already have search predicates
+                    // If base query has @@@ conditions, it already provides scoring context
+                    if !base_query_has_search_predicates(original_base_query, state.indexrelid) {
+                        // Combine base query with join predicate using Boolean structure
+                        // This provides enhanced search context for scoring while maintaining
+                        // the same filtering behavior as the base query
+                        enhanced_score_query = Some(SearchQueryInput::Boolean {
+                            must: vec![original_base_query.clone()],
+                            should: vec![join_predicate.clone()],
+                            must_not: vec![],
+                        });
+                    }
+                }
+
+                // Store enhanced score query for use during search execution
+                // This will be None for single-table queries, which is correct
+                if let Some(enhanced_score_query) = enhanced_score_query {
+                    builder
+                        .custom_state()
+                        .set_base_search_query_input(enhanced_score_query);
+                }
+            }
+
             let node = builder.target_list().as_ptr().cast();
             builder.custom_state().planning_rti = builder
                 .custom_private()
@@ -669,10 +757,6 @@ impl CustomScan for PdbScan {
             .into_iter()
             .map(|field| (field, None))
             .collect();
-
-            // Store join snippet predicates in the scan state
-            builder.custom_state().join_predicates =
-                builder.custom_private().join_predicates().clone();
 
             assign_exec_method(&mut builder);
 
@@ -1477,4 +1561,101 @@ unsafe fn collect_maybe_fast_field_referenced_columns(
     }
 
     referenced_columns
+}
+
+/// Check if the base query has search predicates for the current table's index
+fn base_query_has_search_predicates(
+    query: &SearchQueryInput,
+    current_index_oid: pg_sys::Oid,
+) -> bool {
+    match query {
+        SearchQueryInput::All => false,
+        SearchQueryInput::Uninitialized => false,
+        SearchQueryInput::Empty => false,
+
+        SearchQueryInput::WithIndex { oid, query } => {
+            // Only consider search predicates for the current table's index
+            if *oid == current_index_oid {
+                // This is a search predicate for our index
+                // Check the inner query directly for range vs search predicates
+                base_query_has_search_predicates(query, current_index_oid)
+            } else {
+                // This is a search predicate for a different index, ignore it
+                false
+            }
+        }
+
+        // Boolean queries need recursive checking
+        SearchQueryInput::Boolean {
+            must,
+            should,
+            must_not,
+        } => {
+            must.iter()
+                .any(|q| base_query_has_search_predicates(q, current_index_oid))
+                || should
+                    .iter()
+                    .any(|q| base_query_has_search_predicates(q, current_index_oid))
+                || must_not
+                    .iter()
+                    .any(|q| base_query_has_search_predicates(q, current_index_oid))
+        }
+
+        // Wrapper queries need recursive checking
+        SearchQueryInput::Boost { query, .. } => {
+            base_query_has_search_predicates(query, current_index_oid)
+        }
+        SearchQueryInput::ConstScore { query, .. } => {
+            base_query_has_search_predicates(query, current_index_oid)
+        }
+        SearchQueryInput::ScoreFilter {
+            query: Some(query), ..
+        } => base_query_has_search_predicates(query, current_index_oid),
+        SearchQueryInput::ScoreFilter { query: None, .. } => false,
+        SearchQueryInput::DisjunctionMax { disjuncts, .. } => disjuncts
+            .iter()
+            .any(|q| base_query_has_search_predicates(q, current_index_oid)),
+
+        // These are NOT search predicates (they're range/exists/other predicates)
+        SearchQueryInput::Range { .. }
+        | SearchQueryInput::RangeContains { .. }
+        | SearchQueryInput::RangeIntersects { .. }
+        | SearchQueryInput::RangeTerm { .. }
+        | SearchQueryInput::RangeWithin { .. }
+        | SearchQueryInput::Exists { .. }
+        | SearchQueryInput::FastFieldRangeWeight { .. }
+        | SearchQueryInput::MoreLikeThis { .. } => false,
+
+        // These are search predicates that use the @@@ operator
+        SearchQueryInput::ParseWithField { query_string, .. } => {
+            // For ParseWithField, check if it's a text search or a range query
+            !is_range_query_string(query_string)
+        }
+        SearchQueryInput::Parse { .. }
+        | SearchQueryInput::TermSet { .. }
+        | SearchQueryInput::Term { field: Some(_), .. }
+        | SearchQueryInput::Phrase { .. }
+        | SearchQueryInput::PhrasePrefix { .. }
+        | SearchQueryInput::FuzzyTerm { .. }
+        | SearchQueryInput::Match { .. }
+        | SearchQueryInput::Regex { .. }
+        | SearchQueryInput::RegexPhrase { .. } => true,
+
+        // Term with no field is not a search predicate
+        SearchQueryInput::Term { field: None, .. } => false,
+
+        // Postgres expressions are unknown, assume they could be search predicates
+        SearchQueryInput::PostgresExpression { .. } => true,
+    }
+}
+
+/// Check if a query string represents a range query (contains operators like >, <, etc.)
+fn is_range_query_string(query_string: &str) -> bool {
+    // Range queries typically start with operators
+    query_string.trim_start().starts_with('>')
+        || query_string.trim_start().starts_with('<')
+        || query_string.trim_start().starts_with(">=")
+        || query_string.trim_start().starts_with("<=")
+        || query_string.contains("..")  // Range syntax like "1..10"
+        || query_string.contains(" TO ") // Range syntax like "1 TO 10"
 }

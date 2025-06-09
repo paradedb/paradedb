@@ -412,7 +412,7 @@ pub unsafe fn merge_index_with_policy(
 /// moved to the `SEGMENT_METAS_GARBAGE` list until those replicas indicate that they are no longer
 /// in use, at which point they can be freed by `free_garbage`.
 ///
-unsafe fn garbage_collect_index(indexrel: &PgRelation) {
+pub unsafe fn garbage_collect_index(indexrel: &PgRelation) {
     let indexrelid = indexrel.oid();
 
     // Remove items which are no longer visible to active local transactions from SEGMENT_METAS,

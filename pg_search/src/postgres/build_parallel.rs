@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::index::FieldName;
-use crate::index::writer::index::SerialIndexWriter;
+use crate::index::writer::index::{Mergeable, SearchIndexMerger, SerialIndexWriter};
 use crate::index::WriterResources;
 use crate::launch_parallel_process;
 use crate::parallel_worker::mqueue::MessageQueueSender;
@@ -24,6 +24,7 @@ use crate::parallel_worker::{
     ParallelProcess, ParallelState, ParallelStateManager, ParallelStateType, ParallelWorker,
     WorkerStyle,
 };
+use crate::postgres::insert::garbage_collect_index;
 use crate::postgres::spinlock::Spinlock;
 use crate::postgres::utils::{categorize_fields, row_to_search_document, CategorizedFieldData};
 use crate::schema::{SearchField, SearchIndexSchema};
@@ -173,7 +174,7 @@ impl ParallelWorker for BuildWorker<'_> {
 
     fn run(mut self, mq_sender: &MessageQueueSender, _worker_number: i32) -> anyhow::Result<()> {
         self.coordination.inc_nlaunched();
-        let (reltuples, segment_ids) = self.do_build()?;
+        let (reltuples, segment_ids) = self.do_build(true)?;
         let response = WorkerResponse {
             reltuples,
             segment_ids,
@@ -199,7 +200,7 @@ impl<'a> BuildWorker<'a> {
         }
     }
 
-    fn do_build(&mut self) -> anyhow::Result<(f64, Vec<SegmentId>)> {
+    fn do_build(&mut self, do_merge: bool) -> anyhow::Result<(f64, Vec<SegmentId>)> {
         unsafe {
             let index_info = pg_sys::BuildIndexInfo(self.indexrel.as_ptr());
             (*index_info).ii_Concurrent = self.config.concurrent;
@@ -221,8 +222,62 @@ impl<'a> BuildWorker<'a> {
             );
 
             let segment_ids = build_state.writer.commit()?;
-            Ok((reltuples, segment_ids))
+            if do_merge {
+                let remaining = self.do_merge(segment_ids)?;
+                Ok((reltuples, remaining))
+            } else {
+                Ok((reltuples, segment_ids))
+            }
         }
+    }
+
+    fn do_merge(&mut self, segment_ids: Vec<SegmentId>) -> anyhow::Result<Vec<SegmentId>> {
+        let desired_segment_count = std::thread::available_parallelism()
+            .expect("your computer should have at least one core");
+        let nworkers = self.coordination.nlaunched();
+        let desired_segments_per_worker = desired_segment_count.get().div_ceil(nworkers);
+
+        pgrx::info!(
+            "do_merge: segment_ids={:?}, desired_segments_per_worker={} desired_segment_count={} nworkers={}",
+            segment_ids,
+            desired_segments_per_worker,
+            desired_segment_count.get(),
+            nworkers
+        );
+
+        if desired_segments_per_worker >= segment_ids.len() {
+            return Ok(segment_ids);
+        }
+
+        let mut merger = SearchIndexMerger::open(self.indexrel.oid())?;
+
+        // Calculate how many segments should be merged together to reach desired count
+        // e.g., if we have 16 segments and want 4, merge in groups of 4
+        let merge_group_size = segment_ids.len().div_ceil(desired_segments_per_worker);
+
+        pgrx::info!("do_merge: merge_group_size={}", merge_group_size,);
+
+        let mut remaining = Vec::new();
+        for chunk in segment_ids.chunks(merge_group_size) {
+            if chunk.len() > 1 {
+                pgrx::info!("do_merge: chunk={:?}", chunk);
+                if let Some(merged) = merger.merge_segments(chunk)? {
+                    remaining.push(merged.id());
+                }
+            } else {
+                remaining.extend(chunk);
+            }
+        }
+
+        pgrx::info!("do_merge: finished merging, remaining={:?}", remaining);
+
+        unsafe {
+            garbage_collect_index(&self.indexrel);
+        }
+
+        pgrx::info!("do_merge: finished garbage collecting");
+
+        Ok(remaining)
     }
 }
 
@@ -345,7 +400,7 @@ pub(super) fn build_index(
 
             // directly instantiate a worker for the leader and have it do its build
             let mut worker = BuildWorker::new_parallel_worker(*process.state_manager());
-            worker.do_build()?
+            worker.do_build(true)?
         } else {
             (0.0, vec![])
         };
@@ -379,7 +434,7 @@ pub(super) fn build_index(
             &mut coordination,
         );
 
-        worker.do_build()
+        worker.do_build(true)
     }
 }
 

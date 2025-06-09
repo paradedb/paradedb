@@ -101,7 +101,8 @@ impl SerialIndexWriter {
         // Save new metas
         let current_metas = self.index.load_metas()?;
         let current_segments = current_metas.clone().segments;
-        let segment_ids = current_segments
+        let new_segment_ids = self
+            .new_metas
             .iter()
             .map(|meta| meta.id())
             .collect::<Vec<_>>();
@@ -112,7 +113,7 @@ impl SerialIndexWriter {
         self.index
             .directory()
             .save_metas(&new_metas, &current_metas, &mut ())?;
-        Ok(segment_ids)
+        Ok(new_segment_ids)
     }
 
     fn finalize_segment(&mut self) -> Result<()> {

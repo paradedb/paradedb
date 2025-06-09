@@ -294,9 +294,6 @@ impl LinkedBytesList {
 
     /// Return all the allocated blocks used by this [`LinkedBytesList`] back to the
     /// Free Space Map behind this index.
-    ///
-    /// It's the caller's responsibility to later call [`pg_sys::IndexFreeSpaceMapVacuum`]
-    /// if necessary.
     pub unsafe fn return_to_fsm(mut self) {
         // in addition to the list itself, we also have a secondary list of linked blocks (which
         // contain the blocknumbers of this list) that needs to be marked deleted too
@@ -308,17 +305,17 @@ impl LinkedBytesList {
                     FIXED_BLOCK_NUMBERS.iter().all(|fb| *fb != blockno),
                     "mark_deleted:  blockno {blockno} cannot ever be recycled"
                 );
-                let mut buffer = self.bman.get_buffer_mut(blockno);
-                let page = buffer.page_mut();
+                let buffer = self.bman.get_buffer_mut(blockno);
+                let page = buffer.page();
                 let special = page.special::<BM25PageSpecialData>();
 
+                self.bman.add_to_fsm_queue(blockno);
                 blockno = special.next_blockno;
-                buffer.return_to_fsm(&mut self.bman);
             }
         }
 
-        let header_buffer = self.bman.get_buffer_mut(self.header_blockno);
-        header_buffer.return_to_fsm(&mut self.bman);
+        self.bman.add_to_fsm_queue(self.header_blockno);
+        self.bman.flush_fsm_queue();
     }
 
     pub fn is_empty(&self) -> bool {

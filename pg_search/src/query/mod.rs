@@ -669,7 +669,7 @@ impl SearchQueryInput {
             Self::Empty => Ok(Box::new(EmptyQuery)),
             Self::Exists { field } => {
                 let is_json = schema.search_field(field.root()).unwrap().is_json();
-                Ok(Box::new(ExistsQuery::new(field.root(), is_json)))
+                Ok(Box::new(ExistsQuery::new(field.into_inner(), is_json)))
             }
             Self::FastFieldRangeWeight {
                 field,

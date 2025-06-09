@@ -25,8 +25,8 @@ cmd_lib = "1.9.5"
 dotenvy = "0.15.7"
 futures = "0.3.31"
 lockfree-object-pool = "0.1.6"
-parking_lot = "0.12.3"
-pgvector = { version = "0.4.0", features = ["sqlx"] }
+parking_lot = "0.12.4"
+pgvector = { version = "0.4.1", features = ["sqlx"] }
 portpicker = "0.1.1"
 pretty_assertions = "1.4.1"
 rand = "0.9.1"
@@ -36,7 +36,7 @@ rustc-hash = "2.1.1"
 serde = "1.0.219"
 serde_json = "1.0.140"
 soa_derive = "0.14.0"
-sqlx = { version = "0.8.5", features = [
+sqlx = { version = "0.8.6", features = [
   "postgres",
   "runtime-async-std",
   "time",
@@ -47,11 +47,11 @@ sqlx = { version = "0.8.5", features = [
 strum = "0.27.1"
 strum_macros = "0.27.1"
 tantivy.workspace = true
-tempfile = "3.19.1"
+tempfile = "3.20.0"
 time = { version = "0.3.41", features = ["serde"] }
 tokenizers = { path = "../tokenizers" }
-tokio = { version = "1.44.2", features = ["rt-multi-thread", "macros"] }
-uuid = "1.16.0"
+tokio = { version = "1.45.1", features = ["rt-multi-thread", "macros"] }
+uuid = "1.17.0"
 num-traits = "0.2.19"
-proptest = "1.6.0"
-proptest-derive = "0.5.1"
+proptest = "1.7.0"
+proptest-derive = "0.6.0"

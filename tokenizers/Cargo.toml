@@ -8,7 +8,7 @@ icu = ["rust_icu_ubrk", "rust_icu_sys", "rust_icu_uloc", "rust_icu_ustring"]
 
 [dependencies]
 anyhow = "1.0.98"
-lindera = { version = "0.42.2", features = [
+lindera = { version = "0.43.1", features = [
   "cc-cedict",
   "ipadic",
   "ko-dic",

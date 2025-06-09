@@ -156,6 +156,10 @@ impl ExecMethod for TopNScanExecState {
     fn query(&mut self, state: &mut PdbScanState) -> bool {
         self.did_query = true;
 
+        if self.found >= self.limit {
+            return false;
+        }
+
         // We track the total number of queries executed by Top-N (for any of the above reasons).
         state.query_count += 1;
 

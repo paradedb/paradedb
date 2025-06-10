@@ -18,9 +18,9 @@
 use crate::api::index::FieldName;
 use crate::index::merge_policy::{LayeredMergePolicy, NumCandidates, NumMerged};
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::writer::index::{Mergeable, SearchIndexMerger, SerialIndexWriter};
+use crate::index::writer::index::{Mergeable, SearchIndexMerger, SearchIndexWriter};
 use crate::index::WriterResources;
-use crate::postgres::options::SearchIndexOptions;
+use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::storage::block::{SegmentMetaEntry, CLEANUP_LOCK, SEGMENT_METAS_START};
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::metadata::MetaPage;
@@ -28,15 +28,16 @@ use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use crate::postgres::utils::{
     categorize_fields, item_pointer_to_u64, row_to_search_document, CategorizedFieldData,
 };
-use crate::schema::{SearchField, SearchIndexSchema};
+use crate::schema::SearchField;
 use pgrx::{check_for_interrupts, pg_guard, pg_sys, PgMemoryContexts, PgRelation, PgTupleDesc};
+use std::ffi::CStr;
 use std::panic::{catch_unwind, resume_unwind};
-use tantivy::{SegmentMeta, TantivyDocument};
+use tantivy::SegmentMeta;
 
 pub struct InsertState {
     #[allow(dead_code)] // field is used by pg<16 for the fakeaminsertcleanup stuff
     pub indexrelid: pg_sys::Oid,
-    pub writer: Option<SerialIndexWriter>,
+    pub writer: Option<SearchIndexWriter>,
     categorized_fields: Vec<(SearchField, CategorizedFieldData)>,
     key_field_name: FieldName,
     per_row_context: PgMemoryContexts,
@@ -47,14 +48,10 @@ impl InsertState {
         indexrel: &PgRelation,
         writer_resources: WriterResources,
     ) -> anyhow::Result<Self> {
-        let (parallelism, memory_budget) = writer_resources.resources();
-        let memory_budget = memory_budget / parallelism;
-        let writer =
-            SerialIndexWriter::with_mvcc(indexrel, MvccSatisfies::Mergeable, memory_budget)?;
-        let schema = SearchIndexSchema::open(indexrel.oid())?;
+        let writer = SearchIndexWriter::open(indexrel, MvccSatisfies::Mergeable, writer_resources)?;
         let tupdesc = unsafe { PgTupleDesc::from_pg_unchecked(indexrel.rd_att) };
-        let categorized_fields = categorize_fields(&tupdesc, &schema);
-        let key_field_name = schema.key_field().field_name();
+        let categorized_fields = categorize_fields(&tupdesc, &writer.schema);
+        let key_field_name = writer.schema.key_field().name;
 
         let per_row_context = pg_sys::AllocSetContextCreateExtended(
             PgMemoryContexts::CurrentMemoryContext.value(),
@@ -126,10 +123,21 @@ pub unsafe extern "C-unwind" fn aminsert(
     index_relation: pg_sys::Relation,
     values: *mut pg_sys::Datum,
     isnull: *mut bool,
-    ctid: pg_sys::ItemPointer,
+    heap_tid: pg_sys::ItemPointer,
     _heap_relation: pg_sys::Relation,
     _check_unique: pg_sys::IndexUniqueCheck::Type,
     _index_unchanged: bool,
+    index_info: *mut pg_sys::IndexInfo,
+) -> bool {
+    aminsert_internal(index_relation, values, isnull, heap_tid, index_info)
+}
+
+#[inline(always)]
+unsafe fn aminsert_internal(
+    index_relation: pg_sys::Relation,
+    values: *mut pg_sys::Datum,
+    isnull: *mut bool,
+    ctid: pg_sys::ItemPointer,
     index_info: *mut pg_sys::IndexInfo,
 ) -> bool {
     if pg_sys::IsLogicalWorker() {
@@ -150,7 +158,7 @@ pub unsafe extern "C-unwind" fn aminsert(
             let key_field_name = &state.key_field_name;
             let writer = state.writer.as_mut().expect("writer should not be null");
 
-            let mut search_document = TantivyDocument::new();
+            let mut search_document = writer.schema.new_document();
 
             row_to_search_document(
                 values,
@@ -159,7 +167,13 @@ pub unsafe extern "C-unwind" fn aminsert(
                 categorized_fields,
                 &mut search_document,
             )
-            .unwrap_or_else(|err| panic!("{err}"));
+            .unwrap_or_else(|err| {
+                panic!(
+                    "error creating index entries for index '{}': {err}",
+                    CStr::from_ptr((*(*index_relation).rd_rel).relname.data.as_ptr())
+                        .to_string_lossy()
+                );
+            });
             writer
                 .insert(search_document, item_pointer_to_u64(*ctid))
                 .expect("insertion into index should succeed");
@@ -189,9 +203,9 @@ pub unsafe extern "C-unwind" fn aminsertcleanup(
     paradedb_aminsertcleanup(state.as_mut().and_then(|state| state.writer.take()));
 }
 
-pub fn paradedb_aminsertcleanup(mut writer: Option<SerialIndexWriter>) {
+pub fn paradedb_aminsertcleanup(mut writer: Option<SearchIndexWriter>) {
     if let Some(writer) = writer.take() {
-        let indexrelid = writer.index_oid();
+        let indexrelid = writer.indexrelid;
 
         writer
             .commit()
@@ -230,8 +244,8 @@ unsafe fn do_merge(indexrelid: pg_sys::Oid) -> (NumCandidates, NumMerged) {
         indexrel
     };
 
-    let index_options = SearchIndexOptions::from_relation(&indexrel);
-    let merge_policy = LayeredMergePolicy::new(index_options.layer_sizes());
+    let index_options = SearchIndexCreateOptions::from_relation(&indexrel);
+    let merge_policy = LayeredMergePolicy::new(index_options.layer_sizes(DEFAULT_LAYER_SIZES));
 
     merge_index_with_policy(indexrel, merge_policy, false, false, false)
 }

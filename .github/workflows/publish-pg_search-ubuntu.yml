@@ -35,6 +35,39 @@ jobs:
     strategy:
       matrix:
         include:
+          # Ubuntu 20.04
+          - name: Ubuntu 20.04 (Focal)
+            runner: ubicloud-standard-8-ubuntu-2004
+            pg_version: 14
+            arch: amd64
+          - name: Ubuntu 20.04 (Focal)
+            runner: ubicloud-standard-4-arm-ubuntu-2004
+            pg_version: 14
+            arch: arm64
+          - name: Ubuntu 20.04 (Focal)
+            runner: ubicloud-standard-8-ubuntu-2004
+            pg_version: 15
+            arch: amd64
+          - name: Ubuntu 20.04 (Focal)
+            runner: ubicloud-standard-4-arm-ubuntu-2004
+            pg_version: 15
+            arch: arm64
+          - name: Ubuntu 20.04 (Focal)
+            runner: ubicloud-standard-8-ubuntu-2004
+            pg_version: 16
+            arch: amd64
+          - name: Ubuntu 20.04 (Focal)
+            runner: ubicloud-standard-4-arm-ubuntu-2004
+            pg_version: 16
+            arch: arm64
+          - name: Ubuntu 20.04 (Focal)
+            runner: ubicloud-standard-8-ubuntu-2004
+            pg_version: 17
+            arch: amd64
+          - name: Ubuntu 20.04 (Focal)
+            runner: ubicloud-standard-4-arm-ubuntu-2004
+            pg_version: 17
+            arch: arm64
           # Ubuntu 22.04
           - name: Ubuntu 22.04 (Jammy)
             runner: ubicloud-standard-8-ubuntu-2204

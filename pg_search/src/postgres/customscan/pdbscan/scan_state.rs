@@ -24,7 +24,7 @@ use crate::postgres::customscan::pdbscan::exec_methods::ExecMethod;
 use crate::postgres::customscan::pdbscan::projections::snippet::SnippetType;
 use crate::postgres::customscan::pdbscan::qual_inspect::Qual;
 use crate::postgres::customscan::CustomScanState;
-use crate::postgres::options::SearchIndexOptions;
+use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::utils::u64_to_item_pointer;
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::postgres::ParallelScanState;
@@ -58,7 +58,7 @@ pub struct PdbScanState {
     pub sort_field: Option<FieldName>,
     pub sort_direction: Option<SortDirection>,
 
-    pub query_count: usize,
+    pub retry_count: usize,
     pub heap_tuple_check_count: usize,
     pub virtual_tuple_count: usize,
     pub invisible_tuple_count: usize,
@@ -90,9 +90,6 @@ pub struct PdbScanState {
 
     pub var_attname_lookup: HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
     pub placeholder_targetlist: Option<*mut pg_sys::List>,
-
-    // Store join-level search predicates for enhanced scoring/snippet generation
-    pub join_predicates: Option<SearchQueryInput>,
 
     pub exec_method_type: ExecMethodType,
     exec_method: UnsafeCell<Box<dyn ExecMethod>>,
@@ -204,8 +201,10 @@ impl PdbScanState {
     pub fn determine_key_field(&self) -> FieldName {
         unsafe {
             let indexrel = PgRelation::with_lock(self.indexrelid, pg_sys::AccessShareLock as _);
-            let ops = SearchIndexOptions::from_relation(&indexrel);
-            ops.key_field_name()
+            let ops = indexrel.rd_options as *mut SearchIndexCreateOptions;
+            (*ops)
+                .get_key_field()
+                .expect("`USING bm25` index should have a valued `key_field` option")
         }
     }
 
@@ -280,7 +279,8 @@ impl PdbScanState {
             None
         } else {
             Some(
-                highlighted
+                snippet
+                    .highlighted()
                     .iter()
                     .map(|span| vec![span.start as i32, span.end as i32])
                     .collect(),
@@ -306,7 +306,7 @@ impl PdbScanState {
             }
         }
         self.search_results = SearchResults::None;
-        self.query_count = 0;
+        self.retry_count = 0;
         self.heap_tuple_check_count = 0;
         self.virtual_tuple_count = 0;
         self.invisible_tuple_count = 0;
@@ -315,7 +315,7 @@ impl PdbScanState {
 
     /// Given a ctid and field name, get the corresponding value from the heap
     ///
-    /// This function supports text, text[], and json/jsonb fields
+    /// This function supports text and text[] fields
     unsafe fn doc_from_heap(&self, ctid: u64, field: &FieldName) -> Option<String> {
         let heaprel = self
             .heaprel
@@ -371,55 +371,9 @@ impl PdbScanState {
                 .join(" "),
             )
         } else {
-            match (field.root(), field.path()) {
-                (root, Some(path)) => {
-                    let pointer = format!("/{}", path.replace('.', "/"));
-                    let field = match attribute.type_oid().value() {
-                        pg_sys::JSONOID => {
-                            let json_value = heap_tuple
-                                .get_by_name::<pgrx::datum::Json>(&root)
-                                .unwrap_or_else(|_| {
-                                    panic!(
-                                        "doc_from_heap: should be able to read json field {}",
-                                        root
-                                    )
-                                })?
-                                .0;
-                            json_value.pointer(&pointer).cloned()?
-                        }
-                        pg_sys::JSONBOID => {
-                            let json_value = heap_tuple
-                                .get_by_name::<pgrx::datum::JsonB>(&root)
-                                .unwrap_or_else(|_| {
-                                    panic!(
-                                        "doc_from_heap: should be able to read jsonb field {}",
-                                        root
-                                    )
-                                })?
-                                .0;
-                            json_value.pointer(&pointer).cloned()?
-                        }
-                        unsupported => {
-                            return None;
-                        }
-                    };
-
-                    match field {
-                        serde_json::Value::String(val) => Some(val),
-                        serde_json::Value::Array(array) => Some(array.iter().filter_map(|v| match v {
-                            serde_json::Value::String(s) => Some(s.to_owned()),
-                            _ => None
-                        }).collect::<Vec<_>>().join(" ")),
-                        val => unimplemented!(
-                            "only text fields for json/jsonb are supported for snippets, found {:?}",
-                            val
-                        ),
-                    }
-                }
-                (root, None) => heap_tuple
-                    .get_by_name(&root)
-                    .unwrap_or_else(|_| panic!("doc_from_heap: should be able to read {}", root)),
-            }
+            heap_tuple
+                .get_by_name(&field.root())
+                .unwrap_or_else(|_| panic!("{} should exist in the heap tuple", field))
         }
     }
 }

@@ -31,7 +31,7 @@ pub use manager::{SearchNormalizer, SearchTokenizer};
 
 pub const DEFAULT_REMOVE_TOKEN_LENGTH: usize = 255;
 
-pub fn create_tokenizer_manager(search_tokenizers: Vec<SearchTokenizer>) -> TokenizerManager {
+pub fn create_tokenizer_manager(search_tokenizers: Vec<&SearchTokenizer>) -> TokenizerManager {
     let tokenizer_manager = TokenizerManager::default();
 
     for search_tokenizer in search_tokenizers {

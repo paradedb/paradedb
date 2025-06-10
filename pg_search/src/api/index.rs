@@ -71,10 +71,18 @@ pub fn schema(
 
     let search_reader = SearchIndexReader::open(&index, MvccSatisfies::Snapshot)
         .expect("could not open search index reader");
-    let schema = search_reader.schema();
+    let schema = search_reader.schema().schema.clone();
+    let mut field_entries: Vec<_> = schema.fields().collect();
+
+    // To ensure consistent ordering of outputs, we'll sort the results by field name.
+    field_entries.sort_by_key(|(field, _)| schema.get_field_name(*field).to_string());
 
     let mut field_rows = Vec::new();
-    for (_, field_entry) in schema.fields() {
+
+    for field in field_entries {
+        let (field, field_entry) = field;
+        let name = schema.get_field_name(field).to_string();
+
         let (field_type, tokenizer, record, normalizer, expand_dots) =
             match field_entry.field_type() {
                 FieldType::I64(_) => ("I64".to_string(), None, None, None, None),
@@ -113,7 +121,7 @@ pub fn schema(
             };
 
         let row = (
-            field_entry.name().to_string(),
+            name,
             field_type,
             field_entry.is_stored(),
             field_entry.is_indexed(),
@@ -128,8 +136,6 @@ pub fn schema(
         field_rows.push(row);
     }
 
-    // Sort field rows for consistent ordering
-    field_rows.sort_by_key(|(name, _, _, _, _, _, _, _, _, _)| name.clone());
     TableIterator::new(field_rows)
 }
 
@@ -972,23 +978,19 @@ impl Display for FieldName {
 
 impl AsRef<str> for FieldName {
     fn as_ref(&self) -> &str {
-        self
+        self.0.as_str()
     }
 }
 
-impl std::ops::Deref for FieldName {
-    type Target = str;
-    fn deref(&self) -> &Self::Target {
-        &self.0
+impl From<String> for FieldName {
+    fn from(value: String) -> Self {
+        Self(value)
     }
 }
 
-impl<T> From<T> for FieldName
-where
-    T: Into<String>,
-{
-    fn from(value: T) -> Self {
-        FieldName(value.into())
+impl From<&str> for FieldName {
+    fn from(value: &str) -> Self {
+        Self(value.to_string())
     }
 }
 

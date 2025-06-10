@@ -1,6 +1,9 @@
+use crate::index::mvcc::MVCCDirectory;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::categorize_fields;
+use crate::query::AsFieldType;
 use crate::schema::SearchIndexSchema;
+use tantivy::index::Index;
 use tantivy::query::{
     BooleanQuery, EnableScoring, MoreLikeThis as TantivyMoreLikeThis, Query, Weight,
 };
@@ -119,10 +122,11 @@ impl MoreLikeThisQueryBuilder {
         let heap_relation = index_relation
             .heap_relation()
             .expect("more_like_this: index should have a heap relation");
-        let schema = SearchIndexSchema::open(index_relation.oid())
-            .expect("more_like_this: should be able to open schema");
-        let key_field = schema.key_field();
-        let (key_field_name, key_oid) = (key_field.field_name(), key_field.field_type().typeoid());
+        let directory = MVCCDirectory::snapshot(index_relation.oid());
+        let index = Index::open(directory).expect("more_like_this: should be able to open index");
+        let schema = SearchIndexSchema::open(index.schema(), &index_relation);
+        let key_field_name = schema.key_field().name;
+        let key_oid = (&index_relation, &schema).key_field().1;
         let categorized_fields = categorize_fields(&index_relation.tuple_desc(), &schema);
 
         let doc_fields: Vec<(Field, Vec<OwnedValue>)> = pgrx::Spi::connect(|client| {
@@ -138,19 +142,19 @@ impl MoreLikeThisQueryBuilder {
                     None,
                     unsafe {
                         &[TantivyValue(key_value)
-                            .try_into_datum(key_oid.into())
+                            .try_into_datum(key_oid)
                             .expect("more_like_this: should be able to convert key value to datum")
                             .into()]
                     },
                 )?
                 .first();
 
-            for (search_field, categorized) in categorized_fields {
-                if search_field.is_ctid() {
+            for (field, categorized) in categorized_fields {
+                if field.name.is_ctid() {
                     continue;
                 }
 
-                if let Some(datum) = result.get_datum_by_name(search_field.field_name().root())? {
+                if let Some(datum) = result.get_datum_by_name(field.name.root())? {
                     if categorized.is_array {
                         let values = unsafe {
                             TantivyValue::try_from_datum_array(datum, categorized.base_oid)
@@ -159,7 +163,7 @@ impl MoreLikeThisQueryBuilder {
                                 .map(|v| v.into())
                                 .collect::<Vec<_>>()
                         };
-                        doc_fields.push((search_field.field(), values));
+                        doc_fields.push((field.id.0, values));
                     } else if categorized.is_json {
                         let values = unsafe {
                             TantivyValue::try_from_datum_json(datum, categorized.base_oid)
@@ -168,13 +172,13 @@ impl MoreLikeThisQueryBuilder {
                                 .map(|v| v.into())
                                 .collect::<Vec<_>>()
                         };
-                        doc_fields.push((search_field.field(), values));
+                        doc_fields.push((field.id.0, values));
                     } else {
                         let value = unsafe {
                             TantivyValue::try_from_datum(datum, categorized.base_oid)
                                 .expect("more_like_this: should be able to convert datum to tantivy value")
                         };
-                        doc_fields.push((search_field.field(), vec![value.into()]));
+                        doc_fields.push((field.id.0, vec![value.into()]));
                     }
                 }
             }

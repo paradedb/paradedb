@@ -8,14 +8,14 @@ mod weight;
 
 #[derive(Debug, Clone)]
 pub enum ProximityClauseStyle {
-    Term { term: Term },
+    Terms { terms: Vec<Term> },
     Proximity { prox: ProximityQuery },
 }
 
 impl ProximityClauseStyle {
     pub fn field(&self) -> Field {
         match self {
-            ProximityClauseStyle::Term { term } => term.field(),
+            ProximityClauseStyle::Terms { terms } => terms[0].field(),
             ProximityClauseStyle::Proximity { prox } => prox.field(),
         }
     }
@@ -35,7 +35,7 @@ impl ProximityClause {
     }
     pub fn terms(&self) -> impl Iterator<Item = &Term> {
         let iter: Box<dyn Iterator<Item = &Term>> = match &self.style {
-            ProximityClauseStyle::Term { term } => Box::new(std::iter::once(term)),
+            ProximityClauseStyle::Terms { terms } => Box::new(terms.iter()),
             ProximityClauseStyle::Proximity { prox } => {
                 Box::new(prox.left().terms().chain(prox.right().terms()))
             }

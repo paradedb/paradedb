@@ -19,13 +19,12 @@ use crate::api::index::FieldName;
 use crate::index::writer::index::IndexError;
 use crate::postgres::build::is_bm25_index;
 use crate::postgres::types::TantivyValue;
-use crate::schema::{SearchField, SearchIndexSchema};
+use crate::schema::{SearchDocument, SearchField, SearchIndexSchema};
 use anyhow::{anyhow, Result};
 use chrono::{NaiveDate, NaiveTime};
 use pgrx::itemptr::{item_pointer_get_both, item_pointer_set_all};
 use pgrx::*;
 use std::str::FromStr;
-use tantivy::schema::OwnedValue;
 
 extern "C-unwind" {
     // SAFETY: `IsTransactionState()` doesn't raise an ERROR.  As such, we can avoid the pgrx
@@ -96,16 +95,14 @@ pub fn categorize_fields(
     for (attno, attribute) in tupdesc.iter().enumerate() {
         let attname = attribute.name().to_string();
         let attribute_type_oid = attribute.type_oid();
-        let mut search_fields = Vec::new();
 
-        if let Some(alias_fields) = alias_lookup.remove(&attname) {
-            search_fields.extend(alias_fields.into_iter());
-        }
+        // List any indexed fields that use this column as source data.
+        let mut search_fields = alias_lookup.remove(&attname).unwrap_or_default();
 
-        // If there's an indexed field with the same name as this column, add it to the list
-        if let Some(index_field) = schema.search_field(&attname) {
-            search_fields.push(index_field.clone());
-        }
+        // If there's an indexed field with the same name as a this column, add it to the list.
+        if let Some(index_field) = schema.get_search_field(&attname.clone().into()) {
+            search_fields.push(index_field)
+        };
 
         for search_field in search_fields {
             let array_type = unsafe { pg_sys::get_element_type(attribute_type_oid.value()) };
@@ -121,7 +118,7 @@ pub fn categorize_fields(
             );
 
             categorized_fields.push((
-                search_field,
+                search_field.clone(),
                 CategorizedFieldData {
                     attno,
                     base_oid,
@@ -140,7 +137,7 @@ pub unsafe fn row_to_search_document(
     isnull: *mut bool,
     key_field_name: &FieldName,
     categorized_fields: &Vec<(SearchField, CategorizedFieldData)>,
-    document: &mut tantivy::TantivyDocument,
+    document: &mut SearchDocument,
 ) -> Result<(), IndexError> {
     for (
         search_field,
@@ -155,7 +152,7 @@ pub unsafe fn row_to_search_document(
         let datum = *values.add(*attno);
         let isnull = *isnull.add(*attno);
 
-        if isnull && *key_field_name == search_field.field_name() {
+        if isnull && *key_field_name == search_field.name {
             return Err(IndexError::KeyIdNull(key_field_name.to_string()));
         }
 
@@ -165,16 +162,16 @@ pub unsafe fn row_to_search_document(
 
         if *is_array {
             for value in TantivyValue::try_from_datum_array(datum, *base_oid)? {
-                document.add_field_value(search_field.field(), &OwnedValue::from(value));
+                document.insert(search_field.id, value.into());
             }
         } else if *is_json {
             for value in TantivyValue::try_from_datum_json(datum, *base_oid)? {
-                document.add_field_value(search_field.field(), &OwnedValue::from(value));
+                document.insert(search_field.id, value.into());
             }
         } else {
-            document.add_field_value(
-                search_field.field(),
-                &OwnedValue::from(TantivyValue::try_from_datum(datum, *base_oid)?),
+            document.insert(
+                search_field.id,
+                TantivyValue::try_from_datum(datum, *base_oid)?.into(),
             );
         }
     }

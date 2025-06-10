@@ -15,8 +15,26 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::index::FieldName;
+use crate::postgres::options::SearchIndexCreateOptions;
+use crate::schema::{SearchFieldConfig, SearchFieldType};
 use anyhow::{anyhow, Result};
 use pgrx::{pg_sys, PgRelation, Spi};
+
+type Fields = Vec<(FieldName, SearchFieldConfig, SearchFieldType)>;
+type KeyFieldIndex = usize;
+pub unsafe fn get_fields(index_relation: &PgRelation) -> (Fields, KeyFieldIndex) {
+    let options = SearchIndexCreateOptions::from_relation(index_relation);
+    let fields = options.get_all_fields(index_relation).collect::<Vec<_>>();
+    let key_field = options.get_key_field().expect("key_field is required");
+
+    let key_field_index = fields
+        .iter()
+        .position(|(name, _, _)| name == &key_field)
+        .expect("key field not found in columns"); // key field is already validated by now.
+
+    (fields, key_field_index)
+}
 
 pub enum IndexKind {
     Index(PgRelation),

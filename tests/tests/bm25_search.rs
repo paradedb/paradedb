@@ -159,7 +159,7 @@ fn text_arrays(mut conn: PgConnection) {
         text_array TEXT[],
         varchar_array VARCHAR[]
     );
-    INSERT INTO example_table (text_array, varchar_array) VALUES
+    INSERT INTO example_table (text_array, varchar_array) VALUES 
     ('{"text1", "text2", "text3"}', '{"vtext1", "vtext2"}'),
     ('{"another", "array", "of", "texts"}', '{"vtext3", "vtext4", "vtext5"}'),
     ('{"single element"}', '{"single varchar element"}');
@@ -199,7 +199,7 @@ fn int_arrays(mut conn: PgConnection) {
         int_array INT[],
         bigint_array BIGINT[]
     );
-    INSERT INTO example_table (int_array, bigint_array) VALUES
+    INSERT INTO example_table (int_array, bigint_array) VALUES 
     ('{1, 2, 3}', '{100, 200}'),
     ('{4, 5, 6}', '{300, 400, 500}'),
     ('{7, 8, 9}', '{600, 700, 800, 900}');
@@ -227,7 +227,7 @@ fn boolean_arrays(mut conn: PgConnection) {
         id SERIAL PRIMARY KEY,
         bool_array BOOLEAN[]
     );
-    INSERT INTO example_table (bool_array) VALUES
+    INSERT INTO example_table (bool_array) VALUES 
     ('{true, true, true}'),
     ('{false, false, false}'),
     ('{true, true, false}');
@@ -259,7 +259,7 @@ fn datetime_arrays(mut conn: PgConnection) {
         date_array DATE[],
         timestamp_array TIMESTAMP[]
     );
-    INSERT INTO example_table (date_array, timestamp_array) VALUES
+    INSERT INTO example_table (date_array, timestamp_array) VALUES 
     (ARRAY['2023-01-01'::DATE, '2023-02-01'::DATE], ARRAY['2023-02-01 12:00:00'::TIMESTAMP, '2023-02-01 13:00:00'::TIMESTAMP]),
     (ARRAY['2023-03-01'::DATE, '2023-04-01'::DATE], ARRAY['2023-04-01 14:00:00'::TIMESTAMP, '2023-04-01 15:00:00'::TIMESTAMP]),
     (ARRAY['2023-05-01'::DATE, '2023-06-01'::DATE], ARRAY['2023-06-01 16:00:00'::TIMESTAMP, '2023-06-01 17:00:00'::TIMESTAMP]);
@@ -286,7 +286,7 @@ fn json_arrays(mut conn: PgConnection) {
         id SERIAL PRIMARY KEY,
         json_array JSONB[]
     );
-    INSERT INTO example_table (json_array) VALUES
+    INSERT INTO example_table (json_array) VALUES 
     (ARRAY['{"name": "John", "age": 30}'::JSONB, '{"name": "Jane", "age": 25}'::JSONB]),
     (ARRAY['{"name": "Bob", "age": 40}'::JSONB, '{"name": "Alice", "age": 35}'::JSONB]),
     (ARRAY['{"name": "Mike", "age": 50}'::JSONB, '{"name": "Lisa", "age": 45}'::JSONB]);"#
@@ -321,14 +321,14 @@ fn uuid(mut conn: PgConnection) {
     INSERT INTO uuid_table (random_uuid, some_text) VALUES ('02f9789d-4963-47d5-a189-d9c114f5cba4', 'some text');
 
     CREATE INDEX uuid_table_bm25_index ON uuid_table
-    USING bm25 (id, some_text) WITH (key_field='id');
-
+    USING bm25 (id, some_text) WITH (key_field='id');   
+    
     DROP INDEX uuid_table_bm25_index CASCADE;"#
         .execute(&mut conn);
 
     r#"
     CREATE INDEX uuid_table_bm25_index ON uuid_table
-    USING bm25 (id, some_text, random_uuid) WITH (key_field='id')
+    USING bm25 (id, some_text, random_uuid) WITH (key_field='id')   
     "#
     .execute(&mut conn);
 
@@ -405,7 +405,7 @@ fn snippet_text_array(mut conn: PgConnection) {
         names TEXT[],
         locations VARCHAR[]
     );
-    INSERT INTO people (names, locations) VALUES
+    INSERT INTO people (names, locations) VALUES 
     ('{"Alice", "Bob", "Charlie"}', '{"New York", "Los Angeles"}'),
     ('{"Diana", "Eve", "Fiona"}', '{"Chicago", "Houston"}'),
     ('{"George", "Hannah", "Ivan"}', '{"Miami", "Seattle"}');
@@ -509,7 +509,7 @@ fn update_non_indexed_column(mut conn: PgConnection) -> Result<()> {
     r#"
     CREATE INDEX search_idx ON mock_items
     USING bm25 (id, description)
-    WITH (key_field='id', text_fields='{"description": {"tokenizer": {"type": "en_stem", "lowercase": true, "remove_long": 255}}}')
+    WITH (key_field='id', text_fields='{"description": {"tokenizer": {"type": "en_stem", "lowercase": true, "remove_long": 255}}}')        
     "#
       .execute(&mut conn);
 
@@ -534,7 +534,7 @@ async fn json_array_flattening(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     // Insert a JSON array into the metadata field
-    "INSERT INTO paradedb.bm25_search (description, category, rating, in_stock, metadata, created_at, last_updated_date) VALUES
+    "INSERT INTO paradedb.bm25_search (description, category, rating, in_stock, metadata, created_at, last_updated_date) VALUES 
     ('Product with array', 'Electronics', 4, true, '{\"colors\": [\"red\", \"green\", \"blue\"]}', now(), current_date)"
         .execute(&mut conn);
 
@@ -560,7 +560,7 @@ async fn json_array_multiple_documents(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     // Insert multiple documents with JSON arrays
-    "INSERT INTO paradedb.bm25_search (description, category, rating, in_stock, metadata, created_at, last_updated_date) VALUES
+    "INSERT INTO paradedb.bm25_search (description, category, rating, in_stock, metadata, created_at, last_updated_date) VALUES 
     ('Product 1', 'Electronics', 5, true, '{\"colors\": [\"red\", \"green\"]}', now(), current_date),
     ('Product 2', 'Electronics', 3, false, '{\"colors\": [\"blue\", \"yellow\"]}', now(), current_date),
     ('Product 3', 'Electronics', 4, true, '{\"colors\": [\"green\", \"blue\"]}', now(), current_date)"
@@ -593,7 +593,7 @@ async fn json_array_mixed_data(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     // Insert documents with mixed data types in JSON arrays
-    "INSERT INTO paradedb.bm25_search (description, category, rating, in_stock, metadata, created_at, last_updated_date) VALUES
+    "INSERT INTO paradedb.bm25_search (description, category, rating, in_stock, metadata, created_at, last_updated_date) VALUES 
     ('Product with mixed array', 'Electronics', 5, true, '{\"attributes\": [\"fast\", 4, true]}', now(), current_date)"
         .execute(&mut conn);
 
@@ -619,7 +619,7 @@ async fn json_nested_arrays(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     // Insert a document with nested JSON arrays into the metadata field
-    "INSERT INTO paradedb.bm25_search (description, category, rating, in_stock, metadata, created_at, last_updated_date) VALUES
+    "INSERT INTO paradedb.bm25_search (description, category, rating, in_stock, metadata, created_at, last_updated_date) VALUES 
     ('Product with nested array', 'Electronics', 4, true, '{\"specs\": {\"dimensions\": [\"width\", [\"height\", \"depth\"]]}}', now(), current_date)"
         .execute(&mut conn);
 
@@ -683,7 +683,7 @@ fn bm25_partial_index_search(mut conn: PgConnection) {
     assert_eq!(rows.len(), 0);
 
     // Insert multiple tuples only 1 matches predicate and query
-    "INSERT INTO paradedb.test_partial_index (description, category, rating, in_stock) VALUES
+    "INSERT INTO paradedb.test_partial_index (description, category, rating, in_stock) VALUES 
     ('Product 1', 'Electronics', 2, true),
     ('Product 2', 'Electronics', 1, false),
     ('Product 3', 'Footwear', 2, true)"
@@ -916,7 +916,7 @@ fn bm25_partial_index_alter_and_drop(mut conn: PgConnection) {
     "CALL paradedb.create_bm25_test_table(table_name => 'test_partial_index', schema_name => 'paradedb');".execute(&mut conn);
 
     r#"
-    CREATE INDEX partial_idx ON paradedb.test_partial_index
+    CREATE INDEX partial_idx ON paradedb.test_partial_index 
     USING bm25 (id, description, category, rating)
     WITH (
         key_field='id',
@@ -944,7 +944,7 @@ fn bm25_partial_index_alter_and_drop(mut conn: PgConnection) {
     assert_eq!(rows.len(), 0);
 
     r#"
-    CREATE INDEX partial_idx ON paradedb.test_partial_index
+    CREATE INDEX partial_idx ON paradedb.test_partial_index 
     USING bm25 (id, description, rating)
     WITH (
         key_field='id',
@@ -990,8 +990,8 @@ fn json_term(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let rows: Vec<(i32,)> = "
-        SELECT id FROM paradedb.bm25_search
-        WHERE paradedb.bm25_search.id @@@ paradedb.term('metadata.color', 'white')
+        SELECT id FROM paradedb.bm25_search 
+        WHERE paradedb.bm25_search.id @@@ paradedb.term('metadata.color', 'white') 
         ORDER BY id
     "
     .fetch(&mut conn);
@@ -1022,7 +1022,7 @@ fn json_term(mut conn: PgConnection) {
 
     // Term set
     let rows: Vec<(i32,)> = "
-        SELECT id FROM paradedb.bm25_search
+        SELECT id FROM paradedb.bm25_search 
         WHERE paradedb.bm25_search.id @@@ paradedb.term_set(
             ARRAY[
                 paradedb.term('metadata.color', 'white'),
@@ -1039,8 +1039,8 @@ fn json_fuzzy_term(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let rows: Vec<(i32,)> = "
-        SELECT id FROM paradedb.bm25_search
-        WHERE paradedb.bm25_search.id @@@ paradedb.fuzzy_term('metadata.color', 'whiet')
+        SELECT id FROM paradedb.bm25_search 
+        WHERE paradedb.bm25_search.id @@@ paradedb.fuzzy_term('metadata.color', 'whiet') 
         ORDER BY id
     "
     .fetch(&mut conn);
@@ -1051,23 +1051,23 @@ fn json_fuzzy_term(mut conn: PgConnection) {
 fn json_phrase(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     r#"
-    UPDATE paradedb.bm25_search
-    SET metadata = '{"attributes": {"review": "really good quality product"}}'::jsonb
+    UPDATE paradedb.bm25_search 
+    SET metadata = '{"attributes": {"review": "really good quality product"}}'::jsonb 
     WHERE id = 1
     "#
     .execute(&mut conn);
 
     let rows: Vec<(i32,)> = "
-    SELECT id FROM paradedb.bm25_search
-    WHERE paradedb.bm25_search.id @@@ paradedb.phrase('metadata.attributes.review', ARRAY['good', 'quality'])
+    SELECT id FROM paradedb.bm25_search 
+    WHERE paradedb.bm25_search.id @@@ paradedb.phrase('metadata.attributes.review', ARRAY['good', 'quality']) 
     ORDER BY id
     "
     .fetch(&mut conn);
     assert_eq!(rows, vec![(1,)]);
 
     let rows: Vec<(i32,)> = "
-    SELECT id FROM paradedb.bm25_search
-    WHERE paradedb.bm25_search.id @@@ paradedb.phrase('metadata.attributes.review', ARRAY['good', 'product'], slop => 1)
+    SELECT id FROM paradedb.bm25_search 
+    WHERE paradedb.bm25_search.id @@@ paradedb.phrase('metadata.attributes.review', ARRAY['good', 'product'], slop => 1) 
     ORDER BY id
     "
     .fetch(&mut conn);
@@ -1078,15 +1078,15 @@ fn json_phrase(mut conn: PgConnection) {
 fn json_phrase_prefix(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     r#"
-    UPDATE paradedb.bm25_search
-    SET metadata = '{"attributes": {"review": "really good quality product"}}'::jsonb
+    UPDATE paradedb.bm25_search 
+    SET metadata = '{"attributes": {"review": "really good quality product"}}'::jsonb 
     WHERE id = 1
     "#
     .execute(&mut conn);
 
     let rows: Vec<(i32,)> = "
-    SELECT id FROM paradedb.bm25_search
-    WHERE paradedb.bm25_search.id @@@ paradedb.phrase_prefix('metadata.attributes.review', ARRAY['really', 'go'])
+    SELECT id FROM paradedb.bm25_search 
+    WHERE paradedb.bm25_search.id @@@ paradedb.phrase_prefix('metadata.attributes.review', ARRAY['really', 'go']) 
     ORDER BY id
     "
     .fetch(&mut conn);
@@ -1097,15 +1097,15 @@ fn json_phrase_prefix(mut conn: PgConnection) {
 fn json_match(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     r#"
-    UPDATE paradedb.bm25_search
-    SET metadata = '{"attributes": {"review": "really good quality product"}}'::jsonb
+    UPDATE paradedb.bm25_search 
+    SET metadata = '{"attributes": {"review": "really good quality product"}}'::jsonb 
     WHERE id = 1
     "#
     .execute(&mut conn);
 
     let rows: Vec<(i32,)> = "
-    SELECT id FROM paradedb.bm25_search
-    WHERE paradedb.bm25_search.id @@@ paradedb.match('metadata.attributes.review', 'realy godo', distance => 2)
+    SELECT id FROM paradedb.bm25_search 
+    WHERE paradedb.bm25_search.id @@@ paradedb.match('metadata.attributes.review', 'realy godo', distance => 2) 
     ORDER BY id
     "
     .fetch(&mut conn);
@@ -1126,26 +1126,26 @@ fn json_range(mut conn: PgConnection) {
 
     r#"
     UPDATE paradedb.bm25_search
-    SET metadata = '{"attributes": {"score": 3, "tstz": "2023-05-01T08:12:34Z"}}'::jsonb
+    SET metadata = '{"attributes": {"score": 3, "tstz": "2023-05-01T08:12:34Z"}}'::jsonb 
     WHERE id = 1;
 
     UPDATE paradedb.bm25_search
-    SET metadata = '{"attributes": {"score": 4, "tstz": "2023-05-01T09:12:34Z"}}'::jsonb
+    SET metadata = '{"attributes": {"score": 4, "tstz": "2023-05-01T09:12:34Z"}}'::jsonb 
     WHERE id = 2;
     "#
     .execute(&mut conn);
 
     let rows: Vec<(i32,)> = "
-    SELECT id FROM paradedb.bm25_search
-    WHERE paradedb.bm25_search.id @@@ paradedb.range('metadata.attributes.score', int4range(3, NULL, '[)'))
+    SELECT id FROM paradedb.bm25_search 
+    WHERE paradedb.bm25_search.id @@@ paradedb.range('metadata.attributes.score', int4range(3, NULL, '[)')) 
     ORDER BY id
     "
     .fetch(&mut conn);
     assert_eq!(rows, vec![(1,), (2,)]);
 
     let rows: Vec<(i32,)> = "
-    SELECT id FROM paradedb.bm25_search
-    WHERE paradedb.bm25_search.id @@@ paradedb.range('metadata.attributes.score', int4range(4, NULL, '[)'))
+    SELECT id FROM paradedb.bm25_search 
+    WHERE paradedb.bm25_search.id @@@ paradedb.range('metadata.attributes.score', int4range(4, NULL, '[)')) 
     ORDER BY id
     "
     .fetch(&mut conn);
@@ -1169,7 +1169,7 @@ fn test_customers_table(mut conn: PgConnection) {
     );"
     .execute(&mut conn);
 
-    r#"CREATE INDEX customers_idx ON customers
+    r#"CREATE INDEX customers_idx ON customers 
     USING bm25 (id, name, crm_data)
     WITH (
         key_field='id',
@@ -1193,7 +1193,7 @@ fn test_customers_table(mut conn: PgConnection) {
 fn json_array_term(mut conn: PgConnection) {
     r#"
     CREATE TABLE colors (id SERIAL PRIMARY KEY, colors_json JSON, colors_jsonb JSONB);
-    INSERT INTO colors (colors_json, colors_jsonb) VALUES
+    INSERT INTO colors (colors_json, colors_jsonb) VALUES 
         ('["red", "green", "blue"]'::JSON, '["red", "green", "blue"]'::JSONB),
         ('["red", "orange"]'::JSON, '["red", "orange"]'::JSONB);
     CREATE INDEX colors_bm25_index ON colors
@@ -1206,29 +1206,29 @@ fn json_array_term(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(i32,)> = "
-        SELECT id FROM colors
-        WHERE colors.id @@@ paradedb.term('colors_json', 'red')
+        SELECT id FROM colors 
+        WHERE colors.id @@@ paradedb.term('colors_json', 'red') 
         ORDER BY id"
         .fetch(&mut conn);
     assert_eq!(rows, vec![(1,), (2,)]);
 
     let rows: Vec<(i32,)> = "
-        SELECT id FROM colors
-        WHERE colors.id @@@ paradedb.term('colors_jsonb', 'red')
+        SELECT id FROM colors 
+        WHERE colors.id @@@ paradedb.term('colors_jsonb', 'red') 
         ORDER BY id"
         .fetch(&mut conn);
     assert_eq!(rows, vec![(1,), (2,)]);
 
     let rows: Vec<(i32,)> = "
-        SELECT id FROM colors
-        WHERE colors.id @@@ paradedb.term('colors_json', 'green')
+        SELECT id FROM colors 
+        WHERE colors.id @@@ paradedb.term('colors_json', 'green') 
         ORDER BY id"
         .fetch(&mut conn);
     assert_eq!(rows, vec![(1,)]);
 
     let rows: Vec<(i32,)> = "
-        SELECT id FROM colors
-        WHERE colors.id @@@ paradedb.term('colors_jsonb', 'green')
+        SELECT id FROM colors 
+        WHERE colors.id @@@ paradedb.term('colors_jsonb', 'green') 
         ORDER BY id"
         .fetch(&mut conn);
     assert_eq!(rows, vec![(1,)]);
@@ -1273,6 +1273,7 @@ fn multiple_tokenizers_with_alias(mut conn: PgConnection) {
                 "tokenizer": {"type": "default"}
             },
             "name_stem": {
+                "source": "name",
                 "tokenizer": {"type": "default", "stemmer": "English"},
                 "column": "name"
             },
@@ -1280,6 +1281,7 @@ fn multiple_tokenizers_with_alias(mut conn: PgConnection) {
                 "tokenizer": {"type": "default"}
             },
             "description_stem": {
+                "source": "description", 
                 "tokenizer": {"type": "default", "stemmer": "English"},
                 "column": "description"
             }
@@ -1346,15 +1348,15 @@ fn multiple_tokenizers_with_alias(mut conn: PgConnection) {
 fn alias_cannot_be_key_field(mut conn: PgConnection) {
     // Create the table
     "CREATE TABLE products (
-        id TEXT PRIMARY KEY,
+        id SERIAL PRIMARY KEY,
         name TEXT,
         description TEXT
     );
-        INSERT INTO products (id,name, description) VALUES
-        ('id1', 'apple', 'fruit'),
-        ('id2', 'banana', 'fruit'),
-        ('id3', 'cherry', 'fruit'),
-        ('id4', 'banana split', 'fruit');
+        INSERT INTO products (name, description) VALUES 
+        ('apple', 'fruit'),
+        ('banana', 'fruit'), 
+        ('cherry', 'fruit'), 
+        ('banana split', 'fruit');
     "
     .execute(&mut conn);
 
@@ -1391,7 +1393,9 @@ fn alias_cannot_be_key_field(mut conn: PgConnection) {
         text_fields='{
             "name": {
                 "tokenizer": {"type": "default"}
-            },
+            }
+        }',
+        numeric_fields='{
             "id_aliased": {
                 "column": "id"
             }
@@ -1399,10 +1403,10 @@ fn alias_cannot_be_key_field(mut conn: PgConnection) {
     );"#
     .execute(&mut conn);
 
-    let rows: Vec<(String,)> =
-        "SELECT id FROM products WHERE id @@@ paradedb.parse('id_aliased:id1')".fetch(&mut conn);
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM products WHERE id @@@ paradedb.parse('id_aliased:1')".fetch(&mut conn);
 
-    assert_eq!(rows, vec![("id1".to_string(),)]);
+    assert_eq!(rows, vec![(1,)])
 }
 
 #[rstest]
@@ -1490,7 +1494,7 @@ fn more_like_this_with_alias(mut conn: PgConnection) {
         description TEXT
     );
 
-    INSERT INTO test_more_like_this_alias (flavour, description) VALUES
+    INSERT INTO test_more_like_this_alias (flavour, description) VALUES 
         ('apple', 'A sweet and crisp fruit'),
         ('banana', 'A long yellow tropical fruit'),
         ('cherry', 'A small round red fruit'),
@@ -1521,7 +1525,7 @@ fn more_like_this_with_alias(mut conn: PgConnection) {
 
     // Test more_like_this with aliased field 'taste' (original 'flavour')
     let rows: Vec<(i32, String, String)> = r#"
-    SELECT id, flavour, description FROM test_more_like_this_alias
+    SELECT id, flavour, description FROM test_more_like_this_alias 
     WHERE id @@@ paradedb.more_like_this(
         min_doc_frequency => 0,
         min_term_frequency => 0,
@@ -1544,7 +1548,7 @@ fn multiple_aliases_same_column(mut conn: PgConnection) {
     );"
     .execute(&mut conn);
 
-    "INSERT INTO multi_alias (content) VALUES
+    "INSERT INTO multi_alias (content) VALUES 
     ('running and jumping'),
     ('ran and jumped'),
     ('runner jumper athlete');"
@@ -1564,7 +1568,7 @@ fn multiple_aliases_same_column(mut conn: PgConnection) {
                 "tokenizer": {"type": "default", "stemmer": "English"}
             },
             "content_ngram": {
-                "column": "content",
+                "column": "content", 
                 "tokenizer": {"type": "ngram", "min_gram": 3, "max_gram": 3, "prefix_only": false}
             }
         }'
@@ -1622,9 +1626,9 @@ fn can_index_only_key_field(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let result = r#"
-
+    
         INSERT INTO can_index_only_key_field (text_field) VALUES ('hello world');
-
+    
         CREATE INDEX idxcan_index_only_key_field ON can_index_only_key_field
         USING bm25 (id)
         WITH (key_field='id');
@@ -1662,7 +1666,7 @@ fn missing_source_column(mut conn: PgConnection) {
     assert!(result.is_err());
     assert_eq!(
         result.unwrap_err().to_string(),
-        "error returned from database: the column `nonexistent_column` referenced by the field configuration for 'alias' does not exist"
+        "error returned from database: the column `nonexistent_column referenced by the field configuration for 'alias' does not exist"
     );
 }
 
@@ -1727,17 +1731,18 @@ fn mixed_field_types_with_aliases(mut conn: PgConnection) {
     "CREATE TABLE mixed_fields (
         id SERIAL PRIMARY KEY,
         text_content TEXT,
-        json_content JSONB
+        num_value INTEGER,
+        bool_flag BOOLEAN
     );"
     .execute(&mut conn);
 
-    "INSERT INTO mixed_fields (text_content, json_content) VALUES
-    ('test content', '{\"key\": \"value1\"}'),
-    ('another test', '{\"key\": \"value2\"}');"
+    "INSERT INTO mixed_fields (text_content, num_value, bool_flag) VALUES 
+    ('test content', 42, true),
+    ('another test', 100, false);"
         .execute(&mut conn);
 
     r#"CREATE INDEX mixed_fields_idx ON mixed_fields
-    USING bm25 (id, text_content, json_content)
+    USING bm25 (id, text_content, num_value, bool_flag)
     WITH (
         key_field='id',
         text_fields='{
@@ -1746,9 +1751,14 @@ fn mixed_field_types_with_aliases(mut conn: PgConnection) {
                 "tokenizer": {"type": "default"}
             }
         }',
-        json_fields='{
-            "json_alias": {
-                "column": "json_content"
+        numeric_fields='{
+            "num_alias": {
+                "column": "num_value"
+            }
+        }',
+        boolean_fields='{
+            "bool_alias": {
+                "column": "bool_flag"
             }
         }'
     );"#
@@ -1760,7 +1770,10 @@ fn mixed_field_types_with_aliases(mut conn: PgConnection) {
     assert_eq!(rows.len(), 2);
 
     let rows: Vec<(i32,)> =
-        "SELECT id FROM mixed_fields WHERE mixed_fields @@@ 'json_alias.key:value1'"
-            .fetch(&mut conn);
+        "SELECT id FROM mixed_fields WHERE mixed_fields @@@ 'num_alias:42'".fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM mixed_fields WHERE mixed_fields @@@ 'bool_alias:true'".fetch(&mut conn);
     assert_eq!(rows.len(), 1);
 }

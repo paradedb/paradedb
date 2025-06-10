@@ -17,7 +17,7 @@
 
 //! Implementation of a mixed field execution state for fast field retrieval.
 //!
-//! This module provides an optimized execution method that can efficientl y handle
+//! This module provides an optimized execution method that can efficiently handle
 //! both multiple string fast fields and numeric fast fields simultaneously,
 //! overcoming the limitation where previously ParadeDB could only support
 //! either multiple numeric fast fields OR a single string fast field.
@@ -45,7 +45,6 @@ use tantivy::collector::Collector;
 use tantivy::index::SegmentId;
 use tantivy::query::Query;
 use tantivy::schema::document::OwnedValue;
-use tantivy::schema::Schema;
 use tantivy::termdict::TermOrdinal;
 use tantivy::{DocAddress, Executor, SegmentOrdinal};
 use tinyvec::TinyVec;
@@ -537,7 +536,6 @@ impl MixedAggSearcher<'_> {
 
         // Execute search with the appropriate scoring mode
         let query = self.0.query(query);
-        let schema = Schema::from(self.0.schema().clone());
         let results = self
             .0
             .searcher()
@@ -552,7 +550,7 @@ impl MixedAggSearcher<'_> {
                     }
                 } else {
                     tantivy::query::EnableScoring::Disabled {
-                        schema: &schema,
+                        schema: &self.0.schema().schema,
                         searcher_opt: Some(self.0.searcher()),
                     }
                 },
@@ -602,7 +600,6 @@ impl MixedAggSearcher<'_> {
         };
 
         // Create a query weight for this segment
-        let schema = Schema::from(self.0.schema().clone());
         let weight = self
             .0
             .query(query)
@@ -613,7 +610,7 @@ impl MixedAggSearcher<'_> {
                 }
             } else {
                 tantivy::query::EnableScoring::Disabled {
-                    schema: &schema,
+                    schema: &self.0.schema().schema,
                     searcher_opt: Some(self.0.searcher()),
                 }
             })

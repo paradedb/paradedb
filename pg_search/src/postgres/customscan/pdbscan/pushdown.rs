@@ -41,11 +41,8 @@ impl PushdownField {
         schema: &SearchIndexSchema,
     ) -> Option<Self> {
         let (heaprelid, varattno, _) = find_var_relation(var, root);
-        if heaprelid == pg_sys::Oid::INVALID {
-            return None;
-        }
         let field = fieldname_from_var(heaprelid, var, varattno)?;
-        schema.search_field(&field).map(|_| Self(field))
+        schema.get_search_field(&field).map(|_| Self(field))
     }
 
     /// Create a new [`PushdownField`] from an attribute name.
@@ -59,24 +56,24 @@ impl PushdownField {
         self.0.clone()
     }
 
-    pub fn search_field(&self, schema: &SearchIndexSchema) -> Option<SearchField> {
-        schema.search_field(&self.0)
+    pub fn search_field<'a>(&self, schema: &'a SearchIndexSchema) -> Option<&'a SearchField> {
+        schema.get_search_field(&self.0)
     }
 }
 
 macro_rules! pushdown {
-    ($attname:expr, $opexpr:expr, $operator:expr, $rhs:ident) => {{
+    ($attname:expr, $opexpr:expr, $operator:expr, $rhs:ident) => {
         let funcexpr = make_opexpr($attname, $opexpr, $operator, $rhs);
 
         if !is_complex(funcexpr.cast()) {
-            Some(Qual::PushdownExpr { funcexpr })
+            return Some(Qual::PushdownExpr { funcexpr });
         } else {
-            Some(Qual::Expr {
+            return Some(Qual::Expr {
                 node: funcexpr.cast(),
                 expr_state: std::ptr::null_mut(),
-            })
+            });
         }
-    }};
+    };
 }
 
 type PostgresOperatorOid = pg_sys::Oid;
@@ -132,7 +129,6 @@ unsafe fn initialize_equality_operator_lookup() -> HashMap<PostgresOperatorOid, 
 #[rustfmt::skip]
 pub unsafe fn try_pushdown(
     root: *mut pg_sys::PlannerInfo,
-    rti: pg_sys::Index,
     opexpr: *mut pg_sys::OpExpr,
     schema: &SearchIndexSchema
 ) -> Option<Qual> {
@@ -158,21 +154,7 @@ pub unsafe fn try_pushdown(
 
     static EQUALITY_OPERATOR_LOOKUP: OnceLock<HashMap<pg_sys::Oid, &str>> = OnceLock::new();
     match EQUALITY_OPERATOR_LOOKUP.get_or_init(|| initialize_equality_operator_lookup()).get(&(*opexpr).opno) {
-        Some(pgsearch_operator) => { 
-            if let Some(pushed_down_qual) =  pushdown!(&pushdown.attname(), opexpr, pgsearch_operator, rhs) {
-                // the `opexpr` is one we can pushdown
-                if (*var).varno as pg_sys::Index == rti {
-                    // and it's in this RTI, so we can use it directly
-                    Some(pushed_down_qual)
-                } else {
-                    // it's not in this RTI, which means it's in some other table due to a join, so
-                    // we need to indicate an arbitrary external var
-                    Some(Qual::ExternalVar)
-                }
-            } else {
-                None
-            }
-        },
+        Some(pgsearch_operator) => { pushdown!(&pushdown.attname(), opexpr, pgsearch_operator, rhs); },
         None => {
             // TODO:  support other types of OpExprs
             None

@@ -153,7 +153,8 @@ fn pushdown(mut conn: PgConnection) {
                 EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
                 SELECT count(*)
                 FROM test
-                WHERE {sqlname} {operator} {default}::{sqltype};
+                WHERE {sqlname} {operator} {default}::{sqltype}
+                  AND id @@@ '1';
             "#
             );
 
@@ -176,7 +177,8 @@ fn pushdown(mut conn: PgConnection) {
                 EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
                 SELECT count(*)
                 FROM test
-                WHERE {sqlname} = true;
+                WHERE {sqlname} = true
+                  AND id @@@ '1';
             "#
         );
 
@@ -196,7 +198,8 @@ fn pushdown(mut conn: PgConnection) {
                 EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
                 SELECT count(*)
                 FROM test
-                WHERE {sqlname} = false;
+                WHERE {sqlname} = false
+                  AND id @@@ '1';
             "#
         );
 

@@ -706,10 +706,10 @@ impl CustomScan for PdbScan {
 
         if let Some(limit) = state.custom_state().limit {
             explainer.add_unsigned_integer("   Top N Limit", limit as u64, None);
-            if explainer.is_analyze() && state.custom_state().retry_count > 0 {
+            if explainer.is_analyze() {
                 explainer.add_unsigned_integer(
-                    "   Invisible Tuple Retries",
-                    state.custom_state().retry_count as u64,
+                    "   Queries",
+                    state.custom_state().query_count as u64,
                     None,
                 );
             }

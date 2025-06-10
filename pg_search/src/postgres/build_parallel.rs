@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::FieldName;
+use crate::index::directory::mvcc::MVCCDirectory;
 use crate::index::writer::index::{Mergeable, SearchIndexMerger, SerialIndexWriter};
 use crate::index::WriterResources;
 use crate::launch_parallel_process;
@@ -31,7 +32,8 @@ use crate::schema::{SearchField, SearchIndexSchema};
 use pgrx::{check_for_interrupts, pg_guard, pg_sys, PgMemoryContexts, PgRelation};
 use std::ptr::{addr_of_mut, NonNull};
 use tantivy::index::SegmentId;
-use tantivy::TantivyDocument;
+use tantivy::{Directory, SegmentMeta, TantivyDocument};
+use tantivy::directory::RamDirectory;
 
 /// General, immutable configuration used for the workers
 #[derive(Copy, Clone)]
@@ -454,5 +456,27 @@ fn calculate_nworkers(heaprel: &PgRelation) -> usize {
         } else {
             pg_sys::max_parallel_maintenance_workers as usize
         }
+    }
+}
+
+// if no segments written, write this one to disk since it's the first
+// figure out how many docs are in the last segment
+// figure out how many docs should be in each segment by dividing number of rows in table by CPU count
+// if number of docs in the last segment is less than the desired number of docs per segment, the next one should be an in memory index
+// otherwise the next one should be on disk
+fn get_directory(
+    previous_segment_meta: Option<SegmentMeta>,
+    desired_num_docs_per_segment: usize,
+    index_oid: pg_sys::Oid,
+) -> Box<dyn Directory> {
+    if let Some(previous_segment_meta) = previous_segment_meta {
+        let num_docs_in_segment = previous_segment_meta.max_doc();
+        if num_docs_in_segment < (desired_num_docs_per_segment as f64 * 0.7) as u32 {
+            Box::new(RamDirectory::create())
+        } else {
+            Box::new(MVCCDirectory::snapshot(index_oid))
+        }
+    } else {
+        Box::new(RamDirectory::create())
     }
 }

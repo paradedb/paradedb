@@ -396,7 +396,7 @@ fn null_key_field_build(mut conn: PgConnection) {
         Ok(_) => panic!("should fail with null key_field"),
         Err(err) => assert_eq!(
             err.to_string(),
-            "error returned from database: key_field column 'id' cannot be NULL"
+            "error returned from database: error creating index entries for index 'index_config_index': key_field column 'id' cannot be NULL"
         ),
     };
 }
@@ -416,7 +416,7 @@ fn null_key_field_insert(mut conn: PgConnection) {
         Ok(_) => panic!("should fail with null key_field"),
         Err(err) => assert_eq!(
             err.to_string(),
-            "error returned from database: key_field column 'id' cannot be NULL"
+            "error returned from database: error creating index entries for index 'index_config_index': key_field column 'id' cannot be NULL"
         ),
     };
 }

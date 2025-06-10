@@ -252,7 +252,7 @@ pub enum FastFieldType {
 impl From<SearchFieldType> for FastFieldType {
     fn from(value: SearchFieldType) -> Self {
         match value {
-            SearchFieldType::Text(_) => FastFieldType::String,
+            SearchFieldType::Text => FastFieldType::String,
             _ => FastFieldType::Numeric,
         }
     }

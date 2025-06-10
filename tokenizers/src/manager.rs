@@ -27,7 +27,6 @@ use crate::{
     DEFAULT_REMOVE_TOKEN_LENGTH,
 };
 use anyhow::Result;
-use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use strum::AsRefStr;
@@ -207,7 +206,9 @@ impl SearchTokenizerFilters {
 // `from_json_value` methods. We don't use serde_json to ser/de the
 // SearchTokenizer, because our bincode serialization format is incompatible
 // with the "tagged" format we use in our public API.
-#[derive(Serialize, Clone, Debug, PartialEq, Eq, strum_macros::VariantNames, AsRefStr)]
+#[derive(
+    Serialize, Deserialize, Clone, Debug, PartialEq, Eq, strum_macros::VariantNames, AsRefStr,
+)]
 #[strum(serialize_all = "snake_case")]
 pub enum SearchTokenizer {
     Default(SearchTokenizerFilters),
@@ -616,16 +617,6 @@ impl SearchTokenizer {
             SearchTokenizer::ICUTokenizer(_filters) => format!("icu{filters_suffix}"),
             SearchTokenizer::Jieba(_filters) => format!("jieba{filters_suffix}"),
         }
-    }
-}
-
-impl<'de> Deserialize<'de> for SearchTokenizer {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let value = serde_json::Value::deserialize(deserializer)?;
-        SearchTokenizer::from_json_value(&value).map_err(de::Error::custom)
     }
 }
 

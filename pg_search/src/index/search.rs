@@ -16,16 +16,13 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::gucs;
-use crate::postgres::options::SearchIndexOptions;
-use crate::postgres::utils::categorize_fields;
-use crate::schema::SearchIndexSchema;
-
+use crate::postgres::index::get_fields;
+use crate::schema::{SearchFieldConfig, SearchIndexSchema};
 use anyhow::Result;
-use pgrx::pg_sys;
 use pgrx::PgRelation;
 use std::num::NonZeroUsize;
 use tantivy::Index;
-use tokenizers::{create_normalizer_manager, create_tokenizer_manager, SearchTokenizer};
+use tokenizers::{create_normalizer_manager, create_tokenizer_manager};
 
 pub enum WriterResources {
     CreateIndex,
@@ -55,26 +52,23 @@ impl WriterResources {
     }
 }
 
-pub fn setup_tokenizers(relation_oid: pg_sys::Oid, index: &mut Index) -> Result<()> {
-    let index_relation = unsafe { PgRelation::open(relation_oid) };
-    let options = unsafe { SearchIndexOptions::from_relation(&index_relation) };
-    let tuple_desc = index_relation.tuple_desc();
-    let schema = SearchIndexSchema::open(relation_oid)?;
-    let categorized_fields = categorize_fields(&tuple_desc, &schema);
+pub fn get_index_schema(index_relation: &PgRelation) -> Result<SearchIndexSchema> {
+    let (fields, key_field_index) = unsafe { get_fields(index_relation) };
+    let schema = SearchIndexSchema::new(fields, key_field_index)?;
+    Ok(schema)
+}
 
-    let mut tokenizers: Vec<SearchTokenizer> = Vec::new();
-    for (search_field, _) in categorized_fields {
-        if search_field.is_ctid() {
-            continue;
-        }
+pub fn setup_tokenizers(underlying_index: &mut Index, index_relation: &PgRelation) {
+    let (fields, _) = unsafe { get_fields(index_relation) };
+    let tokenizers = fields
+        .iter()
+        .filter_map(|(_field_name, field_config, _)| match field_config {
+            SearchFieldConfig::Text { tokenizer, .. }
+            | SearchFieldConfig::Json { tokenizer, .. } => Some(tokenizer),
+            _ => None,
+        })
+        .collect();
 
-        let config = options.field_config_or_default(&search_field.field_name());
-        if let Some(tokenizer) = config.tokenizer().cloned() {
-            tokenizers.push(tokenizer);
-        }
-    }
-
-    index.set_tokenizers(create_tokenizer_manager(tokenizers));
-    index.set_fast_field_tokenizers(create_normalizer_manager());
-    Ok(())
+    underlying_index.set_tokenizers(create_tokenizer_manager(tokenizers));
+    underlying_index.set_fast_field_tokenizers(create_normalizer_manager());
 }

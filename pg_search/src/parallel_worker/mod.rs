@@ -27,24 +27,6 @@ use std::error::Error;
 use std::fmt::Display;
 use std::ptr::NonNull;
 
-/// Describes the kind of parallel worker process being built
-pub enum WorkerStyle {
-    Query,
-    Maintenance,
-}
-
-impl WorkerStyle {
-    /// Returns the current Postgres-configured maximum number of workers for this [`WorkerStyle`]
-    pub fn max(&self) -> usize {
-        match self {
-            WorkerStyle::Query => unsafe { pg_sys::max_parallel_workers_per_gather as usize },
-            WorkerStyle::Maintenance => unsafe {
-                pg_sys::max_parallel_maintenance_workers as usize
-            },
-        }
-    }
-}
-
 #[repr(u64)]
 enum TocKeys {
     MessageQueues = 1,
@@ -134,7 +116,7 @@ pub trait ParallelProcess {
 }
 
 pub trait ParallelWorker {
-    fn new_parallel_worker(state_manager: ParallelStateManager) -> Self
+    fn new(state_manager: ParallelStateManager) -> Self
     where
         Self: Sized;
 
@@ -302,7 +284,7 @@ impl ParallelStateManager {
 ///
 /// ```rust,no_run
 /// use pg_search::launch_parallel_process;
-/// use pg_search::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, ParallelWorker, WorkerStyle};
+/// use pg_search::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, ParallelWorker};
 /// use pg_search::parallel_worker::ParallelStateManager;
 /// use pg_search::parallel_worker::mqueue::MessageQueueSender;
 ///
@@ -321,7 +303,7 @@ impl ParallelStateManager {
 /// };
 /// impl ParallelWorker for MyWorker<'_> {
 ///
-///     fn new_parallel_worker(state_manager: ParallelStateManager) -> Self {
+///     fn new(state_manager: ParallelStateManager) -> Self {
 ///         Self { state: state_manager.object(0).expect("wrong type").expect("null value") }
 ///     }
 ///
@@ -357,7 +339,6 @@ impl ParallelStateManager {
 /// let launched = launch_parallel_process!(
 ///     MyProcess<MyWorker>,
 ///     my_process,
-///     WorkerStyle::Query,
 ///     4,     // Number of workers
 ///     1024  // Message queue size in bytes
 /// )
@@ -368,7 +349,7 @@ impl ParallelStateManager {
 /// ```
 #[macro_export]
 macro_rules! launch_parallel_process {
-    ($parallel_process_type:ident<$parallel_worker_type:ty>, $process:expr, $worker_style:expr, $nworkers:expr, $mq_size:literal) => {{
+    ($parallel_process_type:ident<$parallel_worker_type:ty>, $process:expr, $nworkers:expr, $mq_size:literal) => {{
         {
             const _: () = {
                 const fn assert_is_parallel_worker<T: ParallelProcess>() {}
@@ -389,7 +370,7 @@ macro_rules! launch_parallel_process {
                         $mq_size as usize,
                     );
 
-                <$parallel_worker_type>::new_parallel_worker(state_manager)
+                <$parallel_worker_type>::new(state_manager)
                     .run(&mq_sender, unsafe { pgrx::pg_sys::ParallelWorkerNumber })
                     .unwrap_or_else(|e| panic!("{e}"));
             }
@@ -398,7 +379,6 @@ macro_rules! launch_parallel_process {
         $crate::parallel_worker::builder::ParallelProcessBuilder::build(
             $process,
             stringify!($parallel_process_type),
-            $worker_style,
             $nworkers,
             $mq_size,
         )
@@ -483,7 +463,6 @@ mod tests {
     use crate::parallel_worker::mqueue::MessageQueueSender;
     use crate::parallel_worker::{
         ParallelProcess, ParallelState, ParallelStateManager, ParallelStateType, ParallelWorker,
-        WorkerStyle,
     };
     use pgrx::pg_test;
 
@@ -503,7 +482,7 @@ mod tests {
         }
 
         impl ParallelWorker for MyWorker<'_> {
-            fn new_parallel_worker(state_manager: ParallelStateManager) -> Self {
+            fn new(state_manager: ParallelStateManager) -> Self {
                 Self {
                     state: state_manager
                         .object(0)
@@ -540,7 +519,6 @@ mod tests {
         let process = launch_parallel_process!(
             MyProcess<MyWorker>,
             MyProcess::new(42),
-            WorkerStyle::Query,
             2,    // Number of workers
             1024  // Message queue size in bytes
         )

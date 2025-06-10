@@ -47,9 +47,6 @@ pub struct PrivateData {
     referenced_columns_count: usize,
     need_scores: bool,
     exec_method_type: ExecMethodType,
-    // Additional search predicates from join filters that are relevant for snippet/score generation
-    // Stores the entire simplified Boolean expression to preserve OR structures like (TRUE OR name:"Rowling")
-    join_predicates: Option<SearchQueryInput>,
 }
 
 mod var_attname_lookup_serializer {
@@ -219,10 +216,6 @@ impl PrivateData {
     pub fn set_need_scores(&mut self, maybe: bool) {
         self.need_scores = maybe;
     }
-
-    pub fn set_join_predicates(&mut self, predicates: Option<SearchQueryInput>) {
-        self.join_predicates = predicates;
-    }
 }
 
 //
@@ -293,9 +286,5 @@ impl PrivateData {
 
     pub fn need_scores(&self) -> bool {
         self.need_scores
-    }
-
-    pub fn join_predicates(&self) -> &Option<SearchQueryInput> {
-        &self.join_predicates
     }
 }

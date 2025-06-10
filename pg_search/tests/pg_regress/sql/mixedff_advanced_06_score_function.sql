@@ -18,16 +18,10 @@ CREATE TABLE score_test (
 );
 
 -- Insert test data with deterministic values
---
--- each new row contains a (predictable) set of random words.
--- This is intentional to produce different scores for each matching
--- result of the queries that follow so that the test itself doesn't
--- have to worry about tie-breaking on same-scores.
---
 INSERT INTO score_test (title, content, author, rating, views, published_date, is_featured)
 SELECT
     'Post ' || i,
-    'This is content for post ' || i || '. It contains some searchable text and keywords like technology, science, research, and development. ' || paradedb.random_words(i + 5),
+    'This is content for post ' || i || '. It contains some searchable text and keywords like technology, science, research, and development.',
     'Author ' || (1 + (i % 5)),
     (1 + (i % 5)),
     (100 * i)::float,  -- Deterministic view counts
@@ -164,8 +158,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT a.title, a.author, a.rating, a.score, b.title as related_title
 FROM (
     SELECT title, author, rating, paradedb.score(id) as score
-          FROM score_test
-          WHERE content @@@ 'technology'
+    FROM score_test
+    WHERE content @@@ 'technology'
     ORDER BY score DESC
     LIMIT 5
 ) a
@@ -179,8 +173,8 @@ ORDER BY a.title, a.author, a.rating, a.score, b.title;
 SELECT a.title, a.author, a.rating, a.score, b.title as related_title
 FROM (
     SELECT title, author, rating, paradedb.score(id) as score
-          FROM score_test
-          WHERE content @@@ 'technology'
+    FROM score_test
+    WHERE content @@@ 'technology'
     ORDER BY score DESC
     LIMIT 5
 ) a
@@ -193,11 +187,11 @@ ORDER BY a.title, a.author, a.rating, a.score, b.title;
 
 -- Test 8: Score function with CASE expression and mixed fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT
-    title,
+SELECT 
+    title, 
     author,
     rating,
-    CASE
+    CASE 
         WHEN paradedb.score(id) > 0.8 THEN 'High Relevance'
         WHEN paradedb.score(id) > 0.5 THEN 'Medium Relevance'
         ELSE 'Low Relevance'
@@ -206,11 +200,11 @@ FROM score_test
 WHERE content @@@ 'research OR development' AND rating > 4
 ORDER BY title, author, paradedb.score(id) DESC;
 
-SELECT
-    title,
+SELECT 
+    title, 
     author,
     rating,
-    CASE
+    CASE 
         WHEN paradedb.score(id) > 0.8 THEN 'High Relevance'
         WHEN paradedb.score(id) > 0.5 THEN 'Medium Relevance'
         ELSE 'Low Relevance'

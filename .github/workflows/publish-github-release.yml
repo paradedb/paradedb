@@ -97,6 +97,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.version }}
+          target_commitish: 'main'
           generate_release_notes: true
           prerelease: ${{ github.ref == 'refs/heads/staging' }}
         env:

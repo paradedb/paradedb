@@ -54,11 +54,11 @@ use crate::postgres::customscan::pdbscan::projections::snippet::{
 use crate::postgres::customscan::pdbscan::projections::{
     inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
 };
-use crate::postgres::customscan::pdbscan::qual_inspect::extract_quals;
+use crate::postgres::customscan::pdbscan::qual_inspect::{extract_join_predicates, extract_quals};
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::customscan::{self, CustomScan, CustomScanState};
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::var::{fieldname_from_var, find_var_relation};
+use crate::postgres::var::find_var_relation;
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
@@ -122,16 +122,33 @@ impl PdbScan {
                 .snippet_generators
                 .drain()
                 .collect();
+
+            // Pre-compute enhanced queries for snippet generation if we have join predicates
+            let enhanced_query_for_snippets =
+                if let Some(ref join_predicate) = state.custom_state().join_predicates {
+                    // Combine base query with join predicate for snippet generation
+                    let base_query = state.custom_state().search_query_input();
+                    Some(SearchQueryInput::Boolean {
+                        must: vec![base_query.clone()],
+                        should: vec![join_predicate.clone()],
+                        must_not: vec![],
+                    })
+                } else {
+                    None
+                };
+
             for (snippet_type, generator) in &mut snippet_generators {
+                // Use enhanced query if available, otherwise use base query
+                let query_to_use = enhanced_query_for_snippets
+                    .as_ref()
+                    .unwrap_or_else(|| state.custom_state().search_query_input());
+
                 let mut new_generator = state
                     .custom_state()
                     .search_reader
                     .as_ref()
                     .unwrap()
-                    .snippet_generator(
-                        snippet_type.field(),
-                        state.custom_state().search_query_input(),
-                    );
+                    .snippet_generator(snippet_type.field().root(), query_to_use);
 
                 // If SnippetType::Positions, set max_num_chars to u32::MAX because the entire doc must be considered
                 // This assumes text fields can be no more than u32::MAX bytes
@@ -235,7 +252,8 @@ impl CustomScan for PdbScan {
 
             let directory = MVCCDirectory::snapshot(bm25_index.oid());
             let index = Index::open(directory).expect("custom_scan: should be able to open index");
-            let schema = SearchIndexSchema::open(index.schema(), &bm25_index);
+            let schema = SearchIndexSchema::open(bm25_index.oid())
+                .expect("custom_scan: should be able to open schema");
             let pathkey = pullup_orderby_pathkey(&mut builder, rti, &schema, root);
 
             #[cfg(any(feature = "pg14", feature = "pg15"))]
@@ -295,7 +313,6 @@ impl CustomScan for PdbScan {
             //
             // look for quals we can support
             //
-            let mut uses_our_operator = false;
             let quals = extract_quals(
                 root,
                 rti,
@@ -303,16 +320,7 @@ impl CustomScan for PdbScan {
                 anyelement_query_input_opoid(),
                 ri_type,
                 &schema,
-                &mut uses_our_operator,
             );
-
-            if !uses_our_operator {
-                // for now, we're not going to submit our custom scan for queries that don't also
-                // use our `@@@` operator.  Perhaps in the future we can do this, but we don't want to
-                // circumvent Postgres' other possible plans that might do index scans over a btree
-                // index or something
-                return None;
-            }
 
             let Some(quals) = quals else {
                 // if we are not able to push down all of the quals, then do not propose the custom
@@ -532,7 +540,7 @@ impl CustomScan for PdbScan {
                     builder.args().root,
                 );
 
-                for (funcexpr, var) in func_vars_at_level {
+                for (funcexpr, var, attname) in func_vars_at_level {
                     // if we have a tlist, then we need to add the specific function that uses
                     // a Var at our level to that tlist.
                     //
@@ -549,12 +557,38 @@ impl CustomScan for PdbScan {
 
                     // track a triplet of (varno, varattno, attname) as 3 individual
                     // entries in the `attname_lookup` List
-                    let (heaprelid, varattno, _) = find_var_relation(var, builder.args().root);
-                    if let Some(attname) = fieldname_from_var(heaprelid, var, varattno) {
-                        attname_lookup.insert(((*var).varno, (*var).varattno), attname);
-                    }
+                    attname_lookup.insert(((*var).varno, (*var).varattno), attname);
                 }
             }
+
+            // Extract join-level snippet predicates for this relation
+            // Get values we need before the mutable borrow
+
+            // Extract the indexrelid early to avoid borrow checker issues later
+            let indexrelid = private_data.indexrelid().expect("indexrelid should be set");
+            let indexrel = PgRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
+            let directory = MVCCDirectory::snapshot(indexrel.oid());
+            let index = Index::open(directory)
+                .expect("should be able to open index for snippet extraction");
+            let schema = SearchIndexSchema::open(indexrelid)
+                .expect("should be able to open schema for snippet extraction");
+
+            let base_query = builder
+                .custom_private()
+                .query()
+                .clone()
+                .expect("should have a SearchQueryInput");
+            let join_predicates = extract_join_predicates(
+                builder.args().root,
+                rti as pg_sys::Index,
+                anyelement_query_input_opoid(),
+                &schema,
+                &base_query,
+            );
+
+            builder
+                .custom_private_mut()
+                .set_join_predicates(join_predicates);
 
             builder
                 .custom_private_mut()
@@ -636,6 +670,10 @@ impl CustomScan for PdbScan {
             .map(|field| (field, None))
             .collect();
 
+            // Store join snippet predicates in the scan state
+            builder.custom_state().join_predicates =
+                builder.custom_private().join_predicates().clone();
+
             assign_exec_method(&mut builder);
 
             builder.build()
@@ -706,10 +744,10 @@ impl CustomScan for PdbScan {
 
         if let Some(limit) = state.custom_state().limit {
             explainer.add_unsigned_integer("   Top N Limit", limit as u64, None);
-            if explainer.is_analyze() && state.custom_state().retry_count > 0 {
+            if explainer.is_analyze() {
                 explainer.add_unsigned_integer(
-                    "   Invisible Tuple Retries",
-                    state.custom_state().retry_count as u64,
+                    "   Queries",
+                    state.custom_state().query_count as u64,
                     None,
                 );
             }
@@ -1143,7 +1181,8 @@ fn compute_exec_which_fast_fields(
         let directory = MVCCDirectory::snapshot(indexrel.oid());
         let index =
             Index::open(directory).expect("create_custom_scan_state: should be able to open index");
-        let schema = SearchIndexSchema::open(index.schema(), &indexrel);
+        let schema = SearchIndexSchema::open(indexrel.oid())
+            .expect("custom_scan: should be able to open schema");
 
         // Calculate the ordered set of fast fields which have actually been requested in
         // the target list.
@@ -1252,8 +1291,10 @@ unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
                 let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                 let tupdesc = heaprel.tuple_desc();
                 if let Some(att) = tupdesc.get(attno as usize - 1) {
-                    if schema.is_field_lower_sortable(&att.name().into()) {
-                        return Some(OrderByStyle::Field(first_pathkey, att.name().into()));
+                    if let Some(search_field) = schema.search_field(att.name()) {
+                        if search_field.is_lower_sortable() {
+                            return Some(OrderByStyle::Field(first_pathkey, att.name().into()));
+                        }
                     }
                 }
             } else if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expr) {
@@ -1262,8 +1303,10 @@ unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
                     let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                     let tupdesc = heaprel.tuple_desc();
                     if let Some(att) = tupdesc.get(attno as usize - 1) {
-                        if schema.is_field_raw_sortable(&att.name().into()) {
-                            return Some(OrderByStyle::Field(first_pathkey, att.name().into()));
+                        if let Some(search_field) = schema.search_field(att.name()) {
+                            if search_field.is_raw_sortable() {
+                                return Some(OrderByStyle::Field(first_pathkey, att.name().into()));
+                            }
                         }
                     }
                 }
@@ -1275,8 +1318,10 @@ unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
                 let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                 let tupdesc = heaprel.tuple_desc();
                 if let Some(att) = tupdesc.get(attno as usize - 1) {
-                    if schema.is_field_raw_sortable(&att.name().into()) {
-                        return Some(OrderByStyle::Field(first_pathkey, att.name().into()));
+                    if let Some(search_field) = schema.search_field(att.name()) {
+                        if search_field.is_raw_sortable() {
+                            return Some(OrderByStyle::Field(first_pathkey, att.name().into()));
+                        }
                     }
                 }
             }
@@ -1411,6 +1456,7 @@ unsafe fn is_partitioned_table_setup(
 /// This function is critical for issue #2505/#2556 where we need to detect all columns used in JOIN
 /// conditions to ensure we select the right execution method. Previously, only looking at the
 /// target list would miss columns referenced in JOIN conditions, leading to execution-time errors.
+///
 unsafe fn collect_maybe_fast_field_referenced_columns(
     rte_index: pg_sys::Index,
     rel: *mut pg_sys::RelOptInfo,

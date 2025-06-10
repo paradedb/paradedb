@@ -223,15 +223,17 @@ fn collect_fast_field_try_for_attno(
 
             // Get attribute info - use if let to handle missing attributes gracefully
             if let Some(att) = tupdesc.get((attno - 1) as usize) {
-                if schema.is_fast_field(&FieldName::from(att.name())) {
-                    let ff_type = if att.type_oid().value() == pg_sys::TEXTOID
-                        || att.type_oid().value() == pg_sys::VARCHAROID
-                    {
-                        FastFieldType::String
-                    } else {
-                        FastFieldType::Numeric
-                    };
-                    matches.push(WhichFastField::Named(att.name().to_string(), ff_type));
+                if let Some(search_field) = schema.search_field(att.name()) {
+                    if search_field.is_fast() {
+                        let ff_type = if att.type_oid().value() == pg_sys::TEXTOID
+                            || att.type_oid().value() == pg_sys::VARCHAROID
+                        {
+                            FastFieldType::String
+                        } else {
+                            FastFieldType::Numeric
+                        };
+                        matches.push(WhichFastField::Named(att.name().to_string(), ff_type));
+                    }
                 }
             }
             // If the attribute doesn't exist in this relation, just continue

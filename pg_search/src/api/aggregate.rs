@@ -5,6 +5,7 @@ use crate::index::reader::index::SearchIndexReader;
 use crate::launch_parallel_process;
 use crate::parallel_worker::mqueue::MessageQueueSender;
 use crate::parallel_worker::ParallelStateManager;
+use crate::parallel_worker::WorkerStyle;
 use crate::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, ParallelWorker};
 use crate::postgres::spinlock::Spinlock;
 use crate::query::SearchQueryInput;
@@ -234,7 +235,7 @@ impl<'a> ParallelAggregationWorker<'a> {
 }
 
 impl ParallelWorker for ParallelAggregationWorker<'_> {
-    fn new(state_manager: ParallelStateManager) -> Self {
+    fn new_parallel_worker(state_manager: ParallelStateManager) -> Self {
         let state = state_manager
             .object::<State>(0)
             .expect("wrong type for state")
@@ -313,6 +314,7 @@ pub fn aggregate(
         if let Some(mut process) = launch_parallel_process!(
             ParallelAggregation<ParallelAggregationWorker>,
             process,
+            WorkerStyle::Query,
             nworkers,
             16384
         ) {
@@ -332,7 +334,8 @@ pub fn aggregate(
             // leader participation
             let mut agg_results = Vec::with_capacity(nlaunched);
             if pg_sys::parallel_leader_participation {
-                let mut worker = ParallelAggregationWorker::new(*process.state_manager());
+                let mut worker =
+                    ParallelAggregationWorker::new_parallel_worker(*process.state_manager());
                 if let Some(result) = worker.execute_aggregate(-1)? {
                     agg_results.push(Ok(result));
                 }

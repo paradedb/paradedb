@@ -115,16 +115,37 @@ async fn generated_joins_small(database: Db) {
         let pg = format!("{from} WHERE {}", where_expr.to_sql(" = "));
         let bm25 = format!("{from} WHERE {}", where_expr.to_sql("@@@"));
 
-        let (pg_cnt,) = (&pg).fetch_one::<(i64,)>(&mut pool.pull());
-        let (bm25_cnt,) = (&bm25).fetch_one::<(i64,)>(&mut pool.pull());
-        prop_assert_eq!(
-            pg_cnt,
-            bm25_cnt,
-            "\npg:\n  {}\nbm25:\n  {}\nexplain:\n{}\n",
-            pg,
-            bm25,
-            format!("EXPLAIN {bm25}").fetch::<(String,)>(&mut pool.pull()).into_iter().map(|(s,)| s).collect::<Vec<_>>().join("\n"),
-        );
+        let conn = &mut pool.pull();
+
+        // the postgres query is always run with the paradedb custom scan turned off
+        // this ensures we get the actual, known-to-be-correct result from Postgres'
+        // plan, and not from ours where we did some kind of pushdown
+        r#"
+            RESET max_parallel_workers;
+            SET enable_seqscan TO ON;
+            SET enable_indexscan TO ON;
+            SET paradedb.enable_custom_scan TO OFF;
+        "#.execute(conn);
+        let (pg_cnt,) = (&pg).fetch_one::<(i64,)>(conn);
+
+
+        // and for the "bm25" query, we run it a number of times with more and more scan types disabled,
+        // always ensuring that paradedb's custom scan is turned on
+        "SET paradedb.enable_custom_scan TO ON;".execute(conn);
+        for scan_type in ["SET enable_seqscan TO OFF", "SET enable_indexscan TO OFF", "SET max_parallel_workers TO 0"] {
+            scan_type.execute(conn);
+
+            let (bm25_cnt,) = (&bm25).fetch_one::<(i64,)>(conn);
+            prop_assert_eq!(
+                pg_cnt,
+                bm25_cnt,
+                "\nscan_type={}\npg:\n  {}\nbm25:\n  {}\nexplain:\n{}\n",
+                scan_type,
+                pg,
+                bm25,
+                format!("EXPLAIN {bm25}").fetch::<(String,)>(conn).into_iter().map(|(s,)| s).collect::<Vec<_>>().join("\n"),
+            );
+        }
     });
 }
 
@@ -169,17 +190,36 @@ async fn generated_joins_large_limit(database: Db) {
         let pg = format!("{from} WHERE {} LIMIT 10;", where_expr.to_sql(" = "));
         let bm25 = format!("{from} WHERE {} LIMIT 10;", where_expr.to_sql("@@@"));
 
+        let conn = &mut pool.pull();
+
+        // the postgres query is always run with the paradedb custom scan turned off
+        // this ensures we get the actual, known-to-be-correct result from Postgres'
+        // plan, and not from ours where we did some kind of pushdown
+        r#"
+            RESET max_parallel_workers;
+            SET enable_seqscan TO ON;
+            SET enable_indexscan TO ON;
+            SET paradedb.enable_custom_scan TO OFF;
+        "#.execute(conn);        
         // Because we use a generated target list, we fetch as dynamic to allow for comparison.
-        let pg_rows = (&pg).fetch_dynamic(&mut pool.pull());
-        let bm25_rows = (&bm25).fetch_dynamic(&mut pool.pull());
-        prop_assert_eq!(
-            pg_rows.len(),
-            bm25_rows.len(),
-            "\npg:\n  {}\nbm25:\n  {}\nexplain:\n{}\n",
-            pg,
-            bm25,
-            format!("EXPLAIN {bm25}").fetch::<(String,)>(&mut pool.pull()).into_iter().map(|(s,)| s).collect::<Vec<_>>().join("\n"),
-        );
+        let pg_rows = (&pg).fetch_dynamic(conn);
+
+        // and for the "bm25" query, we run it a number of times with more and more scan types disabled,
+        // always ensuring that paradedb's custom scan is turned on
+        "SET paradedb.enable_custom_scan TO ON;".execute(conn);
+        for scan_type in ["SET enable_seqscan TO OFF", "SET enable_indexscan TO OFF", "SET max_parallel_workers TO 0"] {
+            scan_type.execute(conn);
+
+            let bm25_rows = (&bm25).fetch_dynamic(conn);
+            prop_assert_eq!(
+                pg_rows.len(),
+                bm25_rows.len(),
+                "\npg:\n  {}\nbm25:\n  {}\nexplain:\n{}\n",
+                pg,
+                bm25,
+                format!("EXPLAIN {bm25}").fetch::<(String,)>(conn).into_iter().map(|(s,)| s).collect::<Vec<_>>().join("\n"),
+            );
+        }
     });
 }
 

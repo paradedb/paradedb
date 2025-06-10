@@ -46,9 +46,10 @@ impl ProximityWeight {
                 .read_postings(term, IndexRecordOption::WithFreqsAndPositions)?
             {
                 left_postings.push(postings);
-            } else {
-                return Ok(None);
             }
+        }
+        if left_postings.is_empty() {
+            return Ok(None);
         }
 
         let mut right_postings = Vec::new();
@@ -58,9 +59,10 @@ impl ProximityWeight {
                 .read_postings(term, IndexRecordOption::WithFreqsAndPositions)?
             {
                 right_postings.push(postings);
-            } else {
-                return Ok(None);
             }
+        }
+        if right_postings.is_empty() {
+            return Ok(None);
         }
 
         Ok(Some(ProximityScorer::new(

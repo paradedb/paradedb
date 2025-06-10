@@ -30,7 +30,6 @@ use crate::query::proximity::{ProximityClause, ProximityClauseStyle, ProximityDi
 use crate::query::range::{Comparison, RangeField};
 use crate::query::score::ScoreFilter;
 use crate::schema::{IndexRecordOption, SearchIndexSchema};
-use anyhow::Result;
 use core::panic;
 use pgrx::{pg_sys, PgBuiltInOids, PgOid, PostgresType};
 use range::{deserialize_bound, serialize_bound};
@@ -185,10 +184,10 @@ pub enum SearchQueryInput {
     Proximity {
         // TODO:  could make left/right more sophisticated structures
         field: FieldName,
-        left: String,
+        left: Vec<String>,
         distance: u32,
         in_order: bool,
-        right: String,
+        right: Vec<String>,
     },
     Range {
         field: FieldName,
@@ -494,7 +493,7 @@ fn check_range_bounds(
     typeoid: PgOid,
     lower_bound: Bound<OwnedValue>,
     upper_bound: Bound<OwnedValue>,
-) -> Result<(Bound<OwnedValue>, Bound<OwnedValue>)> {
+) -> Result<(Bound<OwnedValue>, Bound<OwnedValue>), QueryError> {
     let one_day_nanos: i64 = 86_400_000_000_000;
     let lower_bound = match (typeoid, lower_bound.clone()) {
         // Excluded U64 needs to be canonicalized
@@ -1004,24 +1003,26 @@ impl SearchQueryInput {
                     return Err(QueryError::WrongFieldType(field.clone()));
                 }
                 let field_type = search_field.field_entry().field_type();
-                let left = ProximityClause::new(ProximityClauseStyle::Term {
-                    term: value_to_term(
-                        search_field.field(),
-                        &OwnedValue::Str(left),
-                        &field_type,
-                        field.path().as_deref(),
-                        false,
-                    )?,
-                });
-                let right = ProximityClause::new(ProximityClauseStyle::Term {
-                    term: value_to_term(
-                        search_field.field(),
-                        &OwnedValue::Str(right),
-                        &field_type,
-                        field.path().as_deref(),
-                        false,
-                    )?,
-                });
+                let collect_terms = |terms: Vec<String>| {
+                    terms
+                        .into_iter()
+                        .map(|t| {
+                            value_to_term(
+                                search_field.field(),
+                                &OwnedValue::Str(t),
+                                &field_type,
+                                field.path().as_deref(),
+                                false,
+                            )
+                        })
+                        .collect::<Result<Vec<_>, _>>()
+                };
+
+                let left_terms = collect_terms(left)?;
+                let right_terms = collect_terms(right)?;
+                let left = ProximityClause::new(ProximityClauseStyle::Terms { terms: left_terms });
+                let right =
+                    ProximityClause::new(ProximityClauseStyle::Terms { terms: right_terms });
 
                 let prox = ProximityQuery::new(
                     left,
@@ -1832,7 +1833,7 @@ pub fn value_to_term(
     field_type: &FieldType,
     path: Option<&str>,
     is_datetime: bool,
-) -> Result<Term, QueryError> {
+) -> std::result::Result<Term, QueryError> {
     let json_options = match field_type {
         FieldType::JsonObject(ref options) => Some(options),
         _ => None,

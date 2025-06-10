@@ -11,6 +11,7 @@ on:
     branches:
       - main
       - staging
+      - phil/release-0.15.25
   workflow_dispatch:
 
 concurrency:
@@ -99,6 +100,6 @@ jobs:
           tag_name: v${{ steps.version.outputs.version }}
           target_commitish: "main"
           generate_release_notes: true
-          prerelease: ${{ github.ref == 'refs/heads/staging' }}
+          prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}

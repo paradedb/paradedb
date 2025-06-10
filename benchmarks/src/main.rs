@@ -147,6 +147,7 @@ fn write_postgres_settings_csv(url: &str, test_type: &str) {
         "max_parallel_workers",
         "max_worker_processes",
         "max_parallel_workers_per_gather",
+        "max_parallel_maintenance_workers",
     ];
 
     for setting in settings {

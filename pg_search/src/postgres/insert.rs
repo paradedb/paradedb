@@ -31,7 +31,6 @@ use crate::postgres::utils::{
 use crate::schema::{SearchField, SearchIndexSchema};
 use pgrx::{check_for_interrupts, pg_guard, pg_sys, PgMemoryContexts, PgRelation, PgTupleDesc};
 use std::panic::{catch_unwind, resume_unwind};
-use tantivy::index::Index;
 use tantivy::{SegmentMeta, TantivyDocument};
 
 pub struct InsertState {
@@ -254,9 +253,8 @@ pub unsafe fn merge_index_with_policy(
     let metadata = MetaPage::open(indexrelid);
     let merge_lock = metadata.acquire_merge_lock();
     let directory = MVCCDirectory::mergeable(indexrelid);
-    let index = Index::open(directory.clone()).unwrap();
     let mut merger =
-        SearchIndexMerger::open(index).expect("should be able to open a SearchIndexMerger");
+        SearchIndexMerger::open(directory).expect("should be able to open a SearchIndexMerger");
     let merger_segment_ids = merger
         .searchable_segment_ids()
         .expect("SearchIndexMerger should have segment ids");

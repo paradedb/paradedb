@@ -108,10 +108,11 @@ impl PendingSegment {
 pub struct SerialIndexWriter {
     indexrelid: pg_sys::Oid,
     ctid_field: Field,
-    pending_segment: Option<PendingSegment>,
     memory_budget: usize,
     index: Index,
+    directory: MVCCDirectory,
     target_docs_per_segment: Option<usize>,
+    pending_segment: Option<PendingSegment>,
     max_doc: Option<usize>,
     new_metas: Vec<SegmentMeta>,
 }
@@ -137,7 +138,7 @@ impl SerialIndexWriter {
         target_docs_per_segment: Option<usize>,
     ) -> Result<Self> {
         let directory = mvcc_satisfies.clone().directory(index_relation);
-        let mut index = Index::open(directory)?;
+        let mut index = Index::open(directory.clone())?;
         let schema = SearchIndexSchema::open(index_relation.oid())?;
         setup_tokenizers(index_relation.oid(), &mut index)?;
         let ctid_field = schema.ctid_field();
@@ -147,6 +148,7 @@ impl SerialIndexWriter {
             ctid_field,
             memory_budget,
             index,
+            directory,
             target_docs_per_segment,
             pending_segment: Default::default(),
             max_doc: Default::default(),
@@ -218,7 +220,7 @@ impl SerialIndexWriter {
             DirectoryType::Ram => {
                 let last_flushed_segment_meta = self.new_metas.pop().unwrap();
                 let last_flushed_segment = self.index.segment(last_flushed_segment_meta.clone());
-                let mut merger = SearchIndexMerger::open(self.index.clone())?;
+                let mut merger = SearchIndexMerger::open(self.directory.clone())?;
                 let merged_segment_meta =
                     merger.merge_into(&[finalized_segment, last_flushed_segment])?;
 
@@ -270,14 +272,8 @@ pub struct SearchIndexMerger {
 }
 
 impl SearchIndexMerger {
-    pub fn open(index: Index) -> Result<SearchIndexMerger> {
-        let directory = index
-            .directory()
-            .inner()
-            .as_any()
-            .downcast_ref::<MVCCDirectory>()
-            .unwrap()
-            .clone();
+    pub fn open(directory: MVCCDirectory) -> Result<SearchIndexMerger> {
+        let index = Index::open(directory.clone())?;
         Ok(Self {
             index,
             merged_segment_ids: Default::default(),

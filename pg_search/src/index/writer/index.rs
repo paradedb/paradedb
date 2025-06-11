@@ -164,13 +164,6 @@ impl SerialIndexWriter {
 
         if self.pending_segment.is_none() {
             self.pending_segment = Some(self.new_segment()?);
-            pgrx::info!(
-                "new segment created type={:?}",
-                self.pending_segment
-                    .as_ref()
-                    .expect("segment should exist")
-                    .directory_type()
-            );
         }
 
         self.pending_segment
@@ -180,7 +173,6 @@ impl SerialIndexWriter {
 
         let mem_usage = self.pending_segment.as_ref().unwrap().mem_usage();
         if mem_usage >= self.memory_budget {
-            pgrx::info!("finalizing segment");
             self.finalize_segment()?;
         }
 
@@ -196,22 +188,6 @@ impl SerialIndexWriter {
             segments,
             ..current_metas.clone()
         };
-        pgrx::info!(
-            "saving metas: {:?}",
-            new_metas
-                .segments
-                .iter()
-                .map(|segment| segment.id())
-                .collect::<Vec<_>>()
-        );
-        pgrx::info!(
-            "current_metas: {:?}",
-            current_metas
-                .segments
-                .iter()
-                .map(|segment| segment.id())
-                .collect::<Vec<_>>()
-        );
         self.index
             .directory()
             .save_metas(&new_metas, &current_metas, &mut ())?;
@@ -257,26 +233,16 @@ impl SerialIndexWriter {
                     .index
                     .segment(self.last_flushed_segment_meta.as_ref().unwrap().clone());
                 let last_flushed_segment_id = last_flushed_segment.id();
+                let mut merger = SearchIndexMerger::open(self.index.clone())?;
                 let merged_segment_meta =
-                    merge_segments(vec![finalized_segment, last_flushed_segment], &self.index)?
-                        .expect("merge should succeed");
+                    merger.merge_into(&[finalized_segment, last_flushed_segment])?;
 
-                // Remove the merged-away segment and add the new one
-                segments.retain(|segment| segment.id() != last_flushed_segment_id);
-                segments.push(merged_segment_meta.clone());
-
-                pgrx::info!(
-                    "want to remove {:?} and introduce {:?}, new ids are {:?}",
-                    last_flushed_segment_id,
-                    merged_segment_meta.id(),
-                    segments
-                        .iter()
-                        .map(|segment| segment.id())
-                        .collect::<Vec<_>>()
-                );
-
-                self.save_metas(segments, &current_metas)?;
-                self.last_flushed_segment_meta = Some(merged_segment_meta);
+                if let Some(merged_segment_meta) = merged_segment_meta {
+                    segments.retain(|segment| segment.id() != last_flushed_segment_id);
+                    segments.push(merged_segment_meta.clone());
+                    self.save_metas(segments, &current_metas)?;
+                    self.last_flushed_segment_meta = Some(merged_segment_meta);
+                }
             }
             DirectoryType::Mvcc => {
                 // Add the new segment to the list of segments
@@ -298,21 +264,18 @@ impl SerialIndexWriter {
 }
 
 pub struct SearchIndexMerger {
-    directory: MVCCDirectory,
-    writer: IndexWriter,
     merged_segment_ids: HashSet<SegmentId>,
+    index: Index,
+    directory: MVCCDirectory,
 }
 
 impl SearchIndexMerger {
-    pub fn open(relation_id: pg_sys::Oid) -> Result<SearchIndexMerger> {
-        let directory = MVCCDirectory::mergeable(relation_id);
-        let index = Index::open(directory.clone())?;
-        let writer = index.writer(15 * 1024 * 1024)?;
-
+    pub fn open(index: Index) -> Result<SearchIndexMerger> {
+        let directory = index.directory().inner().as_any().downcast_ref::<MVCCDirectory>().unwrap().clone();
         Ok(Self {
-            directory,
-            writer,
+            index,
             merged_segment_ids: Default::default(),
+            directory,
         })
     }
 
@@ -321,12 +284,7 @@ impl SearchIndexMerger {
     }
 
     pub fn searchable_segment_ids(&mut self) -> tantivy::Result<HashSet<SegmentId>> {
-        Ok(self
-            .writer
-            .index()
-            .searchable_segment_ids()?
-            .into_iter()
-            .collect())
+        Ok(self.index.searchable_segment_ids()?.into_iter().collect())
     }
 
     /// Only keep pins on the specified segments, releasing pins on all other segments.
@@ -364,14 +322,14 @@ pub trait Mergeable {
     /// channels fail for some reason.
     fn merge_segments(&mut self, segment_ids: &[SegmentId]) -> Result<Option<SegmentMeta>>;
 
-    // Merge any [`Segment`]s into the current index.
-    //
-    // These segments can come from anywhere and can be backed by different Index/Directory types.
-    // For instance, you can merge a RamDirectory-backed segment with a MVCCDirectory-backed segment.
-    //
-    // Unlike merge_segments, this method does not update the metas list because it has no knowledge of
-    // what index the provided segments belong to.
-    // fn merge_into(&mut self, segments: &[Segment]) -> Result<Option<SegmentMeta>>;
+    /// Merge any [`Segment`]s into the current index.
+    ///
+    /// These segments can come from anywhere and can be backed by different Index/Directory types.
+    /// For instance, you can merge a RamDirectory-backed segment with a MVCCDirectory-backed segment.
+    ///
+    /// Unlike merge_segments, this method does not update the metas list because it has no knowledge of
+    /// what index the provided segments belong to.
+    fn merge_into(&mut self, segments: &[Segment]) -> Result<Option<SegmentMeta>>;
 }
 
 impl Mergeable for SearchIndexMerger {
@@ -383,7 +341,8 @@ impl Mergeable for SearchIndexMerger {
             "segment was already merged by this merger instance"
         );
 
-        let new_segment = self.writer.merge_foreground(segment_ids, true)?;
+        let mut writer: IndexWriter = self.index.writer(15 * 1024 * 1024)?;
+        let new_segment = writer.merge_foreground(segment_ids, true)?;
         unsafe {
             // SAFETY:  The important thing here is that these segments are not used in any way
             // after their pins are dropped, and [`SearchIndexMerger`] ensures that
@@ -393,52 +352,40 @@ impl Mergeable for SearchIndexMerger {
 
         Ok(new_segment)
     }
-}
 
-fn merge_segments(segments: Vec<Segment>, index: &Index) -> Result<Option<SegmentMeta>> {
-    assert!(
-        index
-            .directory()
-            .inner()
-            .as_any()
-            .downcast_ref::<MVCCDirectory>()
-            .is_some(),
-        "merge_segments: index directory should be a MVCCDirectory"
-    );
+    fn merge_into(&mut self, segments: &[Segment]) -> Result<Option<SegmentMeta>> {
+        assert!(
+            segments
+                .iter()
+                .all(|segment| !self.merged_segment_ids.contains(&segment.id())),
+            "segment was already merged by this merger instance"
+        );
 
-    let num_docs = segments
-        .iter()
-        .map(|segment| segment.meta().num_docs() as u64)
-        .sum::<u64>();
-    if num_docs == 0 {
-        return Ok(None);
-    }
-
-    pgrx::info!(
-        "merging segments: {:?}",
-        segments
+        let num_docs = segments
             .iter()
-            .map(|segment| segment.id())
-            .collect::<Vec<_>>()
-    );
+            .map(|segment| segment.meta().num_docs() as u64)
+            .sum::<u64>();
+        if num_docs == 0 {
+            return Ok(None);
+        }
 
-    let merged_segment = index.new_segment();
-    let merger = IndexMerger::open(
-        index.schema(),
-        &segments[..],
-        {
-            let index = index.clone();
-            Box::new(move || index.directory().wants_cancel())
-        },
-        true,
-    )?;
-    let segment_serializer = SegmentSerializer::for_segment(merged_segment.clone())?;
-    let num_docs = merger.write(segment_serializer)?;
-    let segment_meta = index.new_segment_meta(merged_segment.id(), num_docs);
+        let merged_segment = self.index.new_segment();
+        let merger = IndexMerger::open(
+            self.index.schema(),
+            &segments[..],
+            {
+                let index = self.index.clone();
+                Box::new(move || index.directory().wants_cancel())
+            },
+            true,
+        )?;
+        let segment_serializer = SegmentSerializer::for_segment(merged_segment.clone())?;
+        let num_docs = merger.write(segment_serializer)?;
+        let segment_meta = self.index.new_segment_meta(merged_segment.id(), num_docs);
 
-    pgrx::info!("merged segment: {:?}", segment_meta);
-
-    Ok(Some(segment_meta))
+        self.merged_segment_ids.insert(merged_segment.id());
+        Ok(Some(segment_meta))
+    }
 }
 
 #[derive(Error, Debug)]

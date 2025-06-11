@@ -25,6 +25,7 @@ use crate::parallel_worker::{
     WorkerStyle,
 };
 use crate::postgres::spinlock::Spinlock;
+use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::utils::{categorize_fields, row_to_search_document, CategorizedFieldData};
 use crate::schema::{SearchField, SearchIndexSchema};
 use pgrx::{check_for_interrupts, pg_guard, pg_sys, PgMemoryContexts, PgRelation};
@@ -253,14 +254,23 @@ impl WorkerBuildState {
     fn target_docs_per_segment(indexrel: &PgRelation) -> usize {
         let desired_segment_count = std::thread::available_parallelism()
             .expect("your computer should have at least one core");
-        let reltuples = indexrel
-            .heap_relation()
-            .unwrap()
-            .reltuples()
-            .unwrap_or_default();
+        let heap_relation = indexrel.heap_relation().unwrap();
+        let mut reltuples = heap_relation.reltuples().unwrap_or_default();
 
+        // If the reltuples estimate is not available, estimate the number of tuples in the heap
+        // by multiplying the number of pages by the max offset number of the first page
         if reltuples <= 0.0 {
-            pgrx::warning!("Unable to estimate the size of the table, run ANALYZE");
+            let bman = BufferManager::new(heap_relation.oid());
+            let buffer = bman.get_buffer(0);
+            let page = buffer.page();
+            let max_offset = page.max_offset_number();
+            let npages = unsafe {
+                pg_sys::RelationGetNumberOfBlocksInFork(
+                    heap_relation.as_ptr(),
+                    pg_sys::ForkNumber::MAIN_FORKNUM,
+                )
+            };
+            reltuples = npages as f32 * max_offset as f32;
         }
 
         (reltuples as f64 / desired_segment_count.get() as f64).ceil() as usize

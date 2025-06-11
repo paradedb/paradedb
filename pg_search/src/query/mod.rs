@@ -1911,7 +1911,7 @@ impl From<tantivy::TantivyError> for QueryError {
 
 impl From<anyhow::Error> for QueryError {
     fn from(err: anyhow::Error) -> QueryError {
-        QueryError::InternalError(err.into())
+        QueryError::InternalError(err)
     }
 }
 

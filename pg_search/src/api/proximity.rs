@@ -1,4 +1,4 @@
-use crate::api::index::FieldName;
+use crate::api::FieldName;
 use crate::api::Regex;
 use crate::query::proximity::{ProximityClause, ProximityDistance, ProximityTermStyle};
 use crate::query::SearchQueryInput;
@@ -90,5 +90,5 @@ pub fn text_to_prox_clause(t: String) -> ProximityClause {
 
 #[pg_cast(implicit, immutable, parallel_safe)]
 pub fn text_array_to_prox_clause(t: Vec<String>) -> ProximityClause {
-    ProximityClause::Clauses(t.into_iter().map(|t| text_to_prox_clause(t)).collect())
+    ProximityClause::Clauses(t.into_iter().map(text_to_prox_clause).collect())
 }

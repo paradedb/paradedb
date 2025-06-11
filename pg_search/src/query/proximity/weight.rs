@@ -78,19 +78,15 @@ impl ProximityWeight {
             right,
         } = clause
         {
-            let query = ProximityQuery::new(
-                self.query.field(),
-                *left.clone(),
-                distance.clone(),
-                *right.clone(),
-            );
+            let query =
+                ProximityQuery::new(self.query.field(), *left.clone(), *distance, *right.clone());
             let weight = ProximityWeight::new(query, self.weight_opt.clone());
             let left_postings = weight.read_postings(reader, left, which_terms, true)?;
             let right_postings = weight.read_postings(reader, right, which_terms, true)?;
 
             let mut scorer = ProximityScorer::new(
                 left_postings,
-                distance.clone(),
+                *distance,
                 right_postings,
                 self.fieldnorm_reader(reader)?,
                 self.weight_opt.clone(),

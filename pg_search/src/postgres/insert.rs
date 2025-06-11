@@ -16,10 +16,10 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::FieldName;
+use crate::gucs;
 use crate::index::merge_policy::{LayeredMergePolicy, NumCandidates, NumMerged};
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::writer::index::{Mergeable, SearchIndexMerger, SerialIndexWriter};
-use crate::index::WriterResources;
 use crate::postgres::options::SearchIndexOptions;
 use crate::postgres::storage::block::{SegmentMetaEntry, CLEANUP_LOCK, SEGMENT_METAS_START};
 use crate::postgres::storage::buffer::BufferManager;
@@ -43,12 +43,8 @@ pub struct InsertState {
 }
 
 impl InsertState {
-    unsafe fn new(
-        indexrel: &PgRelation,
-        writer_resources: WriterResources,
-    ) -> anyhow::Result<Self> {
-        let (parallelism, memory_budget) = writer_resources.resources();
-        let memory_budget = memory_budget / parallelism;
+    unsafe fn new(indexrel: &PgRelation) -> anyhow::Result<Self> {
+        let memory_budget = gucs::adjust_maintenance_work_mem(1);
         let writer =
             SerialIndexWriter::with_mvcc(indexrel, MvccSatisfies::Mergeable, memory_budget, None)?;
         let schema = SearchIndexSchema::open(indexrel.oid())?;
@@ -78,13 +74,12 @@ impl InsertState {
 unsafe fn init_insert_state(
     index_relation: pg_sys::Relation,
     index_info: &mut pg_sys::IndexInfo,
-    writer_resources: WriterResources,
 ) -> &'static mut InsertState {
     use crate::postgres::fake_aminsertcleanup::{get_insert_state, push_insert_state};
 
     if index_info.ii_AmCache.is_null() {
         let index_relation = PgRelation::from_pg(index_relation);
-        let state = InsertState::new(&index_relation, writer_resources)
+        let state = InsertState::new(&index_relation)
             .expect("should be able to open new SearchIndex for writing");
 
         push_insert_state(state);
@@ -98,12 +93,11 @@ unsafe fn init_insert_state(
 pub unsafe fn init_insert_state(
     index_relation: pg_sys::Relation,
     index_info: &mut pg_sys::IndexInfo,
-    writer_resources: WriterResources,
 ) -> &mut InsertState {
     if index_info.ii_AmCache.is_null() {
         // we don't have any cached state yet, so create it now
         let index_relation = PgRelation::from_pg(index_relation);
-        let state = InsertState::new(&index_relation, writer_resources)
+        let state = InsertState::new(&index_relation)
             .expect("should be able to open new SearchIndex for writing");
 
         // leak it into the MemoryContext for this scan (as specified by the IndexInfo argument)
@@ -142,7 +136,6 @@ pub unsafe extern "C-unwind" fn aminsert(
             index_info
                 .as_mut()
                 .expect("index_info argument must not be null"),
-            WriterResources::Statement,
         );
 
         state.per_row_context.switch_to(|cxt| {

@@ -16,8 +16,8 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::FieldName;
+use crate::gucs;
 use crate::index::writer::index::SerialIndexWriter;
-use crate::index::WriterResources;
 use crate::launch_parallel_process;
 use crate::parallel_worker::mqueue::MessageQueueSender;
 use crate::parallel_worker::{
@@ -205,7 +205,8 @@ impl<'a> BuildWorker<'a> {
             let index_info = pg_sys::BuildIndexInfo(self.indexrel.as_ptr());
             (*index_info).ii_Concurrent = self.config.concurrent;
 
-            let mut build_state = WorkerBuildState::new(&self.indexrel)?;
+            let memory_budget = gucs::adjust_maintenance_work_mem(self.coordination.nlaunched());
+            let mut build_state = WorkerBuildState::new(&self.indexrel, memory_budget)?;
 
             let reltuples = pg_sys::table_index_build_scan(
                 self.heaprel.as_ptr(),
@@ -236,9 +237,7 @@ struct WorkerBuildState {
 }
 
 impl WorkerBuildState {
-    pub fn new(indexrel: &PgRelation) -> anyhow::Result<Self> {
-        let (parallelism, memory_budget) = WriterResources::CreateIndex.resources();
-        let memory_budget = memory_budget / parallelism;
+    pub fn new(indexrel: &PgRelation, memory_budget: usize) -> anyhow::Result<Self> {
         let writer = SerialIndexWriter::open(
             indexrel,
             memory_budget,
@@ -358,7 +357,7 @@ pub(super) fn build_index(
     });
 
     let process = ParallelBuild::new(&heaprel, &indexrel, snapshot.0, concurrent);
-    let nworkers = calculate_nworkers(&heaprel);
+    let nworkers = create_index_parallelism(&heaprel);
 
     if let Some(mut process) = launch_parallel_process!(
         ParallelBuild<BuildWorker>,
@@ -423,7 +422,7 @@ pub(super) fn build_index(
     }
 }
 
-fn calculate_nworkers(heaprel: &PgRelation) -> usize {
+pub fn create_index_parallelism(heaprel: &PgRelation) -> usize {
     // NB: we _could_ use pg_sys::plan_create_index_workers(), or on v17+ accept IndexIndex::ii_ParallelWorkers,
     // but doing either of these would prohibit the user from having direct control over the number of
     // workers used for a given CREATE INDEX/REINDEX statement.  Internal discussions led to that

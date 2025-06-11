@@ -179,20 +179,21 @@ SELECT d.id, d.title, d.parents,
 FROM documents d
 WHERE d.parents = 'Factures'
 ORDER BY invoice_file_count DESC, d.id;
-                                             QUERY PLAN                                             
-----------------------------------------------------------------------------------------------------
+                                             QUERY PLAN                                              
+-----------------------------------------------------------------------------------------------------
  Sort
    Sort Key: ((SubPlan 1)) DESC, d.id
    ->  Seq Scan on documents d
          Filter: (parents = 'Factures'::text)
          SubPlan 1
            ->  Aggregate
-                 ->  Bitmap Heap Scan on files f
-                       Recheck Cond: (documentid = d.id)
-                       Filter: ((title = 'Invoice Receipt'::text) OR (title = 'Invoice PDF'::text))
-                       ->  Bitmap Index Scan on files_pkey
-                             Index Cond: (documentid = d.id)
-(11 rows)
+                 ->  Custom Scan (ParadeDB Scan) on files f
+                       Table: files
+                       Index: files_search
+                       Exec Method: NormalScanExecState
+                       Scores: false
+                       Tantivy Query: {"boolean":{"must":[{"boolean":{"should":["all","all"]}},{}]}}
+(12 rows)
 
 \i common/mixedff_queries_cleanup.sql
 -- Cleanup for relational query tests (07-10)

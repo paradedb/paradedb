@@ -238,7 +238,7 @@ impl PdbScan {
             // We have some indexed and some non-indexed predicates
             // Set up heap filtering for all predicates since we can't easily separate them
             if let Some((all_node_string, display_text)) =
-                extract_restrictinfo_string(&restrict_info, rti)
+                extract_restrictinfo_string(&restrict_info, rti, root)
             {
                 builder
                     .custom_private()
@@ -1984,12 +1984,247 @@ unsafe fn create_bool_const_true() -> Option<*mut pg_sys::Node> {
     Some(const_node.cast())
 }
 
+/// Create a human-readable representation of a PostgreSQL expression node
+/// This is a simple pattern-based approach to avoid complex deparsing
+unsafe fn create_human_readable_filter_text(
+    node: *mut pg_sys::Node,
+    root: *mut pg_sys::PlannerInfo,
+) -> String {
+    if node.is_null() {
+        return "<expression>".to_string();
+    }
+
+    match (*node).type_ {
+        pg_sys::NodeTag::T_BoolExpr => {
+            let bool_expr = node.cast::<pg_sys::BoolExpr>();
+            let op_name = match (*bool_expr).boolop {
+                pg_sys::BoolExprType::AND_EXPR => " AND ",
+                pg_sys::BoolExprType::OR_EXPR => " OR ",
+                pg_sys::BoolExprType::NOT_EXPR => "NOT ",
+                _ => " ? ", // catch-all for any other values
+            };
+
+            if (*bool_expr).boolop == pg_sys::BoolExprType::NOT_EXPR {
+                format!(
+                    "NOT {}",
+                    create_human_readable_filter_text(
+                        PgList::<pg_sys::Node>::from_pg((*bool_expr).args)
+                            .get_ptr(0)
+                            .unwrap_or(std::ptr::null_mut()),
+                        root
+                    )
+                )
+            } else {
+                let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
+                let arg_texts: Vec<String> = args
+                    .iter_ptr()
+                    .map(|arg| create_human_readable_filter_text(arg, root))
+                    .collect();
+                format!("({})", arg_texts.join(op_name))
+            }
+        }
+        pg_sys::NodeTag::T_OpExpr => {
+            let op_expr = node.cast::<pg_sys::OpExpr>();
+            let args = PgList::<pg_sys::Node>::from_pg((*op_expr).args);
+
+            if args.len() == 2 {
+                let left_text = create_human_readable_filter_text(args.get_ptr(0).unwrap(), root);
+                let right_text = create_human_readable_filter_text(args.get_ptr(1).unwrap(), root);
+
+                // Try to get operator name from the operator OID
+                let op_name = get_operator_name((*op_expr).opno);
+                format!("({} {} {})", left_text, op_name, right_text)
+            } else {
+                "<comparison>".to_string()
+            }
+        }
+        pg_sys::NodeTag::T_Var => {
+            let var = node.cast::<pg_sys::Var>();
+            get_column_name_from_var(var, root)
+                .unwrap_or_else(|| format!("column_{}", (*var).varattno))
+        }
+        pg_sys::NodeTag::T_Const => {
+            let const_node = node.cast::<pg_sys::Const>();
+            if (*const_node).constisnull {
+                "NULL".to_string()
+            } else {
+                match (*const_node).consttype {
+                    pg_sys::TEXTOID | pg_sys::VARCHAROID => {
+                        if let Some(text_val) = String::from_datum((*const_node).constvalue, false)
+                        {
+                            format!("'{}'", text_val.replace('\'', "''")) // Escape single quotes
+                        } else {
+                            "'<text>'".to_string()
+                        }
+                    }
+                    pg_sys::INT4OID => {
+                        if let Some(int_val) = i32::from_datum((*const_node).constvalue, false) {
+                            int_val.to_string()
+                        } else {
+                            "<number>".to_string()
+                        }
+                    }
+                    pg_sys::INT8OID => {
+                        if let Some(int_val) = i64::from_datum((*const_node).constvalue, false) {
+                            int_val.to_string()
+                        } else {
+                            "<number>".to_string()
+                        }
+                    }
+                    pg_sys::BOOLOID => {
+                        // Convert Datum to bool
+                        let bool_val =
+                            bool::from_datum((*const_node).constvalue, false).unwrap_or(false);
+                        if bool_val {
+                            "true".to_string()
+                        } else {
+                            "false".to_string()
+                        }
+                    }
+                    pg_sys::FLOAT4OID => {
+                        if let Some(float_val) = f32::from_datum((*const_node).constvalue, false) {
+                            float_val.to_string()
+                        } else {
+                            "<decimal>".to_string()
+                        }
+                    }
+                    pg_sys::FLOAT8OID => {
+                        if let Some(float_val) = f64::from_datum((*const_node).constvalue, false) {
+                            float_val.to_string()
+                        } else {
+                            "<decimal>".to_string()
+                        }
+                    }
+                    pg_sys::NUMERICOID => {
+                        // For NUMERIC, we'll try to extract using pgrx's AnyNumeric
+                        if let Some(numeric_val) =
+                            pgrx::AnyNumeric::from_datum((*const_node).constvalue, false)
+                        {
+                            numeric_val.to_string()
+                        } else {
+                            "<decimal>".to_string()
+                        }
+                    }
+                    _ => "<value>".to_string(),
+                }
+            }
+        }
+        pg_sys::NodeTag::T_FuncExpr => {
+            let func_expr = node.cast::<pg_sys::FuncExpr>();
+            let func_name = get_function_name((*func_expr).funcid);
+            format!("{}(...)", func_name)
+        }
+        pg_sys::NodeTag::T_NullTest => {
+            let null_test = node.cast::<pg_sys::NullTest>();
+            let arg_text = create_human_readable_filter_text((*null_test).arg.cast(), root);
+            if (*null_test).nulltesttype == pg_sys::NullTestType::IS_NULL {
+                format!("{} IS NULL", arg_text)
+            } else {
+                format!("{} IS NOT NULL", arg_text)
+            }
+        }
+        pg_sys::NodeTag::T_ScalarArrayOpExpr => {
+            let array_op = node.cast::<pg_sys::ScalarArrayOpExpr>();
+            let args = PgList::<pg_sys::Node>::from_pg((*array_op).args);
+            if args.len() >= 2 {
+                let left_text = create_human_readable_filter_text(args.get_ptr(0).unwrap(), root);
+                let op_name = if (*array_op).useOr { "= ANY" } else { "= ALL" };
+                format!("{} {}(...)", left_text, op_name)
+            } else {
+                "<array operation>".to_string()
+            }
+        }
+        _ => "<expression>".to_string(),
+    }
+}
+
+/// Get a human-readable operator name from operator OID
+unsafe fn get_operator_name(opno: pg_sys::Oid) -> String {
+    let tuple = pg_sys::SearchSysCache1(
+        pg_sys::SysCacheIdentifier::OPEROID as i32,
+        opno.into_datum().unwrap(),
+    );
+
+    if tuple.is_null() {
+        return "=".to_string(); // fallback
+    }
+
+    let form = pg_sys::GETSTRUCT(tuple) as *mut pg_sys::FormData_pg_operator;
+    let operator_name = &(*form).oprname;
+    let result = std::ffi::CStr::from_ptr(operator_name.data.as_ptr())
+        .to_string_lossy()
+        .into_owned();
+
+    pg_sys::ReleaseSysCache(tuple);
+    result
+}
+
+/// Get a human-readable function name from function OID
+unsafe fn get_function_name(funcid: pg_sys::Oid) -> String {
+    let tuple = pg_sys::SearchSysCache1(
+        pg_sys::SysCacheIdentifier::PROCOID as i32,
+        funcid.into_datum().unwrap(),
+    );
+
+    if tuple.is_null() {
+        return "function".to_string(); // fallback
+    }
+
+    let form = pg_sys::GETSTRUCT(tuple) as *mut pg_sys::FormData_pg_proc;
+    let func_name = &(*form).proname;
+    let result = std::ffi::CStr::from_ptr(func_name.data.as_ptr())
+        .to_string_lossy()
+        .into_owned();
+
+    pg_sys::ReleaseSysCache(tuple);
+    result
+}
+
+/// Get column name from a Var node using the planning context
+unsafe fn get_column_name_from_var(
+    var: *mut pg_sys::Var,
+    root: *mut pg_sys::PlannerInfo,
+) -> Option<String> {
+    if root.is_null() || var.is_null() {
+        return None;
+    }
+
+    let varno = (*var).varno;
+    let varattno = (*var).varattno;
+
+    // Get the range table entry
+    let rtable = (*(*root).parse).rtable;
+    let rte = pg_sys::rt_fetch(varno as pg_sys::Index, rtable);
+
+    if rte.is_null() || (*rte).rtekind != pg_sys::RTEKind::RTE_RELATION {
+        return None;
+    }
+
+    let relid = (*rte).relid;
+
+    // Get the attribute name using PostgreSQL's system function
+    let attname_ptr = pg_sys::get_attname(relid, varattno, false);
+    if attname_ptr.is_null() {
+        return None;
+    }
+
+    let result = std::ffi::CStr::from_ptr(attname_ptr)
+        .to_string_lossy()
+        .into_owned();
+
+    // Free the memory allocated by get_attname
+    pg_sys::pfree(attname_ptr.cast());
+
+    Some(result)
+}
+
 /// Extract non-indexed predicates from restrict_info and serialize them as node strings
 /// Replaces cross-relation expressions with TRUE to avoid evaluation errors
 /// Returns both the node string for execution and the display text for EXPLAIN
 unsafe fn extract_restrictinfo_string(
     restrict_info: &PgList<pg_sys::RestrictInfo>,
     current_rti: pg_sys::Index,
+    root: *mut pg_sys::PlannerInfo,
 ) -> Option<(String, String)> {
     if restrict_info.is_empty() {
         return None;
@@ -2019,19 +2254,9 @@ unsafe fn extract_restrictinfo_string(
             .into_owned();
         clause_strings.push(rust_string);
 
-        // For the display text: use a simple representation based on the node string
-        // We avoid deparsing here to prevent context-related errors
-        let node_string = pg_sys::nodeToString(cleaned_clause.cast::<core::ffi::c_void>());
-        let node_text = std::ffi::CStr::from_ptr(node_string)
-            .to_string_lossy()
-            .into_owned();
-
-        // Create a user-friendly display by simplifying some common patterns
-        let display_text = if node_text.len() > 100 {
-            format!("{:.97}...", node_text)
-        } else {
-            node_text
-        };
+        // For the display text: create a simplified, human-readable representation
+        // We avoid deparsing here to prevent crashes and context issues
+        let display_text = create_human_readable_filter_text(cleaned_clause, root);
         display_parts.push(display_text);
     }
 

@@ -96,7 +96,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Heap Filter: ({BOOLEXPR :boolop or :args ({OPEXPR :opno 524764 :opfuncid 524724 :opresulttype 16 :opretset fals... AND {OPEXPR :opno 98 :opfuncid 67 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 100 :args...)
+         Heap Filter: (((id @@@ <value>) OR (id @@@ <value>)) AND (category_name = 'Electronics'))
          Tantivy Query: {"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Apple","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"smartphone","lenient":null,"conjunction_mode":null}}}}]}},"all"]}}
 (9 rows)
 
@@ -130,8 +130,8 @@ FROM products
 WHERE description @@@ 'running' 
   AND price < 200.00
 ORDER BY score DESC;
-                                                                                                              QUERY PLAN                                                                                                              
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                        QUERY PLAN                                                                                         
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (paradedb.score(id)) DESC
    ->  Custom Scan (ParadeDB Scan) on products
@@ -139,7 +139,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Heap Filter: ({OPEXPR :opno 524764 :opfuncid 524724 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 1... AND {OPEXPR :opno 1754 :opfuncid 1722 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :ar...)
+         Heap Filter: ((id @@@ <value>) AND (price < 200.00))
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null}}}},"all"]}}
 (9 rows)
 
@@ -171,8 +171,8 @@ FROM products
 WHERE description @@@ 'technology' 
   AND in_stock = true
 ORDER BY score DESC;
-                                                                                                              QUERY PLAN                                                                                                              
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                          QUERY PLAN                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (paradedb.score(id)) DESC
    ->  Custom Scan (ParadeDB Scan) on products
@@ -180,7 +180,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Heap Filter: ({OPEXPR :opno 524764 :opfuncid 524724 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 1... AND {VAR :varno 1 :varattno 7 :vartype 16 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup...)
+         Heap Filter: ((id @@@ <value>) AND in_stock)
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}},"all"]}}
 (9 rows)
 
@@ -252,8 +252,8 @@ WHERE (name @@@ 'shoes' OR description @@@ 'running')
   AND category_name = 'Footwear'
   AND price BETWEEN 100.00 AND 200.00
 ORDER BY score DESC;
-                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                         QUERY PLAN                                                                                                                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (paradedb.score(id)) DESC
    ->  Custom Scan (ParadeDB Scan) on products
@@ -261,7 +261,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Heap Filter: ({BOOLEXPR :boolop or :args ({OPEXPR :opno 524764 :opfuncid 524724 :opresulttype 16 :opretset fals... AND {OPEXPR :opno 1757 :opfuncid 1721 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :ar... AND {OPEXPR :opno 1755 :opfuncid 1723 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :ar... AND {OPEXPR :opno 98 :opfuncid 67 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 100 :args...)
+         Heap Filter: (((id @@@ <value>) OR (id @@@ <value>)) AND (price >= 100.00) AND (price <= 200.00) AND (category_name = 'Footwear'))
          Tantivy Query: {"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"shoes","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null}}}}]}},"all","all","all"]}}
 (9 rows)
 
@@ -300,8 +300,8 @@ WHERE description @@@ 'Apple'
   AND price > 500.00
   AND category_name = 'Electronics'
 ORDER BY score DESC;
-                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                             QUERY PLAN                                                                                              
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (paradedb.score(id)) DESC
    ->  Custom Scan (ParadeDB Scan) on products
@@ -309,7 +309,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Heap Filter: ({OPEXPR :opno 524764 :opfuncid 524724 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 1... AND {OPEXPR :opno 1756 :opfuncid 1720 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :ar... AND {OPEXPR :opno 96 :opfuncid 65 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args (... AND {OPEXPR :opno 98 :opfuncid 67 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 100 :args...)
+         Heap Filter: ((id @@@ <value>) AND (price > 500.00) AND (category_id = 1) AND (category_name = 'Electronics'))
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}},"all","all","all"]}}
 (9 rows)
 
@@ -358,7 +358,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Heap Filter: ({OPEXPR :opno 524764 :opfuncid 524724 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 1... AND {BOOLEXPR :boolop or :args ({BOOLEXPR :boolop and :args ({OPEXPR :opno 1754 :opfuncid 1722 :opres...)
+         Heap Filter: ((id @@@ <value>) AND (((price < 500.00) AND in_stock) OR ((price > 800.00) AND (category_name = 'Electronics'))))
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"smartphone","lenient":null,"conjunction_mode":null}}}},{"boolean":{"should":[{"boolean":{"must":["all","all"]}},{"boolean":{"must":["all","all"]}}]}}]}}
 (9 rows)
 
@@ -394,8 +394,8 @@ FROM products
 WHERE description @@@ 'running'
   AND rating >= 4.0
 ORDER BY score DESC;
-                                                                                                              QUERY PLAN                                                                                                              
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                        QUERY PLAN                                                                                         
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (paradedb.score(id)) DESC
    ->  Custom Scan (ParadeDB Scan) on products
@@ -403,7 +403,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Heap Filter: ({OPEXPR :opno 524764 :opfuncid 524724 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 1... AND {OPEXPR :opno 1125 :opfuncid 304 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :arg...)
+         Heap Filter: ((id @@@ <value>) AND (rating >= 4))
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null}}}},"all"]}}
 (9 rows)
 
@@ -435,8 +435,8 @@ FROM products
 WHERE name @@@ 'phone'
   AND tags IS NULL
 ORDER BY score DESC;
-                                                                                                              QUERY PLAN                                                                                                              
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                    QUERY PLAN                                                                                    
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (paradedb.score(id)) DESC
    ->  Custom Scan (ParadeDB Scan) on products
@@ -444,7 +444,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Heap Filter: ({OPEXPR :opno 524764 :opfuncid 524724 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 1... AND {NULLTEST :arg {VAR :varno 1 :varattno 10 :vartype 1009 :vartypmod -1 :varcollid 100 :varnullingr...)
+         Heap Filter: ((id @@@ <value>) AND tags IS NULL)
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"phone","lenient":null,"conjunction_mode":null}}}},"all"]}}
 (9 rows)
 
@@ -475,8 +475,8 @@ FROM products
 WHERE description @@@ 'Apple'
   AND tags IS NOT NULL
 ORDER BY score DESC;
-                                                                                                              QUERY PLAN                                                                                                              
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                       QUERY PLAN                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (paradedb.score(id)) DESC
    ->  Custom Scan (ParadeDB Scan) on products
@@ -484,7 +484,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Heap Filter: ({OPEXPR :opno 524764 :opfuncid 524724 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 1... AND {NULLTEST :arg {VAR :varno 1 :varattno 10 :vartype 1009 :vartypmod -1 :varcollid 100 :varnullingr...)
+         Heap Filter: ((id @@@ <value>) AND tags IS NOT NULL)
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}},"all"]}}
 (9 rows)
 
@@ -521,8 +521,8 @@ WHERE description @@@ 'technology'
     in_stock = false
   )
 ORDER BY score DESC;
-                                                                                                              QUERY PLAN                                                                                                              
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                            QUERY PLAN                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (paradedb.score(id)) DESC
    ->  Custom Scan (ParadeDB Scan) on products
@@ -530,7 +530,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Heap Filter: ({OPEXPR :opno 524764 :opfuncid 524724 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 1... AND {BOOLEXPR :boolop or :args ({OPEXPR :opno 1754 :opfuncid 1722 :opresulttype 16 :opretset false :o...)
+         Heap Filter: ((id @@@ <value>) AND ((price < 100.00) OR (category_name = 'Electronics') OR NOT in_stock))
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"boolean":{"should":["all","all","all"]}}]}}
 (9 rows)
 
@@ -566,8 +566,8 @@ FROM products
 WHERE description @@@ 'running'
   AND price > 1000.00  -- Should filter out all running items
 ORDER BY score DESC;
-                                                                                                              QUERY PLAN                                                                                                              
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                        QUERY PLAN                                                                                         
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (paradedb.score(id)) DESC
    ->  Custom Scan (ParadeDB Scan) on products
@@ -575,7 +575,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Heap Filter: ({OPEXPR :opno 524764 :opfuncid 524724 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 1... AND {OPEXPR :opno 1756 :opfuncid 1720 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :ar...)
+         Heap Filter: ((id @@@ <value>) AND (price > 1000.00))
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null}}}},"all"]}}
 (9 rows)
 
@@ -643,8 +643,8 @@ FROM products
 WHERE description @@@ 'Apple'
   AND 'apple' = ANY(tags)
 ORDER BY score DESC;
-                                                                                                              QUERY PLAN                                                                                                              
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                       QUERY PLAN                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (paradedb.score(id)) DESC
    ->  Custom Scan (ParadeDB Scan) on products
@@ -652,7 +652,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Heap Filter: ({OPEXPR :opno 524764 :opfuncid 524724 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 1... AND {SCALARARRAYOPEXPR :opno 98 :opfuncid 67 :hashfuncid 0 :negfuncid 0 :useOr true :inputcollid 100 ...)
+         Heap Filter: ((id @@@ <value>) AND 'apple' = ANY(...))
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}},"all"]}}
 (9 rows)
 
@@ -684,8 +684,8 @@ FROM products
 WHERE name @@@ 'Apple'
   AND created_at > '2024-01-01 00:00:00'::timestamp
 ORDER BY score DESC;
-                                                                                                              QUERY PLAN                                                                                                              
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                    QUERY PLAN                                                                                    
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (paradedb.score(id)) DESC
    ->  Custom Scan (ParadeDB Scan) on products
@@ -693,7 +693,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Heap Filter: ({OPEXPR :opno 524764 :opfuncid 524724 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 1... AND {OPEXPR :opno 2064 :opfuncid 2057 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :ar...)
+         Heap Filter: ((id @@@ <value>) AND (created_at > <value>))
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Apple","lenient":null,"conjunction_mode":null}}}},"all"]}}
 (9 rows)
 
@@ -728,8 +728,8 @@ WHERE description @@@ 'shoes'
   AND rating > 4.0
   AND category_id = 2
 ORDER BY score DESC;
-                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                             QUERY PLAN                                                                                              
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (paradedb.score(id)) DESC
    ->  Custom Scan (ParadeDB Scan) on products
@@ -737,7 +737,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Heap Filter: ({OPEXPR :opno 524764 :opfuncid 524724 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 1... AND {OPEXPR :opno 1755 :opfuncid 1723 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :ar... AND {OPEXPR :opno 1123 :opfuncid 303 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :arg... AND {OPEXPR :opno 96 :opfuncid 65 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args (...)
+         Heap Filter: ((id @@@ <value>) AND (price <= 200.00) AND (rating > 4) AND (category_id = 2))
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}},"all","all","all"]}}
 (9 rows)
 
@@ -773,8 +773,8 @@ FROM products
 WHERE description @@@ 'technology'
   AND category_name LIKE 'Elect%'
 ORDER BY score DESC;
-                                                                                                              QUERY PLAN                                                                                                              
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                          QUERY PLAN                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (paradedb.score(id)) DESC
    ->  Custom Scan (ParadeDB Scan) on products
@@ -782,7 +782,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Heap Filter: ({OPEXPR :opno 524764 :opfuncid 524724 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 1... AND {OPEXPR :opno 1209 :opfuncid 850 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 100 :a...)
+         Heap Filter: ((id @@@ <value>) AND (category_name ~~ 'Elect%'))
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}},"all"]}}
 (9 rows)
 
@@ -827,7 +827,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Heap Filter: ({BOOLEXPR :boolop or :args ({OPEXPR :opno 524764 :opfuncid 524724 :opresulttype 16 :opretset fals... AND {BOOLEXPR :boolop or :args ({BOOLEXPR :boolop and :args ({OPEXPR :opno 1756 :opfuncid 1720 :opres...)
+         Heap Filter: (((id @@@ <value>) OR (id @@@ <value>)) AND (((price > 500.00) AND in_stock) OR ((price < 300.00) AND (rating >= 4)) OR ((category_name = 'Electronics') AND (rating > 4.5))))
          Tantivy Query: {"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Apple","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"smartphone","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"boolean":{"must":["all","all"]}},{"boolean":{"must":["all","all"]}},{"boolean":{"must":["all","all"]}}]}}]}}
 (9 rows)
 

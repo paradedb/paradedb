@@ -180,8 +180,8 @@ SELECT d.id, d.title, d.parents,
 FROM documents d
 WHERE d.parents = 'Factures'
 ORDER BY invoice_file_count DESC, d.id;
-                                                                                                                     QUERY PLAN                                                                                                                     
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                          QUERY PLAN                                                           
+-------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: ((SubPlan 1)) DESC, d.id
    ->  Seq Scan on documents d
@@ -193,7 +193,7 @@ ORDER BY invoice_file_count DESC, d.id;
                        Index: files_search
                        Exec Method: NormalScanExecState
                        Scores: false
-                       Heap Filter: ({BOOLEXPR :boolop or :args ({OPEXPR :opno 98 :opfuncid 67 :opresulttype 16 :opretset false :opcol... AND {OPEXPR :opno 98 :opfuncid 67 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 100 :args...)
+                       Heap Filter: (((title = 'Invoice Receipt') OR (title = 'Invoice PDF')) AND (documentid = <expression>))
                        Tantivy Query: {"boolean":{"must":[{"boolean":{"should":["all","all"]}},{}]}}
 (13 rows)
 

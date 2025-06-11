@@ -70,6 +70,8 @@ pub extern "C-unwind" fn ambuild(
             build_index(heap_relation, index_relation, (*index_info).ii_Concurrent)
                 .unwrap_or_else(|e| panic!("{e}"));
 
+        pgrx::info!("ambuild: segment_ids={:?}", segment_ids);
+
         let mut result = PgBox::<pg_sys::IndexBuildResult>::alloc0();
         result.heap_tuples = heap_tuples;
         result.index_tuples = heap_tuples;

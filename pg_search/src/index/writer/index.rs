@@ -18,9 +18,10 @@
 use crate::api::{HashMap, HashSet};
 use anyhow::Result;
 use pgrx::{pg_sys, PgRelation};
+use tantivy::directory::RamDirectory;
 use tantivy::index::SegmentId;
 use tantivy::indexer::{AddOperation, SegmentWriter};
-use tantivy::schema::Field;
+use tantivy::schema::{Field, Schema};
 use tantivy::{Directory, Index, IndexMeta, IndexWriter, Segment, SegmentMeta, TantivyDocument};
 use thiserror::Error;
 
@@ -29,26 +30,107 @@ use crate::index::setup_tokenizers;
 use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::{postgres::types::TantivyValueError, schema::SearchIndexSchema};
 
+enum DirectoryType {
+    Mvcc,
+    Ram,
+}
+
+struct PendingSegment {
+    segment: Segment,
+    writer: SegmentWriter,
+    directory_type: DirectoryType,
+}
+
+impl PendingSegment {
+    fn new_ram(schema: Schema, memory_budget: usize) -> Result<Self> {
+        let index = Index::create_in_ram(schema);
+        let segment = index.new_segment();
+        let writer = SegmentWriter::for_segment(memory_budget, segment.clone())?;
+        Ok(Self {
+            segment,
+            writer,
+            directory_type: DirectoryType::Ram,
+        })
+    }
+
+    fn new_mvcc(index: &Index, memory_budget: usize) -> Result<Self> {
+        let segment = index.new_segment();
+        let writer = SegmentWriter::for_segment(memory_budget, segment.clone())?;
+        Ok(Self {
+            segment,
+            writer,
+            directory_type: DirectoryType::Mvcc,
+        })
+    }
+
+    fn add_document(&mut self, document: TantivyDocument) -> Result<()> {
+        self.writer.add_document(AddOperation {
+            opstamp: 0,
+            document,
+        })?;
+        Ok(())
+    }
+
+    fn directory_type(&self) -> &DirectoryType {
+        &self.directory_type
+    }
+
+    fn mem_usage(&self) -> usize {
+        match self.directory_type {
+            DirectoryType::Ram => {
+                let writer_mem_usage = self.writer.mem_usage();
+                let directory = self.segment.index().directory();
+                let directory_mem_usage = directory
+                    .as_any()
+                    .downcast_ref::<RamDirectory>()
+                    .unwrap()
+                    .total_mem_usage();
+                writer_mem_usage + directory_mem_usage
+            }
+            DirectoryType::Mvcc => self.writer.mem_usage(),
+        }
+    }
+
+    fn finalize(self) -> Result<SegmentMeta> {
+        let max_doc = self.writer.max_doc();
+        self.writer.finalize()?;
+        let segment = self.segment.with_max_doc(max_doc);
+        Ok(segment.meta().clone())
+    }
+}
+
 /// Unlike Tantivy's IndexWriter, the SerialIndexWriter does not spin up any threads.
 /// Everything happens in the foreground, making it ideal for Postgres.
 pub struct SerialIndexWriter {
     indexrelid: pg_sys::Oid,
     ctid_field: Field,
-    current_segment: Option<(Segment, SegmentWriter)>,
+    segment: Option<PendingSegment>,
     memory_budget: usize,
     index: Index,
     new_metas: Vec<SegmentMeta>,
+    target_docs_per_segment: Option<usize>,
+    max_doc: Option<usize>,
 }
 
 impl SerialIndexWriter {
-    pub fn open(index_relation: &PgRelation, memory_budget: usize) -> Result<Self> {
-        Self::with_mvcc(index_relation, MvccSatisfies::Snapshot, memory_budget)
+    pub fn open(
+        index_relation: &PgRelation,
+        memory_budget: usize,
+        target_docs_per_segment: Option<usize>,
+    ) -> Result<Self> {
+        Self::with_mvcc(
+            index_relation,
+            MvccSatisfies::Snapshot,
+            memory_budget,
+            target_docs_per_segment,
+        )
     }
 
     pub fn with_mvcc(
         index_relation: &PgRelation,
         mvcc_satisfies: MvccSatisfies,
         memory_budget: usize,
+        target_docs_per_segment: Option<usize>,
     ) -> Result<Self> {
         let directory = mvcc_satisfies.directory(index_relation);
         let mut index = Index::open(directory)?;
@@ -61,8 +143,10 @@ impl SerialIndexWriter {
             ctid_field,
             memory_budget,
             index,
-            current_segment: Default::default(),
+            segment: Default::default(),
             new_metas: Default::default(),
+            max_doc: Default::default(),
+            target_docs_per_segment,
         })
     }
 
@@ -73,22 +157,13 @@ impl SerialIndexWriter {
     pub fn insert(&mut self, mut document: TantivyDocument, ctid: u64) -> Result<()> {
         document.add_u64(self.ctid_field, ctid);
 
-        if self.current_segment.is_none() {
-            let new_segment = self.index.new_segment();
-            let new_writer = SegmentWriter::for_segment(self.memory_budget, new_segment.clone())?;
-            self.current_segment = Some((new_segment, new_writer));
+        if self.segment.is_none() {
+            self.segment = Some(self.new_segment()?);
         }
 
-        self.current_segment
-            .as_mut()
-            .unwrap()
-            .1
-            .add_document(AddOperation {
-                opstamp: 0,
-                document,
-            })?;
+        self.segment.as_mut().unwrap().add_document(document)?;
 
-        if self.memory_budget <= self.current_segment.as_ref().unwrap().1.mem_usage() {
+        if self.memory_budget <= self.segment.as_ref().unwrap().mem_usage() {
             self.finalize_segment()?;
         }
 
@@ -106,6 +181,7 @@ impl SerialIndexWriter {
             .iter()
             .map(|meta| meta.id())
             .collect::<Vec<_>>();
+        pgrx::info!("commit: new_segment_ids={:?}", new_segment_ids);
         let new_metas = IndexMeta {
             segments: [self.new_metas, current_segments].concat(),
             ..current_metas.clone()
@@ -116,16 +192,34 @@ impl SerialIndexWriter {
         Ok(new_segment_ids)
     }
 
+    fn new_segment(&mut self) -> Result<PendingSegment> {
+        if self.target_docs_per_segment.is_none() || self.new_metas.len() == 0 {
+            return PendingSegment::new_mvcc(&self.index, self.memory_budget);
+        }
+
+        let previous_num_docs = self.new_metas.last().unwrap().max_doc() as usize;
+        let target_docs_per_segment = self.target_docs_per_segment.unwrap();
+
+        if previous_num_docs + self.max_doc.unwrap_or_default() > target_docs_per_segment {
+            return PendingSegment::new_mvcc(&self.index, self.memory_budget);
+        }
+
+        PendingSegment::new_ram(self.index.schema(), self.memory_budget)
+    }
+
     fn finalize_segment(&mut self) -> Result<()> {
-        let Some((segment, writer)) = self.current_segment.take() else {
+        let Some(segment) = self.segment.take() else {
             // no docs were ever added
             return Ok(());
         };
 
-        let max_doc = writer.max_doc();
-        writer.finalize()?;
-        let segment = segment.with_max_doc(max_doc);
-        self.new_metas.push(segment.meta().clone());
+        let segment_meta = segment.finalize()?;
+
+        if self.max_doc.is_none() {
+            self.max_doc = Some(segment_meta.max_doc() as usize);
+        }
+
+        self.new_metas.push(segment_meta);
         Ok(())
     }
 }

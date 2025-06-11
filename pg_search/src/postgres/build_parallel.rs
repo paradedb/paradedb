@@ -31,9 +31,9 @@ use crate::postgres::utils::{categorize_fields, row_to_search_document, Categori
 use crate::schema::{SearchField, SearchIndexSchema};
 use pgrx::{check_for_interrupts, pg_guard, pg_sys, PgMemoryContexts, PgRelation};
 use std::ptr::{addr_of_mut, NonNull};
+use tantivy::directory::RamDirectory;
 use tantivy::index::SegmentId;
 use tantivy::{Directory, SegmentMeta, TantivyDocument};
-use tantivy::directory::RamDirectory;
 
 /// General, immutable configuration used for the workers
 #[derive(Copy, Clone)]
@@ -295,7 +295,7 @@ impl WorkerBuildState {
     pub fn new(indexrel: &PgRelation) -> anyhow::Result<Self> {
         let (parallelism, memory_budget) = WriterResources::CreateIndex.resources();
         let memory_budget = memory_budget / parallelism;
-        let writer = SerialIndexWriter::open(indexrel, memory_budget)?;
+        let writer = SerialIndexWriter::open(indexrel, memory_budget, None)?;
         let schema = SearchIndexSchema::open(indexrel.oid())?;
         let tupdesc = indexrel.tuple_desc();
         let categorized_fields = categorize_fields(&tupdesc, &schema);

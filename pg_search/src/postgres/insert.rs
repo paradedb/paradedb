@@ -50,7 +50,7 @@ impl InsertState {
         let (parallelism, memory_budget) = writer_resources.resources();
         let memory_budget = memory_budget / parallelism;
         let writer =
-            SerialIndexWriter::with_mvcc(indexrel, MvccSatisfies::Mergeable, memory_budget)?;
+            SerialIndexWriter::with_mvcc(indexrel, MvccSatisfies::Mergeable, memory_budget, None)?;
         let schema = SearchIndexSchema::open(indexrel.oid())?;
         let tupdesc = unsafe { PgTupleDesc::from_pg_unchecked(indexrel.rd_att) };
         let categorized_fields = categorize_fields(&tupdesc, &schema);

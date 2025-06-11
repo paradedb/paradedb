@@ -298,22 +298,21 @@ impl PdbScan {
         {
             return;
         }
+        // Initialize ExprState if not already done
 
+        // Create the Expr node from the heap filter node string
         let expr = Self::create_heap_filter_expr_state(
-            state.planstate(),
             state
                 .custom_state()
                 .heap_filter_node_string
                 .as_ref()
                 .unwrap(),
         );
-        // Initialize ExprState if not already done
-        state.custom_state_mut().heap_filter_expr_state = Some(expr);
+        // Initialize the ExprState
+        let expr_state = pg_sys::ExecInitExpr(expr, state.planstate());
+        state.custom_state_mut().heap_filter_expr_state = Some(expr_state);
     }
-    unsafe fn create_heap_filter_expr_state(
-        planstate: *mut pg_sys::PlanState,
-        heap_filter_node_string: &String,
-    ) -> *mut pg_sys::ExprState {
+    unsafe fn create_heap_filter_expr_state(heap_filter_node_string: &String) -> *mut pg_sys::Expr {
         pgrx::warning!("Some fields used in this query are not bm25 indexed, so we will use heap filtering. This is not efficient and should be avoided.");
 
         // Handle multiple clauses separated by our delimiter
@@ -346,7 +345,7 @@ impl PdbScan {
                 (*bool_expr).args = args_list;
                 (*bool_expr).location = -1;
 
-                pg_sys::ExecInitExpr(bool_expr.cast::<pg_sys::Expr>(), planstate)
+                bool_expr.cast::<pg_sys::Expr>()
             } else {
                 panic!("Failed to parse any clauses: {}", heap_filter_node_string);
             }
@@ -357,7 +356,7 @@ impl PdbScan {
             let node = pg_sys::stringToNode(node_cstr.as_ptr());
 
             if !node.is_null() {
-                pg_sys::ExecInitExpr(node.cast::<pg_sys::Expr>(), planstate)
+                node.cast::<pg_sys::Expr>()
             } else {
                 panic!("Failed to deserialize node: {}", heap_filter_node_string);
             }

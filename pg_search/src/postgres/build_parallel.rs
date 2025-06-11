@@ -265,16 +265,22 @@ impl WorkerBuildState {
         // If the reltuples estimate is not available, estimate the number of tuples in the heap
         // by multiplying the number of pages by the max offset number of the first page
         if reltuples <= 0.0 {
-            let bman = BufferManager::new(heap_relation.oid());
-            let buffer = bman.get_buffer(0);
-            let page = buffer.page();
-            let max_offset = page.max_offset_number();
             let npages = unsafe {
                 pg_sys::RelationGetNumberOfBlocksInFork(
                     heap_relation.as_ptr(),
                     pg_sys::ForkNumber::MAIN_FORKNUM,
                 )
             };
+
+            // The table really is empty and the tuple count is 0
+            if npages == 0 {
+                return 0;
+            }
+
+            let bman = BufferManager::new(heap_relation.oid());
+            let buffer = bman.get_buffer(0);
+            let page = buffer.page();
+            let max_offset = page.max_offset_number();
             reltuples = npages as f32 * max_offset as f32;
         }
 

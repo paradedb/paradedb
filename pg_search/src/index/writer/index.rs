@@ -271,7 +271,13 @@ pub struct SearchIndexMerger {
 
 impl SearchIndexMerger {
     pub fn open(index: Index) -> Result<SearchIndexMerger> {
-        let directory = index.directory().inner().as_any().downcast_ref::<MVCCDirectory>().unwrap().clone();
+        let directory = index
+            .directory()
+            .inner()
+            .as_any()
+            .downcast_ref::<MVCCDirectory>()
+            .unwrap()
+            .clone();
         Ok(Self {
             index,
             merged_segment_ids: Default::default(),

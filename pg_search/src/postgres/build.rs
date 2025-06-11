@@ -82,14 +82,12 @@ pub extern "C-unwind" fn ambuild(
                 .iter()
                 .map(|meta| meta.id())
                 .collect::<Vec<_>>();
-            pgrx::info!("recording segment ids: {:?}", segment_ids);
             let metadata = MetaPageMut::new(index_oid);
             metadata
                 .record_create_index_segment_ids(segment_ids.iter())
                 .expect("do_heap_scan: should be able to record segment ids in merge lock");
         }
 
-        pgrx::info!("flushing relation buffers");
         // All buffers must be dropped at this point, otherwise FlushRelationBuffers will trip an assert
         pg_sys::FlushRelationBuffers(indexrel);
         result.into_pg()

@@ -90,9 +90,6 @@ pub unsafe fn save_new_metas(
     let mut modified_ids = previous_ids.intersection(&new_ids).collect::<Vec<_>>();
     let deleted_ids = previous_ids.difference(&new_ids).collect::<Vec<_>>();
 
-    pgrx::info!("previous_ids: {:?}", previous_ids);
-    pgrx::info!("deleted_ids: {:?}", deleted_ids);
-
     modified_ids.retain(|id| {
         if let Some(new_files) = new_files.get(id) {
             new_files.contains_key(&SegmentComponent::Delete)

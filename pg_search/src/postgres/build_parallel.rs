@@ -266,7 +266,6 @@ impl WorkerBuildState {
             pgrx::warning!("Unable to estimate the size of the table, run ANALYZE");
         }
 
-        pgrx::info!("target_docs_per_segment: reltuples={}, desired_segment_count={}, target_docs_per_segment={}", reltuples, desired_segment_count.get(), (reltuples as f64 / desired_segment_count.get() as f64).ceil() as usize);
         (reltuples as f64 / desired_segment_count.get() as f64).ceil() as usize
     }
 }

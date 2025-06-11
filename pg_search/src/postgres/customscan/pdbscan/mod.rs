@@ -293,68 +293,73 @@ impl PdbScan {
 
     /// Initialize the heap filter expression state using the heap filter node string (if it exists).
     unsafe fn init_heap_filter_expr_state(state: &mut CustomScanStateWrapper<Self>) {
-        if state.custom_state().heap_filter_node_string.is_none() {
+        if state.custom_state().heap_filter_node_string.is_none()
+            || state.custom_state().heap_filter_expr_state.is_some()
+        {
             return;
         }
-        // Check if we have a heap filter node string to evaluate
-        if state.custom_state().heap_filter_expr_state.is_none() {
-            pgrx::warning!("Some fields used in this query are not bm25 indexed, so we will use heap filtering. This is not efficient and should be avoided.");
-            // Initialize ExprState if not already done
-            let heap_filter_node_string = state
+
+        let expr = Self::create_heap_filter_expr_state(
+            state.planstate(),
+            state
                 .custom_state()
                 .heap_filter_node_string
                 .as_ref()
-                .unwrap();
-            // Handle multiple clauses separated by our delimiter
-            if heap_filter_node_string.contains("|||CLAUSE_SEPARATOR|||") {
-                // Multiple clauses - combine them into a single AND expression
-                let clause_strings: Vec<&str> = heap_filter_node_string
-                    .split("|||CLAUSE_SEPARATOR|||")
-                    .collect();
+                .unwrap(),
+        );
+        // Initialize ExprState if not already done
+        state.custom_state_mut().heap_filter_expr_state = Some(expr);
+    }
+    unsafe fn create_heap_filter_expr_state(
+        planstate: *mut pg_sys::PlanState,
+        heap_filter_node_string: &String,
+    ) -> *mut pg_sys::ExprState {
+        pgrx::warning!("Some fields used in this query are not bm25 indexed, so we will use heap filtering. This is not efficient and should be avoided.");
 
-                // Create individual nodes for each clause
-                let mut args_list = std::ptr::null_mut();
-                for clause_str in clause_strings.iter() {
-                    let clause_cstr = std::ffi::CString::new(*clause_str)
-                        .expect("Failed to create CString from clause string");
-                    let clause_node = pg_sys::stringToNode(clause_cstr.as_ptr());
+        // Handle multiple clauses separated by our delimiter
+        if heap_filter_node_string.contains("|||CLAUSE_SEPARATOR|||") {
+            // Multiple clauses - combine them into a single AND expression
+            let clause_strings: Vec<&str> = heap_filter_node_string
+                .split("|||CLAUSE_SEPARATOR|||")
+                .collect();
 
-                    if !clause_node.is_null() {
-                        args_list =
-                            pg_sys::lappend(args_list, clause_node.cast::<core::ffi::c_void>());
-                    } else {
-                        panic!("Failed to parse clause string: {}", clause_str);
-                    }
-                }
+            // Create individual nodes for each clause
+            let mut args_list = std::ptr::null_mut();
+            for clause_str in clause_strings.iter() {
+                let clause_cstr = std::ffi::CString::new(*clause_str)
+                    .expect("Failed to create CString from clause string");
+                let clause_node = pg_sys::stringToNode(clause_cstr.as_ptr());
 
-                if !args_list.is_null() {
-                    // Create a BoolExpr to combine all clauses with AND
-                    let bool_expr = pg_sys::palloc0(std::mem::size_of::<pg_sys::BoolExpr>())
-                        .cast::<pg_sys::BoolExpr>();
-                    (*bool_expr).xpr.type_ = pg_sys::NodeTag::T_BoolExpr;
-                    (*bool_expr).boolop = pg_sys::BoolExprType::AND_EXPR;
-                    (*bool_expr).args = args_list;
-                    (*bool_expr).location = -1;
-
-                    let expr_state =
-                        pg_sys::ExecInitExpr(bool_expr.cast::<pg_sys::Expr>(), state.planstate());
-                    state.custom_state_mut().heap_filter_expr_state = Some(expr_state);
+                if !clause_node.is_null() {
+                    args_list = pg_sys::lappend(args_list, clause_node.cast::<core::ffi::c_void>());
                 } else {
-                    panic!("Failed to parse any clauses: {}", heap_filter_node_string);
+                    panic!("Failed to parse clause string: {}", clause_str);
                 }
+            }
+
+            if !args_list.is_null() {
+                // Create a BoolExpr to combine all clauses with AND
+                let bool_expr = pg_sys::palloc0(std::mem::size_of::<pg_sys::BoolExpr>())
+                    .cast::<pg_sys::BoolExpr>();
+                (*bool_expr).xpr.type_ = pg_sys::NodeTag::T_BoolExpr;
+                (*bool_expr).boolop = pg_sys::BoolExprType::AND_EXPR;
+                (*bool_expr).args = args_list;
+                (*bool_expr).location = -1;
+
+                pg_sys::ExecInitExpr(bool_expr.cast::<pg_sys::Expr>(), planstate)
             } else {
-                // Single clause - simple stringToNode + ExecInitExpr
-                let node_cstr = std::ffi::CString::new(heap_filter_node_string.as_str())
-                    .expect("Failed to create CString from node string");
-                let node = pg_sys::stringToNode(node_cstr.as_ptr());
+                panic!("Failed to parse any clauses: {}", heap_filter_node_string);
+            }
+        } else {
+            // Single clause - simple stringToNode + ExecInitExpr
+            let node_cstr = std::ffi::CString::new(heap_filter_node_string.as_str())
+                .expect("Failed to create CString from node string");
+            let node = pg_sys::stringToNode(node_cstr.as_ptr());
 
-                if !node.is_null() {
-                    let expr_state =
-                        pg_sys::ExecInitExpr(node.cast::<pg_sys::Expr>(), state.planstate());
-                    state.custom_state_mut().heap_filter_expr_state = Some(expr_state);
-                } else {
-                    panic!("Failed to deserialize node: {}", heap_filter_node_string);
-                }
+            if !node.is_null() {
+                pg_sys::ExecInitExpr(node.cast::<pg_sys::Expr>(), planstate)
+            } else {
+                panic!("Failed to deserialize node: {}", heap_filter_node_string);
             }
         }
     }

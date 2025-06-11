@@ -189,6 +189,13 @@ impl SerialIndexWriter {
         self.finalize_segment()
     }
 
+    /// Intelligently create a new segment, backed by either a RamDirectory or a MVCCDirectory.
+    ///
+    /// If the target_docs_per_segment is not set, or if there are no segments in the index, we
+    /// create a new MVCCDirectory-backed segment.
+    ///
+    /// If the target_docs_per_segment is set, and there are segments in the index, we create a new
+    /// RamDirectory-backed segment if the previous segment has reached the target_docs_per_segment.
     fn new_segment(&mut self) -> Result<PendingSegment> {
         if self.target_docs_per_segment.is_none() || self.new_metas.is_empty() {
             return PendingSegment::new_mvcc(

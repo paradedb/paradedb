@@ -181,10 +181,6 @@ impl MVCCDirectory {
 }
 
 impl Directory for MVCCDirectory {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     /// Returns a segment reader that implements std::io::Read
     fn get_file_handle(&self, path: &Path) -> Result<Arc<dyn FileHandle>, OpenReadError> {
         match self.readers.lock().entry(path.to_path_buf()) {

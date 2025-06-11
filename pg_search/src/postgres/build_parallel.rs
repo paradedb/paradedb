@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::index::FieldName;
+use crate::api::FieldName;
 use crate::index::writer::index::SerialIndexWriter;
 use crate::index::WriterResources;
 use crate::launch_parallel_process;

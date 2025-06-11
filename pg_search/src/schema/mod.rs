@@ -22,7 +22,7 @@ pub mod range;
 pub use anyenum::AnyEnum;
 pub use config::*;
 
-use crate::api::index::FieldName;
+use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::index::mvcc::MVCCDirectory;
 use crate::postgres::options::SearchIndexOptions;

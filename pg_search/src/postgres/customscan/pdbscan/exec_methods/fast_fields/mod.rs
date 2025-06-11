@@ -19,7 +19,7 @@ pub mod mixed;
 pub mod numeric;
 pub mod string;
 
-use crate::api::index::FieldName;
+use crate::api::FieldName;
 use crate::api::HashSet;
 use crate::gucs;
 use crate::index::fast_fields_helper::{FFHelper, FastFieldType, WhichFastField};

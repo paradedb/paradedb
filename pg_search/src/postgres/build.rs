@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::index::FieldName;
+use crate::api::FieldName;
 use crate::index::mvcc::MVCCDirectory;
 use crate::postgres::build_parallel::build_index;
 use crate::postgres::options::SearchIndexOptions;

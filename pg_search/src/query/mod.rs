@@ -20,7 +20,7 @@ mod more_like_this;
 mod range;
 mod score;
 
-use crate::api::index::FieldName;
+use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::postgres::utils::convert_pg_date_string;
 use crate::query::more_like_this::MoreLikeThisQuery;

@@ -18,8 +18,8 @@
 pub mod score;
 pub mod snippet;
 
-use crate::api::index::FieldName;
 use crate::api::operator::ReturnedNodePointer;
+use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::api::Varno;
 use crate::nodecast;

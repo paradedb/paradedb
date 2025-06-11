@@ -18,7 +18,7 @@
 mod searchqueryinput;
 mod text;
 
-use crate::api::index::{fieldname_typoid, FieldName};
+use crate::api::{fieldname_typoid, FieldName};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::utils::locate_bm25_index;
@@ -31,6 +31,7 @@ use pgrx::pgrx_sql_entity_graph::metadata::{
 };
 use pgrx::*;
 use std::ptr::NonNull;
+
 #[derive(Debug)]
 #[repr(transparent)]
 pub struct ReturnedNodePointer(pub Option<NonNull<pg_sys::Node>>);

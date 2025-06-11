@@ -18,7 +18,7 @@
 use std::cell::RefCell;
 use std::iter::Peekable;
 
-use crate::api::index::FieldName;
+use crate::api::FieldName;
 use crate::index::reader::index::{SearchIndexReader, SearchResults};
 use crate::postgres::customscan::builders::custom_path::SortDirection;
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};

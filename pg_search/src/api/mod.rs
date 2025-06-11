@@ -16,13 +16,20 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 pub mod aggregate;
+pub mod builder_fns;
 pub mod config;
-pub mod index;
 pub mod operator;
 pub mod tokenize;
 
+use pgrx::{
+    direct_function_call, pg_cast, pg_sys, InOutFuncs, IntoDatum, PostgresType, StringInfo,
+};
 pub use rustc_hash::FxHashMap as HashMap;
 pub use rustc_hash::FxHashSet as HashSet;
+use serde::{Deserialize, Serialize};
+use std::ffi::CStr;
+use std::fmt::{Display, Formatter};
+use tantivy::json_utils::split_json_path;
 
 #[macro_export]
 macro_rules! nodecast {
@@ -85,5 +92,102 @@ impl AsCStr for *mut pgrx::pg_sys::Node {
     unsafe fn as_c_str(&self) -> Option<&std::ffi::CStr> {
         let node = nodecast!(String, T_String, *self)?;
         Some(std::ffi::CStr::from_ptr((*node).sval))
+    }
+}
+
+/// A type used whenever our builder functions require a fieldname.
+#[derive(
+    Debug, Clone, Ord, Eq, PartialOrd, PartialEq, Hash, Serialize, Deserialize, PostgresType,
+)]
+#[inoutfuncs]
+pub struct FieldName(String);
+
+impl Display for FieldName {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl AsRef<str> for FieldName {
+    fn as_ref(&self) -> &str {
+        self
+    }
+}
+
+impl std::ops::Deref for FieldName {
+    type Target = str;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T> From<T> for FieldName
+where
+    T: Into<String>,
+{
+    fn from(value: T) -> Self {
+        FieldName(value.into())
+    }
+}
+
+impl InOutFuncs for FieldName {
+    fn input(input: &CStr) -> Self
+    where
+        Self: Sized,
+    {
+        FieldName(input.to_str().unwrap().to_owned())
+    }
+
+    fn output(&self, buffer: &mut StringInfo) {
+        buffer.push_str(&self.0);
+    }
+}
+
+impl FieldName {
+    #[inline(always)]
+    pub fn into_inner(self) -> String {
+        self.0
+    }
+
+    pub fn root(&self) -> String {
+        let json_path = split_json_path(self.0.as_str());
+        if json_path.len() == 1 {
+            self.0.clone()
+        } else {
+            json_path[0].clone()
+        }
+    }
+
+    pub fn path(&self) -> Option<String> {
+        let json_path = split_json_path(self.0.as_str());
+        if json_path.len() == 1 {
+            None
+        } else {
+            Some(json_path[1..].join("."))
+        }
+    }
+
+    pub fn is_ctid(&self) -> bool {
+        self.root() == "ctid"
+    }
+}
+
+#[pg_cast(implicit)]
+fn text_to_fieldname(field: String) -> FieldName {
+    FieldName(field)
+}
+
+#[allow(unused)]
+pub fn fieldname_typoid() -> pg_sys::Oid {
+    unsafe {
+        let oid = direct_function_call::<pg_sys::Oid>(
+            pg_sys::regtypein,
+            &[c"paradedb.FieldName".into_datum()],
+        )
+        .expect("type `paradedb.FieldName` should exist");
+        if oid == pg_sys::Oid::INVALID {
+            panic!("type `paradedb.FieldName` should exist");
+        }
+        oid
     }
 }

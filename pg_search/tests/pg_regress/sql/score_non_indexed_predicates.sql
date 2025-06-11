@@ -1,0 +1,294 @@
+-- Test case for demonstrating the issue where BM25 scores return null 
+-- when not all predicates are indexed in the BM25 index
+-- This is a simpler reproduction case than join scenarios
+
+-- Load the pg_search extension
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+-- Setup test table
+DROP TABLE IF EXISTS products;
+
+CREATE TABLE products (
+    id SERIAL PRIMARY KEY,
+    name TEXT,
+    description TEXT,
+    price DECIMAL(10,2),
+    category_id INTEGER,
+    category_name TEXT,
+    in_stock BOOLEAN,
+    created_at TIMESTAMP DEFAULT '2025-01-01 12:00:00'::timestamp,
+    rating REAL,
+    tags TEXT[]
+);
+
+-- Insert test data
+INSERT INTO products (name, description, price, category_id, category_name, in_stock, rating, tags) VALUES
+('iPhone 14', 'Latest Apple smartphone with great camera', 999.99, 1, 'Electronics', true, 4.5, ARRAY['smartphone', 'apple']),
+('MacBook Pro', 'Powerful Apple laptop for professionals', 2499.99, 1, 'Electronics', true, 4.8, ARRAY['laptop', 'apple']),
+('Nike Air Max', 'Comfortable running shoes for athletes', 149.99, 2, 'Footwear', true, 4.2, ARRAY['shoes', 'running']),
+('Samsung Galaxy', 'Android smartphone with excellent display', 899.99, 1, 'Electronics', false, 4.3, ARRAY['smartphone', 'android']),
+('Adidas Ultraboost', 'Premium running shoes with boost technology', 179.99, 2, 'Footwear', true, 4.6, ARRAY['shoes', 'running', 'premium']),
+('Nike Normal', 'Comfortable running shoes for athletes and technology enthusiasts', 149.99, 2, 'Footwear', false, 3.9, ARRAY['shoes', 'casual']),
+('Apple Watch', 'Smartwatch with health tracking features', 399.99, 1, 'Electronics', true, 4.4, ARRAY['watch', 'apple']),
+('Sony Headphones', 'Noise-canceling headphones for music lovers', 299.99, 1, 'Electronics', true, 4.7, ARRAY['headphones', 'audio']),
+('Running Socks', 'Moisture-wicking socks for athletes', 19.99, 2, 'Footwear', true, 4.0, ARRAY['socks', 'running']),
+('Budget Phone', 'Affordable smartphone for basic needs', 199.99, 1, 'Electronics', false, 3.5, NULL);
+
+
+-- Create BM25 index that only includes some columns (name, description)
+-- Note: price, category_id, category_name, in_stock, rating, tags are NOT in the BM25 index
+CREATE INDEX products_bm25_idx ON products USING bm25 (
+    id,
+    name,
+    description
+) WITH (key_field = 'id');
+
+-- Test Case 1: Query using only indexed columns - should return proper scores
+SELECT 
+    id,
+    name,
+    paradedb.score(id) as score
+FROM products 
+WHERE name @@@ 'Apple' OR description @@@ 'smartphone'
+ORDER BY score DESC;
+
+-- Test Case 2: Query using indexed + non-indexed columns - currently returns null/zero scores
+-- This demonstrates the problem: even though 'Apple' matches in the indexed 'name' field,
+-- the presence of 'category_name = Electronics' (non-indexed predicate) causes scores to be null
+SELECT 
+    id,
+    name,
+    category_name,
+    paradedb.score(id) as score
+FROM products 
+WHERE (name @@@ 'Apple' OR description @@@ 'smartphone') 
+  AND category_name = 'Electronics'
+ORDER BY score DESC;
+
+-- Test Case 3: Another example with price filter (non-indexed)
+-- Should show the same issue - scores become null due to non-indexed predicate
+SELECT 
+    id,
+    name,
+    price,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'running' 
+  AND price < 200.00
+ORDER BY score DESC;
+
+-- Test Case 4: Mixed predicates with boolean non-indexed column
+SELECT 
+    id,
+    name,
+    in_stock,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'technology' 
+  AND in_stock = true
+ORDER BY score DESC;
+
+-- For comparison: Show that when all predicates are on indexed columns, scores work
+SELECT 
+    id,
+    name,
+    description,
+    paradedb.score(id) as score
+FROM products 
+WHERE name @@@ 'MacBook' 
+  AND description @@@ 'laptop'
+ORDER BY score DESC;
+
+-- Test Case 5: Complex query with multiple non-indexed predicates
+-- This should clearly show scores being null even when some predicates could contribute
+SELECT 
+    id,
+    name,
+    category_name,
+    price,
+    paradedb.score(id) as score
+FROM products 
+WHERE (name @@@ 'shoes' OR description @@@ 'running')
+  AND category_name = 'Footwear'
+  AND price BETWEEN 100.00 AND 200.00
+ORDER BY score DESC; 
+
+-- Test Case 6: Multiple AND conditions with different data types
+-- Tests heap filtering with integer, decimal, and text non-indexed predicates
+SELECT 
+    id,
+    name,
+    category_id,
+    price,
+    category_name,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'Apple'
+  AND category_id = 1
+  AND price > 500.00
+  AND category_name = 'Electronics'
+ORDER BY score DESC;
+
+-- Test Case 7: Complex nested OR/AND combinations
+-- Tests recursive clause extraction and combination
+SELECT 
+    id,
+    name,
+    price,
+    in_stock,
+    paradedb.score(id) as score
+FROM products 
+WHERE name @@@ 'smartphone'
+  AND (
+    (price < 500.00 AND in_stock = true) OR 
+    (price > 800.00 AND category_name = 'Electronics')
+  )
+ORDER BY score DESC;
+
+-- Test Case 8: Real number (REAL) filtering
+-- Tests heap filtering with floating-point comparisons
+SELECT 
+    id,
+    name,
+    rating,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'running'
+  AND rating >= 4.0
+ORDER BY score DESC;
+
+-- Test Case 9: NULL value handling
+-- Tests heap filtering with NULL checks
+SELECT 
+    id,
+    name,
+    tags,
+    paradedb.score(id) as score
+FROM products 
+WHERE name @@@ 'phone'
+  AND tags IS NULL
+ORDER BY score DESC;
+
+-- Test Case 10: NOT NULL filtering
+-- Tests heap filtering with NOT NULL predicates
+SELECT 
+    id,
+    name,
+    tags,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'Apple'
+  AND tags IS NOT NULL
+ORDER BY score DESC;
+
+-- Test Case 11: Multiple OR conditions with non-indexed predicates
+-- Tests complex OR logic in heap filtering
+SELECT 
+    id,
+    name,
+    price,
+    category_name,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'technology'
+  AND (
+    price < 100.00 OR 
+    category_name = 'Electronics' OR
+    in_stock = false
+  )
+ORDER BY score DESC;
+
+-- Test Case 12: Edge case - all tuples filtered out
+-- Tests behavior when heap filtering eliminates all results
+SELECT 
+    id,
+    name,
+    price,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'running'
+  AND price > 1000.00  -- Should filter out all running items
+ORDER BY score DESC;
+
+-- Test Case 13: Edge case - no search predicates, only non-indexed
+-- Tests heap filtering when there are no indexed predicates
+SELECT 
+    id,
+    name,
+    price,
+    in_stock,
+    paradedb.score(id) as score
+FROM products 
+WHERE price BETWEEN 100.00 AND 300.00
+  AND in_stock = true
+ORDER BY score DESC;
+
+-- Test Case 14: Array operations (if supported)
+-- Tests heap filtering with array predicates
+SELECT 
+    id,
+    name,
+    tags,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'Apple'
+  AND 'apple' = ANY(tags)
+ORDER BY score DESC;
+
+-- Test Case 15: Timestamp filtering
+-- Tests heap filtering with timestamp predicates
+SELECT 
+    id,
+    name,
+    created_at,
+    paradedb.score(id) as score
+FROM products 
+WHERE name @@@ 'Apple'
+  AND created_at > '2024-01-01 00:00:00'::timestamp
+ORDER BY score DESC;
+
+-- Test Case 16: Combined numeric comparisons
+-- Tests multiple numeric predicate combinations
+SELECT 
+    id,
+    name,
+    price,
+    rating,
+    category_id,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'shoes'
+  AND price <= 200.00
+  AND rating > 4.0
+  AND category_id = 2
+ORDER BY score DESC;
+
+-- Test Case 17: String pattern matching
+-- Tests heap filtering with LIKE predicates
+SELECT 
+    id,
+    name,
+    category_name,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'technology'
+  AND category_name LIKE 'Elect%'
+ORDER BY score DESC;
+
+-- Test Case 18: Mixed boolean logic complexity
+-- Tests deeply nested boolean expressions
+SELECT 
+    id,
+    name,
+    price,
+    in_stock,
+    rating,
+    paradedb.score(id) as score
+FROM products 
+WHERE (name @@@ 'Apple' OR description @@@ 'smartphone')
+  AND (
+    (price > 500.00 AND in_stock = true) OR
+    (price < 300.00 AND rating >= 4.0) OR
+    (category_name = 'Electronics' AND rating > 4.5)
+  )
+ORDER BY score DESC; 

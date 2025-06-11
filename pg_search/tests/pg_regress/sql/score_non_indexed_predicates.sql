@@ -138,7 +138,7 @@ SELECT
     in_stock,
     paradedb.score(id) as score
 FROM products 
-WHERE name @@@ 'smartphone'
+WHERE description @@@ 'smartphone'
   AND (
     (price < 500.00 AND in_stock = true) OR 
     (price > 800.00 AND category_name = 'Electronics')

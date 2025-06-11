@@ -175,16 +175,18 @@ SELECT
     in_stock,
     paradedb.score(id) as score
 FROM products 
-WHERE name @@@ 'smartphone'
+WHERE description @@@ 'smartphone'
   AND (
     (price < 500.00 AND in_stock = true) OR 
     (price > 800.00 AND category_name = 'Electronics')
   )
 ORDER BY score DESC;
 WARNING:  Some fields used in this query are not bm25 indexed, so we will use heap filtering. This is not efficient and should be avoided.
- id | name | price | in_stock | score 
-----+------+-------+----------+-------
-(0 rows)
+ id |      name      | price  | in_stock |   score   
+----+----------------+--------+----------+-----------
+  4 | Samsung Galaxy | 899.99 | f        | 1.1976256
+  1 | iPhone 14      | 999.99 | t        | 1.1126206
+(2 rows)
 
 -- Test Case 8: Real number (REAL) filtering
 -- Tests heap filtering with floating-point comparisons

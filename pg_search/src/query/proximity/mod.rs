@@ -56,8 +56,7 @@ impl ProximityClause {
             ProximityClause::Clauses(clauses) => Box::new(
                 clauses
                     .iter()
-                    .map(move |clause| clause.terms(which_terms))
-                    .flatten(),
+                    .flat_map(move |clause| clause.terms(which_terms)),
             ),
             ProximityClause::Proximity { left, right, .. } => match which_terms {
                 WhichTerms::Left => Box::new(left.terms(which_terms)),

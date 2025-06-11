@@ -23,7 +23,7 @@ use tantivy::index::SegmentId;
 use tantivy::indexer::merger::IndexMerger;
 use tantivy::indexer::segment_serializer::SegmentSerializer;
 use tantivy::indexer::{AddOperation, SegmentWriter};
-use tantivy::schema::Field;
+use tantivy::schema::{Field, Schema};
 use tantivy::{Directory, Index, IndexMeta, IndexWriter, Segment, SegmentMeta, TantivyDocument};
 use thiserror::Error;
 
@@ -36,7 +36,7 @@ use crate::{postgres::types::TantivyValueError, schema::SearchIndexSchema};
 #[derive(Clone, Debug)]
 enum DirectoryType {
     Mvcc,
-    Ram,
+    Ram(RamDirectory),
 }
 
 struct PendingSegment {
@@ -46,17 +46,32 @@ struct PendingSegment {
 }
 
 impl PendingSegment {
-    fn new_ram(index: &Index, memory_budget: usize) -> Result<Self> {
+    fn new_ram(
+        directory: RamDirectory,
+        schema: Schema,
+        memory_budget: usize,
+        indexrelid: pg_sys::Oid,
+    ) -> Result<Self> {
+        let mut index = Index::open_or_create(directory.clone(), schema)?;
+        setup_tokenizers(indexrelid, &mut index)?;
+
         let segment = index.new_segment();
         let writer = SegmentWriter::for_segment(memory_budget, segment.clone())?;
         Ok(Self {
             segment,
             writer,
-            directory_type: DirectoryType::Ram,
+            directory_type: DirectoryType::Ram(directory),
         })
     }
 
-    fn new_mvcc(index: &Index, memory_budget: usize) -> Result<Self> {
+    fn new_mvcc(
+        directory: MVCCDirectory,
+        memory_budget: usize,
+        indexrelid: pg_sys::Oid,
+    ) -> Result<Self> {
+        let mut index = Index::open(directory.clone())?;
+        setup_tokenizers(indexrelid, &mut index)?;
+
         let segment = index.new_segment();
         let writer = SegmentWriter::for_segment(memory_budget, segment.clone())?;
         Ok(Self {
@@ -79,18 +94,8 @@ impl PendingSegment {
     }
 
     fn mem_usage(&self) -> usize {
-        match self.directory_type {
-            DirectoryType::Ram => {
-                let writer_mem_usage = self.writer.mem_usage();
-                let directory = self.segment.index().directory();
-                let directory_mem_usage = directory
-                    .inner()
-                    .as_any()
-                    .downcast_ref::<RamDirectory>()
-                    .expect("directory should be a RamDirectory")
-                    .total_mem_usage();
-                writer_mem_usage + directory_mem_usage
-            }
+        match &self.directory_type {
+            DirectoryType::Ram(directory) => self.writer.mem_usage() + directory.total_mem_usage(),
             DirectoryType::Mvcc => self.writer.mem_usage(),
         }
     }
@@ -186,19 +191,30 @@ impl SerialIndexWriter {
 
     fn new_segment(&mut self) -> Result<PendingSegment> {
         if self.target_docs_per_segment.is_none() || self.new_metas.is_empty() {
-            return PendingSegment::new_mvcc(&self.index, self.memory_budget);
+            return PendingSegment::new_mvcc(
+                self.directory.clone(),
+                self.memory_budget,
+                self.indexrelid,
+            );
         }
 
         let previous_num_docs = self.new_metas.last().unwrap().max_doc() as usize;
         let target_docs_per_segment = self.target_docs_per_segment.unwrap();
 
         if previous_num_docs + self.max_doc.unwrap_or_default() > target_docs_per_segment {
-            return PendingSegment::new_mvcc(&self.index, self.memory_budget);
+            return PendingSegment::new_mvcc(
+                self.directory.clone(),
+                self.memory_budget,
+                self.indexrelid,
+            );
         }
 
-        let mut index = Index::create_in_ram(self.index.schema());
-        setup_tokenizers(self.indexrelid, &mut index)?;
-        PendingSegment::new_ram(&index, self.memory_budget)
+        PendingSegment::new_ram(
+            RamDirectory::create(),
+            self.index.schema(),
+            self.memory_budget,
+            self.indexrelid,
+        )
     }
 
     fn finalize_segment(&mut self) -> Result<()> {
@@ -217,7 +233,7 @@ impl SerialIndexWriter {
         let previous_metas = self.new_metas.clone();
 
         match directory_type {
-            DirectoryType::Ram => {
+            DirectoryType::Ram(_) => {
                 let last_flushed_segment_meta = self.new_metas.pop().unwrap();
                 let last_flushed_segment = self.index.segment(last_flushed_segment_meta.clone());
                 let mut merger = SearchIndexMerger::open(self.directory.clone())?;

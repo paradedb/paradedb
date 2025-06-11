@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::FieldName;
-use crate::index::writer::index::{Mergeable, SearchIndexMerger, SerialIndexWriter};
+use crate::index::writer::index::SerialIndexWriter;
 use crate::index::WriterResources;
 use crate::launch_parallel_process;
 use crate::parallel_worker::mqueue::MessageQueueSender;
@@ -24,15 +24,12 @@ use crate::parallel_worker::{
     ParallelProcess, ParallelState, ParallelStateManager, ParallelStateType, ParallelWorker,
     WorkerStyle,
 };
-use crate::postgres::insert::garbage_collect_index;
 use crate::postgres::spinlock::Spinlock;
 use crate::postgres::utils::{categorize_fields, row_to_search_document, CategorizedFieldData};
 use crate::schema::{SearchField, SearchIndexSchema};
 use pgrx::{check_for_interrupts, pg_guard, pg_sys, PgMemoryContexts, PgRelation};
 use std::ptr::{addr_of_mut, NonNull};
-use tantivy::directory::RamDirectory;
-use tantivy::index::SegmentId;
-use tantivy::{Directory, SegmentMeta, TantivyDocument};
+use tantivy::TantivyDocument;
 
 /// General, immutable configuration used for the workers
 #[derive(Copy, Clone)]

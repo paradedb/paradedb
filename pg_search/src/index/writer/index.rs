@@ -23,7 +23,7 @@ use tantivy::index::SegmentId;
 use tantivy::indexer::merger::IndexMerger;
 use tantivy::indexer::segment_serializer::SegmentSerializer;
 use tantivy::indexer::{AddOperation, SegmentWriter};
-use tantivy::schema::{Field, Schema};
+use tantivy::schema::Field;
 use tantivy::{Directory, Index, IndexMeta, IndexWriter, Segment, SegmentMeta, TantivyDocument};
 use thiserror::Error;
 
@@ -184,17 +184,6 @@ impl SerialIndexWriter {
         self.finalize_segment()
     }
 
-    fn save_metas(&mut self, segments: Vec<SegmentMeta>, current_metas: &IndexMeta) -> Result<()> {
-        let new_metas = IndexMeta {
-            segments,
-            ..current_metas.clone()
-        };
-        self.index
-            .directory()
-            .save_metas(&new_metas, &current_metas, &mut ())?;
-        Ok(())
-    }
-
     fn new_segment(&mut self) -> Result<PendingSegment> {
         if self.target_docs_per_segment.is_none() || self.last_flushed_segment_meta.is_none() {
             return PendingSegment::new_mvcc(&self.index, self.memory_budget);
@@ -254,7 +243,9 @@ impl SerialIndexWriter {
         };
 
         let index_relation = unsafe { PgRelation::open(self.indexrelid) };
-        unsafe { garbage_collect_index(&index_relation); }
+        unsafe {
+            garbage_collect_index(&index_relation);
+        }
 
         Ok(())
     }
@@ -264,6 +255,17 @@ impl SerialIndexWriter {
         let directory = self.mvcc_satisfies.clone().directory(&index_relation);
         let index = Index::open(directory)?;
         Ok(index.load_metas()?)
+    }
+
+    fn save_metas(&mut self, segments: Vec<SegmentMeta>, current_metas: &IndexMeta) -> Result<()> {
+        let new_metas = IndexMeta {
+            segments,
+            ..current_metas.clone()
+        };
+        self.index
+            .directory()
+            .save_metas(&new_metas, current_metas, &mut ())?;
+        Ok(())
     }
 }
 
@@ -382,7 +384,7 @@ impl Mergeable for SearchIndexMerger {
         let merged_segment = self.index.new_segment();
         let merger = IndexMerger::open(
             self.index.schema(),
-            &segments[..],
+            segments,
             {
                 let index = self.index.clone();
                 Box::new(move || index.directory().wants_cancel())

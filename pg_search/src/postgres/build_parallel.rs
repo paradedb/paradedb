@@ -251,7 +251,7 @@ impl<'a> BuildWorker<'a> {
             return Ok(segment_ids);
         }
 
-        let mut merger = SearchIndexMerger::open(self.indexrel.oid())?;
+        let mut merger = SearchIndexMerger::open(self.indexrel.oid(), vec![])?;
 
         // Calculate how many segments should be merged together to reach desired count
         // e.g., if we have 16 segments and want 4, merge in groups of 4

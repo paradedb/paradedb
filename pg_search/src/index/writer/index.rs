@@ -30,6 +30,7 @@ use crate::index::setup_tokenizers;
 use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::{postgres::types::TantivyValueError, schema::SearchIndexSchema};
 
+#[derive(Clone, Debug)]
 enum DirectoryType {
     Mvcc,
     Ram,
@@ -71,8 +72,8 @@ impl PendingSegment {
         Ok(())
     }
 
-    fn directory_type(&self) -> &DirectoryType {
-        &self.directory_type
+    fn directory_type(&self) -> DirectoryType {
+        self.directory_type.clone()
     }
 
     fn mem_usage(&self) -> usize {
@@ -213,13 +214,25 @@ impl SerialIndexWriter {
             return Ok(());
         };
 
+        let directory_type = segment.directory_type();
         let segment_meta = segment.finalize()?;
 
         if self.max_doc.is_none() {
             self.max_doc = Some(segment_meta.max_doc() as usize);
         }
 
-        self.new_metas.push(segment_meta);
+        let final_segment_meta = match directory_type {
+            DirectoryType::Ram => {
+                let merge_metas = [segment_meta, self.new_metas.last().unwrap().clone()].to_vec();
+                let mut merger = SearchIndexMerger::open(self.indexrelid, merge_metas.clone())?;
+                merger
+                    .merge_segments(&merge_metas.iter().map(|meta| meta.id()).collect::<Vec<_>>())?
+                    .expect("finalize_segment: merge should return a segment")
+            }
+            DirectoryType::Mvcc => segment_meta,
+        };
+
+        self.new_metas.push(final_segment_meta);
         Ok(())
     }
 }
@@ -231,10 +244,17 @@ pub struct SearchIndexMerger {
 }
 
 impl SearchIndexMerger {
-    pub fn open(relation_id: pg_sys::Oid) -> Result<SearchIndexMerger> {
+    pub fn open(
+        relation_id: pg_sys::Oid,
+        uncommited_metas: Vec<SegmentMeta>,
+    ) -> Result<SearchIndexMerger> {
         let directory = MVCCDirectory::mergeable(relation_id);
         let index = Index::open(directory.clone())?;
         let writer = index.writer(15 * 1024 * 1024)?;
+
+        for meta in uncommited_metas {
+            writer.add_segment(meta)?;
+        }
 
         Ok(Self {
             directory,

@@ -123,7 +123,6 @@ impl ParallelProcess for ParallelBuild {
 #[derive(serde::Serialize, serde::Deserialize)]
 struct WorkerResponse {
     reltuples: f64,
-    segment_ids: Vec<SegmentId>,
 }
 
 struct BuildWorker<'a> {
@@ -175,11 +174,8 @@ impl ParallelWorker for BuildWorker<'_> {
 
     fn run(mut self, mq_sender: &MessageQueueSender, _worker_number: i32) -> anyhow::Result<()> {
         self.coordination.inc_nlaunched();
-        let (reltuples, segment_ids) = self.do_build()?;
-        let response = WorkerResponse {
-            reltuples,
-            segment_ids,
-        };
+        let reltuples = self.do_build()?;
+        let response = WorkerResponse { reltuples };
 
         Ok(mq_sender.send(serde_json::to_vec(&response)?)?)
     }
@@ -201,7 +197,7 @@ impl<'a> BuildWorker<'a> {
         }
     }
 
-    fn do_build(&mut self) -> anyhow::Result<(f64, Vec<SegmentId>)> {
+    fn do_build(&mut self) -> anyhow::Result<f64> {
         unsafe {
             let index_info = pg_sys::BuildIndexInfo(self.indexrel.as_ptr());
             (*index_info).ii_Concurrent = self.config.concurrent;
@@ -222,8 +218,8 @@ impl<'a> BuildWorker<'a> {
                     .unwrap_or(std::ptr::null_mut()),
             );
 
-            let segment_ids = build_state.writer.commit()?;
-            Ok((reltuples, segment_ids))
+            build_state.writer.commit()?;
+            Ok(reltuples)
         }
     }
 }
@@ -243,7 +239,7 @@ impl WorkerBuildState {
         let writer = SerialIndexWriter::open(
             indexrel,
             memory_budget,
-            Some(Self::desired_docs_per_segment(indexrel)),
+            Some(Self::target_docs_per_segment(indexrel)),
         )?;
         let schema = SearchIndexSchema::open(indexrel.oid())?;
         let tupdesc = indexrel.tuple_desc();
@@ -257,17 +253,21 @@ impl WorkerBuildState {
         })
     }
 
-    fn desired_docs_per_segment(indexrel: &PgRelation) -> usize {
+    fn target_docs_per_segment(indexrel: &PgRelation) -> usize {
         let desired_segment_count = std::thread::available_parallelism()
             .expect("your computer should have at least one core");
-        let reltuples = indexrel.heap_relation().unwrap().reltuples();
+        let reltuples = indexrel
+            .heap_relation()
+            .unwrap()
+            .reltuples()
+            .unwrap_or_default();
 
-        if reltuples.is_none() {
-            pgrx::warning!("Unable to estimate the size of the index, run ANALYZE");
+        if reltuples <= 0.0 {
+            pgrx::warning!("Unable to estimate the size of the table, run ANALYZE");
         }
 
-        pgrx::info!("desired_docs_per_segment: reltuples={}, desired_segment_count={}, desired_docs_per_segment={}", reltuples.unwrap_or_default(), desired_segment_count.get(), (reltuples.unwrap_or_default() as f64 / desired_segment_count.get() as f64).ceil() as usize);
-        (reltuples.unwrap_or_default() as f64 / desired_segment_count.get() as f64).ceil() as usize
+        pgrx::info!("target_docs_per_segment: reltuples={}, desired_segment_count={}, target_docs_per_segment={}", reltuples, desired_segment_count.get(), (reltuples as f64 / desired_segment_count.get() as f64).ceil() as usize);
+        (reltuples as f64 / desired_segment_count.get() as f64).ceil() as usize
     }
 }
 
@@ -312,7 +312,7 @@ pub(super) fn build_index(
     heaprel: PgRelation,
     indexrel: PgRelation,
     concurrent: bool,
-) -> anyhow::Result<(f64, Vec<SegmentId>)> {
+) -> anyhow::Result<f64> {
     struct SnapshotDropper(pg_sys::Snapshot);
     impl Drop for SnapshotDropper {
         fn drop(&mut self) {
@@ -346,7 +346,7 @@ pub(super) fn build_index(
         nworkers,
         1024
     ) {
-        let (leader_tuples, leader_segments) = if unsafe { pg_sys::parallel_leader_participation } {
+        let leader_tuples = if unsafe { pg_sys::parallel_leader_participation } {
             // if the leader is to participate too, it's nice for it to wait until all the other workers
             // have indicated that they're running.  Otherwise, it's likely the leader will get ahead
             // of the workers, which doesn't allow for "evenly" distributing the work
@@ -366,21 +366,19 @@ pub(super) fn build_index(
             let mut worker = BuildWorker::new_parallel_worker(*process.state_manager());
             worker.do_build()?
         } else {
-            (0.0, vec![])
+            0.0
         };
 
         // wait for the workers to finish by collecting all their response messages
         let mut total_tuples = leader_tuples;
-        let mut segment_ids = leader_segments;
         for (_, message) in process {
             check_for_interrupts!();
             let worker_response = serde_json::from_slice::<WorkerResponse>(&message)?;
 
             total_tuples += worker_response.reltuples;
-            segment_ids.extend(worker_response.segment_ids);
         }
 
-        Ok((total_tuples, segment_ids))
+        Ok(total_tuples)
     } else {
         // not doing a parallel build, so directly instantiate a BuildWorker and serially run the
         // whole build here in this connected backend

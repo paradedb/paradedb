@@ -86,7 +86,7 @@ impl PendingSegment {
                     .inner()
                     .as_any()
                     .downcast_ref::<RamDirectory>()
-                    .expect("segment should be a ram directory")
+                    .expect("directory should be a RamDirectory")
                     .total_mem_usage();
                 writer_mem_usage + directory_mem_usage
             }
@@ -107,12 +107,13 @@ impl PendingSegment {
 pub struct SerialIndexWriter {
     indexrelid: pg_sys::Oid,
     ctid_field: Field,
-    segment: Option<PendingSegment>,
+    pending_segment: Option<PendingSegment>,
+    last_flushed_segment_meta: Option<SegmentMeta>,
     memory_budget: usize,
     index: Index,
-    new_metas: Vec<SegmentMeta>,
     target_docs_per_segment: Option<usize>,
     max_doc: Option<usize>,
+    mvcc_satisfies: MvccSatisfies,
 }
 
 impl SerialIndexWriter {
@@ -135,7 +136,7 @@ impl SerialIndexWriter {
         memory_budget: usize,
         target_docs_per_segment: Option<usize>,
     ) -> Result<Self> {
-        let directory = mvcc_satisfies.directory(index_relation);
+        let directory = mvcc_satisfies.clone().directory(index_relation);
         let mut index = Index::open(directory)?;
         let schema = SearchIndexSchema::open(index_relation.oid())?;
         setup_tokenizers(index_relation.oid(), &mut index)?;
@@ -146,10 +147,11 @@ impl SerialIndexWriter {
             ctid_field,
             memory_budget,
             index,
-            segment: Default::default(),
-            new_metas: Default::default(),
+            pending_segment: Default::default(),
+            last_flushed_segment_meta: Default::default(),
             max_doc: Default::default(),
             target_docs_per_segment,
+            mvcc_satisfies,
         })
     }
 
@@ -160,29 +162,24 @@ impl SerialIndexWriter {
     pub fn insert(&mut self, mut document: TantivyDocument, ctid: u64) -> Result<()> {
         document.add_u64(self.ctid_field, ctid);
 
-        if self.segment.is_none() {
-            self.segment = Some(self.new_segment()?);
+        if self.pending_segment.is_none() {
+            self.pending_segment = Some(self.new_segment()?);
             pgrx::info!(
                 "new segment created type={:?}",
-                self.segment
+                self.pending_segment
                     .as_ref()
                     .expect("segment should exist")
                     .directory_type()
             );
         }
 
-        self.segment
+        self.pending_segment
             .as_mut()
-            .expect("segment should exist add doc")
+            .unwrap()
             .add_document(document)?;
 
-        if self.memory_budget
-            <= self
-                .segment
-                .as_ref()
-                .expect("segment should exist mem usage")
-                .mem_usage()
-        {
+        let mem_usage = self.pending_segment.as_ref().unwrap().mem_usage();
+        if mem_usage >= self.memory_budget {
             pgrx::info!("finalizing segment");
             self.finalize_segment()?;
         }
@@ -190,38 +187,43 @@ impl SerialIndexWriter {
         Ok(())
     }
 
-    pub fn commit(mut self) -> Result<Vec<SegmentId>> {
-        self.finalize_segment()?;
-        Ok(self
-            .new_metas
-            .iter()
-            .map(|meta| meta.id())
-            .collect::<Vec<_>>())
+    pub fn commit(mut self) -> Result<()> {
+        self.finalize_segment()
     }
 
-    fn save_new_meta(&mut self, segment_meta: SegmentMeta) -> Result<()> {
-        let current_metas = self.index.load_metas()?;
-        let current_segments = current_metas.clone().segments;
-        let mut segments = current_segments;
-        segments.push(segment_meta.clone());
-
+    fn save_metas(&mut self, segments: Vec<SegmentMeta>, current_metas: &IndexMeta) -> Result<()> {
         let new_metas = IndexMeta {
             segments,
             ..current_metas.clone()
         };
+        pgrx::info!(
+            "saving metas: {:?}",
+            new_metas
+                .segments
+                .iter()
+                .map(|segment| segment.id())
+                .collect::<Vec<_>>()
+        );
+        pgrx::info!(
+            "current_metas: {:?}",
+            current_metas
+                .segments
+                .iter()
+                .map(|segment| segment.id())
+                .collect::<Vec<_>>()
+        );
         self.index
             .directory()
             .save_metas(&new_metas, &current_metas, &mut ())?;
-        self.new_metas.push(segment_meta);
         Ok(())
     }
 
     fn new_segment(&mut self) -> Result<PendingSegment> {
-        if self.target_docs_per_segment.is_none() || self.new_metas.len() == 0 {
+        if self.target_docs_per_segment.is_none() || self.last_flushed_segment_meta.is_none() {
             return PendingSegment::new_mvcc(&self.index, self.memory_budget);
         }
 
-        let previous_num_docs = self.new_metas.last().unwrap().max_doc() as usize;
+        let previous_num_docs = self.last_flushed_segment_meta.as_ref().unwrap().max_doc() as usize;
         let target_docs_per_segment = self.target_docs_per_segment.unwrap();
 
         if previous_num_docs + self.max_doc.unwrap_or_default() > target_docs_per_segment {
@@ -234,30 +236,64 @@ impl SerialIndexWriter {
     }
 
     fn finalize_segment(&mut self) -> Result<()> {
-        let Some(segment) = self.segment.take() else {
+        let Some(pending_segment) = self.pending_segment.take() else {
             // no docs were ever added
             return Ok(());
         };
 
-        let directory_type = segment.directory_type();
-        let segment = segment.finalize()?;
+        let directory_type = pending_segment.directory_type();
+        let finalized_segment = pending_segment.finalize()?;
 
         if self.max_doc.is_none() {
-            self.max_doc = Some(segment.meta().num_docs() as usize);
+            self.max_doc = Some(finalized_segment.meta().num_docs() as usize);
         }
+
+        let current_metas = self.load_metas()?;
+        let mut segments = current_metas.clone().segments;
 
         match directory_type {
             DirectoryType::Ram => {
-                let last_segment = self.index.segment(self.new_metas.pop().unwrap());
-                let merged_segment = merge_segments(vec![segment, last_segment], &self.index)?;
-                self.save_new_meta(merged_segment.expect("merged segment should exist"))?;
+                let last_flushed_segment = self
+                    .index
+                    .segment(self.last_flushed_segment_meta.as_ref().unwrap().clone());
+                let last_flushed_segment_id = last_flushed_segment.id();
+                let merged_segment_meta =
+                    merge_segments(vec![finalized_segment, last_flushed_segment], &self.index)?
+                        .expect("merge should succeed");
+
+                // Remove the merged-away segment and add the new one
+                segments.retain(|segment| segment.id() != last_flushed_segment_id);
+                segments.push(merged_segment_meta.clone());
+
+                pgrx::info!(
+                    "want to remove {:?} and introduce {:?}, new ids are {:?}",
+                    last_flushed_segment_id,
+                    merged_segment_meta.id(),
+                    segments
+                        .iter()
+                        .map(|segment| segment.id())
+                        .collect::<Vec<_>>()
+                );
+
+                self.save_metas(segments, &current_metas)?;
+                self.last_flushed_segment_meta = Some(merged_segment_meta);
             }
             DirectoryType::Mvcc => {
-                self.save_new_meta(segment.meta().clone())?;
+                // Add the new segment to the list of segments
+                segments.push(finalized_segment.meta().clone());
+                self.save_metas(segments, &current_metas)?;
+                self.last_flushed_segment_meta = Some(finalized_segment.meta().clone());
             }
         };
 
         Ok(())
+    }
+
+    fn load_metas(&mut self) -> Result<IndexMeta> {
+        let index_relation = unsafe { PgRelation::open(self.indexrelid) };
+        let directory = self.mvcc_satisfies.clone().directory(&index_relation);
+        let index = Index::open(directory)?;
+        Ok(index.load_metas()?)
     }
 }
 
@@ -327,6 +363,15 @@ pub trait Mergeable {
     /// Will panic if a segment_id has already been merged or if our internal tantivy communications
     /// channels fail for some reason.
     fn merge_segments(&mut self, segment_ids: &[SegmentId]) -> Result<Option<SegmentMeta>>;
+
+    // Merge any [`Segment`]s into the current index.
+    //
+    // These segments can come from anywhere and can be backed by different Index/Directory types.
+    // For instance, you can merge a RamDirectory-backed segment with a MVCCDirectory-backed segment.
+    //
+    // Unlike merge_segments, this method does not update the metas list because it has no knowledge of
+    // what index the provided segments belong to.
+    // fn merge_into(&mut self, segments: &[Segment]) -> Result<Option<SegmentMeta>>;
 }
 
 impl Mergeable for SearchIndexMerger {
@@ -351,7 +396,15 @@ impl Mergeable for SearchIndexMerger {
 }
 
 fn merge_segments(segments: Vec<Segment>, index: &Index) -> Result<Option<SegmentMeta>> {
-    assert!(index.directory().as_any().downcast_ref::<MVCCDirectory>().is_some(), "merge_segments: index directory should be a MVCCDirectory");
+    assert!(
+        index
+            .directory()
+            .inner()
+            .as_any()
+            .downcast_ref::<MVCCDirectory>()
+            .is_some(),
+        "merge_segments: index directory should be a MVCCDirectory"
+    );
 
     let num_docs = segments
         .iter()
@@ -361,7 +414,13 @@ fn merge_segments(segments: Vec<Segment>, index: &Index) -> Result<Option<Segmen
         return Ok(None);
     }
 
-    pgrx::info!("merging segments: {:?}", segments.iter().map(|segment| segment.id()).collect::<Vec<_>>());
+    pgrx::info!(
+        "merging segments: {:?}",
+        segments
+            .iter()
+            .map(|segment| segment.id())
+            .collect::<Vec<_>>()
+    );
 
     let merged_segment = index.new_segment();
     let merger = IndexMerger::open(

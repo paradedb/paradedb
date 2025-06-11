@@ -1,12 +1,13 @@
 use crate::api::Regex;
-use pgrx::PostgresType;
+use pgrx::{InOutFuncs, PostgresType, StringInfo};
 use serde::{Deserialize, Serialize};
+use std::ffi::CStr;
 
 pub mod query;
 mod scorer;
 mod weight;
 
-#[derive(Debug, Clone, Eq, PartialEq, PostgresType, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum ProximityTermStyle {
     Term(String),
     Rexgex(Regex, usize),
@@ -22,6 +23,7 @@ impl ProximityTermStyle {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, PostgresType, Serialize, Deserialize)]
+#[inoutfuncs]
 pub enum ProximityClause {
     Term(ProximityTermStyle),
     Clauses(Vec<ProximityClause>),
@@ -30,6 +32,33 @@ pub enum ProximityClause {
         distance: ProximityDistance,
         right: Box<ProximityClause>,
     },
+}
+
+impl InOutFuncs for ProximityClause {
+    fn input(input: &CStr) -> Self
+    where
+        Self: Sized,
+    {
+        if let Ok(from_json) = serde_json::from_slice::<ProximityClause>(input.to_bytes()) {
+            from_json
+        } else {
+            // assume it's just a string
+            ProximityClause::Term(ProximityTermStyle::Term(
+                input
+                    .to_str()
+                    .expect("input should be valid UTF8")
+                    .to_string(),
+            ))
+        }
+    }
+
+    fn output(&self, buffer: &mut StringInfo) {
+        if let ProximityClause::Term(ProximityTermStyle::Term(s)) = self {
+            buffer.push_str(s);
+        } else {
+            serde_json::to_writer(buffer, self).unwrap();
+        }
+    }
 }
 
 #[derive(Copy, Clone)]

@@ -350,6 +350,7 @@ impl Directory for MVCCDirectory {
             match load_metas(self.relation_oid, inventory, &self.mvcc_style) {
                 Err(e) => Arc::new(Err(e)),
                 Ok((all_entries, index_meta, pin_cushion)) => {
+                    pgrx::info!("loaded_metas: all_entries={:?}", all_entries);
                     *self.all_entries.lock() = all_entries
                         .into_iter()
                         .map(|entry| (entry.segment_id, entry))

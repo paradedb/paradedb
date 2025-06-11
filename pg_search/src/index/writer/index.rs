@@ -43,8 +43,7 @@ struct PendingSegment {
 }
 
 impl PendingSegment {
-    fn new_ram(schema: Schema, memory_budget: usize) -> Result<Self> {
-        let index = Index::create_in_ram(schema);
+    fn new_ram(index: &Index, memory_budget: usize) -> Result<Self> {
         let segment = index.new_segment();
         let writer = SegmentWriter::for_segment(memory_budget, segment.clone())?;
         Ok(Self {
@@ -82,9 +81,10 @@ impl PendingSegment {
                 let writer_mem_usage = self.writer.mem_usage();
                 let directory = self.segment.index().directory();
                 let directory_mem_usage = directory
+                    .inner()
                     .as_any()
                     .downcast_ref::<RamDirectory>()
-                    .unwrap()
+                    .expect("segment should be a ram directory")
                     .total_mem_usage();
                 writer_mem_usage + directory_mem_usage
             }
@@ -160,11 +160,28 @@ impl SerialIndexWriter {
 
         if self.segment.is_none() {
             self.segment = Some(self.new_segment()?);
+            pgrx::info!(
+                "new segment created type={:?}",
+                self.segment
+                    .as_ref()
+                    .expect("segment should exist")
+                    .directory_type()
+            );
         }
 
-        self.segment.as_mut().unwrap().add_document(document)?;
+        self.segment
+            .as_mut()
+            .expect("segment should exist add doc")
+            .add_document(document)?;
 
-        if self.memory_budget <= self.segment.as_ref().unwrap().mem_usage() {
+        if self.memory_budget
+            <= self
+                .segment
+                .as_ref()
+                .expect("segment should exist mem usage")
+                .mem_usage()
+        {
+            pgrx::info!("finalizing segment");
             self.finalize_segment()?;
         }
 
@@ -173,24 +190,28 @@ impl SerialIndexWriter {
 
     pub fn commit(mut self) -> Result<Vec<SegmentId>> {
         self.finalize_segment()?;
-
-        // Save new metas
-        let current_metas = self.index.load_metas()?;
-        let current_segments = current_metas.clone().segments;
-        let new_segment_ids = self
+        Ok(self
             .new_metas
             .iter()
             .map(|meta| meta.id())
-            .collect::<Vec<_>>();
-        pgrx::info!("commit: new_segment_ids={:?}", new_segment_ids);
+            .collect::<Vec<_>>())
+    }
+
+    fn save_new_meta(&mut self, segment_meta: SegmentMeta) -> Result<()> {
+        let current_metas = self.index.load_metas()?;
+        let current_segments = current_metas.clone().segments;
+        let mut segments = current_segments;
+        segments.push(segment_meta.clone());
+
         let new_metas = IndexMeta {
-            segments: [self.new_metas, current_segments].concat(),
+            segments,
             ..current_metas.clone()
         };
         self.index
             .directory()
             .save_metas(&new_metas, &current_metas, &mut ())?;
-        Ok(new_segment_ids)
+        self.new_metas.push(segment_meta);
+        Ok(())
     }
 
     fn new_segment(&mut self) -> Result<PendingSegment> {
@@ -205,7 +226,9 @@ impl SerialIndexWriter {
             return PendingSegment::new_mvcc(&self.index, self.memory_budget);
         }
 
-        PendingSegment::new_ram(self.index.schema(), self.memory_budget)
+        let mut index = Index::create_in_ram(self.index.schema());
+        setup_tokenizers(self.indexrelid, &mut index)?;
+        PendingSegment::new_ram(&index, self.memory_budget)
     }
 
     fn finalize_segment(&mut self) -> Result<()> {
@@ -221,18 +244,15 @@ impl SerialIndexWriter {
             self.max_doc = Some(segment_meta.max_doc() as usize);
         }
 
-        let final_segment_meta = match directory_type {
+        match directory_type {
             DirectoryType::Ram => {
-                let merge_metas = [segment_meta, self.new_metas.last().unwrap().clone()].to_vec();
-                let mut merger = SearchIndexMerger::open(self.indexrelid, merge_metas.clone())?;
-                merger
-                    .merge_segments(&merge_metas.iter().map(|meta| meta.id()).collect::<Vec<_>>())?
-                    .expect("finalize_segment: merge should return a segment")
+                todo!("do a merge");
             }
-            DirectoryType::Mvcc => segment_meta,
+            DirectoryType::Mvcc => {
+                self.save_new_meta(segment_meta)?;
+            }
         };
 
-        self.new_metas.push(final_segment_meta);
         Ok(())
     }
 }
@@ -244,17 +264,10 @@ pub struct SearchIndexMerger {
 }
 
 impl SearchIndexMerger {
-    pub fn open(
-        relation_id: pg_sys::Oid,
-        uncommited_metas: Vec<SegmentMeta>,
-    ) -> Result<SearchIndexMerger> {
+    pub fn open(relation_id: pg_sys::Oid) -> Result<SearchIndexMerger> {
         let directory = MVCCDirectory::mergeable(relation_id);
         let index = Index::open(directory.clone())?;
         let writer = index.writer(15 * 1024 * 1024)?;
-
-        for meta in uncommited_metas {
-            writer.add_segment(meta)?;
-        }
 
         Ok(Self {
             directory,
@@ -267,7 +280,7 @@ impl SearchIndexMerger {
         self.directory.all_entries()
     }
 
-    pub fn segment_ids(&mut self) -> tantivy::Result<HashSet<SegmentId>> {
+    pub fn searchable_segment_ids(&mut self) -> tantivy::Result<HashSet<SegmentId>> {
         Ok(self
             .writer
             .index()
@@ -282,7 +295,7 @@ impl SearchIndexMerger {
         segment_ids: impl Iterator<Item = &'a SegmentId>,
     ) -> tantivy::Result<impl Mergeable> {
         let keep = segment_ids.cloned().collect::<HashSet<_>>();
-        let current = self.segment_ids()?;
+        let current = self.searchable_segment_ids()?;
         let remove = current.difference(&keep);
 
         for segment_id in remove {

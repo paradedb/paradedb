@@ -252,10 +252,10 @@ pub unsafe fn merge_index_with_policy(
     let cleanup_lock = BufferManager::new(indexrelid).get_buffer(CLEANUP_LOCK);
     let metadata = MetaPage::open(indexrelid);
     let merge_lock = metadata.acquire_merge_lock();
-    let mut merger = SearchIndexMerger::open(indexrelid, vec![])
+    let mut merger = SearchIndexMerger::open(indexrelid)
         .expect("should be able to open a SearchIndexMerger");
     let merger_segment_ids = merger
-        .segment_ids()
+        .searchable_segment_ids()
         .expect("SearchIndexMerger should have segment ids");
 
     // the non_mergeable_segments are those that are concurrently being vacuumed *and* merged

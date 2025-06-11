@@ -16,7 +16,6 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::FieldName;
-use crate::index::directory::mvcc::MVCCDirectory;
 use crate::index::writer::index::{Mergeable, SearchIndexMerger, SerialIndexWriter};
 use crate::index::WriterResources;
 use crate::launch_parallel_process;
@@ -176,7 +175,7 @@ impl ParallelWorker for BuildWorker<'_> {
 
     fn run(mut self, mq_sender: &MessageQueueSender, _worker_number: i32) -> anyhow::Result<()> {
         self.coordination.inc_nlaunched();
-        let (reltuples, segment_ids) = self.do_build(true)?;
+        let (reltuples, segment_ids) = self.do_build()?;
         let response = WorkerResponse {
             reltuples,
             segment_ids,
@@ -202,7 +201,7 @@ impl<'a> BuildWorker<'a> {
         }
     }
 
-    fn do_build(&mut self, do_merge: bool) -> anyhow::Result<(f64, Vec<SegmentId>)> {
+    fn do_build(&mut self) -> anyhow::Result<(f64, Vec<SegmentId>)> {
         unsafe {
             let index_info = pg_sys::BuildIndexInfo(self.indexrel.as_ptr());
             (*index_info).ii_Concurrent = self.config.concurrent;
@@ -224,62 +223,8 @@ impl<'a> BuildWorker<'a> {
             );
 
             let segment_ids = build_state.writer.commit()?;
-            if do_merge {
-                let remaining = self.do_merge(segment_ids)?;
-                Ok((reltuples, remaining))
-            } else {
-                Ok((reltuples, segment_ids))
-            }
+            Ok((reltuples, segment_ids))
         }
-    }
-
-    fn do_merge(&mut self, segment_ids: Vec<SegmentId>) -> anyhow::Result<Vec<SegmentId>> {
-        let desired_segment_count = std::thread::available_parallelism()
-            .expect("your computer should have at least one core");
-        let nworkers = self.coordination.nlaunched();
-        let desired_segments_per_worker = desired_segment_count.get().div_ceil(nworkers);
-
-        pgrx::info!(
-            "do_merge: segment_ids={:?}, desired_segments_per_worker={} desired_segment_count={} nworkers={}",
-            segment_ids,
-            desired_segments_per_worker,
-            desired_segment_count.get(),
-            nworkers
-        );
-
-        if desired_segments_per_worker >= segment_ids.len() {
-            return Ok(segment_ids);
-        }
-
-        let mut merger = SearchIndexMerger::open(self.indexrel.oid(), vec![])?;
-
-        // Calculate how many segments should be merged together to reach desired count
-        // e.g., if we have 16 segments and want 4, merge in groups of 4
-        let merge_group_size = segment_ids.len().div_ceil(desired_segments_per_worker);
-
-        pgrx::info!("do_merge: merge_group_size={}", merge_group_size,);
-
-        let mut remaining = Vec::new();
-        for chunk in segment_ids.chunks(merge_group_size) {
-            if chunk.len() > 1 {
-                pgrx::info!("do_merge: chunk={:?}", chunk);
-                if let Some(merged) = merger.merge_segments(chunk)? {
-                    remaining.push(merged.id());
-                }
-            } else {
-                remaining.extend(chunk);
-            }
-        }
-
-        pgrx::info!("do_merge: finished merging, remaining={:?}", remaining);
-
-        unsafe {
-            garbage_collect_index(&self.indexrel);
-        }
-
-        pgrx::info!("do_merge: finished garbage collecting");
-
-        Ok(remaining)
     }
 }
 
@@ -295,7 +240,11 @@ impl WorkerBuildState {
     pub fn new(indexrel: &PgRelation) -> anyhow::Result<Self> {
         let (parallelism, memory_budget) = WriterResources::CreateIndex.resources();
         let memory_budget = memory_budget / parallelism;
-        let writer = SerialIndexWriter::open(indexrel, memory_budget, None)?;
+        let writer = SerialIndexWriter::open(
+            indexrel,
+            memory_budget,
+            Some(Self::desired_docs_per_segment(indexrel)),
+        )?;
         let schema = SearchIndexSchema::open(indexrel.oid())?;
         let tupdesc = indexrel.tuple_desc();
         let categorized_fields = categorize_fields(&tupdesc, &schema);
@@ -306,6 +255,19 @@ impl WorkerBuildState {
             key_field_name,
             per_row_context: PgMemoryContexts::new("pg_search ambuild context"),
         })
+    }
+
+    fn desired_docs_per_segment(indexrel: &PgRelation) -> usize {
+        let desired_segment_count = std::thread::available_parallelism()
+            .expect("your computer should have at least one core");
+        let reltuples = indexrel.heap_relation().unwrap().reltuples();
+
+        if reltuples.is_none() {
+            pgrx::warning!("Unable to estimate the size of the index, run ANALYZE");
+        }
+
+        pgrx::info!("desired_docs_per_segment: reltuples={}, desired_segment_count={}, desired_docs_per_segment={}", reltuples.unwrap_or_default(), desired_segment_count.get(), (reltuples.unwrap_or_default() as f64 / desired_segment_count.get() as f64).ceil() as usize);
+        (reltuples.unwrap_or_default() as f64 / desired_segment_count.get() as f64).ceil() as usize
     }
 }
 
@@ -402,7 +364,7 @@ pub(super) fn build_index(
 
             // directly instantiate a worker for the leader and have it do its build
             let mut worker = BuildWorker::new_parallel_worker(*process.state_manager());
-            worker.do_build(true)?
+            worker.do_build()?
         } else {
             (0.0, vec![])
         };
@@ -436,7 +398,7 @@ pub(super) fn build_index(
             &mut coordination,
         );
 
-        worker.do_build(true)
+        worker.do_build()
     }
 }
 
@@ -456,27 +418,5 @@ fn calculate_nworkers(heaprel: &PgRelation) -> usize {
         } else {
             pg_sys::max_parallel_maintenance_workers as usize
         }
-    }
-}
-
-// if no segments written, write this one to disk since it's the first
-// figure out how many docs are in the last segment
-// figure out how many docs should be in each segment by dividing number of rows in table by CPU count
-// if number of docs in the last segment is less than the desired number of docs per segment, the next one should be an in memory index
-// otherwise the next one should be on disk
-fn get_directory(
-    previous_segment_meta: Option<SegmentMeta>,
-    desired_num_docs_per_segment: usize,
-    index_oid: pg_sys::Oid,
-) -> Box<dyn Directory> {
-    if let Some(previous_segment_meta) = previous_segment_meta {
-        let num_docs_in_segment = previous_segment_meta.max_doc();
-        if num_docs_in_segment < (desired_num_docs_per_segment as f64 * 0.7) as u32 {
-            Box::new(RamDirectory::create())
-        } else {
-            Box::new(MVCCDirectory::snapshot(index_oid))
-        }
-    } else {
-        Box::new(RamDirectory::create())
     }
 }

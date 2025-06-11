@@ -20,6 +20,8 @@ use anyhow::Result;
 use pgrx::{pg_sys, PgRelation};
 use tantivy::directory::RamDirectory;
 use tantivy::index::SegmentId;
+use tantivy::indexer::merger::IndexMerger;
+use tantivy::indexer::segment_serializer::SegmentSerializer;
 use tantivy::indexer::{AddOperation, SegmentWriter};
 use tantivy::schema::{Field, Schema};
 use tantivy::{Directory, Index, IndexMeta, IndexWriter, Segment, SegmentMeta, TantivyDocument};
@@ -92,11 +94,11 @@ impl PendingSegment {
         }
     }
 
-    fn finalize(self) -> Result<SegmentMeta> {
+    fn finalize(self) -> Result<Segment> {
         let max_doc = self.writer.max_doc();
         self.writer.finalize()?;
         let segment = self.segment.with_max_doc(max_doc);
-        Ok(segment.meta().clone())
+        Ok(segment)
     }
 }
 
@@ -238,18 +240,20 @@ impl SerialIndexWriter {
         };
 
         let directory_type = segment.directory_type();
-        let segment_meta = segment.finalize()?;
+        let segment = segment.finalize()?;
 
         if self.max_doc.is_none() {
-            self.max_doc = Some(segment_meta.max_doc() as usize);
+            self.max_doc = Some(segment.meta().num_docs() as usize);
         }
 
         match directory_type {
             DirectoryType::Ram => {
-                todo!("do a merge");
+                let last_segment = self.index.segment(self.new_metas.pop().unwrap());
+                let merged_segment = merge_segments(vec![segment, last_segment], &self.index)?;
+                self.save_new_meta(merged_segment.expect("merged segment should exist"))?;
             }
             DirectoryType::Mvcc => {
-                self.save_new_meta(segment_meta)?;
+                self.save_new_meta(segment.meta().clone())?;
             }
         };
 
@@ -344,6 +348,38 @@ impl Mergeable for SearchIndexMerger {
 
         Ok(new_segment)
     }
+}
+
+fn merge_segments(segments: Vec<Segment>, index: &Index) -> Result<Option<SegmentMeta>> {
+    assert!(index.directory().as_any().downcast_ref::<MVCCDirectory>().is_some(), "merge_segments: index directory should be a MVCCDirectory");
+
+    let num_docs = segments
+        .iter()
+        .map(|segment| segment.meta().num_docs() as u64)
+        .sum::<u64>();
+    if num_docs == 0 {
+        return Ok(None);
+    }
+
+    pgrx::info!("merging segments: {:?}", segments.iter().map(|segment| segment.id()).collect::<Vec<_>>());
+
+    let merged_segment = index.new_segment();
+    let merger = IndexMerger::open(
+        index.schema(),
+        &segments[..],
+        {
+            let index = index.clone();
+            Box::new(move || index.directory().wants_cancel())
+        },
+        true,
+    )?;
+    let segment_serializer = SegmentSerializer::for_segment(merged_segment.clone())?;
+    let num_docs = merger.write(segment_serializer)?;
+    let segment_meta = index.new_segment_meta(merged_segment.id(), num_docs);
+
+    pgrx::info!("merged segment: {:?}", segment_meta);
+
+    Ok(Some(segment_meta))
 }
 
 #[derive(Error, Debug)]

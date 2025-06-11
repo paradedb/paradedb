@@ -122,7 +122,7 @@ pub struct SerialIndexWriter {
     directory: MVCCDirectory,
     target_docs_per_segment: Option<usize>,
     pending_segment: Option<PendingSegment>,
-    max_doc: Option<usize>,
+    avg_docs_per_segment: Option<usize>,
     new_metas: Vec<SegmentMeta>,
 }
 
@@ -160,7 +160,7 @@ impl SerialIndexWriter {
             directory,
             target_docs_per_segment,
             pending_segment: Default::default(),
-            max_doc: Default::default(),
+            avg_docs_per_segment: Default::default(),
             new_metas: Default::default(),
         })
     }
@@ -212,7 +212,9 @@ impl SerialIndexWriter {
         let previous_num_docs = self.new_metas.last().unwrap().max_doc() as usize;
         let target_docs_per_segment = self.target_docs_per_segment.unwrap();
 
-        if previous_num_docs + self.max_doc.unwrap_or_default() > target_docs_per_segment {
+        if previous_num_docs + self.avg_docs_per_segment.unwrap_or_default()
+            > target_docs_per_segment
+        {
             return PendingSegment::new_mvcc(
                 self.directory.clone(),
                 self.memory_budget,
@@ -243,29 +245,16 @@ impl SerialIndexWriter {
         let directory_type = pending_segment.directory_type();
         let finalized_segment = pending_segment.finalize()?;
 
-        if self.max_doc.is_none() {
-            self.max_doc = Some(finalized_segment.meta().num_docs() as usize);
+        if self.avg_docs_per_segment.is_none() {
+            self.avg_docs_per_segment = Some(finalized_segment.meta().num_docs() as usize);
         }
-
-        let previous_metas = self.new_metas.clone();
 
         match directory_type {
             DirectoryType::Ram(_) => {
-                let last_flushed_segment_meta = self.new_metas.pop().unwrap();
-                let last_flushed_segment = self.index.segment(last_flushed_segment_meta.clone());
-                let mut merger = SearchIndexMerger::open(self.directory.clone())?;
-                let merged_segment_meta =
-                    merger.merge_into(&[finalized_segment, last_flushed_segment])?;
-
-                if let Some(merged_segment_meta) = merged_segment_meta {
-                    self.new_metas.push(merged_segment_meta.clone());
-                    self.save_metas(self.new_metas.clone(), previous_metas)?;
-                }
+                self.flush_ram_segment(finalized_segment)?;
             }
             DirectoryType::Mvcc => {
-                // Add the new segment to the list of segments
-                self.new_metas.push(finalized_segment.meta().clone());
-                self.save_metas(self.new_metas.clone(), previous_metas)?;
+                self.flush_mvcc_segment(finalized_segment)?;
             }
         };
 
@@ -274,6 +263,30 @@ impl SerialIndexWriter {
             garbage_collect_index(&index_relation);
         }
 
+        Ok(())
+    }
+
+    fn flush_ram_segment(&mut self, finalized_segment: Segment) -> Result<()> {
+        let previous_metas = self.new_metas.clone();
+
+        let last_flushed_segment_meta = self.new_metas.pop().unwrap();
+        let last_flushed_segment = self.index.segment(last_flushed_segment_meta.clone());
+
+        let mut merger = SearchIndexMerger::open(self.directory.clone())?;
+        let merged_segment_meta = merger.merge_into(&[finalized_segment, last_flushed_segment])?;
+
+        if let Some(merged_segment_meta) = merged_segment_meta {
+            self.new_metas.push(merged_segment_meta.clone());
+            self.save_metas(self.new_metas.clone(), previous_metas)?;
+        }
+
+        Ok(())
+    }
+
+    fn flush_mvcc_segment(&mut self, finalized_segment: Segment) -> Result<()> {
+        let previous_metas = self.new_metas.clone();
+        self.new_metas.push(finalized_segment.meta().clone());
+        self.save_metas(self.new_metas.clone(), previous_metas)?;
         Ok(())
     }
 

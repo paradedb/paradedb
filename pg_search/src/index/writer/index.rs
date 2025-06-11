@@ -109,12 +109,11 @@ pub struct SerialIndexWriter {
     indexrelid: pg_sys::Oid,
     ctid_field: Field,
     pending_segment: Option<PendingSegment>,
-    last_flushed_segment_meta: Option<SegmentMeta>,
     memory_budget: usize,
     index: Index,
     target_docs_per_segment: Option<usize>,
     max_doc: Option<usize>,
-    mvcc_satisfies: MvccSatisfies,
+    new_metas: Vec<SegmentMeta>,
 }
 
 impl SerialIndexWriter {
@@ -148,11 +147,10 @@ impl SerialIndexWriter {
             ctid_field,
             memory_budget,
             index,
-            pending_segment: Default::default(),
-            last_flushed_segment_meta: Default::default(),
-            max_doc: Default::default(),
             target_docs_per_segment,
-            mvcc_satisfies,
+            pending_segment: Default::default(),
+            max_doc: Default::default(),
+            new_metas: Default::default(),
         })
     }
 
@@ -185,11 +183,11 @@ impl SerialIndexWriter {
     }
 
     fn new_segment(&mut self) -> Result<PendingSegment> {
-        if self.target_docs_per_segment.is_none() || self.last_flushed_segment_meta.is_none() {
+        if self.target_docs_per_segment.is_none() || self.new_metas.is_empty() {
             return PendingSegment::new_mvcc(&self.index, self.memory_budget);
         }
 
-        let previous_num_docs = self.last_flushed_segment_meta.as_ref().unwrap().max_doc() as usize;
+        let previous_num_docs = self.new_metas.last().unwrap().max_doc() as usize;
         let target_docs_per_segment = self.target_docs_per_segment.unwrap();
 
         if previous_num_docs + self.max_doc.unwrap_or_default() > target_docs_per_segment {
@@ -214,31 +212,25 @@ impl SerialIndexWriter {
             self.max_doc = Some(finalized_segment.meta().num_docs() as usize);
         }
 
-        let current_metas = self.load_metas()?;
-        let mut segments = current_metas.clone().segments;
+        let previous_metas = self.new_metas.clone();
 
         match directory_type {
             DirectoryType::Ram => {
-                let last_flushed_segment = self
-                    .index
-                    .segment(self.last_flushed_segment_meta.as_ref().unwrap().clone());
-                let last_flushed_segment_id = last_flushed_segment.id();
+                let last_flushed_segment_meta = self.new_metas.pop().unwrap();
+                let last_flushed_segment = self.index.segment(last_flushed_segment_meta.clone());
                 let mut merger = SearchIndexMerger::open(self.index.clone())?;
                 let merged_segment_meta =
                     merger.merge_into(&[finalized_segment, last_flushed_segment])?;
 
                 if let Some(merged_segment_meta) = merged_segment_meta {
-                    segments.retain(|segment| segment.id() != last_flushed_segment_id);
-                    segments.push(merged_segment_meta.clone());
-                    self.save_metas(segments, &current_metas)?;
-                    self.last_flushed_segment_meta = Some(merged_segment_meta);
+                    self.new_metas.push(merged_segment_meta.clone());
+                    self.save_metas(self.new_metas.clone(), previous_metas)?;
                 }
             }
             DirectoryType::Mvcc => {
                 // Add the new segment to the list of segments
-                segments.push(finalized_segment.meta().clone());
-                self.save_metas(segments, &current_metas)?;
-                self.last_flushed_segment_meta = Some(finalized_segment.meta().clone());
+                self.new_metas.push(finalized_segment.meta().clone());
+                self.save_metas(self.new_metas.clone(), previous_metas)?;
             }
         };
 
@@ -250,21 +242,23 @@ impl SerialIndexWriter {
         Ok(())
     }
 
-    fn load_metas(&mut self) -> Result<IndexMeta> {
-        let index_relation = unsafe { PgRelation::open(self.indexrelid) };
-        let directory = self.mvcc_satisfies.clone().directory(&index_relation);
-        let index = Index::open(directory)?;
-        Ok(index.load_metas()?)
-    }
-
-    fn save_metas(&mut self, segments: Vec<SegmentMeta>, current_metas: &IndexMeta) -> Result<()> {
-        let new_metas = IndexMeta {
-            segments,
+    fn save_metas(
+        &mut self,
+        new_metas: Vec<SegmentMeta>,
+        previous_metas: Vec<SegmentMeta>,
+    ) -> Result<()> {
+        let current_metas = self.index.load_metas()?;
+        let previous_index_meta = IndexMeta {
+            segments: previous_metas,
+            ..current_metas.clone()
+        };
+        let new_index_meta = IndexMeta {
+            segments: new_metas,
             ..current_metas.clone()
         };
         self.index
             .directory()
-            .save_metas(&new_metas, current_metas, &mut ())?;
+            .save_metas(&new_index_meta, &previous_index_meta, &mut ())?;
         Ok(())
     }
 }

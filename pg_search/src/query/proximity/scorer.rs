@@ -6,6 +6,7 @@ use tantivy::query::{Bm25Weight, Intersection, Scorer, SimpleUnion};
 use tantivy::{DocId, DocSet, Score, TERMINATED};
 
 pub struct ProximityScorer {
+    #[allow(clippy::type_complexity)]
     intersection: Intersection<SimpleUnion<Box<dyn Postings>>, SimpleUnion<Box<dyn Postings>>>,
     distance: ProximityDistance,
     fieldnorm_reader: FieldNormReader,
@@ -92,7 +93,7 @@ impl<'a> ProxIter<'a> {
     }
 }
 
-impl<'a> Iterator for ProxIter<'a> {
+impl Iterator for ProxIter<'_> {
     type Item = (u32, u32);
 
     fn next(&mut self) -> Option<Self::Item> {

@@ -80,7 +80,7 @@ impl Query for ProximityQuery {
         Ok(Box::new(weight))
     }
 
-    fn query_terms<'a>(&'a self, visitor: &mut dyn FnMut(&'a Term, bool)) {
+    fn query_terms<'a>(&'a self, _visitor: &mut dyn FnMut(&'a Term, bool)) {
         // TODO:  figure out how to do this one
         // for term in self.terms() {
         //     visitor(term, true)

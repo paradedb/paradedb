@@ -1,4 +1,5 @@
 SELECT id, paradedb.score(id) FROM mock_items_issue_2528 WHERE description @@@ 'shoes' and in_stock = true LIMIT 5;
+WARNING:  Some fields used in this query are not bm25 indexed, so we will use heap filtering. This is not efficient and should be avoided.
  id | score 
 ----+-------
   3 |     2

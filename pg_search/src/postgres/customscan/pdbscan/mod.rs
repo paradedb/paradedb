@@ -298,6 +298,7 @@ impl PdbScan {
         }
         // Check if we have a heap filter node string to evaluate
         if state.custom_state().heap_filter_expr_state.is_none() {
+            pgrx::warning!("Some fields used in this query are not bm25 indexed, so we will use heap filtering. This is not efficient and should be avoided.");
             // Initialize ExprState if not already done
             let heap_filter_node_string = state
                 .custom_state()

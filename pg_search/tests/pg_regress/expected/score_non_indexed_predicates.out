@@ -64,6 +64,7 @@ FROM products
 WHERE (name @@@ 'Apple' OR description @@@ 'smartphone') 
   AND category_name = 'Electronics'
 ORDER BY score DESC;
+WARNING:  Some fields used in this query are not bm25 indexed, so we will use heap filtering. This is not efficient and should be avoided.
  id |      name      | category_name |   score   
 ----+----------------+---------------+-----------
   7 | Apple Watch    | Electronics   |  2.032015
@@ -83,6 +84,7 @@ FROM products
 WHERE description @@@ 'running' 
   AND price < 200.00
 ORDER BY score DESC;
+WARNING:  Some fields used in this query are not bm25 indexed, so we will use heap filtering. This is not efficient and should be avoided.
  id |       name        | price  |   score   
 ----+-------------------+--------+-----------
   3 | Nike Air Max      | 149.99 | 1.1976256
@@ -100,6 +102,7 @@ FROM products
 WHERE description @@@ 'technology' 
   AND in_stock = true
 ORDER BY score DESC;
+WARNING:  Some fields used in this query are not bm25 indexed, so we will use heap filtering. This is not efficient and should be avoided.
  id |       name        | in_stock |  score  
 ----+-------------------+----------+---------
   5 | Adidas Ultraboost | t        | 1.43954
@@ -133,6 +136,7 @@ WHERE (name @@@ 'shoes' OR description @@@ 'running')
   AND category_name = 'Footwear'
   AND price BETWEEN 100.00 AND 200.00
 ORDER BY score DESC; 
+WARNING:  Some fields used in this query are not bm25 indexed, so we will use heap filtering. This is not efficient and should be avoided.
  id |       name        | category_name | price  |   score   
 ----+-------------------+---------------+--------+-----------
   3 | Nike Air Max      | Footwear      | 149.99 | 1.1976256
@@ -155,6 +159,7 @@ WHERE description @@@ 'Apple'
   AND price > 500.00
   AND category_name = 'Electronics'
 ORDER BY score DESC;
+WARNING:  Some fields used in this query are not bm25 indexed, so we will use heap filtering. This is not efficient and should be avoided.
  id |    name     | category_id |  price  | category_name |   score   
 ----+-------------+-------------+---------+---------------+-----------
   2 | MacBook Pro |           1 | 2499.99 | Electronics   | 1.5495219
@@ -176,6 +181,7 @@ WHERE name @@@ 'smartphone'
     (price > 800.00 AND category_name = 'Electronics')
   )
 ORDER BY score DESC;
+WARNING:  Some fields used in this query are not bm25 indexed, so we will use heap filtering. This is not efficient and should be avoided.
  id | name | price | in_stock | score 
 ----+------+-------+----------+-------
 (0 rows)
@@ -191,6 +197,7 @@ FROM products
 WHERE description @@@ 'running'
   AND rating >= 4.0
 ORDER BY score DESC;
+WARNING:  Some fields used in this query are not bm25 indexed, so we will use heap filtering. This is not efficient and should be avoided.
  id |       name        | rating |   score   
 ----+-------------------+--------+-----------
   3 | Nike Air Max      |    4.2 | 1.1976256
@@ -208,6 +215,7 @@ FROM products
 WHERE name @@@ 'phone'
   AND tags IS NULL
 ORDER BY score DESC;
+WARNING:  Some fields used in this query are not bm25 indexed, so we will use heap filtering. This is not efficient and should be avoided.
  id |     name     | tags |  score   
 ----+--------------+------+----------
  10 | Budget Phone |      | 2.032015
@@ -224,6 +232,7 @@ FROM products
 WHERE description @@@ 'Apple'
   AND tags IS NOT NULL
 ORDER BY score DESC;
+WARNING:  Some fields used in this query are not bm25 indexed, so we will use heap filtering. This is not efficient and should be avoided.
  id |    name     |        tags        |   score   
 ----+-------------+--------------------+-----------
   2 | MacBook Pro | {laptop,apple}     | 1.5495219
@@ -246,6 +255,7 @@ WHERE description @@@ 'technology'
     in_stock = false
   )
 ORDER BY score DESC;
+WARNING:  Some fields used in this query are not bm25 indexed, so we will use heap filtering. This is not efficient and should be avoided.
  id |    name     | price  | category_name |   score   
 ----+-------------+--------+---------------+-----------
   6 | Nike Normal | 149.99 | Footwear      | 1.2605917
@@ -262,6 +272,7 @@ FROM products
 WHERE description @@@ 'running'
   AND price > 1000.00  -- Should filter out all running items
 ORDER BY score DESC;
+WARNING:  Some fields used in this query are not bm25 indexed, so we will use heap filtering. This is not efficient and should be avoided.
  id | name | price | score 
 ----+------+-------+-------
 (0 rows)
@@ -296,6 +307,7 @@ FROM products
 WHERE description @@@ 'Apple'
   AND 'apple' = ANY(tags)
 ORDER BY score DESC;
+WARNING:  Some fields used in this query are not bm25 indexed, so we will use heap filtering. This is not efficient and should be avoided.
  id |    name     |        tags        |   score   
 ----+-------------+--------------------+-----------
   2 | MacBook Pro | {laptop,apple}     | 1.5495219
@@ -313,6 +325,7 @@ FROM products
 WHERE name @@@ 'Apple'
   AND created_at > '2024-01-01 00:00:00'::timestamp
 ORDER BY score DESC;
+WARNING:  Some fields used in this query are not bm25 indexed, so we will use heap filtering. This is not efficient and should be avoided.
  id |    name     |        created_at        |  score   
 ----+-------------+--------------------------+----------
   7 | Apple Watch | Wed Jan 01 12:00:00 2025 | 2.032015
@@ -333,6 +346,7 @@ WHERE description @@@ 'shoes'
   AND rating > 4.0
   AND category_id = 2
 ORDER BY score DESC;
+WARNING:  Some fields used in this query are not bm25 indexed, so we will use heap filtering. This is not efficient and should be avoided.
  id |       name        | price  | rating | category_id |   score   
 ----+-------------------+--------+--------+-------------+-----------
   3 | Nike Air Max      | 149.99 |    4.2 |           2 | 1.1976256
@@ -350,6 +364,7 @@ FROM products
 WHERE description @@@ 'technology'
   AND category_name LIKE 'Elect%'
 ORDER BY score DESC;
+WARNING:  Some fields used in this query are not bm25 indexed, so we will use heap filtering. This is not efficient and should be avoided.
  id | name | category_name | score 
 ----+------+---------------+-------
 (0 rows)
@@ -371,6 +386,7 @@ WHERE (name @@@ 'Apple' OR description @@@ 'smartphone')
     (category_name = 'Electronics' AND rating > 4.5)
   )
 ORDER BY score DESC; 
+WARNING:  Some fields used in this query are not bm25 indexed, so we will use heap filtering. This is not efficient and should be avoided.
  id |   name    | price  | in_stock | rating |   score   
 ----+-----------+--------+----------+--------+-----------
   1 | iPhone 14 | 999.99 | t        |    4.5 | 1.1126206

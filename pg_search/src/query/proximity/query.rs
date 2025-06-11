@@ -1,31 +1,34 @@
 use crate::query::proximity::weight::ProximityWeight;
-use crate::query::proximity::{ProximityClause, ProximityDistance};
+use crate::query::proximity::{ProximityClause, ProximityDistance, WhichTerms};
 use tantivy::query::{Bm25Weight, EnableScoring, Query, Weight};
 use tantivy::schema::{Field, IndexRecordOption};
 use tantivy::{TantivyError, Term};
 
 #[derive(Debug, Clone)]
 pub struct ProximityQuery {
-    left: Box<ProximityClause>,
+    field: Field,
+    left: ProximityClause,
     distance: ProximityDistance,
-    right: Box<ProximityClause>,
+    right: ProximityClause,
 }
 
 impl ProximityQuery {
-    pub fn new(left: ProximityClause, distance: ProximityDistance, right: ProximityClause) -> Self {
-        assert!(
-            left.field() == right.field(),
-            "ProximityClauses must all use the same field"
-        );
+    pub fn new(
+        field: Field,
+        left: ProximityClause,
+        distance: ProximityDistance,
+        right: ProximityClause,
+    ) -> Self {
         Self {
-            left: Box::new(left),
+            field,
+            left,
             distance,
-            right: Box::new(right),
+            right,
         }
     }
 
     pub fn field(&self) -> Field {
-        self.left.field()
+        self.field
     }
 
     pub fn left(&self) -> &ProximityClause {
@@ -36,8 +39,11 @@ impl ProximityQuery {
         &self.right
     }
 
-    pub fn terms(&self) -> impl Iterator<Item = &Term> {
-        self.left.terms().chain(self.right.terms())
+    pub fn terms(&self) -> impl Iterator<Item = Term> + '_ {
+        self.left
+            .terms(WhichTerms::All)
+            .chain(self.right.terms(WhichTerms::All))
+            .map(|t| Term::from_field_text(self.field, t.as_str()))
     }
 
     pub fn distance(&self) -> ProximityDistance {
@@ -48,7 +54,7 @@ impl ProximityQuery {
 impl Query for ProximityQuery {
     fn weight(&self, enable_scoring: EnableScoring<'_>) -> tantivy::Result<Box<dyn Weight>> {
         let schema = enable_scoring.schema();
-        let field_entry = schema.get_field_entry(self.field());
+        let field_entry = schema.get_field_entry(self.field);
         let has_positions = field_entry
             .field_type()
             .get_index_record_option()
@@ -61,7 +67,7 @@ impl Query for ProximityQuery {
             )));
         }
 
-        let terms = self.terms().map(|term| term.clone()).collect::<Vec<_>>();
+        let terms = self.terms().collect::<Vec<_>>();
         let bm25_weight_opt = match enable_scoring {
             EnableScoring::Enabled {
                 statistics_provider,
@@ -75,8 +81,9 @@ impl Query for ProximityQuery {
     }
 
     fn query_terms<'a>(&'a self, visitor: &mut dyn FnMut(&'a Term, bool)) {
-        for term in self.terms() {
-            visitor(term, true)
-        }
+        // TODO:  figure out how to do this one
+        // for term in self.terms() {
+        //     visitor(term, true)
+        // }
     }
 }

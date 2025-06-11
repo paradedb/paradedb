@@ -1,12 +1,12 @@
 use crate::query::proximity::ProximityDistance;
 use std::cmp::Ordering;
 use tantivy::fieldnorm::FieldNormReader;
-use tantivy::postings::{Postings, SegmentPostings};
+use tantivy::postings::Postings;
 use tantivy::query::{Bm25Weight, Intersection, Scorer, SimpleUnion};
 use tantivy::{DocId, DocSet, Score, TERMINATED};
 
 pub struct ProximityScorer {
-    intersection: Intersection<SimpleUnion<SegmentPostings>, SimpleUnion<SegmentPostings>>,
+    intersection: Intersection<SimpleUnion<Box<dyn Postings>>, SimpleUnion<Box<dyn Postings>>>,
     distance: ProximityDistance,
     fieldnorm_reader: FieldNormReader,
     weight_opt: Option<Bm25Weight>,
@@ -17,15 +17,15 @@ pub struct ProximityScorer {
 
 impl ProximityScorer {
     pub fn new(
-        left: Vec<SegmentPostings>,
+        left: Vec<Box<dyn Postings>>,
         distance: ProximityDistance,
-        right: Vec<SegmentPostings>,
+        right: Vec<Box<dyn Postings>>,
         fieldnorm_reader: FieldNormReader,
         weight_opt: Option<Bm25Weight>,
     ) -> Self {
         let left = SimpleUnion::build(left);
         let right = SimpleUnion::build(right);
-        let intersection = Intersection::new(vec![left, right]);
+        let intersection = Intersection::with_two_sets(left, right);
         let mut scorer = Self {
             intersection,
             distance,
@@ -43,7 +43,9 @@ impl ProximityScorer {
         scorer
     }
 
-    fn prox_iter(&mut self) -> impl Iterator<Item = (u32, u32)> + '_ {
+    pub(crate) fn prox_iter(&mut self) -> impl Iterator<Item = (u32, u32)> + '_ {
+        self.lpos.clear();
+        self.rpos.clear();
         self.intersection
             .docset_mut_specialized(0)
             .positions(&mut self.lpos);

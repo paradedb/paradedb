@@ -102,6 +102,9 @@ pub struct PdbScanState {
     // This will be initialized from the node string at execution time
     pub heap_filter_expr_state: Option<*mut pg_sys::ExprState>,
 
+    // Store the deparsed heap filter expression text for EXPLAIN display
+    pub heap_filter_display_text: Option<String>,
+
     pub exec_method_type: ExecMethodType,
     exec_method: UnsafeCell<Box<dyn ExecMethod>>,
     exec_method_name: String,

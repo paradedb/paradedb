@@ -237,10 +237,15 @@ impl PdbScan {
         if all_quals.is_some() {
             // We have some indexed and some non-indexed predicates
             // Set up heap filtering for all predicates since we can't easily separate them
-            if let Some(all_node_string) = extract_restrictinfo_string(&restrict_info, rti) {
+            if let Some((all_node_string, display_text)) =
+                extract_restrictinfo_string(&restrict_info, rti)
+            {
                 builder
                     .custom_private()
                     .set_heap_filter_node_string(Some(all_node_string));
+                builder
+                    .custom_private()
+                    .set_heap_filter_display_text(Some(display_text));
             } else {
                 // If we couldn't extract the non-indexed quals, then we can't use the custom scan
                 return (indexed_quals, ri_type, restrict_info);
@@ -301,7 +306,7 @@ impl PdbScan {
         // Initialize ExprState if not already done
 
         // Create the Expr node from the heap filter node string
-        let expr = Self::create_heap_filter_expr_state(
+        let expr = Self::create_heap_filter_expr(
             state
                 .custom_state()
                 .heap_filter_node_string
@@ -312,7 +317,7 @@ impl PdbScan {
         let expr_state = pg_sys::ExecInitExpr(expr, state.planstate());
         state.custom_state_mut().heap_filter_expr_state = Some(expr_state);
     }
-    unsafe fn create_heap_filter_expr_state(heap_filter_node_string: &String) -> *mut pg_sys::Expr {
+    unsafe fn create_heap_filter_expr(heap_filter_node_string: &String) -> *mut pg_sys::Expr {
         pgrx::warning!("Some fields used in this query are not bm25 indexed, so we will use heap filtering. This is not efficient and should be avoided.");
 
         // Handle multiple clauses separated by our delimiter
@@ -811,6 +816,9 @@ impl CustomScan for PdbScan {
             builder.custom_state().heap_filter_node_string =
                 builder.custom_private().heap_filter_node_string().clone();
 
+            builder.custom_state().heap_filter_display_text =
+                builder.custom_private().heap_filter_display_text().clone();
+
             // Store join snippet predicates in the scan state
             builder.custom_state().join_predicates =
                 builder.custom_private().join_predicates().clone();
@@ -950,6 +958,11 @@ impl CustomScan for PdbScan {
                     None,
                 );
             }
+        }
+
+        // Show heap filter expression if present
+        if let Some(ref display_text) = state.custom_state().heap_filter_display_text {
+            explainer.add_text("Heap Filter", display_text);
         }
 
         let mut json_value = state
@@ -1973,16 +1986,18 @@ unsafe fn create_bool_const_true() -> Option<*mut pg_sys::Node> {
 
 /// Extract non-indexed predicates from restrict_info and serialize them as node strings
 /// Replaces cross-relation expressions with TRUE to avoid evaluation errors
+/// Returns both the node string for execution and the display text for EXPLAIN
 unsafe fn extract_restrictinfo_string(
     restrict_info: &PgList<pg_sys::RestrictInfo>,
     current_rti: pg_sys::Index,
-) -> Option<String> {
+) -> Option<(String, String)> {
     if restrict_info.is_empty() {
         return None;
     }
 
     // Extract just the clauses (not the RestrictInfo wrappers) and serialize them
     let mut clause_strings = Vec::new();
+    let mut display_parts = Vec::new();
 
     for ri in restrict_info.iter_ptr() {
         // Extract the actual clause from the RestrictInfo and unwrap any nested RestrictInfo
@@ -1995,26 +2010,44 @@ unsafe fn extract_restrictinfo_string(
         // Clean any nested RestrictInfo nodes recursively
         let cleaned_clause = clean_restrictinfo_recursively(clause.cast());
 
-        // Replace cross-relation expressions with TRUE constants
+        // For the node string (execution): replace cross-relation expressions with TRUE constants
         let processed_clause =
             replace_cross_relation_expressions_with_true(cleaned_clause, current_rti);
-
-        // Simply serialize the processed clause directly using nodeToString
         let clause_string = pg_sys::nodeToString(processed_clause.cast::<core::ffi::c_void>());
         let rust_string = std::ffi::CStr::from_ptr(clause_string)
             .to_string_lossy()
             .into_owned();
-
         clause_strings.push(rust_string);
+
+        // For the display text: use a simple representation based on the node string
+        // We avoid deparsing here to prevent context-related errors
+        let node_string = pg_sys::nodeToString(cleaned_clause.cast::<core::ffi::c_void>());
+        let node_text = std::ffi::CStr::from_ptr(node_string)
+            .to_string_lossy()
+            .into_owned();
+
+        // Create a user-friendly display by simplifying some common patterns
+        let display_text = if node_text.len() > 100 {
+            format!("{:.97}...", node_text)
+        } else {
+            node_text
+        };
+        display_parts.push(display_text);
     }
 
     if clause_strings.is_empty() {
         None
     } else if clause_strings.len() == 1 {
         // Single clause - return it directly
-        Some(clause_strings.into_iter().next().unwrap())
+        Some((
+            clause_strings.into_iter().next().unwrap(),
+            display_parts.into_iter().next().unwrap(),
+        ))
     } else {
         // Multiple clauses - join them with a separator for evaluation later
-        Some(clause_strings.join("|||CLAUSE_SEPARATOR|||"))
+        Some((
+            clause_strings.join("|||CLAUSE_SEPARATOR|||"),
+            format!("({})", display_parts.join(" AND ")),
+        ))
     }
 }

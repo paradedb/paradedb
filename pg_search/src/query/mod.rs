@@ -26,7 +26,7 @@ use crate::api::HashMap;
 use crate::postgres::utils::convert_pg_date_string;
 use crate::query::more_like_this::MoreLikeThisQuery;
 use crate::query::proximity::query::ProximityQuery;
-use crate::query::proximity::{ProximityClause, ProximityClauseStyle, ProximityDistance};
+use crate::query::proximity::{ProximityClause, ProximityDistance};
 use crate::query::range::{Comparison, RangeField};
 use crate::query::score::ScoreFilter;
 use crate::schema::{IndexRecordOption, SearchIndexSchema};
@@ -182,12 +182,10 @@ pub enum SearchQueryInput {
         max_expansions: Option<u32>,
     },
     Proximity {
-        // TODO:  could make left/right more sophisticated structures
         field: FieldName,
-        left: Vec<String>,
-        distance: u32,
-        in_order: bool,
-        right: Vec<String>,
+        left: ProximityClause,
+        distance: ProximityDistance,
+        right: ProximityClause,
     },
     Range {
         field: FieldName,
@@ -993,46 +991,20 @@ impl SearchQueryInput {
                 field,
                 left,
                 distance,
-                in_order,
                 right,
             } => {
+                if left.is_empty() || right.is_empty() {
+                    return Ok(Box::new(EmptyQuery));
+                }
+
                 let search_field = schema
                     .search_field(field.root())
                     .ok_or(QueryError::NonIndexedField(field.clone()))?;
                 if !search_field.is_tokenized() {
-                    return Err(QueryError::WrongFieldType(field.clone()));
+                    return Err(QueryError::InvalidTokenizer);
                 }
-                let field_type = search_field.field_entry().field_type();
-                let collect_terms = |terms: Vec<String>| {
-                    terms
-                        .into_iter()
-                        .map(|t| {
-                            value_to_term(
-                                search_field.field(),
-                                &OwnedValue::Str(t),
-                                &field_type,
-                                field.path().as_deref(),
-                                false,
-                            )
-                        })
-                        .collect::<Result<Vec<_>, _>>()
-                };
 
-                let left_terms = collect_terms(left)?;
-                let right_terms = collect_terms(right)?;
-                let left = ProximityClause::new(ProximityClauseStyle::Terms { terms: left_terms });
-                let right =
-                    ProximityClause::new(ProximityClauseStyle::Terms { terms: right_terms });
-
-                let prox = ProximityQuery::new(
-                    left,
-                    if in_order {
-                        ProximityDistance::InOrder(distance)
-                    } else {
-                        ProximityDistance::AnyOrder(distance)
-                    },
-                    right,
-                );
+                let prox = ProximityQuery::new(search_field.field(), left, distance, right);
                 Ok(Box::new(prox))
             }
             Self::Range {

@@ -66,27 +66,18 @@ pub extern "C-unwind" fn ambuild(
         ambuildempty(indexrel);
 
         let index_oid = index_relation.oid();
-        let heap_tuples = build_index(heap_relation, index_relation, (*index_info).ii_Concurrent)
-            .unwrap_or_else(|e| panic!("{e}"));
+        let (heap_tuples, segment_ids) =
+            build_index(heap_relation, index_relation, (*index_info).ii_Concurrent)
+                .unwrap_or_else(|e| panic!("{e}"));
 
         let mut result = PgBox::<pg_sys::IndexBuildResult>::alloc0();
         result.heap_tuples = heap_tuples;
         result.index_tuples = heap_tuples;
 
-        {
-            let directory = MVCCDirectory::snapshot(index_oid);
-            let index = Index::open(directory).unwrap_or_else(|e| panic!("{e}"));
-            let metas = index.load_metas().unwrap_or_else(|e| panic!("{e}"));
-            let segment_ids = metas
-                .segments
-                .iter()
-                .map(|meta| meta.id())
-                .collect::<Vec<_>>();
-            let metadata = MetaPageMut::new(index_oid);
-            metadata
-                .record_create_index_segment_ids(segment_ids.iter())
-                .expect("do_heap_scan: should be able to record segment ids in merge lock");
-        }
+        let metadata = MetaPageMut::new(index_oid);
+        metadata
+            .record_create_index_segment_ids(segment_ids.iter())
+            .expect("do_heap_scan: should be able to record segment ids in merge lock");
 
         // All buffers must be dropped at this point, otherwise FlushRelationBuffers will trip an assert
         pg_sys::FlushRelationBuffers(indexrel);

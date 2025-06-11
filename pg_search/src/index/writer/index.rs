@@ -185,8 +185,9 @@ impl SerialIndexWriter {
         Ok(())
     }
 
-    pub fn commit(mut self) -> Result<()> {
-        self.finalize_segment()
+    pub fn commit(mut self) -> Result<Vec<SegmentId>> {
+        self.finalize_segment()?;
+        Ok(self.new_metas.iter().map(|meta| meta.id()).collect())
     }
 
     /// Intelligently create a new segment, backed by either a RamDirectory or a MVCCDirectory.

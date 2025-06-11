@@ -30,6 +30,7 @@ use crate::postgres::utils::{categorize_fields, row_to_search_document, Categori
 use crate::schema::{SearchField, SearchIndexSchema};
 use pgrx::{check_for_interrupts, pg_guard, pg_sys, PgMemoryContexts, PgRelation};
 use std::ptr::{addr_of_mut, NonNull};
+use tantivy::index::SegmentId;
 use tantivy::TantivyDocument;
 
 /// General, immutable configuration used for the workers
@@ -121,6 +122,7 @@ impl ParallelProcess for ParallelBuild {
 #[derive(serde::Serialize, serde::Deserialize)]
 struct WorkerResponse {
     reltuples: f64,
+    segment_ids: Vec<SegmentId>,
 }
 
 struct BuildWorker<'a> {
@@ -172,8 +174,11 @@ impl ParallelWorker for BuildWorker<'_> {
 
     fn run(mut self, mq_sender: &MessageQueueSender, _worker_number: i32) -> anyhow::Result<()> {
         self.coordination.inc_nlaunched();
-        let reltuples = self.do_build()?;
-        let response = WorkerResponse { reltuples };
+        let (reltuples, segment_ids) = self.do_build()?;
+        let response = WorkerResponse {
+            reltuples,
+            segment_ids,
+        };
 
         Ok(mq_sender.send(serde_json::to_vec(&response)?)?)
     }
@@ -195,7 +200,7 @@ impl<'a> BuildWorker<'a> {
         }
     }
 
-    fn do_build(&mut self) -> anyhow::Result<f64> {
+    fn do_build(&mut self) -> anyhow::Result<(f64, Vec<SegmentId>)> {
         unsafe {
             let index_info = pg_sys::BuildIndexInfo(self.indexrel.as_ptr());
             (*index_info).ii_Concurrent = self.config.concurrent;
@@ -216,8 +221,8 @@ impl<'a> BuildWorker<'a> {
                     .unwrap_or(std::ptr::null_mut()),
             );
 
-            build_state.writer.commit()?;
-            Ok(reltuples)
+            let segment_ids = build_state.writer.commit()?;
+            Ok((reltuples, segment_ids))
         }
     }
 }
@@ -318,7 +323,7 @@ pub(super) fn build_index(
     heaprel: PgRelation,
     indexrel: PgRelation,
     concurrent: bool,
-) -> anyhow::Result<f64> {
+) -> anyhow::Result<(f64, Vec<SegmentId>)> {
     struct SnapshotDropper(pg_sys::Snapshot);
     impl Drop for SnapshotDropper {
         fn drop(&mut self) {
@@ -352,7 +357,7 @@ pub(super) fn build_index(
         nworkers,
         1024
     ) {
-        let leader_tuples = if unsafe { pg_sys::parallel_leader_participation } {
+        let (leader_tuples, leader_segments) = if unsafe { pg_sys::parallel_leader_participation } {
             // if the leader is to participate too, it's nice for it to wait until all the other workers
             // have indicated that they're running.  Otherwise, it's likely the leader will get ahead
             // of the workers, which doesn't allow for "evenly" distributing the work
@@ -372,19 +377,21 @@ pub(super) fn build_index(
             let mut worker = BuildWorker::new_parallel_worker(*process.state_manager());
             worker.do_build()?
         } else {
-            0.0
+            (0.0, vec![])
         };
 
         // wait for the workers to finish by collecting all their response messages
         let mut total_tuples = leader_tuples;
+        let mut segment_ids = leader_segments;
         for (_, message) in process {
             check_for_interrupts!();
             let worker_response = serde_json::from_slice::<WorkerResponse>(&message)?;
 
             total_tuples += worker_response.reltuples;
+            segment_ids.extend(worker_response.segment_ids);
         }
 
-        Ok(total_tuples)
+        Ok((total_tuples, segment_ids))
     } else {
         // not doing a parallel build, so directly instantiate a BuildWorker and serially run the
         // whole build here in this connected backend

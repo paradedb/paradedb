@@ -256,6 +256,10 @@ impl WorkerBuildState {
         })
     }
 
+    /// Estimate the number of documents that should be in each segment for a given index.
+    ///
+    /// This number is calculated by dividing the number of rows in the table by the number of
+    /// available cores.
     fn target_docs_per_segment(indexrel: &PgRelation) -> usize {
         let desired_segment_count = std::thread::available_parallelism()
             .expect("your computer should have at least one core");

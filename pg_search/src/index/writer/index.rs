@@ -110,6 +110,10 @@ impl PendingSegment {
 
 /// Unlike Tantivy's IndexWriter, the SerialIndexWriter does not spin up any threads.
 /// Everything happens in the foreground, making it ideal for Postgres.
+///
+/// Also unlike Tantivy's IndexWriter, the SerialIndexWriter is able to create segments of a specific
+/// size specified by `target_docs_per_segment`. It does this by merging the current segment with
+/// the previous segment until the target size is reached.
 pub struct SerialIndexWriter {
     indexrelid: pg_sys::Oid,
     ctid_field: Field,
@@ -192,11 +196,10 @@ impl SerialIndexWriter {
 
     /// Intelligently create a new segment, backed by either a RamDirectory or a MVCCDirectory.
     ///
-    /// If the target_docs_per_segment is not set, or if there are no segments in the index, we
-    /// create a new MVCCDirectory-backed segment.
+    /// If we know that the segment we're about to create will be merged with the last segment,
+    /// we create a RAMDirectory-backed segment.
     ///
-    /// If the target_docs_per_segment is set, and there are segments in the index, we create a new
-    /// RamDirectory-backed segment if the previous segment has reached the target_docs_per_segment.
+    /// Otherwise, we create a MVCCDirectory-backed segment.
     fn new_segment(&mut self) -> Result<PendingSegment> {
         if self.target_docs_per_segment.is_none() || self.new_metas.is_empty() {
             return PendingSegment::new_mvcc(
@@ -225,6 +228,12 @@ impl SerialIndexWriter {
         )
     }
 
+    /// Once the memory budget is reached, we "finalize" the segment:
+    ///
+    /// 1. Serialize the segment to disk
+    /// 2. Merge the segment with the previous segment if we're using a RAMDirectory
+    /// 3. Save the new meta entry
+    /// 4. Return any free space to the FSM
     fn finalize_segment(&mut self) -> Result<()> {
         let Some(pending_segment) = self.pending_segment.take() else {
             // no docs were ever added

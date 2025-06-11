@@ -29,6 +29,7 @@ use thiserror::Error;
 
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::setup_tokenizers;
+use crate::postgres::insert::garbage_collect_index;
 use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::{postgres::types::TantivyValueError, schema::SearchIndexSchema};
 
@@ -251,6 +252,9 @@ impl SerialIndexWriter {
                 self.last_flushed_segment_meta = Some(finalized_segment.meta().clone());
             }
         };
+
+        let index_relation = unsafe { PgRelation::open(self.indexrelid) };
+        unsafe { garbage_collect_index(&index_relation); }
 
         Ok(())
     }

@@ -79,7 +79,6 @@ pub extern "C-unwind" fn ambuild(
             .record_create_index_segment_ids(segment_ids.iter())
             .expect("do_heap_scan: should be able to record segment ids in merge lock");
 
-        // All buffers must be dropped at this point, otherwise FlushRelationBuffers will trip an assert
         pg_sys::FlushRelationBuffers(indexrel);
         result.into_pg()
     }

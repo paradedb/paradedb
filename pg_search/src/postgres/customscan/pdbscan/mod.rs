@@ -1934,8 +1934,6 @@ unsafe fn create_bool_const_true() -> Option<*mut pg_sys::Node> {
 }
 
 unsafe fn create_heap_filter_expr(heap_filter_node_string: &str) -> *mut pg_sys::Expr {
-    pgrx::warning!("Some fields used in this query are not bm25 indexed, so we will use heap filtering. This is not efficient and should be avoided.");
-
     // Handle multiple clauses separated by our delimiter
     if heap_filter_node_string.contains("|||CLAUSE_SEPARATOR|||") {
         // Multiple clauses - combine them into a single AND expression

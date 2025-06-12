@@ -23,7 +23,7 @@ CREATE TABLE products (
 
 -- Insert test data
 INSERT INTO products (name, description, price, category_id, category_name, in_stock, rating, tags) VALUES
-('iPhone 14', 'Latest Apple smartphone with great camera', 999.99, 1, 'Electronics', true, 4.5, ARRAY['smartphone', 'apple']),
+('Apple iPhone 14', 'Latest Apple smartphone with great camera', 999.99, 1, 'Casual', true, 4.5, ARRAY['smartphone', 'apple']),
 ('MacBook Pro', 'Powerful Apple laptop for professionals', 2499.99, 1, 'Electronics', true, 4.8, ARRAY['laptop', 'apple']),
 ('Nike Air Max', 'Comfortable running shoes for athletes', 149.99, 2, 'Footwear', true, 4.2, ARRAY['shoes', 'running']),
 ('Samsung Galaxy', 'Android smartphone with excellent display', 899.99, 1, 'Electronics', false, 4.3, ARRAY['smartphone', 'android']),
@@ -33,7 +33,7 @@ INSERT INTO products (name, description, price, category_id, category_name, in_s
 ('Sony Headphones', 'Noise-canceling headphones for music lovers', 299.99, 1, 'Electronics', true, 4.7, ARRAY['headphones', 'audio']),
 ('Running Socks', 'Moisture-wicking socks for athletes', 19.99, 2, 'Footwear', true, 4.0, ARRAY['socks', 'running']),
 ('Budget Phone', 'Affordable smartphone for basic needs', 199.99, 1, 'Electronics', false, 3.5, NULL),
-('Budget Tablet', 'Affordable tablet for basic needs', 199.99, 1, 'Electronics', false, 3.5, NULL);
+('Budget Tablet', 'Affordable tablet for basic needs', 199.99, 1, 'Garbage', false, 3.5, NULL);
 
 
 -- Create BM25 index that only includes some columns (name, description)
@@ -105,6 +105,48 @@ SELECT
 FROM products 
 WHERE (name @@@ 'Apple' OR description @@@ 'smartphone') 
   OR category_name = 'Electronics'
+ORDER BY score DESC;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    category_name,
+    paradedb.score(id) as score
+FROM products 
+WHERE (name @@@ 'Apple' AND description @@@ 'smartphone') 
+  OR category_name = 'Electronics'
+ORDER BY score DESC;
+
+SELECT 
+    id,
+    name,
+    category_name,
+    paradedb.score(id) as score
+FROM products 
+WHERE (name @@@ 'Apple' AND description @@@ 'smartphone') 
+  OR category_name = 'Electronics'
+ORDER BY score DESC;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    category_name,
+    paradedb.score(id) as score
+FROM products 
+WHERE (name @@@ 'Apple' AND description @@@ 'smartphone') 
+  OR TRUE OR category_name = 'Electronics'
+ORDER BY score DESC;
+
+SELECT 
+    id,
+    name,
+    category_name,
+    paradedb.score(id) as score
+FROM products 
+WHERE (name @@@ 'Apple' AND description @@@ 'smartphone') 
+  OR TRUE OR category_name = 'Electronics'
 ORDER BY score DESC;
 
 -- Test Case 3: Another example with price filter (non-indexed)

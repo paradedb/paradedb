@@ -70,6 +70,7 @@ use pgrx::pg_sys::CustomExecMethods;
 use pgrx::{
     direct_function_call, pg_sys, FromDatum, IntoDatum, PgList, PgMemoryContexts, PgRelation,
 };
+use regex;
 use std::ffi::CStr;
 use std::ptr::addr_of_mut;
 use tantivy::snippet::SnippetGenerator;
@@ -905,7 +906,7 @@ impl CustomScan for PdbScan {
         // Show heap filter expression if present using proper deparse context
         if let Some(ref heap_filter_node_string) = state.custom_state().heap_filter_node_string {
             unsafe {
-                let human_readable_filter = create_human_readable_filter_text_with_context(
+                let human_readable_filter = create_human_readable_filter_text(
                     heap_filter_node_string,
                     explainer,
                     state.custom_state().execution_rti,
@@ -1984,7 +1985,7 @@ unsafe fn create_heap_filter_expr(heap_filter_node_string: &str) -> *mut pg_sys:
 
 /// Create a human-readable representation of a PostgreSQL expression node
 /// Uses PostgreSQL's deparse_expression with proper context from ExplainState
-unsafe fn create_human_readable_filter_text_with_context(
+unsafe fn create_human_readable_filter_text(
     heap_filter_node_string: &str,
     explainer: &Explainer,
     current_rti: pg_sys::Index,
@@ -2004,14 +2005,33 @@ unsafe fn create_human_readable_filter_text_with_context(
                 .into_owned();
             pg_sys::pfree(cstring_ptr.cast());
 
-            // If the result is not empty, use it
+            // If the result is not empty, clean it and use it
             if !result.is_empty() {
-                return result;
+                return clean_oid_from_deparsed_expression(&result);
             }
         }
     }
 
     "<expression>".to_string()
+}
+
+/// Clean OID values from deparsed expressions to reduce output randomness
+/// Removes patterns like `"oid":690638` from JSON-like strings in the expression
+fn clean_oid_from_deparsed_expression(input: &str) -> String {
+    // Use regex to match and remove "oid":<number> patterns
+    // This handles both quoted and unquoted OID values
+    let re = regex::Regex::new(r#""oid":\s*\d+,?\s*"#).unwrap();
+    let cleaned = re.replace_all(input, "");
+
+    // Clean up any resulting double commas or trailing commas in JSON-like structures
+    let re_double_comma = regex::Regex::new(r",\s*,").unwrap();
+    let cleaned = re_double_comma.replace_all(&cleaned, ",");
+
+    // Clean up trailing commas before closing braces/brackets
+    let re_trailing_comma = regex::Regex::new(r",\s*([}\]])").unwrap();
+    let cleaned = re_trailing_comma.replace_all(&cleaned, "$1");
+
+    cleaned.to_string()
 }
 
 /// Extract non-indexed predicates from restrict_info and serialize them as node strings

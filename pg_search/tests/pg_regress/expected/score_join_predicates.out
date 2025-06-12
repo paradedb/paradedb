@@ -162,7 +162,6 @@ SELECT
 FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') OR a.age > 60;
-WARNING:  Some fields used in this query are not bm25 indexed, so we will use heap filtering. This is not efficient and should be avoided.
  book_id | author_name  | author_score | book_score 
 ---------+--------------+--------------+------------
        1 | J.K. Rowling |            0 | 0.44333255

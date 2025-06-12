@@ -51,6 +51,7 @@ tinyvec = "1.9.0"
 postcard = { version = "1.1.1", features = [
   "use-std",
 ], default-features = false }
+regex = "1.11.1"
 
 [dev-dependencies]
 pgrx-tests.workspace = true

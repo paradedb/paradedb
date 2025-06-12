@@ -163,7 +163,6 @@ SELECT d.id, d.title, d.parents,
 FROM documents d
 WHERE d.parents = 'Factures'
 ORDER BY invoice_file_count DESC, d.id;
-WARNING:  Some fields used in this query are not bm25 indexed, so we will use heap filtering. This is not efficient and should be avoided.
   id  |    title     | parents  | invoice_file_count 
 ------+--------------+----------+--------------------
  doc1 | Invoice 2023 | Factures |                  2

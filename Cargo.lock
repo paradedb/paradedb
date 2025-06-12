@@ -2946,6 +2946,7 @@ dependencies = [
  "postcard",
  "proptest",
  "rand 0.9.1",
+ "regex",
  "rstest",
  "rustc-hash 2.1.1",
  "serde",

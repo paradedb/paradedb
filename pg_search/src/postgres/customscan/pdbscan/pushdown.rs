@@ -15,9 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::index::{fieldname_typoid, FieldName};
 use crate::api::operator::searchqueryinput_typoid;
-use crate::api::HashMap;
+use crate::api::{fieldname_typoid, FieldName, HashMap};
 use crate::nodecast;
 use crate::postgres::customscan::operator_oid;
 use crate::postgres::customscan::pdbscan::qual_inspect::Qual;

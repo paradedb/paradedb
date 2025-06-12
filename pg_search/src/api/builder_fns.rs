@@ -18,7 +18,7 @@
 use pgrx::datum::RangeBound;
 use pgrx::{iter::TableIterator, *};
 
-use crate::api::HashMap;
+use crate::api::{FieldName, HashMap};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::index::IndexKind;
@@ -26,11 +26,9 @@ use crate::postgres::types::TantivyValue;
 use crate::query::{SearchQueryInput, TermInput};
 use crate::schema::AnyEnum;
 use crate::schema::IndexRecordOption;
-use serde::{Deserialize, Serialize};
-use std::ffi::CStr;
+use serde::Serialize;
 use std::fmt::{Display, Formatter};
 use std::ops::Bound;
-use tantivy::json_utils::split_json_path;
 use tantivy::schema::{FieldType, OwnedValue, Value};
 
 #[allow(clippy::type_complexity)]
@@ -957,88 +955,6 @@ pub fn term_set(
     SearchQueryInput::TermSet { terms }
 }
 
-/// A type used whenever our builder functions require a fieldname.
-#[derive(
-    Debug, Clone, Ord, Eq, PartialOrd, PartialEq, Hash, Serialize, Deserialize, PostgresType,
-)]
-#[inoutfuncs]
-pub struct FieldName(String);
-
-impl Display for FieldName {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl AsRef<str> for FieldName {
-    fn as_ref(&self) -> &str {
-        self
-    }
-}
-
-impl std::ops::Deref for FieldName {
-    type Target = str;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<T> From<T> for FieldName
-where
-    T: Into<String>,
-{
-    fn from(value: T) -> Self {
-        FieldName(value.into())
-    }
-}
-
-impl InOutFuncs for FieldName {
-    fn input(input: &CStr) -> Self
-    where
-        Self: Sized,
-    {
-        FieldName(input.to_str().unwrap().to_owned())
-    }
-
-    fn output(&self, buffer: &mut StringInfo) {
-        buffer.push_str(&self.0);
-    }
-}
-
-impl FieldName {
-    #[inline(always)]
-    pub fn into_inner(self) -> String {
-        self.0
-    }
-
-    pub fn root(&self) -> String {
-        let json_path = split_json_path(self.0.as_str());
-        if json_path.len() == 1 {
-            self.0.clone()
-        } else {
-            json_path[0].clone()
-        }
-    }
-
-    pub fn path(&self) -> Option<String> {
-        let json_path = split_json_path(self.0.as_str());
-        if json_path.len() == 1 {
-            None
-        } else {
-            Some(json_path[1..].join("."))
-        }
-    }
-
-    pub fn is_ctid(&self) -> bool {
-        self.root() == "ctid"
-    }
-}
-
-#[pg_cast(implicit)]
-fn text_to_fieldname(field: String) -> FieldName {
-    FieldName(field)
-}
-
 #[pg_cast(implicit)]
 fn jsonb_to_searchqueryinput(query: JsonB) -> SearchQueryInput {
     serde_path_to_error::deserialize(query.0).unwrap_or_else(|err| {
@@ -1063,18 +979,3 @@ extension_sql!(
     name = "jsonb_to_searchqueryinput",
     requires = [jsonb_to_searchqueryinput]
 );
-
-#[allow(unused)]
-pub fn fieldname_typoid() -> pg_sys::Oid {
-    unsafe {
-        let oid = direct_function_call::<pg_sys::Oid>(
-            pg_sys::regtypein,
-            &[c"paradedb.FieldName".into_datum()],
-        )
-        .expect("type `paradedb.FieldName` should exist");
-        if oid == pg_sys::Oid::INVALID {
-            panic!("type `paradedb.FieldName` should exist");
-        }
-        oid
-    }
-}

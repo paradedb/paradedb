@@ -1,4 +1,4 @@
-use crate::api::index::FieldName;
+use crate::api::FieldName;
 use crate::api::HashSet;
 use crate::customscan::operator_oid;
 use crate::nodecast;

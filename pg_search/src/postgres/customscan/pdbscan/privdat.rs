@@ -53,9 +53,6 @@ pub struct PrivateData {
     // Store the heap filter expression as a serialized PostgreSQL node string
     // This will be deserialized at execution time and converted to ExprState for evaluation
     heap_filter_node_string: Option<String>,
-    // Store the deparsed heap filter expression text for EXPLAIN display
-    // This is computed during planning when we have the proper context
-    heap_filter_display_text: Option<String>,
 }
 
 mod var_attname_lookup_serializer {
@@ -233,10 +230,6 @@ impl PrivateData {
     pub fn set_heap_filter_node_string(&mut self, heap_filter_node_string: Option<String>) {
         self.heap_filter_node_string = heap_filter_node_string;
     }
-
-    pub fn set_heap_filter_display_text(&mut self, heap_filter_display_text: Option<String>) {
-        self.heap_filter_display_text = heap_filter_display_text;
-    }
 }
 
 //
@@ -315,9 +308,5 @@ impl PrivateData {
 
     pub fn heap_filter_node_string(&self) -> &Option<String> {
         &self.heap_filter_node_string
-    }
-
-    pub fn heap_filter_display_text(&self) -> &Option<String> {
-        &self.heap_filter_display_text
     }
 }

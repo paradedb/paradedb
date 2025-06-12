@@ -1,4 +1,4 @@
-\echo Use "ALTER EXTENSION pg_search UPDATE TO '0.15.25'" to load this file. \quit
+\echo Use "ALTER EXTENSION pg_search UPDATE TO '0.15.26'" to load this file. \quit
 
 DROP FUNCTION IF EXISTS term(field fieldname, value inet);
 

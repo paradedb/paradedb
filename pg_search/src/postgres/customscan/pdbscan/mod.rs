@@ -70,7 +70,6 @@ use pgrx::pg_sys::CustomExecMethods;
 use pgrx::{
     direct_function_call, pg_sys, FromDatum, IntoDatum, PgList, PgMemoryContexts, PgRelation,
 };
-use regex;
 use std::ffi::CStr;
 use std::ptr::addr_of_mut;
 use tantivy::snippet::SnippetGenerator;
@@ -2005,33 +2004,14 @@ unsafe fn create_human_readable_filter_text(
                 .into_owned();
             pg_sys::pfree(cstring_ptr.cast());
 
-            // If the result is not empty, clean it and use it
+            // If the result is not empty, use it
             if !result.is_empty() {
-                return clean_oid_from_deparsed_expression(&result);
+                return result;
             }
         }
     }
 
     "<expression>".to_string()
-}
-
-/// Clean OID values from deparsed expressions to reduce output randomness
-/// Removes patterns like `"oid":690638` from JSON-like strings in the expression
-fn clean_oid_from_deparsed_expression(input: &str) -> String {
-    // Use regex to match and remove "oid":<number> patterns
-    // This handles both quoted and unquoted OID values
-    let re = regex::Regex::new(r#""oid":\s*\d+,?\s*"#).unwrap();
-    let cleaned = re.replace_all(input, "");
-
-    // Clean up any resulting double commas or trailing commas in JSON-like structures
-    let re_double_comma = regex::Regex::new(r",\s*,").unwrap();
-    let cleaned = re_double_comma.replace_all(&cleaned, ",");
-
-    // Clean up trailing commas before closing braces/brackets
-    let re_trailing_comma = regex::Regex::new(r",\s*([}\]])").unwrap();
-    let cleaned = re_trailing_comma.replace_all(&cleaned, "$1");
-
-    cleaned.to_string()
 }
 
 /// Extract non-indexed predicates from restrict_info and serialize them as node strings

@@ -93,6 +93,10 @@ impl PendingSegment {
         self.directory_type.clone()
     }
 
+    fn max_doc(&self) -> usize {
+        self.writer.max_doc() as usize
+    }
+
     fn mem_usage(&self) -> usize {
         match &self.directory_type {
             DirectoryType::Ram(directory) => self.writer.mem_usage() + directory.total_mem_usage(),
@@ -181,8 +185,14 @@ impl SerialIndexWriter {
             .unwrap()
             .add_document(document)?;
 
-        let mem_usage = self.pending_segment.as_ref().unwrap().mem_usage();
-        if mem_usage >= self.memory_budget {
+        let pending_segment = self.pending_segment.as_ref().unwrap();
+        let mem_usage = pending_segment.mem_usage();
+        let max_doc = pending_segment.max_doc();
+
+        if mem_usage >= self.memory_budget
+            || (self.target_docs_per_segment.is_some()
+                && max_doc >= self.target_docs_per_segment.unwrap())
+        {
             self.finalize_segment()?;
         }
 

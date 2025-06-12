@@ -431,6 +431,7 @@ fn create_index_parallelism(heaprel: &PgRelation) -> usize {
     }
 }
 
+/// If we determine that the table is very small, we should just create a single segment
 fn should_create_one_segment(heaprel: &PgRelation) -> bool {
     // If there are fewer rows than number of CPUs, use 1 worker
     let reltuples = estimate_heap_reltuples(heaprel);
@@ -439,10 +440,9 @@ fn should_create_one_segment(heaprel: &PgRelation) -> bool {
         return true;
     }
 
-    // If the byte size of the heap fits inside the memory budget, use 1 worker
-    let memory_budget = gucs::adjust_work_mem(1);
+    // If the entire heap fits inside the smallest allowed Tantivy segment memory budget of 15MB, use 1 worker
     let byte_size = estimate_heap_byte_size(heaprel);
-    if byte_size <= memory_budget {
+    if byte_size <= 15 * 1024 * 1024 {
         return true;
     }
 

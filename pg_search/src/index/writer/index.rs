@@ -227,8 +227,9 @@ impl SerialIndexWriter {
 
     pub fn commit(mut self) -> Result<Vec<SegmentId>> {
         self.finalize_segment(true)?;
-        pgrx::debug1!("writer {}: wrote metas: {:?}", self.id, self.new_metas);
-        Ok(self.new_metas.iter().map(|meta| meta.id()).collect())
+        let segment_ids = self.new_metas.iter().map(|meta| meta.id()).collect();
+        pgrx::debug1!("writer {}: wrote metas: {:?}", self.id, segment_ids);
+        Ok(segment_ids)
     }
 
     /// Intelligently create a new segment, backed by either a RamDirectory or a MVCCDirectory.
@@ -346,8 +347,15 @@ impl SerialIndexWriter {
         let merged_segment_meta = merger.merge_into(&[finalized_segment, last_flushed_segment])?;
 
         if let Some(merged_segment_meta) = merged_segment_meta {
+            pgrx::debug1!(
+                "writer {}: created merged segment {}",
+                self.id,
+                merged_segment_meta.id()
+            );
             self.new_metas.push(merged_segment_meta.clone());
             self.save_metas(self.new_metas.clone(), previous_metas)?;
+        } else {
+            pgrx::debug1!("writer {}: no merged segment created", self.id);
         }
 
         Ok(())

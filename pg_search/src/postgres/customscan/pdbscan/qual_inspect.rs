@@ -23,7 +23,8 @@ use crate::postgres::customscan::pdbscan::pushdown::{is_complex, try_pushdown, P
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 use pg_sys::BoolExprType;
-use pgrx::{pg_sys, FromDatum, IntoDatum, PgList};
+use pgrx::{datum::FromDatum, pg_sys, IntoDatum, PgList};
+
 use std::ops::Bound;
 use tantivy::schema::OwnedValue;
 
@@ -32,6 +33,7 @@ pub enum Qual {
     All,
     ExternalVar,
     ExternalExpr,
+    NonIndexedExpr,
     OpExpr {
         var: *mut pg_sys::Var,
         opno: pg_sys::Oid,
@@ -90,6 +92,7 @@ impl Qual {
             Qual::All => true,
             Qual::ExternalVar => false,
             Qual::ExternalExpr => false,
+            Qual::NonIndexedExpr => false,
             Qual::OpExpr { .. } => false,
             Qual::Expr { .. } => false,
             Qual::PushdownExpr { .. } => false,
@@ -110,6 +113,7 @@ impl Qual {
             Qual::All => false,
             Qual::ExternalVar => true,
             Qual::ExternalExpr => true,
+            Qual::NonIndexedExpr => true,
             Qual::OpExpr { .. } => false,
             Qual::Expr { .. } => false,
             Qual::PushdownExpr { .. } => false,
@@ -130,6 +134,7 @@ impl Qual {
             Qual::All => false,
             Qual::ExternalVar => false,
             Qual::ExternalExpr => false,
+            Qual::NonIndexedExpr => false,
             Qual::OpExpr { .. } => false,
             Qual::Expr { node, .. } => contains_exec_param(*node),
             Qual::PushdownExpr { .. } => false,
@@ -150,6 +155,7 @@ impl Qual {
             Qual::All => false,
             Qual::ExternalVar => false,
             Qual::ExternalExpr => false,
+            Qual::NonIndexedExpr => false,
             Qual::OpExpr { .. } => false,
             Qual::Expr { .. } => true,
             Qual::PushdownExpr { .. } => false,
@@ -170,6 +176,7 @@ impl Qual {
             Qual::All => false,
             Qual::ExternalVar => false,
             Qual::ExternalExpr => false,
+            Qual::NonIndexedExpr => false,
             Qual::OpExpr { .. } => false,
             Qual::Expr { .. } => false,
             Qual::PushdownExpr { .. } => false,
@@ -203,6 +210,7 @@ impl From<&Qual> for SearchQueryInput {
             Qual::All => SearchQueryInput::All,
             Qual::ExternalVar => SearchQueryInput::All,
             Qual::ExternalExpr => SearchQueryInput::All,
+            Qual::NonIndexedExpr => SearchQueryInput::All,
             Qual::OpExpr { val, .. } => unsafe {
                 SearchQueryInput::from_datum((**val).constvalue, (**val).constisnull)
                     .expect("rhs of @@@ operator Qual must not be null")
@@ -369,6 +377,11 @@ impl From<&Qual> for SearchQueryInput {
                     // is "all" rather than "NOT all"
                     Qual::ExternalExpr => SearchQueryInput::All,
 
+                    // If the Qual represents a non-indexed expression, we should return "all"
+                    // This is because we will be using tantivy to query, and we want to be able to
+                    // use the non-indexed expression to filter the results
+                    Qual::NonIndexedExpr => SearchQueryInput::All,
+
                     // For other types of negation, use the standard Boolean query with must_not
                     // Note that when negating an IS operator (e.g., IS NOT TRUE), PostgreSQL handles
                     // NULL values differently than when negating equality operators
@@ -387,6 +400,9 @@ impl From<&Qual> for SearchQueryInput {
     }
 }
 
+/// Extract quals from a node, returning the indexed quals if available
+/// If `convert_external_to_special_qual` is true, then unpushable predicates will be converted to Qual::ExternalExpr
+/// `uses_tantivy_to_query` will be set to true if we decide to use tantivy to query
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn extract_quals(
     root: *mut pg_sys::PlannerInfo,
@@ -398,163 +414,25 @@ pub unsafe fn extract_quals(
     convert_external_to_special_qual: bool,
     uses_tantivy_to_query: &mut bool,
 ) -> Option<Qual> {
-    if node.is_null() {
-        return None;
-    }
-
-    match (*node).type_ {
-        pg_sys::NodeTag::T_List => {
-            let mut quals = list(
-                root,
-                rti,
-                node.cast(),
-                pdbopoid,
-                ri_type,
-                schema,
-                convert_external_to_special_qual,
-                uses_tantivy_to_query,
-            )?;
-            if quals.len() == 1 {
-                quals.pop()
-            } else {
-                Some(Qual::And(quals))
-            }
-        }
-
-        pg_sys::NodeTag::T_RestrictInfo => {
-            let ri = nodecast!(RestrictInfo, T_RestrictInfo, node)?;
-            let clause = if !(*ri).orclause.is_null() {
-                (*ri).orclause
-            } else {
-                (*ri).clause
-            };
-            extract_quals(
-                root,
-                rti,
-                clause.cast(),
-                pdbopoid,
-                ri_type,
-                schema,
-                convert_external_to_special_qual,
-                uses_tantivy_to_query,
-            )
-        }
-
-        pg_sys::NodeTag::T_OpExpr => opexpr(
-            root,
-            rti,
-            node,
-            pdbopoid,
-            ri_type,
-            schema,
-            convert_external_to_special_qual,
-            uses_tantivy_to_query,
-        ),
-
-        pg_sys::NodeTag::T_BoolExpr => {
-            let boolexpr = nodecast!(BoolExpr, T_BoolExpr, node)?;
-            let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
-            let mut quals = list(
-                root,
-                rti,
-                (*boolexpr).args,
-                pdbopoid,
-                ri_type,
-                schema,
-                convert_external_to_special_qual,
-                uses_tantivy_to_query,
-            )?;
-
-            match (*boolexpr).boolop {
-                pg_sys::BoolExprType::AND_EXPR => Some(Qual::And(quals)),
-                pg_sys::BoolExprType::OR_EXPR => Some(Qual::Or(quals)),
-                pg_sys::BoolExprType::NOT_EXPR => Some(Qual::Not(Box::new(quals.pop()?))),
-                _ => panic!("unexpected `BoolExprType`: {}", (*boolexpr).boolop),
-            }
-        }
-
-        pg_sys::NodeTag::T_Var if (*(node as *mut pg_sys::Var)).vartype == pg_sys::BOOLOID => {
-            PushdownField::try_new(root, node.cast(), schema)
-                .map(|field| Qual::PushdownVarEqTrue { field })
-        }
-
-        pg_sys::NodeTag::T_NullTest => {
-            let nulltest = nodecast!(NullTest, T_NullTest, node)?;
-            if let Some(field) = PushdownField::try_new(root, (*nulltest).arg.cast(), schema) {
-                if let Some(search_field) = schema.search_field(field.attname()) {
-                    if search_field.is_fast() {
-                        if (*nulltest).nulltesttype == pg_sys::NullTestType::IS_NOT_NULL {
-                            return Some(Qual::PushdownIsNotNull { field });
-                        } else {
-                            return Some(Qual::Not(Box::new(Qual::PushdownIsNotNull { field })));
-                        }
-                    }
-                }
-            }
-            None
-        }
-
-        pg_sys::NodeTag::T_BooleanTest => booltest(
-            root,
-            rti,
-            node,
-            pdbopoid,
-            ri_type,
-            schema,
-            convert_external_to_special_qual,
-            uses_tantivy_to_query,
-        ),
-
-        pg_sys::NodeTag::T_Const => {
-            // Handle constants that result from join clause simplification
-            let const_node = nodecast!(Const, T_Const, node)?;
-            if (*const_node).consttype == pg_sys::BOOLOID && !(*const_node).constisnull {
-                let bool_value = bool::from_datum((*const_node).constvalue, false).unwrap_or(false);
-                if bool_value {
-                    Some(Qual::All)
-                } else {
-                    Some(Qual::Not(Box::new(Qual::All)))
-                }
-            } else {
-                None
-            }
-        }
-
-        // we don't understand this clause so we can't do anything
-        _ => None,
-    }
+    extract_quals_internal(
+        root,
+        rti,
+        node,
+        pdbopoid,
+        ri_type,
+        schema,
+        convert_external_to_special_qual,
+        false, // extract_all_quals_even_non_indexed
+        uses_tantivy_to_query,
+    )
+    .0
 }
 
+/// Extract quals from a node, returning the all quals (indexed and non-indexed) if available
+/// If `convert_external_to_special_qual` is true, then unpushable predicates will be converted to Qual::ExternalExpr
+/// `uses_tantivy_to_query` will be set to true if we decide to use tantivy to query
 #[allow(clippy::too_many_arguments)]
-unsafe fn list(
-    root: *mut pg_sys::PlannerInfo,
-    rti: pg_sys::Index,
-    list: *mut pg_sys::List,
-    pdbopoid: pg_sys::Oid,
-    ri_type: RestrictInfoType,
-    schema: &SearchIndexSchema,
-    convert_external_to_special_qual: bool,
-    uses_tantivy_to_query: &mut bool,
-) -> Option<Vec<Qual>> {
-    let args = PgList::<pg_sys::Node>::from_pg(list);
-    let mut quals = Vec::new();
-    for child in args.iter_ptr() {
-        quals.push(extract_quals(
-            root,
-            rti,
-            child,
-            pdbopoid,
-            ri_type,
-            schema,
-            convert_external_to_special_qual,
-            uses_tantivy_to_query,
-        )?)
-    }
-    Some(quals)
-}
-
-#[allow(clippy::too_many_arguments)]
-unsafe fn opexpr(
+pub unsafe fn extract_quals_with_non_indexed(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
     node: *mut pg_sys::Node,
@@ -562,6 +440,319 @@ unsafe fn opexpr(
     ri_type: RestrictInfoType,
     schema: &SearchIndexSchema,
     convert_external_to_special_qual: bool,
+    uses_tantivy_to_query: &mut bool,
+) -> (Option<Qual>, Option<Qual>) {
+    extract_quals_internal(
+        root,
+        rti,
+        node,
+        pdbopoid,
+        ri_type,
+        schema,
+        convert_external_to_special_qual,
+        true, // extract_all_quals_even_non_indexed
+        uses_tantivy_to_query,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+unsafe fn extract_quals_internal(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+    node: *mut pg_sys::Node,
+    pdbopoid: pg_sys::Oid,
+    ri_type: RestrictInfoType,
+    schema: &SearchIndexSchema,
+    convert_external_to_special_qual: bool,
+    extract_all_quals_even_non_indexed: bool,
+    uses_tantivy_to_query: &mut bool,
+) -> (Option<Qual>, Option<Qual>) {
+    if node.is_null() {
+        return (None, None);
+    }
+
+    match (*node).type_ {
+        pg_sys::NodeTag::T_List => {
+            let indexed_quals = list_internal(
+                root,
+                rti,
+                node.cast(),
+                pdbopoid,
+                ri_type,
+                schema,
+                convert_external_to_special_qual,
+                false, // Don't extract non-indexed for indexed quals
+                uses_tantivy_to_query,
+            );
+
+            let all_quals = if extract_all_quals_even_non_indexed {
+                list_internal(
+                    root,
+                    rti,
+                    node.cast(),
+                    pdbopoid,
+                    ri_type,
+                    schema,
+                    convert_external_to_special_qual,
+                    true, // Extract all quals including non-indexed
+                    uses_tantivy_to_query,
+                )
+            } else {
+                None
+            };
+
+            let indexed_result = if let Some(mut quals) = indexed_quals {
+                if quals.is_empty() {
+                    None
+                } else if quals.len() == 1 {
+                    quals.pop()
+                } else {
+                    Some(Qual::And(quals))
+                }
+            } else {
+                None
+            };
+
+            let all_result = if let Some(mut quals) = all_quals {
+                if quals.is_empty() {
+                    None
+                } else if quals.len() == 1 {
+                    quals.pop()
+                } else {
+                    Some(Qual::And(quals))
+                }
+            } else {
+                None
+            };
+
+            (indexed_result, all_result)
+        }
+
+        pg_sys::NodeTag::T_RestrictInfo => {
+            let ri = if let Some(ri) = nodecast!(RestrictInfo, T_RestrictInfo, node) {
+                ri
+            } else {
+                return (None, None);
+            };
+            let clause = if !(*ri).orclause.is_null() {
+                (*ri).orclause
+            } else {
+                (*ri).clause
+            };
+            extract_quals_internal(
+                root,
+                rti,
+                clause.cast(),
+                pdbopoid,
+                ri_type,
+                schema,
+                convert_external_to_special_qual,
+                extract_all_quals_even_non_indexed,
+                uses_tantivy_to_query,
+            )
+        }
+
+        pg_sys::NodeTag::T_OpExpr => {
+            let indexed_qual = opexpr_internal(
+                root,
+                rti,
+                node,
+                pdbopoid,
+                ri_type,
+                schema,
+                convert_external_to_special_qual,
+                false, // Don't extract non-indexed for indexed quals
+                uses_tantivy_to_query,
+            );
+
+            let all_qual = if extract_all_quals_even_non_indexed {
+                opexpr_internal(
+                    root,
+                    rti,
+                    node,
+                    pdbopoid,
+                    ri_type,
+                    schema,
+                    convert_external_to_special_qual,
+                    true, // Extract all quals including non-indexed
+                    uses_tantivy_to_query,
+                )
+            } else {
+                None
+            };
+
+            (indexed_qual, all_qual)
+        }
+
+        pg_sys::NodeTag::T_BoolExpr => {
+            let boolexpr = if let Some(boolexpr) = nodecast!(BoolExpr, T_BoolExpr, node) {
+                boolexpr
+            } else {
+                return (None, None);
+            };
+
+            let indexed_quals = list_internal(
+                root,
+                rti,
+                (*boolexpr).args,
+                pdbopoid,
+                ri_type,
+                schema,
+                convert_external_to_special_qual,
+                false, // Don't extract non-indexed for indexed quals
+                uses_tantivy_to_query,
+            );
+
+            let all_quals = if extract_all_quals_even_non_indexed {
+                list_internal(
+                    root,
+                    rti,
+                    (*boolexpr).args,
+                    pdbopoid,
+                    ri_type,
+                    schema,
+                    convert_external_to_special_qual,
+                    true, // Extract all quals including non-indexed
+                    uses_tantivy_to_query,
+                )
+            } else {
+                None
+            };
+
+            let indexed_result = if let Some(mut quals) = indexed_quals {
+                if quals.is_empty() {
+                    None
+                } else {
+                    match (*boolexpr).boolop {
+                        pg_sys::BoolExprType::AND_EXPR => Some(Qual::And(quals)),
+                        pg_sys::BoolExprType::OR_EXPR => Some(Qual::Or(quals)),
+                        pg_sys::BoolExprType::NOT_EXPR => {
+                            quals.pop().map(|qual| Qual::Not(Box::new(qual)))
+                        }
+                        _ => panic!("unexpected `BoolExprType`: {}", (*boolexpr).boolop),
+                    }
+                }
+            } else {
+                None
+            };
+
+            let all_result = if let Some(mut quals) = all_quals {
+                match (*boolexpr).boolop {
+                    pg_sys::BoolExprType::AND_EXPR => Some(Qual::And(quals)),
+                    pg_sys::BoolExprType::OR_EXPR => Some(Qual::Or(quals)),
+                    pg_sys::BoolExprType::NOT_EXPR => {
+                        quals.pop().map(|qual| Qual::Not(Box::new(qual)))
+                    }
+                    _ => panic!("unexpected `BoolExprType`: {}", (*boolexpr).boolop),
+                }
+            } else {
+                None
+            };
+
+            (indexed_result, all_result)
+        }
+
+        // For all other node types, handle them the same way as before
+        _ => {
+            let single_qual = extract_quals_original(
+                root,
+                rti,
+                node,
+                pdbopoid,
+                ri_type,
+                schema,
+                convert_external_to_special_qual,
+                extract_all_quals_even_non_indexed,
+                uses_tantivy_to_query,
+            );
+            (single_qual.clone(), single_qual)
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+unsafe fn list_internal(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+    list: *mut pg_sys::List,
+    pdbopoid: pg_sys::Oid,
+    ri_type: RestrictInfoType,
+    schema: &SearchIndexSchema,
+    convert_external_to_special_qual: bool,
+    extract_all_quals_even_non_indexed: bool,
+    uses_tantivy_to_query: &mut bool,
+) -> Option<Vec<Qual>> {
+    let args = PgList::<pg_sys::Node>::from_pg(list);
+    let mut quals = Vec::new();
+
+    for child in args.iter_ptr() {
+        if extract_all_quals_even_non_indexed {
+            // When extracting all quals, try both indexed and non-indexed approaches
+            let (indexed_qual, all_qual) = extract_quals_internal(
+                root,
+                rti,
+                child,
+                pdbopoid,
+                ri_type,
+                schema,
+                convert_external_to_special_qual,
+                false, // Don't recurse the all_quals flag
+                uses_tantivy_to_query,
+            );
+
+            // Use the indexed qual if available, otherwise use the all_qual (which includes non-indexed)
+            if let Some(qual) = indexed_qual.or(all_qual) {
+                quals.push(qual);
+            } else {
+                // If we can't extract this qual and we're not doing partial extraction, fail
+                if !extract_all_quals_even_non_indexed {
+                    return None;
+                } else {
+                    // If we can't extract this qual and we're not doing partial extraction,
+                    // we'll just push a non-indexed expression
+                    quals.push(Qual::NonIndexedExpr);
+                }
+            }
+        } else {
+            // Regular extraction for indexed quals only
+            if let Some(qual) = extract_quals_internal(
+                root,
+                rti,
+                child,
+                pdbopoid,
+                ri_type,
+                schema,
+                convert_external_to_special_qual,
+                false,
+                uses_tantivy_to_query,
+            )
+            .0
+            {
+                quals.push(qual);
+            } else if convert_external_to_special_qual {
+                // During partial extraction, convert unpushable predicates to Qual::ExternalExpr
+                // This allows us to proceed with the custom scan even if some predicates can't be pushed down
+                quals.push(Qual::ExternalExpr);
+            } else {
+                // Normal extraction failed and we're not doing partial extraction
+                return None;
+            }
+        }
+    }
+
+    Some(quals)
+}
+
+#[allow(clippy::too_many_arguments)]
+unsafe fn opexpr_internal(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+    node: *mut pg_sys::Node,
+    pdbopoid: pg_sys::Oid,
+    ri_type: RestrictInfoType,
+    schema: &SearchIndexSchema,
+    convert_external_to_special_qual: bool,
+    extract_all_quals_even_non_indexed: bool,
     uses_tantivy_to_query: &mut bool,
 ) -> Option<Qual> {
     let opexpr = nodecast!(OpExpr, T_OpExpr, node)?;
@@ -579,7 +770,7 @@ unsafe fn opexpr(
     }
 
     match (*lhs).type_ {
-        pg_sys::NodeTag::T_Var => var_opexpr(
+        pg_sys::NodeTag::T_Var => var_opexpr_internal(
             root,
             rti,
             pdbopoid,
@@ -590,16 +781,23 @@ unsafe fn opexpr(
             lhs,
             rhs,
             convert_external_to_special_qual,
+            extract_all_quals_even_non_indexed,
         ),
 
         pg_sys::NodeTag::T_FuncExpr => {
             // direct support for paradedb.score() in the WHERE clause
             let funcexpr = nodecast!(FuncExpr, T_FuncExpr, lhs)?;
             if (*funcexpr).funcid != score_funcoid() {
+                // We can't handle functions
+                if extract_all_quals_even_non_indexed {
+                    // Skip non-indexed function predicates when extracting all quals
+                    return None;
+                }
                 return None;
             }
 
             if is_complex(rhs) {
+                // Complex expressions on RHS are not supported
                 return None;
             }
 
@@ -609,12 +807,15 @@ unsafe fn opexpr(
             })
         }
 
-        _ => None,
+        _ => {
+            // Unhandled expression types are not supported
+            None
+        }
     }
 }
 
 #[allow(clippy::too_many_arguments)]
-unsafe fn var_opexpr(
+unsafe fn var_opexpr_internal(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
     pdbopoid: pg_sys::Oid,
@@ -625,6 +826,7 @@ unsafe fn var_opexpr(
     lhs: *mut pg_sys::Node,
     mut rhs: *mut pg_sys::Node,
     convert_external_to_special_qual: bool,
+    extract_all_quals_even_non_indexed: bool,
 ) -> Option<Qual> {
     while let Some(relabel_target) = nodecast!(RelabelType, T_RelabelType, rhs) {
         rhs = (*relabel_target).arg.cast();
@@ -703,16 +905,76 @@ unsafe fn var_opexpr(
         // it doesn't use our operator.
         // we'll try to convert it into a pushdown
         let result = try_pushdown(root, rti, opexpr, schema);
-        if result.is_none() {
-            if convert_external_to_special_qual {
-                Some(Qual::ExternalExpr)
+        if result.is_none() && convert_external_to_special_qual {
+            return Some(Qual::ExternalExpr);
+        }
+        result
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+unsafe fn extract_quals_original(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+    node: *mut pg_sys::Node,
+    pdbopoid: pg_sys::Oid,
+    ri_type: RestrictInfoType,
+    schema: &SearchIndexSchema,
+    convert_external_to_special_qual: bool,
+    extract_all_quals_even_non_indexed: bool,
+    uses_tantivy_to_query: &mut bool,
+) -> Option<Qual> {
+    match (*node).type_ {
+        pg_sys::NodeTag::T_Var if (*(node as *mut pg_sys::Var)).vartype == pg_sys::BOOLOID => {
+            PushdownField::try_new(root, node.cast(), schema)
+                .map(|field| Qual::PushdownVarEqTrue { field })
+        }
+
+        pg_sys::NodeTag::T_NullTest => {
+            let nulltest = nodecast!(NullTest, T_NullTest, node)?;
+            if let Some(field) = PushdownField::try_new(root, (*nulltest).arg.cast(), schema) {
+                if let Some(search_field) = schema.search_field(field.attname()) {
+                    if search_field.is_fast() {
+                        if (*nulltest).nulltesttype == pg_sys::NullTestType::IS_NOT_NULL {
+                            return Some(Qual::PushdownIsNotNull { field });
+                        } else {
+                            return Some(Qual::Not(Box::new(Qual::PushdownIsNotNull { field })));
+                        }
+                    }
+                }
+            }
+
+            None
+        }
+
+        pg_sys::NodeTag::T_BooleanTest => booltest(
+            root,
+            rti,
+            node,
+            pdbopoid,
+            ri_type,
+            schema,
+            convert_external_to_special_qual,
+            uses_tantivy_to_query,
+        ),
+
+        pg_sys::NodeTag::T_Const => {
+            // Handle constants that result from join clause simplification
+            let const_node = nodecast!(Const, T_Const, node)?;
+            if (*const_node).consttype == pg_sys::BOOLOID && !(*const_node).constisnull {
+                let bool_value = bool::from_datum((*const_node).constvalue, false).unwrap_or(false);
+                if bool_value {
+                    Some(Qual::All)
+                } else {
+                    Some(Qual::Not(Box::new(Qual::All)))
+                }
             } else {
                 None
             }
-        } else {
-            *uses_tantivy_to_query = true;
-            result
         }
+
+        // we don't understand this clause so we can't do anything
+        _ => None,
     }
 }
 

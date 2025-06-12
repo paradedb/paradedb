@@ -94,6 +94,14 @@ pub struct PdbScanState {
     // Store join-level search predicates for enhanced scoring/snippet generation
     pub join_predicates: Option<SearchQueryInput>,
 
+    // Store the heap filter expression as a node string for evaluation
+    // This will be initialized from the private data and used for filtering
+    pub heap_filter_node_string: Option<String>,
+
+    // Store the heap filter expression as an ExprState for evaluation
+    // This will be initialized from the node string at execution time
+    pub heap_filter_expr_state: Option<*mut pg_sys::ExprState>,
+
     pub exec_method_type: ExecMethodType,
     exec_method: UnsafeCell<Box<dyn ExecMethod>>,
     exec_method_name: String,

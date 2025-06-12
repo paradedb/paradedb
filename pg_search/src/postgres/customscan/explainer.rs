@@ -96,4 +96,15 @@ impl Explainer {
             pg_sys::ExplainPropertyList(key.as_pg_cstr(), values.as_mut_ptr(), self.state.as_ptr())
         }
     }
+
+    /// Get the deparse context from ExplainState for safe expression deparsing
+    /// This provides the proper context needed for pg_sys::deparse_expression
+    pub fn deparse_cxt(&self) -> *mut pg_sys::List {
+        unsafe { (*self.state.as_ptr()).deparse_cxt }
+    }
+
+    /// Get the rtable from ExplainState
+    pub fn rtable(&self) -> *mut pg_sys::List {
+        unsafe { (*self.state.as_ptr()).rtable }
+    }
 }

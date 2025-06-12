@@ -87,6 +87,11 @@ impl PdbScan {
             .custom_state_mut()
             .prepare_query_for_execution(planstate, expr_context);
 
+        // Set up external filter callbacks if needed
+        unsafe {
+            Self::setup_external_filter_callbacks(state);
+        }
+
         // Open the index
         let indexrel = state
             .custom_state()
@@ -170,6 +175,78 @@ impl PdbScan {
 
         unsafe {
             inject_score_and_snippet_placeholders(state);
+        }
+    }
+
+    /// Set up external filter callbacks for queries that need them
+    unsafe fn setup_external_filter_callbacks(state: &mut CustomScanStateWrapper<Self>) {
+        let planstate = state.planstate();
+        let expr_context = state.runtime_context;
+
+        // Check if the search query contains external filters that need callbacks
+        let search_query = state.custom_state().search_query_input().clone();
+        Self::setup_callbacks_recursive(&search_query, planstate, expr_context);
+    }
+
+    /// Recursively set up callbacks for external filter queries
+    unsafe fn setup_callbacks_recursive(
+        query: &SearchQueryInput,
+        _planstate: *mut pg_sys::PlanState,
+        _expr_context: *mut pg_sys::ExprContext,
+    ) {
+        match query {
+            SearchQueryInput::ExternalFilter {
+                expression: _,
+                referenced_fields: _,
+            } => {
+                // For now, we'll create a placeholder callback
+                // In a full implementation, this would parse the expression and create
+                // a proper callback that evaluates PostgreSQL expressions
+                // TODO: Implement full callback creation
+            }
+            SearchQueryInput::IndexedWithFilter {
+                indexed_query,
+                filter_expression: _,
+                referenced_fields: _,
+            } => {
+                // Set up callback for the filter part
+                // TODO: Implement callback setup for indexed with filter queries
+
+                // Recursively handle the indexed query part
+                Self::setup_callbacks_recursive(indexed_query, _planstate, _expr_context);
+            }
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+            } => {
+                // Recursively handle all sub-queries
+                for sub_query in must.iter().chain(should.iter()).chain(must_not.iter()) {
+                    Self::setup_callbacks_recursive(sub_query, _planstate, _expr_context);
+                }
+            }
+            SearchQueryInput::Boost { query, .. } => {
+                Self::setup_callbacks_recursive(query, _planstate, _expr_context);
+            }
+            SearchQueryInput::ConstScore { query, .. } => {
+                Self::setup_callbacks_recursive(query, _planstate, _expr_context);
+            }
+            SearchQueryInput::ScoreFilter {
+                query: Some(query), ..
+            } => {
+                Self::setup_callbacks_recursive(query, _planstate, _expr_context);
+            }
+            SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
+                for sub_query in disjuncts {
+                    Self::setup_callbacks_recursive(sub_query, _planstate, _expr_context);
+                }
+            }
+            SearchQueryInput::WithIndex { query, .. } => {
+                Self::setup_callbacks_recursive(query, _planstate, _expr_context);
+            }
+            _ => {
+                // Other query types don't need callback setup
+            }
         }
     }
 

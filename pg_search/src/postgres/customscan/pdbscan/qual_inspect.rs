@@ -231,9 +231,22 @@ impl From<&Qual> for SearchQueryInput {
             },
             Qual::Expr { node, expr_state } => SearchQueryInput::postgres_expression(*node),
             Qual::FilterExpression { expr, attno_map } => {
-                // For now, convert FilterExpression to a PostgresExpression
-                // This will be enhanced when we implement the Tantivy callback system
-                SearchQueryInput::postgres_expression((*expr).cast())
+                // Create an external filter SearchQueryInput
+                let expression = unsafe {
+                    let node_string = pg_sys::nodeToString((*expr).cast::<core::ffi::c_void>());
+                    let rust_string = std::ffi::CStr::from_ptr(node_string)
+                        .to_string_lossy()
+                        .into_owned();
+                    pg_sys::pfree(node_string.cast());
+                    rust_string
+                };
+
+                let referenced_fields = attno_map.values().cloned().collect();
+
+                SearchQueryInput::ExternalFilter {
+                    expression,
+                    referenced_fields,
+                }
             }
             Qual::PushdownExpr { funcexpr } => unsafe {
                 let expr_state = pg_sys::ExecInitExpr((*funcexpr).cast(), std::ptr::null_mut());

@@ -1787,8 +1787,44 @@ impl SearchQueryInput {
                 query.into_tantivy_query(schema, parser, searcher, index_oid)
             }
             Self::PostgresExpression { .. } => panic!("postgres expressions have not been solved"),
-            Self::ExternalFilter { .. } => panic!("external filter has not been solved"),
-            Self::IndexedWithFilter { .. } => panic!("indexed with filter has not been solved"),
+            Self::ExternalFilter {
+                expression,
+                referenced_fields,
+            } => {
+                use crate::query::external_filter::{ExternalFilterConfig, ExternalFilterQuery};
+
+                let config = ExternalFilterConfig {
+                    expression: expression.clone(),
+                    referenced_fields: referenced_fields.clone(),
+                };
+
+                Ok(Box::new(ExternalFilterQuery::new(config)))
+            }
+            Self::IndexedWithFilter {
+                indexed_query,
+                filter_expression,
+                referenced_fields,
+            } => {
+                use crate::query::external_filter::{
+                    ExternalFilterConfig, ExternalFilterQuery, IndexedWithFilterQuery,
+                };
+
+                // Create the indexed query
+                let indexed_tantivy_query =
+                    indexed_query.into_tantivy_query(schema, parser, searcher, index_oid)?;
+
+                // Create the external filter
+                let filter_config = ExternalFilterConfig {
+                    expression: filter_expression.clone(),
+                    referenced_fields: referenced_fields.clone(),
+                };
+                let external_filter = ExternalFilterQuery::new(filter_config);
+
+                Ok(Box::new(IndexedWithFilterQuery::new(
+                    indexed_tantivy_query,
+                    external_filter,
+                )))
+            }
         }
     }
 }

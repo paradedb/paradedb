@@ -260,39 +260,70 @@ pub unsafe fn try_external_filter(
     opexpr: *mut pg_sys::OpExpr,
 ) -> Option<Qual> {
     let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
-    let var = {
-        // inspect the left-hand-side of the operator expression...
-        let mut lhs = args.get_ptr(0)?;
 
-        while (*lhs).type_ == pg_sys::NodeTag::T_RelabelType {
-            // and keep following it as long as it's still a RelabelType
-            let relabel_type = lhs as *mut pg_sys::RelabelType;
-            lhs = (*relabel_type).arg as _;
+    // Extract all variables from the expression to build the attribute mapping
+    let mut attno_map = HashMap::default();
+    let mut has_our_relation = false;
+
+    // Check left-hand side
+    if let Some(lhs_var) = extract_var_from_node(args.get_ptr(0)?) {
+        if (*lhs_var).varno as pg_sys::Index == rti {
+            has_our_relation = true;
+            let (heaprelid, varattno, _) = find_var_relation(lhs_var, root);
+            if heaprelid != pg_sys::Oid::INVALID {
+                if let Some(field) = fieldname_from_var(heaprelid, lhs_var, varattno) {
+                    attno_map.insert((*lhs_var).varattno, field);
+                }
+            }
         }
-        nodecast!(Var, T_Var, lhs)?
-    };
-    let rhs = args.get_ptr(1)?;
+    }
 
-    // Check if this is a simple field reference from our relation
-    if (*var).varno as pg_sys::Index == rti {
-        // Get the field name for the attribute mapping
-        let (heaprelid, varattno, _) = find_var_relation(var, root);
-        if heaprelid == pg_sys::Oid::INVALID {
-            return None;
+    // Check right-hand side for variables (in case of var-to-var comparisons)
+    if let Some(rhs_var) = extract_var_from_node(args.get_ptr(1)?) {
+        if (*rhs_var).varno as pg_sys::Index == rti {
+            has_our_relation = true;
+            let (heaprelid, varattno, _) = find_var_relation(rhs_var, root);
+            if heaprelid != pg_sys::Oid::INVALID {
+                if let Some(field) = fieldname_from_var(heaprelid, rhs_var, varattno) {
+                    attno_map.insert((*rhs_var).varattno, field);
+                }
+            }
         }
-        let field = fieldname_from_var(heaprelid, var, varattno)?;
+    }
 
-        // Create attribute mapping for this expression
-        let mut attno_map = HashMap::default();
-        attno_map.insert((*var).varattno, field);
-
-        // Create a FilterExpression qual
+    // Only create external filter if this expression involves our relation
+    if has_our_relation && !attno_map.is_empty() {
         Some(Qual::FilterExpression {
             expr: opexpr.cast(),
             attno_map,
         })
-    } else {
-        // Variable from different relation - treat as external
+    } else if !has_our_relation {
+        // Expression involves other relations - treat as external
         Some(Qual::ExternalVar)
+    } else {
+        None
+    }
+}
+
+/// Extract a Var node from a potentially complex expression
+/// Handles RelabelType wrappers and other common expression patterns
+unsafe fn extract_var_from_node(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {
+    if node.is_null() {
+        return None;
+    }
+
+    let mut current_node = node;
+
+    // Follow RelabelType chains
+    while (*current_node).type_ == pg_sys::NodeTag::T_RelabelType {
+        let relabel_type = current_node as *mut pg_sys::RelabelType;
+        current_node = (*relabel_type).arg as _;
+    }
+
+    // Check if we have a Var
+    if (*current_node).type_ == pg_sys::NodeTag::T_Var {
+        Some(current_node as *mut pg_sys::Var)
+    } else {
+        None
     }
 }

@@ -337,7 +337,7 @@ impl AsHumanReadable for SearchQueryInput {
         let mut s = String::new();
         match self {
             SearchQueryInput::Uninitialized => s.push_str("<Uninitialized>"),
-            SearchQueryInput::All => s.push_str("*"),
+            SearchQueryInput::All => s.push('*'),
             SearchQueryInput::Boolean {
                 must,
                 should,
@@ -442,7 +442,7 @@ impl AsHumanReadable for SearchQueryInput {
                 field,
                 lower_bound,
                 upper_bound,
-                is_datetime,
+                is_datetime: _,
             } => {
                 s.push_str(&format!("{field}:[{:?}, {:?}]", lower_bound, upper_bound));
             }
@@ -450,7 +450,7 @@ impl AsHumanReadable for SearchQueryInput {
                 field,
                 lower_bound,
                 upper_bound,
-                is_datetime,
+                is_datetime: _,
             } => {
                 s.push_str(&format!(
                     "{field} CONTAINS [{:?}, {:?}]",
@@ -461,7 +461,7 @@ impl AsHumanReadable for SearchQueryInput {
                 field,
                 lower_bound,
                 upper_bound,
-                is_datetime,
+                is_datetime: _,
             } => {
                 s.push_str(&format!(
                     "{field} INTERSECTS [{:?}, {:?}]",
@@ -471,7 +471,7 @@ impl AsHumanReadable for SearchQueryInput {
             SearchQueryInput::RangeTerm {
                 field,
                 value,
-                is_datetime,
+                is_datetime: _,
             } => {
                 s.push_str(&format!("{field}:{:?}", value));
             }
@@ -479,7 +479,7 @@ impl AsHumanReadable for SearchQueryInput {
                 field,
                 lower_bound,
                 upper_bound,
-                is_datetime,
+                is_datetime: _,
             } => {
                 s.push_str(&format!(
                     "{field} WITHIN [{:?}, {:?}]",

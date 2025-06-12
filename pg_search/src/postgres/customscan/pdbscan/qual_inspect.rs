@@ -944,7 +944,7 @@ unsafe fn var_opexpr_internal(
             }
         }
         *uses_tantivy_to_query = true;
-        return result;
+        result
     }
 }
 

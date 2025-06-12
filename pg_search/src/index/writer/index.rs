@@ -193,14 +193,14 @@ impl SerialIndexWriter {
             || (self.target_docs_per_segment.is_some()
                 && max_doc >= self.target_docs_per_segment.unwrap())
         {
-            self.finalize_segment()?;
+            self.finalize_segment(false)?;
         }
 
         Ok(())
     }
 
     pub fn commit(mut self) -> Result<Vec<SegmentId>> {
-        self.finalize_segment()?;
+        self.finalize_segment(true)?;
         Ok(self.new_metas.iter().map(|meta| meta.id()).collect())
     }
 
@@ -246,7 +246,7 @@ impl SerialIndexWriter {
     /// 2. Merge the segment with the previous segment if we're using a RAMDirectory
     /// 3. Save the new meta entry
     /// 4. Return any free space to the FSM
-    fn finalize_segment(&mut self) -> Result<()> {
+    fn finalize_segment(&mut self, is_last_segment: bool) -> Result<()> {
         let Some(pending_segment) = self.pending_segment.take() else {
             // no docs were ever added
             return Ok(());
@@ -259,14 +259,18 @@ impl SerialIndexWriter {
             self.avg_docs_per_segment = Some(finalized_segment.meta().num_docs() as usize);
         }
 
-        match directory_type {
-            DirectoryType::Ram(_) => {
-                self.flush_ram_segment(finalized_segment)?;
-            }
-            DirectoryType::Mvcc => {
-                self.flush_mvcc_segment(finalized_segment)?;
-            }
-        };
+        // If we're committing the last segment, merge it with the previous segment so we don't have any leftover "small" segments
+        // If it's a RAMDirectory-backed segment, it must also be merged with the previous segment
+        if is_last_segment || matches!(directory_type, DirectoryType::Ram(_)) {
+            self.merge_then_commit_segment(finalized_segment)?;
+        // If it's an MVCC-backed segment, just commit it without merging
+        } else {
+            assert!(
+                matches!(directory_type, DirectoryType::Mvcc),
+                "Cannot commit a non-MVCC backed segment"
+            );
+            self.commit_segment(finalized_segment)?;
+        }
 
         let index_relation = unsafe { PgRelation::open(self.indexrelid) };
         unsafe {
@@ -276,7 +280,7 @@ impl SerialIndexWriter {
         Ok(())
     }
 
-    fn flush_ram_segment(&mut self, finalized_segment: Segment) -> Result<()> {
+    fn merge_then_commit_segment(&mut self, finalized_segment: Segment) -> Result<()> {
         let previous_metas = self.new_metas.clone();
 
         let last_flushed_segment_meta = self.new_metas.pop().unwrap();
@@ -293,7 +297,7 @@ impl SerialIndexWriter {
         Ok(())
     }
 
-    fn flush_mvcc_segment(&mut self, finalized_segment: Segment) -> Result<()> {
+    fn commit_segment(&mut self, finalized_segment: Segment) -> Result<()> {
         let previous_metas = self.new_metas.clone();
         self.new_metas.push(finalized_segment.meta().clone());
         self.save_metas(self.new_metas.clone(), previous_metas)?;

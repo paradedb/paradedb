@@ -2063,6 +2063,8 @@ unsafe fn extract_restrictinfo_string(
         // For the node string (execution): replace cross-relation expressions with TRUE constants
         let processed_clause =
             replace_cross_relation_expressions_with_true(cleaned_clause, current_rti);
+        let processed_clause =
+            replace_operator_with_true(processed_clause, anyelement_query_input_opoid());
         let clause_string = pg_sys::nodeToString(processed_clause.cast::<core::ffi::c_void>());
         let rust_string = std::ffi::CStr::from_ptr(clause_string)
             .to_string_lossy()
@@ -2078,5 +2080,56 @@ unsafe fn extract_restrictinfo_string(
     } else {
         // Multiple clauses - join them with a separator for evaluation later
         Some(clause_strings.join("|||CLAUSE_SEPARATOR|||"))
+    }
+}
+
+/// Replace occurrences of a specific operator (e.g., @@@) with a boolean TRUE constant
+/// This is used to exclude indexed-search predicates from the heap filter expression.
+unsafe fn replace_operator_with_true(
+    node: *mut pg_sys::Node,
+    operator_oid: pg_sys::Oid,
+) -> *mut pg_sys::Node {
+    if node.is_null() {
+        return node;
+    }
+
+    match (*node).type_ {
+        pg_sys::NodeTag::T_OpExpr => {
+            let opexpr = node.cast::<pg_sys::OpExpr>();
+            if (*opexpr).opno == operator_oid {
+                return create_bool_const_true().unwrap_or(node);
+            }
+            // Otherwise, recurse into args to handle nested expressions
+            let args_list = (*opexpr).args;
+            if args_list.is_null() {
+                return node;
+            }
+            let old_args = PgList::<pg_sys::Node>::from_pg(args_list);
+            let mut new_args = std::ptr::null_mut();
+            for arg in old_args.iter_ptr() {
+                let processed = replace_operator_with_true(arg, operator_oid);
+                new_args = pg_sys::lappend(new_args, processed.cast::<core::ffi::c_void>());
+            }
+            // Build a shallow copy with replaced args
+            let new_opexpr = pg_sys::copyObjectImpl(node.cast()).cast::<pg_sys::OpExpr>();
+            (*new_opexpr).args = new_args;
+            new_opexpr.cast()
+        }
+        pg_sys::NodeTag::T_BoolExpr => {
+            let boolexpr = node.cast::<pg_sys::BoolExpr>();
+            if (*boolexpr).args.is_null() {
+                return node;
+            }
+            let old_args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
+            let mut new_args = std::ptr::null_mut();
+            for arg in old_args.iter_ptr() {
+                let processed = replace_operator_with_true(arg, operator_oid);
+                new_args = pg_sys::lappend(new_args, processed.cast::<core::ffi::c_void>());
+            }
+            let new_bool_expr = pg_sys::copyObjectImpl(node.cast()).cast::<pg_sys::BoolExpr>();
+            (*new_bool_expr).args = new_args;
+            new_bool_expr.cast()
+        }
+        _ => node, // For other node types, return as-is
     }
 }

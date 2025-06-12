@@ -261,7 +261,9 @@ impl SerialIndexWriter {
 
         // If we're committing the last segment, merge it with the previous segment so we don't have any leftover "small" segments
         // If it's a RAMDirectory-backed segment, it must also be merged with the previous segment
-        if is_last_segment || matches!(directory_type, DirectoryType::Ram(_)) {
+        if !self.new_metas.is_empty()
+            && (is_last_segment || matches!(directory_type, DirectoryType::Ram(_)))
+        {
             self.merge_then_commit_segment(finalized_segment)?;
         // If it's an MVCC-backed segment, just commit it without merging
         } else {

@@ -206,7 +206,8 @@ impl<'a> BuildWorker<'a> {
             (*index_info).ii_Concurrent = self.config.concurrent;
 
             let memory_budget = gucs::adjust_maintenance_work_mem(self.coordination.nlaunched());
-            let mut build_state = WorkerBuildState::new(&self.indexrel, memory_budget)?;
+            let mut build_state =
+                WorkerBuildState::new(&self.indexrel, &self.heaprel, memory_budget)?;
 
             let reltuples = pg_sys::table_index_build_scan(
                 self.heaprel.as_ptr(),
@@ -237,11 +238,15 @@ struct WorkerBuildState {
 }
 
 impl WorkerBuildState {
-    pub fn new(indexrel: &PgRelation, memory_budget: usize) -> anyhow::Result<Self> {
+    pub fn new(
+        indexrel: &PgRelation,
+        heaprel: &PgRelation,
+        memory_budget: usize,
+    ) -> anyhow::Result<Self> {
         let writer = SerialIndexWriter::open(
             indexrel,
             memory_budget,
-            Some(Self::target_docs_per_segment(indexrel)),
+            Self::target_docs_per_segment(heaprel),
         )?;
         let schema = SearchIndexSchema::open(indexrel.oid())?;
         let tupdesc = indexrel.tuple_desc();
@@ -259,35 +264,16 @@ impl WorkerBuildState {
     ///
     /// This number is calculated by dividing the number of rows in the table by the number of
     /// available cores.
-    fn target_docs_per_segment(indexrel: &PgRelation) -> usize {
-        let desired_segment_count = std::thread::available_parallelism()
-            .expect("your computer should have at least one core");
-        let heap_relation = indexrel.heap_relation().unwrap();
-        let mut reltuples = heap_relation.reltuples().unwrap_or_default();
-
-        // If the reltuples estimate is not available, estimate the number of tuples in the heap
-        // by multiplying the number of pages by the max offset number of the first page
-        if reltuples <= 0.0 {
-            let npages = unsafe {
-                pg_sys::RelationGetNumberOfBlocksInFork(
-                    heap_relation.as_ptr(),
-                    pg_sys::ForkNumber::MAIN_FORKNUM,
-                )
-            };
-
-            // The table really is empty and the tuple count is 0
-            if npages == 0 {
-                return 0;
-            }
-
-            let bman = BufferManager::new(heap_relation.oid());
-            let buffer = bman.get_buffer(0);
-            let page = buffer.page();
-            let max_offset = page.max_offset_number();
-            reltuples = npages as f32 * max_offset as f32;
+    fn target_docs_per_segment(heaprel: &PgRelation) -> Option<usize> {
+        if force_one_segment(heaprel) {
+            return None;
         }
 
-        (reltuples as f64 / desired_segment_count.get() as f64).ceil() as usize
+        let desired_segment_count = std::thread::available_parallelism()
+            .expect("your computer should have at least one core");
+        let reltuples = estimate_heap_reltuples(heaprel);
+
+        Some((reltuples / desired_segment_count.get() as f64).ceil() as usize)
     }
 }
 
@@ -422,7 +408,11 @@ pub(super) fn build_index(
     }
 }
 
-pub fn create_index_parallelism(heaprel: &PgRelation) -> usize {
+fn create_index_parallelism(heaprel: &PgRelation) -> usize {
+    if force_one_segment(heaprel) {
+        return 1;
+    }
+
     // NB: we _could_ use pg_sys::plan_create_index_workers(), or on v17+ accept IndexIndex::ii_ParallelWorkers,
     // but doing either of these would prohibit the user from having direct control over the number of
     // workers used for a given CREATE INDEX/REINDEX statement.  Internal discussions led to that
@@ -439,4 +429,61 @@ pub fn create_index_parallelism(heaprel: &PgRelation) -> usize {
             pg_sys::max_parallel_maintenance_workers as usize
         }
     }
+}
+
+fn force_one_segment(heaprel: &PgRelation) -> bool {
+    // If there are fewer rows than number of CPUs, use 1 worker
+    let reltuples = estimate_heap_reltuples(heaprel);
+    let nworkers = std::thread::available_parallelism().unwrap().get();
+    if reltuples <= nworkers as f64 {
+        return true;
+    }
+
+    // If the byte size of the heap fits inside the memory budget, use 1 worker
+    let memory_budget = gucs::adjust_work_mem(1);
+    let byte_size = estimate_heap_byte_size(heaprel);
+    if byte_size <= memory_budget {
+        return true;
+    }
+
+    false
+}
+
+fn estimate_heap_reltuples(heap_relation: &PgRelation) -> f64 {
+    let mut reltuples = heap_relation.reltuples().unwrap_or_default();
+
+    // If the reltuples estimate is not available, estimate the number of tuples in the heap
+    // by multiplying the number of pages by the max offset number of the first page
+    if reltuples <= 0.0 {
+        let npages = unsafe {
+            pg_sys::RelationGetNumberOfBlocksInFork(
+                heap_relation.as_ptr(),
+                pg_sys::ForkNumber::MAIN_FORKNUM,
+            )
+        };
+
+        // The table really is empty and the tuple count is 0
+        if npages == 0 {
+            return 0.0;
+        }
+
+        let bman = BufferManager::new(heap_relation.oid());
+        let buffer = bman.get_buffer(0);
+        let page = buffer.page();
+        let max_offset = page.max_offset_number();
+        reltuples = npages as f32 * max_offset as f32;
+    }
+
+    reltuples as f64
+}
+
+fn estimate_heap_byte_size(heap_relation: &PgRelation) -> usize {
+    let npages = unsafe {
+        pg_sys::RelationGetNumberOfBlocksInFork(
+            heap_relation.as_ptr(),
+            pg_sys::ForkNumber::MAIN_FORKNUM,
+        )
+    };
+
+    npages as usize * pg_sys::BLCKSZ as usize
 }

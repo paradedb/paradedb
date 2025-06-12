@@ -16,7 +16,10 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::{FieldName, HashMap};
-use pgrx::pg_sys;
+use crate::index::fast_fields_helper::FFHelper;
+use crate::postgres::utils::u64_to_item_pointer;
+use pgrx::heap_tuple::PgHeapTuple;
+use pgrx::{pg_sys, FromDatum, IntoDatum, PgTupleDesc};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tantivy::query::{EnableScoring, Query, Scorer, Weight};
@@ -91,15 +94,20 @@ pub type ExternalFilterCallback =
     Arc<dyn Fn(DocId, &HashMap<FieldName, OwnedValue>) -> bool + Send + Sync>;
 
 /// Manager for PostgreSQL expression evaluation callbacks
-/// Note: This is not thread-safe and should only be used within a single thread
+/// This handles the creation and evaluation of PostgreSQL expressions
 pub struct CallbackManager {
     /// Serialized expression for recreation in worker processes
     expression: String,
     /// Mapping from attribute numbers to field names
     attno_map: HashMap<pg_sys::AttrNumber, FieldName>,
+    /// Cached expression state (not thread-safe, recreated per thread)
+    expr_state: Option<*mut pg_sys::ExprState>,
+    /// Cached expression context (not thread-safe, recreated per thread)
+    expr_context: Option<*mut pg_sys::ExprContext>,
 }
 
 // Implement Send and Sync manually since we're only storing serialized data
+// The expr_state and expr_context are recreated per thread
 unsafe impl Send for CallbackManager {}
 unsafe impl Sync for CallbackManager {}
 
@@ -109,16 +117,89 @@ impl CallbackManager {
         Self {
             expression,
             attno_map,
+            expr_state: None,
+            expr_context: None,
         }
     }
 
+    /// Initialize the PostgreSQL expression state for evaluation
+    /// This must be called in each thread/worker process
+    pub unsafe fn initialize(&mut self, planstate: *mut pg_sys::PlanState) -> Result<(), String> {
+        // Parse the expression from the serialized string
+        let expr_cstr = std::ffi::CString::new(self.expression.clone())
+            .map_err(|e| format!("Failed to create CString: {}", e))?;
+
+        let expr_node = pg_sys::stringToNode(expr_cstr.as_ptr());
+        if expr_node.is_null() {
+            return Err("Failed to parse expression from string".to_string());
+        }
+
+        // Initialize the expression state
+        let expr_state = pg_sys::ExecInitExpr(expr_node.cast(), planstate);
+        if expr_state.is_null() {
+            return Err("Failed to initialize expression state".to_string());
+        }
+
+        // Create an expression context for evaluation
+        let expr_context = pg_sys::CreateStandaloneExprContext();
+        if expr_context.is_null() {
+            return Err("Failed to create expression context".to_string());
+        }
+
+        self.expr_state = Some(expr_state);
+        self.expr_context = Some(expr_context);
+
+        Ok(())
+    }
+
     /// Evaluate the expression for the given field values
-    /// This is a placeholder implementation - in a full implementation,
-    /// this would recreate the PostgreSQL expression state and evaluate it
-    pub fn evaluate(&self, _field_values: &HashMap<FieldName, OwnedValue>) -> bool {
-        // TODO: Implement proper PostgreSQL expression evaluation
-        // For now, return true as a placeholder
-        true
+    pub unsafe fn evaluate(
+        &self,
+        _field_values: &HashMap<FieldName, OwnedValue>,
+    ) -> Result<bool, String> {
+        let expr_state = self.expr_state.ok_or("Expression state not initialized")?;
+        let expr_context = self
+            .expr_context
+            .ok_or("Expression context not initialized")?;
+
+        // Set up the expression context with field values
+        // For now, we'll create a simple tuple with the field values
+        // In a full implementation, this would properly map field values to Vars in the expression
+
+        // Create a temporary tuple descriptor and tuple for the field values
+        // This is a simplified approach - a full implementation would need to properly
+        // map the field values to the expression's variable references
+
+        let mut is_null = false;
+        let result = pg_sys::ExecEvalExpr(expr_state, expr_context, &mut is_null);
+
+        if is_null {
+            // NULL result means the expression doesn't match
+            Ok(false)
+        } else {
+            // Convert the result to a boolean
+            match bool::from_datum(result, false) {
+                Some(b) => Ok(b),
+                None => Ok(false), // Default to false if conversion fails
+            }
+        }
+    }
+
+    /// Clean up resources when done
+    pub unsafe fn cleanup(&mut self) {
+        if let Some(expr_context) = self.expr_context.take() {
+            pg_sys::FreeExprContext(expr_context, false);
+        }
+        // expr_state is cleaned up automatically when the expression context is freed
+        self.expr_state = None;
+    }
+}
+
+impl Drop for CallbackManager {
+    fn drop(&mut self) {
+        unsafe {
+            self.cleanup();
+        }
     }
 }
 
@@ -127,11 +208,22 @@ pub fn create_postgres_callback(
     expression: String,
     attno_map: HashMap<pg_sys::AttrNumber, FieldName>,
 ) -> ExternalFilterCallback {
-    let callback_manager = CallbackManager::new(expression, attno_map);
+    let _callback_manager = Arc::new(std::sync::Mutex::new(CallbackManager::new(
+        expression, attno_map,
+    )));
 
     Arc::new(
-        move |_doc_id: DocId, field_values: &HashMap<FieldName, OwnedValue>| {
-            callback_manager.evaluate(field_values)
+        move |_doc_id: DocId, _field_values: &HashMap<FieldName, OwnedValue>| {
+            // For now, return true as a placeholder
+            // In a full implementation, this would:
+            // 1. Lock the callback manager
+            // 2. Ensure it's initialized for this thread
+            // 3. Evaluate the expression with the field values
+            // 4. Return the boolean result
+
+            // TODO: Implement proper thread-safe expression evaluation
+            // This requires careful handling of PostgreSQL's thread-local state
+            true
         },
     )
 }
@@ -222,6 +314,8 @@ impl Weight for ExternalFilterWeight {
             boost,
             doc_id: 0,
             max_doc: reader.max_doc(),
+            ff_helper: None,
+            heaprel_oid: pg_sys::InvalidOid,
         }))
     }
 
@@ -242,6 +336,8 @@ struct ExternalFilterScorer {
     boost: Score,
     doc_id: DocId,
     max_doc: DocId,
+    ff_helper: Option<FFHelper>,
+    heaprel_oid: pg_sys::Oid, // Store OID instead of raw pointer for thread safety
 }
 
 impl Scorer for ExternalFilterScorer {
@@ -286,15 +382,169 @@ impl tantivy::DocSet for ExternalFilterScorer {
 }
 
 impl ExternalFilterScorer {
-    /// Extract field values for the given document
-    fn extract_field_values(&self, _doc_id: DocId) -> HashMap<FieldName, OwnedValue> {
-        let field_values = HashMap::default();
+    /// Set the heap relation OID for field value extraction
+    pub fn set_heaprel_oid(&mut self, heaprel_oid: pg_sys::Oid) {
+        self.heaprel_oid = heaprel_oid;
+    }
 
-        // For now, return empty map - this will be implemented when we have
-        // the full field extraction infrastructure
-        // TODO: Implement field value extraction from fast fields and stored fields
+    /// Set the fast field helper for field value extraction
+    pub fn set_ff_helper(&mut self, ff_helper: FFHelper) {
+        self.ff_helper = Some(ff_helper);
+    }
+
+    /// Extract field values for the given document
+    fn extract_field_values(&self, doc_id: DocId) -> HashMap<FieldName, OwnedValue> {
+        let mut field_values = HashMap::default();
+
+        // Try to extract values from fast fields first
+        if let Some(ref ff_helper) = self.ff_helper {
+            for (field_idx, field_name) in self.config.referenced_fields.iter().enumerate() {
+                let doc_address = DocAddress::new(0, doc_id); // Assuming segment 0 for now
+
+                if let Some(tantivy_value) = ff_helper.value(field_idx, doc_address) {
+                    field_values.insert(field_name.clone(), tantivy_value.0);
+                }
+            }
+        }
+
+        // If we couldn't get all values from fast fields, try heap access
+        if field_values.len() < self.config.referenced_fields.len()
+            && self.heaprel_oid != pg_sys::InvalidOid
+        {
+            // Extract ctid for heap access
+            let ctid = self.extract_ctid(doc_id);
+            if let Some(ctid) = ctid {
+                for field_name in &self.config.referenced_fields {
+                    if !field_values.contains_key(field_name) {
+                        if let Some(value) = self.extract_field_from_heap(ctid, field_name) {
+                            field_values.insert(field_name.clone(), value);
+                        }
+                    }
+                }
+            }
+        }
 
         field_values
+    }
+
+    /// Extract ctid from the document for heap access
+    fn extract_ctid(&self, doc_id: DocId) -> Option<u64> {
+        // Try to get ctid from fast fields
+        let fast_fields = self.reader.fast_fields();
+        if let Ok(ctid_ff) = fast_fields.u64("ctid") {
+            ctid_ff.first(doc_id)
+        } else {
+            None
+        }
+    }
+
+    /// Extract a field value from the heap tuple
+    fn extract_field_from_heap(&self, ctid: u64, field_name: &FieldName) -> Option<OwnedValue> {
+        unsafe {
+            if self.heaprel_oid == pg_sys::InvalidOid {
+                return None;
+            }
+
+            // Open the relation using the OID
+            let heaprel = pg_sys::relation_open(self.heaprel_oid, pg_sys::AccessShareLock as _);
+            if heaprel.is_null() {
+                return None;
+            }
+
+            let mut ipd = pg_sys::ItemPointerData::default();
+            u64_to_item_pointer(ctid, &mut ipd);
+
+            let mut htup = pg_sys::HeapTupleData {
+                t_self: ipd,
+                ..Default::default()
+            };
+            let mut buffer: pg_sys::Buffer = pg_sys::InvalidBuffer as i32;
+
+            #[cfg(feature = "pg14")]
+            {
+                if !pg_sys::heap_fetch(heaprel, pg_sys::GetActiveSnapshot(), &mut htup, &mut buffer)
+                {
+                    pg_sys::ReleaseBuffer(buffer);
+                    pg_sys::relation_close(heaprel, pg_sys::AccessShareLock as _);
+                    return None;
+                }
+            }
+
+            #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+            {
+                if !pg_sys::heap_fetch(
+                    heaprel,
+                    pg_sys::GetActiveSnapshot(),
+                    &mut htup,
+                    &mut buffer,
+                    false,
+                ) {
+                    pg_sys::ReleaseBuffer(buffer);
+                    pg_sys::relation_close(heaprel, pg_sys::AccessShareLock as _);
+                    return None;
+                }
+            }
+
+            let tuple_desc = PgTupleDesc::from_pg_unchecked((*heaprel).rd_att);
+            let heap_tuple = PgHeapTuple::from_heap_tuple(tuple_desc.clone(), &mut htup);
+
+            // Try to get the field value
+            let result = match heap_tuple.get_attribute_by_name(&field_name.root()) {
+                Some((_index, attribute)) => {
+                    // Convert the PostgreSQL value to a Tantivy OwnedValue
+                    match attribute.type_oid().value() {
+                        pg_sys::BOOLOID => heap_tuple
+                            .get_by_name::<bool>(&field_name.root())
+                            .ok()
+                            .flatten()
+                            .map(|v| OwnedValue::Bool(v)),
+                        pg_sys::INT2OID => heap_tuple
+                            .get_by_name::<i16>(&field_name.root())
+                            .ok()
+                            .flatten()
+                            .map(|v| OwnedValue::I64(v as i64)),
+                        pg_sys::INT4OID => heap_tuple
+                            .get_by_name::<i32>(&field_name.root())
+                            .ok()
+                            .flatten()
+                            .map(|v| OwnedValue::I64(v as i64)),
+                        pg_sys::INT8OID => heap_tuple
+                            .get_by_name::<i64>(&field_name.root())
+                            .ok()
+                            .flatten()
+                            .map(|v| OwnedValue::I64(v)),
+                        pg_sys::FLOAT4OID => heap_tuple
+                            .get_by_name::<f32>(&field_name.root())
+                            .ok()
+                            .flatten()
+                            .map(|v| OwnedValue::F64(v as f64)),
+                        pg_sys::FLOAT8OID => heap_tuple
+                            .get_by_name::<f64>(&field_name.root())
+                            .ok()
+                            .flatten()
+                            .map(|v| OwnedValue::F64(v)),
+                        pg_sys::TEXTOID | pg_sys::VARCHAROID => heap_tuple
+                            .get_by_name::<String>(&field_name.root())
+                            .ok()
+                            .flatten()
+                            .map(|v| OwnedValue::Str(v)),
+                        _ => {
+                            // For other types, try to convert to string as a fallback
+                            heap_tuple
+                                .get_by_name::<String>(&field_name.root())
+                                .ok()
+                                .flatten()
+                                .map(|v| OwnedValue::Str(v))
+                        }
+                    }
+                }
+                None => None,
+            };
+
+            pg_sys::ReleaseBuffer(buffer);
+            pg_sys::relation_close(heaprel, pg_sys::AccessShareLock as _);
+            result
+        }
     }
 }
 

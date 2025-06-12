@@ -15,11 +15,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::{FieldName, HashMap};
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::operator_oid;
 use crate::postgres::customscan::pdbscan::projections::score::score_funcoid;
-use crate::postgres::customscan::pdbscan::pushdown::{is_complex, try_pushdown, PushdownField};
+use crate::postgres::customscan::pdbscan::pushdown::{
+    is_complex, try_external_filter, try_pushdown, PushdownField,
+};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 use pg_sys::BoolExprType;
@@ -45,6 +48,11 @@ pub enum Qual {
     },
     PushdownExpr {
         funcexpr: *mut pg_sys::FuncExpr,
+    },
+    /// Non-indexed expression that will be evaluated via callback during Tantivy search
+    FilterExpression {
+        expr: *mut pg_sys::Expr,
+        attno_map: HashMap<pg_sys::AttrNumber, FieldName>,
     },
     /// Represents a SQL equality comparison: `bool_field = TRUE`
     /// - NULL values are excluded (NULL is not equal to TRUE)
@@ -96,6 +104,7 @@ impl Qual {
             Qual::OpExpr { .. } => false,
             Qual::Expr { .. } => false,
             Qual::PushdownExpr { .. } => false,
+            Qual::FilterExpression { .. } => false,
             Qual::PushdownVarEqTrue { .. } => false,
             Qual::PushdownVarEqFalse { .. } => false,
             Qual::PushdownVarIsTrue { .. } => false,
@@ -117,6 +126,7 @@ impl Qual {
             Qual::OpExpr { .. } => false,
             Qual::Expr { .. } => false,
             Qual::PushdownExpr { .. } => false,
+            Qual::FilterExpression { .. } => false,
             Qual::PushdownVarEqTrue { .. } => false,
             Qual::PushdownVarEqFalse { .. } => false,
             Qual::PushdownVarIsTrue { .. } => false,
@@ -138,6 +148,7 @@ impl Qual {
             Qual::OpExpr { .. } => false,
             Qual::Expr { node, .. } => contains_exec_param(*node),
             Qual::PushdownExpr { .. } => false,
+            Qual::FilterExpression { expr, .. } => contains_exec_param((*expr).cast()),
             Qual::PushdownVarEqTrue { .. } => false,
             Qual::PushdownVarEqFalse { .. } => false,
             Qual::PushdownVarIsTrue { .. } => false,
@@ -159,6 +170,7 @@ impl Qual {
             Qual::OpExpr { .. } => false,
             Qual::Expr { .. } => true,
             Qual::PushdownExpr { .. } => false,
+            Qual::FilterExpression { .. } => true,
             Qual::PushdownVarEqTrue { .. } => true,
             Qual::PushdownVarEqFalse { .. } => true,
             Qual::PushdownVarIsTrue { .. } => true,
@@ -180,6 +192,7 @@ impl Qual {
             Qual::OpExpr { .. } => false,
             Qual::Expr { .. } => false,
             Qual::PushdownExpr { .. } => false,
+            Qual::FilterExpression { .. } => false,
             Qual::PushdownVarEqTrue { .. } => false,
             Qual::PushdownVarEqFalse { .. } => false,
             Qual::PushdownVarIsTrue { .. } => false,
@@ -195,6 +208,7 @@ impl Qual {
     pub fn collect_exprs<'a>(&'a mut self, exprs: &mut Vec<&'a mut Qual>) {
         match self {
             Qual::Expr { .. } => exprs.push(self),
+            Qual::FilterExpression { .. } => exprs.push(self),
             Qual::And(quals) => quals.iter_mut().for_each(|q| q.collect_exprs(exprs)),
             Qual::Or(quals) => quals.iter_mut().for_each(|q| q.collect_exprs(exprs)),
             Qual::Not(qual) => qual.collect_exprs(exprs),
@@ -216,6 +230,11 @@ impl From<&Qual> for SearchQueryInput {
                     .expect("rhs of @@@ operator Qual must not be null")
             },
             Qual::Expr { node, expr_state } => SearchQueryInput::postgres_expression(*node),
+            Qual::FilterExpression { expr, attno_map } => {
+                // For now, convert FilterExpression to a PostgresExpression
+                // This will be enhanced when we implement the Tantivy callback system
+                SearchQueryInput::postgres_expression((*expr).cast())
+            }
             Qual::PushdownExpr { funcexpr } => unsafe {
                 let expr_state = pg_sys::ExecInitExpr((*funcexpr).cast(), std::ptr::null_mut());
                 let expr_context = pg_sys::CreateStandaloneExprContext();
@@ -866,6 +885,12 @@ unsafe fn var_opexpr_internal(
                 // we'll try to convert it into a pushdown
                 let result = try_pushdown(root, rti, opexpr, schema);
                 if result.is_none() {
+                    if extract_all_quals_even_non_indexed {
+                        // Try to create an external filter for this non-indexed predicate
+                        if let Some(external_filter) = try_external_filter(root, rti, opexpr) {
+                            return Some(external_filter);
+                        }
+                    }
                     if convert_external_to_special_qual {
                         return Some(Qual::ExternalExpr);
                     } else {
@@ -905,10 +930,21 @@ unsafe fn var_opexpr_internal(
         // it doesn't use our operator.
         // we'll try to convert it into a pushdown
         let result = try_pushdown(root, rti, opexpr, schema);
-        if result.is_none() && convert_external_to_special_qual {
-            return Some(Qual::ExternalExpr);
+        if result.is_none() {
+            if extract_all_quals_even_non_indexed {
+                // Try to create an external filter for this non-indexed predicate
+                if let Some(external_filter) = try_external_filter(root, rti, opexpr) {
+                    return Some(external_filter);
+                }
+            }
+            if convert_external_to_special_qual {
+                return Some(Qual::ExternalExpr);
+            } else {
+                return None;
+            }
         }
-        result
+        *uses_tantivy_to_query = true;
+        return result;
     }
 }
 

@@ -1770,6 +1770,14 @@ fn base_query_has_search_predicates(
 
         // Postgres expressions are unknown, assume they could be search predicates
         SearchQueryInput::PostgresExpression { .. } => true,
+
+        // External filters are not search predicates themselves
+        SearchQueryInput::ExternalFilter { .. } => false,
+
+        // IndexedWithFilter: check the indexed query part
+        SearchQueryInput::IndexedWithFilter { indexed_query, .. } => {
+            base_query_has_search_predicates(indexed_query, current_index_oid)
+        }
     }
 }
 

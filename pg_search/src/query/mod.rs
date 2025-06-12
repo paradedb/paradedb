@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+pub mod external_filter;
 pub mod iter_mut;
 mod more_like_this;
 mod range;
@@ -271,6 +272,19 @@ pub enum SearchQueryInput {
     PostgresExpression {
         expr: PostgresExpression,
     },
+    /// External filter that calls back to PostgreSQL for evaluation
+    ExternalFilter {
+        /// Serialized expression for worker processes
+        expression: String,
+        /// Fields referenced in the expression
+        referenced_fields: Vec<FieldName>,
+    },
+    /// Combination of indexed query with external filter
+    IndexedWithFilter {
+        indexed_query: Box<SearchQueryInput>,
+        filter_expression: String,
+        referenced_fields: Vec<FieldName>,
+    },
 }
 
 impl SearchQueryInput {
@@ -302,6 +316,10 @@ impl SearchQueryInput {
             SearchQueryInput::WithIndex { query, .. } => Self::need_scores(query),
             SearchQueryInput::MoreLikeThis { .. } => true,
             SearchQueryInput::ScoreFilter { .. } => true,
+            SearchQueryInput::ExternalFilter { .. } => false,
+            SearchQueryInput::IndexedWithFilter { indexed_query, .. } => {
+                Self::need_scores(indexed_query)
+            }
             _ => false,
         }
     }
@@ -318,7 +336,8 @@ impl AsHumanReadable for SearchQueryInput {
     fn as_human_readable(&self) -> String {
         let mut s = String::new();
         match self {
-            SearchQueryInput::All => s.push_str("<ALL>"),
+            SearchQueryInput::Uninitialized => s.push_str("<Uninitialized>"),
+            SearchQueryInput::All => s.push_str("*"),
             SearchQueryInput::Boolean {
                 must,
                 should,
@@ -419,6 +438,54 @@ impl AsHumanReadable for SearchQueryInput {
                 }
                 s.push(')');
             }
+            SearchQueryInput::Range {
+                field,
+                lower_bound,
+                upper_bound,
+                is_datetime,
+            } => {
+                s.push_str(&format!("{field}:[{:?}, {:?}]", lower_bound, upper_bound));
+            }
+            SearchQueryInput::RangeContains {
+                field,
+                lower_bound,
+                upper_bound,
+                is_datetime,
+            } => {
+                s.push_str(&format!(
+                    "{field} CONTAINS [{:?}, {:?}]",
+                    lower_bound, upper_bound
+                ));
+            }
+            SearchQueryInput::RangeIntersects {
+                field,
+                lower_bound,
+                upper_bound,
+                is_datetime,
+            } => {
+                s.push_str(&format!(
+                    "{field} INTERSECTS [{:?}, {:?}]",
+                    lower_bound, upper_bound
+                ));
+            }
+            SearchQueryInput::RangeTerm {
+                field,
+                value,
+                is_datetime,
+            } => {
+                s.push_str(&format!("{field}:{:?}", value));
+            }
+            SearchQueryInput::RangeWithin {
+                field,
+                lower_bound,
+                upper_bound,
+                is_datetime,
+            } => {
+                s.push_str(&format!(
+                    "{field} WITHIN [{:?}, {:?}]",
+                    lower_bound, upper_bound
+                ));
+            }
             SearchQueryInput::Regex { field, pattern } => {
                 s.push_str(&format!("{field}:/{pattern}/"));
             }
@@ -445,8 +512,9 @@ impl AsHumanReadable for SearchQueryInput {
                 }
             }
             SearchQueryInput::WithIndex { query, .. } => s.push_str(&query.as_human_readable()),
-
-            other => s.push_str(&format!("{:?}", other)),
+            SearchQueryInput::PostgresExpression { .. } => s.push_str("<PostgresExpression>"),
+            SearchQueryInput::ExternalFilter { .. } => s.push_str("<ExternalFilter>"),
+            SearchQueryInput::IndexedWithFilter { .. } => s.push_str("<IndexedWithFilter>"),
         }
         s
     }
@@ -1352,7 +1420,6 @@ impl SearchQueryInput {
                     Ok(Box::new(BooleanQuery::new(vec![
                         (Occur::Must, Box::new(satisfies_lower_bound)),
                         (Occur::Must, Box::new(satisfies_upper_bound)),
-                        (Occur::Must, Box::new(range_field.empty(false)?)),
                     ])))
                 }
             }
@@ -1720,6 +1787,8 @@ impl SearchQueryInput {
                 query.into_tantivy_query(schema, parser, searcher, index_oid)
             }
             Self::PostgresExpression { .. } => panic!("postgres expressions have not been solved"),
+            Self::ExternalFilter { .. } => panic!("external filter has not been solved"),
+            Self::IndexedWithFilter { .. } => panic!("indexed with filter has not been solved"),
         }
     }
 }

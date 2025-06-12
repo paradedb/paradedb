@@ -250,3 +250,49 @@ pub unsafe fn is_complex(root: *mut pg_sys::Node) -> bool {
 
     walker(root, std::ptr::null_mut())
 }
+
+/// Create an external filter expression for non-indexed predicates
+/// This allows us to handle predicates that can't be pushed down to the index
+/// but can still be evaluated via callback during Tantivy search
+pub unsafe fn try_external_filter(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+    opexpr: *mut pg_sys::OpExpr,
+) -> Option<Qual> {
+    let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
+    let var = {
+        // inspect the left-hand-side of the operator expression...
+        let mut lhs = args.get_ptr(0)?;
+
+        while (*lhs).type_ == pg_sys::NodeTag::T_RelabelType {
+            // and keep following it as long as it's still a RelabelType
+            let relabel_type = lhs as *mut pg_sys::RelabelType;
+            lhs = (*relabel_type).arg as _;
+        }
+        nodecast!(Var, T_Var, lhs)?
+    };
+    let rhs = args.get_ptr(1)?;
+
+    // Check if this is a simple field reference from our relation
+    if (*var).varno as pg_sys::Index == rti {
+        // Get the field name for the attribute mapping
+        let (heaprelid, varattno, _) = find_var_relation(var, root);
+        if heaprelid == pg_sys::Oid::INVALID {
+            return None;
+        }
+        let field = fieldname_from_var(heaprelid, var, varattno)?;
+
+        // Create attribute mapping for this expression
+        let mut attno_map = HashMap::default();
+        attno_map.insert((*var).varattno, field);
+
+        // Create a FilterExpression qual
+        Some(Qual::FilterExpression {
+            expr: opexpr.cast(),
+            attno_map,
+        })
+    } else {
+        // Variable from different relation - treat as external
+        Some(Qual::ExternalVar)
+    }
+}

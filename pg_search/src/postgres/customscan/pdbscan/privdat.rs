@@ -53,6 +53,8 @@ pub struct PrivateData {
     // Store the heap filter expression as a serialized PostgreSQL node string
     // This will be deserialized at execution time and converted to ExprState for evaluation
     heap_filter_node_string: Option<String>,
+    // Store external filter expressions for Tantivy callback evaluation
+    external_filter_expressions: Vec<String>,
 }
 
 mod var_attname_lookup_serializer {
@@ -230,6 +232,10 @@ impl PrivateData {
     pub fn set_heap_filter_node_string(&mut self, heap_filter_node_string: Option<String>) {
         self.heap_filter_node_string = heap_filter_node_string;
     }
+
+    pub fn set_external_filter_expressions(&mut self, expressions: Vec<String>) {
+        self.external_filter_expressions = expressions;
+    }
 }
 
 //
@@ -308,5 +314,9 @@ impl PrivateData {
 
     pub fn heap_filter_node_string(&self) -> &Option<String> {
         &self.heap_filter_node_string
+    }
+
+    pub fn external_filter_expressions(&self) -> &Vec<String> {
+        &self.external_filter_expressions
     }
 }

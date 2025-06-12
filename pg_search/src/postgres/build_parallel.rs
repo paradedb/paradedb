@@ -265,7 +265,7 @@ impl WorkerBuildState {
     /// This number is calculated by dividing the number of rows in the table by the number of
     /// available cores.
     fn target_docs_per_segment(heaprel: &PgRelation) -> Option<usize> {
-        if force_one_segment(heaprel) {
+        if should_create_one_segment(heaprel) {
             return None;
         }
 
@@ -409,7 +409,7 @@ pub(super) fn build_index(
 }
 
 fn create_index_parallelism(heaprel: &PgRelation) -> usize {
-    if force_one_segment(heaprel) {
+    if should_create_one_segment(heaprel) {
         return 1;
     }
 
@@ -431,7 +431,7 @@ fn create_index_parallelism(heaprel: &PgRelation) -> usize {
     }
 }
 
-fn force_one_segment(heaprel: &PgRelation) -> bool {
+fn should_create_one_segment(heaprel: &PgRelation) -> bool {
     // If there are fewer rows than number of CPUs, use 1 worker
     let reltuples = estimate_heap_reltuples(heaprel);
     let nworkers = std::thread::available_parallelism().unwrap().get();

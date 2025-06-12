@@ -420,7 +420,6 @@ struct SearchIndexOptionsData {
     // varlena header (needed bc postgres treats this as bytea)
     vl_len_: i32,
     text_fields_offset: i32,
-    inet_fields_offset: i32,
     numeric_fields_offset: i32,
     boolean_fields_offset: i32,
     json_fields_offset: i32,
@@ -428,6 +427,7 @@ struct SearchIndexOptionsData {
     datetime_fields_offset: i32,
     key_field_offset: i32,
     layer_sizes_offset: i32,
+    inet_fields_offset: i32,
 }
 
 impl SearchIndexOptionsData {

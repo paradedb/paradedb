@@ -133,7 +133,7 @@ pub fn per_tuple_cost() -> f64 {
     PER_TUPLE_COST.get()
 }
 
-pub fn adjust_maintenance_work_mem(nlaunched: usize) -> usize {
+pub fn adjust_mem(mem: usize, nlaunched: usize, min_mem_per_worker: usize) -> usize {
     // NB:  These limits come from [`tantivy::index_writer::MEMORY_BUDGET_NUM_BYTES_MAX`], which is not publicly exposed
     mod limits {
         // Size of the margin for the `memory_arena`. A segment is closed when the remaining memory
@@ -142,25 +142,32 @@ pub fn adjust_maintenance_work_mem(nlaunched: usize) -> usize {
 
         // We impose the memory per thread to be at least 64 MB
         // and no greater than 4GB as that's tantivy's limit
-        pub const MEMORY_BUDGET_NUM_BYTES_MIN: usize = ((MARGIN_IN_BYTES as u32) * 64u32) as usize;
         pub const MEMORY_BUDGET_NUM_BYTES_MAX: usize = (4 * 1024 * 1024 * 1024) - MARGIN_IN_BYTES;
     }
 
-    let mwm_as_bytes = unsafe {
-        // SAFETY:  Postgres sets maintenance_work_mem when it starts up
-        pg_sys::maintenance_work_mem as usize * 1024 // convert from kilobytes to bytes
-    };
-
+    let mwm_as_bytes = mem * 1024;
     let nlaunched = nlaunched.max(1);
     let per_worker_budget = mwm_as_bytes / nlaunched;
 
     // clamp the per_thread_budget to the min/max values
     let per_worker_budget = per_worker_budget.clamp(
-        limits::MEMORY_BUDGET_NUM_BYTES_MIN,
+        limits::MARGIN_IN_BYTES * min_mem_per_worker,
         limits::MEMORY_BUDGET_NUM_BYTES_MAX - 1,
     );
 
     per_worker_budget * nlaunched
+}
+
+pub fn adjust_maintenance_work_mem(nlaunched: usize) -> usize {
+    adjust_mem(
+        unsafe { pg_sys::maintenance_work_mem as usize },
+        nlaunched,
+        64,
+    )
+}
+
+pub fn adjust_work_mem(nlaunched: usize) -> usize {
+    adjust_mem(unsafe { pg_sys::work_mem as usize }, nlaunched, 15)
 }
 
 #[cfg(any(test, feature = "pg_test"))]

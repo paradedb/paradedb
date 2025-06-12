@@ -44,7 +44,7 @@ pub struct InsertState {
 
 impl InsertState {
     unsafe fn new(indexrel: &PgRelation) -> anyhow::Result<Self> {
-        let memory_budget = gucs::adjust_maintenance_work_mem(1);
+        let memory_budget = gucs::adjust_work_mem(1);
         let writer =
             SerialIndexWriter::with_mvcc(indexrel, MvccSatisfies::Mergeable, memory_budget, None)?;
         let schema = SearchIndexSchema::open(indexrel.oid())?;

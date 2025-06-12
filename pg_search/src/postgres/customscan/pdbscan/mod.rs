@@ -185,35 +185,46 @@ impl PdbScan {
 
         // Check if the search query contains external filters that need callbacks
         let search_query = state.custom_state().search_query_input().clone();
-        Self::setup_callbacks_recursive(&search_query, planstate, expr_context);
+        Self::setup_callbacks_recursive(&search_query, planstate, expr_context, state);
     }
 
     /// Recursively set up callbacks for external filter queries
     unsafe fn setup_callbacks_recursive(
         query: &SearchQueryInput,
-        _planstate: *mut pg_sys::PlanState,
-        _expr_context: *mut pg_sys::ExprContext,
+        planstate: *mut pg_sys::PlanState,
+        expr_context: *mut pg_sys::ExprContext,
+        state: &mut CustomScanStateWrapper<Self>,
     ) {
         match query {
             SearchQueryInput::ExternalFilter {
-                expression: _,
-                referenced_fields: _,
+                expression,
+                referenced_fields,
             } => {
-                // For now, we'll create a placeholder callback
-                // In a full implementation, this would parse the expression and create
-                // a proper callback that evaluates PostgreSQL expressions
-                // TODO: Implement full callback creation
+                // Create a callback for this external filter
+                Self::create_external_filter_callback(
+                    expression,
+                    referenced_fields,
+                    planstate,
+                    expr_context,
+                    state,
+                );
             }
             SearchQueryInput::IndexedWithFilter {
                 indexed_query,
-                filter_expression: _,
-                referenced_fields: _,
+                filter_expression,
+                referenced_fields,
             } => {
                 // Set up callback for the filter part
-                // TODO: Implement callback setup for indexed with filter queries
+                Self::create_external_filter_callback(
+                    filter_expression,
+                    referenced_fields,
+                    planstate,
+                    expr_context,
+                    state,
+                );
 
                 // Recursively handle the indexed query part
-                Self::setup_callbacks_recursive(indexed_query, _planstate, _expr_context);
+                Self::setup_callbacks_recursive(indexed_query, planstate, expr_context, state);
             }
             SearchQueryInput::Boolean {
                 must,
@@ -222,32 +233,86 @@ impl PdbScan {
             } => {
                 // Recursively handle all sub-queries
                 for sub_query in must.iter().chain(should.iter()).chain(must_not.iter()) {
-                    Self::setup_callbacks_recursive(sub_query, _planstate, _expr_context);
+                    Self::setup_callbacks_recursive(sub_query, planstate, expr_context, state);
                 }
             }
             SearchQueryInput::Boost { query, .. } => {
-                Self::setup_callbacks_recursive(query, _planstate, _expr_context);
+                Self::setup_callbacks_recursive(query, planstate, expr_context, state);
             }
             SearchQueryInput::ConstScore { query, .. } => {
-                Self::setup_callbacks_recursive(query, _planstate, _expr_context);
+                Self::setup_callbacks_recursive(query, planstate, expr_context, state);
             }
             SearchQueryInput::ScoreFilter {
                 query: Some(query), ..
             } => {
-                Self::setup_callbacks_recursive(query, _planstate, _expr_context);
+                Self::setup_callbacks_recursive(query, planstate, expr_context, state);
             }
             SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
                 for sub_query in disjuncts {
-                    Self::setup_callbacks_recursive(sub_query, _planstate, _expr_context);
+                    Self::setup_callbacks_recursive(sub_query, planstate, expr_context, state);
                 }
             }
             SearchQueryInput::WithIndex { query, .. } => {
-                Self::setup_callbacks_recursive(query, _planstate, _expr_context);
+                Self::setup_callbacks_recursive(query, planstate, expr_context, state);
             }
             _ => {
                 // Other query types don't need callback setup
             }
         }
+    }
+
+    /// Create an external filter callback for a specific expression
+    unsafe fn create_external_filter_callback(
+        expression: &str,
+        referenced_fields: &[crate::api::FieldName],
+        planstate: *mut pg_sys::PlanState,
+        expr_context: *mut pg_sys::ExprContext,
+        state: &mut CustomScanStateWrapper<Self>,
+    ) {
+        use crate::query::external_filter::{create_postgres_callback, ExternalFilterConfig};
+
+        // Parse the expression back to a PostgreSQL node
+        let expression_cstr =
+            std::ffi::CString::new(expression).expect("Failed to create CString from expression");
+        let expr_node = pg_sys::stringToNode(expression_cstr.as_ptr());
+
+        if expr_node.is_null() {
+            pgrx::warning!("Failed to parse external filter expression: {}", expression);
+            return;
+        }
+
+        // Create attribute mapping for referenced fields
+        let mut attno_map = crate::api::HashMap::default();
+        let heaprel = PgRelation::from_pg(state.custom_state().heaprel());
+        let tupdesc = heaprel.tuple_desc();
+
+        for field in referenced_fields {
+            // Find the attribute number for this field
+            for (i, att) in tupdesc.iter().enumerate() {
+                if att.name() == field.root() {
+                    attno_map.insert((i + 1) as pg_sys::AttrNumber, field.clone());
+                    break;
+                }
+            }
+        }
+
+        // Create the external filter configuration
+        let config = ExternalFilterConfig {
+            expression: expression.to_string(),
+            referenced_fields: referenced_fields.to_vec(),
+        };
+
+        // Create the callback
+        let callback = create_postgres_callback(expression.to_string(), attno_map);
+
+        // Store the callback in the search reader for use during query execution
+        // For now, we'll store it in a way that the Tantivy queries can access it
+        // This is a placeholder - in a full implementation, we'd need a proper
+        // callback registry or storage mechanism
+
+        // TODO: Implement proper callback storage and retrieval mechanism
+        // This would involve extending the SearchIndexReader or creating a
+        // callback registry that Tantivy queries can access during execution
     }
 
     fn cleanup_varibilities_from_tantivy_query(json_value: &mut serde_json::Value) {

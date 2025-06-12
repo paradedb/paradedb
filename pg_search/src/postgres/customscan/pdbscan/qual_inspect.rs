@@ -326,60 +326,120 @@ impl From<&Qual> for SearchQueryInput {
                 }
             },
             Qual::And(quals) => {
-                let mut must = quals.iter().map(SearchQueryInput::from).collect::<Vec<_>>();
-                let popscore = |vec: &mut Vec<SearchQueryInput>| -> Option<SearchQueryInput> {
-                    for i in 0..vec.len() {
-                        if matches!(vec[i], SearchQueryInput::ScoreFilter { .. }) {
-                            return Some(vec.remove(i));
+                // Analyze the structure to determine if we have mixed indexed/non-indexed predicates
+                let mut indexed_quals = Vec::new();
+                let mut has_non_indexed = false;
+
+                for qual in quals {
+                    match qual {
+                        Qual::NonIndexedExpr => {
+                            has_non_indexed = true;
+                        }
+                        _ => {
+                            let query_input = SearchQueryInput::from(qual);
+                            // Only add non-All queries to avoid diluting the indexed predicates
+                            if !matches!(query_input, SearchQueryInput::All) {
+                                indexed_quals.push(query_input);
+                            }
                         }
                     }
-                    None
-                };
-
-                // pull out any ScoreFilters from the `must` clauses
-                let mut must_scores = vec![];
-                while let Some(score_filter) = popscore(&mut must) {
-                    must_scores.push(score_filter);
                 }
 
-                // make the Boolean clause we intend to return (or wrap)
-                let mut boolean = SearchQueryInput::Boolean {
-                    must,
-                    should: vec![],
-                    must_not: vec![],
-                };
+                if has_non_indexed && !indexed_quals.is_empty() {
+                    // We have mixed indexed and non-indexed predicates
+                    // Create an IndexedWithFilter query
+                    let indexed_query = if indexed_quals.len() == 1 {
+                        Box::new(indexed_quals.into_iter().next().unwrap())
+                    } else {
+                        Box::new(SearchQueryInput::Boolean {
+                            must: indexed_quals,
+                            should: vec![],
+                            must_not: vec![],
+                        })
+                    };
 
-                // wrap the basic boolean query, iteratively, in each of the extracted ScoreFilters
-                while let Some(SearchQueryInput::ScoreFilter { bounds, query }) = must_scores.pop()
-                {
-                    boolean = SearchQueryInput::ScoreFilter {
-                        bounds,
-                        query: Some(Box::new(boolean)),
+                    SearchQueryInput::IndexedWithFilter {
+                        indexed_query,
+                        filter_expression: "TRUE".to_string(), // Placeholder - will be filled by callback
+                        referenced_fields: vec![], // Placeholder - will be filled by callback
                     }
-                }
+                } else if has_non_indexed {
+                    // Only non-indexed predicates
+                    SearchQueryInput::ExternalFilter {
+                        expression: "TRUE".to_string(), // Placeholder - will be filled by callback
+                        referenced_fields: vec![],      // Placeholder - will be filled by callback
+                    }
+                } else {
+                    // Regular boolean AND logic for indexed predicates
+                    let mut must = quals.iter().map(SearchQueryInput::from).collect::<Vec<_>>();
+                    let popscore = |vec: &mut Vec<SearchQueryInput>| -> Option<SearchQueryInput> {
+                        for i in 0..vec.len() {
+                            if matches!(vec[i], SearchQueryInput::ScoreFilter { .. }) {
+                                return Some(vec.remove(i));
+                            }
+                        }
+                        None
+                    };
 
-                boolean
+                    // pull out any ScoreFilters from the `must` clauses
+                    let mut must_scores = vec![];
+                    while let Some(score_filter) = popscore(&mut must) {
+                        must_scores.push(score_filter);
+                    }
+
+                    // make the Boolean clause we intend to return (or wrap)
+                    let mut boolean = SearchQueryInput::Boolean {
+                        must,
+                        should: vec![],
+                        must_not: vec![],
+                    };
+
+                    // wrap the basic boolean query, iteratively, in each of the extracted ScoreFilters
+                    while let Some(SearchQueryInput::ScoreFilter { bounds, query }) =
+                        must_scores.pop()
+                    {
+                        boolean = SearchQueryInput::ScoreFilter {
+                            bounds,
+                            query: Some(Box::new(boolean)),
+                        }
+                    }
+
+                    boolean
+                }
             }
 
             Qual::Or(quals) => {
-                let should = quals
-                    .iter()
-                    .map(SearchQueryInput::from)
-                    // any dangling ScoreFilter clauses are non-sensical, so we'll just pretend they don't exist
-                    .filter(|query| !matches!(query, SearchQueryInput::ScoreFilter { .. }))
-                    .collect::<Vec<_>>();
+                // Check if we have any non-indexed expressions in the OR
+                let has_non_indexed = quals.iter().any(|q| matches!(q, Qual::NonIndexedExpr));
 
-                match should.len() {
-                    0 => SearchQueryInput::Boolean {
-                        must: Default::default(),
-                        should: Default::default(),
-                        must_not: Default::default(),
-                    },
-                    _ => SearchQueryInput::Boolean {
-                        must: Default::default(),
-                        should,
-                        must_not: Default::default(),
-                    },
+                if has_non_indexed {
+                    // If we have non-indexed expressions in an OR, we need to evaluate everything
+                    // as an external filter since we can't partially evaluate OR clauses
+                    SearchQueryInput::ExternalFilter {
+                        expression: "TRUE".to_string(), // Placeholder - will be filled by callback
+                        referenced_fields: vec![],      // Placeholder - will be filled by callback
+                    }
+                } else {
+                    // Regular OR logic for indexed predicates
+                    let should = quals
+                        .iter()
+                        .map(SearchQueryInput::from)
+                        // any dangling ScoreFilter clauses are non-sensical, so we'll just pretend they don't exist
+                        .filter(|query| !matches!(query, SearchQueryInput::ScoreFilter { .. }))
+                        .collect::<Vec<_>>();
+
+                    match should.len() {
+                        0 => SearchQueryInput::Boolean {
+                            must: Default::default(),
+                            should: Default::default(),
+                            must_not: Default::default(),
+                        },
+                        _ => SearchQueryInput::Boolean {
+                            must: Default::default(),
+                            should,
+                            must_not: Default::default(),
+                        },
+                    }
                 }
             }
             Qual::Not(qual) => {

@@ -369,24 +369,21 @@ impl PdbScan {
             &mut uses_tantivy_to_query,
         );
 
+        pgrx::warning!("DEBUG: indexed_quals = {:?}", indexed_quals);
+        pgrx::warning!("DEBUG: all_quals = {:?}", all_quals);
+
         if indexed_quals.is_some() {
-            // All predicates can be indexed, no heap filtering needed
+            // All predicates can be indexed, no external filtering needed
+            pgrx::warning!("DEBUG: Using indexed quals");
             return (indexed_quals, ri_type, restrict_info);
         }
 
-        // If we have non-indexed quals (in case of indexed_quals being None, but all_quals being Some),
-        // store them for heap filtering
+        // If we have non-indexed quals, use our new external filter approach
         if all_quals.is_some() {
             // We have some indexed and some non-indexed predicates
-            // Set up heap filtering for all predicates since we can't easily separate them
-            if let Some(all_node_string) = extract_restrictinfo_string(&restrict_info, rti, root) {
-                builder
-                    .custom_private()
-                    .set_heap_filter_node_string(Some(all_node_string));
-            } else {
-                // If we couldn't extract the non-indexed quals, then we can't use the custom scan
-                return (indexed_quals, ri_type, restrict_info);
-            }
+            // Use the external filter approach which handles both indexed and non-indexed predicates
+            pgrx::warning!("DEBUG: Using all quals (including external filters)");
+            return (all_quals, ri_type, restrict_info);
         }
 
         // If we have search operators but couldn't extract indexed quals, try partial extraction
@@ -431,28 +428,6 @@ impl PdbScan {
         } else {
             (join_indexed_quals, ri_type, restrict_info)
         }
-    }
-
-    /// Initialize the heap filter expression state using the heap filter node string (if it exists).
-    unsafe fn init_heap_filter_expr_state(state: &mut CustomScanStateWrapper<Self>) {
-        if state.custom_state().heap_filter_node_string.is_none()
-            || state.custom_state().heap_filter_expr_state.is_some()
-        {
-            return;
-        }
-        // Initialize ExprState if not already done
-
-        // Create the Expr node from the heap filter node string
-        let expr = create_heap_filter_expr(
-            state
-                .custom_state()
-                .heap_filter_node_string
-                .as_ref()
-                .unwrap(),
-        );
-        // Initialize the ExprState
-        let expr_state = pg_sys::ExecInitExpr(expr, state.planstate());
-        state.custom_state_mut().heap_filter_expr_state = Some(expr_state);
     }
 }
 
@@ -900,9 +875,6 @@ impl CustomScan for PdbScan {
                 builder.custom_state().execution_rti,
             );
 
-            builder.custom_state().heap_filter_node_string =
-                builder.custom_private().heap_filter_node_string().clone();
-
             // Store join snippet predicates in the scan state
             builder.custom_state().join_predicates =
                 builder.custom_private().join_predicates().clone();
@@ -1044,18 +1016,6 @@ impl CustomScan for PdbScan {
             }
         }
 
-        // Show heap filter expression if present using proper deparse context
-        if let Some(ref heap_filter_node_string) = state.custom_state().heap_filter_node_string {
-            unsafe {
-                let human_readable_filter = create_human_readable_filter_text(
-                    heap_filter_node_string,
-                    explainer,
-                    state.custom_state().execution_rti,
-                );
-                explainer.add_text("Heap Filter", &human_readable_filter);
-            }
-        }
-
         let mut json_value = state
             .custom_state()
             .query_to_json()
@@ -1165,10 +1125,6 @@ impl CustomScan for PdbScan {
             Self::init_search_reader(state);
         }
 
-        unsafe {
-            Self::init_heap_filter_expr_state(state);
-        }
-
         loop {
             let exec_method = state.custom_state_mut().exec_method_mut();
 
@@ -1200,12 +1156,6 @@ impl CustomScan for PdbScan {
                                 continue;
                             }
                         };
-
-                        // Apply heap filtering if needed
-                        if !apply_heap_filter(state, slot) {
-                            // Tuple doesn't pass heap filter, skip it
-                            continue;
-                        }
 
                         if !state.custom_state().need_scores()
                             && !state.custom_state().need_snippets()
@@ -1315,13 +1265,6 @@ impl CustomScan for PdbScan {
 
                 ExecState::Virtual { slot } => unsafe {
                     state.custom_state_mut().virtual_tuple_count += 1;
-
-                    // Apply heap filtering if needed
-                    if !apply_heap_filter(state, slot) {
-                        // Tuple doesn't pass heap filter, skip it
-                        continue;
-                    }
-
                     return slot;
                 },
             }
@@ -1561,36 +1504,6 @@ fn check_visibility(
         .custom_state_mut()
         .visibility_checker()
         .exec_if_visible(ctid, bslot.cast(), move |heaprel| bslot.cast())
-}
-
-/// Apply heap filtering using PostgreSQL's built-in expression evaluation
-/// Returns true if the tuple passes all restrictions, false otherwise
-#[inline(always)]
-unsafe fn apply_heap_filter(
-    state: &mut CustomScanStateWrapper<PdbScan>,
-    slot: *mut pg_sys::TupleTableSlot,
-) -> bool {
-    if state.custom_state().heap_filter_expr_state.is_none() {
-        return true;
-    }
-
-    // Evaluate the expression if we have an ExprState
-    let expr_state = state.custom_state().heap_filter_expr_state.unwrap();
-    let expr_context = (*state.planstate()).ps_ExprContext;
-
-    // Set the scan tuple in the expression context
-    (*expr_context).ecxt_scantuple = slot;
-
-    let mut isnull = false;
-    let result = pg_sys::ExecEvalExpr(expr_state, expr_context, &mut isnull);
-
-    if isnull {
-        // NULL result means the tuple doesn't pass the filter
-        false
-    } else {
-        // Convert the result to a boolean - simple and direct
-        bool::from_datum(result, false).unwrap_or(false)
-    }
 }
 
 unsafe fn inject_score_and_snippet_placeholders(state: &mut CustomScanStateWrapper<PdbScan>) {
@@ -2081,137 +1994,6 @@ unsafe fn create_bool_const_true() -> Option<*mut pg_sys::Node> {
     (*const_node).constbyval = true;
     (*const_node).location = -1;
     Some(const_node.cast())
-}
-
-unsafe fn create_heap_filter_expr(heap_filter_node_string: &str) -> *mut pg_sys::Expr {
-    // Handle multiple clauses separated by our delimiter
-    if heap_filter_node_string.contains("|||CLAUSE_SEPARATOR|||") {
-        // Multiple clauses - combine them into a single AND expression
-        let clause_strings: Vec<&str> = heap_filter_node_string
-            .split("|||CLAUSE_SEPARATOR|||")
-            .collect();
-
-        // Create individual nodes for each clause
-        let mut args_list = std::ptr::null_mut();
-        for clause_str in clause_strings.iter() {
-            let clause_cstr = std::ffi::CString::new(*clause_str)
-                .expect("Failed to create CString from clause string");
-            let clause_node = pg_sys::stringToNode(clause_cstr.as_ptr());
-
-            if !clause_node.is_null() {
-                args_list = pg_sys::lappend(args_list, clause_node.cast::<core::ffi::c_void>());
-            } else {
-                panic!("Failed to parse clause string: {}", clause_str);
-            }
-        }
-
-        if !args_list.is_null() {
-            // Create a BoolExpr to combine all clauses with AND
-            let bool_expr =
-                pg_sys::palloc0(std::mem::size_of::<pg_sys::BoolExpr>()).cast::<pg_sys::BoolExpr>();
-            (*bool_expr).xpr.type_ = pg_sys::NodeTag::T_BoolExpr;
-            (*bool_expr).boolop = pg_sys::BoolExprType::AND_EXPR;
-            (*bool_expr).args = args_list;
-            (*bool_expr).location = -1;
-
-            bool_expr.cast::<pg_sys::Expr>()
-        } else {
-            panic!("Failed to parse any clauses: {}", heap_filter_node_string);
-        }
-    } else {
-        // Single clause - simple stringToNode + ExecInitExpr
-        let node_cstr = std::ffi::CString::new(heap_filter_node_string)
-            .expect("Failed to create CString from node string");
-        let node = pg_sys::stringToNode(node_cstr.as_ptr());
-
-        if !node.is_null() {
-            node.cast::<pg_sys::Expr>()
-        } else {
-            panic!("Failed to deserialize node: {}", heap_filter_node_string);
-        }
-    }
-}
-
-/// Create a human-readable representation of a PostgreSQL expression node
-/// Uses PostgreSQL's deparse_expression with proper context from ExplainState
-unsafe fn create_human_readable_filter_text(
-    heap_filter_node_string: &str,
-    explainer: &Explainer,
-    current_rti: pg_sys::Index,
-) -> String {
-    // Parse the heap filter node string back to a PostgreSQL node
-    let heap_filter_expr = create_heap_filter_expr(heap_filter_node_string).cast::<pg_sys::Node>();
-
-    // Now use PostgreSQL's deparse_expression with the proper context from ExplainState
-    let deparse_cxt = explainer.deparse_cxt();
-
-    if !deparse_cxt.is_null() {
-        // Try deparse_expression with the proper context from EXPLAIN
-        let cstring_ptr = pg_sys::deparse_expression(heap_filter_expr, deparse_cxt, false, false);
-        if !cstring_ptr.is_null() {
-            let result = std::ffi::CStr::from_ptr(cstring_ptr)
-                .to_string_lossy()
-                .into_owned();
-            pg_sys::pfree(cstring_ptr.cast());
-
-            // If the result is not empty, use it
-            if !result.is_empty() {
-                return result;
-            }
-        }
-    }
-
-    "<expression>".to_string()
-}
-
-/// Extract non-indexed predicates from restrict_info and serialize them as node strings
-/// Replaces cross-relation expressions with TRUE to avoid evaluation errors
-/// Returns the node string for execution - display text will be generated in EXPLAIN using proper context
-unsafe fn extract_restrictinfo_string(
-    restrict_info: &PgList<pg_sys::RestrictInfo>,
-    current_rti: pg_sys::Index,
-    _root: *mut pg_sys::PlannerInfo,
-) -> Option<String> {
-    if restrict_info.is_empty() {
-        return None;
-    }
-
-    // Extract just the clauses (not the RestrictInfo wrappers) and serialize them
-    let mut clause_strings = Vec::new();
-
-    for ri in restrict_info.iter_ptr() {
-        // Extract the actual clause from the RestrictInfo and unwrap any nested RestrictInfo
-        let clause = if !(*ri).orclause.is_null() {
-            (*ri).orclause
-        } else {
-            (*ri).clause
-        };
-
-        // Clean any nested RestrictInfo nodes recursively
-        let cleaned_clause = clean_restrictinfo_recursively(clause.cast());
-
-        // For the node string (execution): replace cross-relation expressions with TRUE constants
-        let processed_clause =
-            replace_cross_relation_expressions_with_true(cleaned_clause, current_rti);
-        let processed_clause =
-            remove_operator_safe(processed_clause, anyelement_query_input_opoid());
-        let clause_string: *mut i8 =
-            pg_sys::nodeToString(processed_clause.cast::<core::ffi::c_void>());
-        let rust_string = std::ffi::CStr::from_ptr(clause_string)
-            .to_string_lossy()
-            .into_owned();
-        clause_strings.push(rust_string);
-    }
-
-    if clause_strings.is_empty() {
-        None
-    } else if clause_strings.len() == 1 {
-        // Single clause - return it directly
-        clause_strings.into_iter().next()
-    } else {
-        // Multiple clauses - join them with a separator for evaluation later
-        Some(clause_strings.join("|||CLAUSE_SEPARATOR|||"))
-    }
 }
 
 /// Safe wrapper for replace_operator_with_true that ensures we never return null at the top level

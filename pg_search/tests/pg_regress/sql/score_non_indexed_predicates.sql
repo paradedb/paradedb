@@ -32,7 +32,8 @@ INSERT INTO products (name, description, price, category_id, category_name, in_s
 ('Apple Watch', 'Smartwatch with health tracking features', 399.99, 1, 'Electronics', true, 4.4, ARRAY['watch', 'apple']),
 ('Sony Headphones', 'Noise-canceling headphones for music lovers', 299.99, 1, 'Electronics', true, 4.7, ARRAY['headphones', 'audio']),
 ('Running Socks', 'Moisture-wicking socks for athletes', 19.99, 2, 'Footwear', true, 4.0, ARRAY['socks', 'running']),
-('Budget Phone', 'Affordable smartphone for basic needs', 199.99, 1, 'Electronics', false, 3.5, NULL);
+('Budget Phone', 'Affordable smartphone for basic needs', 199.99, 1, 'Electronics', false, 3.5, NULL),
+('Budget Tablet', 'Affordable tablet for basic needs', 199.99, 1, 'Electronics', false, 3.5, NULL);
 
 
 -- Create BM25 index that only includes some columns (name, description)
@@ -83,6 +84,27 @@ SELECT
 FROM products 
 WHERE (name @@@ 'Apple' OR description @@@ 'smartphone') 
   AND category_name = 'Electronics'
+ORDER BY score DESC;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    category_name,
+    paradedb.score(id) as score
+FROM products 
+WHERE (name @@@ 'Apple' OR description @@@ 'smartphone') 
+  OR category_name = 'Electronics'
+ORDER BY score DESC;
+
+SELECT 
+    id,
+    name,
+    category_name,
+    paradedb.score(id) as score
+FROM products 
+WHERE (name @@@ 'Apple' OR description @@@ 'smartphone') 
+  OR category_name = 'Electronics'
 ORDER BY score DESC;
 
 -- Test Case 3: Another example with price filter (non-indexed)
@@ -285,6 +307,27 @@ SELECT
 FROM products 
 WHERE name @@@ 'phone'
   AND tags IS NULL
+ORDER BY score DESC;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    tags,
+    paradedb.score(id) as score
+FROM products 
+WHERE name @@@ 'phone'
+  OR tags IS NULL
+ORDER BY score DESC;
+
+SELECT 
+    id,
+    name,
+    tags,
+    paradedb.score(id) as score
+FROM products 
+WHERE name @@@ 'phone'
+  OR tags IS NULL
 ORDER BY score DESC;
 
 -- Test Case 10: NOT NULL filtering

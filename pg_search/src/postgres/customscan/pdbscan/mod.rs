@@ -2044,8 +2044,9 @@ unsafe fn extract_restrictinfo_string(
         let processed_clause =
             replace_cross_relation_expressions_with_true(cleaned_clause, current_rti);
         let processed_clause =
-            replace_operator_with_true(processed_clause, anyelement_query_input_opoid());
-        let clause_string = pg_sys::nodeToString(processed_clause.cast::<core::ffi::c_void>());
+            remove_operator_safe(processed_clause, anyelement_query_input_opoid());
+        let clause_string: *mut i8 =
+            pg_sys::nodeToString(processed_clause.cast::<core::ffi::c_void>());
         let rust_string = std::ffi::CStr::from_ptr(clause_string)
             .to_string_lossy()
             .into_owned();
@@ -2063,12 +2064,25 @@ unsafe fn extract_restrictinfo_string(
     }
 }
 
-/// Replace occurrences of a specific operator (e.g., @@@) with a boolean TRUE constant
-/// This is used to exclude indexed-search predicates from the heap filter expression.
-unsafe fn replace_operator_with_true(
+/// Safe wrapper for replace_operator_with_true that ensures we never return null at the top level
+unsafe fn remove_operator_safe(
     node: *mut pg_sys::Node,
     operator_oid: pg_sys::Oid,
 ) -> *mut pg_sys::Node {
+    let result = remove_operator(node, operator_oid);
+    if result.is_null() {
+        // If the entire expression was filtered out, return TRUE
+        create_bool_const_true().unwrap_or(node)
+    } else {
+        result
+    }
+}
+
+/// Filter out occurrences of our specific operator (e.g., @@@) from heap filter expressions
+/// This completely removes them from boolean expressions rather than replacing with TRUE
+/// For OR expressions with our operator, retain the other side; for AND expressions, remove our operator
+/// Returns TRUE constant if the entire expression would be filtered out
+unsafe fn remove_operator(node: *mut pg_sys::Node, operator_oid: pg_sys::Oid) -> *mut pg_sys::Node {
     if node.is_null() {
         return node;
     }
@@ -2077,7 +2091,9 @@ unsafe fn replace_operator_with_true(
         pg_sys::NodeTag::T_OpExpr => {
             let opexpr = node.cast::<pg_sys::OpExpr>();
             if (*opexpr).opno == operator_oid {
-                return create_bool_const_true().unwrap_or(node);
+                // If this is a top-level OpExpr with our operator, return TRUE
+                // If it's nested in a BoolExpr, return NULL to indicate removal
+                return std::ptr::null_mut();
             }
             // Otherwise, recurse into args to handle nested expressions
             let args_list = (*opexpr).args;
@@ -2087,8 +2103,10 @@ unsafe fn replace_operator_with_true(
             let old_args = PgList::<pg_sys::Node>::from_pg(args_list);
             let mut new_args = std::ptr::null_mut();
             for arg in old_args.iter_ptr() {
-                let processed = replace_operator_with_true(arg, operator_oid);
-                new_args = pg_sys::lappend(new_args, processed.cast::<core::ffi::c_void>());
+                let processed = remove_operator(arg, operator_oid);
+                if !processed.is_null() {
+                    new_args = pg_sys::lappend(new_args, processed.cast::<core::ffi::c_void>());
+                }
             }
             // Build a shallow copy with replaced args
             let new_opexpr = pg_sys::copyObjectImpl(node.cast()).cast::<pg_sys::OpExpr>();
@@ -2100,12 +2118,30 @@ unsafe fn replace_operator_with_true(
             if (*boolexpr).args.is_null() {
                 return node;
             }
+
+            // Process all arguments to filter out our operator
             let old_args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
             let mut new_args = std::ptr::null_mut();
             for arg in old_args.iter_ptr() {
-                let processed = replace_operator_with_true(arg, operator_oid);
-                new_args = pg_sys::lappend(new_args, processed.cast::<core::ffi::c_void>());
+                let processed = remove_operator(arg, operator_oid);
+                if !processed.is_null() {
+                    new_args = pg_sys::lappend(new_args, processed.cast::<core::ffi::c_void>());
+                }
             }
+
+            // Handle special cases based on boolean operation type
+            if pg_sys::list_length(new_args) == 0 {
+                // All args were filtered out - return TRUE constant instead of null
+                return create_bool_const_true().unwrap_or(node);
+            } else if pg_sys::list_length(new_args) == 1
+                && ((*boolexpr).boolop == pg_sys::BoolExprType::AND_EXPR
+                    || (*boolexpr).boolop == pg_sys::BoolExprType::OR_EXPR)
+            {
+                // If we have AND(x) or OR(x), just return x directly
+                return (*pg_sys::list_head(new_args)).ptr_value.cast();
+            }
+
+            // Create new boolean expression with filtered arguments
             let new_bool_expr = pg_sys::copyObjectImpl(node.cast()).cast::<pg_sys::BoolExpr>();
             (*new_bool_expr).args = new_args;
             new_bool_expr.cast()

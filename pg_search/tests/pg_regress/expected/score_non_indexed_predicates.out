@@ -28,7 +28,8 @@ INSERT INTO products (name, description, price, category_id, category_name, in_s
 ('Apple Watch', 'Smartwatch with health tracking features', 399.99, 1, 'Electronics', true, 4.4, ARRAY['watch', 'apple']),
 ('Sony Headphones', 'Noise-canceling headphones for music lovers', 299.99, 1, 'Electronics', true, 4.7, ARRAY['headphones', 'audio']),
 ('Running Socks', 'Moisture-wicking socks for athletes', 19.99, 2, 'Footwear', true, 4.0, ARRAY['socks', 'running']),
-('Budget Phone', 'Affordable smartphone for basic needs', 199.99, 1, 'Electronics', false, 3.5, NULL);
+('Budget Phone', 'Affordable smartphone for basic needs', 199.99, 1, 'Electronics', false, 3.5, NULL),
+('Budget Tablet', 'Affordable tablet for basic needs', 199.99, 1, 'Electronics', false, 3.5, NULL);
 -- Create BM25 index that only includes some columns (name, description)
 -- Note: price, category_id, category_name, in_stock, rating, tags are NOT in the BM25 index
 CREATE INDEX products_bm25_idx ON products USING bm25 (
@@ -68,10 +69,10 @@ WHERE name @@@ 'Apple' OR description @@@ 'smartphone'
 ORDER BY score DESC;
  id |      name      |   score   
 ----+----------------+-----------
-  7 | Apple Watch    |  2.032015
-  4 | Samsung Galaxy | 1.1976256
- 10 | Budget Phone   | 1.1976256
-  1 | iPhone 14      | 1.1126206
+  7 | Apple Watch    | 2.1170974
+  4 | Samsung Galaxy | 1.2838018
+ 10 | Budget Phone   | 1.2838018
+  1 | iPhone 14      | 1.1921678
 (4 rows)
 
 -- Test Case 2: Query using indexed + non-indexed columns - currently returns null/zero scores
@@ -96,7 +97,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Heap Filter: ((true OR true) AND (category_name = 'Electronics'::text))
+         Heap Filter: (true AND (category_name = 'Electronics'::text))
          Tantivy Query: {"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Apple","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"smartphone","lenient":null,"conjunction_mode":null}}}}]}},"all"]}}
 (9 rows)
 
@@ -111,11 +112,54 @@ WHERE (name @@@ 'Apple' OR description @@@ 'smartphone')
 ORDER BY score DESC;
  id |      name      | category_name |   score   
 ----+----------------+---------------+-----------
-  7 | Apple Watch    | Electronics   |  2.032015
-  4 | Samsung Galaxy | Electronics   | 1.1976256
- 10 | Budget Phone   | Electronics   | 1.1976256
-  1 | iPhone 14      | Electronics   | 1.1126206
+  7 | Apple Watch    | Electronics   | 2.1170974
+  4 | Samsung Galaxy | Electronics   | 1.2838018
+ 10 | Budget Phone   | Electronics   | 1.2838018
+  1 | iPhone 14      | Electronics   | 1.1921678
 (4 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    category_name,
+    paradedb.score(id) as score
+FROM products 
+WHERE (name @@@ 'Apple' OR description @@@ 'smartphone') 
+  OR category_name = 'Electronics'
+ORDER BY score DESC;
+                                                                                                                                                         QUERY PLAN                                                                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: (paradedb.score(id)) DESC
+   ->  Custom Scan (ParadeDB Scan) on products
+         Table: products
+         Index: products_bm25_idx
+         Exec Method: NormalScanExecState
+         Scores: true
+         Heap Filter: (category_name = 'Electronics'::text)
+         Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Apple","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"smartphone","lenient":null,"conjunction_mode":null}}}},"all"]}}
+(9 rows)
+
+SELECT 
+    id,
+    name,
+    category_name,
+    paradedb.score(id) as score
+FROM products 
+WHERE (name @@@ 'Apple' OR description @@@ 'smartphone') 
+  OR category_name = 'Electronics'
+ORDER BY score DESC;
+ id |      name       | category_name |   score   
+----+-----------------+---------------+-----------
+  7 | Apple Watch     | Electronics   | 2.1170974
+  4 | Samsung Galaxy  | Electronics   | 1.2838018
+ 10 | Budget Phone    | Electronics   | 1.2838018
+  1 | iPhone 14       | Electronics   | 1.1921678
+  2 | MacBook Pro     | Electronics   |         0
+  8 | Sony Headphones | Electronics   |         0
+ 11 | Budget Tablet   | Electronics   |         0
+(7 rows)
 
 -- Test Case 3: Another example with price filter (non-indexed)
 -- Should show the same issue - scores become null due to non-indexed predicate
@@ -153,9 +197,9 @@ WHERE description @@@ 'running'
 ORDER BY score DESC;
  id |       name        | price  |   score   
 ----+-------------------+--------+-----------
-  3 | Nike Air Max      | 149.99 | 1.1976256
-  5 | Adidas Ultraboost | 179.99 | 1.1126206
-  6 | Nike Normal       | 149.99 | 0.9743115
+  3 | Nike Air Max      | 149.99 | 1.2838018
+  5 | Adidas Ultraboost | 179.99 | 1.1921678
+  6 | Nike Normal       | 149.99 | 1.0432408
 (3 rows)
 
 -- Test Case 4: Mixed predicates with boolean non-indexed column
@@ -191,9 +235,9 @@ FROM products
 WHERE description @@@ 'technology' 
   AND in_stock = true
 ORDER BY score DESC;
- id |       name        | in_stock |  score  
-----+-------------------+----------+---------
-  5 | Adidas Ultraboost | t        | 1.43954
+ id |       name        | in_stock |   score   
+----+-------------------+----------+-----------
+  5 | Adidas Ultraboost | t        | 1.5177236
 (1 row)
 
 -- For comparison: Show that when all predicates are on indexed columns, scores work
@@ -230,9 +274,9 @@ FROM products
 WHERE name @@@ 'MacBook' 
   AND description @@@ 'laptop'
 ORDER BY score DESC;
- id |    name     |               description               |  score   
-----+-------------+-----------------------------------------+----------
-  2 | MacBook Pro | Powerful Apple laptop for professionals | 4.115779
+ id |    name     |               description               |   score   
+----+-------------+-----------------------------------------+-----------
+  2 | MacBook Pro | Powerful Apple laptop for professionals | 4.2837205
 (1 row)
 
 -- Test Case 5: Complex query with multiple non-indexed predicates
@@ -258,7 +302,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Heap Filter: ((true OR true) AND (price >= 100.00) AND (price <= 200.00) AND (category_name = 'Footwear'::text))
+         Heap Filter: (true AND (price >= 100.00) AND (price <= 200.00) AND (category_name = 'Footwear'::text))
          Tantivy Query: {"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"shoes","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null}}}}]}},"all","all","all"]}}
 (9 rows)
 
@@ -275,9 +319,9 @@ WHERE (name @@@ 'shoes' OR description @@@ 'running')
 ORDER BY score DESC; 
  id |       name        | category_name | price  |   score   
 ----+-------------------+---------------+--------+-----------
-  3 | Nike Air Max      | Footwear      | 149.99 | 1.1976256
-  5 | Adidas Ultraboost | Footwear      | 179.99 | 1.1126206
-  6 | Nike Normal       | Footwear      | 149.99 | 0.9743115
+  3 | Nike Air Max      | Footwear      | 149.99 | 1.2838018
+  5 | Adidas Ultraboost | Footwear      | 179.99 | 1.1921678
+  6 | Nike Normal       | Footwear      | 149.99 | 1.0432408
 (3 rows)
 
 -- Test Case 6: Multiple AND conditions with different data types
@@ -324,8 +368,8 @@ WHERE description @@@ 'Apple'
 ORDER BY score DESC;
  id |    name     | category_id |  price  | category_name |   score   
 ----+-------------+-------------+---------+---------------+-----------
-  2 | MacBook Pro |           1 | 2499.99 | Electronics   | 1.5495219
-  1 | iPhone 14   |           1 |  999.99 | Electronics   |   1.43954
+  2 | MacBook Pro |           1 | 2499.99 | Electronics   | 1.6343809
+  1 | iPhone 14   |           1 |  999.99 | Electronics   | 1.5177236
 (2 rows)
 
 -- Test Case 7: Complex nested OR/AND combinations
@@ -372,8 +416,8 @@ WHERE description @@@ 'smartphone'
 ORDER BY score DESC;
  id |      name      | price  | in_stock |   score   
 ----+----------------+--------+----------+-----------
-  4 | Samsung Galaxy | 899.99 | f        | 1.1976256
-  1 | iPhone 14      | 999.99 | t        | 1.1126206
+  4 | Samsung Galaxy | 899.99 | f        | 1.2838018
+  1 | iPhone 14      | 999.99 | t        | 1.1921678
 (2 rows)
 
 -- Test Case 8: Real number (REAL) filtering
@@ -412,8 +456,8 @@ WHERE description @@@ 'running'
 ORDER BY score DESC;
  id |       name        | rating |   score   
 ----+-------------------+--------+-----------
-  3 | Nike Air Max      |    4.2 | 1.1976256
-  5 | Adidas Ultraboost |    4.6 | 1.1126206
+  3 | Nike Air Max      |    4.2 | 1.2838018
+  5 | Adidas Ultraboost |    4.6 | 1.1921678
 (2 rows)
 
 -- Test Case 9: NULL value handling
@@ -450,10 +494,48 @@ FROM products
 WHERE name @@@ 'phone'
   AND tags IS NULL
 ORDER BY score DESC;
- id |     name     | tags |  score   
-----+--------------+------+----------
- 10 | Budget Phone |      | 2.032015
+ id |     name     | tags |   score   
+----+--------------+------+-----------
+ 10 | Budget Phone |      | 2.1170974
 (1 row)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    tags,
+    paradedb.score(id) as score
+FROM products 
+WHERE name @@@ 'phone'
+  OR tags IS NULL
+ORDER BY score DESC;
+                                                                                     QUERY PLAN                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: (paradedb.score(id)) DESC
+   ->  Custom Scan (ParadeDB Scan) on products
+         Table: products
+         Index: products_bm25_idx
+         Exec Method: NormalScanExecState
+         Scores: true
+         Heap Filter: (tags IS NULL)
+         Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"phone","lenient":null,"conjunction_mode":null}}}},"all"]}}
+(9 rows)
+
+SELECT 
+    id,
+    name,
+    tags,
+    paradedb.score(id) as score
+FROM products 
+WHERE name @@@ 'phone'
+  OR tags IS NULL
+ORDER BY score DESC;
+ id |     name      | tags |   score   
+----+---------------+------+-----------
+ 10 | Budget Phone  |      | 2.1170974
+ 11 | Budget Tablet |      |         0
+(2 rows)
 
 -- Test Case 10: NOT NULL filtering
 -- Tests heap filtering with NOT NULL predicates
@@ -491,8 +573,8 @@ WHERE description @@@ 'Apple'
 ORDER BY score DESC;
  id |    name     |        tags        |   score   
 ----+-------------+--------------------+-----------
-  2 | MacBook Pro | {laptop,apple}     | 1.5495219
-  1 | iPhone 14   | {smartphone,apple} |   1.43954
+  2 | MacBook Pro | {laptop,apple}     | 1.6343809
+  1 | iPhone 14   | {smartphone,apple} | 1.5177236
 (2 rows)
 
 -- Test Case 11: Multiple OR conditions with non-indexed predicates
@@ -541,7 +623,7 @@ WHERE description @@@ 'technology'
 ORDER BY score DESC;
  id |    name     | price  | category_name |   score   
 ----+-------------+--------+---------------+-----------
-  6 | Nike Normal | 149.99 | Footwear      | 1.2605917
+  6 | Nike Normal | 149.99 | Footwear      | 1.3281277
 (1 row)
 
 -- Test Case 12: Edge case - all tuples filtered out
@@ -656,8 +738,8 @@ WHERE description @@@ 'Apple'
 ORDER BY score DESC;
  id |    name     |        tags        |   score   
 ----+-------------+--------------------+-----------
-  2 | MacBook Pro | {laptop,apple}     | 1.5495219
-  1 | iPhone 14   | {smartphone,apple} |   1.43954
+  2 | MacBook Pro | {laptop,apple}     | 1.6343809
+  1 | iPhone 14   | {smartphone,apple} | 1.5177236
 (2 rows)
 
 -- Test Case 15: Timestamp filtering
@@ -694,9 +776,9 @@ FROM products
 WHERE name @@@ 'Apple'
   AND created_at > '2024-01-01 00:00:00'::timestamp
 ORDER BY score DESC;
- id |    name     |        created_at        |  score   
-----+-------------+--------------------------+----------
-  7 | Apple Watch | Wed Jan 01 12:00:00 2025 | 2.032015
+ id |    name     |        created_at        |   score   
+----+-------------+--------------------------+-----------
+  7 | Apple Watch | Wed Jan 01 12:00:00 2025 | 2.1170974
 (1 row)
 
 -- Test Case 16: Combined numeric comparisons
@@ -743,8 +825,8 @@ WHERE description @@@ 'shoes'
 ORDER BY score DESC;
  id |       name        | price  | rating | category_id |   score   
 ----+-------------------+--------+--------+-------------+-----------
-  3 | Nike Air Max      | 149.99 |    4.2 |           2 | 1.1976256
-  5 | Adidas Ultraboost | 179.99 |    4.6 |           2 | 1.1126206
+  3 | Nike Air Max      | 149.99 |    4.2 |           2 | 1.2838018
+  5 | Adidas Ultraboost | 179.99 |    4.6 |           2 | 1.1921678
 (2 rows)
 
 -- Test Case 17: String pattern matching
@@ -812,7 +894,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Heap Filter: ((true OR true) AND (((price > 500.00) AND in_stock) OR ((price < 300.00) AND (rating >= '4'::double precision)) OR ((category_name = 'Electronics'::text) AND (rating > '4.5'::double precision))))
+         Heap Filter: (true AND (((price > 500.00) AND in_stock) OR ((price < 300.00) AND (rating >= '4'::double precision)) OR ((category_name = 'Electronics'::text) AND (rating > '4.5'::double precision))))
          Tantivy Query: {"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Apple","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"smartphone","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"boolean":{"must":["all","all"]}},{"boolean":{"must":["all","all"]}},{"boolean":{"must":["all","all"]}}]}}]}}
 (9 rows)
 
@@ -833,6 +915,6 @@ WHERE (name @@@ 'Apple' OR description @@@ 'smartphone')
 ORDER BY score DESC; 
  id |   name    | price  | in_stock | rating |   score   
 ----+-----------+--------+----------+--------+-----------
-  1 | iPhone 14 | 999.99 | t        |    4.5 | 1.1126206
+  1 | iPhone 14 | 999.99 | t        |    4.5 | 1.1921678
 (1 row)
 

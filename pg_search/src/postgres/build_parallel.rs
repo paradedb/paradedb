@@ -371,10 +371,12 @@ pub(super) fn build_index(
                 std::thread::yield_now();
             }
 
+            pgrx::debug1!("build_index: all workers have launched, building in parallel");
             // directly instantiate a worker for the leader and have it do its build
             let mut worker = BuildWorker::new_parallel_worker(*process.state_manager());
             worker.do_build()?
         } else {
+            pgrx::debug1!("build_index: leader is not participating");
             (0.0, vec![])
         };
 

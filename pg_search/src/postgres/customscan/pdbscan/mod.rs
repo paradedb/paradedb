@@ -55,7 +55,7 @@ use crate::postgres::customscan::pdbscan::projections::{
     inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
 };
 use crate::postgres::customscan::pdbscan::qual_inspect::{
-    extract_join_predicates, extract_quals_with_non_indexed, Qual,
+    extract_join_predicates, extract_quals, Qual,
 };
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::customscan::{self, CustomScan, CustomScanState};
@@ -67,9 +67,7 @@ use crate::schema::SearchIndexSchema;
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
 use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 use pgrx::pg_sys::CustomExecMethods;
-use pgrx::{
-    direct_function_call, pg_sys, FromDatum, IntoDatum, PgList, PgMemoryContexts, PgRelation,
-};
+use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts, PgRelation};
 use std::ffi::CStr;
 use std::ptr::addr_of_mut;
 use tantivy::snippet::SnippetGenerator;
@@ -214,9 +212,7 @@ impl PdbScan {
         schema: &SearchIndexSchema,
     ) -> (Option<Qual>, RestrictInfoType, PgList<pg_sys::RestrictInfo>) {
         let mut uses_tantivy_to_query = false;
-
-        // Try extracting quals with separation of indexed and non-indexed predicates
-        let (indexed_quals, all_quals) = extract_quals_with_non_indexed(
+        let quals = extract_quals(
             root,
             rti,
             restrict_info.as_ptr().cast(),
@@ -227,90 +223,32 @@ impl PdbScan {
             &mut uses_tantivy_to_query,
         );
 
-        if indexed_quals.is_some() {
-            // All predicates can be indexed, no heap filtering needed
-            return (indexed_quals, ri_type, restrict_info);
-        }
-
-        // If we have non-indexed quals (in case of indexed_quals being None, but all_quals being Some),
-        // store them for heap filtering
-        if all_quals.is_some() {
-            // We have some indexed and some non-indexed predicates
-            // Set up heap filtering for all predicates since we can't easily separate them
-            if let Some(all_node_string) = extract_restrictinfo_string(&restrict_info, rti, root) {
-                builder
-                    .custom_private()
-                    .set_heap_filter_node_string(Some(all_node_string));
-            } else {
-                // If we couldn't extract the non-indexed quals, then we can't use the custom scan
-                return (indexed_quals, ri_type, restrict_info);
-            }
-        }
-
-        // If we have search operators but couldn't extract indexed quals, try partial extraction
-        if uses_tantivy_to_query {
-            // Try to extract just the search operators by being more permissive
-            let mut partial_uses_tantivy_to_query = false;
-            let (partial_quals, partial_non_indexed) = extract_quals_with_non_indexed(
-                root,
-                rti,
-                restrict_info.as_ptr().cast(),
-                pdbopoid,
-                ri_type,
-                schema,
-                true, // Convert external predicates to "All" to allow partial extraction
-                &mut partial_uses_tantivy_to_query,
-            );
-
-            if partial_quals.is_some() && partial_uses_tantivy_to_query {
-                return (partial_quals, ri_type, restrict_info);
-            }
-        }
-
         // If we couldn't push down quals, try to push down quals from the join
         // This is only done if we have a join predicate, and only if we have used our operator
-        let joinri: PgList<pg_sys::RestrictInfo> = PgList::from_pg(builder.args().rel().joininfo);
-        let mut join_uses_tantivy_to_query = false;
-        let (join_indexed_quals, join_all_quals) = extract_quals_with_non_indexed(
-            root,
-            rti,
-            joinri.as_ptr().cast(),
-            anyelement_query_input_opoid(),
-            RestrictInfoType::Join,
-            schema,
-            true, // Join quals should convert external to all
-            &mut join_uses_tantivy_to_query,
-        );
-
-        // If we have used our operator in the join, or if we have used our operator in the
-        // base relation, then we can use the join quals
-        if uses_tantivy_to_query || join_uses_tantivy_to_query {
-            (join_indexed_quals, RestrictInfoType::Join, joinri)
+        if quals.is_none() {
+            let joinri: PgList<pg_sys::RestrictInfo> =
+                PgList::from_pg(builder.args().rel().joininfo);
+            let mut join_uses_tantivy_to_query = false;
+            let quals = extract_quals(
+                root,
+                rti,
+                joinri.as_ptr().cast(),
+                anyelement_query_input_opoid(),
+                RestrictInfoType::Join,
+                schema,
+                true, // Join quals should convert external to all
+                &mut join_uses_tantivy_to_query,
+            );
+            // If we have used our operator in the join, or if we have used our operator in the
+            // base relation, then we can use the join quals
+            if uses_tantivy_to_query || join_uses_tantivy_to_query {
+                (quals, RestrictInfoType::Join, joinri)
+            } else {
+                (quals, ri_type, restrict_info)
+            }
         } else {
-            (join_indexed_quals, ri_type, restrict_info)
+            (quals, ri_type, restrict_info)
         }
-    }
-
-    /// Initialize the heap filter expression state using the heap filter node string (if it exists).
-    unsafe fn init_heap_filter_expr_state(state: &mut CustomScanStateWrapper<Self>) {
-        if state.custom_state().heap_filter_node_string.is_none()
-            || state.custom_state().heap_filter_expr_state.is_some()
-        {
-            return;
-        }
-        // Initialize ExprState if not already done
-
-        // Create the Expr node from the heap filter node string
-        let expr = create_heap_filter_expr(
-            state
-                .custom_state()
-                .heap_filter_node_string
-                .as_ref()
-                .unwrap(),
-        );
-        // Initialize the ExprState
-        let expr_state = pg_sys::ExecInitExpr(expr, state.planstate());
-        state.custom_state_mut().heap_filter_expr_state = Some(expr_state);
     }
 }
 
@@ -758,9 +696,6 @@ impl CustomScan for PdbScan {
                 builder.custom_state().execution_rti,
             );
 
-            builder.custom_state().heap_filter_node_string =
-                builder.custom_private().heap_filter_node_string().clone();
-
             // Store join snippet predicates in the scan state
             builder.custom_state().join_predicates =
                 builder.custom_private().join_predicates().clone();
@@ -902,18 +837,6 @@ impl CustomScan for PdbScan {
             }
         }
 
-        // Show heap filter expression if present using proper deparse context
-        if let Some(ref heap_filter_node_string) = state.custom_state().heap_filter_node_string {
-            unsafe {
-                let human_readable_filter = create_human_readable_filter_text(
-                    heap_filter_node_string,
-                    explainer,
-                    state.custom_state().execution_rti,
-                );
-                explainer.add_text("Heap Filter", &human_readable_filter);
-            }
-        }
-
         let mut json_value = state
             .custom_state()
             .query_to_json()
@@ -1023,10 +946,6 @@ impl CustomScan for PdbScan {
             Self::init_search_reader(state);
         }
 
-        unsafe {
-            Self::init_heap_filter_expr_state(state);
-        }
-
         loop {
             let exec_method = state.custom_state_mut().exec_method_mut();
 
@@ -1058,12 +977,6 @@ impl CustomScan for PdbScan {
                                 continue;
                             }
                         };
-
-                        // Apply heap filtering if needed
-                        if !apply_heap_filter(state, slot) {
-                            // Tuple doesn't pass heap filter, skip it
-                            continue;
-                        }
 
                         if !state.custom_state().need_scores()
                             && !state.custom_state().need_snippets()
@@ -1171,17 +1084,10 @@ impl CustomScan for PdbScan {
                     }
                 }
 
-                ExecState::Virtual { slot } => unsafe {
+                ExecState::Virtual { slot } => {
                     state.custom_state_mut().virtual_tuple_count += 1;
-
-                    // Apply heap filtering if needed
-                    if !apply_heap_filter(state, slot) {
-                        // Tuple doesn't pass heap filter, skip it
-                        continue;
-                    }
-
                     return slot;
-                },
+                }
             }
         }
     }
@@ -1419,36 +1325,6 @@ fn check_visibility(
         .custom_state_mut()
         .visibility_checker()
         .exec_if_visible(ctid, bslot.cast(), move |heaprel| bslot.cast())
-}
-
-/// Apply heap filtering using PostgreSQL's built-in expression evaluation
-/// Returns true if the tuple passes all restrictions, false otherwise
-#[inline(always)]
-unsafe fn apply_heap_filter(
-    state: &mut CustomScanStateWrapper<PdbScan>,
-    slot: *mut pg_sys::TupleTableSlot,
-) -> bool {
-    if state.custom_state().heap_filter_expr_state.is_none() {
-        return true;
-    }
-
-    // Evaluate the expression if we have an ExprState
-    let expr_state = state.custom_state().heap_filter_expr_state.unwrap();
-    let expr_context = (*state.planstate()).ps_ExprContext;
-
-    // Set the scan tuple in the expression context
-    (*expr_context).ecxt_scantuple = slot;
-
-    let mut isnull = false;
-    let result = pg_sys::ExecEvalExpr(expr_state, expr_context, &mut isnull);
-
-    if isnull {
-        // NULL result means the tuple doesn't pass the filter
-        false
-    } else {
-        // Convert the result to a boolean - simple and direct
-        bool::from_datum(result, false).unwrap_or(false)
-    }
 }
 
 unsafe fn inject_score_and_snippet_placeholders(state: &mut CustomScanStateWrapper<PdbScan>) {
@@ -1782,370 +1658,4 @@ fn is_range_query_string(query_string: &str) -> bool {
         || query_string.trim_start().starts_with("<=")
         || query_string.contains("..")  // Range syntax like "1..10"
         || query_string.contains(" TO ") // Range syntax like "1 TO 10"
-}
-
-/// Recursively clean RestrictInfo wrappers from any PostgreSQL node
-/// This handles nested RestrictInfo nodes in complex expressions like BoolExpr
-unsafe fn clean_restrictinfo_recursively(node: *mut pg_sys::Node) -> *mut pg_sys::Node {
-    if node.is_null() {
-        return node;
-    }
-
-    match (*node).type_ {
-        pg_sys::NodeTag::T_RestrictInfo => {
-            // Unwrap RestrictInfo and recursively clean the inner clause
-            let restrict_info = node.cast::<pg_sys::RestrictInfo>();
-            let inner_clause = if !(*restrict_info).orclause.is_null() {
-                (*restrict_info).orclause
-            } else {
-                (*restrict_info).clause
-            };
-            clean_restrictinfo_recursively(inner_clause.cast())
-        }
-        pg_sys::NodeTag::T_BoolExpr => {
-            // For BoolExpr, clean all arguments
-            let bool_expr = node.cast::<pg_sys::BoolExpr>();
-            let args_list = (*bool_expr).args;
-
-            if !args_list.is_null() {
-                let mut new_args = std::ptr::null_mut();
-                let old_args = PgList::<pg_sys::Node>::from_pg(args_list);
-
-                for arg in old_args.iter_ptr() {
-                    let cleaned_arg = clean_restrictinfo_recursively(arg);
-                    new_args = pg_sys::lappend(new_args, cleaned_arg.cast::<core::ffi::c_void>());
-                }
-
-                // Create a new BoolExpr with cleaned arguments
-                let new_bool_expr = pg_sys::palloc0(std::mem::size_of::<pg_sys::BoolExpr>())
-                    .cast::<pg_sys::BoolExpr>();
-                *new_bool_expr = *bool_expr; // Copy the original
-                (*new_bool_expr).args = new_args;
-                new_bool_expr.cast()
-            } else {
-                node
-            }
-        }
-        _ => {
-            // For other node types, return as-is (we could extend this for other complex types)
-            node
-        }
-    }
-}
-
-/// Replace sub-expressions that reference other relations with TRUE constants
-/// This preserves the logical structure while ensuring cross-relation predicates don't cause evaluation errors
-unsafe fn replace_cross_relation_expressions_with_true(
-    node: *mut pg_sys::Node,
-    target_rti: pg_sys::Index,
-) -> *mut pg_sys::Node {
-    if node.is_null() {
-        return node;
-    }
-
-    // Check if this entire expression references only the target relation
-    if expression_references_only_relation(node, target_rti) {
-        return node; // Keep as-is
-    }
-
-    // If this expression references other relations, check if we can replace parts of it
-    match (*node).type_ {
-        pg_sys::NodeTag::T_BoolExpr => {
-            // For BoolExpr, recursively process arguments
-            let bool_expr = node.cast::<pg_sys::BoolExpr>();
-            let args_list = (*bool_expr).args;
-
-            if !args_list.is_null() {
-                let mut new_args = std::ptr::null_mut();
-                let old_args = PgList::<pg_sys::Node>::from_pg(args_list);
-
-                for arg in old_args.iter_ptr() {
-                    let processed_arg =
-                        replace_cross_relation_expressions_with_true(arg, target_rti);
-                    new_args = pg_sys::lappend(new_args, processed_arg.cast::<core::ffi::c_void>());
-                }
-
-                // Create a new BoolExpr with processed arguments
-                let new_bool_expr = pg_sys::palloc0(std::mem::size_of::<pg_sys::BoolExpr>())
-                    .cast::<pg_sys::BoolExpr>();
-                *new_bool_expr = *bool_expr; // Copy the original
-                (*new_bool_expr).args = new_args;
-                new_bool_expr.cast()
-            } else {
-                node
-            }
-        }
-        _ => {
-            // For leaf expressions that reference other relations, replace with TRUE
-            create_bool_const_true().unwrap_or(node)
-        }
-    }
-}
-
-/// Check if a PostgreSQL expression node references only the specified relation
-unsafe fn expression_references_only_relation(
-    node: *mut pg_sys::Node,
-    target_rti: pg_sys::Index,
-) -> bool {
-    if node.is_null() {
-        return true;
-    }
-
-    extern "C-unwind" fn walker(node: *mut pg_sys::Node, context: *mut core::ffi::c_void) -> bool {
-        unsafe {
-            if node.is_null() {
-                return false;
-            }
-
-            let target_rti = context.cast::<pg_sys::Index>().read();
-
-            if let Some(var) = nodecast!(Var, T_Var, node) {
-                // If this variable references a different relation, return true to stop walking
-                // and indicate the expression is not suitable for this relation
-                return (*var).varno as pg_sys::Index != target_rti;
-            }
-
-            // Continue walking the expression tree
-            pg_sys::expression_tree_walker(node, Some(walker), context)
-        }
-    }
-
-    let mut target_rti_copy = target_rti;
-    !pg_sys::expression_tree_walker(
-        node,
-        Some(walker),
-        (&mut target_rti_copy as *mut pg_sys::Index).cast(),
-    )
-}
-
-/// Create a TRUE constant node
-unsafe fn create_bool_const_true() -> Option<*mut pg_sys::Node> {
-    let const_node = pg_sys::palloc0(std::mem::size_of::<pg_sys::Const>()).cast::<pg_sys::Const>();
-    (*const_node).xpr.type_ = pg_sys::NodeTag::T_Const;
-    (*const_node).consttype = pg_sys::BOOLOID;
-    (*const_node).consttypmod = -1;
-    (*const_node).constcollid = pg_sys::InvalidOid;
-    (*const_node).constlen = 1;
-    (*const_node).constvalue = true.into_datum().unwrap();
-    (*const_node).constisnull = false;
-    (*const_node).constbyval = true;
-    (*const_node).location = -1;
-    Some(const_node.cast())
-}
-
-unsafe fn create_heap_filter_expr(heap_filter_node_string: &str) -> *mut pg_sys::Expr {
-    // Handle multiple clauses separated by our delimiter
-    if heap_filter_node_string.contains("|||CLAUSE_SEPARATOR|||") {
-        // Multiple clauses - combine them into a single AND expression
-        let clause_strings: Vec<&str> = heap_filter_node_string
-            .split("|||CLAUSE_SEPARATOR|||")
-            .collect();
-
-        // Create individual nodes for each clause
-        let mut args_list = std::ptr::null_mut();
-        for clause_str in clause_strings.iter() {
-            let clause_cstr = std::ffi::CString::new(*clause_str)
-                .expect("Failed to create CString from clause string");
-            let clause_node = pg_sys::stringToNode(clause_cstr.as_ptr());
-
-            if !clause_node.is_null() {
-                args_list = pg_sys::lappend(args_list, clause_node.cast::<core::ffi::c_void>());
-            } else {
-                panic!("Failed to parse clause string: {}", clause_str);
-            }
-        }
-
-        if !args_list.is_null() {
-            // Create a BoolExpr to combine all clauses with AND
-            let bool_expr =
-                pg_sys::palloc0(std::mem::size_of::<pg_sys::BoolExpr>()).cast::<pg_sys::BoolExpr>();
-            (*bool_expr).xpr.type_ = pg_sys::NodeTag::T_BoolExpr;
-            (*bool_expr).boolop = pg_sys::BoolExprType::AND_EXPR;
-            (*bool_expr).args = args_list;
-            (*bool_expr).location = -1;
-
-            bool_expr.cast::<pg_sys::Expr>()
-        } else {
-            panic!("Failed to parse any clauses: {}", heap_filter_node_string);
-        }
-    } else {
-        // Single clause - simple stringToNode + ExecInitExpr
-        let node_cstr = std::ffi::CString::new(heap_filter_node_string)
-            .expect("Failed to create CString from node string");
-        let node = pg_sys::stringToNode(node_cstr.as_ptr());
-
-        if !node.is_null() {
-            node.cast::<pg_sys::Expr>()
-        } else {
-            panic!("Failed to deserialize node: {}", heap_filter_node_string);
-        }
-    }
-}
-
-/// Create a human-readable representation of a PostgreSQL expression node
-/// Uses PostgreSQL's deparse_expression with proper context from ExplainState
-unsafe fn create_human_readable_filter_text(
-    heap_filter_node_string: &str,
-    explainer: &Explainer,
-    current_rti: pg_sys::Index,
-) -> String {
-    // Parse the heap filter node string back to a PostgreSQL node
-    let heap_filter_expr = create_heap_filter_expr(heap_filter_node_string).cast::<pg_sys::Node>();
-
-    // Now use PostgreSQL's deparse_expression with the proper context from ExplainState
-    let deparse_cxt = explainer.deparse_cxt();
-
-    if !deparse_cxt.is_null() {
-        // Try deparse_expression with the proper context from EXPLAIN
-        let cstring_ptr = pg_sys::deparse_expression(heap_filter_expr, deparse_cxt, false, false);
-        if !cstring_ptr.is_null() {
-            let result = std::ffi::CStr::from_ptr(cstring_ptr)
-                .to_string_lossy()
-                .into_owned();
-            pg_sys::pfree(cstring_ptr.cast());
-
-            // If the result is not empty, use it
-            if !result.is_empty() {
-                return result;
-            }
-        }
-    }
-
-    "<expression>".to_string()
-}
-
-/// Extract non-indexed predicates from restrict_info and serialize them as node strings
-/// Replaces cross-relation expressions with TRUE to avoid evaluation errors
-/// Returns the node string for execution - display text will be generated in EXPLAIN using proper context
-unsafe fn extract_restrictinfo_string(
-    restrict_info: &PgList<pg_sys::RestrictInfo>,
-    current_rti: pg_sys::Index,
-    _root: *mut pg_sys::PlannerInfo,
-) -> Option<String> {
-    if restrict_info.is_empty() {
-        return None;
-    }
-
-    // Extract just the clauses (not the RestrictInfo wrappers) and serialize them
-    let mut clause_strings = Vec::new();
-
-    for ri in restrict_info.iter_ptr() {
-        // Extract the actual clause from the RestrictInfo and unwrap any nested RestrictInfo
-        let clause = if !(*ri).orclause.is_null() {
-            (*ri).orclause
-        } else {
-            (*ri).clause
-        };
-
-        // Clean any nested RestrictInfo nodes recursively
-        let cleaned_clause = clean_restrictinfo_recursively(clause.cast());
-
-        // For the node string (execution): replace cross-relation expressions with TRUE constants
-        let processed_clause =
-            replace_cross_relation_expressions_with_true(cleaned_clause, current_rti);
-        let processed_clause =
-            remove_operator_safe(processed_clause, anyelement_query_input_opoid());
-        let clause_string: *mut i8 =
-            pg_sys::nodeToString(processed_clause.cast::<core::ffi::c_void>());
-        let rust_string = std::ffi::CStr::from_ptr(clause_string)
-            .to_string_lossy()
-            .into_owned();
-        clause_strings.push(rust_string);
-    }
-
-    if clause_strings.is_empty() {
-        None
-    } else if clause_strings.len() == 1 {
-        // Single clause - return it directly
-        clause_strings.into_iter().next()
-    } else {
-        // Multiple clauses - join them with a separator for evaluation later
-        Some(clause_strings.join("|||CLAUSE_SEPARATOR|||"))
-    }
-}
-
-/// Safe wrapper for replace_operator_with_true that ensures we never return null at the top level
-unsafe fn remove_operator_safe(
-    node: *mut pg_sys::Node,
-    operator_oid: pg_sys::Oid,
-) -> *mut pg_sys::Node {
-    let result = remove_operator(node, operator_oid);
-    if result.is_null() {
-        // If the entire expression was filtered out, return TRUE
-        create_bool_const_true().unwrap_or(node)
-    } else {
-        result
-    }
-}
-
-/// Filter out occurrences of our specific operator (e.g., @@@) from heap filter expressions
-/// This completely removes them from boolean expressions rather than replacing with TRUE
-/// For OR expressions with our operator, retain the other side; for AND expressions, remove our operator
-/// Returns TRUE constant if the entire expression would be filtered out
-unsafe fn remove_operator(node: *mut pg_sys::Node, operator_oid: pg_sys::Oid) -> *mut pg_sys::Node {
-    if node.is_null() {
-        return node;
-    }
-
-    match (*node).type_ {
-        pg_sys::NodeTag::T_OpExpr => {
-            let opexpr = node.cast::<pg_sys::OpExpr>();
-            if (*opexpr).opno == operator_oid {
-                // If this is a top-level OpExpr with our operator, return TRUE
-                // If it's nested in a BoolExpr, return NULL to indicate removal
-                return std::ptr::null_mut();
-            }
-            // Otherwise, recurse into args to handle nested expressions
-            let args_list = (*opexpr).args;
-            if args_list.is_null() {
-                return node;
-            }
-            let old_args = PgList::<pg_sys::Node>::from_pg(args_list);
-            let mut new_args = std::ptr::null_mut();
-            for arg in old_args.iter_ptr() {
-                let processed = remove_operator(arg, operator_oid);
-                if !processed.is_null() {
-                    new_args = pg_sys::lappend(new_args, processed.cast::<core::ffi::c_void>());
-                }
-            }
-            // Build a shallow copy with replaced args
-            let new_opexpr = pg_sys::copyObjectImpl(node.cast()).cast::<pg_sys::OpExpr>();
-            (*new_opexpr).args = new_args;
-            new_opexpr.cast()
-        }
-        pg_sys::NodeTag::T_BoolExpr => {
-            let boolexpr = node.cast::<pg_sys::BoolExpr>();
-            if (*boolexpr).args.is_null() {
-                return node;
-            }
-
-            // Process all arguments to filter out our operator
-            let old_args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
-            let mut new_args = std::ptr::null_mut();
-            for arg in old_args.iter_ptr() {
-                let processed = remove_operator(arg, operator_oid);
-                if !processed.is_null() {
-                    new_args = pg_sys::lappend(new_args, processed.cast::<core::ffi::c_void>());
-                }
-            }
-
-            // Handle special cases based on boolean operation type
-            if pg_sys::list_length(new_args) == 0 {
-                // All args were filtered out - return TRUE constant instead of null
-                return create_bool_const_true().unwrap_or(node);
-            } else if pg_sys::list_length(new_args) == 1
-                && ((*boolexpr).boolop == pg_sys::BoolExprType::AND_EXPR
-                    || (*boolexpr).boolop == pg_sys::BoolExprType::OR_EXPR)
-            {
-                // If we have AND(x) or OR(x), just return x directly
-                return (*pg_sys::list_head(new_args)).ptr_value.cast();
-            }
-
-            // Create new boolean expression with filtered arguments
-            let new_bool_expr = pg_sys::copyObjectImpl(node.cast()).cast::<pg_sys::BoolExpr>();
-            (*new_bool_expr).args = new_args;
-            new_bool_expr.cast()
-        }
-        _ => node, // For other node types, return as-is
-    }
 }

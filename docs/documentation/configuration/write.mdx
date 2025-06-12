@@ -6,7 +6,7 @@ Several settings can be used to tune the throughput of `INSERT`/`UPDATE`/`COPY` 
 
 ## Work Memory
 
-`work_mem` controls how much memory to allocate to a single `INSERT`/`UPDATE`/`COPY` statement. Each statement is required to have at least `15MB` memory. If
+`work_mem` controls how much memory to allocate to a single `INSERT`/`UPDATE`/`COPY` statement. Each statement that writes to a BM25 index is required to have at least `15MB` memory. If
 `work_mem` is below `15MB`, it will be ignored and `15MB` will be used.
 
 If your typical update patterns are single-row atomic `INSERT`s or `UPDATE`s, then a value of `15MB` can prevent unnecessary memory from being allocated. For bulk inserts

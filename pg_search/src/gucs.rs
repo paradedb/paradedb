@@ -140,8 +140,7 @@ pub fn adjust_mem(mem: usize, nlaunched: usize, min_mem_per_worker: usize) -> us
         // in the `memory_arena` goes below MARGIN_IN_BYTES.
         pub const MARGIN_IN_BYTES: usize = 1_000_000;
 
-        // We impose the memory per thread to be at least 64 MB
-        // and no greater than 4GB as that's tantivy's limit
+        // We impose the memory per thread to be no greater than 4GB as that's tantivy's limit
         pub const MEMORY_BUDGET_NUM_BYTES_MAX: usize = (4 * 1024 * 1024 * 1024) - MARGIN_IN_BYTES;
     }
 

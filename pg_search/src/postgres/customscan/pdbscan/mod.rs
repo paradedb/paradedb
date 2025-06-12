@@ -301,7 +301,7 @@ impl PdbScan {
         // Initialize ExprState if not already done
 
         // Create the Expr node from the heap filter node string
-        let expr = Self::create_heap_filter_expr(
+        let expr = create_heap_filter_expr(
             state
                 .custom_state()
                 .heap_filter_node_string
@@ -311,56 +311,6 @@ impl PdbScan {
         // Initialize the ExprState
         let expr_state = pg_sys::ExecInitExpr(expr, state.planstate());
         state.custom_state_mut().heap_filter_expr_state = Some(expr_state);
-    }
-    unsafe fn create_heap_filter_expr(heap_filter_node_string: &String) -> *mut pg_sys::Expr {
-        pgrx::warning!("Some fields used in this query are not bm25 indexed, so we will use heap filtering. This is not efficient and should be avoided.");
-
-        // Handle multiple clauses separated by our delimiter
-        if heap_filter_node_string.contains("|||CLAUSE_SEPARATOR|||") {
-            // Multiple clauses - combine them into a single AND expression
-            let clause_strings: Vec<&str> = heap_filter_node_string
-                .split("|||CLAUSE_SEPARATOR|||")
-                .collect();
-
-            // Create individual nodes for each clause
-            let mut args_list = std::ptr::null_mut();
-            for clause_str in clause_strings.iter() {
-                let clause_cstr = std::ffi::CString::new(*clause_str)
-                    .expect("Failed to create CString from clause string");
-                let clause_node = pg_sys::stringToNode(clause_cstr.as_ptr());
-
-                if !clause_node.is_null() {
-                    args_list = pg_sys::lappend(args_list, clause_node.cast::<core::ffi::c_void>());
-                } else {
-                    panic!("Failed to parse clause string: {}", clause_str);
-                }
-            }
-
-            if !args_list.is_null() {
-                // Create a BoolExpr to combine all clauses with AND
-                let bool_expr = pg_sys::palloc0(std::mem::size_of::<pg_sys::BoolExpr>())
-                    .cast::<pg_sys::BoolExpr>();
-                (*bool_expr).xpr.type_ = pg_sys::NodeTag::T_BoolExpr;
-                (*bool_expr).boolop = pg_sys::BoolExprType::AND_EXPR;
-                (*bool_expr).args = args_list;
-                (*bool_expr).location = -1;
-
-                bool_expr.cast::<pg_sys::Expr>()
-            } else {
-                panic!("Failed to parse any clauses: {}", heap_filter_node_string);
-            }
-        } else {
-            // Single clause - simple stringToNode + ExecInitExpr
-            let node_cstr = std::ffi::CString::new(heap_filter_node_string.as_str())
-                .expect("Failed to create CString from node string");
-            let node = pg_sys::stringToNode(node_cstr.as_ptr());
-
-            if !node.is_null() {
-                node.cast::<pg_sys::Expr>()
-            } else {
-                panic!("Failed to deserialize node: {}", heap_filter_node_string);
-            }
-        }
     }
 }
 
@@ -1983,16 +1933,12 @@ unsafe fn create_bool_const_true() -> Option<*mut pg_sys::Node> {
     Some(const_node.cast())
 }
 
-/// Create a human-readable representation of a PostgreSQL expression node
-/// Uses PostgreSQL's deparse_expression with proper context from ExplainState
-unsafe fn create_human_readable_filter_text_with_context(
-    heap_filter_node_string: &str,
-    explainer: &Explainer,
-    current_rti: pg_sys::Index,
-) -> String {
-    // Parse the heap filter node string back to a PostgreSQL node
-    let heap_filter_expr = if heap_filter_node_string.contains("|||CLAUSE_SEPARATOR|||") {
-        // Handle multiple clauses separated by our delimiter
+unsafe fn create_heap_filter_expr(heap_filter_node_string: &str) -> *mut pg_sys::Expr {
+    pgrx::warning!("Some fields used in this query are not bm25 indexed, so we will use heap filtering. This is not efficient and should be avoided.");
+
+    // Handle multiple clauses separated by our delimiter
+    if heap_filter_node_string.contains("|||CLAUSE_SEPARATOR|||") {
+        // Multiple clauses - combine them into a single AND expression
         let clause_strings: Vec<&str> = heap_filter_node_string
             .split("|||CLAUSE_SEPARATOR|||")
             .collect();
@@ -2007,7 +1953,7 @@ unsafe fn create_human_readable_filter_text_with_context(
             if !clause_node.is_null() {
                 args_list = pg_sys::lappend(args_list, clause_node.cast::<core::ffi::c_void>());
             } else {
-                return format!("<failed to parse clause: {}>", clause_str);
+                panic!("Failed to parse clause string: {}", clause_str);
             }
         }
 
@@ -2020,21 +1966,33 @@ unsafe fn create_human_readable_filter_text_with_context(
             (*bool_expr).args = args_list;
             (*bool_expr).location = -1;
 
-            bool_expr.cast::<pg_sys::Node>()
+            bool_expr.cast::<pg_sys::Expr>()
         } else {
-            return format!("<failed to parse filter: {}>", heap_filter_node_string);
+            panic!("Failed to parse any clauses: {}", heap_filter_node_string);
         }
     } else {
-        // Single clause - simple stringToNode
+        // Single clause - simple stringToNode + ExecInitExpr
         let node_cstr = std::ffi::CString::new(heap_filter_node_string)
             .expect("Failed to create CString from node string");
         let node = pg_sys::stringToNode(node_cstr.as_ptr());
 
-        if node.is_null() {
-            return format!("<failed to parse filter: {}>", heap_filter_node_string);
+        if !node.is_null() {
+            node.cast::<pg_sys::Expr>()
+        } else {
+            panic!("Failed to deserialize node: {}", heap_filter_node_string);
         }
-        node.cast::<pg_sys::Node>()
-    };
+    }
+}
+
+/// Create a human-readable representation of a PostgreSQL expression node
+/// Uses PostgreSQL's deparse_expression with proper context from ExplainState
+unsafe fn create_human_readable_filter_text_with_context(
+    heap_filter_node_string: &str,
+    explainer: &Explainer,
+    current_rti: pg_sys::Index,
+) -> String {
+    // Parse the heap filter node string back to a PostgreSQL node
+    let heap_filter_expr = create_heap_filter_expr(heap_filter_node_string).cast::<pg_sys::Node>();
 
     // Now use PostgreSQL's deparse_expression with the proper context from ExplainState
     let deparse_cxt = explainer.deparse_cxt();
@@ -2048,45 +2006,14 @@ unsafe fn create_human_readable_filter_text_with_context(
                 .into_owned();
             pg_sys::pfree(cstring_ptr.cast());
 
-            // If the result looks reasonable, use it
-            if !result.is_empty() && !result.starts_with('<') {
+            // If the result is not empty, use it
+            if !result.is_empty() {
                 return result;
             }
         }
     }
 
-    // Fallback to a basic cleanup of nodeToString output
-    let node_string = pg_sys::nodeToString(heap_filter_expr.cast::<core::ffi::c_void>());
-    if node_string.is_null() {
-        return "<expression>".to_string();
-    }
-
-    let rust_string = std::ffi::CStr::from_ptr(node_string)
-        .to_string_lossy()
-        .into_owned();
-
-    // Basic cleanup for better readability
-    let cleaned = rust_string
-        .replace("{OPEXPR", "")
-        .replace("{BOOLEXPR", "")
-        .replace("{VAR", "")
-        .replace("{CONST", "")
-        .replace(":opno", " op")
-        .replace(":args", " args")
-        .replace(":boolop", " op")
-        .replace(":varno", " table")
-        .replace(":varattno", " col")
-        .replace(":constvalue", " =")
-        .replace("}", "")
-        .chars()
-        .filter(|&c| c != '{')
-        .collect::<String>();
-
-    if cleaned.trim().is_empty() {
-        "<expression>".to_string()
-    } else {
-        format!("({})", cleaned.trim())
-    }
+    "<expression>".to_string()
 }
 
 /// Extract non-indexed predicates from restrict_info and serialize them as node strings

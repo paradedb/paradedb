@@ -67,7 +67,7 @@ impl ProximityWeight {
 
     fn read_postings(
         &self,
-        reader: &SegmentReader,
+        segment_reader: &SegmentReader,
         clause: &ProximityClause,
         which_terms: WhichTerms,
         nested: bool,
@@ -81,14 +81,14 @@ impl ProximityWeight {
             let query =
                 ProximityQuery::new(self.query.field(), *left.clone(), *distance, *right.clone());
             let weight = ProximityWeight::new(query, self.weight_opt.clone());
-            let left_postings = weight.read_postings(reader, left, which_terms, true)?;
-            let right_postings = weight.read_postings(reader, right, which_terms, true)?;
+            let left_postings = weight.read_postings(segment_reader, left, which_terms, true)?;
+            let right_postings = weight.read_postings(segment_reader, right, which_terms, true)?;
 
             let mut scorer = ProximityScorer::new(
                 left_postings,
                 *distance,
                 right_postings,
-                self.fieldnorm_reader(reader)?,
+                self.fieldnorm_reader(segment_reader)?,
                 self.weight_opt.clone(),
             );
 
@@ -138,9 +138,9 @@ impl ProximityWeight {
         } else {
             let mut postings: Vec<Box<dyn Postings>> = Vec::new();
             let mut num_regex_terms = 0;
-            let inverted_index = reader.inverted_index(self.query.field())?;
-            for term in clause.terms(which_terms) {
-                match term {
+            let inverted_index = segment_reader.inverted_index(self.query.field())?;
+            for term in clause.terms(self.query.field(), Some(segment_reader), which_terms)? {
+                match term.as_ref() {
                     ProximityTermStyle::Term(term) => {
                         let term = Term::from_field_text(self.query.field(), term);
                         if let Some(segment_postings) = inverted_index
@@ -156,7 +156,7 @@ impl ProximityWeight {
                             self.query.field(),
                             Arc::new(regex),
                         );
-                        let term_infos = automaton.get_match_term_infos(reader)?;
+                        let term_infos = automaton.get_match_term_infos(segment_reader)?;
                         if term_infos.is_empty() {
                             // if term_infos is empty, that's fine -- we might have other terms
                             continue;
@@ -169,7 +169,7 @@ impl ProximityWeight {
                         }
                         let union = RegexPhraseWeight::get_union_from_term_infos(
                             &term_infos,
-                            reader,
+                            segment_reader,
                             &inverted_index,
                         )?;
                         postings.push(Box::new(union))

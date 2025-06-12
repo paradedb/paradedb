@@ -2,7 +2,7 @@ use crate::query::proximity::weight::ProximityWeight;
 use crate::query::proximity::{ProximityClause, ProximityDistance, WhichTerms};
 use tantivy::query::{Bm25Weight, EnableScoring, Query, Weight};
 use tantivy::schema::{Field, IndexRecordOption};
-use tantivy::{TantivyError, Term};
+use tantivy::{SegmentReader, TantivyError, Term};
 
 #[derive(Debug, Clone)]
 pub struct ProximityQuery {
@@ -39,11 +39,16 @@ impl ProximityQuery {
         &self.right
     }
 
-    pub fn terms(&self) -> impl Iterator<Item = Term> + '_ {
-        self.left
-            .terms(WhichTerms::All)
-            .chain(self.right.terms(WhichTerms::All))
-            .map(|t| Term::from_field_text(self.field, t.as_str()))
+    pub fn terms<'a>(
+        &'a self,
+        field: Field,
+        segment_reader: Option<&'a SegmentReader>,
+    ) -> tantivy::Result<impl Iterator<Item = Term> + 'a> {
+        Ok(self
+            .left
+            .terms(field, segment_reader, WhichTerms::All)?
+            .chain(self.right.terms(field, segment_reader, WhichTerms::All)?)
+            .map(|t| Term::from_field_text(self.field, t.as_str())))
     }
 
     pub fn distance(&self) -> ProximityDistance {
@@ -67,7 +72,7 @@ impl Query for ProximityQuery {
             )));
         }
 
-        let terms = self.terms().collect::<Vec<_>>();
+        let terms = self.terms(self.field, None)?.collect::<Vec<_>>();
         let bm25_weight_opt = match enable_scoring {
             EnableScoring::Enabled {
                 statistics_provider,
@@ -80,10 +85,17 @@ impl Query for ProximityQuery {
         Ok(Box::new(weight))
     }
 
-    fn query_terms<'a>(&'a self, _visitor: &mut dyn FnMut(&'a Term, bool)) {
-        // TODO:  figure out how to do this one
-        // for term in self.terms() {
-        //     visitor(term, true)
-        // }
+    fn query_terms(
+        &self,
+        field: Field,
+        segment_reader: &SegmentReader,
+        visitor: &mut dyn FnMut(&Term, bool),
+    ) {
+        for term in self
+            .terms(field, Some(segment_reader))
+            .unwrap_or_else(|e| panic!("{e}"))
+        {
+            visitor(&term, true)
+        }
     }
 }

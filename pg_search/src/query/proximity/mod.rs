@@ -1,7 +1,10 @@
 use crate::api::Regex;
 use pgrx::{InOutFuncs, PostgresType, StringInfo};
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::ffi::CStr;
+use tantivy::schema::Field;
+use tantivy::SegmentReader;
 
 pub mod query;
 mod scorer;
@@ -79,23 +82,55 @@ impl ProximityClause {
         }
     }
 
-    pub fn terms(&self, which_terms: WhichTerms) -> impl Iterator<Item = &ProximityTermStyle> {
-        let iter: Box<dyn Iterator<Item = &ProximityTermStyle>> = match self {
-            ProximityClause::Term(term) => Box::new(std::iter::once(term)),
-            ProximityClause::Clauses(clauses) => Box::new(
-                clauses
-                    .iter()
-                    .flat_map(move |clause| clause.terms(which_terms)),
-            ),
-            ProximityClause::Proximity { left, right, .. } => match which_terms {
-                WhichTerms::Left => Box::new(left.terms(which_terms)),
-                WhichTerms::Right => Box::new(right.terms(which_terms)),
-                WhichTerms::All => {
-                    Box::new(left.terms(which_terms).chain(right.terms(which_terms)))
+    pub fn terms<'a>(
+        &'a self,
+        field: Field,
+        segment_reader: Option<&'a SegmentReader>,
+        which_terms: WhichTerms,
+    ) -> tantivy::Result<impl Iterator<Item = Cow<'a, ProximityTermStyle>>> {
+        let iter: Box<dyn Iterator<Item = Cow<'a, ProximityTermStyle>>> = match self {
+            ProximityClause::Term(term @ ProximityTermStyle::Term(_)) => {
+                Box::new(std::iter::once(Cow::Borrowed(term)))
+            }
+            ProximityClause::Term(term @ ProximityTermStyle::Rexgex(..))
+                if segment_reader.is_none() =>
+            {
+                Box::new(std::iter::once(Cow::Borrowed(term)))
+            }
+            ProximityClause::Term(ProximityTermStyle::Rexgex(re, ..)) => {
+                let segment_reader = segment_reader.unwrap();
+                let regex = tantivy_fst::Regex::new(re.as_str()).unwrap_or_else(|e| panic!("{e}"));
+                let inverted_index = segment_reader.inverted_index(field)?;
+                let dict = inverted_index.terms();
+                let mut term_stream = dict.search_with_state(regex).into_stream()?;
+
+                let mut terms = Vec::new();
+                while let Some((bytes, ..)) = term_stream.next() {
+                    terms.push(Cow::Owned(ProximityTermStyle::Term(
+                        String::from_utf8_lossy(bytes).to_string(),
+                    )));
                 }
+                Box::new(terms.into_iter())
+            }
+
+            ProximityClause::Clauses(clauses) => {
+                let iter = clauses
+                    .iter()
+                    .map(move |clause| clause.terms(field, segment_reader, which_terms))
+                    .collect::<tantivy::Result<Vec<_>>>()?;
+
+                Box::new(iter.into_iter().flatten())
+            }
+            ProximityClause::Proximity { left, right, .. } => match which_terms {
+                WhichTerms::Left => Box::new(left.terms(field, segment_reader, which_terms)?),
+                WhichTerms::Right => Box::new(right.terms(field, segment_reader, which_terms)?),
+                WhichTerms::All => Box::new(
+                    left.terms(field, segment_reader, which_terms)?
+                        .chain(right.terms(field, segment_reader, which_terms)?),
+                ),
             },
         };
-        iter
+        Ok(iter)
     }
 }
 

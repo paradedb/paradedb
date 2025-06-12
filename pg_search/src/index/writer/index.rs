@@ -24,7 +24,9 @@ use tantivy::indexer::merger::IndexMerger;
 use tantivy::indexer::segment_serializer::SegmentSerializer;
 use tantivy::indexer::{AddOperation, SegmentWriter};
 use tantivy::schema::{Field, Schema};
-use tantivy::{Directory, Index, IndexMeta, IndexWriter, Segment, SegmentMeta, TantivyDocument};
+use tantivy::{
+    Directory, Index, IndexMeta, IndexWriter, Opstamp, Segment, SegmentMeta, TantivyDocument,
+};
 use thiserror::Error;
 
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
@@ -43,6 +45,7 @@ struct PendingSegment {
     segment: Segment,
     writer: SegmentWriter,
     directory_type: DirectoryType,
+    opstamp: Opstamp,
 }
 
 impl PendingSegment {
@@ -52,6 +55,7 @@ impl PendingSegment {
         memory_budget: usize,
         indexrelid: pg_sys::Oid,
     ) -> Result<Self> {
+        pgrx::debug1!("writer: creating a RAMDirectory-backed segment");
         let mut index = Index::open_or_create(directory.clone(), schema)?;
         setup_tokenizers(indexrelid, &mut index)?;
 
@@ -61,6 +65,7 @@ impl PendingSegment {
             segment,
             writer,
             directory_type: DirectoryType::Ram(directory),
+            opstamp: Default::default(),
         })
     }
 
@@ -69,6 +74,7 @@ impl PendingSegment {
         memory_budget: usize,
         indexrelid: pg_sys::Oid,
     ) -> Result<Self> {
+        pgrx::debug1!("writer: creating a MVCCDirectory-backed segment");
         let mut index = Index::open(directory.clone())?;
         setup_tokenizers(indexrelid, &mut index)?;
 
@@ -78,14 +84,25 @@ impl PendingSegment {
             segment,
             writer,
             directory_type: DirectoryType::Mvcc,
+            opstamp: Default::default(),
         })
     }
 
     fn add_document(&mut self, document: TantivyDocument) -> Result<()> {
+        self.opstamp += 1;
         self.writer.add_document(AddOperation {
-            opstamp: 0,
+            opstamp: self.opstamp,
             document,
         })?;
+
+        if self.opstamp % 100000 == 0 {
+            pgrx::debug1!(
+                "writer: added document {}, mem_usage: {}",
+                self.opstamp,
+                self.mem_usage()
+            );
+        }
+
         Ok(())
     }
 
@@ -150,6 +167,8 @@ impl SerialIndexWriter {
         memory_budget: usize,
         target_docs_per_segment: Option<usize>,
     ) -> Result<Self> {
+        pgrx::debug1!("writer: opening index writer with memory budget {}, target docs: {:?}, satisfies: {:?}", memory_budget, target_docs_per_segment, mvcc_satisfies);
+
         let directory = mvcc_satisfies.clone().directory(index_relation);
         let mut index = Index::open(directory.clone())?;
         let schema = SearchIndexSchema::open(index_relation.oid())?;
@@ -247,6 +266,7 @@ impl SerialIndexWriter {
     /// 3. Save the new meta entry
     /// 4. Return any free space to the FSM
     fn finalize_segment(&mut self, is_last_segment: bool) -> Result<()> {
+        pgrx::debug1!("writer: finalizing segment, is_last_segment: {is_last_segment}");
         let Some(pending_segment) = self.pending_segment.take() else {
             // no docs were ever added
             return Ok(());
@@ -257,6 +277,10 @@ impl SerialIndexWriter {
 
         if self.avg_docs_per_segment.is_none() {
             self.avg_docs_per_segment = Some(finalized_segment.meta().num_docs() as usize);
+            pgrx::debug1!(
+                "writer: setting avg_docs_per_segment to {}",
+                self.avg_docs_per_segment.unwrap()
+            );
         }
 
         // If we're committing the last segment, merge it with the previous segment so we don't have any leftover "small" segments
@@ -264,9 +288,11 @@ impl SerialIndexWriter {
         if !self.new_metas.is_empty()
             && (is_last_segment || matches!(directory_type, DirectoryType::Ram(_)))
         {
+            pgrx::debug1!("writer: merging segment with previous segment");
             self.merge_then_commit_segment(finalized_segment)?;
         // If it's an MVCC-backed segment, just commit it without merging
         } else {
+            pgrx::debug1!("writer: committing segment without merging");
             assert!(
                 matches!(directory_type, DirectoryType::Mvcc),
                 "Cannot commit a non-MVCC backed segment"
@@ -274,18 +300,23 @@ impl SerialIndexWriter {
             self.commit_segment(finalized_segment)?;
         }
 
+        pgrx::debug1!("writer: garbage collecting index");
         let index_relation = unsafe { PgRelation::open(self.indexrelid) };
         unsafe {
             garbage_collect_index(&index_relation);
         }
 
+        pgrx::debug1!("writer: done finalizing segment");
         Ok(())
     }
 
     fn merge_then_commit_segment(&mut self, finalized_segment: Segment) -> Result<()> {
         let previous_metas = self.new_metas.clone();
 
-        let last_flushed_segment_meta = self.new_metas.pop().unwrap();
+        let last_flushed_segment_meta = self
+            .new_metas
+            .pop()
+            .expect("cannot merge without at least one segment");
         let last_flushed_segment = self.index.segment(last_flushed_segment_meta.clone());
 
         let mut merger = SearchIndexMerger::open(self.directory.clone())?;

@@ -205,9 +205,10 @@ impl<'a> BuildWorker<'a> {
             let index_info = pg_sys::BuildIndexInfo(self.indexrel.as_ptr());
             (*index_info).ii_Concurrent = self.config.concurrent;
 
-            let memory_budget = gucs::adjust_maintenance_work_mem(self.coordination.nlaunched());
+            let nworkers = create_index_parallelism(&self.heaprel);
+            let per_worker_memory_budget = gucs::adjust_maintenance_work_mem(nworkers) / nworkers;
             let mut build_state =
-                WorkerBuildState::new(&self.indexrel, &self.heaprel, memory_budget)?;
+                WorkerBuildState::new(&self.indexrel, &self.heaprel, per_worker_memory_budget)?;
 
             let reltuples = pg_sys::table_index_build_scan(
                 self.heaprel.as_ptr(),
@@ -344,6 +345,7 @@ pub(super) fn build_index(
 
     let process = ParallelBuild::new(&heaprel, &indexrel, snapshot.0, concurrent);
     let nworkers = create_index_parallelism(&heaprel);
+    pgrx::debug1!("build_index: asked for {nworkers} workers");
 
     if let Some(mut process) = launch_parallel_process!(
         ParallelBuild<BuildWorker>,
@@ -357,6 +359,7 @@ pub(super) fn build_index(
             // have indicated that they're running.  Otherwise, it's likely the leader will get ahead
             // of the workers, which doesn't allow for "evenly" distributing the work
             let nlaunched = process.launched_workers();
+            pgrx::debug1!("build_index: launched {nworkers} workers");
             let coordination = process
                 .state_manager_mut()
                 .object::<WorkerCoordination>(2)
@@ -388,6 +391,7 @@ pub(super) fn build_index(
 
         Ok((total_tuples, segment_ids))
     } else {
+        pgrx::debug1!("build_index: not doing a parallel build");
         // not doing a parallel build, so directly instantiate a BuildWorker and serially run the
         // whole build here in this connected backend
         let heaprelid = heaprel.oid();
@@ -437,12 +441,14 @@ fn should_create_one_segment(heaprel: &PgRelation) -> bool {
     let reltuples = estimate_heap_reltuples(heaprel);
     let nworkers = std::thread::available_parallelism().unwrap().get();
     if reltuples <= nworkers as f64 {
+        pgrx::debug1!("number of reltuples ({reltuples}) is less than number of workers ({nworkers}), creating a single segment");
         return true;
     }
 
     // If the entire heap fits inside the smallest allowed Tantivy segment memory budget of 15MB, use 1 worker
     let byte_size = estimate_heap_byte_size(heaprel);
     if byte_size <= 15 * 1024 * 1024 {
+        pgrx::debug1!("heap byte size ({byte_size}) is less than 15MB, creating a single segment");
         return true;
     }
 

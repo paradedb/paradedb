@@ -13,7 +13,7 @@ If your typical update patterns are single-row atomic `INSERT`s or `UPDATE`s, th
 and updates, a larger value is better.
 
 ```sql
-SET work_mem = 15;
+SET work_mem = 15MB;
 ```
 
 Since many write operations can be running concurrently, this value should be raised more conservatively than `maintenance_work_mem`.

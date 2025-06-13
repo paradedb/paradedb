@@ -841,6 +841,10 @@ impl CustomScan for PdbScan {
                 .custom_private()
                 .heaprelid()
                 .expect("heaprelid should have a value");
+
+            // Set the global heap relation context for external filter queries
+            crate::query::external_filter::set_heap_relation_oid(builder.custom_state().heaprelid);
+
             builder.custom_state().indexrelid = builder
                 .custom_private()
                 .indexrelid()

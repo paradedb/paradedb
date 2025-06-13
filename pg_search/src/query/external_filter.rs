@@ -16,15 +16,39 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::{FieldName, HashMap};
-use crate::index::fast_fields_helper::FFHelper;
+use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
+use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::u64_to_item_pointer;
 use pgrx::heap_tuple::PgHeapTuple;
-use pgrx::{pg_sys, FromDatum, PgTupleDesc};
+use pgrx::{pg_sys, FromDatum, IntoDatum, PgTupleDesc};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
-use tantivy::query::{EnableScoring, Query, QueryClone, Scorer, Weight};
+use tantivy::query::{EnableScoring, Query, Scorer, Weight};
 use tantivy::schema::document::OwnedValue;
 use tantivy::{DocAddress, DocId, Score, SegmentReader};
+
+use std::sync::OnceLock;
+
+/// Global context for storing heap relation OID during query execution
+static HEAP_RELATION_CONTEXT: OnceLock<Mutex<Option<pg_sys::Oid>>> = OnceLock::new();
+
+/// Set the heap relation OID for the current query execution
+pub fn set_heap_relation_oid(oid: pg_sys::Oid) {
+    let context = HEAP_RELATION_CONTEXT.get_or_init(|| Mutex::new(None));
+    if let Ok(mut guard) = context.lock() {
+        *guard = Some(oid);
+    }
+}
+
+/// Get the heap relation OID for the current query execution
+pub fn get_heap_relation_oid() -> Option<pg_sys::Oid> {
+    let context = HEAP_RELATION_CONTEXT.get_or_init(|| Mutex::new(None));
+    if let Ok(guard) = context.lock() {
+        *guard
+    } else {
+        None
+    }
+}
 
 /// PostgreSQL callback interface for external expression evaluation
 pub trait PostgresCallback: Send + Sync {
@@ -186,204 +210,281 @@ impl CallbackManager {
         Ok(())
     }
 
-    /// Evaluate the PostgreSQL expression with the provided field values
-    pub unsafe fn evaluate_expression(
+    /// Evaluate a PostgreSQL expression using proper PostgreSQL expression evaluation
+    /// This uses the approach from the git history with stringToNode and ExecEvalExpr
+    pub unsafe fn evaluate_expression_with_postgres(
         &mut self,
         field_values: &HashMap<FieldName, OwnedValue>,
     ) -> bool {
-        pgrx::warning!("🔥 CallbackManager::evaluate_expression called");
+        pgrx::warning!("🔥 CallbackManager::evaluate_expression_with_postgres called");
         pgrx::warning!("🔥 Expression: {}", self.expression);
         pgrx::warning!("🔥 Field values: {:?}", field_values);
         pgrx::warning!("🔥 Attribute mapping: {:?}", self.attno_map);
 
-        // Parse the PostgreSQL expression tree format
-        // The expression is in the format: {OPEXPR :opno 98 :opfuncid 67 ...}
-        if let Some(result) = self.evaluate_postgres_expression_tree(&self.expression, field_values)
-        {
-            pgrx::warning!("🔥 Expression evaluation result: {}", result);
-            return result;
+        // Create a heap filter expression from the PostgreSQL node string
+        let heap_filter_expr = self.create_heap_filter_expr(&self.expression);
+        if heap_filter_expr.is_null() {
+            pgrx::warning!("🔥 Failed to create heap filter expression");
+            return false;
         }
 
-        pgrx::warning!("🔥 Could not parse expression, returning true as fallback");
-        true
-    }
-
-    /// Parse and evaluate a PostgreSQL expression tree
-    unsafe fn evaluate_postgres_expression_tree(
-        &self,
-        expression: &str,
-        field_values: &HashMap<FieldName, OwnedValue>,
-    ) -> Option<bool> {
-        pgrx::warning!("🔥 Parsing PostgreSQL expression tree");
-
-        // Handle OPEXPR (operator expressions)
-        if expression.contains("OPEXPR") {
-            return self.evaluate_opexpr(expression, field_values);
+        // Initialize expression context if not already done
+        if self.expr_context.is_none() {
+            if let Err(e) = self.initialize() {
+                pgrx::warning!("🔥 Failed to initialize expression context: {}", e);
+                return false;
+            }
         }
 
-        // Handle other expression types as needed
-        None
+        let expr_context = self.expr_context.unwrap();
+
+        // Initialize the expression state for this specific expression
+        let expr_state = pg_sys::ExecInitExpr(heap_filter_expr, std::ptr::null_mut());
+        if expr_state.is_null() {
+            pgrx::warning!("🔥 Failed to initialize expression state");
+            return false;
+        }
+
+        // Create a mock tuple slot with the field values
+        let mock_slot = self.create_mock_tuple_slot(field_values);
+        if mock_slot.is_null() {
+            pgrx::warning!("🔥 Failed to create mock tuple slot");
+            return false;
+        }
+
+        // Set the scan tuple in the expression context
+        (*expr_context).ecxt_scantuple = mock_slot;
+
+        // Evaluate the expression
+        let mut isnull = false;
+        let result = pg_sys::ExecEvalExpr(expr_state, expr_context, &mut isnull);
+
+        // Clean up the mock slot
+        pg_sys::ExecDropSingleTupleTableSlot(mock_slot);
+
+        if isnull {
+            pgrx::warning!("🔥 Expression evaluation returned NULL");
+            false
+        } else {
+            let bool_result = bool::from_datum(result, false).unwrap_or(false);
+            pgrx::warning!("🔥 Expression evaluation result: {}", bool_result);
+            bool_result
+        }
     }
 
-    /// Evaluate an OPEXPR (operator expression)
-    unsafe fn evaluate_opexpr(
-        &self,
-        expression: &str,
-        field_values: &HashMap<FieldName, OwnedValue>,
-    ) -> Option<bool> {
-        pgrx::warning!("🔥 Evaluating OPEXPR");
-
-        // Extract the operator number (opno)
-        let opno = self.extract_opno(expression)?;
-        pgrx::warning!("🔥 Operator number: {}", opno);
-
-        // Extract the arguments
-        let (var_info, const_value) = self.extract_opexpr_args(expression)?;
+    /// Create a heap filter expression from a PostgreSQL node string
+    unsafe fn create_heap_filter_expr(&self, heap_filter_node_string: &str) -> *mut pg_sys::Expr {
         pgrx::warning!(
-            "🔥 Variable info: {:?}, Constant value: {:?}",
-            var_info,
-            const_value
+            "🔥 Creating heap filter expression from: {}",
+            heap_filter_node_string
         );
 
-        // Get the field name from the variable attribute number
-        let field_name = self.get_field_name_from_attno(var_info.attno)?;
-        pgrx::warning!("🔥 Field name: {:?}", field_name);
+        // Handle multiple clauses separated by our delimiter
+        if heap_filter_node_string.contains("|||CLAUSE_SEPARATOR|||") {
+            // Multiple clauses - combine them into a single AND expression
+            let clause_strings: Vec<&str> = heap_filter_node_string
+                .split("|||CLAUSE_SEPARATOR|||")
+                .collect();
 
-        // Get the field value
-        let field_value = field_values.get(&field_name)?;
-        pgrx::warning!("🔥 Field value: {:?}", field_value);
+            // Create individual nodes for each clause
+            let mut args_list = std::ptr::null_mut();
+            for clause_str in clause_strings.iter() {
+                let clause_cstr = std::ffi::CString::new(*clause_str)
+                    .expect("Failed to create CString from clause string");
+                let clause_node = pg_sys::stringToNode(clause_cstr.as_ptr());
 
-        // Evaluate based on operator
-        match opno {
-            98 => {
-                // Text equality operator (=)
-                pgrx::warning!("🔥 Evaluating text equality");
-                if let (OwnedValue::Str(field_str), Some(const_str)) = (field_value, &const_value) {
-                    let result = field_str == const_str;
-                    pgrx::warning!(
-                        "🔥 Comparing '{}' == '{}' = {}",
-                        field_str,
-                        const_str,
-                        result
-                    );
-                    return Some(result);
+                if !clause_node.is_null() {
+                    args_list = pg_sys::lappend(args_list, clause_node.cast::<core::ffi::c_void>());
+                } else {
+                    pgrx::warning!("🔥 Failed to parse clause string: {}", clause_str);
+                    return std::ptr::null_mut();
                 }
             }
-            1754 => {
-                // Numeric greater than operator (>)
-                pgrx::warning!("🔥 Evaluating numeric comparison");
-                // For now, return true as a placeholder for numeric comparisons
-                return Some(true);
+
+            if !args_list.is_null() {
+                // Create a BoolExpr to combine all clauses with AND
+                let bool_expr = pg_sys::palloc0(std::mem::size_of::<pg_sys::BoolExpr>())
+                    .cast::<pg_sys::BoolExpr>();
+                (*bool_expr).xpr.type_ = pg_sys::NodeTag::T_BoolExpr;
+                (*bool_expr).boolop = pg_sys::BoolExprType::AND_EXPR;
+                (*bool_expr).args = args_list;
+                (*bool_expr).location = -1;
+
+                bool_expr.cast::<pg_sys::Expr>()
+            } else {
+                pgrx::warning!(
+                    "🔥 Failed to parse any clauses: {}",
+                    heap_filter_node_string
+                );
+                std::ptr::null_mut()
             }
-            _ => {
-                pgrx::warning!("🔥 Unknown operator: {}", opno);
-            }
-        }
-
-        None
-    }
-
-    /// Extract operator number from OPEXPR
-    fn extract_opno(&self, expression: &str) -> Option<u32> {
-        if let Some(start) = expression.find(":opno ") {
-            let start = start + 6; // Skip ":opno "
-            if let Some(end) = expression[start..].find(' ') {
-                if let Ok(opno) = expression[start..start + end].parse::<u32>() {
-                    return Some(opno);
-                }
-            }
-        }
-        None
-    }
-
-    /// Extract arguments from OPEXPR
-    fn extract_opexpr_args(&self, expression: &str) -> Option<(VarInfo, Option<String>)> {
-        // Extract VAR information
-        let var_info = self.extract_var_info(expression)?;
-
-        // Extract CONST value
-        let const_value = self.extract_const_value(expression);
-
-        Some((var_info, const_value))
-    }
-
-    /// Extract VAR information
-    fn extract_var_info(&self, expression: &str) -> Option<VarInfo> {
-        if let Some(var_start) = expression.find("{VAR ") {
-            if let Some(var_end) = expression[var_start..].find('}') {
-                let var_section = &expression[var_start..var_start + var_end];
-
-                // Extract varattno
-                if let Some(attno_start) = var_section.find(":varattno ") {
-                    let attno_start = attno_start + 10; // Skip ":varattno "
-                    if let Some(attno_end) = var_section[attno_start..].find(' ') {
-                        if let Ok(attno) =
-                            var_section[attno_start..attno_start + attno_end].parse::<i16>()
-                        {
-                            return Some(VarInfo { attno });
-                        }
-                    }
-                }
-            }
-        }
-        None
-    }
-
-    /// Extract CONST value
-    fn extract_const_value(&self, expression: &str) -> Option<String> {
-        if let Some(const_start) = expression.find("{CONST ") {
-            if let Some(const_end) = expression[const_start..].find('}') {
-                let const_section = &expression[const_start..const_start + const_end];
-
-                // Look for constvalue with byte array
-                if let Some(value_start) = const_section.find(":constvalue ") {
-                    let value_start = value_start + 12; // Skip ":constvalue "
-                    if let Some(bracket_start) = const_section[value_start..].find("[ ") {
-                        let bracket_start = value_start + bracket_start + 2; // Skip "[ "
-                        if let Some(bracket_end) = const_section[bracket_start..].find(" ]") {
-                            let bytes_str =
-                                &const_section[bracket_start..bracket_start + bracket_end];
-                            return self.parse_postgres_string_bytes(bytes_str);
-                        }
-                    }
-                }
-            }
-        }
-        None
-    }
-
-    /// Parse PostgreSQL string bytes format
-    fn parse_postgres_string_bytes(&self, bytes_str: &str) -> Option<String> {
-        let bytes: Vec<&str> = bytes_str.split_whitespace().collect();
-        if bytes.len() < 4 {
-            return None;
-        }
-
-        // Skip the first 4 bytes (length header) and convert the rest to string
-        let mut result = String::new();
-        for byte_str in &bytes[4..] {
-            if let Ok(byte_val) = byte_str.parse::<i8>() {
-                if byte_val > 0 {
-                    result.push(byte_val as u8 as char);
-                }
-            }
-        }
-
-        if result.is_empty() {
-            None
         } else {
-            Some(result)
+            // Single clause - simple stringToNode + ExecInitExpr
+            let node_cstr = std::ffi::CString::new(heap_filter_node_string)
+                .expect("Failed to create CString from node string");
+            let node = pg_sys::stringToNode(node_cstr.as_ptr());
+
+            if !node.is_null() {
+                node.cast::<pg_sys::Expr>()
+            } else {
+                pgrx::warning!("🔥 Failed to deserialize node: {}", heap_filter_node_string);
+                std::ptr::null_mut()
+            }
         }
     }
 
-    /// Get field name from attribute number
-    fn get_field_name_from_attno(&self, attno: i16) -> Option<FieldName> {
-        for (attr_no, field_name) in &self.attno_map {
-            if *attr_no == attno {
-                return Some(field_name.clone());
+    /// Create a mock tuple slot with the provided field values
+    /// This creates a tuple slot that matches the table structure
+    unsafe fn create_mock_tuple_slot(
+        &self,
+        field_values: &HashMap<FieldName, OwnedValue>,
+    ) -> *mut pg_sys::TupleTableSlot {
+        pgrx::warning!(
+            "🔥 Creating mock tuple slot with {} field values",
+            field_values.len()
+        );
+
+        // We need to create a tuple descriptor that matches the actual table structure
+        // For now, we'll create a simple approach that works with the expression evaluation
+
+        // Get the maximum attribute number we need to support
+        let max_attno = self.attno_map.keys().max().copied().unwrap_or(1);
+        pgrx::warning!("🔥 Maximum attribute number needed: {}", max_attno);
+
+        // Create a tuple descriptor with enough attributes
+        let tupdesc = pg_sys::CreateTemplateTupleDesc(max_attno as i32);
+
+        // Initialize all attributes with appropriate types based on field values
+        for i in 1..=max_attno {
+            let oid = if let Some(field_name) = self.attno_map.get(&i) {
+                if let Some(value) = field_values.get(field_name) {
+                    match value {
+                        OwnedValue::Str(_) => pg_sys::TEXTOID,
+                        OwnedValue::I64(_) | OwnedValue::U64(_) => {
+                            // Check field name to determine correct integer type
+                            if field_name.root().as_str() == "category_id" {
+                                pg_sys::INT4OID // INTEGER type
+                            } else {
+                                pg_sys::INT8OID // BIGINT type (for id field)
+                            }
+                        }
+                        OwnedValue::F64(_) => {
+                            // Check field name to determine correct numeric type
+                            if field_name.root().as_str() == "price" {
+                                pg_sys::NUMERICOID // DECIMAL/NUMERIC type
+                            } else {
+                                pg_sys::FLOAT8OID // DOUBLE PRECISION type
+                            }
+                        }
+                        OwnedValue::Bool(_) => pg_sys::BOOLOID,
+                        _ => pg_sys::TEXTOID, // Default fallback
+                    }
+                } else {
+                    pg_sys::TEXTOID // Default for missing values
+                }
+            } else {
+                pg_sys::TEXTOID // Default for unmapped attributes
+            };
+
+            pg_sys::TupleDescInitEntry(
+                tupdesc,
+                i as pg_sys::AttrNumber,
+                std::ptr::null_mut(), // name (not needed for our use case)
+                oid,                  // use appropriate type
+                -1,                   // typmod
+                0,                    // attdim
+            );
+        }
+
+        // Create the tuple slot
+        let slot = pg_sys::MakeTupleTableSlot(tupdesc, &pg_sys::TTSOpsVirtual);
+
+        // Initialize the slot values
+        let natts = max_attno as usize;
+        let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
+        let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
+
+        // Initialize all values to NULL first
+        for i in 0..natts {
+            datums[i] = pg_sys::Datum::null();
+            isnull[i] = true;
+        }
+
+        // Set the actual field values we have
+        for (&attno, field_name) in &self.attno_map {
+            if let Some(value) = field_values.get(field_name) {
+                let array_index = (attno - 1) as usize; // Convert to 0-based index
+                if array_index < natts {
+                    match value {
+                        OwnedValue::Str(s) => {
+                            datums[array_index] = s.clone().into_datum().unwrap();
+                            isnull[array_index] = false;
+                        }
+                        OwnedValue::I64(i) => {
+                            // Check if this field should be INT4 (like category_id) or INT8
+                            if field_name.root().as_str() == "category_id" {
+                                // Convert to INT4 for category_id
+                                datums[array_index] = (*i as i32).into_datum().unwrap();
+                            } else {
+                                // Use INT8 for other integer fields (like id)
+                                datums[array_index] = (*i).into_datum().unwrap();
+                            }
+                            isnull[array_index] = false;
+                        }
+                        OwnedValue::U64(u) => {
+                            // Check if this field should be INT4 (like category_id) or INT8
+                            if field_name.root().as_str() == "category_id" {
+                                // Convert to INT4 for category_id
+                                datums[array_index] = (*u as i32).into_datum().unwrap();
+                            } else {
+                                // Use INT8 for other integer fields (like id)
+                                datums[array_index] = (*u as i64).into_datum().unwrap();
+                            }
+                            isnull[array_index] = false;
+                        }
+                        OwnedValue::F64(f) => {
+                            // Check if this field should be NUMERIC (like price) or FLOAT8
+                            if field_name.root().as_str() == "price" {
+                                // Convert to NUMERIC for price fields
+                                let numeric = pgrx::AnyNumeric::try_from(*f).unwrap();
+                                datums[array_index] = numeric.into_datum().unwrap();
+                            } else {
+                                // Use FLOAT8 for other numeric fields
+                                datums[array_index] = (*f).into_datum().unwrap();
+                            }
+                            isnull[array_index] = false;
+                        }
+                        OwnedValue::Bool(b) => {
+                            datums[array_index] = (*b).into_datum().unwrap();
+                            isnull[array_index] = false;
+                        }
+                        OwnedValue::Null => {
+                            datums[array_index] = pg_sys::Datum::null();
+                            isnull[array_index] = true;
+                        }
+                        _ => {
+                            pgrx::warning!(
+                                "🔥 Unsupported value type for field {}: {:?}",
+                                field_name,
+                                value
+                            );
+                            datums[array_index] = pg_sys::Datum::null();
+                            isnull[array_index] = true;
+                        }
+                    }
+                }
             }
         }
-        None
+
+        // Mark the slot as valid
+        (*slot).tts_nvalid = natts as i16;
+        (*slot).tts_flags &= !pg_sys::TTS_FLAG_EMPTY as u16;
+
+        pgrx::warning!(
+            "🔥 Successfully created mock tuple slot with {} attributes",
+            natts
+        );
+        slot
     }
 
     /// Clean up resources when done
@@ -438,7 +539,7 @@ pub fn create_postgres_callback(
                         }
                     }
 
-                    let result = mgr.evaluate_expression(field_values);
+                    let result = mgr.evaluate_expression_with_postgres(field_values);
                     pgrx::warning!("🔥 Expression evaluation result: {}", result);
                     result
                 }
@@ -856,10 +957,20 @@ impl Weight for IndexedWithFilterWeight {
         // Get the indexed scorer
         let indexed_scorer = self.indexed_weight.scorer(reader, boost)?;
 
+        // Create fast field helper for ctid extraction
+        // For now, we'll create a simple FFType for ctid directly
+        let ctid_ff = crate::index::fast_fields_helper::FFType::new_ctid(reader.fast_fields());
+
+        // Get heap relation OID from the global context
+        let heaprel_oid = get_heap_relation_oid().unwrap_or(pg_sys::Oid::INVALID);
+
         Ok(Box::new(IndexedWithFilterScorer {
             indexed_scorer,
             external_filter_config: self.external_filter_config.clone(),
             external_filter_callback: None,
+            reader: reader.clone(),
+            ctid_ff,
+            heaprel_oid,
         }))
     }
 
@@ -946,6 +1057,9 @@ struct IndexedWithFilterScorer {
     indexed_scorer: Box<dyn Scorer>,
     external_filter_config: ExternalFilterConfig,
     external_filter_callback: Option<ExternalFilterCallback>,
+    reader: SegmentReader,
+    ctid_ff: crate::index::fast_fields_helper::FFType,
+    heaprel_oid: pg_sys::Oid,
 }
 
 impl Scorer for IndexedWithFilterScorer {
@@ -1088,7 +1202,7 @@ impl IndexedWithFilterScorer {
         field_values
     }
 
-    /// Extract a specific field value from a document
+    /// Extract a specific field value from a document by loading the actual tuple from heap
     fn extract_field_value_from_document(
         &self,
         doc_id: DocId,
@@ -1100,74 +1214,125 @@ impl IndexedWithFilterScorer {
             field_name
         );
 
-        // For the test case, we'll implement a hardcoded mapping based on doc_id
-        // In a real implementation, this would extract from fast fields or stored fields
+        // Get the ctid from the document using the fast field
+        let ctid = self.ctid_ff.as_u64(doc_id).expect("ctid should be present");
 
-        match field_name.root().as_str() {
-            "category_name" => {
-                // Map doc_id to category_name based on our test data
-                let category = match doc_id {
-                    0 => "Casual",      // Apple iPhone 14
-                    1 => "Electronics", // MacBook Pro
-                    2 => "Footwear",    // Nike Air Max
-                    3 => "Electronics", // Samsung Galaxy
-                    4 => "Footwear",    // Adidas Ultraboost
-                    5 => "Footwear",    // Nike Normal
-                    6 => "Electronics", // Apple Watch
-                    7 => "Electronics", // Sony Headphones
-                    8 => "Footwear",    // Running Socks
-                    9 => "Electronics", // Budget Phone
-                    10 => "Garbage",    // Budget Tablet
-                    _ => "Unknown",
-                };
-                pgrx::warning!("🔥 Mapped doc_id {} to category_name: {}", doc_id, category);
-                OwnedValue::Str(category.to_string())
+        pgrx::warning!("🔥 Loading tuple from heap with ctid={}", ctid);
+
+        // Load the actual tuple from the heap using ctid
+        unsafe {
+            // Open the heap relation using the stored OID
+            let heaprel = if self.heaprel_oid != pg_sys::Oid::INVALID {
+                pg_sys::relation_open(self.heaprel_oid, pg_sys::AccessShareLock as _)
+            } else {
+                pgrx::warning!("🔥 Invalid heap relation OID, cannot load tuple");
+                return OwnedValue::Null;
+            };
+            let mut ipd = pg_sys::ItemPointerData::default();
+            crate::postgres::utils::u64_to_item_pointer(ctid, &mut ipd);
+
+            let mut htup = pg_sys::HeapTupleData {
+                t_self: ipd,
+                ..Default::default()
+            };
+            let mut buffer: pg_sys::Buffer = pg_sys::InvalidBuffer as i32;
+
+            // Fetch the tuple from the heap
+            #[cfg(feature = "pg14")]
+            let found =
+                pg_sys::heap_fetch(heaprel, pg_sys::GetActiveSnapshot(), &mut htup, &mut buffer);
+
+            #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+            let found = pg_sys::heap_fetch(
+                heaprel,
+                pg_sys::GetActiveSnapshot(),
+                &mut htup,
+                &mut buffer,
+                false,
+            );
+
+            if !found {
+                pgrx::warning!("🔥 Failed to fetch tuple for ctid={}", ctid);
+                pg_sys::ReleaseBuffer(buffer);
+                return OwnedValue::Null;
             }
-            "price" => {
-                // Map doc_id to price based on our test data
-                let price = match doc_id {
-                    0 => 999.99,  // Apple iPhone 14
-                    1 => 2499.99, // MacBook Pro
-                    2 => 149.99,  // Nike Air Max
-                    3 => 899.99,  // Samsung Galaxy
-                    4 => 179.99,  // Adidas Ultraboost
-                    5 => 149.99,  // Nike Normal
-                    6 => 399.99,  // Apple Watch
-                    7 => 299.99,  // Sony Headphones
-                    8 => 19.99,   // Running Socks
-                    9 => 199.99,  // Budget Phone
-                    10 => 199.99, // Budget Tablet
-                    _ => 0.0,
-                };
-                pgrx::warning!("🔥 Mapped doc_id {} to price: {}", doc_id, price);
-                OwnedValue::F64(price)
-            }
-            "in_stock" => {
-                // Map doc_id to in_stock based on our test data
-                let in_stock = match doc_id {
-                    0 => true,   // Apple iPhone 14
-                    1 => true,   // MacBook Pro
-                    2 => true,   // Nike Air Max
-                    3 => false,  // Samsung Galaxy
-                    4 => true,   // Adidas Ultraboost
-                    5 => false,  // Nike Normal
-                    6 => true,   // Apple Watch
-                    7 => true,   // Sony Headphones
-                    8 => true,   // Running Socks
-                    9 => false,  // Budget Phone
-                    10 => false, // Budget Tablet
-                    _ => false,
-                };
-                pgrx::warning!("🔥 Mapped doc_id {} to in_stock: {}", doc_id, in_stock);
-                OwnedValue::Bool(in_stock)
-            }
-            _ => {
-                pgrx::warning!(
-                    "🔥 Unknown field in extract_field_value_from_document: {}",
-                    field_name
-                );
-                OwnedValue::Null
-            }
+
+            // Create a tuple descriptor and heap tuple wrapper
+            let tuple_desc = PgTupleDesc::from_pg_unchecked((*heaprel).rd_att);
+            let heap_tuple = PgHeapTuple::from_heap_tuple(tuple_desc.clone(), &mut htup);
+
+            // Extract the field value
+            let field_value = match heap_tuple.get_by_name::<String>(&field_name.root()) {
+                Ok(Some(value)) => {
+                    pgrx::warning!("🔥 Extracted field '{}' = '{}'", field_name.root(), value);
+                    OwnedValue::Str(value)
+                }
+                Ok(None) => {
+                    pgrx::warning!("🔥 Field '{}' is NULL", field_name.root());
+                    OwnedValue::Null
+                }
+                Err(_) => {
+                    // Try other data types
+                    match heap_tuple.get_by_name::<i32>(&field_name.root()) {
+                        Ok(Some(value)) => {
+                            pgrx::warning!(
+                                "🔥 Extracted field '{}' = {} (i32)",
+                                field_name.root(),
+                                value
+                            );
+                            OwnedValue::I64(value as i64)
+                        }
+                        Ok(None) => OwnedValue::Null,
+                        Err(_) => {
+                            match heap_tuple.get_by_name::<i64>(&field_name.root()) {
+                                Ok(Some(value)) => {
+                                    pgrx::warning!(
+                                        "🔥 Extracted field '{}' = {} (i64)",
+                                        field_name.root(),
+                                        value
+                                    );
+                                    OwnedValue::I64(value)
+                                }
+                                Ok(None) => OwnedValue::Null,
+                                Err(_) => match heap_tuple.get_by_name::<f64>(&field_name.root()) {
+                                    Ok(Some(value)) => {
+                                        pgrx::warning!(
+                                            "🔥 Extracted field '{}' = {} (f64)",
+                                            field_name.root(),
+                                            value
+                                        );
+                                        OwnedValue::F64(value)
+                                    }
+                                    Ok(None) => OwnedValue::Null,
+                                    Err(_) => {
+                                        match heap_tuple.get_by_name::<bool>(&field_name.root()) {
+                                            Ok(Some(value)) => {
+                                                pgrx::warning!(
+                                                    "🔥 Extracted field '{}' = {} (bool)",
+                                                    field_name.root(),
+                                                    value
+                                                );
+                                                OwnedValue::Bool(value)
+                                            }
+                                            Ok(None) => OwnedValue::Null,
+                                            Err(_) => {
+                                                pgrx::warning!("🔥 Failed to extract field '{}': unsupported type", field_name.root());
+                                                OwnedValue::Null
+                                            }
+                                        }
+                                    }
+                                },
+                            }
+                        }
+                    }
+                }
+            };
+
+            // Release the buffer and close the relation
+            pg_sys::ReleaseBuffer(buffer);
+            pg_sys::relation_close(heaprel, pg_sys::AccessShareLock as _);
+
+            field_value
         }
     }
 }

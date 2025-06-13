@@ -193,9 +193,6 @@ impl ParallelWorker for BuildWorker<'_> {
         // communicate to the group that we've started
         self.coordination.inc_nstarted();
 
-        // TODO:  ming, here's your value
-        let nlaunched = self.coordination.nlaunched();
-
         let (reltuples, segment_ids) = self.do_build()?;
         let response = WorkerResponse {
             reltuples,
@@ -227,14 +224,8 @@ impl<'a> BuildWorker<'a> {
             let index_info = pg_sys::BuildIndexInfo(self.indexrel.as_ptr());
             (*index_info).ii_Concurrent = self.config.concurrent;
 
-            let nworkers = create_index_parallelism(&self.heaprel);
-            let per_worker_memory_budget =
-                gucs::adjust_maintenance_work_mem(nworkers).get() / nworkers;
-            let mut build_state = WorkerBuildState::new(
-                &self.indexrel,
-                &self.heaprel,
-                NonZeroUsize::new(per_worker_memory_budget).unwrap(),
-            )?;
+            let nlaunched = self.coordination.nlaunched();
+            let mut build_state = WorkerBuildState::new(&self.indexrel, &self.heaprel, nlaunched)?;
 
             let reltuples = pg_sys::table_index_build_scan(
                 self.heaprel.as_ptr(),
@@ -268,12 +259,22 @@ impl WorkerBuildState {
     pub fn new(
         indexrel: &PgRelation,
         heaprel: &PgRelation,
-        memory_budget: NonZeroUsize,
+        nlaunched: usize,
     ) -> anyhow::Result<Self> {
+        let nlaunched = if unsafe { pg_sys::parallel_leader_participation } {
+            nlaunched + 1
+        } else {
+            nlaunched
+        };
+        let per_worker_memory_budget =
+            gucs::adjust_maintenance_work_mem(nlaunched).get() / nlaunched;
+        let max_segments_to_create = (std::thread::available_parallelism().unwrap().get() as f64
+            / nlaunched as f64)
+            .ceil() as usize;
         let config = IndexWriterConfig {
             target_docs_per_segment: target_docs_per_segment(heaprel),
-            max_segments_to_create: None,
-            memory_budget,
+            max_segments_to_create: Some(NonZeroUsize::new(max_segments_to_create).unwrap()),
+            memory_budget: NonZeroUsize::new(per_worker_memory_budget).unwrap(),
         };
         let writer = SerialIndexWriter::open(indexrel, config)?;
         let schema = SearchIndexSchema::open(indexrel.oid())?;

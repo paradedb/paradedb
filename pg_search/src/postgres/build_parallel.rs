@@ -225,8 +225,11 @@ impl<'a> BuildWorker<'a> {
             (*index_info).ii_Concurrent = self.config.concurrent;
 
             let nlaunched = self.coordination.nlaunched();
-            let mut build_state =
-                WorkerBuildState::new(&self.indexrel, &self.heaprel, nlaunched.max(1))?;
+            let mut build_state = WorkerBuildState::new(
+                &self.indexrel,
+                &self.heaprel,
+                NonZeroUsize::new(nlaunched.max(1)).unwrap(),
+            )?;
 
             let reltuples = pg_sys::table_index_build_scan(
                 self.heaprel.as_ptr(),
@@ -260,8 +263,9 @@ impl WorkerBuildState {
     pub fn new(
         indexrel: &PgRelation,
         heaprel: &PgRelation,
-        nlaunched: usize,
+        nlaunched: NonZeroUsize,
     ) -> anyhow::Result<Self> {
+        let nlaunched = nlaunched.get();
         let per_worker_memory_budget =
             gucs::adjust_maintenance_work_mem(nlaunched).get() / nlaunched;
         // Each worker should be creating at most number cpus / number workers segments

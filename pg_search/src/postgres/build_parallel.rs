@@ -53,16 +53,26 @@ impl ParallelStateType for pg_sys::ParallelTableScanDescData {}
 struct WorkerCoordination {
     mutex: Spinlock,
     nstarted: usize,
+    nlaunched: usize,
 }
 impl ParallelStateType for WorkerCoordination {}
 impl WorkerCoordination {
-    fn inc_nlaunched(&mut self) {
+    fn inc_nstarted(&mut self) {
         let _lock = self.mutex.acquire();
         self.nstarted += 1;
     }
-    fn nlaunched(&mut self) -> usize {
+    fn nstarted(&mut self) -> usize {
         let _lock = self.mutex.acquire();
         self.nstarted
+    }
+
+    fn set_nlaunched(&mut self, nlaunched: usize) {
+        let _lock = self.mutex.acquire();
+        self.nlaunched = nlaunched;
+    }
+    fn nlaunched(&mut self) -> usize {
+        let _lock = self.mutex.acquire();
+        self.nlaunched
     }
 }
 
@@ -173,7 +183,18 @@ impl ParallelWorker for BuildWorker<'_> {
     }
 
     fn run(mut self, mq_sender: &MessageQueueSender, _worker_number: i32) -> anyhow::Result<()> {
-        self.coordination.inc_nlaunched();
+        // wait for the leader to tell us how many total workers have been launched
+        while self.coordination.nlaunched() == 0 {
+            check_for_interrupts!();
+            std::thread::yield_now();
+        }
+
+        // communicate to the group that we've started
+        self.coordination.inc_nstarted();
+
+        // TODO:  ming, here's your value
+        let nlaunched = self.coordination.nlaunched();
+
         let (reltuples, segment_ids) = self.do_build()?;
         let response = WorkerResponse {
             reltuples,
@@ -366,7 +387,9 @@ pub(super) fn build_index(
                 .expect("process coordination")
                 .expect("process coordination should not be NULL");
 
-            while coordination.nlaunched() != nlaunched {
+            coordination.set_nlaunched(nlaunched);
+
+            while coordination.nstarted() != nlaunched {
                 check_for_interrupts!();
                 std::thread::yield_now();
             }

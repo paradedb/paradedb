@@ -135,6 +135,13 @@ pub struct IndexWriterConfig {
     pub memory_budget: NonZeroUsize,
 }
 
+/// We want SerialIndexWriter to return a struct like SegmentMeta that implements Deserialize
+#[derive(serde::Serialize, serde::Deserialize, Debug, Hash, Clone, PartialEq, Eq)]
+pub struct CommittedSegment {
+    pub segment_id: SegmentId,
+    pub max_doc: u32,
+}
+
 /// Unlike Tantivy's IndexWriter, the SerialIndexWriter does not spin up any threads.
 /// Everything happens in the foreground, making it ideal for Postgres.
 ///
@@ -220,11 +227,18 @@ impl SerialIndexWriter {
         Ok(())
     }
 
-    pub fn commit(mut self) -> Result<Vec<SegmentId>> {
+    pub fn commit(mut self) -> Result<HashSet<CommittedSegment>> {
         self.finalize_segment(true)?;
-        let segment_ids = self.new_metas.iter().map(|meta| meta.id()).collect();
-        pgrx::debug1!("writer {}: wrote metas: {:?}", self.id, segment_ids);
-        Ok(segment_ids)
+        let committed_segments = self
+            .new_metas
+            .iter()
+            .map(|meta| CommittedSegment {
+                segment_id: meta.id(),
+                max_doc: meta.max_doc(),
+            })
+            .collect::<HashSet<_>>();
+        pgrx::debug1!("writer {}: wrote metas: {:?}", self.id, committed_segments);
+        Ok(committed_segments)
     }
 
     /// Intelligently create a new segment, backed by either a RamDirectory or a MVCCDirectory.
@@ -559,6 +573,7 @@ pub enum IndexError {
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
+    use crate::api::HashSet;
     use crate::schema::SearchIndexSchema;
     use pgrx::prelude::*;
     use std::num::NonZeroUsize;
@@ -578,7 +593,7 @@ mod tests {
         config: IndexWriterConfig,
         relation_oid: pg_sys::Oid,
         num_docs: usize,
-    ) -> Vec<SegmentId> {
+    ) -> HashSet<CommittedSegment> {
         let index_relation = unsafe { PgRelation::open(relation_oid) };
         let mut writer = SerialIndexWriter::open(&index_relation, config).unwrap();
         let schema = SearchIndexSchema::open(relation_oid).unwrap();

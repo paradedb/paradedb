@@ -16,8 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::FieldName;
+use crate::api::HashSet;
 use crate::gucs;
-use crate::index::writer::index::{IndexWriterConfig, SerialIndexWriter};
+use crate::index::writer::index::{CommittedSegment, IndexWriterConfig, SerialIndexWriter};
 use crate::launch_parallel_process;
 use crate::parallel_worker::mqueue::MessageQueueSender;
 use crate::parallel_worker::{
@@ -31,7 +32,6 @@ use crate::schema::{SearchField, SearchIndexSchema};
 use pgrx::{check_for_interrupts, pg_guard, pg_sys, PgMemoryContexts, PgRelation};
 use std::num::NonZeroUsize;
 use std::ptr::{addr_of_mut, NonNull};
-use tantivy::index::SegmentId;
 use tantivy::TantivyDocument;
 
 /// General, immutable configuration used for the workers
@@ -133,7 +133,7 @@ impl ParallelProcess for ParallelBuild {
 #[derive(serde::Serialize, serde::Deserialize)]
 struct WorkerResponse {
     reltuples: f64,
-    segment_ids: Vec<SegmentId>,
+    segment_ids: HashSet<CommittedSegment>,
 }
 
 struct BuildWorker<'a> {
@@ -219,7 +219,7 @@ impl<'a> BuildWorker<'a> {
         }
     }
 
-    fn do_build(&mut self) -> anyhow::Result<(f64, Vec<SegmentId>)> {
+    fn do_build(&mut self) -> anyhow::Result<(f64, HashSet<CommittedSegment>)> {
         unsafe {
             let index_info = pg_sys::BuildIndexInfo(self.indexrel.as_ptr());
             (*index_info).ii_Concurrent = self.config.concurrent;
@@ -332,7 +332,7 @@ pub(super) fn build_index(
     heaprel: PgRelation,
     indexrel: PgRelation,
     concurrent: bool,
-) -> anyhow::Result<(f64, Vec<SegmentId>)> {
+) -> anyhow::Result<(f64, HashSet<CommittedSegment>)> {
     struct SnapshotDropper(pg_sys::Snapshot);
     impl Drop for SnapshotDropper {
         fn drop(&mut self) {
@@ -393,7 +393,7 @@ pub(super) fn build_index(
             worker.do_build()?
         } else {
             pgrx::debug1!("build_index: leader is not participating");
-            (0.0, vec![])
+            (0.0, HashSet::default())
         };
 
         // wait for the workers to finish by collecting all their response messages

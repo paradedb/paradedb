@@ -66,7 +66,7 @@ pub extern "C-unwind" fn ambuild(
         ambuildempty(indexrel);
 
         let index_oid = index_relation.oid();
-        let (heap_tuples, segment_ids) =
+        let (heap_tuples, committed_segments) =
             build_index(heap_relation, index_relation, (*index_info).ii_Concurrent)
                 .unwrap_or_else(|e| panic!("{e}"));
 
@@ -74,6 +74,10 @@ pub extern "C-unwind" fn ambuild(
         result.heap_tuples = heap_tuples;
         result.index_tuples = heap_tuples;
 
+        let segment_ids = committed_segments
+            .iter()
+            .map(|segment| segment.segment_id)
+            .collect::<Vec<_>>();
         let metadata = MetaPageMut::new(index_oid);
         metadata
             .record_create_index_segment_ids(segment_ids.iter())

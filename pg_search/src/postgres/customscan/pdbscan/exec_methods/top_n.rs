@@ -15,14 +15,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::cell::RefCell;
 use std::iter::Peekable;
 
 use crate::api::FieldName;
 use crate::index::reader::index::{SearchIndexReader, SearchResults};
 use crate::postgres::customscan::builders::custom_path::SortDirection;
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
-use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
+use crate::postgres::customscan::pdbscan::parallel::checkout_my_segment_block;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
@@ -53,7 +52,7 @@ pub struct TopNScanExecState {
     offset: usize,
     chunk_size: usize,
     // If parallel, the segments which have been claimed by this worker.
-    claimed_segments: RefCell<Option<Vec<SegmentId>>>,
+    claimed_segments: Vec<SegmentId>,
 }
 
 impl TopNScanExecState {
@@ -77,7 +76,7 @@ impl TopNScanExecState {
             found: 0,
             offset: 0,
             chunk_size: 0,
-            claimed_segments: RefCell::default(),
+            claimed_segments: Default::default(),
         }
     }
 
@@ -93,46 +92,29 @@ impl TopNScanExecState {
     ///    b. Nth execution: eagerly emits all segments which were previously collected. This is
     ///    necessary to allow for re-scans (when a Top-N result later proves not to be visible)
     ///    to consistently revisit the same segments.
-    fn segments_to_query<'s>(
-        &'s self,
+    fn segments_to_query(
+        &mut self,
         search_reader: &SearchIndexReader,
         parallel_state: Option<*mut ParallelScanState>,
-    ) -> Box<dyn Iterator<Item = SegmentId> + 's> {
-        match (parallel_state, self.claimed_segments.borrow().clone()) {
-            (None, _) => {
-                // Not parallel: will search all segments.
-                let all_segments = search_reader.segment_ids();
-                Box::new(all_segments.into_iter().inspect(|segment_id| {
-                    check_for_interrupts!();
-                }))
-            }
-            (Some(_), Some(claimed_segments)) => {
-                // Parallel, but we have already claimed our segments. Emit them again.
-                Box::new(claimed_segments.into_iter().inspect(|segment_id| {
-                    check_for_interrupts!();
-                }))
-            }
-            (Some(parallel_state), None) => {
-                // Parallel, and we have not claimed our segments. Claim them, lazily, and then
-                // record that we have done so.
-                let mut claimed_segments = Vec::new();
-                Box::new(std::iter::from_fn(move || {
-                    check_for_interrupts!();
-                    let maybe_segment_id = unsafe { checkout_segment(parallel_state) };
-                    let Some(segment_id) = maybe_segment_id else {
-                        // No more segments: record that we successfully claimed all segments, and
-                        // then conclude iteration.
-                        *self.claimed_segments.borrow_mut() =
-                            Some(std::mem::take(&mut claimed_segments));
-                        return None;
-                    };
-
-                    // We claimed a segment. record it, and then return it.
-                    claimed_segments.push(segment_id);
-                    Some(segment_id)
-                }))
-            }
+    ) -> impl IntoIterator<Item = SegmentId> {
+        if !self.claimed_segments.is_empty() {
+            return self.claimed_segments.clone();
         }
+        let segment_ids = match parallel_state {
+            None => search_reader.segment_ids(),
+
+            Some(parallel_state) => unsafe {
+                let nworkers = {
+                    let _mutex = (*parallel_state).acquire_mutex();
+                    (*parallel_state).nlaunched()
+                };
+
+                checkout_my_segment_block(nworkers, parallel_state)
+            },
+        };
+
+        self.claimed_segments = segment_ids;
+        self.claimed_segments.clone()
     }
 }
 
@@ -172,7 +154,8 @@ impl ExecMethod for TopNScanExecState {
             .as_ref()
             .unwrap()
             .search_top_n_in_segments(
-                self.segments_to_query(state.search_reader.as_ref().unwrap(), state.parallel_state),
+                self.segments_to_query(state.search_reader.as_ref().unwrap(), state.parallel_state)
+                    .into_iter(),
                 self.search_query_input.as_ref().unwrap(),
                 self.sort_field.clone(),
                 self.sort_direction.into(),
@@ -265,6 +248,6 @@ impl ExecMethod for TopNScanExecState {
         self.chunk_size = 0;
         self.offset = 0;
         self.found = 0;
-        self.claimed_segments.take();
+        self.claimed_segments.clear();
     }
 }

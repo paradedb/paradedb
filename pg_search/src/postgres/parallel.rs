@@ -75,7 +75,7 @@ pub unsafe fn maybe_init_parallel_scan(
         // ParallelWorkerNumber -1 is the main backend, which is where we'll set up
         // our shared memory information.  The mutex was already initialized, directly, in
         // `aminitparallelscan()`
-        state.init_without_mutex(searcher.segment_readers(), &[]);
+        state.init_without_mutex(0, searcher.segment_readers(), &[]);
     }
     Some(worker_number)
 }

@@ -271,7 +271,7 @@ impl WorkerBuildState {
         memory_budget: NonZeroUsize,
     ) -> anyhow::Result<Self> {
         let config = IndexWriterConfig {
-            target_docs_per_segment: Self::target_docs_per_segment(heaprel),
+            target_docs_per_segment: target_docs_per_segment(heaprel),
             max_segments_to_create: None,
             memory_budget,
         };
@@ -286,28 +286,6 @@ impl WorkerBuildState {
             key_field_name,
             per_row_context: PgMemoryContexts::new("pg_search ambuild context"),
         })
-    }
-
-    /// Estimate the number of documents that should be in each segment for a given index.
-    ///
-    /// This number is calculated by dividing the number of rows in the table by the number of
-    /// available cores.
-    fn target_docs_per_segment(heaprel: &PgRelation) -> Option<NonZeroUsize> {
-        if should_create_one_segment(heaprel) {
-            return None;
-        }
-
-        let desired_segment_count = std::thread::available_parallelism()
-            .expect("your computer should have at least one core");
-        let reltuples = estimate_heap_reltuples(heaprel);
-        if reltuples == 0.0 {
-            return None;
-        }
-
-        Some(
-            NonZeroUsize::new((reltuples / desired_segment_count.get() as f64).ceil() as usize)
-                .unwrap(),
-        )
     }
 }
 
@@ -447,6 +425,28 @@ pub(super) fn build_index(
 
         worker.do_build()
     }
+}
+
+/// Estimate the number of documents that should be in each segment for a given index.
+///
+/// This number is calculated by dividing the number of rows in the table by the number of
+/// available cores.
+fn target_docs_per_segment(heaprel: &PgRelation) -> Option<NonZeroUsize> {
+    if should_create_one_segment(heaprel) {
+        return None;
+    }
+
+    let desired_segment_count =
+        std::thread::available_parallelism().expect("your computer should have at least one core");
+    let reltuples = estimate_heap_reltuples(heaprel);
+    if reltuples == 0.0 {
+        return None;
+    }
+
+    Some(
+        NonZeroUsize::new((reltuples / desired_segment_count.get() as f64).ceil() as usize)
+            .unwrap(),
+    )
 }
 
 fn create_index_parallelism(heaprel: &PgRelation) -> usize {

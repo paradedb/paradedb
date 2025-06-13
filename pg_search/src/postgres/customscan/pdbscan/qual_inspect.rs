@@ -796,12 +796,11 @@ unsafe fn list_internal(
             if let Some(qual) = indexed_qual.or(all_qual) {
                 quals.push(qual);
             } else {
-                // If we can't extract this qual and we're not doing partial extraction, fail
-                if !extract_all_quals_even_non_indexed {
-                    return None;
+                // If we can't extract this qual, try to create a FilterExpression
+                if let Some(filter_qual) = try_create_filter_expression(root, rti, child) {
+                    quals.push(filter_qual);
                 } else {
-                    // If we can't extract this qual and we're not doing partial extraction,
-                    // we'll just push a non-indexed expression
+                    // If we can't create a filter expression either, use NonIndexedExpr as fallback
                     quals.push(Qual::NonIndexedExpr);
                 }
             }
@@ -833,6 +832,127 @@ unsafe fn list_internal(
     }
 
     Some(quals)
+}
+
+/// Try to create a FilterExpression qual from a PostgreSQL node
+/// This extracts the actual expression and referenced fields for external evaluation
+unsafe fn try_create_filter_expression(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+    node: *mut pg_sys::Node,
+) -> Option<Qual> {
+    use crate::postgres::var::{fieldname_from_var, find_var_relation};
+
+    if node.is_null() {
+        return None;
+    }
+
+    // Clean any RestrictInfo wrappers first
+    let cleaned_node = clean_restrictinfo_recursively(node);
+
+    // Walk the expression tree to find all Var nodes
+    unsafe extern "C-unwind" fn var_walker(
+        node: *mut pg_sys::Node,
+        original_context: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+
+        let context = &mut *(original_context as *mut VarWalkerContext);
+
+        if let Some(var) = nodecast!(Var, T_Var, node) {
+            if (*var).varno as pg_sys::Index == context.rti {
+                context.has_our_relation = true;
+                let (heaprelid, varattno, _) = find_var_relation(var, context.root);
+                if heaprelid != pg_sys::Oid::INVALID {
+                    if let Some(field) = fieldname_from_var(heaprelid, var, varattno) {
+                        context.attno_map.insert((*var).varattno, field);
+                    }
+                }
+            }
+        }
+
+        pg_sys::expression_tree_walker(node, Some(var_walker), original_context)
+    }
+
+    struct VarWalkerContext {
+        root: *mut pg_sys::PlannerInfo,
+        rti: pg_sys::Index,
+        attno_map: HashMap<pg_sys::AttrNumber, FieldName>,
+        has_our_relation: bool,
+    }
+
+    let mut context = VarWalkerContext {
+        root,
+        rti,
+        attno_map: HashMap::default(),
+        has_our_relation: false,
+    };
+
+    var_walker(
+        cleaned_node,
+        (&mut context as *mut VarWalkerContext) as *mut core::ffi::c_void,
+    );
+
+    // Only create external filter if this expression involves our relation
+    if context.has_our_relation && !context.attno_map.is_empty() {
+        Some(Qual::FilterExpression {
+            expr: cleaned_node.cast(),
+            attno_map: context.attno_map,
+        })
+    } else {
+        None
+    }
+}
+
+/// Recursively clean RestrictInfo wrappers from any PostgreSQL node
+/// This handles nested RestrictInfo nodes in complex expressions like BoolExpr
+unsafe fn clean_restrictinfo_recursively(node: *mut pg_sys::Node) -> *mut pg_sys::Node {
+    if node.is_null() {
+        return node;
+    }
+
+    match (*node).type_ {
+        pg_sys::NodeTag::T_RestrictInfo => {
+            // Unwrap RestrictInfo and recursively clean the inner clause
+            let restrict_info = node.cast::<pg_sys::RestrictInfo>();
+            let inner_clause = if !(*restrict_info).orclause.is_null() {
+                (*restrict_info).orclause
+            } else {
+                (*restrict_info).clause
+            };
+            clean_restrictinfo_recursively(inner_clause.cast())
+        }
+        pg_sys::NodeTag::T_BoolExpr => {
+            // For BoolExpr, clean all arguments
+            let bool_expr = node.cast::<pg_sys::BoolExpr>();
+            let args_list = (*bool_expr).args;
+
+            if !args_list.is_null() {
+                let mut new_args = std::ptr::null_mut();
+                let old_args = PgList::<pg_sys::Node>::from_pg(args_list);
+
+                for arg in old_args.iter_ptr() {
+                    let cleaned_arg = clean_restrictinfo_recursively(arg);
+                    new_args = pg_sys::lappend(new_args, cleaned_arg.cast::<core::ffi::c_void>());
+                }
+
+                // Create a new BoolExpr with cleaned arguments
+                let new_bool_expr = pg_sys::palloc0(std::mem::size_of::<pg_sys::BoolExpr>())
+                    .cast::<pg_sys::BoolExpr>();
+                *new_bool_expr = *bool_expr; // Copy the original
+                (*new_bool_expr).args = new_args;
+                new_bool_expr.cast()
+            } else {
+                node
+            }
+        }
+        _ => {
+            // For other node types, return as-is (we could extend this for other complex types)
+            node
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

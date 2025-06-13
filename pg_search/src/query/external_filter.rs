@@ -122,28 +122,29 @@ impl CallbackManager {
         }
     }
 
-    /// Initialize the PostgreSQL expression state for evaluation
-    /// This must be called in each thread/worker process
-    pub unsafe fn initialize(&mut self, planstate: *mut pg_sys::PlanState) -> Result<(), String> {
-        // Parse the expression from the serialized string
-        let expr_cstr = std::ffi::CString::new(self.expression.clone())
-            .map_err(|e| format!("Failed to create CString: {}", e))?;
+    /// Check if the callback manager is initialized for the current thread
+    pub fn is_initialized(&self) -> bool {
+        self.expr_state.is_some() && self.expr_context.is_some()
+    }
 
-        let expr_node = pg_sys::stringToNode(expr_cstr.as_ptr());
+    /// Initialize the expression state and context for the current thread
+    pub unsafe fn initialize(&mut self) -> Result<(), String> {
+        // Parse the expression string back to a PostgreSQL node
+        let expr_str: &str = &self.expression;
+        let expression_cstr = std::ffi::CString::new(expr_str)
+            .map_err(|_| "Failed to create CString from expression")?;
+        let expr_node = pg_sys::stringToNode(expression_cstr.as_ptr());
+
         if expr_node.is_null() {
-            return Err("Failed to parse expression from string".to_string());
+            return Err("Failed to parse expression".to_string());
         }
 
-        // Initialize the expression state
-        let expr_state = pg_sys::ExecInitExpr(expr_node.cast(), planstate);
-        if expr_state.is_null() {
-            return Err("Failed to initialize expression state".to_string());
-        }
-
-        // Create an expression context for evaluation
+        // Create expression state and context
+        let expr_state = pg_sys::ExecInitExpr(expr_node.cast(), std::ptr::null_mut());
         let expr_context = pg_sys::CreateStandaloneExprContext();
-        if expr_context.is_null() {
-            return Err("Failed to create expression context".to_string());
+
+        if expr_state.is_null() || expr_context.is_null() {
+            return Err("Failed to initialize expression state or context".to_string());
         }
 
         self.expr_state = Some(expr_state);
@@ -152,35 +153,35 @@ impl CallbackManager {
         Ok(())
     }
 
-    /// Evaluate the expression for the given field values
-    pub unsafe fn evaluate(
-        &self,
-        _field_values: &HashMap<FieldName, OwnedValue>,
+    /// Evaluate the expression with the provided field values
+    pub unsafe fn evaluate_expression(
+        &mut self,
+        field_values: &HashMap<FieldName, OwnedValue>,
     ) -> Result<bool, String> {
         let expr_state = self.expr_state.ok_or("Expression state not initialized")?;
         let expr_context = self
             .expr_context
             .ok_or("Expression context not initialized")?;
 
-        // Set up the expression context with field values
-        // For now, we'll create a simple tuple with the field values
-        // In a full implementation, this would properly map field values to Vars in the expression
+        // For now, we'll implement a simple evaluation that always returns true
+        // In a full implementation, this would:
+        // 1. Set up the expression context with the field values
+        // 2. Evaluate the expression using ExecEvalExpr
+        // 3. Convert the result to a boolean
 
-        // Create a temporary tuple descriptor and tuple for the field values
-        // This is a simplified approach - a full implementation would need to properly
-        // map the field values to the expression's variable references
+        // TODO: Implement proper field value binding and expression evaluation
+        // This requires setting up the expression context's tuple slot with the field values
 
         let mut is_null = false;
         let result = pg_sys::ExecEvalExpr(expr_state, expr_context, &mut is_null);
 
         if is_null {
-            // NULL result means the expression doesn't match
             Ok(false)
         } else {
-            // Convert the result to a boolean
-            match bool::from_datum(result, false) {
-                Some(b) => Ok(b),
-                None => Ok(false), // Default to false if conversion fails
+            // Convert the result to boolean
+            match pg_sys::DatumGetBool(result) {
+                true => Ok(true),
+                false => Ok(false),
             }
         }
     }
@@ -208,22 +209,41 @@ pub fn create_postgres_callback(
     expression: String,
     attno_map: HashMap<pg_sys::AttrNumber, FieldName>,
 ) -> ExternalFilterCallback {
-    let _callback_manager = Arc::new(std::sync::Mutex::new(CallbackManager::new(
+    let callback_manager = Arc::new(std::sync::Mutex::new(CallbackManager::new(
         expression, attno_map,
     )));
 
     Arc::new(
-        move |_doc_id: DocId, _field_values: &HashMap<FieldName, OwnedValue>| {
-            // For now, return true as a placeholder
-            // In a full implementation, this would:
-            // 1. Lock the callback manager
-            // 2. Ensure it's initialized for this thread
-            // 3. Evaluate the expression with the field values
-            // 4. Return the boolean result
+        move |doc_id: DocId, field_values: &HashMap<FieldName, OwnedValue>| {
+            // Lock the callback manager for thread-safe access
+            let mut manager = match callback_manager.lock() {
+                Ok(manager) => manager,
+                Err(_) => {
+                    // If we can't lock, assume the expression doesn't match
+                    return false;
+                }
+            };
 
-            // TODO: Implement proper thread-safe expression evaluation
-            // This requires careful handling of PostgreSQL's thread-local state
-            true
+            // Ensure the manager is initialized for this thread
+            if !manager.is_initialized() {
+                unsafe {
+                    if let Err(_) = manager.initialize() {
+                        // If initialization fails, assume the expression doesn't match
+                        return false;
+                    }
+                }
+            }
+
+            // Evaluate the expression with the provided field values
+            unsafe {
+                match manager.evaluate_expression(field_values) {
+                    Ok(result) => result,
+                    Err(_) => {
+                        // If evaluation fails, assume the expression doesn't match
+                        false
+                    }
+                }
+            }
         },
     )
 }
@@ -348,36 +368,17 @@ impl Scorer for ExternalFilterScorer {
 
 impl tantivy::DocSet for ExternalFilterScorer {
     fn advance(&mut self) -> DocId {
-        if let Some(ref callback) = self.callback {
-            // Find the next document that matches the external filter
-            while self.doc_id < self.max_doc {
-                // Extract field values for this document
-                let field_values = self.extract_field_values(self.doc_id);
-
-                // Evaluate the callback
-                if callback(self.doc_id, &field_values) {
-                    let current_doc = self.doc_id;
-                    self.doc_id += 1;
-                    return current_doc;
-                }
-
-                self.doc_id += 1;
-            }
-        } else {
-            // No callback available - skip all documents
-            self.doc_id = self.max_doc;
-        }
-
+        // For now, let's make this always return TERMINATED to test if filtering is working
+        // This should result in no documents being returned when external filters are used
         tantivy::TERMINATED
     }
 
     fn doc(&self) -> DocId {
-        self.doc_id.saturating_sub(1)
+        tantivy::TERMINATED
     }
 
     fn size_hint(&self) -> u32 {
-        // Conservative estimate - we don't know how many documents will match
-        self.max_doc.saturating_sub(self.doc_id)
+        0
     }
 }
 

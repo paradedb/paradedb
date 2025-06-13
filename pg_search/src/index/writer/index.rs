@@ -547,27 +547,103 @@ pub enum IndexError {
     KeyIdNull(String),
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use crate::schema::SearchIndexSchema;
+    use pgrx::prelude::*;
+    use std::num::NonZeroUsize;
 
-//     #[test]
-//     fn test_index_writer_config() {
-//         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
-//         Spi::run("INSERT INTO t (data) VALUES ('test');").unwrap();
-//         Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
-//         let relation_oid: pg_sys::Oid =
-//             Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
-//                 .expect("spi should succeed")
-//                 .unwrap();
+    fn get_relation_oid() -> pg_sys::Oid {
+        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
+        Spi::run("INSERT INTO t (data) VALUES ('test');").unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
+        Spi::get_one::<pg_sys::Oid>(
+            "SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';",
+        )
+        .expect("spi should succeed")
+        .unwrap()
+    }
 
-//         let config = IndexWriterConfig {
-//             memory_budget: gucs::adjust_work_mem(1),
-//             max_segments_to_create: None,
-//             target_docs_per_segment: None,
-//         };
-//         let writer = SerialIndexWriter::with_mvcc(&relation_oid, MvccSatisfies::Mergeable, config).unwrap();
-//         writer.insert(TantivyDocument::new(), 1).unwrap();
-//         writer.commit().unwrap();
-//     }
-// }
+    fn simulate_index_writer(
+        config: IndexWriterConfig,
+        relation_oid: pg_sys::Oid,
+        num_docs: usize,
+    ) -> Vec<SegmentId> {
+        let index_relation = unsafe { PgRelation::open(relation_oid) };
+        let mut writer = SerialIndexWriter::open(&index_relation, config).unwrap();
+        let schema = SearchIndexSchema::open(relation_oid).unwrap();
+        let ctid_field = schema.ctid_field();
+        let text_field = schema.search_field("data").unwrap().field();
+
+        for i in 0..num_docs {
+            let mut document = TantivyDocument::new();
+            document.add_text(text_field, "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. Curabitur pretium tincidunt lacus. Nulla gravida orci a odio. Nullam varius, turpis et commodo pharetra, est eros bibendum elit, nec luctus magna felis sollicitudin mauris. Integer in mauris eu nibh euismod gravida. Duis ac tellus et risus vulputate vehicula. Donec lobortis risus a elit. Etiam tempor.");
+            document.add_u64(ctid_field, i as u64);
+            writer.insert(document, i as u64).unwrap();
+        }
+
+        writer.commit().unwrap()
+    }
+
+    #[pg_test]
+    fn test_index_writer_max_one_segment() {
+        let relation_oid = get_relation_oid();
+        let config = IndexWriterConfig {
+            memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
+            max_segments_to_create: Some(NonZeroUsize::new(1).unwrap()),
+            target_docs_per_segment: None,
+        };
+        let segment_ids = simulate_index_writer(config, relation_oid, 25000);
+        assert_eq!(segment_ids.len(), 1);
+    }
+
+    #[pg_test]
+    fn test_index_writer_max_two_segments() {
+        let relation_oid = get_relation_oid();
+        let config = IndexWriterConfig {
+            memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
+            max_segments_to_create: Some(NonZeroUsize::new(2).unwrap()),
+            target_docs_per_segment: None,
+        };
+        let segment_ids = simulate_index_writer(config, relation_oid, 25000);
+        assert_eq!(segment_ids.len(), 2);
+    }
+
+    #[pg_test]
+    fn test_index_writer_target_docs_1k_per_segment() {
+        let relation_oid = get_relation_oid();
+        let config = IndexWriterConfig {
+            memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
+            max_segments_to_create: None,
+            target_docs_per_segment: Some(NonZeroUsize::new(1000).unwrap()),
+        };
+        let segment_ids = simulate_index_writer(config, relation_oid, 25000);
+        assert_eq!(segment_ids.len(), 25);
+    }
+
+    #[pg_test]
+    fn test_index_writer_target_docs_5k_per_segment() {
+        let relation_oid = get_relation_oid();
+        let config = IndexWriterConfig {
+            memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
+            max_segments_to_create: None,
+            target_docs_per_segment: Some(NonZeroUsize::new(5000).unwrap()),
+        };
+        let segment_ids = simulate_index_writer(config, relation_oid, 25000);
+        assert_eq!(segment_ids.len(), 5);
+    }
+
+    #[pg_test]
+    fn test_index_writer_target_docs_and_max_segments() {
+        let relation_oid = get_relation_oid();
+        let config = IndexWriterConfig {
+            memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
+            max_segments_to_create: Some(NonZeroUsize::new(5).unwrap()),
+            target_docs_per_segment: Some(NonZeroUsize::new(1000).unwrap()),
+        };
+        let segment_ids = simulate_index_writer(config, relation_oid, 25000);
+        assert_eq!(segment_ids.len(), 5);
+    }
+}

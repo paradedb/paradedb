@@ -342,11 +342,18 @@ impl SerialIndexWriter {
 
     fn merge_then_commit_segment(&mut self, finalized_segment: Segment) -> Result<()> {
         let previous_metas = self.new_metas.clone();
-        let last_flushed_segment_meta = self
-            .new_metas
-            .pop()
-            .expect("cannot merge without at least one segment");
 
+        // pop off the smallest segment to merge into
+        let smallest_segment = self
+            .new_metas
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, meta)| meta.max_doc() as usize)
+            .map(|(i, _)| i)
+            .expect("cannot merge without at least one segment");
+        let last_flushed_segment_meta = self.new_metas.remove(smallest_segment);
+
+        // do the merge
         pgrx::debug1!(
             "writer {}: merging into previous segment {}",
             self.id,
@@ -356,6 +363,7 @@ impl SerialIndexWriter {
         let mut merger = SearchIndexMerger::open(self.directory.clone())?;
         let merged_segment_meta = merger.merge_into(&[finalized_segment, last_flushed_segment])?;
 
+        // save the new meta entry
         if let Some(merged_segment_meta) = merged_segment_meta {
             pgrx::debug1!(
                 "writer {}: created merged segment {}",

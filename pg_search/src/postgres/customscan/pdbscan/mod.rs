@@ -269,7 +269,9 @@ impl PdbScan {
         expr_context: *mut pg_sys::ExprContext,
         state: &mut CustomScanStateWrapper<Self>,
     ) {
-        use crate::query::external_filter::{create_postgres_callback, ExternalFilterConfig};
+        use crate::query::external_filter::{
+            create_postgres_callback, register_callback, ExternalFilterConfig,
+        };
 
         // Parse the expression back to a PostgreSQL node
         let expression_cstr =
@@ -305,14 +307,17 @@ impl PdbScan {
         // Create the callback
         let callback = create_postgres_callback(expression.to_string(), attno_map);
 
+        // Register the callback in the global registry so it can be retrieved during query creation
+        register_callback(expression, callback);
+
         // Store the callback in the search reader for use during query execution
         // For now, we'll store it in a way that the Tantivy queries can access it
         // This is a placeholder - in a full implementation, we'd need a proper
         // callback registry or storage mechanism
-
-        // TODO: Implement proper callback storage and retrieval mechanism
-        // This would involve extending the SearchIndexReader or creating a
-        // callback registry that Tantivy queries can access during execution
+        pgrx::debug1!(
+            "Created external filter callback for expression: {}",
+            expression
+        );
     }
 
     fn cleanup_varibilities_from_tantivy_query(json_value: &mut serde_json::Value) {

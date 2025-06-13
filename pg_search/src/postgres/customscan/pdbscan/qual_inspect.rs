@@ -326,51 +326,173 @@ impl From<&Qual> for SearchQueryInput {
                 }
             },
             Qual::And(quals) => {
-                // Analyze the structure to determine if we have mixed indexed/non-indexed predicates
-                let mut indexed_quals = Vec::new();
-                let mut has_non_indexed = false;
+                // Check if we have a mix of indexed and non-indexed predicates
+                let has_indexed = quals
+                    .iter()
+                    .any(|q| !matches!(q, Qual::NonIndexedExpr | Qual::FilterExpression { .. }));
+                let has_non_indexed = quals
+                    .iter()
+                    .any(|q| matches!(q, Qual::NonIndexedExpr | Qual::FilterExpression { .. }));
 
-                for qual in quals {
-                    match qual {
-                        Qual::NonIndexedExpr => {
-                            has_non_indexed = true;
+                pgrx::warning!(
+                    "Qual::And processing: has_indexed={}, has_non_indexed={}, total_quals={}",
+                    has_indexed,
+                    has_non_indexed,
+                    quals.len()
+                );
+
+                if has_indexed && has_non_indexed {
+                    // Mixed predicates - create IndexedWithFilter query
+                    pgrx::warning!("Creating IndexedWithFilter query for mixed predicates");
+
+                    // Separate indexed and non-indexed predicates
+                    let indexed_quals: Vec<_> = quals
+                        .iter()
+                        .filter(|q| {
+                            !matches!(q, Qual::NonIndexedExpr | Qual::FilterExpression { .. })
+                        })
+                        .collect();
+                    let non_indexed_quals: Vec<_> = quals
+                        .iter()
+                        .filter(|q| {
+                            matches!(q, Qual::NonIndexedExpr | Qual::FilterExpression { .. })
+                        })
+                        .collect();
+
+                    pgrx::warning!(
+                        "Indexed quals: {}, Non-indexed quals: {}",
+                        indexed_quals.len(),
+                        non_indexed_quals.len()
+                    );
+
+                    // Create the indexed query part
+                    let indexed_query = if indexed_quals.len() == 1 {
+                        SearchQueryInput::from(indexed_quals[0])
+                    } else {
+                        let must = indexed_quals
+                            .iter()
+                            .map(|q| SearchQueryInput::from(*q))
+                            .collect::<Vec<_>>();
+                        SearchQueryInput::Boolean {
+                            must,
+                            should: vec![],
+                            must_not: vec![],
                         }
-                        _ => {
-                            let query_input = SearchQueryInput::from(qual);
-                            // Only add non-All queries to avoid diluting the indexed predicates
-                            if !matches!(query_input, SearchQueryInput::All) {
-                                indexed_quals.push(query_input);
+                    };
+
+                    // Extract the actual filter expressions and referenced fields
+                    let mut all_referenced_fields = std::collections::HashSet::new();
+                    let mut filter_expressions = Vec::new();
+
+                    for qual in &non_indexed_quals {
+                        match qual {
+                            Qual::FilterExpression { expr, attno_map } => {
+                                // Extract the expression string
+                                let expression = unsafe {
+                                    let node_string =
+                                        pg_sys::nodeToString((*expr).cast::<core::ffi::c_void>());
+                                    let rust_string = std::ffi::CStr::from_ptr(node_string)
+                                        .to_string_lossy()
+                                        .into_owned();
+                                    pg_sys::pfree(node_string.cast());
+                                    rust_string
+                                };
+                                filter_expressions.push(expression);
+
+                                // Collect referenced fields
+                                for field_name in attno_map.values() {
+                                    all_referenced_fields.insert(field_name.clone());
+                                }
+                            }
+                            Qual::NonIndexedExpr => {
+                                // For now, treat NonIndexedExpr as a placeholder
+                                filter_expressions.push("TRUE".to_string());
+                            }
+                            _ => {
+                                // This shouldn't happen for non-indexed predicates, but handle it gracefully
+                                filter_expressions.push("TRUE".to_string());
                             }
                         }
                     }
-                }
 
-                if has_non_indexed && !indexed_quals.is_empty() {
-                    // We have mixed indexed and non-indexed predicates
-                    // Create an IndexedWithFilter query
-                    let indexed_query = if indexed_quals.len() == 1 {
-                        Box::new(indexed_quals.into_iter().next().unwrap())
+                    // Combine multiple filter expressions with AND
+                    let combined_filter_expression = if filter_expressions.len() == 1 {
+                        filter_expressions.into_iter().next().unwrap()
+                    } else if filter_expressions.is_empty() {
+                        "TRUE".to_string()
                     } else {
-                        Box::new(SearchQueryInput::Boolean {
-                            must: indexed_quals,
-                            should: vec![],
-                            must_not: vec![],
-                        })
+                        // Create an AND expression combining all filter expressions
+                        format!("({})", filter_expressions.join(" AND "))
                     };
 
-                    SearchQueryInput::IndexedWithFilter {
-                        indexed_query,
-                        filter_expression: "TRUE".to_string(), // Placeholder - will be filled by callback
-                        referenced_fields: vec![], // Placeholder - will be filled by callback
-                    }
+                    let referenced_fields: Vec<_> = all_referenced_fields.into_iter().collect();
+
+                    let result = SearchQueryInput::IndexedWithFilter {
+                        indexed_query: Box::new(indexed_query),
+                        filter_expression: combined_filter_expression,
+                        referenced_fields,
+                    };
+
+                    pgrx::warning!("Created IndexedWithFilter query: {:?}", result);
+                    result
                 } else if has_non_indexed {
                     // Only non-indexed predicates
+                    pgrx::warning!("Creating ExternalFilter query for non-indexed predicates only");
+
+                    // Extract the actual filter expressions and referenced fields
+                    let mut all_referenced_fields = std::collections::HashSet::new();
+                    let mut filter_expressions = Vec::new();
+
+                    for qual in quals {
+                        match qual {
+                            Qual::FilterExpression { expr, attno_map } => {
+                                // Extract the expression string
+                                let expression = unsafe {
+                                    let node_string =
+                                        pg_sys::nodeToString((*expr).cast::<core::ffi::c_void>());
+                                    let rust_string = std::ffi::CStr::from_ptr(node_string)
+                                        .to_string_lossy()
+                                        .into_owned();
+                                    pg_sys::pfree(node_string.cast());
+                                    rust_string
+                                };
+                                filter_expressions.push(expression);
+
+                                // Collect referenced fields
+                                for field_name in attno_map.values() {
+                                    all_referenced_fields.insert(field_name.clone());
+                                }
+                            }
+                            Qual::NonIndexedExpr => {
+                                // For now, treat NonIndexedExpr as a placeholder
+                                filter_expressions.push("TRUE".to_string());
+                            }
+                            _ => {
+                                // This shouldn't happen for non-indexed predicates, but handle it gracefully
+                                filter_expressions.push("TRUE".to_string());
+                            }
+                        }
+                    }
+
+                    // Combine multiple filter expressions with AND
+                    let combined_filter_expression = if filter_expressions.len() == 1 {
+                        filter_expressions.into_iter().next().unwrap()
+                    } else if filter_expressions.is_empty() {
+                        "TRUE".to_string()
+                    } else {
+                        // Create an AND expression combining all filter expressions
+                        format!("({})", filter_expressions.join(" AND "))
+                    };
+
+                    let referenced_fields: Vec<_> = all_referenced_fields.into_iter().collect();
+
                     SearchQueryInput::ExternalFilter {
-                        expression: "TRUE".to_string(), // Placeholder - will be filled by callback
-                        referenced_fields: vec![],      // Placeholder - will be filled by callback
+                        expression: combined_filter_expression,
+                        referenced_fields,
                     }
                 } else {
                     // Regular boolean AND logic for indexed predicates
+                    pgrx::warning!("Creating regular Boolean query for indexed predicates only");
                     let mut must = quals.iter().map(SearchQueryInput::from).collect::<Vec<_>>();
                     let popscore = |vec: &mut Vec<SearchQueryInput>| -> Option<SearchQueryInput> {
                         for i in 0..vec.len() {
@@ -410,14 +532,65 @@ impl From<&Qual> for SearchQueryInput {
 
             Qual::Or(quals) => {
                 // Check if we have any non-indexed expressions in the OR
-                let has_non_indexed = quals.iter().any(|q| matches!(q, Qual::NonIndexedExpr));
+                let has_non_indexed = quals
+                    .iter()
+                    .any(|q| matches!(q, Qual::NonIndexedExpr | Qual::FilterExpression { .. }));
 
                 if has_non_indexed {
                     // If we have non-indexed expressions in an OR, we need to evaluate everything
                     // as an external filter since we can't partially evaluate OR clauses
+
+                    // Extract the actual filter expressions and referenced fields
+                    let mut all_referenced_fields = std::collections::HashSet::new();
+                    let mut filter_expressions = Vec::new();
+
+                    for qual in quals {
+                        match qual {
+                            Qual::FilterExpression { expr, attno_map } => {
+                                // Extract the expression string
+                                let expression = unsafe {
+                                    let node_string =
+                                        pg_sys::nodeToString((*expr).cast::<core::ffi::c_void>());
+                                    let rust_string = std::ffi::CStr::from_ptr(node_string)
+                                        .to_string_lossy()
+                                        .into_owned();
+                                    pg_sys::pfree(node_string.cast());
+                                    rust_string
+                                };
+                                filter_expressions.push(expression);
+
+                                // Collect referenced fields
+                                for field_name in attno_map.values() {
+                                    all_referenced_fields.insert(field_name.clone());
+                                }
+                            }
+                            Qual::NonIndexedExpr => {
+                                // For now, treat NonIndexedExpr as a placeholder
+                                filter_expressions.push("TRUE".to_string());
+                            }
+                            _ => {
+                                // For indexed expressions in OR with non-indexed, we need to convert them
+                                // to their string representation as well since we can't partially evaluate OR
+                                filter_expressions.push("TRUE".to_string());
+                            }
+                        }
+                    }
+
+                    // Combine multiple filter expressions with OR
+                    let combined_filter_expression = if filter_expressions.len() == 1 {
+                        filter_expressions.into_iter().next().unwrap()
+                    } else if filter_expressions.is_empty() {
+                        "TRUE".to_string()
+                    } else {
+                        // Create an OR expression combining all filter expressions
+                        format!("({})", filter_expressions.join(" OR "))
+                    };
+
+                    let referenced_fields: Vec<_> = all_referenced_fields.into_iter().collect();
+
                     SearchQueryInput::ExternalFilter {
-                        expression: "TRUE".to_string(), // Placeholder - will be filled by callback
-                        referenced_fields: vec![],      // Placeholder - will be filled by callback
+                        expression: combined_filter_expression,
+                        referenced_fields,
                     }
                 } else {
                     // Regular OR logic for indexed predicates

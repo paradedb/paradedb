@@ -1791,6 +1791,9 @@ impl SearchQueryInput {
                 expression,
                 referenced_fields,
             } => {
+                pgrx::warning!("Converting ExternalFilter to Tantivy query");
+
+                // Create an external filter query that will call back to PostgreSQL
                 use crate::query::external_filter::{ExternalFilterConfig, ExternalFilterQuery};
 
                 let config = ExternalFilterConfig {
@@ -1798,6 +1801,10 @@ impl SearchQueryInput {
                     referenced_fields: referenced_fields.clone(),
                 };
 
+                pgrx::warning!(
+                    "Created ExternalFilterQuery with expression: {}",
+                    expression
+                );
                 Ok(Box::new(ExternalFilterQuery::new(config)))
             }
             Self::IndexedWithFilter {
@@ -1805,24 +1812,31 @@ impl SearchQueryInput {
                 filter_expression,
                 referenced_fields,
             } => {
+                pgrx::warning!("Converting IndexedWithFilter to Tantivy query");
+
+                // Create the indexed query part
+                let indexed_tantivy_query =
+                    indexed_query.into_tantivy_query(schema, parser, searcher, index_oid)?;
+
+                // Create the external filter part
                 use crate::query::external_filter::{
                     ExternalFilterConfig, ExternalFilterQuery, IndexedWithFilterQuery,
                 };
 
-                // Create the indexed query
-                let indexed_tantivy_query =
-                    indexed_query.into_tantivy_query(schema, parser, searcher, index_oid)?;
-
-                // Create the external filter
-                let filter_config = ExternalFilterConfig {
+                let external_filter_config = ExternalFilterConfig {
                     expression: filter_expression.clone(),
                     referenced_fields: referenced_fields.clone(),
                 };
-                let external_filter = ExternalFilterQuery::new(filter_config);
 
+                let external_filter_query = ExternalFilterQuery::new(external_filter_config);
+
+                pgrx::warning!(
+                    "Created IndexedWithFilterQuery with indexed query and external filter: {}",
+                    filter_expression
+                );
                 Ok(Box::new(IndexedWithFilterQuery::new(
                     indexed_tantivy_query,
-                    external_filter,
+                    external_filter_query,
                 )))
             }
         }

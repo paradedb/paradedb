@@ -19,7 +19,9 @@ use crate::api::FieldName;
 use crate::gucs;
 use crate::index::merge_policy::{LayeredMergePolicy, NumCandidates, NumMerged};
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
-use crate::index::writer::index::{Mergeable, SearchIndexMerger, SerialIndexWriter};
+use crate::index::writer::index::{
+    IndexWriterConfig, Mergeable, SearchIndexMerger, SerialIndexWriter,
+};
 use crate::postgres::options::SearchIndexOptions;
 use crate::postgres::storage::block::{SegmentMetaEntry, CLEANUP_LOCK, SEGMENT_METAS_START};
 use crate::postgres::storage::buffer::BufferManager;
@@ -44,9 +46,12 @@ pub struct InsertState {
 
 impl InsertState {
     unsafe fn new(indexrel: &PgRelation) -> anyhow::Result<Self> {
-        let memory_budget = gucs::adjust_work_mem(1);
-        let writer =
-            SerialIndexWriter::with_mvcc(indexrel, MvccSatisfies::Mergeable, memory_budget, None)?;
+        let config = IndexWriterConfig {
+            memory_budget: gucs::adjust_work_mem(1),
+            max_segments_to_create: None,
+            target_docs_per_segment: None,
+        };
+        let writer = SerialIndexWriter::with_mvcc(indexrel, MvccSatisfies::Mergeable, config)?;
         let schema = SearchIndexSchema::open(indexrel.oid())?;
         let tupdesc = unsafe { PgTupleDesc::from_pg_unchecked(indexrel.rd_att) };
         let categorized_fields = categorize_fields(&tupdesc, &schema);

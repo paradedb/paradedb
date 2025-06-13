@@ -18,6 +18,7 @@
 use crate::api::{HashMap, HashSet};
 use anyhow::Result;
 use pgrx::{pg_sys, PgRelation};
+use std::num::NonZeroUsize;
 use tantivy::directory::RamDirectory;
 use tantivy::index::SegmentId;
 use tantivy::indexer::merger::IndexMerger;
@@ -52,14 +53,14 @@ impl PendingSegment {
     fn new_ram(
         directory: RamDirectory,
         schema: Schema,
-        memory_budget: usize,
+        memory_budget: NonZeroUsize,
         indexrelid: pg_sys::Oid,
     ) -> Result<Self> {
         let mut index = Index::open_or_create(directory.clone(), schema)?;
         setup_tokenizers(indexrelid, &mut index)?;
 
         let segment = index.new_segment();
-        let writer = SegmentWriter::for_segment(memory_budget, segment.clone())?;
+        let writer = SegmentWriter::for_segment(memory_budget.into(), segment.clone())?;
         Ok(Self {
             segment,
             writer,
@@ -70,14 +71,14 @@ impl PendingSegment {
 
     fn new_mvcc(
         directory: MVCCDirectory,
-        memory_budget: usize,
+        memory_budget: NonZeroUsize,
         indexrelid: pg_sys::Oid,
     ) -> Result<Self> {
         let mut index = Index::open(directory.clone())?;
         setup_tokenizers(indexrelid, &mut index)?;
 
         let segment = index.new_segment();
-        let writer = SegmentWriter::for_segment(memory_budget, segment.clone())?;
+        let writer = SegmentWriter::for_segment(memory_budget.into(), segment.clone())?;
         Ok(Self {
             segment,
             writer,
@@ -127,6 +128,13 @@ impl PendingSegment {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct IndexWriterConfig {
+    pub target_docs_per_segment: Option<NonZeroUsize>,
+    pub max_segments_to_create: Option<NonZeroUsize>,
+    pub memory_budget: NonZeroUsize,
+}
+
 /// Unlike Tantivy's IndexWriter, the SerialIndexWriter does not spin up any threads.
 /// Everything happens in the foreground, making it ideal for Postgres.
 ///
@@ -138,40 +146,28 @@ pub struct SerialIndexWriter {
     id: i32,
     indexrelid: pg_sys::Oid,
     ctid_field: Field,
-    memory_budget: usize,
+    config: IndexWriterConfig,
     index: Index,
     directory: MVCCDirectory,
-    target_docs_per_segment: Option<usize>,
     pending_segment: Option<PendingSegment>,
     avg_docs_per_segment: Option<usize>,
     new_metas: Vec<SegmentMeta>,
 }
 
 impl SerialIndexWriter {
-    pub fn open(
-        index_relation: &PgRelation,
-        memory_budget: usize,
-        target_docs_per_segment: Option<usize>,
-    ) -> Result<Self> {
-        Self::with_mvcc(
-            index_relation,
-            MvccSatisfies::Snapshot,
-            memory_budget,
-            target_docs_per_segment,
-        )
+    pub fn open(index_relation: &PgRelation, config: IndexWriterConfig) -> Result<Self> {
+        Self::with_mvcc(index_relation, MvccSatisfies::Snapshot, config)
     }
 
     pub fn with_mvcc(
         index_relation: &PgRelation,
         mvcc_satisfies: MvccSatisfies,
-        memory_budget: usize,
-        target_docs_per_segment: Option<usize>,
+        config: IndexWriterConfig,
     ) -> Result<Self> {
         pgrx::debug1!(
-            "writer {}: opening index writer with memory budget {}, target docs: {:?}, satisfies: {:?}",
+            "writer {}: opening index writer with config: {:?}, satisfies: {:?}",
             unsafe { pgrx::pg_sys::ParallelWorkerNumber },
-            memory_budget,
-            target_docs_per_segment,
+            config,
             mvcc_satisfies
         );
 
@@ -185,10 +181,9 @@ impl SerialIndexWriter {
             id: unsafe { pgrx::pg_sys::ParallelWorkerNumber },
             indexrelid: index_relation.oid(),
             ctid_field,
-            memory_budget,
+            config,
             index,
             directory,
-            target_docs_per_segment,
             pending_segment: Default::default(),
             avg_docs_per_segment: Default::default(),
             new_metas: Default::default(),
@@ -215,9 +210,9 @@ impl SerialIndexWriter {
         let mem_usage = pending_segment.mem_usage();
         let max_doc = pending_segment.max_doc();
 
-        if mem_usage >= self.memory_budget
-            || (self.target_docs_per_segment.is_some()
-                && max_doc >= self.target_docs_per_segment.unwrap())
+        if mem_usage >= self.config.memory_budget.into()
+            || (self.config.target_docs_per_segment.is_some()
+                && max_doc >= self.config.target_docs_per_segment.unwrap().into())
         {
             self.finalize_segment(false)?;
         }
@@ -239,23 +234,23 @@ impl SerialIndexWriter {
     ///
     /// Otherwise, we create a MVCCDirectory-backed segment.
     fn new_segment(&mut self) -> Result<PendingSegment> {
-        if self.target_docs_per_segment.is_none() || self.new_metas.is_empty() {
+        if self.config.target_docs_per_segment.is_none() || self.new_metas.is_empty() {
             pgrx::debug1!(
                 "writer {}: creating a MVCCDirectory-backed segment",
                 self.id
             );
             return PendingSegment::new_mvcc(
                 self.directory.clone(),
-                self.memory_budget,
+                self.config.memory_budget,
                 self.indexrelid,
             );
         }
 
         let previous_num_docs = self.new_metas.last().unwrap().max_doc() as usize;
-        let target_docs_per_segment = self.target_docs_per_segment.unwrap();
+        let target_docs_per_segment = self.config.target_docs_per_segment.unwrap();
 
         if previous_num_docs + self.avg_docs_per_segment.unwrap_or_default()
-            > target_docs_per_segment
+            > target_docs_per_segment.into()
         {
             pgrx::debug1!(
                 "writer {}: creating a MVCCDirectory-backed segment",
@@ -263,7 +258,7 @@ impl SerialIndexWriter {
             );
             return PendingSegment::new_mvcc(
                 self.directory.clone(),
-                self.memory_budget,
+                self.config.memory_budget,
                 self.indexrelid,
             );
         }
@@ -272,7 +267,7 @@ impl SerialIndexWriter {
         PendingSegment::new_ram(
             RamDirectory::create(),
             self.index.schema(),
-            self.memory_budget,
+            self.config.memory_budget,
             self.indexrelid,
         )
     }
@@ -305,14 +300,29 @@ impl SerialIndexWriter {
             );
         }
 
+        let reached_segment_capacity =
+            if let Some(max_segments_to_create) = self.config.max_segments_to_create {
+                self.new_metas.len() == max_segments_to_create.get()
+            } else {
+                false
+            };
+
+        if reached_segment_capacity {
+            pgrx::debug1!(
+                "writer {}: reached max segments to create, merging segment",
+                self.id
+            );
+            self.merge_then_commit_segment(finalized_segment)?;
+        }
         // If we're committing the last segment, merge it with the previous segment so we don't have any leftover "small" segments
         // If it's a RAMDirectory-backed segment, it must also be merged with the previous segment
-        if !self.new_metas.is_empty()
+        else if !self.new_metas.is_empty()
             && (is_last_segment || matches!(directory_type, DirectoryType::Ram(_)))
         {
             self.merge_then_commit_segment(finalized_segment)?;
+        }
         // If it's an MVCC-backed segment, just commit it without merging
-        } else {
+        else {
             assert!(
                 matches!(directory_type, DirectoryType::Mvcc),
                 "Cannot commit a non-MVCC backed segment"
@@ -338,7 +348,7 @@ impl SerialIndexWriter {
             .expect("cannot merge without at least one segment");
 
         pgrx::debug1!(
-            "writer {}: merging segment {} with previous segment",
+            "writer {}: merging into previous segment {}",
             self.id,
             last_flushed_segment_meta.id()
         );
@@ -536,3 +546,28 @@ pub enum IndexError {
     #[error("key_field column '{0}' cannot be NULL")]
     KeyIdNull(String),
 }
+
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+
+//     #[test]
+//     fn test_index_writer_config() {
+//         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
+//         Spi::run("INSERT INTO t (data) VALUES ('test');").unwrap();
+//         Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
+//         let relation_oid: pg_sys::Oid =
+//             Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
+//                 .expect("spi should succeed")
+//                 .unwrap();
+
+//         let config = IndexWriterConfig {
+//             memory_budget: gucs::adjust_work_mem(1),
+//             max_segments_to_create: None,
+//             target_docs_per_segment: None,
+//         };
+//         let writer = SerialIndexWriter::with_mvcc(&relation_oid, MvccSatisfies::Mergeable, config).unwrap();
+//         writer.insert(TantivyDocument::new(), 1).unwrap();
+//         writer.commit().unwrap();
+//     }
+// }

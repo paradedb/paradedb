@@ -17,7 +17,7 @@
 
 use crate::api::FieldName;
 use crate::gucs;
-use crate::index::writer::index::SerialIndexWriter;
+use crate::index::writer::index::{IndexWriterConfig, SerialIndexWriter};
 use crate::launch_parallel_process;
 use crate::parallel_worker::mqueue::MessageQueueSender;
 use crate::parallel_worker::{
@@ -29,6 +29,7 @@ use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::utils::{categorize_fields, row_to_search_document, CategorizedFieldData};
 use crate::schema::{SearchField, SearchIndexSchema};
 use pgrx::{check_for_interrupts, pg_guard, pg_sys, PgMemoryContexts, PgRelation};
+use std::num::NonZeroUsize;
 use std::ptr::{addr_of_mut, NonNull};
 use tantivy::index::SegmentId;
 use tantivy::TantivyDocument;
@@ -227,9 +228,13 @@ impl<'a> BuildWorker<'a> {
             (*index_info).ii_Concurrent = self.config.concurrent;
 
             let nworkers = create_index_parallelism(&self.heaprel);
-            let per_worker_memory_budget = gucs::adjust_maintenance_work_mem(nworkers) / nworkers;
-            let mut build_state =
-                WorkerBuildState::new(&self.indexrel, &self.heaprel, per_worker_memory_budget)?;
+            let per_worker_memory_budget =
+                gucs::adjust_maintenance_work_mem(nworkers).get() / nworkers;
+            let mut build_state = WorkerBuildState::new(
+                &self.indexrel,
+                &self.heaprel,
+                NonZeroUsize::new(per_worker_memory_budget).unwrap(),
+            )?;
 
             let reltuples = pg_sys::table_index_build_scan(
                 self.heaprel.as_ptr(),
@@ -263,13 +268,14 @@ impl WorkerBuildState {
     pub fn new(
         indexrel: &PgRelation,
         heaprel: &PgRelation,
-        memory_budget: usize,
+        memory_budget: NonZeroUsize,
     ) -> anyhow::Result<Self> {
-        let writer = SerialIndexWriter::open(
-            indexrel,
+        let config = IndexWriterConfig {
+            target_docs_per_segment: Self::target_docs_per_segment(heaprel),
+            max_segments_to_create: None,
             memory_budget,
-            Self::target_docs_per_segment(heaprel),
-        )?;
+        };
+        let writer = SerialIndexWriter::open(indexrel, config)?;
         let schema = SearchIndexSchema::open(indexrel.oid())?;
         let tupdesc = indexrel.tuple_desc();
         let categorized_fields = categorize_fields(&tupdesc, &schema);
@@ -286,7 +292,7 @@ impl WorkerBuildState {
     ///
     /// This number is calculated by dividing the number of rows in the table by the number of
     /// available cores.
-    fn target_docs_per_segment(heaprel: &PgRelation) -> Option<usize> {
+    fn target_docs_per_segment(heaprel: &PgRelation) -> Option<NonZeroUsize> {
         if should_create_one_segment(heaprel) {
             return None;
         }
@@ -294,8 +300,14 @@ impl WorkerBuildState {
         let desired_segment_count = std::thread::available_parallelism()
             .expect("your computer should have at least one core");
         let reltuples = estimate_heap_reltuples(heaprel);
+        if reltuples == 0.0 {
+            return None;
+        }
 
-        Some((reltuples / desired_segment_count.get() as f64).ceil() as usize)
+        Some(
+            NonZeroUsize::new((reltuples / desired_segment_count.get() as f64).ceil() as usize)
+                .unwrap(),
+        )
     }
 }
 

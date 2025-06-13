@@ -32,12 +32,19 @@ use crate::query::{AsHumanReadable, SearchQueryInput};
 use pgrx::heap_tuple::PgHeapTuple;
 use pgrx::{name_data_to_str, pg_sys, PgRelation, PgTupleDesc};
 use std::cell::UnsafeCell;
+use std::ptr::NonNull;
 use tantivy::snippet::SnippetGenerator;
 use tantivy::SegmentReader;
 
 #[derive(Default)]
 pub struct PdbScanState {
+    // available to all parallel members, including the leader, if doing parallel
     pub parallel_state: Option<*mut ParallelScanState>,
+
+    // only available on the leader if doing parallel
+    pub pcxt: Option<NonNull<pg_sys::ParallelContext>>,
+
+    pub requested_workers: usize,
 
     // Note: the range table index at execution time might be different from the one at planning time,
     // so we need to use the one at execution time when creating the custom scan state.
@@ -173,7 +180,7 @@ impl PdbScanState {
         serde_json::to_value(&self.base_search_query_input)
     }
 
-    pub fn parallel_serialization_data(&self) -> (&[SegmentReader], Vec<u8>) {
+    pub fn parallel_serialization_data(&self) -> (&[SegmentReader], Vec<u8>, usize) {
         let serialized_query = serde_json::to_vec(self.search_query_input())
             .expect("should be able to serialize query");
 
@@ -183,7 +190,7 @@ impl PdbScanState {
             .expect("search reader must be initialized to build parallel serialization data")
             .segment_readers();
 
-        (segment_readers, serialized_query)
+        (segment_readers, serialized_query, self.requested_workers)
     }
 
     pub fn human_readable_query_string(&self) -> String {

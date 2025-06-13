@@ -211,8 +211,14 @@ impl ParallelScanPayload {
 
 #[repr(C)]
 pub struct ParallelScanState {
+    // these must all be protected by the spinlock
     mutex: Spinlock,
     remaining_segments: usize,
+    nlaunched: usize,
+    nstarted: usize,
+
+    // these are set during initialization and can be accessed without the spinlock
+    requested_workers: usize,
     nsegments: usize,
     payload: ParallelScanPayload, // must be last field, b/c it allocates on the heap after this struct
 }
@@ -227,16 +233,24 @@ impl ParallelScanState {
             + serialized_query.len()
     }
 
-    fn init(&mut self, segments: &[SegmentReader], query: &[u8]) {
+    fn init(&mut self, requested_workers: usize, segments: &[SegmentReader], query: &[u8]) {
         self.mutex.init();
-        self.init_without_mutex(segments, query);
+        self.init_without_mutex(requested_workers, segments, query);
     }
 
-    fn init_without_mutex(&mut self, segments: &[SegmentReader], query: &[u8]) {
+    fn init_without_mutex(
+        &mut self,
+        requested_workers: usize,
+        segments: &[SegmentReader],
+        query: &[u8],
+    ) {
         assert!(!segments.is_empty());
-        self.payload.init(segments, query);
         self.remaining_segments = segments.len();
+        self.nlaunched = 0;
+
+        self.requested_workers = requested_workers;
         self.nsegments = segments.len();
+        self.payload.init(segments, query);
     }
 
     fn init_mutex(&mut self) {
@@ -245,6 +259,26 @@ impl ParallelScanState {
 
     pub fn acquire_mutex(&mut self) -> impl Drop {
         self.mutex.acquire()
+    }
+
+    pub fn set_nlaunched(&mut self, nlaunched: usize) {
+        self.nlaunched = nlaunched;
+    }
+
+    pub fn nlaunched(&self) -> usize {
+        self.nlaunched
+    }
+
+    pub fn inc_nstarted(&mut self) {
+        self.nstarted += 1;
+    }
+
+    pub fn nstarted(&self) -> usize {
+        self.nstarted
+    }
+
+    pub fn requested_workers(&self) -> usize {
+        self.requested_workers
     }
 
     pub fn nsegments(&self) -> usize {

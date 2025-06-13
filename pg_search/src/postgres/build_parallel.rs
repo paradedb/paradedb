@@ -225,7 +225,8 @@ impl<'a> BuildWorker<'a> {
             (*index_info).ii_Concurrent = self.config.concurrent;
 
             let nlaunched = self.coordination.nlaunched();
-            let mut build_state = WorkerBuildState::new(&self.indexrel, &self.heaprel, nlaunched)?;
+            let mut build_state =
+                WorkerBuildState::new(&self.indexrel, &self.heaprel, nlaunched.max(1))?;
 
             let reltuples = pg_sys::table_index_build_scan(
                 self.heaprel.as_ptr(),
@@ -261,13 +262,9 @@ impl WorkerBuildState {
         heaprel: &PgRelation,
         nlaunched: usize,
     ) -> anyhow::Result<Self> {
-        let nlaunched = if unsafe { pg_sys::parallel_leader_participation } {
-            nlaunched + 1
-        } else {
-            nlaunched
-        };
         let per_worker_memory_budget =
             gucs::adjust_maintenance_work_mem(nlaunched).get() / nlaunched;
+        // Each worker should be creating at most number cpus / number workers segments
         let max_segments_to_create = (std::thread::available_parallelism().unwrap().get() as f64
             / nlaunched as f64)
             .ceil() as usize;
@@ -378,7 +375,8 @@ pub(super) fn build_index(
                 .expect("process coordination")
                 .expect("process coordination should not be NULL");
 
-            coordination.set_nlaunched(nlaunched);
+            // account for the leader in the coordination
+            coordination.set_nlaunched(nlaunched + 1);
 
             while coordination.nstarted() != nlaunched {
                 check_for_interrupts!();

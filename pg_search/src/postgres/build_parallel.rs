@@ -269,9 +269,8 @@ impl WorkerBuildState {
         let per_worker_memory_budget =
             gucs::adjust_maintenance_work_mem(nlaunched).get() / nlaunched;
         // Each worker should be creating at most number cpus / number workers segments
-        let max_segments_to_create = (std::thread::available_parallelism().unwrap().get() as f64
-            / nlaunched as f64)
-            .ceil() as usize;
+        let max_segments_to_create =
+            (gucs::available_parallelism() as f64 / nlaunched as f64).ceil() as usize;
         let config = IndexWriterConfig {
             target_docs_per_segment: target_docs_per_segment(heaprel),
             max_segments_to_create: Some(NonZeroUsize::new(max_segments_to_create).unwrap()),
@@ -439,17 +438,13 @@ fn target_docs_per_segment(heaprel: &PgRelation) -> Option<NonZeroUsize> {
         return None;
     }
 
-    let desired_segment_count =
-        std::thread::available_parallelism().expect("your computer should have at least one core");
+    let desired_segment_count = gucs::available_parallelism();
     let reltuples = estimate_heap_reltuples(heaprel);
     if reltuples == 0.0 {
         return None;
     }
 
-    Some(
-        NonZeroUsize::new((reltuples / desired_segment_count.get() as f64).ceil() as usize)
-            .unwrap(),
-    )
+    Some(NonZeroUsize::new((reltuples / desired_segment_count as f64).ceil() as usize).unwrap())
 }
 
 fn create_index_parallelism(heaprel: &PgRelation) -> usize {
@@ -479,7 +474,7 @@ fn create_index_parallelism(heaprel: &PgRelation) -> usize {
 fn should_create_one_segment(heaprel: &PgRelation) -> bool {
     // If there are fewer rows than number of CPUs, use 1 worker
     let reltuples = estimate_heap_reltuples(heaprel);
-    let nworkers = std::thread::available_parallelism().unwrap().get();
+    let nworkers = gucs::available_parallelism();
     if reltuples <= nworkers as f64 {
         pgrx::debug1!("number of reltuples ({reltuples}) is less than number of workers ({nworkers}), creating a single segment");
         return true;

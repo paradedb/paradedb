@@ -27,8 +27,10 @@ use crate::postgres::storage::metadata::MetaPageMut;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use crate::schema::{SearchFieldType, SearchIndexSchema};
 use anyhow::Result;
+use itertools::Itertools;
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::*;
+use std::cmp::Reverse;
 use tantivy::schema::Schema;
 use tantivy::{Index, IndexSettings};
 
@@ -70,20 +72,35 @@ pub extern "C-unwind" fn ambuild(
             build_index(heap_relation, index_relation, (*index_info).ii_Concurrent)
                 .unwrap_or_else(|e| panic!("{e}"));
 
-        let mut result = PgBox::<pg_sys::IndexBuildResult>::alloc0();
-        result.heap_tuples = heap_tuples;
-        result.index_tuples = heap_tuples;
+        // Merge together any segments over number of cpus
+        // this can happen if we got less parallel workers than cores
+        // sort committed_segments by max_doc
+        // let num_cpus = std::thread::available_parallelism().unwrap().get();
+        // // sort from largest to smallest and get the first num cpus
 
-        let segment_ids = committed_segments
-            .iter()
-            .map(|segment| segment.segment_id)
-            .collect::<Vec<_>>();
+        // let sorted_segments = committed_segments.iter().collect::<Vec<_>>().sort_by_key(|segment| Reverse(segment.max_doc));
+        // let mut largest = sorted_segments.iter().take(num_cpus).collect::<Vec<_>>();
+        // let rest = sorted_segments.iter().skip(num_cpus).collect::<Vec<_>>();
+        // let mut merger = SearchIndexMerger::open(MVCCDirectory::snapshot(index_oid))?;
+
+        // for segment in rest {
+        //     // pop of the smallest from largest, by max doc. do not assume largest is sorted
+        //     let smallest = largest.iter().min_by_key(|candidate| candidate.max_doc).unwrap();
+        //     merger.merge_segments(&[smallest.segment_id, segment.segment_id])?;
+        // }
+
         let metadata = MetaPageMut::new(index_oid);
         metadata
-            .record_create_index_segment_ids(segment_ids.iter())
+            .record_create_index_segment_ids(
+                committed_segments.iter().map(|segment| &segment.segment_id),
+            )
             .expect("do_heap_scan: should be able to record segment ids in merge lock");
 
         pg_sys::FlushRelationBuffers(indexrel);
+
+        let mut result = PgBox::<pg_sys::IndexBuildResult>::alloc0();
+        result.heap_tuples = heap_tuples;
+        result.index_tuples = heap_tuples;
         result.into_pg()
     }
 }

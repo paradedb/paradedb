@@ -210,25 +210,35 @@ impl SerialIndexWriter {
 
         self.pending_segment
             .as_mut()
-            .unwrap()
+            .expect("no pending segment")
             .add_document(document)?;
 
-        let pending_segment = self.pending_segment.as_ref().unwrap();
+        let pending_segment = self.pending_segment.as_ref().expect("no pending segment");
         let mem_usage = pending_segment.mem_usage();
         let max_doc = pending_segment.max_doc();
 
-        if mem_usage >= self.config.memory_budget.into()
-            || (self.config.target_docs_per_segment.is_some()
-                && max_doc >= self.config.target_docs_per_segment.unwrap().into())
-        {
-            self.finalize_segment(false)?;
+        let exceeds_target_docs =
+            if let Some(target_docs_per_segment) = self.config.target_docs_per_segment {
+                max_doc >= target_docs_per_segment.into()
+            } else {
+                false
+            };
+        if mem_usage >= self.config.memory_budget.into() || exceeds_target_docs {
+            pgrx::debug1!(
+                "writer {}: finalizing segment, mem_usage: {} (out of {}), max docs: {}",
+                self.id,
+                mem_usage,
+                self.config.memory_budget.get(),
+                max_doc
+            );
+            self.finalize_segment()?;
         }
 
         Ok(())
     }
 
     pub fn commit(mut self) -> Result<HashSet<CommittedSegment>> {
-        self.finalize_segment(true)?;
+        self.finalize_segment()?;
         let committed_segments = self
             .new_metas
             .iter()
@@ -248,9 +258,9 @@ impl SerialIndexWriter {
     ///
     /// Otherwise, we create a MVCCDirectory-backed segment.
     fn new_segment(&mut self) -> Result<PendingSegment> {
-        if self.config.target_docs_per_segment.is_none() || self.new_metas.is_empty() {
+        if self.new_metas.is_empty() {
             pgrx::debug1!(
-                "writer {}: creating a MVCCDirectory-backed segment",
+                "writer {}: no segments created yet, creating a MVCCDirectory-backed segment",
                 self.id
             );
             return PendingSegment::new_mvcc(
@@ -260,14 +270,39 @@ impl SerialIndexWriter {
             );
         }
 
-        let previous_num_docs = self.new_metas.last().unwrap().max_doc() as usize;
-        let target_docs_per_segment = self.config.target_docs_per_segment.unwrap();
+        let will_exceed_max_segments =
+            if let Some(max_segments_to_create) = self.config.max_segments_to_create {
+                self.new_metas.len() == max_segments_to_create.get()
+            } else {
+                false
+            };
 
-        if previous_num_docs + self.avg_docs_per_segment.unwrap_or_default()
-            > target_docs_per_segment.into()
-        {
+        if will_exceed_max_segments {
             pgrx::debug1!(
-                "writer {}: creating a MVCCDirectory-backed segment",
+                "writer {}: will reach segment count capacity, creating a RAM-backed segment",
+                self.id
+            );
+            return PendingSegment::new_ram(
+                RamDirectory::create(),
+                self.index.schema(),
+                self.config.memory_budget,
+                self.indexrelid,
+            );
+        }
+
+        let will_exceed_target_docs =
+            if let Some(target_docs_per_segment) = self.config.target_docs_per_segment {
+                let previous_num_docs = self.new_metas.last().unwrap().max_doc() as usize;
+                let target_docs_per_segment = target_docs_per_segment.get();
+                previous_num_docs + self.avg_docs_per_segment.unwrap_or_default()
+                    > target_docs_per_segment
+            } else {
+                false
+            };
+
+        if will_exceed_target_docs {
+            pgrx::debug1!(
+                "writer {}: will exceed target docs, creating a MVCCDirectory-backed segment",
                 self.id
             );
             return PendingSegment::new_mvcc(
@@ -292,11 +327,8 @@ impl SerialIndexWriter {
     /// 2. Merge the segment with the previous segment if we're using a RAMDirectory
     /// 3. Save the new meta entry
     /// 4. Return any free space to the FSM
-    fn finalize_segment(&mut self, is_last_segment: bool) -> Result<()> {
-        pgrx::debug1!(
-            "writer {}: finalizing segment, is_last_segment: {is_last_segment}",
-            self.id
-        );
+    fn finalize_segment(&mut self) -> Result<()> {
+        pgrx::debug1!("writer {}: finalizing segment", self.id);
         let Some(pending_segment) = self.pending_segment.take() else {
             // no docs were ever added
             return Ok(());
@@ -310,38 +342,18 @@ impl SerialIndexWriter {
             pgrx::debug1!(
                 "writer {}: setting avg_docs_per_segment to {}",
                 self.id,
-                self.avg_docs_per_segment.unwrap()
+                self.avg_docs_per_segment.expect("no avg docs per segment")
             );
         }
 
-        let reached_segment_capacity =
-            if let Some(max_segments_to_create) = self.config.max_segments_to_create {
-                self.new_metas.len() == max_segments_to_create.get()
-            } else {
-                false
-            };
-
-        if reached_segment_capacity {
-            pgrx::debug1!(
-                "writer {}: reached max segments to create, merging segment",
-                self.id
-            );
-            self.merge_then_commit_segment(finalized_segment)?;
-        }
         // If we're committing the last segment, merge it with the previous segment so we don't have any leftover "small" segments
         // If it's a RAMDirectory-backed segment, it must also be merged with the previous segment
-        else if !self.new_metas.is_empty()
-            && (is_last_segment || matches!(directory_type, DirectoryType::Ram(_)))
-        {
-            self.merge_then_commit_segment(finalized_segment)?;
-        }
-        // If it's an MVCC-backed segment, just commit it without merging
-        else {
-            assert!(
-                matches!(directory_type, DirectoryType::Mvcc),
-                "Cannot commit a non-MVCC backed segment"
-            );
-            self.commit_segment(finalized_segment)?;
+        match directory_type {
+            DirectoryType::Ram(_) => {
+                assert!(!self.new_metas.is_empty());
+                self.merge_then_commit_segment(finalized_segment)?
+            }
+            DirectoryType::Mvcc => self.commit_segment(finalized_segment)?,
         }
 
         pgrx::debug1!("writer {}: garbage collecting index", self.id);
@@ -579,6 +591,7 @@ mod tests {
     use std::num::NonZeroUsize;
 
     fn get_relation_oid() -> pg_sys::Oid {
+        Spi::run("SET client_min_messages = 'debug1';").unwrap();
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
         Spi::run("INSERT INTO t (data) VALUES ('test');").unwrap();
         Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
@@ -600,12 +613,16 @@ mod tests {
         let ctid_field = schema.ctid_field();
         let text_field = schema.search_field("data").unwrap().field();
 
+        println!("starting insert");
+
         for i in 0..num_docs {
             let mut document = TantivyDocument::new();
             document.add_text(text_field, "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. Curabitur pretium tincidunt lacus. Nulla gravida orci a odio. Nullam, turpis et commodo pharetra, est eros bibendum elit, nec luctus magna felis sollicitudin mauris. Integer in mauris eu nibh euismod gravida. Duis ac tellus et risus vulputate vehicula. Donec lobortis risus a elit. Etiam tempor.");
             document.add_u64(ctid_field, i as u64);
             writer.insert(document, i as u64).unwrap();
         }
+
+        println!("insert done");
 
         writer.commit().unwrap()
     }
@@ -619,6 +636,8 @@ mod tests {
             target_docs_per_segment: None,
         };
         let segment_ids = simulate_index_writer(config, relation_oid, 25000);
+        println!("segment_ids: {:?}", segment_ids);
+        eprintln!("segment_ids.len(): {}", segment_ids.len());
         assert_eq!(segment_ids.len(), 1);
     }
 
@@ -667,6 +686,8 @@ mod tests {
             target_docs_per_segment: Some(NonZeroUsize::new(1000).unwrap()),
         };
         let segment_ids = simulate_index_writer(config, relation_oid, 25000);
+        println!("segment_ids: {:?}", segment_ids);
+        eprintln!("segment_ids.len(): {}", segment_ids.len());
         assert_eq!(segment_ids.len(), 5);
     }
 }

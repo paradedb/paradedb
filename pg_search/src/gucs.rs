@@ -53,6 +53,8 @@ static MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD_NAME: &str =
 /// it logically can.
 static PER_TUPLE_COST: GucSetting<f64> = GucSetting::<f64>::new(100_000_000.0);
 
+static TARGET_SEGMENT_OVERRIDE: GucSetting<i32> = GucSetting::<i32>::new(0);
+
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
@@ -104,6 +106,17 @@ pub fn init() {
         &PER_TUPLE_COST,
         0.0,
         f64::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        "paradedb.target_segment_override",
+        "Override the target segment count for the index build",
+        "For testing purposes, not to be used in production. If set to a value greater than 0, the index build will use that many segments.",
+        &TARGET_SEGMENT_OVERRIDE,
+        0,
+        i32::MAX,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -168,6 +181,14 @@ pub fn adjust_maintenance_work_mem(nlaunched: usize) -> NonZeroUsize {
 
 pub fn adjust_work_mem(nlaunched: usize) -> NonZeroUsize {
     adjust_mem(unsafe { pg_sys::work_mem as usize }, nlaunched, 15)
+}
+
+pub fn available_parallelism() -> usize {
+    if TARGET_SEGMENT_OVERRIDE.get() > 0 {
+        TARGET_SEGMENT_OVERRIDE.get() as usize
+    } else {
+        std::thread::available_parallelism().unwrap().get()
+    }
 }
 
 #[cfg(any(test, feature = "pg_test"))]

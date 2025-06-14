@@ -416,7 +416,7 @@ pub(super) fn build_index(
         // set target segment pool based on target segment count and number of launched workers
         // for instance, if we have 6 workers and want 8 segments, the target segment pool will be [1, 1, 1, 1, 2, 2]
         let mut target_segment_pool = vec![0; nlaunched_plus_leader];
-        let mut remaining_segments = gucs::target_segment_count();
+        let mut remaining_segments = adjusted_target_segment_count(&heaprel);
         let mut i = 0;
         while remaining_segments > 0 {
             target_segment_pool[i] += 1;
@@ -426,6 +426,10 @@ pub(super) fn build_index(
                 i = 0;
             }
         }
+        pgrx::debug1!(
+            "build_index: setting target segment pool {:?}",
+            target_segment_pool
+        );
         coordination.set_target_segment_pool(target_segment_pool);
 
         let (leader_tuples, leader_segments) = if unsafe { pg_sys::parallel_leader_participation } {
@@ -464,7 +468,11 @@ pub(super) fn build_index(
         // whole build here in this connected backend
         let heaprelid = heaprel.oid();
         let indexrelid = indexrel.oid();
-        let mut coordination = Default::default();
+
+        let mut coordination: WorkerCoordination = Default::default();
+        coordination.set_target_segment_pool(vec![adjusted_target_segment_count(&heaprel)]);
+        coordination.set_nlaunched(1);
+
         let mut worker = BuildWorker::new(
             heaprel,
             indexrel,
@@ -487,8 +495,10 @@ pub(super) fn build_index(
 ///
 /// If the leader is participating, we subtract 1 from the number of workers because the leader also counts as a worker.
 fn create_index_nworkers(heaprel: &PgRelation) -> usize {
-    if should_create_one_segment(heaprel) {
-        return 1;
+    // We don't want a parallel build to happen if we're creating a single segment
+    let target_segment_count = adjusted_target_segment_count(heaprel);
+    if target_segment_count == 1 {
+        return 0;
     }
 
     // NB: we _could_ use pg_sys::plan_create_index_workers(), or on v17+ accept IndexIndex::ii_ParallelWorkers,
@@ -509,32 +519,31 @@ fn create_index_nworkers(heaprel: &PgRelation) -> usize {
     };
 
     // Ensure that we never have more workers (including the leader) than available parallelism
-    let mut nworkers = maintenance_workers.min(gucs::target_segment_count());
-    if unsafe { pg_sys::parallel_leader_participation } && nworkers == gucs::target_segment_count()
-    {
+    let mut nworkers = maintenance_workers.min(target_segment_count);
+    if unsafe { pg_sys::parallel_leader_participation } && nworkers == target_segment_count {
         nworkers -= 1;
     }
     nworkers.max(1)
 }
 
 /// If we determine that the table is very small, we should just create a single segment
-fn should_create_one_segment(heaprel: &PgRelation) -> bool {
+fn adjusted_target_segment_count(heaprel: &PgRelation) -> usize {
     // If there are fewer rows than number of CPUs, use 1 worker
     let reltuples = estimate_heap_reltuples(heaprel);
-    let nsegments = gucs::target_segment_count();
-    if reltuples <= nsegments as f64 {
-        pgrx::debug1!("number of reltuples ({reltuples}) is less than target segment count ({nsegments}), creating a single segment");
-        return true;
+    let target_segment_count = gucs::target_segment_count();
+    if reltuples <= target_segment_count as f64 {
+        pgrx::debug1!("number of reltuples ({reltuples}) is less than target segment count ({target_segment_count}), creating a single segment");
+        return 1;
     }
 
     // If the entire heap fits inside the smallest allowed Tantivy segment memory budget of 15MB, use 1 worker
     let byte_size = estimate_heap_byte_size(heaprel);
     if byte_size <= 15 * 1024 * 1024 {
         pgrx::debug1!("heap byte size ({byte_size}) is less than 15MB, creating a single segment");
-        return true;
+        return 1;
     }
 
-    false
+    target_segment_count
 }
 
 fn estimate_heap_reltuples(heap_relation: &PgRelation) -> f64 {

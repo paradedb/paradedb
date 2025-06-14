@@ -373,6 +373,11 @@ impl SearchIndexReader {
             .iter()
             .enumerate()
             .map(move |(segment_ord, segment_reader)| {
+                pgrx::warning!(
+                    "🔥 Creating ScorerIter for segment {} (ID: {:?})",
+                    segment_ord,
+                    segment_reader.segment_id()
+                );
                 scorer_iter::ScorerIter::new(
                     DeferredScorer::new(
                         query.box_clone(),
@@ -385,6 +390,8 @@ impl SearchIndexReader {
                 )
             })
             .collect::<Vec<_>>();
+
+        pgrx::warning!("🔥 Created {} ScorerIter instances", iters.len());
 
         SearchResults::MultiSegment(self.searcher.clone(), Default::default(), iters, 0)
     }
@@ -811,6 +818,7 @@ mod scorer_iter {
         deferred: DeferredScorer,
         segment_ord: SegmentOrdinal,
         segment_reader: SegmentReader,
+        initialized: bool,
     }
 
     impl ScorerIter {
@@ -823,6 +831,7 @@ mod scorer_iter {
                 deferred: scorer,
                 segment_ord,
                 segment_reader,
+                initialized: false,
             }
         }
     }
@@ -832,6 +841,12 @@ mod scorer_iter {
 
         fn next(&mut self) -> Option<Self::Item> {
             loop {
+                // Initialize the scorer by calling advance() first
+                if !self.initialized {
+                    self.deferred.advance();
+                    self.initialized = true;
+                }
+
                 let doc_id = self.deferred.doc();
 
                 if doc_id == tantivy::TERMINATED {
@@ -856,6 +871,10 @@ mod scorer_iter {
                 }
 
                 // this doc isn't alive, move to the next doc and loop around
+                pgrx::warning!(
+                    "🔥 ScorerIter::next - doc_id {} is not alive, advancing",
+                    doc_id
+                );
                 self.deferred.advance();
             }
         }

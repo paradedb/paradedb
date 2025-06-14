@@ -953,9 +953,49 @@ struct IndexedWithFilterWeight {
 impl Weight for IndexedWithFilterWeight {
     fn scorer(&self, reader: &SegmentReader, boost: Score) -> tantivy::Result<Box<dyn Scorer>> {
         pgrx::warning!("🔥 IndexedWithFilterWeight::scorer called - creating combined scorer");
+        pgrx::warning!("🔥 Segment ID: {:?}", reader.segment_id());
+        pgrx::warning!("🔥 Max doc in segment: {}", reader.max_doc());
+
+        // Count how many times this is called
+        static SCORER_CALL_COUNT: std::sync::atomic::AtomicUsize =
+            std::sync::atomic::AtomicUsize::new(0);
+        let call_count = SCORER_CALL_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        pgrx::warning!("🔥 IndexedWithFilterWeight::scorer call #{}", call_count);
+
+        // Debug: Check if this is the segment containing Apple iPhone 14 (ctid=1)
+        let debug_ctid_ff =
+            crate::index::fast_fields_helper::FFType::new_ctid(reader.fast_fields());
+        for doc_id in 0..reader.max_doc() {
+            let ctid = debug_ctid_ff.as_u64(doc_id).unwrap_or(0);
+            if ctid == 1 {
+                pgrx::warning!(
+                    "🔥 FOUND Apple iPhone 14 (ctid=1) in segment {:?} as doc_id {}",
+                    reader.segment_id(),
+                    doc_id
+                );
+            }
+        }
 
         // Get the indexed scorer
         let indexed_scorer = self.indexed_weight.scorer(reader, boost)?;
+
+        // Debug: Check what the indexed scorer will return
+        pgrx::warning!(
+            "🔥 Checking what indexed scorer will return for segment {:?}",
+            reader.segment_id()
+        );
+
+        // Debug: Check what documents the indexed scorer will return
+        let mut debug_scorer = self.indexed_weight.scorer(reader, boost)?;
+        let mut debug_docs = Vec::new();
+        loop {
+            let doc = debug_scorer.advance();
+            if doc == tantivy::TERMINATED {
+                break;
+            }
+            debug_docs.push(doc);
+        }
+        pgrx::warning!("🔥 Indexed scorer will return docs: {:?}", debug_docs);
 
         // Create fast field helper for ctid extraction
         // For now, we'll create a simple FFType for ctid directly
@@ -964,14 +1004,27 @@ impl Weight for IndexedWithFilterWeight {
         // Get heap relation OID from the global context
         let heaprel_oid = get_heap_relation_oid().unwrap_or(pg_sys::Oid::INVALID);
 
-        Ok(Box::new(IndexedWithFilterScorer {
+        // Get the callback for the external filter
+        let external_filter_callback = get_callback(&self.external_filter_config.expression);
+        pgrx::warning!(
+            "🔥 IndexedWithFilterWeight::scorer - callback found: {}",
+            external_filter_callback.is_some()
+        );
+
+        let scorer = IndexedWithFilterScorer {
             indexed_scorer,
             external_filter_config: self.external_filter_config.clone(),
-            external_filter_callback: None,
+            external_filter_callback,
             reader: reader.clone(),
             ctid_ff,
             heaprel_oid,
-        }))
+        };
+
+        pgrx::warning!(
+            "🔥 Created IndexedWithFilterScorer for segment {:?}",
+            reader.segment_id()
+        );
+        Ok(Box::new(scorer))
     }
 
     fn explain(
@@ -1081,22 +1134,41 @@ impl tantivy::DocSet for IndexedWithFilterScorer {
                 return tantivy::TERMINATED;
             }
 
+            // Debug: Always log what the indexed scorer returns
+            let ctid = self.ctid_ff.as_u64(indexed_doc).unwrap_or(0);
             pgrx::warning!(
-                "🔥 IndexedWithFilterScorer: checking indexed doc {} against external filter",
-                indexed_doc
+                "🔥 IndexedWithFilterScorer: indexed scorer returned doc {} (ctid={})",
+                indexed_doc,
+                ctid
+            );
+
+            // Special debug for Apple iPhone 14
+            if ctid == 1 {
+                pgrx::warning!(
+                    "🔥 FOUND Apple iPhone 14 in IndexedWithFilterScorer! doc={}, ctid={}",
+                    indexed_doc,
+                    ctid
+                );
+            }
+
+            pgrx::warning!(
+                "🔥 IndexedWithFilterScorer: checking indexed doc {} (ctid={}) against external filter",
+                indexed_doc, ctid
             );
 
             // Check if this document passes the external filter
             if self.evaluate_external_filter(indexed_doc) {
                 pgrx::warning!(
-                    "🔥 IndexedWithFilterScorer: doc {} passed external filter",
-                    indexed_doc
+                    "🔥 IndexedWithFilterScorer: doc {} (ctid={}) passed external filter",
+                    indexed_doc,
+                    ctid
                 );
                 return indexed_doc;
             } else {
                 pgrx::warning!(
-                    "🔥 IndexedWithFilterScorer: doc {} filtered out by external filter",
-                    indexed_doc
+                    "🔥 IndexedWithFilterScorer: doc {} (ctid={}) filtered out by external filter",
+                    indexed_doc,
+                    ctid
                 );
                 // Continue to next indexed document
             }
@@ -1116,15 +1188,17 @@ impl tantivy::DocSet for IndexedWithFilterScorer {
 impl IndexedWithFilterScorer {
     /// Evaluate the external filter for a specific document
     fn evaluate_external_filter(&self, doc_id: DocId) -> bool {
+        let ctid = self.ctid_ff.as_u64(doc_id).unwrap_or(0);
         pgrx::warning!(
-            "🔥 IndexedWithFilterScorer::evaluate_external_filter called for doc {}",
-            doc_id
+            "🔥 IndexedWithFilterScorer::evaluate_external_filter called for doc {} (ctid={})",
+            doc_id,
+            ctid
         );
 
-        // Get the callback for this expression
-        if let Some(callback) = get_callback(&self.external_filter_config.expression) {
+        // Use the stored callback for this expression
+        if let Some(callback) = &self.external_filter_callback {
             pgrx::warning!(
-                "🔥 Found callback for expression: {}",
+                "🔥 Found stored callback for expression: {}",
                 self.external_filter_config.expression
             );
 
@@ -1134,16 +1208,35 @@ impl IndexedWithFilterScorer {
 
             // Evaluate the expression using the callback
             let result = callback(doc_id, &field_values);
-            pgrx::warning!("🔥 Callback evaluation result: {}", result);
+            pgrx::warning!(
+                "🔥 Callback evaluation result for doc {} (ctid={}): {}",
+                doc_id,
+                ctid,
+                result
+            );
 
             result
         } else {
             pgrx::warning!(
-                "🔥 NO CALLBACK FOUND for expression: {}",
+                "🔥 NO STORED CALLBACK for expression: {}",
                 self.external_filter_config.expression
             );
-            // No callback found - for testing, let's accept the document anyway
-            true
+            // Try to get callback from registry as fallback
+            if let Some(callback) = get_callback(&self.external_filter_config.expression) {
+                pgrx::warning!("🔥 Found callback in registry as fallback");
+                let field_values = self.extract_field_values(doc_id);
+                let result = callback(doc_id, &field_values);
+                pgrx::warning!(
+                    "🔥 Fallback callback evaluation result for doc {} (ctid={}): {}",
+                    doc_id,
+                    ctid,
+                    result
+                );
+                result
+            } else {
+                pgrx::warning!("🔥 NO CALLBACK FOUND anywhere - accepting document");
+                true
+            }
         }
     }
 

@@ -1138,6 +1138,7 @@ impl CustomScan for PdbScan {
             let exec_method = state.custom_state_mut().exec_method_mut();
 
             // get the next matching document from our search results and look for it in the heap
+            pgrx::warning!("🔥 exec_custom_scan: calling exec_method.next()");
             match exec_method.next(state.custom_state_mut()) {
                 // reached the end of the SearchResults
                 ExecState::Eof => {
@@ -1150,6 +1151,10 @@ impl CustomScan for PdbScan {
                     score,
                     doc_address,
                 } => {
+                    pgrx::warning!(
+                        "🔥 exec_custom_scan: RequiresVisibilityCheck for ctid={}",
+                        ctid
+                    );
                     unsafe {
                         let slot = match check_visibility(state, ctid, state.scanslot().cast()) {
                             // the ctid is visible
@@ -1274,6 +1279,7 @@ impl CustomScan for PdbScan {
 
                 ExecState::Virtual { slot } => unsafe {
                     state.custom_state_mut().virtual_tuple_count += 1;
+                    pgrx::warning!("🔥 exec_custom_scan: Virtual tuple returned");
                     return slot;
                 },
             }

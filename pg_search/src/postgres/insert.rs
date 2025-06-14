@@ -48,8 +48,7 @@ impl InsertState {
     unsafe fn new(indexrel: &PgRelation) -> anyhow::Result<Self> {
         let config = IndexWriterConfig {
             memory_budget: gucs::adjust_work_mem(1),
-            max_segments_to_create: None,
-            target_docs_per_segment: None,
+            target_segment_count: None,
         };
         let writer = SerialIndexWriter::with_mvcc(indexrel, MvccSatisfies::Mergeable, config)?;
         let schema = SearchIndexSchema::open(indexrel.oid())?;

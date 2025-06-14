@@ -49,13 +49,29 @@ impl ParallelStateType for WorkerConfig {}
 type ScanDesc = (usize, *mut pg_sys::ParallelTableScanDescData);
 impl ParallelStateType for pg_sys::ParallelTableScanDescData {}
 
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone)]
 #[repr(C)]
 struct WorkerCoordination {
     mutex: Spinlock,
     nstarted: usize,
     nlaunched: usize,
+    // max_parallel_maintenance_workers is typically much smaller than this
+    target_segment_pool: [usize; 512],
+    pool_size: usize,
 }
+
+impl Default for WorkerCoordination {
+    fn default() -> Self {
+        Self {
+            mutex: Default::default(),
+            nstarted: Default::default(),
+            nlaunched: Default::default(),
+            target_segment_pool: [0; 512],
+            pool_size: Default::default(),
+        }
+    }
+}
+
 impl ParallelStateType for WorkerCoordination {}
 impl WorkerCoordination {
     fn inc_nstarted(&mut self) {
@@ -74,6 +90,18 @@ impl WorkerCoordination {
     fn nlaunched(&mut self) -> usize {
         let _lock = self.mutex.acquire();
         self.nlaunched
+    }
+
+    fn set_target_segment_pool(&mut self, target_segment_pool: Vec<usize>) {
+        let _lock = self.mutex.acquire();
+        self.pool_size = target_segment_pool.len();
+        self.target_segment_pool[..target_segment_pool.len()].copy_from_slice(&target_segment_pool);
+    }
+
+    fn claim_target_segment_count(&mut self) -> usize {
+        let _lock = self.mutex.acquire();
+        self.pool_size -= 1;
+        self.target_segment_pool[self.pool_size]
     }
 }
 
@@ -224,11 +252,17 @@ impl<'a> BuildWorker<'a> {
             let index_info = pg_sys::BuildIndexInfo(self.indexrel.as_ptr());
             (*index_info).ii_Concurrent = self.config.concurrent;
 
+            let target_segment_count = self.coordination.claim_target_segment_count();
             let nlaunched = self.coordination.nlaunched();
+            let per_worker_memory_budget =
+                gucs::adjust_maintenance_work_mem(nlaunched).get() / nlaunched;
             let mut build_state = WorkerBuildState::new(
                 &self.indexrel,
                 &self.heaprel,
-                NonZeroUsize::new(nlaunched.max(1)).unwrap(),
+                NonZeroUsize::new(target_segment_count)
+                    .expect("target segment count should be non-zero"),
+                NonZeroUsize::new(per_worker_memory_budget)
+                    .expect("per worker memory budget should be non-zero"),
             )?;
 
             let reltuples = pg_sys::table_index_build_scan(
@@ -263,18 +297,12 @@ impl WorkerBuildState {
     pub fn new(
         indexrel: &PgRelation,
         heaprel: &PgRelation,
-        nlaunched: NonZeroUsize,
+        target_segment_count: NonZeroUsize,
+        per_worker_memory_budget: NonZeroUsize,
     ) -> anyhow::Result<Self> {
-        let nlaunched = nlaunched.get();
-        let per_worker_memory_budget =
-            gucs::adjust_maintenance_work_mem(nlaunched).get() / nlaunched;
-        // Each worker should be creating at most number cpus / number workers segments
-        let max_segments_to_create =
-            (gucs::available_parallelism() as f64 / nlaunched as f64).ceil() as usize;
         let config = IndexWriterConfig {
-            target_docs_per_segment: target_docs_per_segment(heaprel),
-            max_segments_to_create: Some(NonZeroUsize::new(max_segments_to_create).unwrap()),
-            memory_budget: NonZeroUsize::new(per_worker_memory_budget).unwrap(),
+            target_segment_count: Some(target_segment_count),
+            memory_budget: per_worker_memory_budget,
         };
         let writer = SerialIndexWriter::open(indexrel, config)?;
         let schema = SearchIndexSchema::open(indexrel.oid())?;
@@ -379,7 +407,22 @@ pub(super) fn build_index(
                 .expect("process coordination should not be NULL");
 
             // account for the leader in the coordination
-            coordination.set_nlaunched(nlaunched + 1);
+            let mut nlaunched = nlaunched + 1;
+            coordination.set_nlaunched(nlaunched);
+
+            // set target segment pool based on available parallelism and number of launched workers
+            // for instance, if we have 6 workers and 8 cores, the target segment pool will be [1, 1, 1, 1, 2, 2]
+            let mut target_segment_pool = vec![0; nlaunched];
+            let mut i = 0;
+            while nlaunched > 0 {
+                target_segment_pool[i] += 1;
+                nlaunched -= 1;
+                i += 1;
+                if i == target_segment_pool.len() {
+                    i = 0;
+                }
+            }
+            coordination.set_target_segment_pool(target_segment_pool);
 
             while coordination.nstarted() != nlaunched {
                 check_for_interrupts!();
@@ -429,24 +472,6 @@ pub(super) fn build_index(
     }
 }
 
-/// Estimate the number of documents that should be in each segment for a given index.
-///
-/// This number is calculated by dividing the number of rows in the table by the number of
-/// available cores.
-fn target_docs_per_segment(heaprel: &PgRelation) -> Option<NonZeroUsize> {
-    if should_create_one_segment(heaprel) {
-        return None;
-    }
-
-    let desired_segment_count = gucs::available_parallelism();
-    let reltuples = estimate_heap_reltuples(heaprel);
-    if reltuples == 0.0 {
-        return None;
-    }
-
-    Some(NonZeroUsize::new((reltuples / desired_segment_count as f64).ceil() as usize).unwrap())
-}
-
 fn create_index_parallelism(heaprel: &PgRelation) -> usize {
     if should_create_one_segment(heaprel) {
         return 1;
@@ -456,7 +481,7 @@ fn create_index_parallelism(heaprel: &PgRelation) -> usize {
     // but doing either of these would prohibit the user from having direct control over the number of
     // workers used for a given CREATE INDEX/REINDEX statement.  Internal discussions led to that
     // being more important that us trying to be "smart"
-    unsafe {
+    let maintenance_workers = unsafe {
         if !heaprel.rd_options.is_null() {
             let options = heaprel.rd_options.cast::<pg_sys::StdRdOptions>();
             if (*options).parallel_workers <= 0 {
@@ -467,7 +492,10 @@ fn create_index_parallelism(heaprel: &PgRelation) -> usize {
         } else {
             pg_sys::max_parallel_maintenance_workers as usize
         }
-    }
+    };
+
+    // Since we always target available parallelism, it is useless to have more workers than that
+    maintenance_workers.min(gucs::available_parallelism())
 }
 
 /// If we determine that the table is very small, we should just create a single segment

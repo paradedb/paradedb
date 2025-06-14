@@ -130,8 +130,7 @@ impl PendingSegment {
 
 #[derive(Debug, Clone)]
 pub struct IndexWriterConfig {
-    pub target_docs_per_segment: Option<NonZeroUsize>,
-    pub max_segments_to_create: Option<NonZeroUsize>,
+    pub target_segment_count: Option<NonZeroUsize>,
     pub memory_budget: NonZeroUsize,
 }
 
@@ -217,21 +216,27 @@ impl SerialIndexWriter {
         let mem_usage = pending_segment.mem_usage();
         let max_doc = pending_segment.max_doc();
 
-        let exceeds_target_docs =
-            if let Some(target_docs_per_segment) = self.config.target_docs_per_segment {
-                max_doc >= target_docs_per_segment.into()
-            } else {
-                false
-            };
-        if mem_usage >= self.config.memory_budget.into() || exceeds_target_docs {
+        if mem_usage >= self.config.memory_budget.into() {
             pgrx::debug1!(
-                "writer {}: finalizing segment, mem_usage: {} (out of {}), max docs: {}",
+                "writer {}: finalizing segment, mem_usage: {} (out of {}), num segments: {}",
                 self.id,
                 mem_usage,
                 self.config.memory_budget.get(),
-                max_doc
+                self.new_metas.len()
             );
             self.finalize_segment()?;
+        }
+
+        if let Some(target_segment_count) = self.config.target_segment_count {
+            if self.new_metas.len() < target_segment_count.get() {
+                pgrx::debug1!(
+                    "writer {}: has not reached target segment count ({} out of {}), finalizing segment",
+                    self.id,
+                    self.new_metas.len(),
+                    target_segment_count.get()
+                );
+                self.finalize_segment()?;
+            }
         }
 
         Ok(())
@@ -260,7 +265,7 @@ impl SerialIndexWriter {
     fn new_segment(&mut self) -> Result<PendingSegment> {
         if self.new_metas.is_empty() {
             pgrx::debug1!(
-                "writer {}: no segments created yet, creating a MVCCDirectory-backed segment",
+                "writer {}: metas is empty, creating a MVCCDirectory-backed segment",
                 self.id
             );
             return PendingSegment::new_mvcc(
@@ -270,41 +275,21 @@ impl SerialIndexWriter {
             );
         }
 
-        let will_exceed_max_segments =
-            if let Some(max_segments_to_create) = self.config.max_segments_to_create {
-                self.new_metas.len() == max_segments_to_create.get()
-            } else {
-                false
-            };
-
-        if will_exceed_max_segments {
-            pgrx::debug1!(
-                "writer {}: will reach segment count capacity, creating a RAM-backed segment",
-                self.id
-            );
-            return PendingSegment::new_ram(
-                RamDirectory::create(),
-                self.index.schema(),
-                self.config.memory_budget,
-                self.indexrelid,
-            );
-        }
-
-        let will_exceed_target_docs =
-            if let Some(target_docs_per_segment) = self.config.target_docs_per_segment {
-                let previous_num_docs = self.new_metas.last().unwrap().max_doc() as usize;
-                let target_docs_per_segment = target_docs_per_segment.get();
-                previous_num_docs + self.avg_docs_per_segment.unwrap_or_default()
-                    > target_docs_per_segment
-            } else {
-                false
-            };
-
-        if will_exceed_target_docs {
-            pgrx::debug1!(
-                "writer {}: will exceed target docs, creating a MVCCDirectory-backed segment",
-                self.id
-            );
+        if let Some(target_segment_count) = self.config.target_segment_count {
+            if self.new_metas.len() < target_segment_count.get() {
+                pgrx::debug1!(
+                    "writer {}: has not reached target segment count ({} out of {}), creating a RAM-backed segment",
+                    self.id,
+                    self.new_metas.len(),
+                    target_segment_count.get()
+                );
+                return PendingSegment::new_mvcc(
+                    self.directory.clone(),
+                    self.config.memory_budget,
+                    self.indexrelid,
+                );
+            }
+        } else {
             return PendingSegment::new_mvcc(
                 self.directory.clone(),
                 self.config.memory_budget,
@@ -613,8 +598,6 @@ mod tests {
         let ctid_field = schema.ctid_field();
         let text_field = schema.search_field("data").unwrap().field();
 
-        println!("starting insert");
-
         for i in 0..num_docs {
             let mut document = TantivyDocument::new();
             document.add_text(text_field, "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. Curabitur pretium tincidunt lacus. Nulla gravida orci a odio. Nullam, turpis et commodo pharetra, est eros bibendum elit, nec luctus magna felis sollicitudin mauris. Integer in mauris eu nibh euismod gravida. Duis ac tellus et risus vulputate vehicula. Donec lobortis risus a elit. Etiam tempor.");
@@ -622,18 +605,15 @@ mod tests {
             writer.insert(document, i as u64).unwrap();
         }
 
-        println!("insert done");
-
         writer.commit().unwrap()
     }
 
     #[pg_test]
-    fn test_index_writer_max_one_segment() {
+    fn test_index_writer_target_one_segment() {
         let relation_oid = get_relation_oid();
         let config = IndexWriterConfig {
             memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
-            max_segments_to_create: Some(NonZeroUsize::new(1).unwrap()),
-            target_docs_per_segment: None,
+            target_segment_count: Some(NonZeroUsize::new(1).unwrap()),
         };
         let segment_ids = simulate_index_writer(config, relation_oid, 25000);
         println!("segment_ids: {:?}", segment_ids);
@@ -642,52 +622,53 @@ mod tests {
     }
 
     #[pg_test]
-    fn test_index_writer_max_two_segments() {
+    fn test_index_writer_target_two_segments() {
         let relation_oid = get_relation_oid();
         let config = IndexWriterConfig {
             memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
-            max_segments_to_create: Some(NonZeroUsize::new(2).unwrap()),
-            target_docs_per_segment: None,
+            target_segment_count: Some(NonZeroUsize::new(2).unwrap()),
         };
         let segment_ids = simulate_index_writer(config, relation_oid, 25000);
         assert_eq!(segment_ids.len(), 2);
     }
 
     #[pg_test]
-    fn test_index_writer_target_docs_1k_per_segment() {
+    fn test_index_writer_target_ten_segments() {
         let relation_oid = get_relation_oid();
         let config = IndexWriterConfig {
             memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
-            max_segments_to_create: None,
-            target_docs_per_segment: Some(NonZeroUsize::new(1000).unwrap()),
+            target_segment_count: Some(NonZeroUsize::new(10).unwrap()),
         };
         let segment_ids = simulate_index_writer(config, relation_oid, 25000);
-        assert_eq!(segment_ids.len(), 25);
+        assert_eq!(segment_ids.len(), 10);
     }
 
     #[pg_test]
-    fn test_index_writer_target_docs_5k_per_segment() {
+    fn test_index_writer_target_eight_single_doc_segments() {
         let relation_oid = get_relation_oid();
         let config = IndexWriterConfig {
             memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
-            max_segments_to_create: None,
-            target_docs_per_segment: Some(NonZeroUsize::new(5000).unwrap()),
+            target_segment_count: Some(NonZeroUsize::new(8).unwrap()),
         };
-        let segment_ids = simulate_index_writer(config, relation_oid, 25000);
-        assert_eq!(segment_ids.len(), 5);
+        let segment_ids = simulate_index_writer(config, relation_oid, 8);
+        assert_eq!(segment_ids.len(), 8);
     }
 
     #[pg_test]
-    fn test_index_writer_target_docs_and_max_segments() {
+    fn test_index_writer_no_target_segment_count() {
         let relation_oid = get_relation_oid();
         let config = IndexWriterConfig {
             memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
-            max_segments_to_create: Some(NonZeroUsize::new(5).unwrap()),
-            target_docs_per_segment: Some(NonZeroUsize::new(1000).unwrap()),
+            target_segment_count: None,
+        };
+        let segment_ids = simulate_index_writer(config, relation_oid, 8);
+        assert_eq!(segment_ids.len(), 1);
+
+        let config = IndexWriterConfig {
+            memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
+            target_segment_count: None,
         };
         let segment_ids = simulate_index_writer(config, relation_oid, 25000);
-        println!("segment_ids: {:?}", segment_ids);
-        eprintln!("segment_ids.len(): {}", segment_ids.len());
         assert_eq!(segment_ids.len(), 5);
     }
 }

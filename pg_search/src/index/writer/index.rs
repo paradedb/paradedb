@@ -133,6 +133,7 @@ impl PendingSegment {
 pub struct IndexWriterConfig {
     pub target_segment_count: Option<NonZeroUsize>,
     pub memory_budget: NonZeroUsize,
+    pub min_docs_per_segment: Option<usize>,
 }
 
 /// We want SerialIndexWriter to return a struct like SegmentMeta that implements Deserialize
@@ -213,6 +214,7 @@ impl SerialIndexWriter {
 
         let pending_segment = self.pending_segment.as_ref().expect("no pending segment");
         let mem_usage = pending_segment.mem_usage();
+        let max_doc = pending_segment.max_doc();
 
         if mem_usage >= self.config.memory_budget.into() {
             pgrx::debug1!(
@@ -226,7 +228,9 @@ impl SerialIndexWriter {
         }
 
         if let Some(target_segment_count) = self.config.target_segment_count {
-            if self.new_metas.len() < target_segment_count.get() {
+            if self.new_metas.len() < target_segment_count.get()
+                && max_doc >= self.config.min_docs_per_segment.unwrap_or_default()
+            {
                 pgrx::debug1!(
                     "writer {}: has not reached target segment count ({} out of {}), finalizing segment",
                     self.id,
@@ -603,6 +607,7 @@ mod tests {
         let config = IndexWriterConfig {
             memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
             target_segment_count: Some(NonZeroUsize::new(1).unwrap()),
+            min_docs_per_segment: None,
         };
         let segment_ids = simulate_index_writer(config, relation_oid, 25000);
         assert_eq!(segment_ids.len(), 1);
@@ -615,6 +620,7 @@ mod tests {
         let config = IndexWriterConfig {
             memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
             target_segment_count: Some(NonZeroUsize::new(2).unwrap()),
+            min_docs_per_segment: None,
         };
         let segment_ids = simulate_index_writer(config, relation_oid, 25000);
         assert_eq!(segment_ids.len(), 2);
@@ -627,6 +633,7 @@ mod tests {
         let config = IndexWriterConfig {
             memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
             target_segment_count: Some(NonZeroUsize::new(10).unwrap()),
+            min_docs_per_segment: None,
         };
         let segment_ids = simulate_index_writer(config, relation_oid, 25000);
         assert_eq!(segment_ids.len(), 10);
@@ -639,6 +646,7 @@ mod tests {
         let config = IndexWriterConfig {
             memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
             target_segment_count: Some(NonZeroUsize::new(8).unwrap()),
+            min_docs_per_segment: None,
         };
         let segment_ids = simulate_index_writer(config, relation_oid, 8);
         assert_eq!(segment_ids.len(), 8);
@@ -658,6 +666,7 @@ mod tests {
         let config = IndexWriterConfig {
             memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
             target_segment_count: None,
+            min_docs_per_segment: None,
         };
         let segment_ids = simulate_index_writer(config, relation_oid, 8);
         assert_eq!(segment_ids.len(), 1);
@@ -666,6 +675,7 @@ mod tests {
         let config = IndexWriterConfig {
             memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
             target_segment_count: None,
+            min_docs_per_segment: None,
         };
         let segment_ids = simulate_index_writer(config, relation_oid, 25000);
         assert_eq!(segment_ids.len(), 5);

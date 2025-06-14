@@ -49,6 +49,7 @@ impl InsertState {
         let config = IndexWriterConfig {
             memory_budget: gucs::adjust_work_mem(1),
             target_segment_count: None,
+            min_docs_per_segment: None,
         };
         let writer = SerialIndexWriter::with_mvcc(indexrel, MvccSatisfies::Mergeable, config)?;
         let schema = SearchIndexSchema::open(indexrel.oid())?;

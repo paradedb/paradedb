@@ -256,12 +256,16 @@ impl<'a> BuildWorker<'a> {
             let nlaunched = self.coordination.nlaunched();
             let per_worker_memory_budget =
                 gucs::adjust_maintenance_work_mem(nlaunched).get() / nlaunched;
+            let min_docs_per_segment = (estimate_heap_reltuples(&self.heaprel)
+                / nlaunched as f64
+                / target_segment_count as f64) as usize;
             let mut build_state = WorkerBuildState::new(
                 &self.indexrel,
                 NonZeroUsize::new(target_segment_count)
                     .expect("target segment count should be non-zero"),
                 NonZeroUsize::new(per_worker_memory_budget)
                     .expect("per worker memory budget should be non-zero"),
+                min_docs_per_segment,
             )?;
 
             let reltuples = pg_sys::table_index_build_scan(
@@ -297,10 +301,12 @@ impl WorkerBuildState {
         indexrel: &PgRelation,
         target_segment_count: NonZeroUsize,
         per_worker_memory_budget: NonZeroUsize,
+        min_docs_per_segment: usize,
     ) -> anyhow::Result<Self> {
         let config = IndexWriterConfig {
             target_segment_count: Some(target_segment_count),
             memory_budget: per_worker_memory_budget,
+            min_docs_per_segment: Some(min_docs_per_segment),
         };
         let writer = SerialIndexWriter::open(indexrel, config)?;
         let schema = SearchIndexSchema::open(indexrel.oid())?;
@@ -407,8 +413,8 @@ pub(super) fn build_index(
         }
         coordination.set_nlaunched(nlaunched_plus_leader);
 
-        // set target segment pool based on available parallelism and number of launched workers
-        // for instance, if we have 6 workers and 8 cores, the target segment pool will be [1, 1, 1, 1, 2, 2]
+        // set target segment pool based on target segment count and number of launched workers
+        // for instance, if we have 6 workers and want 8 segments, the target segment pool will be [1, 1, 1, 1, 2, 2]
         let mut target_segment_pool = vec![0; nlaunched_plus_leader];
         let mut remaining_segments = gucs::target_segment_count();
         let mut i = 0;

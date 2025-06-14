@@ -209,10 +209,10 @@ impl SerialIndexWriter {
 
         self.pending_segment
             .as_mut()
-            .expect("no pending segment")
+            .unwrap()
             .add_document(document)?;
 
-        let pending_segment = self.pending_segment.as_ref().expect("no pending segment");
+        let pending_segment = self.pending_segment.as_ref().unwrap();
         let mem_usage = pending_segment.mem_usage();
         let max_doc = pending_segment.max_doc();
 
@@ -225,14 +225,12 @@ impl SerialIndexWriter {
                 self.new_metas.len()
             );
             self.finalize_segment()?;
-        }
-
-        if let Some(target_segment_count) = self.config.target_segment_count {
+        } else if let Some(target_segment_count) = self.config.target_segment_count {
             if self.new_metas.len() < target_segment_count.get()
                 && max_doc >= self.config.min_docs_per_segment.unwrap_or_default()
             {
                 pgrx::debug1!(
-                    "writer {}: has not reached target segment count ({} out of {}), finalizing segment",
+                    "writer {}:finalizing segment, has not reached target segment count ({} out of {})",
                     self.id,
                     self.new_metas.len(),
                     target_segment_count.get()

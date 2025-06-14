@@ -1,7 +1,7 @@
 SELECT id, paradedb.score(id) FROM mock_items_issue_2528 WHERE description @@@ 'shoes' and in_stock = true LIMIT 5;
  id | score 
 ----+-------
-  3 |      
-  5 |      
+  3 |     2
+  5 |     2
 (2 rows)
 

@@ -253,6 +253,9 @@ impl<'a> BuildWorker<'a> {
             (*index_info).ii_Concurrent = self.config.concurrent;
 
             let target_segment_count = self.coordination.claim_target_segment_count();
+
+            pgrx::debug1!("do_build: writer {} claimed target segment count {}", unsafe { pg_sys::ParallelWorkerNumber }, target_segment_count);
+
             let nlaunched = self.coordination.nlaunched();
             let per_worker_memory_budget =
                 gucs::adjust_maintenance_work_mem(nlaunched).get() / nlaunched;
@@ -394,36 +397,40 @@ pub(super) fn build_index(
         nworkers,
         1024
     ) {
+        let nlaunched = process.launched_workers();
+        pgrx::debug1!("build_index: launched {nworkers} workers");
+        let coordination = process
+            .state_manager_mut()
+            .object::<WorkerCoordination>(2)
+            .expect("process coordination")
+            .expect("process coordination should not be NULL");
+
+        // account for the leader in the coordination
+        let mut nlaunched_plus_leader = nlaunched;
+        if unsafe { pg_sys::parallel_leader_participation } {
+            nlaunched_plus_leader += 1;
+        }
+        coordination.set_nlaunched(nlaunched_plus_leader);
+
+        // set target segment pool based on available parallelism and number of launched workers
+        // for instance, if we have 6 workers and 8 cores, the target segment pool will be [1, 1, 1, 1, 2, 2]
+        let mut target_segment_pool = vec![0; nlaunched_plus_leader];
+        let mut remaining_segments = gucs::available_parallelism();
+        let mut i = 0;
+        while remaining_segments > 0 {
+            target_segment_pool[i] += 1;
+            remaining_segments -= 1;
+            i += 1;
+            if i == target_segment_pool.len() {
+                i = 0;
+            }
+        }
+        coordination.set_target_segment_pool(target_segment_pool);
+
         let (leader_tuples, leader_segments) = if unsafe { pg_sys::parallel_leader_participation } {
             // if the leader is to participate too, it's nice for it to wait until all the other workers
             // have indicated that they're running.  Otherwise, it's likely the leader will get ahead
             // of the workers, which doesn't allow for "evenly" distributing the work
-            let nlaunched = process.launched_workers();
-            pgrx::debug1!("build_index: launched {nworkers} workers");
-            let coordination = process
-                .state_manager_mut()
-                .object::<WorkerCoordination>(2)
-                .expect("process coordination")
-                .expect("process coordination should not be NULL");
-
-            // account for the leader in the coordination
-            let mut nlaunched = nlaunched + 1;
-            coordination.set_nlaunched(nlaunched);
-
-            // set target segment pool based on available parallelism and number of launched workers
-            // for instance, if we have 6 workers and 8 cores, the target segment pool will be [1, 1, 1, 1, 2, 2]
-            let mut target_segment_pool = vec![0; nlaunched];
-            let mut i = 0;
-            while nlaunched > 0 {
-                target_segment_pool[i] += 1;
-                nlaunched -= 1;
-                i += 1;
-                if i == target_segment_pool.len() {
-                    i = 0;
-                }
-            }
-            coordination.set_target_segment_pool(target_segment_pool);
-
             while coordination.nstarted() != nlaunched {
                 check_for_interrupts!();
                 std::thread::yield_now();
@@ -494,8 +501,12 @@ fn create_index_parallelism(heaprel: &PgRelation) -> usize {
         }
     };
 
-    // Since we always target available parallelism, it is useless to have more workers than that
-    maintenance_workers.min(gucs::available_parallelism())
+    // Ensure that we never have more workers (including the leader) than available parallelism
+    let mut nworkers =maintenance_workers.min(gucs::available_parallelism());
+    if unsafe { pg_sys::parallel_leader_participation } && nworkers == gucs::available_parallelism() {
+        nworkers -= 1;
+    }
+    nworkers.max(1)
 }
 
 /// If we determine that the table is very small, we should just create a single segment

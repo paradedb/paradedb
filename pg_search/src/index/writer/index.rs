@@ -156,7 +156,6 @@ pub struct SerialIndexWriter {
     index: Index,
     directory: MVCCDirectory,
     pending_segment: Option<PendingSegment>,
-    avg_docs_per_segment: Option<usize>,
     new_metas: Vec<SegmentMeta>,
 }
 
@@ -191,7 +190,6 @@ impl SerialIndexWriter {
             index,
             directory,
             pending_segment: Default::default(),
-            avg_docs_per_segment: Default::default(),
             new_metas: Default::default(),
         })
     }
@@ -321,15 +319,6 @@ impl SerialIndexWriter {
 
         let directory_type = pending_segment.directory_type();
         let finalized_segment = pending_segment.finalize()?;
-
-        if self.avg_docs_per_segment.is_none() {
-            self.avg_docs_per_segment = Some(finalized_segment.meta().num_docs() as usize);
-            pgrx::debug1!(
-                "writer {}: setting avg_docs_per_segment to {}",
-                self.id,
-                self.avg_docs_per_segment.expect("no avg docs per segment")
-            );
-        }
 
         // If we're committing the last segment, merge it with the previous segment so we don't have any leftover "small" segments
         // If it's a RAMDirectory-backed segment, it must also be merged with the previous segment
@@ -616,9 +605,8 @@ mod tests {
             target_segment_count: Some(NonZeroUsize::new(1).unwrap()),
         };
         let segment_ids = simulate_index_writer(config, relation_oid, 25000);
-        println!("segment_ids: {:?}", segment_ids);
-        eprintln!("segment_ids.len(): {}", segment_ids.len());
         assert_eq!(segment_ids.len(), 1);
+        assert_eq!(segment_ids.iter().next().unwrap().max_doc(), 25000);
     }
 
     #[pg_test]
@@ -630,6 +618,7 @@ mod tests {
         };
         let segment_ids = simulate_index_writer(config, relation_oid, 25000);
         assert_eq!(segment_ids.len(), 2);
+        assert_eq!(segment_ids.iter().map(|s| s.max_doc()).sum::<u32>(), 25000);
     }
 
     #[pg_test]
@@ -641,6 +630,7 @@ mod tests {
         };
         let segment_ids = simulate_index_writer(config, relation_oid, 25000);
         assert_eq!(segment_ids.len(), 10);
+        assert_eq!(segment_ids.iter().map(|s| s.max_doc()).sum::<u32>(), 25000);
     }
 
     #[pg_test]
@@ -652,6 +642,14 @@ mod tests {
         };
         let segment_ids = simulate_index_writer(config, relation_oid, 8);
         assert_eq!(segment_ids.len(), 8);
+        assert_eq!(segment_ids.iter().next().unwrap().max_doc(), 1);
+        assert_eq!(segment_ids.iter().nth(1).unwrap().max_doc(), 1);
+        assert_eq!(segment_ids.iter().nth(2).unwrap().max_doc(), 1);
+        assert_eq!(segment_ids.iter().nth(3).unwrap().max_doc(), 1);
+        assert_eq!(segment_ids.iter().nth(4).unwrap().max_doc(), 1);
+        assert_eq!(segment_ids.iter().nth(5).unwrap().max_doc(), 1);
+        assert_eq!(segment_ids.iter().nth(6).unwrap().max_doc(), 1);
+        assert_eq!(segment_ids.iter().nth(7).unwrap().max_doc(), 1);
     }
 
     #[pg_test]
@@ -663,6 +661,7 @@ mod tests {
         };
         let segment_ids = simulate_index_writer(config, relation_oid, 8);
         assert_eq!(segment_ids.len(), 1);
+        assert_eq!(segment_ids.iter().map(|s| s.max_doc()).sum::<u32>(), 8);
 
         let config = IndexWriterConfig {
             memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
@@ -670,5 +669,6 @@ mod tests {
         };
         let segment_ids = simulate_index_writer(config, relation_oid, 25000);
         assert_eq!(segment_ids.len(), 5);
+        assert_eq!(segment_ids.iter().map(|s| s.max_doc()).sum::<u32>(), 25000);
     }
 }

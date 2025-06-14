@@ -641,6 +641,22 @@ mod tests {
     }
 
     #[pg_test]
+    fn test_index_writer_target_min_docs_per_segment() {
+        let relation_oid = get_relation_oid();
+        let config = IndexWriterConfig {
+            memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
+            target_segment_count: Some(NonZeroUsize::new(10).unwrap()),
+            min_docs_per_segment: Some(1000),
+        };
+        let segment_ids = simulate_index_writer(config, relation_oid, 25000);
+        assert_eq!(segment_ids.len(), 10);
+        // with 1K per segment and 10 target segments, the remaining 15k segments get distributed
+        // across 3 segments, leaving 7 segments with 1K docs
+        assert_eq!(segment_ids.iter().filter(|s| s.max_doc == 1000).count(), 7);
+        assert_eq!(segment_ids.iter().map(|s| s.max_doc).sum::<u32>(), 25000);
+    }
+
+    #[pg_test]
     fn test_index_writer_target_eight_single_doc_segments() {
         let relation_oid = get_relation_oid();
         let config = IndexWriterConfig {

@@ -410,7 +410,7 @@ pub(super) fn build_index(
         // set target segment pool based on available parallelism and number of launched workers
         // for instance, if we have 6 workers and 8 cores, the target segment pool will be [1, 1, 1, 1, 2, 2]
         let mut target_segment_pool = vec![0; nlaunched_plus_leader];
-        let mut remaining_segments = gucs::available_parallelism();
+        let mut remaining_segments = gucs::target_segment_count();
         let mut i = 0;
         while remaining_segments > 0 {
             target_segment_pool[i] += 1;
@@ -503,8 +503,8 @@ fn create_index_nworkers(heaprel: &PgRelation) -> usize {
     };
 
     // Ensure that we never have more workers (including the leader) than available parallelism
-    let mut nworkers = maintenance_workers.min(gucs::available_parallelism());
-    if unsafe { pg_sys::parallel_leader_participation } && nworkers == gucs::available_parallelism()
+    let mut nworkers = maintenance_workers.min(gucs::target_segment_count());
+    if unsafe { pg_sys::parallel_leader_participation } && nworkers == gucs::target_segment_count()
     {
         nworkers -= 1;
     }
@@ -515,9 +515,9 @@ fn create_index_nworkers(heaprel: &PgRelation) -> usize {
 fn should_create_one_segment(heaprel: &PgRelation) -> bool {
     // If there are fewer rows than number of CPUs, use 1 worker
     let reltuples = estimate_heap_reltuples(heaprel);
-    let nworkers = gucs::available_parallelism();
-    if reltuples <= nworkers as f64 {
-        pgrx::debug1!("number of reltuples ({reltuples}) is less than number of workers ({nworkers}), creating a single segment");
+    let nsegments = gucs::target_segment_count();
+    if reltuples <= nsegments as f64 {
+        pgrx::debug1!("number of reltuples ({reltuples}) is less than target segment count ({nsegments}), creating a single segment");
         return true;
     }
 

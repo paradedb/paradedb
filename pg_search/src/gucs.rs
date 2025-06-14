@@ -53,7 +53,7 @@ static MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD_NAME: &str =
 /// it logically can.
 static PER_TUPLE_COST: GucSetting<f64> = GucSetting::<f64>::new(100_000_000.0);
 
-static TARGET_SEGMENT_OVERRIDE: GucSetting<i32> = GucSetting::<i32>::new(0);
+static TARGET_SEGMENT_COUNT: GucSetting<i32> = GucSetting::<i32>::new(0);
 
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
@@ -111,10 +111,10 @@ pub fn init() {
     );
 
     GucRegistry::define_int_guc(
-        "paradedb.target_segment_override",
-        "Override the target segment count for the index build",
-        "For testing purposes, not to be used in production. If set to a value greater than 0, the index build will use that many segments.",
-        &TARGET_SEGMENT_OVERRIDE,
+        "paradedb.target_segment_count",
+        "Set the target segment count for a CREATE INDEX/REINDEX statement",
+        "Defaults to 0, which means the number of CPU cores will be used as the target segment count. Increasing the target segment count can be useful if max_parallel_workers_per_gather is greater than the CPU count.",
+        &TARGET_SEGMENT_COUNT,
         0,
         i32::MAX,
         GucContext::Userset,
@@ -183,9 +183,9 @@ pub fn adjust_work_mem(nlaunched: usize) -> NonZeroUsize {
     adjust_mem(unsafe { pg_sys::work_mem as usize }, nlaunched, 15)
 }
 
-pub fn available_parallelism() -> usize {
-    if TARGET_SEGMENT_OVERRIDE.get() > 0 {
-        TARGET_SEGMENT_OVERRIDE.get() as usize
+pub fn target_segment_count() -> usize {
+    if TARGET_SEGMENT_COUNT.get() > 0 {
+        TARGET_SEGMENT_COUNT.get() as usize
     } else {
         std::thread::available_parallelism().unwrap().get()
     }

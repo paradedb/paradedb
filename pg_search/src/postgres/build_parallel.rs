@@ -253,15 +253,11 @@ impl<'a> BuildWorker<'a> {
             (*index_info).ii_Concurrent = self.config.concurrent;
 
             let target_segment_count = self.coordination.claim_target_segment_count();
-
-            pgrx::debug1!("do_build: writer {} claimed target segment count {}", unsafe { pg_sys::ParallelWorkerNumber }, target_segment_count);
-
             let nlaunched = self.coordination.nlaunched();
             let per_worker_memory_budget =
                 gucs::adjust_maintenance_work_mem(nlaunched).get() / nlaunched;
             let mut build_state = WorkerBuildState::new(
                 &self.indexrel,
-                &self.heaprel,
                 NonZeroUsize::new(target_segment_count)
                     .expect("target segment count should be non-zero"),
                 NonZeroUsize::new(per_worker_memory_budget)
@@ -299,7 +295,6 @@ struct WorkerBuildState {
 impl WorkerBuildState {
     pub fn new(
         indexrel: &PgRelation,
-        heaprel: &PgRelation,
         target_segment_count: NonZeroUsize,
         per_worker_memory_budget: NonZeroUsize,
     ) -> anyhow::Result<Self> {
@@ -502,8 +497,9 @@ fn create_index_parallelism(heaprel: &PgRelation) -> usize {
     };
 
     // Ensure that we never have more workers (including the leader) than available parallelism
-    let mut nworkers =maintenance_workers.min(gucs::available_parallelism());
-    if unsafe { pg_sys::parallel_leader_participation } && nworkers == gucs::available_parallelism() {
+    let mut nworkers = maintenance_workers.min(gucs::available_parallelism());
+    if unsafe { pg_sys::parallel_leader_participation } && nworkers == gucs::available_parallelism()
+    {
         nworkers -= 1;
     }
     nworkers.max(1)

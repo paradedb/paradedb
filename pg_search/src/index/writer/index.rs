@@ -109,6 +109,7 @@ impl PendingSegment {
         self.directory_type.clone()
     }
 
+    #[allow(dead_code)]
     fn max_doc(&self) -> usize {
         self.writer.max_doc() as usize
     }
@@ -212,7 +213,6 @@ impl SerialIndexWriter {
 
         let pending_segment = self.pending_segment.as_ref().expect("no pending segment");
         let mem_usage = pending_segment.mem_usage();
-        let max_doc = pending_segment.max_doc();
 
         if mem_usage >= self.config.memory_budget.into() {
             pgrx::debug1!(
@@ -606,7 +606,7 @@ mod tests {
         };
         let segment_ids = simulate_index_writer(config, relation_oid, 25000);
         assert_eq!(segment_ids.len(), 1);
-        assert_eq!(segment_ids.iter().next().unwrap().max_doc(), 25000);
+        assert_eq!(segment_ids.iter().next().unwrap().max_doc, 25000);
     }
 
     #[pg_test]
@@ -618,7 +618,7 @@ mod tests {
         };
         let segment_ids = simulate_index_writer(config, relation_oid, 25000);
         assert_eq!(segment_ids.len(), 2);
-        assert_eq!(segment_ids.iter().map(|s| s.max_doc()).sum::<u32>(), 25000);
+        assert_eq!(segment_ids.iter().map(|s| s.max_doc).sum::<u32>(), 25000);
     }
 
     #[pg_test]
@@ -630,7 +630,7 @@ mod tests {
         };
         let segment_ids = simulate_index_writer(config, relation_oid, 25000);
         assert_eq!(segment_ids.len(), 10);
-        assert_eq!(segment_ids.iter().map(|s| s.max_doc()).sum::<u32>(), 25000);
+        assert_eq!(segment_ids.iter().map(|s| s.max_doc).sum::<u32>(), 25000);
     }
 
     #[pg_test]
@@ -642,14 +642,14 @@ mod tests {
         };
         let segment_ids = simulate_index_writer(config, relation_oid, 8);
         assert_eq!(segment_ids.len(), 8);
-        assert_eq!(segment_ids.iter().next().unwrap().max_doc(), 1);
-        assert_eq!(segment_ids.iter().nth(1).unwrap().max_doc(), 1);
-        assert_eq!(segment_ids.iter().nth(2).unwrap().max_doc(), 1);
-        assert_eq!(segment_ids.iter().nth(3).unwrap().max_doc(), 1);
-        assert_eq!(segment_ids.iter().nth(4).unwrap().max_doc(), 1);
-        assert_eq!(segment_ids.iter().nth(5).unwrap().max_doc(), 1);
-        assert_eq!(segment_ids.iter().nth(6).unwrap().max_doc(), 1);
-        assert_eq!(segment_ids.iter().nth(7).unwrap().max_doc(), 1);
+        assert_eq!(segment_ids.iter().next().unwrap().max_doc, 1);
+        assert_eq!(segment_ids.iter().nth(1).unwrap().max_doc, 1);
+        assert_eq!(segment_ids.iter().nth(2).unwrap().max_doc, 1);
+        assert_eq!(segment_ids.iter().nth(3).unwrap().max_doc, 1);
+        assert_eq!(segment_ids.iter().nth(4).unwrap().max_doc, 1);
+        assert_eq!(segment_ids.iter().nth(5).unwrap().max_doc, 1);
+        assert_eq!(segment_ids.iter().nth(6).unwrap().max_doc, 1);
+        assert_eq!(segment_ids.iter().nth(7).unwrap().max_doc, 1);
     }
 
     #[pg_test]
@@ -661,7 +661,7 @@ mod tests {
         };
         let segment_ids = simulate_index_writer(config, relation_oid, 8);
         assert_eq!(segment_ids.len(), 1);
-        assert_eq!(segment_ids.iter().map(|s| s.max_doc()).sum::<u32>(), 8);
+        assert_eq!(segment_ids.iter().map(|s| s.max_doc).sum::<u32>(), 8);
 
         let config = IndexWriterConfig {
             memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
@@ -669,6 +669,6 @@ mod tests {
         };
         let segment_ids = simulate_index_writer(config, relation_oid, 25000);
         assert_eq!(segment_ids.len(), 5);
-        assert_eq!(segment_ids.iter().map(|s| s.max_doc()).sum::<u32>(), 25000);
+        assert_eq!(segment_ids.iter().map(|s| s.max_doc).sum::<u32>(), 25000);
     }
 }

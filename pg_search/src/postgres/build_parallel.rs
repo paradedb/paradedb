@@ -382,7 +382,7 @@ pub(super) fn build_index(
     });
 
     let process = ParallelBuild::new(&heaprel, &indexrel, snapshot.0, concurrent);
-    let nworkers = create_index_parallelism(&heaprel);
+    let nworkers = create_index_nworkers(&heaprel);
     pgrx::debug1!("build_index: asked for {nworkers} workers");
 
     if let Some(mut process) = launch_parallel_process!(
@@ -474,7 +474,13 @@ pub(super) fn build_index(
     }
 }
 
-fn create_index_parallelism(heaprel: &PgRelation) -> usize {
+/// Determine the number of workers to use for a given CREATE INDEX/REINDEX statement.
+///
+/// The number of workers is determined by max_parallel_maintenance_workers. However, if max_parallel_maintenance_workers
+/// is greater than available parallelism, we use available parallelism.
+///
+/// If the leader is participating, we subtract 1 from the number of workers because the leader also counts as a worker.
+fn create_index_nworkers(heaprel: &PgRelation) -> usize {
     if should_create_one_segment(heaprel) {
         return 1;
     }

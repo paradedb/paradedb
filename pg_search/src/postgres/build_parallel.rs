@@ -34,6 +34,10 @@ use std::num::NonZeroUsize;
 use std::ptr::{addr_of_mut, NonNull};
 use tantivy::TantivyDocument;
 
+// target_segment_pool in WorkerCoordination requires a fixed size array, so we have to limit the
+// number of workers to 512, which is okay because max_parallel_maintenance_workers is typically much smaller
+const MAX_CREATE_INDEX_WORKERS: usize = 512;
+
 /// General, immutable configuration used for the workers
 #[derive(Copy, Clone)]
 #[repr(C)]
@@ -55,8 +59,7 @@ struct WorkerCoordination {
     mutex: Spinlock,
     nstarted: usize,
     nlaunched: usize,
-    // max_parallel_maintenance_workers is typically much smaller than this
-    target_segment_pool: [usize; 512],
+    target_segment_pool: [usize; MAX_CREATE_INDEX_WORKERS],
     pool_size: usize,
 }
 
@@ -518,8 +521,11 @@ fn create_index_nworkers(heaprel: &PgRelation) -> usize {
         }
     };
 
-    // Ensure that we never have more workers (including the leader) than available parallelism
-    let mut nworkers = maintenance_workers.min(target_segment_count);
+    // Ensure that we never have more workers (including the leader) than both the target segment count
+    // and max allowed number of workers
+    let mut nworkers = maintenance_workers
+        .min(target_segment_count)
+        .min(MAX_CREATE_INDEX_WORKERS);
     if unsafe { pg_sys::parallel_leader_participation } && nworkers == target_segment_count {
         nworkers -= 1;
     }

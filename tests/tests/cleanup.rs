@@ -65,6 +65,7 @@ fn create_and_drop_builtin_index(mut conn: PgConnection) {
 fn bulk_insert_merge_behavior(mut conn: PgConnection) {
     r#"
         SET maintenance_work_mem = '1GB';
+        SET work_mem = '1GB';
         DROP TABLE IF EXISTS test_table;
         CREATE TABLE test_table (id SERIAL PRIMARY KEY, value TEXT NOT NULL);
 

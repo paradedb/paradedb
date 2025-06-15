@@ -94,13 +94,11 @@ impl WorkerCoordination {
         let _lock = self.mutex.acquire();
         self.nlaunched
     }
-
     fn set_target_segment_pool(&mut self, target_segment_pool: Vec<usize>) {
         let _lock = self.mutex.acquire();
         self.pool_size = target_segment_pool.len();
         self.target_segment_pool[..target_segment_pool.len()].copy_from_slice(&target_segment_pool);
     }
-
     fn claim_target_segment_count(&mut self) -> usize {
         assert!(self.pool_size > 0, "all segments have been claimed");
         let _lock = self.mutex.acquire();

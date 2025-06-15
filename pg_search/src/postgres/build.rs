@@ -77,6 +77,7 @@ pub extern "C-unwind" fn ambuild(
             )
             .expect("do_heap_scan: should be able to record segment ids in merge lock");
 
+        pgrx::debug1!("build_index: flushing buffers");
         pg_sys::FlushRelationBuffers(indexrel);
 
         let mut result = PgBox::<pg_sys::IndexBuildResult>::alloc0();

@@ -278,7 +278,7 @@ impl SerialIndexWriter {
         if let Some(target_segment_count) = self.config.target_segment_count {
             if self.new_metas.len() < target_segment_count.get() {
                 pgrx::debug1!(
-                    "writer {}: has not reached target segment count ({} out of {}), creating a RAM-backed segment",
+                    "writer {}: has not reached target segment count ({} out of {}), creating a MVCCDirectory-backed segment",
                     self.id,
                     self.new_metas.len(),
                     target_segment_count.get()

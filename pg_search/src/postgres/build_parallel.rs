@@ -521,15 +521,36 @@ fn create_index_nworkers(heaprel: &PgRelation) -> usize {
         }
     };
 
-    // Ensure that we never have more workers (including the leader) than both the target segment count
+    if maintenance_workers == 0 {
+        return 0;
+    }
+
+    // ensure that we never have more workers (including the leader) than both the target segment count
     // and max allowed number of workers
     let mut nworkers = maintenance_workers
         .min(target_segment_count)
         .min(MAX_CREATE_INDEX_WORKERS);
-    if unsafe { pg_sys::parallel_leader_participation } && nworkers == target_segment_count {
+
+    pgrx::debug1!("create_index_nworkers: maintenance_workers: {maintenance_workers}, target_segment_count: {target_segment_count}, nworkers: {nworkers}");
+
+    // round down nworkers such that target_segment_count / nworkers is a whole number
+    // for instance, if the target is 32 and nworkers is 10, we want to round down to 8
+    // this way, each worker builds the same number of segments, making them more evenly distributed
+    for i in (1..nworkers + 1).rev() {
+        if target_segment_count % i == 0 {
+            nworkers = i;
+            break;
+        }
+    }
+
+    pgrx::debug1!("create_index_nworkers: nworkers rounded down to {nworkers}");
+
+    // if the leader is participating, create one less worker because the leader also counts as a worker
+    if unsafe { pg_sys::parallel_leader_participation } {
         nworkers -= 1;
     }
-    nworkers.max(1)
+
+    nworkers
 }
 
 /// If we determine that the table is very small, we should just create a single segment

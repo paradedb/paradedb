@@ -15,6 +15,7 @@ DECLARE
     ts int;
     mwm text;
     count_val int;
+    num_docs_val int;
 BEGIN
     FOREACH mw IN ARRAY maintenance_workers LOOP
         FOREACH lp IN ARRAY leader_participation LOOP
@@ -32,8 +33,9 @@ BEGIN
 
                     -- Check index info and display results
                     SELECT COUNT(*) INTO count_val FROM paradedb.index_info('parallel_build_large_idx');
-                    RAISE INFO 'Config: workers=%, leader_participation=%, segments=%, work_mem=% -> Count: %',
-                        mw, lp, ts, mwm, count_val;
+                    SELECT SUM(num_docs) INTO num_docs_val FROM paradedb.index_info('parallel_build_large_idx');
+                    RAISE INFO 'Config: workers=%, work_mem=%,leader_participation=%, segments=%-> Count: %, Num Docs: %',
+                        mw, mwm,lp, ts, count_val, num_docs_val;
                 END LOOP;
             END LOOP;
         END LOOP;

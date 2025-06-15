@@ -22,6 +22,7 @@ DECLARE
     ts int;
     mwm text;
     count_val int;
+    num_docs_val int;
 BEGIN
     FOREACH mw IN ARRAY maintenance_workers LOOP
         FOREACH lp IN ARRAY leader_participation LOOP
@@ -39,37 +40,38 @@ BEGIN
 
                     -- Check index info and display results
                     SELECT COUNT(*) INTO count_val FROM paradedb.index_info('parallel_build_large_idx');
-                    RAISE INFO 'Config: workers=%, leader_participation=%, segments=%, work_mem=% -> Count: %',
-                        mw, lp, ts, mwm, count_val;
+                    SELECT SUM(num_docs) INTO num_docs_val FROM paradedb.index_info('parallel_build_large_idx');
+                    RAISE INFO 'Config: workers=%, work_mem=%,leader_participation=%, segments=%-> Count: %, Num Docs: %',
+                        mw, mwm,lp, ts, count_val, num_docs_val;
                 END LOOP;
             END LOOP;
         END LOOP;
     END LOOP;
 END $$;
 NOTICE:  index "parallel_build_large_idx" does not exist, skipping
-INFO:  Config: workers=16, leader_participation=t, segments=4, work_mem=2GB -> Count: 4
-INFO:  Config: workers=16, leader_participation=t, segments=4, work_mem=64MB -> Count: 4
-INFO:  Config: workers=16, leader_participation=t, segments=32, work_mem=2GB -> Count: 32
-INFO:  Config: workers=16, leader_participation=t, segments=32, work_mem=64MB -> Count: 32
-INFO:  Config: workers=16, leader_participation=f, segments=4, work_mem=2GB -> Count: 4
-INFO:  Config: workers=16, leader_participation=f, segments=4, work_mem=64MB -> Count: 4
-INFO:  Config: workers=16, leader_participation=f, segments=32, work_mem=2GB -> Count: 32
-INFO:  Config: workers=16, leader_participation=f, segments=32, work_mem=64MB -> Count: 32
-INFO:  Config: workers=8, leader_participation=t, segments=4, work_mem=2GB -> Count: 4
-INFO:  Config: workers=8, leader_participation=t, segments=4, work_mem=64MB -> Count: 4
-INFO:  Config: workers=8, leader_participation=t, segments=32, work_mem=2GB -> Count: 32
-INFO:  Config: workers=8, leader_participation=t, segments=32, work_mem=64MB -> Count: 32
-INFO:  Config: workers=8, leader_participation=f, segments=4, work_mem=2GB -> Count: 4
-INFO:  Config: workers=8, leader_participation=f, segments=4, work_mem=64MB -> Count: 4
-INFO:  Config: workers=8, leader_participation=f, segments=32, work_mem=2GB -> Count: 32
-INFO:  Config: workers=8, leader_participation=f, segments=32, work_mem=64MB -> Count: 32
-INFO:  Config: workers=2, leader_participation=t, segments=4, work_mem=2GB -> Count: 4
-INFO:  Config: workers=2, leader_participation=t, segments=4, work_mem=64MB -> Count: 4
-INFO:  Config: workers=2, leader_participation=t, segments=32, work_mem=2GB -> Count: 32
-INFO:  Config: workers=2, leader_participation=t, segments=32, work_mem=64MB -> Count: 32
-INFO:  Config: workers=2, leader_participation=f, segments=4, work_mem=2GB -> Count: 4
-INFO:  Config: workers=2, leader_participation=f, segments=4, work_mem=64MB -> Count: 4
-INFO:  Config: workers=2, leader_participation=f, segments=32, work_mem=2GB -> Count: 32
-INFO:  Config: workers=2, leader_participation=f, segments=32, work_mem=64MB -> Count: 32
+INFO:  Config: workers=16, work_mem=2GB,leader_participation=t, segments=4-> Count: 4, Num Docs: 35000
+INFO:  Config: workers=16, work_mem=64MB,leader_participation=t, segments=4-> Count: 4, Num Docs: 35000
+INFO:  Config: workers=16, work_mem=2GB,leader_participation=t, segments=32-> Count: 32, Num Docs: 35000
+INFO:  Config: workers=16, work_mem=64MB,leader_participation=t, segments=32-> Count: 32, Num Docs: 35000
+INFO:  Config: workers=16, work_mem=2GB,leader_participation=f, segments=4-> Count: 4, Num Docs: 35000
+INFO:  Config: workers=16, work_mem=64MB,leader_participation=f, segments=4-> Count: 4, Num Docs: 35000
+INFO:  Config: workers=16, work_mem=2GB,leader_participation=f, segments=32-> Count: 32, Num Docs: 35000
+INFO:  Config: workers=16, work_mem=64MB,leader_participation=f, segments=32-> Count: 32, Num Docs: 35000
+INFO:  Config: workers=8, work_mem=2GB,leader_participation=t, segments=4-> Count: 4, Num Docs: 35000
+INFO:  Config: workers=8, work_mem=64MB,leader_participation=t, segments=4-> Count: 4, Num Docs: 35000
+INFO:  Config: workers=8, work_mem=2GB,leader_participation=t, segments=32-> Count: 32, Num Docs: 35000
+INFO:  Config: workers=8, work_mem=64MB,leader_participation=t, segments=32-> Count: 32, Num Docs: 35000
+INFO:  Config: workers=8, work_mem=2GB,leader_participation=f, segments=4-> Count: 4, Num Docs: 35000
+INFO:  Config: workers=8, work_mem=64MB,leader_participation=f, segments=4-> Count: 4, Num Docs: 35000
+INFO:  Config: workers=8, work_mem=2GB,leader_participation=f, segments=32-> Count: 32, Num Docs: 35000
+INFO:  Config: workers=8, work_mem=64MB,leader_participation=f, segments=32-> Count: 32, Num Docs: 35000
+INFO:  Config: workers=2, work_mem=2GB,leader_participation=t, segments=4-> Count: 4, Num Docs: 35000
+INFO:  Config: workers=2, work_mem=64MB,leader_participation=t, segments=4-> Count: 4, Num Docs: 35000
+INFO:  Config: workers=2, work_mem=2GB,leader_participation=t, segments=32-> Count: 32, Num Docs: 35000
+INFO:  Config: workers=2, work_mem=64MB,leader_participation=t, segments=32-> Count: 32, Num Docs: 35000
+INFO:  Config: workers=2, work_mem=2GB,leader_participation=f, segments=4-> Count: 4, Num Docs: 35000
+INFO:  Config: workers=2, work_mem=64MB,leader_participation=f, segments=4-> Count: 4, Num Docs: 35000
+INFO:  Config: workers=2, work_mem=2GB,leader_participation=f, segments=32-> Count: 32, Num Docs: 35000
+INFO:  Config: workers=2, work_mem=64MB,leader_participation=f, segments=32-> Count: 32, Num Docs: 35000
 \i common/parallel_build_large_cleanup.sql
 DROP TABLE IF EXISTS parallel_build_large;

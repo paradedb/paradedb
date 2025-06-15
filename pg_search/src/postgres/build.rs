@@ -66,20 +66,23 @@ pub extern "C-unwind" fn ambuild(
         ambuildempty(indexrel);
 
         let index_oid = index_relation.oid();
-        let (heap_tuples, segment_ids) =
+        let (heap_tuples, committed_segments) =
             build_index(heap_relation, index_relation, (*index_info).ii_Concurrent)
                 .unwrap_or_else(|e| panic!("{e}"));
+
+        let metadata = MetaPageMut::new(index_oid);
+        metadata
+            .record_create_index_segment_ids(
+                committed_segments.iter().map(|segment| &segment.segment_id),
+            )
+            .expect("do_heap_scan: should be able to record segment ids in merge lock");
+
+        pgrx::debug1!("build_index: flushing buffers");
+        pg_sys::FlushRelationBuffers(indexrel);
 
         let mut result = PgBox::<pg_sys::IndexBuildResult>::alloc0();
         result.heap_tuples = heap_tuples;
         result.index_tuples = heap_tuples;
-
-        let metadata = MetaPageMut::new(index_oid);
-        metadata
-            .record_create_index_segment_ids(segment_ids.iter())
-            .expect("do_heap_scan: should be able to record segment ids in merge lock");
-
-        pg_sys::FlushRelationBuffers(indexrel);
         result.into_pg()
     }
 }

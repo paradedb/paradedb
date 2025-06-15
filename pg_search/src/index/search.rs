@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::gucs;
 use crate::postgres::options::SearchIndexOptions;
 use crate::postgres::utils::categorize_fields;
 use crate::schema::SearchIndexSchema;
@@ -23,32 +22,8 @@ use crate::schema::SearchIndexSchema;
 use anyhow::Result;
 use pgrx::pg_sys;
 use pgrx::PgRelation;
-use std::num::NonZeroUsize;
 use tantivy::Index;
 use tokenizers::{create_normalizer_manager, create_tokenizer_manager, SearchTokenizer};
-
-pub enum WriterResources {
-    CreateIndex,
-    Statement,
-}
-pub type Parallelism = NonZeroUsize;
-pub type MemoryBudget = usize;
-pub type IndexConfig = (Parallelism, MemoryBudget);
-
-impl WriterResources {
-    pub fn resources(&self) -> IndexConfig {
-        match self {
-            WriterResources::CreateIndex => (
-                gucs::create_index_parallelism(),
-                gucs::create_index_memory_budget(),
-            ),
-            WriterResources::Statement => (
-                gucs::statement_parallelism(),
-                gucs::statement_memory_budget(),
-            ),
-        }
-    }
-}
 
 pub fn setup_tokenizers(relation_oid: pg_sys::Oid, index: &mut Index) -> Result<()> {
     let index_relation = unsafe { PgRelation::open(relation_oid) };

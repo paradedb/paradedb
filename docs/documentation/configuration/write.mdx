@@ -1,21 +1,19 @@
 ---
-title: Throughput
+title: Write Throughput
 ---
 
 Several settings can be used to tune the throughput of `INSERT`/`UPDATE`/`COPY` statements to the BM25 index.
 
-## Statement Memory Budget
+## Work Memory
 
-`paradedb.statement_memory_budget` defaults to `1024MB`. It sets the amount of memory to dedicate per indexing thread before the index segment needs to be
-written to disk. The value is measured in megabytes. In terms of raw indexing performance, larger is generally better.
-
-If set to `0`, `maintenance_work_mem` divided by [statement parallelism](#statement-parallelism) will be used.
+`work_mem` controls how much memory to allocate to a single `INSERT`/`UPDATE`/`COPY` statement. Each statement that writes to a BM25 index is required to have at least `15MB` memory. If
+`work_mem` is below `15MB`, it will be ignored and `15MB` will be used.
 
 If your typical update patterns are single-row atomic `INSERT`s or `UPDATE`s, then a value of `15MB` can prevent unnecessary memory from being allocated. For bulk inserts
 and updates, a larger value is better.
 
 ```sql
-SET paradedb.statement_memory_budget = 15;
+SET work_mem = 15MB;
 ```
 
-Like [`paradedb.create_index_memory_budget`](/documentation/configuration/index#indexing-memory-per-thread), this setting can affect the number of segments in the index.
+Since many write operations can be running concurrently, this value should be raised more conservatively than `maintenance_work_mem`.

@@ -1,0 +1,76 @@
+\i common/parallel_build_small_setup.sql
+DROP TABLE IF EXISTS parallel_build_small;
+CREATE EXTENSION IF NOT EXISTS pg_search;
+CREATE TABLE parallel_build_small (
+    id SERIAL PRIMARY KEY,
+    name TEXT,
+    age INT
+);
+INSERT INTO parallel_build_small (name, age)
+SELECT 'lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.',
+20 FROM generate_series(1, 32);
+DROP INDEX IF EXISTS parallel_build_small_idx;
+SET max_parallel_workers = 8;
+SET client_min_messages TO INFO;
+DO $$
+DECLARE
+    maintenance_work_mem text[] := ARRAY['2GB', '64MB'];
+    maintenance_workers int[] := ARRAY[8, 1, 0];
+    leader_participation boolean[] := ARRAY[true, false];
+    target_segments int[] := ARRAY[4, 1];
+    mw int;
+    lp boolean;
+    ts int;
+    mwm text;
+    count_val int;
+BEGIN
+    FOREACH mw IN ARRAY maintenance_workers LOOP
+        FOREACH lp IN ARRAY leader_participation LOOP
+            FOREACH ts IN ARRAY target_segments LOOP
+                FOREACH mwm IN ARRAY maintenance_work_mem LOOP
+                    -- Set configuration
+                    EXECUTE format('SET max_parallel_maintenance_workers = %s', mw);
+                    EXECUTE format('SET parallel_leader_participation = %s', lp);
+                    EXECUTE format('SET paradedb.target_segment_count = %s', ts);
+                    EXECUTE format('SET maintenance_work_mem = %L', mwm);
+
+                    -- Drop and recreate index
+                    DROP INDEX IF EXISTS parallel_build_small_idx;
+                    CREATE INDEX parallel_build_small_idx ON parallel_build_small USING bm25 (id, name, age) WITH (key_field = 'id');
+
+                    -- Check index info and display results
+                    SELECT COUNT(*) INTO count_val FROM paradedb.index_info('parallel_build_small_idx');
+                    RAISE INFO 'Config: workers=%, leader_participation=%, segments=%, work_mem=% -> Count: %',
+                        mw, lp, ts, mwm, count_val;
+                END LOOP;
+            END LOOP;
+        END LOOP;
+    END LOOP;
+END $$;
+NOTICE:  index "parallel_build_small_idx" does not exist, skipping
+INFO:  Config: workers=8, leader_participation=t, segments=4, work_mem=2GB -> Count: 1
+INFO:  Config: workers=8, leader_participation=t, segments=4, work_mem=64MB -> Count: 1
+INFO:  Config: workers=8, leader_participation=t, segments=1, work_mem=2GB -> Count: 1
+INFO:  Config: workers=8, leader_participation=t, segments=1, work_mem=64MB -> Count: 1
+INFO:  Config: workers=8, leader_participation=f, segments=4, work_mem=2GB -> Count: 1
+INFO:  Config: workers=8, leader_participation=f, segments=4, work_mem=64MB -> Count: 1
+INFO:  Config: workers=8, leader_participation=f, segments=1, work_mem=2GB -> Count: 1
+INFO:  Config: workers=8, leader_participation=f, segments=1, work_mem=64MB -> Count: 1
+INFO:  Config: workers=1, leader_participation=t, segments=4, work_mem=2GB -> Count: 1
+INFO:  Config: workers=1, leader_participation=t, segments=4, work_mem=64MB -> Count: 1
+INFO:  Config: workers=1, leader_participation=t, segments=1, work_mem=2GB -> Count: 1
+INFO:  Config: workers=1, leader_participation=t, segments=1, work_mem=64MB -> Count: 1
+INFO:  Config: workers=1, leader_participation=f, segments=4, work_mem=2GB -> Count: 1
+INFO:  Config: workers=1, leader_participation=f, segments=4, work_mem=64MB -> Count: 1
+INFO:  Config: workers=1, leader_participation=f, segments=1, work_mem=2GB -> Count: 1
+INFO:  Config: workers=1, leader_participation=f, segments=1, work_mem=64MB -> Count: 1
+INFO:  Config: workers=0, leader_participation=t, segments=4, work_mem=2GB -> Count: 1
+INFO:  Config: workers=0, leader_participation=t, segments=4, work_mem=64MB -> Count: 1
+INFO:  Config: workers=0, leader_participation=t, segments=1, work_mem=2GB -> Count: 1
+INFO:  Config: workers=0, leader_participation=t, segments=1, work_mem=64MB -> Count: 1
+INFO:  Config: workers=0, leader_participation=f, segments=4, work_mem=2GB -> Count: 1
+INFO:  Config: workers=0, leader_participation=f, segments=4, work_mem=64MB -> Count: 1
+INFO:  Config: workers=0, leader_participation=f, segments=1, work_mem=2GB -> Count: 1
+INFO:  Config: workers=0, leader_participation=f, segments=1, work_mem=64MB -> Count: 1
+\i common/parallel_build_small_cleanup.sql
+DROP TABLE IF EXISTS parallel_build_small;

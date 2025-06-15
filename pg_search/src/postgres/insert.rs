@@ -16,10 +16,12 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::FieldName;
+use crate::gucs;
 use crate::index::merge_policy::{LayeredMergePolicy, NumCandidates, NumMerged};
-use crate::index::mvcc::MvccSatisfies;
-use crate::index::writer::index::{Mergeable, SearchIndexMerger, SerialIndexWriter};
-use crate::index::WriterResources;
+use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
+use crate::index::writer::index::{
+    IndexWriterConfig, Mergeable, SearchIndexMerger, SerialIndexWriter,
+};
 use crate::postgres::options::SearchIndexOptions;
 use crate::postgres::storage::block::{SegmentMetaEntry, CLEANUP_LOCK, SEGMENT_METAS_START};
 use crate::postgres::storage::buffer::BufferManager;
@@ -43,14 +45,13 @@ pub struct InsertState {
 }
 
 impl InsertState {
-    unsafe fn new(
-        indexrel: &PgRelation,
-        writer_resources: WriterResources,
-    ) -> anyhow::Result<Self> {
-        let (parallelism, memory_budget) = writer_resources.resources();
-        let memory_budget = memory_budget / parallelism;
-        let writer =
-            SerialIndexWriter::with_mvcc(indexrel, MvccSatisfies::Mergeable, memory_budget)?;
+    unsafe fn new(indexrel: &PgRelation) -> anyhow::Result<Self> {
+        let config = IndexWriterConfig {
+            memory_budget: gucs::adjust_work_mem(1),
+            target_segment_count: None,
+            target_docs_per_segment: None,
+        };
+        let writer = SerialIndexWriter::with_mvcc(indexrel, MvccSatisfies::Mergeable, config)?;
         let schema = SearchIndexSchema::open(indexrel.oid())?;
         let tupdesc = unsafe { PgTupleDesc::from_pg_unchecked(indexrel.rd_att) };
         let categorized_fields = categorize_fields(&tupdesc, &schema);
@@ -78,13 +79,12 @@ impl InsertState {
 unsafe fn init_insert_state(
     index_relation: pg_sys::Relation,
     index_info: &mut pg_sys::IndexInfo,
-    writer_resources: WriterResources,
 ) -> &'static mut InsertState {
     use crate::postgres::fake_aminsertcleanup::{get_insert_state, push_insert_state};
 
     if index_info.ii_AmCache.is_null() {
         let index_relation = PgRelation::from_pg(index_relation);
-        let state = InsertState::new(&index_relation, writer_resources)
+        let state = InsertState::new(&index_relation)
             .expect("should be able to open new SearchIndex for writing");
 
         push_insert_state(state);
@@ -98,12 +98,11 @@ unsafe fn init_insert_state(
 pub unsafe fn init_insert_state(
     index_relation: pg_sys::Relation,
     index_info: &mut pg_sys::IndexInfo,
-    writer_resources: WriterResources,
 ) -> &mut InsertState {
     if index_info.ii_AmCache.is_null() {
         // we don't have any cached state yet, so create it now
         let index_relation = PgRelation::from_pg(index_relation);
-        let state = InsertState::new(&index_relation, writer_resources)
+        let state = InsertState::new(&index_relation)
             .expect("should be able to open new SearchIndex for writing");
 
         // leak it into the MemoryContext for this scan (as specified by the IndexInfo argument)
@@ -142,7 +141,6 @@ pub unsafe extern "C-unwind" fn aminsert(
             index_info
                 .as_mut()
                 .expect("index_info argument must not be null"),
-            WriterResources::Statement,
         );
 
         state.per_row_context.switch_to(|cxt| {
@@ -252,10 +250,11 @@ pub unsafe fn merge_index_with_policy(
     let cleanup_lock = BufferManager::new(indexrelid).get_buffer(CLEANUP_LOCK);
     let metadata = MetaPage::open(indexrelid);
     let merge_lock = metadata.acquire_merge_lock();
+    let directory = MVCCDirectory::mergeable(indexrelid);
     let mut merger =
-        SearchIndexMerger::open(indexrelid).expect("should be able to open a SearchIndexMerger");
+        SearchIndexMerger::open(directory).expect("should be able to open a SearchIndexMerger");
     let merger_segment_ids = merger
-        .segment_ids()
+        .searchable_segment_ids()
         .expect("SearchIndexMerger should have segment ids");
 
     // the non_mergeable_segments are those that are concurrently being vacuumed *and* merged
@@ -412,7 +411,7 @@ pub unsafe fn merge_index_with_policy(
 /// moved to the `SEGMENT_METAS_GARBAGE` list until those replicas indicate that they are no longer
 /// in use, at which point they can be freed by `free_garbage`.
 ///
-unsafe fn garbage_collect_index(indexrel: &PgRelation) {
+pub unsafe fn garbage_collect_index(indexrel: &PgRelation) {
     let indexrelid = indexrel.oid();
 
     // Remove items which are no longer visible to active local transactions from SEGMENT_METAS,

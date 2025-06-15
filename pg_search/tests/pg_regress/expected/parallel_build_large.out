@@ -14,7 +14,7 @@ SET client_min_messages TO INFO;
 DO $$
 DECLARE
     maintenance_work_mem text[] := ARRAY['2GB', '64MB'];
-    maintenance_workers int[] := ARRAY[8, 2];
+    maintenance_workers int[] := ARRAY[16, 8, 2];
     leader_participation boolean[] := ARRAY[true, false];
     target_segments int[] := ARRAY[4, 32];
     mw int;
@@ -47,6 +47,14 @@ BEGIN
     END LOOP;
 END $$;
 NOTICE:  index "parallel_build_large_idx" does not exist, skipping
+INFO:  Config: workers=16, leader_participation=t, segments=4, work_mem=2GB -> Count: 4
+INFO:  Config: workers=16, leader_participation=t, segments=4, work_mem=64MB -> Count: 4
+INFO:  Config: workers=16, leader_participation=t, segments=32, work_mem=2GB -> Count: 32
+INFO:  Config: workers=16, leader_participation=t, segments=32, work_mem=64MB -> Count: 32
+INFO:  Config: workers=16, leader_participation=f, segments=4, work_mem=2GB -> Count: 4
+INFO:  Config: workers=16, leader_participation=f, segments=4, work_mem=64MB -> Count: 4
+INFO:  Config: workers=16, leader_participation=f, segments=32, work_mem=2GB -> Count: 32
+INFO:  Config: workers=16, leader_participation=f, segments=32, work_mem=64MB -> Count: 32
 INFO:  Config: workers=8, leader_participation=t, segments=4, work_mem=2GB -> Count: 4
 INFO:  Config: workers=8, leader_participation=t, segments=4, work_mem=64MB -> Count: 4
 INFO:  Config: workers=8, leader_participation=t, segments=32, work_mem=2GB -> Count: 32

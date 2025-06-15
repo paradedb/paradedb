@@ -102,6 +102,7 @@ impl WorkerCoordination {
     }
 
     fn claim_target_segment_count(&mut self) -> usize {
+        assert!(self.pool_size > 0, "all segments have been claimed");
         let _lock = self.mutex.acquire();
         self.pool_size -= 1;
         self.target_segment_pool[self.pool_size]
@@ -254,7 +255,6 @@ impl<'a> BuildWorker<'a> {
         unsafe {
             let index_info = pg_sys::BuildIndexInfo(self.indexrel.as_ptr());
             (*index_info).ii_Concurrent = self.config.concurrent;
-
             let target_segment_count = self.coordination.claim_target_segment_count();
             let nlaunched = self.coordination.nlaunched();
             let per_worker_memory_budget =
@@ -414,7 +414,6 @@ pub(super) fn build_index(
         if unsafe { pg_sys::parallel_leader_participation } {
             nlaunched_plus_leader += 1;
         }
-        coordination.set_nlaunched(nlaunched_plus_leader);
 
         // set target segment pool based on target segment count and number of launched workers
         // for instance, if we have 6 workers and want 8 segments, the target segment pool will be [1, 1, 1, 1, 2, 2]
@@ -433,7 +432,10 @@ pub(super) fn build_index(
             "build_index: setting target segment pool {:?}",
             target_segment_pool
         );
+
+        // set_nlaunched last, because workers wait for this to be set
         coordination.set_target_segment_pool(target_segment_pool);
+        coordination.set_nlaunched(nlaunched_plus_leader);
 
         let (leader_tuples, leader_segments) = if unsafe { pg_sys::parallel_leader_participation } {
             // if the leader is to participate too, it's nice for it to wait until all the other workers

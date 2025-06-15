@@ -7,7 +7,7 @@ SET client_min_messages TO INFO;
 DO $$
 DECLARE
     maintenance_work_mem text[] := ARRAY['2GB', '64MB'];
-    maintenance_workers int[] := ARRAY[8, 2];
+    maintenance_workers int[] := ARRAY[16, 8, 2];
     leader_participation boolean[] := ARRAY[true, false];
     target_segments int[] := ARRAY[4, 32];
     mw int;

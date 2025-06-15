@@ -257,7 +257,7 @@ impl<'a> BuildWorker<'a> {
             let nlaunched = self.coordination.nlaunched();
             let per_worker_memory_budget =
                 gucs::adjust_maintenance_work_mem(nlaunched).get() / nlaunched;
-            let min_docs_per_segment = (estimate_heap_reltuples(&self.heaprel)
+            let target_docs_per_segment = (estimate_heap_reltuples(&self.heaprel)
                 / nlaunched as f64
                 / target_segment_count as f64) as usize;
             let mut build_state = WorkerBuildState::new(
@@ -266,7 +266,7 @@ impl<'a> BuildWorker<'a> {
                     .expect("target segment count should be non-zero"),
                 NonZeroUsize::new(per_worker_memory_budget)
                     .expect("per worker memory budget should be non-zero"),
-                min_docs_per_segment,
+                target_docs_per_segment,
             )?;
 
             let reltuples = pg_sys::table_index_build_scan(
@@ -302,12 +302,12 @@ impl WorkerBuildState {
         indexrel: &PgRelation,
         target_segment_count: NonZeroUsize,
         per_worker_memory_budget: NonZeroUsize,
-        min_docs_per_segment: usize,
+        target_docs_per_segment: usize,
     ) -> anyhow::Result<Self> {
         let config = IndexWriterConfig {
             target_segment_count: Some(target_segment_count),
             memory_budget: per_worker_memory_budget,
-            min_docs_per_segment: Some(min_docs_per_segment),
+            target_docs_per_segment: Some(target_docs_per_segment),
         };
         let writer = SerialIndexWriter::open(indexrel, config)?;
         let schema = SearchIndexSchema::open(indexrel.oid())?;

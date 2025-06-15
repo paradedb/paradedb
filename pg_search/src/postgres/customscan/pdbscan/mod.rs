@@ -498,12 +498,14 @@ impl CustomScan for PdbScan {
                     // See the TODO below about being able to claim sorting for parallel
                     // workers.
                     builder = builder.set_parallel(nworkers);
+                    builder.custom_private().set_requested_workers(nworkers);
                 } else {
                     // otherwise we'll do a regular scan
                     builder.custom_private().set_sort_info(pathkey);
                 }
             } else if !quals.contains_external_var() && nworkers > 0 {
                 builder = builder.set_parallel(nworkers);
+                builder.custom_private().set_requested_workers(nworkers);
             }
 
             let exec_method_type = choose_exec_method(builder.custom_private());
@@ -942,6 +944,28 @@ impl CustomScan for PdbScan {
 
     #[allow(clippy::blocks_in_conditions)]
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
+        unsafe {
+            // if we're doing a parallel scan this is the leader's first opportunity to set the
+            // number of launched workers.  unfortunately, this happens on every tuple evaluation.
+            if state.custom_state().pcxt.is_some() && pg_sys::ParallelWorkerNumber == -1 {
+                // we go ahead and `pcxt.take()` here because once we set the number of launched workers
+                // we no longer need it and can elide entering this block again
+                let pcxt = state.custom_state_mut().pcxt.take().unwrap(); // SAFETY:  we just tested that it is_some()
+                let parallel_state = state
+                    .custom_state_mut()
+                    .parallel_state
+                    .expect("`parallel_state` should have been set for the leader");
+
+                let mut nlaunched = (*pcxt.as_ptr()).nworkers_launched as usize;
+                if pg_sys::parallel_leader_participation {
+                    nlaunched += 1;
+                }
+
+                let _mutex = (*parallel_state).acquire_mutex();
+                (*parallel_state).set_nlaunched(nlaunched);
+            }
+        }
+
         if state.custom_state().search_reader.is_none() {
             Self::init_search_reader(state);
         }

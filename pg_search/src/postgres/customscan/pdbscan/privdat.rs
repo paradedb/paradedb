@@ -38,6 +38,7 @@ pub struct PrivateData {
     #[serde(with = "var_attname_lookup_serializer")]
     var_attname_lookup: Option<HashMap<(Varno, pg_sys::AttrNumber), FieldName>>,
     segment_count: usize,
+    requested_workers: usize,
     // The fast fields which were identified during planning time as potentially being
     // needed at execution time. In order for our planning-time-chosen ExecMethodType to be
     // accurate, this must always be a superset of the fields extracted from the execution
@@ -195,6 +196,10 @@ impl PrivateData {
 
     pub fn set_segment_count(&mut self, segment_count: usize) {
         self.segment_count = segment_count;
+    }
+
+    pub fn set_requested_workers(&mut self, nworkers: usize) {
+        self.requested_workers = nworkers;
     }
 
     pub fn set_planned_which_fast_fields(

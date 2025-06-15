@@ -1,0 +1,328 @@
+DROP TABLE IF EXISTS partopn;
+CREATE TABLE partopn (
+    id bigint,
+    text text,
+    uuid uuid
+);
+SET max_parallel_maintenance_workers = 4;
+INSERT INTO partopn (id, text, uuid) SELECT x, md5(x::text), pg_catalog.gen_random_uuid() FROM generate_series(1, 1000000) x;
+CREATE INDEX idxpartopn ON partopn USING bm25 (id, text, uuid) WITH (key_field='id', text_fields = '{
+  "text": { "tokenizer": { "type": "keyword" }, "fast": true },
+  "uuid": { "tokenizer": { "type": "keyword" }, "fast": true }
+}');
+ANALYZE partopn;
+SELECT count(*) FROM paradedb.index_info('idxpartopn');
+ count 
+-------
+     5
+(1 row)
+
+SET max_parallel_workers = 2;
+SET max_parallel_workers_per_gather = 2;
+--
+-- order by an integer (id)
+--
+SET parallel_leader_participation = true;
+EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, BUFFERS OFF, TIMING OFF, SUMMARY OFF) SELECT id, text FROM partopn WHERE id @@@ paradedb.all() ORDER BY id LIMIT 5;
+                                         QUERY PLAN                                         
+--------------------------------------------------------------------------------------------
+ Limit (actual rows=5 loops=1)
+   Output: id, text
+   ->  Gather Merge (actual rows=5 loops=1)
+         Output: id, text
+         Workers Planned: 2
+         Workers Launched: 2
+         ->  Parallel Custom Scan (ParadeDB Scan) on public.partopn (actual rows=4 loops=3)
+               Output: id, text
+               Table: partopn
+               Index: idxpartopn
+               Heap Fetches: 1
+               Virtual Tuples: 0
+               Invisible Tuples: 0
+               Exec Method: TopNScanExecState
+               Scores: false
+                  Sort Field: id
+                  Sort Direction: asc
+                  Top N Limit: 5
+                  Queries: 1
+               Tantivy Query: {"with_index":{"query":"all"}}
+               Human Readable Query: <ALL>
+               Worker 0:  actual rows=5 loops=1
+               Worker 1:  actual rows=5 loops=1
+(23 rows)
+
+SELECT id, text FROM partopn WHERE id @@@ paradedb.all() ORDER BY id LIMIT 5;
+ id |               text               
+----+----------------------------------
+  1 | c4ca4238a0b923820dcc509a6f75849b
+  2 | c81e728d9d4c2f636f067f89cc14862c
+  3 | eccbc87e4b5ce2fe28308fd9f2a7baf3
+  4 | a87ff679a2f3e71d9181a67b7542122c
+  5 | e4da3b7fbbce2345d7772b0674a318d5
+(5 rows)
+
+SET parallel_leader_participation = false;
+EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, BUFFERS OFF, TIMING OFF, SUMMARY OFF)  SELECT id, text FROM partopn WHERE id @@@ paradedb.all() ORDER BY id LIMIT 5;
+                                         QUERY PLAN                                         
+--------------------------------------------------------------------------------------------
+ Limit (actual rows=5 loops=1)
+   Output: id, text
+   ->  Gather Merge (actual rows=5 loops=1)
+         Output: id, text
+         Workers Planned: 2
+         Workers Launched: 2
+         ->  Parallel Custom Scan (ParadeDB Scan) on public.partopn (actual rows=5 loops=2)
+               Output: id, text
+               Table: partopn
+               Index: idxpartopn
+               Heap Fetches: 0
+               Virtual Tuples: 0
+               Invisible Tuples: 0
+               Exec Method: TopNScanExecState
+               Scores: false
+                  Sort Field: id
+                  Sort Direction: asc
+                  Top N Limit: 5
+                  Queries: 0
+               Tantivy Query: {"with_index":{"query":"all"}}
+               Human Readable Query: <ALL>
+               Worker 0:  actual rows=5 loops=1
+               Worker 1:  actual rows=5 loops=1
+(23 rows)
+
+SELECT id, text FROM partopn WHERE id @@@ paradedb.all() ORDER BY id LIMIT 5;
+ id |               text               
+----+----------------------------------
+  1 | c4ca4238a0b923820dcc509a6f75849b
+  2 | c81e728d9d4c2f636f067f89cc14862c
+  3 | eccbc87e4b5ce2fe28308fd9f2a7baf3
+  4 | a87ff679a2f3e71d9181a67b7542122c
+  5 | e4da3b7fbbce2345d7772b0674a318d5
+(5 rows)
+
+--
+-- order by a text column (text)
+--
+SET parallel_leader_participation = true;
+EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, BUFFERS OFF, TIMING OFF, SUMMARY OFF) SELECT id, text FROM partopn WHERE id @@@ paradedb.all() ORDER BY text LIMIT 5;
+                                         QUERY PLAN                                         
+--------------------------------------------------------------------------------------------
+ Limit (actual rows=5 loops=1)
+   Output: id, text
+   ->  Gather Merge (actual rows=5 loops=1)
+         Output: id, text
+         Workers Planned: 2
+         Workers Launched: 2
+         ->  Parallel Custom Scan (ParadeDB Scan) on public.partopn (actual rows=4 loops=3)
+               Output: id, text
+               Table: partopn
+               Index: idxpartopn
+               Heap Fetches: 3
+               Virtual Tuples: 0
+               Invisible Tuples: 0
+               Exec Method: TopNScanExecState
+               Scores: false
+                  Sort Field: text
+                  Sort Direction: asc
+                  Top N Limit: 5
+                  Queries: 1
+               Tantivy Query: {"with_index":{"query":"all"}}
+               Human Readable Query: <ALL>
+               Worker 0:  actual rows=5 loops=1
+               Worker 1:  actual rows=5 loops=1
+(23 rows)
+
+SELECT id, text FROM partopn WHERE id @@@ paradedb.all() ORDER BY text LIMIT 5;
+   id   |               text               
+--------+----------------------------------
+ 848775 | 0000104cd168386a335ba6bf6e32219d
+ 752491 | 0000180e94707c0d90547614c17076bf
+ 738639 | 0000193a728fd00b6cff91b8840bbf8d
+   5329 | 00003e3b9e5336685200ae85d21b4f5e
+  79042 | 000053b1e684c9e7ea73727b2238ce18
+(5 rows)
+
+SET parallel_leader_participation = false;
+EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, BUFFERS OFF, TIMING OFF, SUMMARY OFF)  SELECT id, text FROM partopn WHERE id @@@ paradedb.all() ORDER BY text LIMIT 5;
+                                         QUERY PLAN                                         
+--------------------------------------------------------------------------------------------
+ Limit (actual rows=5 loops=1)
+   Output: id, text
+   ->  Gather Merge (actual rows=5 loops=1)
+         Output: id, text
+         Workers Planned: 2
+         Workers Launched: 2
+         ->  Parallel Custom Scan (ParadeDB Scan) on public.partopn (actual rows=5 loops=2)
+               Output: id, text
+               Table: partopn
+               Index: idxpartopn
+               Heap Fetches: 0
+               Virtual Tuples: 0
+               Invisible Tuples: 0
+               Exec Method: TopNScanExecState
+               Scores: false
+                  Sort Field: text
+                  Sort Direction: asc
+                  Top N Limit: 5
+                  Queries: 0
+               Tantivy Query: {"with_index":{"query":"all"}}
+               Human Readable Query: <ALL>
+               Worker 0:  actual rows=5 loops=1
+               Worker 1:  actual rows=5 loops=1
+(23 rows)
+
+SELECT id, text FROM partopn WHERE id @@@ paradedb.all() ORDER BY text LIMIT 5;
+   id   |               text               
+--------+----------------------------------
+ 848775 | 0000104cd168386a335ba6bf6e32219d
+ 738639 | 0000193a728fd00b6cff91b8840bbf8d
+   5329 | 00003e3b9e5336685200ae85d21b4f5e
+  79042 | 000053b1e684c9e7ea73727b2238ce18
+ 241361 | 00005d011db80a956aab176cc94d1d37
+(5 rows)
+
+--
+-- now with no workers
+--
+SET max_parallel_workers = 0;
+SET max_parallel_workers_per_gather = 0;
+--
+-- order by an integer (id)
+--
+SET parallel_leader_participation = true;
+EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, BUFFERS OFF, TIMING OFF, SUMMARY OFF) SELECT id, text FROM partopn WHERE id @@@ paradedb.all() ORDER BY id LIMIT 5;
+                                 QUERY PLAN                                  
+-----------------------------------------------------------------------------
+ Limit (actual rows=5 loops=1)
+   Output: id, text
+   ->  Custom Scan (ParadeDB Scan) on public.partopn (actual rows=5 loops=1)
+         Output: id, text
+         Table: partopn
+         Index: idxpartopn
+         Heap Fetches: 5
+         Virtual Tuples: 0
+         Invisible Tuples: 0
+         Exec Method: TopNScanExecState
+         Scores: false
+            Sort Field: id
+            Sort Direction: asc
+            Top N Limit: 5
+            Queries: 1
+         Tantivy Query: {"with_index":{"query":"all"}}
+         Human Readable Query: <ALL>
+(17 rows)
+
+SELECT id, text FROM partopn WHERE id @@@ paradedb.all() ORDER BY id LIMIT 5;
+ id |               text               
+----+----------------------------------
+  1 | c4ca4238a0b923820dcc509a6f75849b
+  2 | c81e728d9d4c2f636f067f89cc14862c
+  3 | eccbc87e4b5ce2fe28308fd9f2a7baf3
+  4 | a87ff679a2f3e71d9181a67b7542122c
+  5 | e4da3b7fbbce2345d7772b0674a318d5
+(5 rows)
+
+SET parallel_leader_participation = false;
+EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, BUFFERS OFF, TIMING OFF, SUMMARY OFF)  SELECT id, text FROM partopn WHERE id @@@ paradedb.all() ORDER BY id LIMIT 5;
+                                 QUERY PLAN                                  
+-----------------------------------------------------------------------------
+ Limit (actual rows=5 loops=1)
+   Output: id, text
+   ->  Custom Scan (ParadeDB Scan) on public.partopn (actual rows=5 loops=1)
+         Output: id, text
+         Table: partopn
+         Index: idxpartopn
+         Heap Fetches: 5
+         Virtual Tuples: 0
+         Invisible Tuples: 0
+         Exec Method: TopNScanExecState
+         Scores: false
+            Sort Field: id
+            Sort Direction: asc
+            Top N Limit: 5
+            Queries: 1
+         Tantivy Query: {"with_index":{"query":"all"}}
+         Human Readable Query: <ALL>
+(17 rows)
+
+SELECT id, text FROM partopn WHERE id @@@ paradedb.all() ORDER BY id LIMIT 5;
+ id |               text               
+----+----------------------------------
+  1 | c4ca4238a0b923820dcc509a6f75849b
+  2 | c81e728d9d4c2f636f067f89cc14862c
+  3 | eccbc87e4b5ce2fe28308fd9f2a7baf3
+  4 | a87ff679a2f3e71d9181a67b7542122c
+  5 | e4da3b7fbbce2345d7772b0674a318d5
+(5 rows)
+
+--
+-- order by a text column (text)
+--
+SET parallel_leader_participation = true;
+EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, BUFFERS OFF, TIMING OFF, SUMMARY OFF) SELECT id, text FROM partopn WHERE id @@@ paradedb.all() ORDER BY text LIMIT 5;
+                                 QUERY PLAN                                  
+-----------------------------------------------------------------------------
+ Limit (actual rows=5 loops=1)
+   Output: id, text
+   ->  Custom Scan (ParadeDB Scan) on public.partopn (actual rows=5 loops=1)
+         Output: id, text
+         Table: partopn
+         Index: idxpartopn
+         Heap Fetches: 5
+         Virtual Tuples: 0
+         Invisible Tuples: 0
+         Exec Method: TopNScanExecState
+         Scores: false
+            Sort Field: text
+            Sort Direction: asc
+            Top N Limit: 5
+            Queries: 1
+         Tantivy Query: {"with_index":{"query":"all"}}
+         Human Readable Query: <ALL>
+(17 rows)
+
+SELECT id, text FROM partopn WHERE id @@@ paradedb.all() ORDER BY text LIMIT 5;
+   id   |               text               
+--------+----------------------------------
+ 848775 | 0000104cd168386a335ba6bf6e32219d
+  79042 | 000053b1e684c9e7ea73727b2238ce18
+ 241361 | 00005d011db80a956aab176cc94d1d37
+ 552871 | 00007c55a9a7591b98a76d79216c9112
+ 590120 | 0000e19d6a5608e3787e5bfea98488ca
+(5 rows)
+
+SET parallel_leader_participation = false;
+EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, BUFFERS OFF, TIMING OFF, SUMMARY OFF)  SELECT id, text FROM partopn WHERE id @@@ paradedb.all() ORDER BY text LIMIT 5;
+                                 QUERY PLAN                                  
+-----------------------------------------------------------------------------
+ Limit (actual rows=5 loops=1)
+   Output: id, text
+   ->  Custom Scan (ParadeDB Scan) on public.partopn (actual rows=5 loops=1)
+         Output: id, text
+         Table: partopn
+         Index: idxpartopn
+         Heap Fetches: 5
+         Virtual Tuples: 0
+         Invisible Tuples: 0
+         Exec Method: TopNScanExecState
+         Scores: false
+            Sort Field: text
+            Sort Direction: asc
+            Top N Limit: 5
+            Queries: 1
+         Tantivy Query: {"with_index":{"query":"all"}}
+         Human Readable Query: <ALL>
+(17 rows)
+
+SELECT id, text FROM partopn WHERE id @@@ paradedb.all() ORDER BY text LIMIT 5;
+   id   |               text               
+--------+----------------------------------
+ 848775 | 0000104cd168386a335ba6bf6e32219d
+  79042 | 000053b1e684c9e7ea73727b2238ce18
+ 241361 | 00005d011db80a956aab176cc94d1d37
+ 552871 | 00007c55a9a7591b98a76d79216c9112
+ 590120 | 0000e19d6a5608e3787e5bfea98488ca
+(5 rows)
+
+-- NB:  can't order by the `uuid` column because its values are random
+RESET ALL;

@@ -69,7 +69,7 @@ impl Default for WorkerCoordination {
             mutex: Default::default(),
             nstarted: Default::default(),
             nlaunched: Default::default(),
-            target_segment_pool: [0; 512],
+            target_segment_pool: [0; MAX_CREATE_INDEX_WORKERS],
             pool_size: Default::default(),
         }
     }
@@ -533,8 +533,8 @@ fn create_index_nworkers(heaprel: &PgRelation) -> usize {
 
     pgrx::debug1!("create_index_nworkers: maintenance_workers: {maintenance_workers}, target_segment_count: {target_segment_count}, nworkers: {nworkers}");
 
-    // round down nworkers such that target_segment_count / nworkers is a whole number
-    // for instance, if the target is 32 and nworkers is 10, we want to round down to 8
+    // round down nworkers such that target_segment_count / nworkers is an integer
+    // for instance, if the target is 32 and nworkers is 10, we round down to 8
     // this way, each worker builds the same number of segments, making them more evenly distributed
     for i in (1..nworkers + 1).rev() {
         if target_segment_count % i == 0 {

@@ -576,7 +576,7 @@ fn adjusted_target_segment_count(heaprel: &PgRelation) -> usize {
 fn estimate_heap_reltuples(heap_relation: &PgRelation) -> f64 {
     let mut reltuples = heap_relation.reltuples().unwrap_or_default();
 
-    // If the reltuples estimate is not available, estimate the number of tuples in the heap
+    // if the reltuples estimate is not available, estimate the number of tuples in the heap
     // by multiplying the number of pages by the max offset number of the first page
     if reltuples <= 0.0 {
         let npages = unsafe {
@@ -586,8 +586,8 @@ fn estimate_heap_reltuples(heap_relation: &PgRelation) -> f64 {
             )
         };
 
-        // The table really is empty and the tuple count is 0
         if npages == 0 {
+            // the tuple count actually is 0
             return 0.0;
         }
 

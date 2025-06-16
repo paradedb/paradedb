@@ -218,11 +218,12 @@ impl SerialIndexWriter {
 
         if mem_usage >= self.config.memory_budget.into() {
             pgrx::debug1!(
-                "writer {}: finalizing segment, mem_usage: {} (out of {}), num segments: {}",
+                "writer {}: finalizing segment, mem_usage: {} (out of {}), num segments: {}, max doc: {}",
                 self.id,
                 mem_usage,
                 self.config.memory_budget.get(),
-                self.new_metas.len()
+                self.new_metas.len(),
+                max_doc
             );
             return self.finalize_segment();
         }

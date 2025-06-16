@@ -116,7 +116,7 @@ pub fn init() {
         "Defaults to 0, which means the number of CPU cores will be used as the target segment count. Increasing the target segment count can be useful if max_parallel_workers_per_gather is greater than the CPU count.",
         &TARGET_SEGMENT_COUNT,
         0,
-        i32::MAX,
+        1024,
         GucContext::Userset,
         GucFlags::default(),
     );

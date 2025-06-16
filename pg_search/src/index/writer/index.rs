@@ -351,15 +351,15 @@ impl SerialIndexWriter {
         match directory_type {
             DirectoryType::Ram(_) => {
                 assert!(!self.new_metas.is_empty());
-                self.merge_then_commit_segment(finalized_segment)?
+                self.merge_then_commit_segment(finalized_segment)?;
+
+                pgrx::debug1!("writer {}: did a merge, garbage collecting index", self.id);
+                let index_relation = unsafe { PgRelation::open(self.indexrelid) };
+                unsafe {
+                    garbage_collect_index(&index_relation);
+                }
             }
             DirectoryType::Mvcc => self.commit_segment(finalized_segment)?,
-        }
-
-        pgrx::debug1!("writer {}: garbage collecting index", self.id);
-        let index_relation = unsafe { PgRelation::open(self.indexrelid) };
-        unsafe {
-            garbage_collect_index(&index_relation);
         }
 
         pgrx::debug1!("writer {}: done finalizing segment", self.id);

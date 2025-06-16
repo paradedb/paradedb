@@ -8,7 +8,6 @@ CREATE TABLE parallel_build_large (
 INSERT INTO parallel_build_large (name)
 SELECT 'lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.'
 FROM generate_series(1, 35000);
-DROP INDEX IF EXISTS parallel_build_large_idx;
 SET max_parallel_workers = 8;
 SET client_min_messages TO INFO;
 DO $$
@@ -34,8 +33,6 @@ BEGIN
                     EXECUTE format('SET paradedb.target_segment_count = %s', ts);
                     EXECUTE format('SET maintenance_work_mem = %L', mwm);
 
-                    -- Drop and recreate index
-                    DROP INDEX IF EXISTS parallel_build_large_idx;
                     CREATE INDEX parallel_build_large_idx ON parallel_build_large USING bm25 (id, name) WITH (key_field = 'id');
 
                     -- Check index info and display results
@@ -43,12 +40,13 @@ BEGIN
                     SELECT SUM(num_docs) INTO num_docs_val FROM paradedb.index_info('parallel_build_large_idx');
                     RAISE INFO 'Config: workers=%, work_mem=%,leader_participation=%, segments=%-> Count: %, Num Docs: %',
                         mw, mwm,lp, ts, count_val, num_docs_val;
+
+                    DROP INDEX parallel_build_large_idx;
                 END LOOP;
             END LOOP;
         END LOOP;
     END LOOP;
 END $$;
-NOTICE:  index "parallel_build_large_idx" does not exist, skipping
 INFO:  Config: workers=16, work_mem=2GB,leader_participation=t, segments=4-> Count: 4, Num Docs: 35000
 WARNING:  maintenance_work_mem may be too low
 INFO:  Config: workers=16, work_mem=64MB,leader_participation=t, segments=4-> Count: 4, Num Docs: 35000

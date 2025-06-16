@@ -1,6 +1,5 @@
 \i common/parallel_build_large_setup.sql
 
-DROP INDEX IF EXISTS parallel_build_large_idx;
 SET max_parallel_workers = 8;
 SET client_min_messages TO INFO;
 
@@ -27,8 +26,6 @@ BEGIN
                     EXECUTE format('SET paradedb.target_segment_count = %s', ts);
                     EXECUTE format('SET maintenance_work_mem = %L', mwm);
 
-                    -- Drop and recreate index
-                    DROP INDEX IF EXISTS parallel_build_large_idx;
                     CREATE INDEX parallel_build_large_idx ON parallel_build_large USING bm25 (id, name) WITH (key_field = 'id');
 
                     -- Check index info and display results
@@ -36,6 +33,8 @@ BEGIN
                     SELECT SUM(num_docs) INTO num_docs_val FROM paradedb.index_info('parallel_build_large_idx');
                     RAISE INFO 'Config: workers=%, work_mem=%,leader_participation=%, segments=%-> Count: %, Num Docs: %',
                         mw, mwm,lp, ts, count_val, num_docs_val;
+
+                    DROP INDEX parallel_build_large_idx;
                 END LOOP;
             END LOOP;
         END LOOP;

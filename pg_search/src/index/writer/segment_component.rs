@@ -15,7 +15,9 @@ pub struct SegmentComponentWriter {
 
 impl SegmentComponentWriter {
     pub unsafe fn new(relation_oid: pg_sys::Oid, path: &Path) -> Self {
-        if path.component_type() == Some(SegmentComponent::Store) {
+        if path.component_type() == Some(SegmentComponent::Store)
+            || path.component_type() == Some(SegmentComponent::TempStore)
+        {
             Self {
                 inner: None,
                 path: path.to_path_buf(),

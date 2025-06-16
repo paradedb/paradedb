@@ -152,6 +152,26 @@ impl BM25BufferCache {
             .unwrap_or_else(|| self.bulk_extend_relation(1)[0])
     }
 
+    pub unsafe fn new_buffers(&self, npages: usize) -> Vec<pg_sys::Buffer> {
+        let mut buffers = Vec::new();
+        let mut remaining = npages;
+
+        while remaining > 0 {
+            if let Some(buffer) = self.recycled_buffer() {
+                buffers.push(buffer);
+                remaining -= 1;
+            } else {
+                break;
+            }
+        }
+
+        if remaining > 0 {
+            buffers.extend(self.bulk_extend_relation(remaining));
+        }
+
+        buffers
+    }
+
     pub unsafe fn get_buffer(
         &self,
         blockno: pg_sys::BlockNumber,

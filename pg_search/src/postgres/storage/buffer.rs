@@ -461,6 +461,19 @@ impl BufferManager {
         }
     }
 
+    pub fn new_buffers(&mut self, npages: usize) -> Vec<BufferMut> {
+        unsafe {
+            self.bcache
+                .new_buffers(npages)
+                .into_iter()
+                .map(|pg_buffer| BufferMut {
+                    dirty: false,
+                    inner: Buffer { pg_buffer },
+                })
+                .collect()
+        }
+    }
+
     pub fn pinned_buffer(&self, blockno: pg_sys::BlockNumber) -> PinnedBuffer {
         unsafe { PinnedBuffer::new(self.bcache.get_buffer(blockno, None)) }
     }

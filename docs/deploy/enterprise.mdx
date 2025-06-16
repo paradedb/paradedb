@@ -2,6 +2,13 @@
 title: ParadeDB Enterprise
 ---
 
+<Note>
+  If you're a non-profit or a non-commercial open source project and are
+  interested in ParadeDB Enterprise, please [contact
+  sales](mailto:sales@paradedb.com). We provide complimentary access on a
+  case-by-case basis.
+</Note>
+
 ParadeDB ships in two versions: ParadeDB Community and ParadeDB Enterprise.
 
 [ParadeDB Community](https://github.com/paradedb/paradedb) is our open source product, licensed under [AGPL-3.0](https://github.com/paradedb/paradedb/blob/dev/LICENSE).
@@ -36,11 +43,11 @@ For access to ParadeDB Enterprise, please [contact sales](mailto:sales@paradedb.
 | Block storage integration            | ✅                 | ✅                  |
 | Buffer cache integration<sup>2</sup> | ✅                 | ✅                  |
 | **Deployment** <sup>3</sup>          |                    |
+| Maximum cluster size <sup>4</sup>    | 1                  | Unlimited           |
 | Physical (i.e. WAL) Replication      | ❌                 | ✅                  |
 | Crash Recovery                       | ❌                 | ✅                  |
 | Point in Time Recovery               | ❌                 | ✅                  |
 | Logical Replication                  | ❌                 | ✅                  |
-| CloudNativePG Compatibility          | ❌                 | ✅                  |
 
 <Info>
 **Footnotes**
@@ -55,5 +62,7 @@ For access to ParadeDB Enterprise, please [contact sales](mailto:sales@paradedb.
   I/O.
   3. All listed deployment features and limitations are specific to the BM25 index. For instance,
   ParadeDB Community supports physical/logical replication, crash recovery, etc. for heap tables and other Postgres indexes like B-Tree.
+  4. In a primary-replica topology, BM25 indexes in ParadeDB Community are only available on the primary, as
+  the Community edition does not support physical (WAL) replication.
 </p>
 </Info>

@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::Parallelism;
 use pgrx::{pg_sys, GucContext, GucFlags, GucRegistry, GucSetting};
 use std::num::NonZeroUsize;
 
@@ -54,13 +53,7 @@ static MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD_NAME: &str =
 /// it logically can.
 static PER_TUPLE_COST: GucSetting<f64> = GucSetting::<f64>::new(100_000_000.0);
 
-/// How much memory should tantivy use during CREATE INDEX.  This value is decided to each indexing
-/// thread.  So if there's 10 threads and this value is 100MB, then a total of 1GB will be allocated.
-static CREATE_INDEX_MEMORY_BUDGET: GucSetting<i32> = GucSetting::<i32>::new(1024);
-
-/// How much memory should tantivy use during a regular INSERT/UPDATE/COPY statement?  This value is decided to each indexing
-/// thread.  So if there's 10 threads and this value is 100MB, then a total of 1GB will be allocated.
-static STATEMENT_MEMORY_BUDGET: GucSetting<i32> = GucSetting::<i32>::new(1024);
+static TARGET_SEGMENT_COUNT: GucSetting<i32> = GucSetting::<i32>::new(0);
 
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
@@ -118,25 +111,14 @@ pub fn init() {
     );
 
     GucRegistry::define_int_guc(
-        "paradedb.create_index_memory_budget",
-        "The amount of memory to allocate to 1 indexing process",
-        "Default is `1GB`, which is allocated to each indexing process defined by `max_parallel_maintenance_workers`",
-        &CREATE_INDEX_MEMORY_BUDGET,
+        "paradedb.target_segment_count",
+        "Set the target segment count for a CREATE INDEX/REINDEX statement",
+        "Defaults to 0, which means the number of CPU cores will be used as the target segment count. Increasing the target segment count can be useful if max_parallel_workers_per_gather is greater than the CPU count.",
+        &TARGET_SEGMENT_COUNT,
         0,
-        i32::MAX,
+        1024,
         GucContext::Userset,
-        GucFlags::UNIT_MB,
-    );
-
-    GucRegistry::define_int_guc(
-        "paradedb.statement_memory_budget",
-        "The amount of memory to allocate to 1 thread during an INSERT/UPDATE/COPY statement",
-        "Default is `1GB`, which is allocated to each thread defined by `paradedb.statement_parallelism`",
-        &STATEMENT_MEMORY_BUDGET,
-        0,
-        i32::MAX,
-        GucContext::Userset,
-        GucFlags::UNIT_MB,
+        GucFlags::default(),
     );
 }
 
@@ -165,76 +147,136 @@ pub fn per_tuple_cost() -> f64 {
     PER_TUPLE_COST.get()
 }
 
-pub fn create_index_parallelism() -> NonZeroUsize {
-    let nthreads = unsafe {
-        let mut nthreads = pg_sys::max_parallel_maintenance_workers;
-        if pg_sys::parallel_leader_participation {
-            nthreads += 1
-        }
-        nthreads
-    };
-    adjust_nthreads(nthreads)
-}
-
-pub fn create_index_memory_budget() -> usize {
-    let memory_budget = CREATE_INDEX_MEMORY_BUDGET.get();
-    adjust_budget(memory_budget, create_index_parallelism())
-}
-
-// NB:  this is always `1` (one).  There's no (longer) a concept of parallelism during INSERTS/UPDATES
-pub fn statement_parallelism() -> NonZeroUsize {
-    unsafe { NonZeroUsize::new_unchecked(1) }
-}
-
-pub fn statement_memory_budget() -> usize {
-    adjust_budget(STATEMENT_MEMORY_BUDGET.get(), statement_parallelism())
-}
-
-fn adjust_nthreads(nthreads: i32) -> NonZeroUsize {
-    let nthreads = if nthreads <= 0 {
-        std::thread::available_parallelism()
-            .expect("your computer should have at least one core")
-            .get()
-    } else {
-        nthreads as usize
-    };
-
-    unsafe {
-        // SAFETY:  we ensured above that nthreads is > 0
-        NonZeroUsize::new_unchecked(nthreads)
-    }
-}
-
-fn adjust_budget(per_thread_budget: i32, parallelism: Parallelism) -> usize {
+pub fn adjust_mem(mem: usize, nlaunched: usize, min_mem_per_worker: usize) -> NonZeroUsize {
     // NB:  These limits come from [`tantivy::index_writer::MEMORY_BUDGET_NUM_BYTES_MAX`], which is not publicly exposed
     mod limits {
         // Size of the margin for the `memory_arena`. A segment is closed when the remaining memory
         // in the `memory_arena` goes below MARGIN_IN_BYTES.
         pub const MARGIN_IN_BYTES: usize = 1_000_000;
 
-        // We impose the memory per thread to be at least 15 MB, as the baseline consumption is 12MB,
-        // and no greater than 4GB as that's tantivy's limit
-        pub const MEMORY_BUDGET_NUM_BYTES_MIN: usize = ((MARGIN_IN_BYTES as u32) * 15u32) as usize;
+        // We impose the memory per thread to be no greater than 4GB as that's tantivy's limit
         pub const MEMORY_BUDGET_NUM_BYTES_MAX: usize = (4 * 1024 * 1024 * 1024) - MARGIN_IN_BYTES;
     }
 
-    let per_thread_budget = if per_thread_budget <= 0 {
-        // value is unset, so we'll use the maintenance_work_mem, divided between the parallelism value
-        let mwm_as_bytes = unsafe {
-            // SAFETY:  Postgres sets maintenance_work_mem when it starts up
-            pg_sys::maintenance_work_mem as usize * 1024 // convert from kilobytes to bytes
-        };
-
-        mwm_as_bytes / parallelism.get()
-    } else {
-        per_thread_budget as usize * 1024 * 1024 // convert from megabytes to bytes
-    };
+    let nlaunched = nlaunched.max(1);
+    let mwm_as_bytes = mem * 1024;
+    let per_worker_budget = mwm_as_bytes / nlaunched;
 
     // clamp the per_thread_budget to the min/max values
-    let per_thread_budget = per_thread_budget.clamp(
-        limits::MEMORY_BUDGET_NUM_BYTES_MIN,
+    let per_worker_budget = per_worker_budget.clamp(
+        limits::MARGIN_IN_BYTES * min_mem_per_worker,
         limits::MEMORY_BUDGET_NUM_BYTES_MAX - 1,
     );
 
-    per_thread_budget * parallelism.get()
+    NonZeroUsize::new(per_worker_budget * nlaunched).unwrap()
+}
+
+pub fn adjust_maintenance_work_mem(nlaunched: usize) -> NonZeroUsize {
+    adjust_mem(
+        unsafe { pg_sys::maintenance_work_mem as usize },
+        nlaunched,
+        64,
+    )
+}
+
+pub fn adjust_work_mem(nlaunched: usize) -> NonZeroUsize {
+    adjust_mem(unsafe { pg_sys::work_mem as usize }, nlaunched, 15)
+}
+
+pub fn target_segment_count() -> usize {
+    if TARGET_SEGMENT_COUNT.get() > 0 {
+        TARGET_SEGMENT_COUNT.get() as usize
+    } else {
+        std::thread::available_parallelism().unwrap().get()
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use pgrx::prelude::*;
+
+    macro_rules! assert_approx_eq {
+        ($a:expr, $b:expr, $percent:expr) => {{
+            let a = $a;
+            let b = $b;
+            let diff = if a > b { a - b } else { b - a };
+            let max_val = a.max(b);
+            let max_diff = ((max_val as f64) * ($percent as f64 / 100.0)).ceil() as usize;
+
+            assert!(
+                diff <= max_diff,
+                "assertion failed: `a = {}`, `b = {}` differ by more than {}% (allowed: {}, actual: {})",
+                a,
+                b,
+                $percent,
+                max_diff,
+                diff
+            );
+        }};
+    }
+
+    #[pg_test]
+    fn test_adjust_maintenance_work_mem() {
+        Spi::run("SET maintenance_work_mem = '16MB';").unwrap();
+        assert_eq!(adjust_maintenance_work_mem(0).get(), 64 * 1_000_000);
+        assert_eq!(adjust_maintenance_work_mem(1).get(), 64 * 1_000_000);
+        assert_eq!(adjust_maintenance_work_mem(2).get(), 128 * 1_000_000);
+        assert_eq!(adjust_maintenance_work_mem(10).get(), 640 * 1_000_000);
+
+        Spi::run("SET maintenance_work_mem = '1GB';").unwrap();
+        assert_approx_eq!(
+            adjust_maintenance_work_mem(0).get(),
+            1024 * 1024 * 1024,
+            1.0
+        );
+        assert_approx_eq!(
+            adjust_maintenance_work_mem(1).get(),
+            1024 * 1024 * 1024,
+            1.0
+        );
+        assert_approx_eq!(
+            adjust_maintenance_work_mem(2).get(),
+            1024 * 1024 * 1024,
+            1.0
+        );
+        assert_approx_eq!(
+            adjust_maintenance_work_mem(10).get(),
+            1024 * 1024 * 1024,
+            1.0
+        );
+        assert_approx_eq!(
+            adjust_maintenance_work_mem(32).get(),
+            64 * 32 * 1_000_000,
+            1.0
+        );
+
+        Spi::run("SET maintenance_work_mem = '8GB';").unwrap();
+        assert_approx_eq!(
+            adjust_maintenance_work_mem(0).get(),
+            4 * 1024 * 1024 * 1024,
+            1.0
+        );
+        assert_approx_eq!(
+            adjust_maintenance_work_mem(1).get(),
+            4 * 1024 * 1024 * 1024,
+            1.0
+        );
+        assert_approx_eq!(
+            adjust_maintenance_work_mem(2).get(),
+            8 * 1024 * 1024 * 1024,
+            1.0
+        );
+        assert_approx_eq!(
+            adjust_maintenance_work_mem(10).get(),
+            8 * 1024 * 1024 * 1024,
+            1.0
+        );
+        assert_approx_eq!(
+            adjust_maintenance_work_mem(256).get(),
+            64 * 256 * 1_000_000,
+            1.0
+        );
+    }
 }

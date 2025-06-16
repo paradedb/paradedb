@@ -9,12 +9,12 @@ The segment merge policy is a configurable policy that attempts to merge segment
 
 ## Segment Layer Size
 
-By default, the BM25 index will attempt to merge segments into layers of size `100KB`, `1MB`, and `100MB`. This means
+After an `INSERT`/`UPDATE`/`COPY` statement, the BM25 index will attempt to merge segments into layers of size `100KB`, `1MB`, and `100MB`. This means
 that, if there are ten segments each `10KB` each in size, they will be merged into a single segment that is `100KB`. However,
 if there are only eight segments that are `10KB` each, they will not be merged together because they are not enough to meet the size
 of the next layer.
 
-The segment layer size can be changed at index creation time or afterward:
+The default segment layer sizes can be changed at index creation time or afterward:
 
 ```sql
 CREATE INDEX search_idx ON mock_items USING bm25 (id, description, rating) WITH (key_field = 'id', layer_sizes = '1kb, 10kb, 100MB');

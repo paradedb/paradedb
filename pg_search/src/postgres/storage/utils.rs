@@ -100,6 +100,23 @@ impl BM25BufferCache {
         self.indexrel
     }
 
+    pub unsafe fn extend_relation(&self, npages: usize) -> Vec<pg_sys::Buffer> {
+        // Postgres requires an exclusive lock on the relation to create a new page
+        pg_sys::LockRelationForExtension(self.indexrel, pg_sys::ExclusiveLock as i32);
+
+        let buffers = (0..npages)
+            .map(|_| {
+                self.get_buffer(
+                    pg_sys::InvalidBlockNumber,
+                    Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        pg_sys::UnlockRelationForExtension(self.indexrel, pg_sys::ExclusiveLock as i32);
+        buffers
+    }
+
     pub unsafe fn new_buffer(&self) -> pg_sys::Buffer {
         // Try to find a recyclable page
         loop {
@@ -131,16 +148,7 @@ impl BM25BufferCache {
         }
 
         // No recyclable pages found, create a new page
-        // Postgres requires an exclusive lock on the relation to create a new page
-        pg_sys::LockRelationForExtension(self.indexrel, pg_sys::ExclusiveLock as i32);
-
-        let buffer = self.get_buffer(
-            pg_sys::InvalidBlockNumber,
-            Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
-        );
-
-        pg_sys::UnlockRelationForExtension(self.indexrel, pg_sys::ExclusiveLock as i32);
-        buffer
+        self.extend_relation(1)[0]
     }
 
     pub unsafe fn get_buffer(

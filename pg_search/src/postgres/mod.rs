@@ -154,6 +154,15 @@ impl ParallelScanPayload {
             let segments_slice: &mut [[u8; SEGMENT_INFO_SIZE]] =
                 std::slice::from_raw_parts_mut(ptr.cast(), segments.len());
 
+            // resort the segments, smallest to largest by document count
+            //
+            // when segments are claimed by workers they're claimed from back-to-front
+            // and our goal is to have the largest segments claimed first so that
+            // the processing done on them takes longer, allowing more workers to
+            // checkout their own segments
+            let mut segments = segments.iter().collect::<Vec<_>>();
+            segments.sort_unstable_by_key(|reader| reader.max_doc() - reader.num_deleted_docs());
+
             for (segment, target) in segments.iter().zip(segments_slice.iter_mut()) {
                 let mut writer = &mut target[..];
                 writer

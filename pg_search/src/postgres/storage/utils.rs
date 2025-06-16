@@ -100,7 +100,7 @@ impl BM25BufferCache {
         self.indexrel
     }
 
-    pub unsafe fn extend_relation(&self, npages: usize) -> Vec<pg_sys::Buffer> {
+    unsafe fn bulk_extend_relation(&self, npages: usize) -> Vec<pg_sys::Buffer> {
         // Postgres requires an exclusive lock on the relation to create a new page
         pg_sys::LockRelationForExtension(self.indexrel, pg_sys::ExclusiveLock as i32);
 
@@ -117,13 +117,12 @@ impl BM25BufferCache {
         buffers
     }
 
-    pub unsafe fn new_buffer(&self) -> pg_sys::Buffer {
-        // Try to find a recyclable page
+    unsafe fn recycled_buffer(&self) -> Option<pg_sys::Buffer> {
         loop {
             // ask for a page with at least `bm25_max_free_space()` -- that's how much we need to do our things
             let blockno = pg_sys::GetPageWithFreeSpace(self.indexrel, bm25_max_free_space() as _);
             if blockno == pg_sys::InvalidBlockNumber {
-                break;
+                return None;
             }
             // we got one, so let Postgres know so the FSM will stop considering it
             pg_sys::RecordUsedIndexPage(self.indexrel, blockno);
@@ -138,7 +137,7 @@ impl BM25BufferCache {
                 // between then and now some other backend could have gotten this page too, locked it,
                 // (re)initialized it, and released its lock, making it unusable by us
                 if page.is_reusable() {
-                    return buffer;
+                    return Some(buffer);
                 }
 
                 pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_UNLOCK as i32);
@@ -146,9 +145,11 @@ impl BM25BufferCache {
 
             pg_sys::ReleaseBuffer(buffer);
         }
+    }
 
-        // No recyclable pages found, create a new page
-        self.extend_relation(1)[0]
+    pub unsafe fn new_buffer(&self) -> pg_sys::Buffer {
+        self.recycled_buffer()
+            .unwrap_or_else(|| self.bulk_extend_relation(1)[0])
     }
 
     pub unsafe fn get_buffer(

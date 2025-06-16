@@ -1,3 +1,7 @@
 #search-bar-entry {
-  visibility: hidden !important;
+  visibility: visible;
+}
+
+#sidebar-content {
+  overflow-x: hidden !important;
 }

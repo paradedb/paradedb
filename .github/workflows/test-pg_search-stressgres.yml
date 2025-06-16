@@ -138,7 +138,7 @@ jobs:
           echo "short_commit=$short_commit" >> $GITHUB_OUTPUT
 
       - name: Upload Stressgres Graphs to Slack
-        uses: slackapi/slack-github-action@v2.0.0
+        uses: slackapi/slack-github-action@v2.1.0
         with:
           method: files.uploadV2
           token: ${{ secrets.SLACK_OAUTH_TOKEN }}

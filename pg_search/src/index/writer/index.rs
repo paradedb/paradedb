@@ -75,7 +75,8 @@ impl SerialIndexWriter {
 
         if self.current_segment.is_none() {
             let new_segment = self.index.new_segment();
-            let new_writer = SegmentWriter::for_segment(self.memory_budget, new_segment.clone())?;
+            let new_writer =
+                SegmentWriter::for_segment(self.memory_budget, new_segment.clone(), true)?;
             self.current_segment = Some((new_segment, new_writer));
         }
 

@@ -50,28 +50,38 @@ BEGIN
 END $$;
 NOTICE:  index "parallel_build_large_idx" does not exist, skipping
 INFO:  Config: workers=16, work_mem=2GB,leader_participation=t, segments=4-> Count: 4, Num Docs: 35000
+WARNING:  maintenance_work_mem may be too low
 INFO:  Config: workers=16, work_mem=64MB,leader_participation=t, segments=4-> Count: 4, Num Docs: 35000
 INFO:  Config: workers=16, work_mem=2GB,leader_participation=t, segments=32-> Count: 32, Num Docs: 35000
+WARNING:  maintenance_work_mem may be too low
 INFO:  Config: workers=16, work_mem=64MB,leader_participation=t, segments=32-> Count: 32, Num Docs: 35000
 INFO:  Config: workers=16, work_mem=2GB,leader_participation=f, segments=4-> Count: 4, Num Docs: 35000
+WARNING:  maintenance_work_mem may be too low
 INFO:  Config: workers=16, work_mem=64MB,leader_participation=f, segments=4-> Count: 4, Num Docs: 35000
 INFO:  Config: workers=16, work_mem=2GB,leader_participation=f, segments=32-> Count: 32, Num Docs: 35000
+WARNING:  maintenance_work_mem may be too low
 INFO:  Config: workers=16, work_mem=64MB,leader_participation=f, segments=32-> Count: 32, Num Docs: 35000
 INFO:  Config: workers=8, work_mem=2GB,leader_participation=t, segments=4-> Count: 4, Num Docs: 35000
+WARNING:  maintenance_work_mem may be too low
 INFO:  Config: workers=8, work_mem=64MB,leader_participation=t, segments=4-> Count: 4, Num Docs: 35000
 INFO:  Config: workers=8, work_mem=2GB,leader_participation=t, segments=32-> Count: 32, Num Docs: 35000
+WARNING:  maintenance_work_mem may be too low
 INFO:  Config: workers=8, work_mem=64MB,leader_participation=t, segments=32-> Count: 32, Num Docs: 35000
 INFO:  Config: workers=8, work_mem=2GB,leader_participation=f, segments=4-> Count: 4, Num Docs: 35000
+WARNING:  maintenance_work_mem may be too low
 INFO:  Config: workers=8, work_mem=64MB,leader_participation=f, segments=4-> Count: 4, Num Docs: 35000
 INFO:  Config: workers=8, work_mem=2GB,leader_participation=f, segments=32-> Count: 32, Num Docs: 35000
+WARNING:  maintenance_work_mem may be too low
 INFO:  Config: workers=8, work_mem=64MB,leader_participation=f, segments=32-> Count: 32, Num Docs: 35000
 INFO:  Config: workers=2, work_mem=2GB,leader_participation=t, segments=4-> Count: 4, Num Docs: 35000
 INFO:  Config: workers=2, work_mem=64MB,leader_participation=t, segments=4-> Count: 4, Num Docs: 35000
 INFO:  Config: workers=2, work_mem=2GB,leader_participation=t, segments=32-> Count: 32, Num Docs: 35000
 INFO:  Config: workers=2, work_mem=64MB,leader_participation=t, segments=32-> Count: 32, Num Docs: 35000
 INFO:  Config: workers=2, work_mem=2GB,leader_participation=f, segments=4-> Count: 4, Num Docs: 35000
+WARNING:  maintenance_work_mem may be too low
 INFO:  Config: workers=2, work_mem=64MB,leader_participation=f, segments=4-> Count: 4, Num Docs: 35000
 INFO:  Config: workers=2, work_mem=2GB,leader_participation=f, segments=32-> Count: 32, Num Docs: 35000
+WARNING:  maintenance_work_mem may be too low
 INFO:  Config: workers=2, work_mem=64MB,leader_participation=f, segments=32-> Count: 32, Num Docs: 35000
 \i common/parallel_build_large_cleanup.sql
 DROP TABLE IF EXISTS parallel_build_large;

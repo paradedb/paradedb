@@ -29,7 +29,11 @@ use crate::postgres::spinlock::Spinlock;
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::utils::{categorize_fields, row_to_search_document, CategorizedFieldData};
 use crate::schema::{SearchField, SearchIndexSchema};
-use pgrx::{check_for_interrupts, pg_guard, pg_sys, PgMemoryContexts, PgRelation};
+use pgrx::pg_sys::panic::ErrorReport;
+use pgrx::{
+    check_for_interrupts, function_name, pg_guard, pg_sys, PgLogLevel, PgMemoryContexts,
+    PgRelation, PgSqlErrorCode,
+};
 use std::num::NonZeroUsize;
 use std::ptr::{addr_of_mut, NonNull};
 use tantivy::TantivyDocument;
@@ -391,6 +395,19 @@ pub(super) fn build_index(
     let process = ParallelBuild::new(&heaprel, &indexrel, snapshot.0, concurrent);
     let nworkers = create_index_nworkers(&heaprel);
     pgrx::debug1!("build_index: asked for {nworkers} workers");
+
+    if adjusted_target_segment_count(&heaprel) > 1
+        && gucs::adjust_maintenance_work_mem(nworkers).get() / nworkers < 64 * 1024 * 1024
+    {
+        ErrorReport::new(
+            PgSqlErrorCode::ERRCODE_INSUFFICIENT_RESOURCES,
+            "maintenance_work_mem may be too low",
+            function_name!(),
+        )
+        .set_detail("this can significantly increase the time it takes to build the index")
+        .set_hint("increase maintenance_work_mem")
+        .report(PgLogLevel::WARNING);
+    }
 
     if let Some(mut process) = launch_parallel_process!(
         ParallelBuild<BuildWorker>,

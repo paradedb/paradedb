@@ -13,18 +13,6 @@ updates:
         patterns:
           - "*"
 
-  # - package-ecosystem: "cargo"
-  #   directory: "/cargo-paradedb"
-  #   schedule:
-  #     interval: "monthly"
-  #   ignore:
-  #     - dependency-name: "*"
-  #       update-types: ["version-update:semver-patch"]
-  #   groups:
-  #     cargo-paradedb-dependencies:
-  #       patterns:
-  #         - "*"
-
   # - package-ecosystem: "docker"
   #   directory: "/docker"
   #   schedule:
@@ -46,18 +34,6 @@ updates:
   #       update-types: ["version-update:semver-patch"]
   #   groups:
   #     pg_search-dependencies:
-  #       patterns:
-  #         - "*"
-
-  # - package-ecosystem: "cargo"
-  #   directory: "/shared"
-  #   schedule:
-  #     interval: "monthly"
-  #   ignore:
-  #     - dependency-name: "*"
-  #       update-types: ["version-update:semver-patch"]
-  #   groups:
-  #     shared-dependencies:
   #       patterns:
   #         - "*"
 

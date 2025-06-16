@@ -62,26 +62,40 @@ impl PagingExprs {
 /// Generate arbitrary `ORDER BY`, `OFFSET`, and `LIMIT` expressions.
 ///
 /// This strategy limits itself to combinations which allow for deterministic comparison:
-/// it will always generate an `ORDER BY` including (at least) the given tiebreaker column.
+/// it will always generate an `ORDER BY` including one of the given tiebreaker columns (which are
+/// assumed to be unique).
 pub fn arb_paging_exprs(
     table: impl AsRef<str>,
-    order_by_tiebreaker: impl AsRef<str>,
-    columns: Vec<impl AsRef<str>>,
+    columns: Vec<&str>,
+    tiebreaker_columns: Vec<&str>,
 ) -> impl Strategy<Value = String> {
     let columns = columns
         .into_iter()
-        .map(|col| format!("{}.{}", table.as_ref(), col.as_ref()))
+        .map(|col| format!("{}.{col}", table.as_ref()))
         .collect::<Vec<_>>();
     let columns_len = columns.len();
+    let tiebreaker_columns = tiebreaker_columns
+        .into_iter()
+        .map(|col| format!("{}.{}", table.as_ref(), col))
+        .collect::<Vec<_>>();
 
-    // Choose `order_by`.
-    proptest::sample::subsequence(columns, 0..columns_len)
-        .prop_flat_map(move |mut order_by| {
-            order_by.push(order_by_tiebreaker.as_ref().to_owned());
+    let order_by_prefix = if columns_len > 0 {
+        proptest::sample::subsequence(columns, 0..columns_len).boxed()
+    } else {
+        Just(vec![]).boxed()
+    };
+
+    // Choose a prefix of columns to `order by`, and a tiebreaker column to ensure determinism.
+    (
+        order_by_prefix,
+        proptest::sample::select(tiebreaker_columns),
+    )
+        .prop_flat_map(move |(mut order_by_prefix, tiebreaker)| {
+            order_by_prefix.push(tiebreaker);
             (
-                Just(order_by),
-                prop_oneof![Just(None), Just(Some(0usize)), Just(Some(10usize))].boxed(),
-                prop_oneof![Just(None), Just(Some(10usize))].boxed(),
+                Just(order_by_prefix),
+                proptest::option::of(0..100_usize),
+                proptest::option::of(0..100_usize),
             )
         })
         .prop_map(|(order_by, offset, limit)| {

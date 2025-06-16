@@ -149,6 +149,10 @@ pub unsafe fn checkout_segment(pscan_state: *mut ParallelScanState) -> Option<Se
             continue;
         }
 
+        // segments are claimed back-to-front and they were already organized smallest-to-largest
+        // by num_docs over in [`ParallelScanPayload::init()`].
+        //
+        // this means we're purposely checking out documents from largest-to-smallest.
         let claimed_segment = (*pscan_state).decrement_remaining_segments();
         break Some((*pscan_state).segment_id(claimed_segment));
     }

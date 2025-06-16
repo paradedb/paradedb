@@ -1,7 +1,7 @@
 # IDEs
 .vscode/
 .idea/
-/*.iml
+*.iml
 *.swp
 
 # macOS

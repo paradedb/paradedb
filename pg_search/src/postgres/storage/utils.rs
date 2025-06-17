@@ -140,6 +140,7 @@ impl BM25BufferCache {
                     &mut extended_by,
                 );
                 filled += extended_by as usize;
+                extended_by = 0;
                 if filled == npages {
                     break;
                 }

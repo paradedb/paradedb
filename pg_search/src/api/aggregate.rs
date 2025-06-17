@@ -205,8 +205,10 @@ impl<'a> ParallelAggregationWorker<'a> {
         }
         let indexrel =
             unsafe { PgRelation::with_lock(self.config.indexrelid, pg_sys::AccessShareLock as _) };
-        let reader =
-            SearchIndexReader::open(&indexrel, MvccSatisfies::ParallelWorker(segment_ids))?;
+        let reader = SearchIndexReader::open(
+            &indexrel,
+            MvccSatisfies::ParallelWorker(segment_ids.clone()),
+        )?;
 
         let base_collector = DistributedAggregationCollector::from_aggs(
             self.aggregation.clone(),
@@ -216,6 +218,7 @@ impl<'a> ParallelAggregationWorker<'a> {
             ),
         );
 
+        let start = std::time::Instant::now();
         let intermediate_results = if self.config.solve_mvcc {
             let heaprel = indexrel
                 .heap_relation()
@@ -230,6 +233,11 @@ impl<'a> ParallelAggregationWorker<'a> {
         } else {
             reader.collect(&self.query, base_collector, false)
         };
+        pgrx::debug1!(
+            "Worker #{}: collected {segment_ids:?} in {:?}",
+            unsafe { pg_sys::ParallelWorkerNumber },
+            start.elapsed()
+        );
         Ok(Some(intermediate_results))
     }
 }
@@ -309,8 +317,17 @@ pub fn aggregate(
         )?;
 
         // limit number of workers to the number of segments
-        let nworkers =
+        let mut nworkers =
             (pg_sys::max_parallel_workers_per_gather as usize).min(reader.segment_readers().len());
+
+        if nworkers > 0 && pg_sys::parallel_leader_participation {
+            // make sure to account for the leader being a worker too
+            nworkers -= 1;
+        }
+        pgrx::debug1!(
+            "requesting {nworkers} parallel workers, with parallel_leader_participation={}",
+            *std::ptr::addr_of!(pg_sys::parallel_leader_participation)
+        );
         if let Some(mut process) = launch_parallel_process!(
             ParallelAggregation<ParallelAggregationWorker>,
             process,
@@ -321,8 +338,12 @@ pub fn aggregate(
             // signal our workers with the number of workers actually launched
             // they need this before they can begin checking out the correct segment counts
             let mut nlaunched = process.launched_workers();
+            pgrx::debug1!("launched {nlaunched} workers");
             if pg_sys::parallel_leader_participation {
                 nlaunched += 1;
+                pgrx::debug1!(
+                    "with parallel_leader_participation=true, actual worker count={nlaunched}"
+                );
             }
 
             process

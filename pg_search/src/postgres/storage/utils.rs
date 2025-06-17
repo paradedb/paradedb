@@ -118,10 +118,6 @@ impl BM25BufferCache {
     }
 
     unsafe fn bulk_extend_relation(&self, npages: usize) -> Vec<pg_sys::Buffer> {
-        mod flags {
-            pub const EB_LOCK_FIRST: pg_sys::uint32 = 1 << 3;
-        }
-
         let mut buffers = vec![pg_sys::InvalidBuffer as pg_sys::Buffer; npages];
         let mut filled = 0;
         let mut extended_by = 0;
@@ -149,7 +145,7 @@ impl BM25BufferCache {
                     bmr,
                     pg_sys::ForkNumber::MAIN_FORKNUM,
                     std::ptr::null_mut(),
-                    flags::EB_LOCK_FIRST,
+                    0,
                     (npages - filled) as _,
                     buffers.as_mut_ptr().add(filled),
                     &mut extended_by,
@@ -209,7 +205,6 @@ impl BM25BufferCache {
 
         while remaining > 0 {
             if let Some(buffer) = self.recycled_buffer() {
-                pgrx::log!("recycled buffer {}", pg_sys::BufferGetBlockNumber(buffer));
                 buffers.push((buffer, false));
                 remaining -= 1;
             } else {
@@ -219,10 +214,7 @@ impl BM25BufferCache {
 
         if remaining > 0 {
             let extended_buffers = self.bulk_extend_relation(remaining);
-            buffers.extend(extended_buffers.into_iter().enumerate().map(|(i, buffer)| {
-                pgrx::log!("extended buffer {}", pg_sys::BufferGetBlockNumber(buffer));
-                (buffer, true)
-            }));
+            buffers.extend(extended_buffers.into_iter().map(|buffer| (buffer, true)));
         }
 
         BufferMutVec::new(buffers)
@@ -312,13 +304,16 @@ impl BufferMutVec {
 impl Drop for BufferMutVec {
     fn drop(&mut self) {
         for (buffer, needs_lock) in self.inner.drain(..) {
-            if needs_lock {
-                unsafe {
-                    pg_sys::ReleaseBuffer(buffer);
-                }
-            } else {
-                unsafe {
-                    pg_sys::UnlockReleaseBuffer(buffer);
+            unsafe {
+                if buffer != pg_sys::InvalidBuffer as pg_sys::Buffer
+                    && pg_sys::InterruptHoldoffCount > 0
+                    && crate::postgres::utils::IsTransactionState()
+                {
+                    if needs_lock {
+                        pg_sys::ReleaseBuffer(buffer);
+                    } else {
+                        pg_sys::UnlockReleaseBuffer(buffer);
+                    }
                 }
             }
         }

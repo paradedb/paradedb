@@ -144,7 +144,7 @@ impl BM25BufferCache {
                 ExtendBufferedRelBy(
                     bmr,
                     pg_sys::ForkNumber::MAIN_FORKNUM,
-                    std::ptr::null_mut(),
+                    pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_BULKWRITE),
                     0,
                     (npages - filled) as _,
                     buffers.as_mut_ptr().add(filled),
@@ -205,6 +205,7 @@ impl BM25BufferCache {
 
         while remaining > 0 {
             if let Some(buffer) = self.recycled_buffer() {
+                // recycled_buffers() returns buffers that are already locked
                 buffers.push((buffer, false));
                 remaining -= 1;
             } else {
@@ -214,6 +215,7 @@ impl BM25BufferCache {
 
         if remaining > 0 {
             let extended_buffers = self.bulk_extend_relation(remaining);
+            // bulk_extend_relation() returns buffers that are not locked
             buffers.extend(extended_buffers.into_iter().map(|buffer| (buffer, true)));
         }
 

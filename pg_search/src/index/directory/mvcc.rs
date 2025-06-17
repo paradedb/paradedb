@@ -45,10 +45,12 @@ use tantivy::directory::{
 use tantivy::index::SegmentId;
 use tantivy::{index::SegmentMetaInventory, Directory, IndexMeta, TantivyError};
 
+/// Matches Postgres's [`MAX_BUFFERS_TO_EXTEND_BY`]
+const MAX_BUFFERS_TO_EXTEND_BY: usize = 64;
 /// By default Tantivy writes 8192 bytes at a time (the `BufWriter` default).
 /// We want to write more at a time so we can allocate chunks of blocks all at once,
 /// which creates less lock contention than allocating one block at a time.
-pub const BUFWRITER_CAPACITY: usize = bm25_max_free_space() * 100;
+pub const BUFWRITER_CAPACITY: usize = bm25_max_free_space() * MAX_BUFFERS_TO_EXTEND_BY;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MvccSatisfies {

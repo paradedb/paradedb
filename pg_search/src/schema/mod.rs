@@ -329,9 +329,8 @@ impl SearchField {
             FieldType::F64(options) => options.is_fast(),
             FieldType::Bool(options) => options.is_fast(),
             FieldType::Date(options) => options.is_fast(),
-            FieldType::JsonObject(options) => {
-                options.is_fast() && matches!(self.field_type, SearchFieldType::Range(_))
-            }
+            // TODO: Neither JSON nor range fields are not yet sortable by us
+            FieldType::JsonObject(_) => false,
             _ => false,
         }
     }

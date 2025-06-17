@@ -76,23 +76,6 @@ impl BM25Page for pg_sys::Page {
     }
 }
 
-#[repr(C)]
-struct BufferManagerRelation {
-    relation: pg_sys::Relation,
-    smgr: *mut pg_sys::SMgrRelationData,
-    relpersistence: i8,
-}
-
-impl Default for BufferManagerRelation {
-    fn default() -> Self {
-        Self {
-            relation: std::ptr::null_mut(),
-            smgr: std::ptr::null_mut(),
-            relpersistence: 0,
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct BM25BufferCache {
     indexrel: pg_sys::Relation,

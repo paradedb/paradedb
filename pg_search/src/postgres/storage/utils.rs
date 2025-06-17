@@ -18,8 +18,8 @@
 use crate::api::HashMap;
 use crate::postgres::storage::block::{bm25_max_free_space, BM25PageSpecialData, PgItem};
 use parking_lot::Mutex;
-use pgrx::pg_sys;
 use pgrx::pg_sys::OffsetNumber;
+use pgrx::{check_for_interrupts, pg_sys};
 
 pub trait BM25Page {
     /// Read the opaque, non-decoded [`PgItem`] at `offno`.
@@ -119,6 +119,7 @@ impl BM25BufferCache {
 
     unsafe fn recycled_buffer(&self) -> Option<pg_sys::Buffer> {
         loop {
+            check_for_interrupts!();
             // ask for a page with at least `bm25_max_free_space()` -- that's how much we need to do our things
             let blockno = pg_sys::GetPageWithFreeSpace(self.indexrel, bm25_max_free_space() as _);
             if blockno == pg_sys::InvalidBlockNumber {

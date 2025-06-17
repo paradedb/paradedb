@@ -461,7 +461,7 @@ impl BufferManager {
         }
     }
 
-    /// Like [`new_buffer`], but returns an array of buffers instead.
+    /// Like [`new_buffer`], but returns an iterator of buffers instead.
     /// This is better than calling [`new_buffer`] multiple times because it avoids potentially
     /// locking the relation for every new buffer.
     pub fn new_buffers(&mut self, npages: usize) -> impl Iterator<Item = BufferMut> {

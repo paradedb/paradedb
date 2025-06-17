@@ -1,0 +1,74 @@
+DROP TABLE IF EXISTS prox;
+CREATE TABLE prox (
+    id serial8,
+    text text
+);
+INSERT INTO prox (text) VALUES ('a b c d e f g h i j k l m n o p q r s t u v w x y z');
+INSERT INTO prox (text) VALUES ('bbq chicken is delicious');
+INSERT INTO prox (text) VALUES ('bbq ribs are delicious');
+INSERT INTO prox (text) VALUES ('chicken will be served at the bbq party');
+INSERT INTO prox (text) VALUES ('ribs will be served at the party bbq');
+CREATE INDEX idxprox ON prox USING bm25 (id, text) WITH (key_field = 'id');
+-- no match
+SELECT * FROM prox WHERE text @@@ paradedb.proximity('text', 'a', 23, 'z');
+ id | text 
+----+------
+(0 rows)
+
+-- match
+SELECT * FROM prox WHERE text @@@ paradedb.proximity('text', 'a', 24, 'z');
+ id |                        text                         
+----+-----------------------------------------------------
+  1 | a b c d e f g h i j k l m n o p q r s t u v w x y z
+(1 row)
+
+-- no match
+SELECT * FROM prox WHERE text @@@ paradedb.proximity_in_order('text', 'delicious', 2, paradedb.prox_array('bbq', 'chicken'));
+ id | text 
+----+------
+(0 rows)
+
+-- match
+SELECT * FROM prox WHERE text @@@ paradedb.proximity('text', 'delicious', 2, paradedb.prox_array('bbq', 'chicken'));
+ id |           text           
+----+--------------------------
+  2 | bbq chicken is delicious
+  3 | bbq ribs are delicious
+(2 rows)
+
+SELECT * FROM prox WHERE text @@@ paradedb.proximity_in_order('text', paradedb.prox_array('bbq', 'chicken'), 2, 'delicious');
+ id |           text           
+----+--------------------------
+  2 | bbq chicken is delicious
+  3 | bbq ribs are delicious
+(2 rows)
+
+-- match
+SELECT * FROM prox WHERE text @@@ paradedb.proximity('text', paradedb.prox_clause(paradedb.prox_array('chicken', 'ribs'), 0, 'will'), 4, paradedb.prox_clause('bbq', 0, 'party'));
+ id |                  text                   
+----+-----------------------------------------
+  4 | chicken will be served at the bbq party
+  5 | ribs will be served at the party bbq
+(2 rows)
+
+SELECT * FROM prox WHERE text @@@ paradedb.proximity_in_order('text', paradedb.prox_clause(paradedb.prox_array('chicken', 'ribs'), 0, 'will'), 4, paradedb.prox_clause('bbq', 0, 'party'));
+ id |                  text                   
+----+-----------------------------------------
+  4 | chicken will be served at the bbq party
+  5 | ribs will be served at the party bbq
+(2 rows)
+
+-- match
+SELECT * FROM prox WHERE text @@@ paradedb.proximity('text', paradedb.prox_regex('del...ous'), 1, paradedb.prox_array('chicken', paradedb.prox_regex('r..s')));
+ id |           text           
+----+--------------------------
+  2 | bbq chicken is delicious
+  3 | bbq ribs are delicious
+(2 rows)
+
+-- no match
+SELECT * FROM prox WHERE text @@@ paradedb.proximity_in_order('text', paradedb.prox_regex('del...ous'), 1, paradedb.prox_array('chicken', paradedb.prox_regex('r..s')));
+ id | text 
+----+------
+(0 rows)
+

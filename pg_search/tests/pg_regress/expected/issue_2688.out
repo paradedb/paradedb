@@ -1,0 +1,202 @@
+DROP TABLE IF EXISTS data_records;
+CREATE EXTENSION IF NOT EXISTS pg_search;
+CREATE TABLE data_records (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    category TEXT,
+    price NUMERIC,
+    in_stock BOOLEAN,
+    created_at TIMESTAMP,
+    valid_period TSTZRANGE,
+    quantity_range NUMRANGE,
+    tags TEXT[]
+);
+INSERT INTO data_records (title, category, price, in_stock, created_at, valid_period, quantity_range, tags)
+SELECT
+    'Product ' || i,
+    CASE WHEN i % 4 = 0 THEN 'Electronics'
+         WHEN i % 4 = 1 THEN 'Clothing'
+         WHEN i % 4 = 2 THEN 'Books'
+         ELSE 'Home'
+    END,
+    (i * 1000)::numeric(10,2),
+    i % 3 = 0,
+    '2023-01-01'::timestamp + ((i % 365) || ' days')::interval,
+    tstzrange(
+        '2023-01-01'::timestamptz + ((i % 365) || ' days')::interval,
+        '2023-01-01'::timestamptz + ((i % 365) || ' days')::interval + '1 month'::interval
+    ),
+    numrange((i % 10) * 10, (i % 10 + 1) * 10),
+    ARRAY[
+        'tag' || (i % 5),
+        'tag' || (i % 7),
+        'tag' || (i % 3)
+    ]
+FROM generate_series(1, 20) i;
+DROP INDEX IF EXISTS records_no_fast_idx;
+CREATE INDEX records_no_fast_idx ON data_records
+USING bm25 (
+    id, title, category, price, in_stock, created_at, valid_period, quantity_range, tags
+) WITH (
+    key_field = 'id'
+);
+SELECT id, title, valid_period
+FROM data_records
+WHERE title @@@ 'product'
+ORDER BY valid_period
+LIMIT 10;
+ id |   title    |                          valid_period                           
+----+------------+-----------------------------------------------------------------
+  1 | Product 1  | ["Mon Jan 02 00:00:00 2023 PST","Thu Feb 02 00:00:00 2023 PST")
+  2 | Product 2  | ["Tue Jan 03 00:00:00 2023 PST","Fri Feb 03 00:00:00 2023 PST")
+  3 | Product 3  | ["Wed Jan 04 00:00:00 2023 PST","Sat Feb 04 00:00:00 2023 PST")
+  4 | Product 4  | ["Thu Jan 05 00:00:00 2023 PST","Sun Feb 05 00:00:00 2023 PST")
+  5 | Product 5  | ["Fri Jan 06 00:00:00 2023 PST","Mon Feb 06 00:00:00 2023 PST")
+  6 | Product 6  | ["Sat Jan 07 00:00:00 2023 PST","Tue Feb 07 00:00:00 2023 PST")
+  7 | Product 7  | ["Sun Jan 08 00:00:00 2023 PST","Wed Feb 08 00:00:00 2023 PST")
+  8 | Product 8  | ["Mon Jan 09 00:00:00 2023 PST","Thu Feb 09 00:00:00 2023 PST")
+  9 | Product 9  | ["Tue Jan 10 00:00:00 2023 PST","Fri Feb 10 00:00:00 2023 PST")
+ 10 | Product 10 | ["Wed Jan 11 00:00:00 2023 PST","Sat Feb 11 00:00:00 2023 PST")
+(10 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, title, valid_period
+FROM data_records
+WHERE title @@@ 'product'
+ORDER BY valid_period
+LIMIT 10;
+                                                                          QUERY PLAN                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: valid_period
+         ->  Custom Scan (ParadeDB Scan) on data_records
+               Table: data_records
+               Index: records_no_fast_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+                  Top N Limit: 10
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
+(10 rows)
+
+SELECT id, title, quantity_range
+FROM data_records
+WHERE title @@@ 'product'
+ORDER BY quantity_range
+LIMIT 10;
+ id |   title    | quantity_range 
+----+------------+----------------
+ 10 | Product 10 | [0,10)
+ 20 | Product 20 | [0,10)
+ 11 | Product 11 | [10,20)
+  1 | Product 1  | [10,20)
+ 12 | Product 12 | [20,30)
+  2 | Product 2  | [20,30)
+  3 | Product 3  | [30,40)
+ 13 | Product 13 | [30,40)
+  4 | Product 4  | [40,50)
+ 14 | Product 14 | [40,50)
+(10 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, title, quantity_range
+FROM data_records
+WHERE title @@@ 'product'
+ORDER BY quantity_range
+LIMIT 10;
+                                                                          QUERY PLAN                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: quantity_range
+         ->  Custom Scan (ParadeDB Scan) on data_records
+               Table: data_records
+               Index: records_no_fast_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+                  Top N Limit: 10
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
+(10 rows)
+
+SELECT id, title, quantity_range, valid_period
+FROM data_records
+WHERE title @@@ 'product'
+ORDER BY quantity_range, valid_period
+LIMIT 10;
+ id |   title    | quantity_range |                          valid_period                           
+----+------------+----------------+-----------------------------------------------------------------
+ 10 | Product 10 | [0,10)         | ["Wed Jan 11 00:00:00 2023 PST","Sat Feb 11 00:00:00 2023 PST")
+ 20 | Product 20 | [0,10)         | ["Sat Jan 21 00:00:00 2023 PST","Tue Feb 21 00:00:00 2023 PST")
+  1 | Product 1  | [10,20)        | ["Mon Jan 02 00:00:00 2023 PST","Thu Feb 02 00:00:00 2023 PST")
+ 11 | Product 11 | [10,20)        | ["Thu Jan 12 00:00:00 2023 PST","Sun Feb 12 00:00:00 2023 PST")
+  2 | Product 2  | [20,30)        | ["Tue Jan 03 00:00:00 2023 PST","Fri Feb 03 00:00:00 2023 PST")
+ 12 | Product 12 | [20,30)        | ["Fri Jan 13 00:00:00 2023 PST","Mon Feb 13 00:00:00 2023 PST")
+  3 | Product 3  | [30,40)        | ["Wed Jan 04 00:00:00 2023 PST","Sat Feb 04 00:00:00 2023 PST")
+ 13 | Product 13 | [30,40)        | ["Sat Jan 14 00:00:00 2023 PST","Tue Feb 14 00:00:00 2023 PST")
+  4 | Product 4  | [40,50)        | ["Thu Jan 05 00:00:00 2023 PST","Sun Feb 05 00:00:00 2023 PST")
+ 14 | Product 14 | [40,50)        | ["Sun Jan 15 00:00:00 2023 PST","Wed Feb 15 00:00:00 2023 PST")
+(10 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, title, quantity_range, valid_period
+FROM data_records
+WHERE title @@@ 'product'
+ORDER BY quantity_range, valid_period
+LIMIT 10;
+                                                                          QUERY PLAN                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: quantity_range, valid_period
+         ->  Custom Scan (ParadeDB Scan) on data_records
+               Table: data_records
+               Index: records_no_fast_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+                  Top N Limit: 10
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
+(10 rows)
+
+SELECT id, title, price, valid_period
+FROM data_records
+WHERE title @@@ 'product'
+ORDER BY price ASC, valid_period ASC
+LIMIT 10;
+ id |   title    |  price   |                          valid_period                           
+----+------------+----------+-----------------------------------------------------------------
+  1 | Product 1  |  1000.00 | ["Mon Jan 02 00:00:00 2023 PST","Thu Feb 02 00:00:00 2023 PST")
+  2 | Product 2  |  2000.00 | ["Tue Jan 03 00:00:00 2023 PST","Fri Feb 03 00:00:00 2023 PST")
+  3 | Product 3  |  3000.00 | ["Wed Jan 04 00:00:00 2023 PST","Sat Feb 04 00:00:00 2023 PST")
+  4 | Product 4  |  4000.00 | ["Thu Jan 05 00:00:00 2023 PST","Sun Feb 05 00:00:00 2023 PST")
+  5 | Product 5  |  5000.00 | ["Fri Jan 06 00:00:00 2023 PST","Mon Feb 06 00:00:00 2023 PST")
+  6 | Product 6  |  6000.00 | ["Sat Jan 07 00:00:00 2023 PST","Tue Feb 07 00:00:00 2023 PST")
+  7 | Product 7  |  7000.00 | ["Sun Jan 08 00:00:00 2023 PST","Wed Feb 08 00:00:00 2023 PST")
+  8 | Product 8  |  8000.00 | ["Mon Jan 09 00:00:00 2023 PST","Thu Feb 09 00:00:00 2023 PST")
+  9 | Product 9  |  9000.00 | ["Tue Jan 10 00:00:00 2023 PST","Fri Feb 10 00:00:00 2023 PST")
+ 10 | Product 10 | 10000.00 | ["Wed Jan 11 00:00:00 2023 PST","Sat Feb 11 00:00:00 2023 PST")
+(10 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, title, price, valid_period
+FROM data_records
+WHERE title @@@ 'product'
+ORDER BY price ASC, valid_period ASC
+LIMIT 10;
+                                                                          QUERY PLAN                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Incremental Sort
+         Sort Key: price, valid_period
+         Presorted Key: price
+         ->  Custom Scan (ParadeDB Scan) on data_records
+               Table: data_records
+               Index: records_no_fast_idx
+               Exec Method: TopNScanExecState
+               Scores: false
+                  Sort Field: price
+                  Sort Direction: asc
+                  Top N Limit: 10
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
+
+DROP TABLE data_records;

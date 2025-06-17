@@ -102,7 +102,7 @@ impl LinkedBytesListWriter {
 
             let bytes_to_write = min(free_space, bytes.len() - bytes_written);
             if bytes_to_write == 0 {
-                let mut new_buffer = new_buffers.claim_buffer().unwrap_or_else(|| {
+                let mut new_buffer = new_buffers.next().unwrap_or_else(|| {
                     panic!(
                         "{} buffers was not enough for {} bytes",
                         new_buffers_needed,
@@ -261,9 +261,9 @@ impl LinkedBytesList {
         let mut bman = BufferManager::new(relation_oid);
         let mut buffers = bman.new_buffers(2);
 
-        let mut header_buffer = buffers.claim_buffer().unwrap();
+        let mut header_buffer = buffers.next().unwrap();
         let header_blockno = header_buffer.number();
-        let mut start_buffer = buffers.claim_buffer().unwrap();
+        let mut start_buffer = buffers.next().unwrap();
         let start_blockno = start_buffer.number();
 
         let mut header_page = header_buffer.init_page();

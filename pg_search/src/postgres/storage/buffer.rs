@@ -464,18 +464,15 @@ impl BufferManager {
     /// Like [`new_buffer`], but returns an array of buffers instead.
     /// This is better than calling [`new_buffer`] multiple times because it avoids potentially
     /// locking the relation for every new buffer.
-    pub fn new_buffers(&mut self, npages: usize) -> BufferMutVec {
+    pub fn new_buffers(&mut self, npages: usize) -> impl Iterator<Item = BufferMut> {
         unsafe {
-            BufferMutVec::new(
-                self.bcache
-                    .new_buffers(npages)
-                    .into_iter()
-                    .map(|pg_buffer| BufferMut {
-                        dirty: false,
-                        inner: Buffer { pg_buffer },
-                    })
-                    .collect(),
-            )
+            let mut buffer_vec = self.bcache.new_buffers(npages);
+            std::iter::from_fn(move || {
+                buffer_vec.claim_buffer().map(|pg_buffer| BufferMut {
+                    dirty: false,
+                    inner: Buffer { pg_buffer },
+                })
+            })
         }
     }
 
@@ -580,23 +577,5 @@ impl BufferManager {
 
     pub fn page_is_empty(&self, blockno: pg_sys::BlockNumber) -> bool {
         self.get_buffer(blockno).page().is_empty()
-    }
-}
-
-pub struct BufferMutVec(Vec<BufferMut>);
-
-impl BufferMutVec {
-    pub fn new(buffers: Vec<BufferMut>) -> Self {
-        Self(buffers)
-    }
-
-    /// Claim a buffer from the start, which ensures that the buffers are in the same order as they were created.
-    /// Typically this means in order of increasing block number.
-    pub fn claim_buffer(&mut self) -> Option<BufferMut> {
-        if self.0.is_empty() {
-            None
-        } else {
-            Some(self.0.remove(0))
-        }
     }
 }

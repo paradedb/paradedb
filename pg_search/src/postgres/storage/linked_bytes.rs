@@ -102,9 +102,13 @@ impl LinkedBytesListWriter {
 
             let bytes_to_write = min(free_space, bytes.len() - bytes_written);
             if bytes_to_write == 0 {
-                let mut new_buffer = new_buffers
-                    .claim_buffer()
-                    .expect("new buffers should have been allocated correctly");
+                let mut new_buffer = new_buffers.claim_buffer().unwrap_or_else(|| {
+                    panic!(
+                        "{} buffers was not enough for {} bytes",
+                        new_buffers_needed,
+                        bytes.len()
+                    )
+                });
 
                 // Set next blockno
                 let new_blockno = new_buffer.number();

@@ -76,6 +76,23 @@ impl BM25Page for pg_sys::Page {
     }
 }
 
+#[repr(C)]
+struct BufferManagerRelation {
+    relation: pg_sys::Relation,
+    smgr: *mut pg_sys::SMgrRelationData,
+    relpersistence: i8,
+}
+
+impl Default for BufferManagerRelation {
+    fn default() -> Self {
+        Self {
+            relation: std::ptr::null_mut(),
+            smgr: std::ptr::null_mut(),
+            relpersistence: 0,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct BM25BufferCache {
     indexrel: pg_sys::Relation,
@@ -104,16 +121,44 @@ impl BM25BufferCache {
         // Postgres requires an exclusive lock on the relation to create a new page
         pg_sys::LockRelationForExtension(self.indexrel, pg_sys::ExclusiveLock as i32);
 
-        let buffers = (0..npages)
-            .map(|_| {
-                self.get_buffer(
-                    pg_sys::InvalidBlockNumber,
-                    Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
-                )
-            })
-            .collect::<Vec<_>>();
+        let mut buffers = pg_sys::ffi::pg_guard_ffi_boundary(|| {
+            extern "C-unwind" {
+                fn ExtendBufferedRelBy(
+                    bmr: BufferManagerRelation,
+                    fork: i32,
+                    strategy: pg_sys::BufferAccessStrategy,
+                    flags: pg_sys::uint32,
+                    extend_by: pg_sys::uint32,
+                    buffers: *mut pg_sys::Buffer,
+                    extended_by: *mut pg_sys::uint32,
+                ) -> pg_sys::BlockNumber;
+            }
+
+            let bmr = BufferManagerRelation {
+                relation: self.indexrel,
+                ..Default::default()
+            };
+
+            let mut buffers = vec![pg_sys::Buffer::default(); npages];
+            let mut extended_by = 0;
+
+            ExtendBufferedRelBy(
+                bmr,
+                0,
+                std::ptr::null_mut(),
+                0,
+                npages as _,
+                buffers.as_mut_ptr(),
+                &mut extended_by,
+            );
+
+            buffers
+        });
 
         pg_sys::UnlockRelationForExtension(self.indexrel, pg_sys::ExclusiveLock as i32);
+        for buffer in buffers.iter_mut() {
+            pg_sys::LockBuffer(*buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as i32);
+        }
         buffers
     }
 

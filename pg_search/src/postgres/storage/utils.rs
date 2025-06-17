@@ -101,48 +101,50 @@ impl BM25BufferCache {
     }
 
     unsafe fn bulk_extend_relation(&self, npages: usize) -> Vec<pg_sys::Buffer> {
-        let can_use_extend_buffered_rel_by = (pg_sys::MyBackendType
-            == pg_sys::BackendType::B_BG_WORKER
-            || pg_sys::MyBackendType == pg_sys::BackendType::B_BACKEND)
-            && cfg!(any(feature = "pg16", feature = "pg17"));
+        #[cfg(any(feature = "pg16", feature = "pg17"))]
+        {
+            let can_use_extend_buffered_rel_by = pg_sys::MyBackendType
+                == pg_sys::BackendType::B_BG_WORKER
+                || pg_sys::MyBackendType == pg_sys::BackendType::B_BACKEND;
 
-        if can_use_extend_buffered_rel_by {
-            let mut buffers = vec![pg_sys::InvalidBuffer as pg_sys::Buffer; npages];
-            let mut filled = 0;
-            let mut extended_by = 0;
+            if can_use_extend_buffered_rel_by {
+                let mut buffers = vec![pg_sys::InvalidBuffer as pg_sys::Buffer; npages];
+                let mut filled = 0;
+                let mut extended_by = 0;
 
-            loop {
-                check_for_interrupts!();
-                let bmr = pg_sys::BufferManagerRelation {
-                    rel: self.indexrel,
-                    ..Default::default()
-                };
-                pg_sys::ExtendBufferedRelBy(
-                    bmr,
-                    pg_sys::ForkNumber::MAIN_FORKNUM,
-                    pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_BULKWRITE),
-                    0,
-                    (npages - filled) as _,
-                    buffers.as_mut_ptr().add(filled),
-                    &mut extended_by,
-                );
-                filled += extended_by as usize;
-                extended_by = 0;
-                if filled == npages {
-                    break;
+                loop {
+                    check_for_interrupts!();
+                    let bmr = pg_sys::BufferManagerRelation {
+                        rel: self.indexrel,
+                        ..Default::default()
+                    };
+                    pg_sys::ExtendBufferedRelBy(
+                        bmr,
+                        pg_sys::ForkNumber::MAIN_FORKNUM,
+                        pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_BULKWRITE),
+                        0,
+                        (npages - filled) as _,
+                        buffers.as_mut_ptr().add(filled),
+                        &mut extended_by,
+                    );
+                    filled += extended_by as usize;
+                    extended_by = 0;
+                    if filled == npages {
+                        break;
+                    }
                 }
-            }
 
-            buffers
-        } else {
-            let mut buffers = vec![pg_sys::InvalidBuffer as pg_sys::Buffer; npages];
-            pg_sys::LockRelationForExtension(self.indexrel, pg_sys::AccessExclusiveLock as i32);
-            for buffer in buffers.iter_mut().take(npages) {
-                *buffer = self.get_buffer(pg_sys::InvalidBlockNumber, None);
+                return buffers;
             }
-            pg_sys::UnlockRelationForExtension(self.indexrel, pg_sys::AccessExclusiveLock as i32);
-            buffers
         }
+
+        let mut buffers = vec![pg_sys::InvalidBuffer as pg_sys::Buffer; npages];
+        pg_sys::LockRelationForExtension(self.indexrel, pg_sys::AccessExclusiveLock as i32);
+        for buffer in buffers.iter_mut().take(npages) {
+            *buffer = self.get_buffer(pg_sys::InvalidBlockNumber, None);
+        }
+        pg_sys::UnlockRelationForExtension(self.indexrel, pg_sys::AccessExclusiveLock as i32);
+        buffers
     }
 
     unsafe fn recycled_buffer(&self) -> Option<pg_sys::Buffer> {

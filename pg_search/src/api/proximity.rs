@@ -2,7 +2,7 @@ use crate::api::FieldName;
 use crate::api::Regex;
 use crate::query::proximity::{ProximityClause, ProximityDistance, ProximityTermStyle};
 use crate::query::SearchQueryInput;
-use pgrx::{default, pg_cast, pg_extern};
+use pgrx::{default, pg_cast, pg_extern, VariadicArray};
 
 #[pg_extern(immutable, parallel_safe)]
 pub fn prox_term(term: String) -> ProximityClause {
@@ -21,8 +21,8 @@ pub fn prox_regex(
 }
 
 #[pg_extern(immutable, parallel_safe)]
-pub fn prox_array(clauses: Vec<ProximityClause>) -> ProximityClause {
-    ProximityClause::Clauses(clauses)
+pub fn prox_array(clauses: VariadicArray<ProximityClause>) -> ProximityClause {
+    ProximityClause::Clauses(clauses.into_iter().filter_map(|clause| clause).collect())
 }
 
 #[pg_extern(immutable, parallel_safe)]

@@ -55,7 +55,12 @@ SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid_key;
 
 -- And that non-key UUID fields do too.
 SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid;
-ERROR:  Unrecognized numeric fast field type for: uuid
+ name 
+------
+ bob
+ bob
+(2 rows)
+
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid;
                                                                     QUERY PLAN                                                                     
@@ -67,11 +72,10 @@ SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid;
          Index: idxproducts
          Exec Method: MixedFastFieldExecState
          Fast Fields: name, uuid
-         String Fast Fields: name
-         Numeric Fast Fields: uuid
+         String Fast Fields: name, uuid
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(10 rows)
 
 \i common/common_cleanup.sql
 -- Reset parallel workers setting to default

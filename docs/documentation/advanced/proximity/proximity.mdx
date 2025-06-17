@@ -1,0 +1,44 @@
+---
+title: Proximity Queries
+---
+
+<Note>
+  Proximity queries only work over tokenized fields which store positions. This
+  is `pg_search`'s default for `TEXT` and `VARCHAR` fields.
+</Note>
+
+Proximity queries allow for finding documents that contain a term or regular expression within some number of tokens of another term or regular expression. In Elasticsearch parlance, proximity queries are similar to "span" queries.
+
+A proximity query consists of a [`ProximityClause`](proximity_clause), a distance value, and another `ProximityClause`. As mentioned, a `ProximityClause` can be a term or a regular expression. It can also be another `ProximityClause` or an array of them.
+
+## Basic Usage
+
+Search for documents containing `historical` within 1 word of `book`.
+
+<CodeGroup>
+  ```sql Proximity Query Example SELECT * FROM mock_items WHERE id @@@
+  paradedb.proximity('description', 'historical', 1, 'book'); ```
+</CodeGroup>
+
+<ParamField body="field" required>
+  Specifies the field within the document to search.
+</ParamField>
+<ParamField body="left" required>
+  The `paradedb.proximityclause` to find...
+</ParamField>
+<ParamField body="distance" required>
+  ...within this many tokens...
+</ParamField>
+<ParamField body="right" required>
+  ...of this other `paradedb.proximityclause`.
+</ParamField>
+
+Another example matching multiple documents from `mock_items` is:
+
+<CodeGroup>
+  ```sql Advanced Example SELECT * FROM mock_items WHERE id @@@
+  paradedb.proximity( 'description', -- field to query
+  paradedb.prox_array('generic', 'white', paradedb.prox_regex('sl..k')), -- left
+  proximityclause 1, -- word/token distance 'shoes' -- right proximityclause );
+  ```
+</CodeGroup>

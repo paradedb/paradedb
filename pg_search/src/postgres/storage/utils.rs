@@ -101,8 +101,12 @@ impl BM25BufferCache {
     }
 
     unsafe fn bulk_extend_relation(&self, npages: usize) -> Vec<pg_sys::Buffer> {
-        #[cfg(any(feature = "pg16", feature = "pg17"))]
-        {
+        let can_use_extend_buffered_rel_by = (pg_sys::MyBackendType
+            == pg_sys::BackendType::B_BG_WORKER
+            || pg_sys::MyBackendType == pg_sys::BackendType::B_BACKEND)
+            && cfg!(any(feature = "pg16", feature = "pg17"));
+
+        if can_use_extend_buffered_rel_by {
             let mut buffers = vec![pg_sys::InvalidBuffer as pg_sys::Buffer; npages];
             let mut filled = 0;
             let mut extended_by = 0;
@@ -130,14 +134,11 @@ impl BM25BufferCache {
             }
 
             buffers
-        }
-
-        #[cfg(not(any(feature = "pg16", feature = "pg17")))]
-        {
+        } else {
             let mut buffers = vec![pg_sys::InvalidBuffer as pg_sys::Buffer; npages];
             pg_sys::LockRelationForExtension(self.indexrel, pg_sys::AccessExclusiveLock as i32);
-            for i in 0..npages {
-                buffers[i] = self.get_buffer(pg_sys::InvalidBlockNumber, None);
+            for buffer in buffers.iter_mut().take(npages) {
+                *buffer = self.get_buffer(pg_sys::InvalidBlockNumber, None);
             }
             pg_sys::UnlockRelationForExtension(self.indexrel, pg_sys::AccessExclusiveLock as i32);
             buffers

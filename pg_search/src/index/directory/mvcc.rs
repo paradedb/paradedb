@@ -40,7 +40,8 @@ use tantivy::directory::error::{
     DeleteError, LockError, OpenDirectoryError, OpenReadError, OpenWriteError,
 };
 use tantivy::directory::{
-    DirectoryLock, DirectoryPanicHandler, FileHandle, Lock, WatchCallback, WatchHandle, WritePtr,
+    DirectoryLock, DirectoryPanicHandler, FileHandle, Lock, TerminatingWrite, WatchCallback,
+    WatchHandle,
 };
 use tantivy::index::SegmentId;
 use tantivy::{index::SegmentMetaInventory, Directory, IndexMeta, TantivyError};
@@ -233,16 +234,16 @@ impl Directory for MVCCDirectory {
     }
 
     /// Returns a segment writer that implements std::io::Write
-    fn open_write(&self, path: &Path) -> result::Result<WritePtr, OpenWriteError> {
+    fn open_write_inner(
+        &self,
+        path: &Path,
+    ) -> result::Result<Box<dyn TerminatingWrite>, OpenWriteError> {
         let writer = unsafe { SegmentComponentWriter::new(self.relation_oid, path) };
         self.new_files.lock().insert(
             path.to_path_buf(),
             (writer.file_entry(), writer.total_bytes()),
         );
-        Ok(io::BufWriter::with_capacity(
-            self.bufwriter_capacity(),
-            Box::new(writer),
-        ))
+        Ok(Box::new(writer))
     }
 
     /// atomic_read is used by Tantivy to read from managed.json and meta.json

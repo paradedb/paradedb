@@ -48,10 +48,12 @@ SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid_key;
    ->  Custom Scan (ParadeDB Scan) on products
          Table: products
          Index: idxproducts
-         Exec Method: NormalScanExecState
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: name, uuid_key
+         String Fast Fields: name, uuid_key
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
-(8 rows)
+(10 rows)
 
 -- And that non-key UUID fields do too.
 SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid;

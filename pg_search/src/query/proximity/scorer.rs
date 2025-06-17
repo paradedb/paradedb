@@ -105,12 +105,7 @@ impl Iterator for ProxIter<'_> {
             let l = self.lpos[self.li];
             let r = self.rpos[self.ri];
 
-            let diff = if self.distance.in_order() {
-                r.wrapping_sub(l)
-            } else {
-                r.abs_diff(l)
-            };
-
+            let diff = self.distance.diff(l, r);
             if diff <= self.distance.distance() + 1 {
                 self.li += 1;
                 return Some((l, r));

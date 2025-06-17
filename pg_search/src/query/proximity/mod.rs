@@ -141,6 +141,14 @@ pub enum ProximityDistance {
 }
 
 impl ProximityDistance {
+    #[inline(always)]
+    pub fn diff(&self, l: u32, r: u32) -> u32 {
+        match self {
+            ProximityDistance::InOrder(_) => r.wrapping_sub(l),
+            ProximityDistance::AnyOrder(_) => r.abs_diff(l),
+        }
+    }
+
     pub fn distance(&self) -> u32 {
         match self {
             ProximityDistance::InOrder(distance) => *distance,

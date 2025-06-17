@@ -835,7 +835,6 @@ impl SearchIndexSchema {
             SearchFieldConfig::Numeric { fast: true, .. } => Some(()),
             SearchFieldConfig::Boolean { fast: true, .. } => Some(()),
             SearchFieldConfig::Date { fast: true, .. } => Some(()),
-            SearchFieldConfig::Range { fast: true, .. } => Some(()),
             _ => None,
         }
     }

@@ -22,11 +22,6 @@ ParadeDB BYOC can be deployed and managed in one of two ways:
 - **Fully Managed**: ParadeDB will deploy and manage the ParadeDB BYOC module for you. ParadeDB requires a sub-account or project within your cloud provider via an IAM user or a service account.
 - **Just-in-Time Managed**: You will deploy the ParadeDB BYOC module and can choose to provide just-in-time access to the ParadeDB team when support is required. This is typically useful for airgapped environments.
 
-### BYOC Topology
-
-ParadeDB BYOC is built on [CloudNativePG](https://cloudnative-pg.io/), the leading Kubernetes operator for Postgres, and is typically deployed alongside an existing OLTP Postgres-as-a-Service platform such as AWS RDS. It
-includes a primary-replica cluster with built-in logical replication ingestion and automated backups.
-
 ![ParadeDB BYOC Topology](/images/topology.png)
 
 ## Getting Started

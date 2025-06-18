@@ -82,6 +82,15 @@ impl LinkedBytesListWriter {
         let mut data_cursor = Cursor::new(bytes);
         let mut bytes_written = 0;
 
+        let new_buffers_needed = {
+            let buffer = self.list.bman.get_buffer(self.last_blockno);
+            let page = buffer.page();
+            let free_space = page.header().free_space();
+            ((bytes.len().saturating_sub(free_space)) as f64 / bm25_max_free_space() as f64).ceil()
+                as usize
+        };
+        let mut new_buffers = self.list.bman.new_buffers(new_buffers_needed);
+
         while bytes_written < bytes.len() {
             check_for_interrupts!();
             self.blocklist_builder.push(self.last_blockno);
@@ -93,7 +102,13 @@ impl LinkedBytesListWriter {
 
             let bytes_to_write = min(free_space, bytes.len() - bytes_written);
             if bytes_to_write == 0 {
-                let mut new_buffer = self.list.bman.new_buffer();
+                let mut new_buffer = new_buffers.next().unwrap_or_else(|| {
+                    panic!(
+                        "{} buffers was not enough for {} bytes",
+                        new_buffers_needed,
+                        bytes.len()
+                    )
+                });
 
                 // Set next blockno
                 let new_blockno = new_buffer.number();
@@ -244,10 +259,11 @@ impl LinkedBytesList {
 
     pub unsafe fn create(relation_oid: pg_sys::Oid) -> Self {
         let mut bman = BufferManager::new(relation_oid);
+        let mut buffers = bman.new_buffers(2);
 
-        let mut header_buffer = bman.new_buffer();
+        let mut header_buffer = buffers.next().unwrap();
         let header_blockno = header_buffer.number();
-        let mut start_buffer = bman.new_buffer();
+        let mut start_buffer = buffers.next().unwrap();
         let start_blockno = start_buffer.number();
 
         let mut header_page = header_buffer.init_page();

@@ -461,6 +461,21 @@ impl BufferManager {
         }
     }
 
+    /// Like [`new_buffer`], but returns an iterator of buffers instead.
+    /// This is better than calling [`new_buffer`] multiple times because it avoids potentially
+    /// locking the relation for every new buffer.
+    pub fn new_buffers(&mut self, npages: usize) -> impl Iterator<Item = BufferMut> {
+        unsafe {
+            let mut buffer_vec = self.bcache.new_buffers(npages);
+            std::iter::from_fn(move || {
+                buffer_vec.claim_buffer().map(|pg_buffer| BufferMut {
+                    dirty: false,
+                    inner: Buffer { pg_buffer },
+                })
+            })
+        }
+    }
+
     pub fn pinned_buffer(&self, blockno: pg_sys::BlockNumber) -> PinnedBuffer {
         unsafe { PinnedBuffer::new(self.bcache.get_buffer(blockno, None)) }
     }

@@ -1,4 +1,5 @@
-use crate::postgres::storage::block::{bm25_max_free_space, FileEntry, SegmentFileDetails};
+use crate::index::directory::mvcc::BUFWRITER_CAPACITY;
+use crate::postgres::storage::block::{FileEntry, SegmentFileDetails};
 use crate::postgres::storage::{LinkedBytesList, LinkedBytesListWriter};
 use pgrx::*;
 use std::io::{Result, Write};
@@ -84,7 +85,7 @@ impl TerminatingWrite for SegmentComponentWriter {
 struct InnerSegmentComponentWriter {
     header_blockno: pg_sys::BlockNumber,
     total_bytes: Arc<AtomicUsize>,
-    buffer: ExactBuffer<{ bm25_max_free_space() }, LinkedBytesListWriter>,
+    buffer: ExactBuffer<{ BUFWRITER_CAPACITY }, LinkedBytesListWriter>,
 }
 
 impl InnerSegmentComponentWriter {
@@ -96,7 +97,7 @@ impl InnerSegmentComponentWriter {
             total_bytes: Default::default(),
             buffer: ExactBuffer {
                 writer: segment_component.writer(),
-                buffer: [0; bm25_max_free_space()],
+                buffer: [0; BUFWRITER_CAPACITY],
                 len: 0,
             },
         }

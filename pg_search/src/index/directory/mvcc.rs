@@ -40,10 +40,18 @@ use tantivy::directory::error::{
     DeleteError, LockError, OpenDirectoryError, OpenReadError, OpenWriteError,
 };
 use tantivy::directory::{
-    DirectoryLock, DirectoryPanicHandler, FileHandle, Lock, WatchCallback, WatchHandle, WritePtr,
+    DirectoryLock, DirectoryPanicHandler, FileHandle, Lock, TerminatingWrite, WatchCallback,
+    WatchHandle,
 };
 use tantivy::index::SegmentId;
 use tantivy::{index::SegmentMetaInventory, Directory, IndexMeta, TantivyError};
+
+/// Matches Postgres's [`MAX_BUFFERS_TO_EXTEND_BY`]
+const MAX_BUFFERS_TO_EXTEND_BY: usize = 64;
+/// By default Tantivy writes 8192 bytes at a time (the `BufWriter` default).
+/// We want to write more at a time so we can allocate chunks of blocks all at once,
+/// which creates less lock contention than allocating one block at a time.
+pub const BUFWRITER_CAPACITY: usize = bm25_max_free_space() * MAX_BUFFERS_TO_EXTEND_BY;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MvccSatisfies {
@@ -226,16 +234,16 @@ impl Directory for MVCCDirectory {
     }
 
     /// Returns a segment writer that implements std::io::Write
-    fn open_write(&self, path: &Path) -> result::Result<WritePtr, OpenWriteError> {
+    fn open_write_inner(
+        &self,
+        path: &Path,
+    ) -> result::Result<Box<dyn TerminatingWrite>, OpenWriteError> {
         let writer = unsafe { SegmentComponentWriter::new(self.relation_oid, path) };
         self.new_files.lock().insert(
             path.to_path_buf(),
             (writer.file_entry(), writer.total_bytes()),
         );
-        Ok(io::BufWriter::with_capacity(
-            bm25_max_free_space(),
-            Box::new(writer),
-        ))
+        Ok(Box::new(writer))
     }
 
     /// atomic_read is used by Tantivy to read from managed.json and meta.json
@@ -413,6 +421,10 @@ impl Directory for MVCCDirectory {
 
     fn log(&self, message: &str) {
         pgrx::debug1!("{message}");
+    }
+
+    fn bufwriter_capacity(&self) -> usize {
+        BUFWRITER_CAPACITY
     }
 }
 

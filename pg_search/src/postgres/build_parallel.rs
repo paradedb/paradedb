@@ -330,7 +330,7 @@ impl<'a> BuildWorker<'a> {
 
                 let metadata = unsafe { MetaPage::open(self.indexrel.oid()) };
                 let merge_entry = {
-                    let merge_lock = unsafe { metadata.acquire_merge_lock() };
+                    let merge_lock = metadata.acquire_merge_lock();
                     let mut merge_list = merge_lock.merge_list();
                     let mergeable_entries = mergeable_entries(self.indexrel.oid(), &merge_list);
                     if mergeable_entries.is_empty() {
@@ -359,29 +359,36 @@ impl<'a> BuildWorker<'a> {
 
                 let directory = MVCCDirectory::mergeable(self.indexrel.oid());
                 let index = Index::open(directory.clone())?;
-                let metas = index.searchable_segment_metas()?;
-                let segment_metas = merge_entry
+                let mut merger = SearchIndexMerger::open(directory)?;
+                let searchable_metas = index.searchable_segment_metas()?;
+                let metas_to_merge = merge_entry
                     .segment_ids(self.indexrel.oid())
                     .iter()
-                    .map(|id| metas.iter().find(|meta| meta.id() == *id).unwrap().clone())
+                    .map(|id| {
+                        searchable_metas
+                            .iter()
+                            .find(|meta| meta.id() == *id)
+                            .unwrap()
+                            .clone()
+                    })
                     .collect::<Vec<_>>();
-                let segments = segment_metas
+                let segments = metas_to_merge
                     .iter()
                     .map(|meta| index.segment(meta.clone()))
                     .collect::<Vec<_>>();
-                let mut merger = SearchIndexMerger::open(directory)?;
 
                 if let Some(merged_meta) = merger.merge_into(&segments)? {
                     pgrx::debug1!("do_merge: merged segment: {:?}", merged_meta.id());
-                    let merge_lock = metadata.acquire_merge_lock();
-                    let mut merge_list = merge_lock.merge_list();
-                    merge_list.add_segment_ids(std::iter::once(&merged_meta.id()))?;
-                    drop(merge_lock);
 
-                    pgrx::debug1!("do_merge: added to merge list: {:?}", merged_meta.id());
+                    {
+                        let merge_lock = metadata.acquire_merge_lock();
+                        let mut merge_list = merge_lock.merge_list();
+                        merge_list.add_segment_ids(std::iter::once(&merged_meta.id()))?;
+                    }
+
                     let index_meta = index.load_metas()?;
                     let previous_meta = IndexMeta {
-                        segments: segment_metas,
+                        segments: metas_to_merge,
                         ..index_meta.clone()
                     };
                     let new_meta = IndexMeta {

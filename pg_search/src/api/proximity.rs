@@ -22,7 +22,7 @@ pub fn prox_regex(
 
 #[pg_extern(immutable, parallel_safe)]
 pub fn prox_array(clauses: VariadicArray<ProximityClause>) -> ProximityClause {
-    ProximityClause::Clauses(clauses.into_iter().filter_map(|clause| clause).collect())
+    ProximityClause::Clauses(clauses.into_iter().flatten().collect())
 }
 
 #[pg_extern(immutable, parallel_safe)]

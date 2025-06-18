@@ -322,7 +322,11 @@ impl<'a> BuildWorker<'a> {
             let directory = MVCCDirectory::mergeable(self.indexrel.oid());
             let merger = SearchIndexMerger::open(directory)?;
             let segment_ids = merger.searchable_segment_ids()?;
-            pgrx::debug1!("do_merge: nwriters_remaining={}, segment_ids={:?}", self.coordination.nwriters_remaining(), segment_ids);
+            pgrx::debug1!(
+                "do_merge: nwriters_remaining={}, segment_ids={:?}",
+                self.coordination.nwriters_remaining(),
+                segment_ids
+            );
 
             unsafe {
                 Self::do_wait(5000);
@@ -356,8 +360,6 @@ impl WorkerBuildState {
     ) -> anyhow::Result<Self> {
         let config = IndexWriterConfig {
             memory_budget: per_worker_memory_budget,
-            target_segment_count: None,
-            target_docs_per_segment: None,
         };
         let writer = SerialIndexWriter::open(indexrel, config)?;
         let schema = SearchIndexSchema::open(indexrel.oid())?;

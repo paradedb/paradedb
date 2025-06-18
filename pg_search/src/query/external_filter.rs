@@ -20,12 +20,12 @@ use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
 use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::u64_to_item_pointer;
 use pgrx::heap_tuple::PgHeapTuple;
-use pgrx::{pg_sys, FromDatum, IntoDatum, PgTupleDesc};
+use pgrx::{pg_sys, AnyNumeric, FromDatum, IntoDatum, PgTupleDesc};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use tantivy::query::{EnableScoring, Query, Scorer, Weight};
 use tantivy::schema::document::OwnedValue;
-use tantivy::{DocAddress, DocId, Score, SegmentReader};
+use tantivy::{DocAddress, DocId, DocSet, Score, SegmentReader};
 
 use std::sync::OnceLock;
 
@@ -632,12 +632,18 @@ struct ExternalFilterWeight {
 impl Weight for ExternalFilterWeight {
     fn scorer(&self, reader: &SegmentReader, _boost: Score) -> tantivy::Result<Box<dyn Scorer>> {
         pgrx::warning!("ExternalFilterWeight::scorer called - creating ExternalFilterScorer");
-        Ok(Box::new(ExternalFilterScorer::new(
+        let scorer = ExternalFilterScorer::new(
             reader.clone(),
             self.config.clone(),
             self.callback.clone(),
             pg_sys::InvalidOid, // Will be set later when we have the heap relation info
-        )))
+        );
+        pgrx::warning!(
+            "🔥 Created ExternalFilterScorer with max_doc: {}, size_hint: {}",
+            scorer.max_doc,
+            scorer.size_hint()
+        );
+        Ok(Box::new(scorer))
     }
 
     fn explain(
@@ -653,6 +659,7 @@ impl Weight for ExternalFilterWeight {
 pub struct ExternalFilterScorer {
     doc_id: DocId,
     max_doc: DocId,
+    current_doc: DocId,
     current_score: Score,
     expression: String,
     callback: Option<ExternalFilterCallback>,
@@ -674,7 +681,7 @@ impl Scorer for ExternalFilterScorer {
 
 impl tantivy::DocSet for ExternalFilterScorer {
     fn advance(&mut self) -> DocId {
-        pgrx::warning!("🔥 ExternalFilterScorer::advance called - starting iteration");
+        // ExternalFilterScorer::advance called
 
         // For now, let's implement a simple iteration through all documents
         // In a full implementation, this would iterate through documents that match the indexed query
@@ -682,43 +689,69 @@ impl tantivy::DocSet for ExternalFilterScorer {
             let current_doc = self.doc_id;
             self.doc_id += 1;
 
+            pgrx::warning!("🔥 ExternalFilterScorer evaluating doc_id: {}", current_doc);
+
             // Extract field values for this document
             let field_values = self.extract_field_values(current_doc);
+            pgrx::warning!("🔥 ExternalFilterScorer field values: {:?}", field_values);
 
             // Get the callback for this expression
             if let Some(callback) = get_callback(&self.expression) {
+                pgrx::warning!("🔥 ExternalFilterScorer found callback, evaluating...");
                 // Evaluate the expression using the callback
                 let result = callback(current_doc, &field_values);
+                pgrx::warning!("🔥 ExternalFilterScorer callback result: {}", result);
 
                 if result {
                     // Document matches the filter
+                    self.current_doc = current_doc;
                     self.current_score = 1.0; // External filters have score 1.0
+                    pgrx::warning!(
+                        "🔥 ExternalFilterScorer returning matching doc_id: {}",
+                        current_doc
+                    );
                     return current_doc;
                 } else {
                     // Continue to next document
+                    pgrx::warning!(
+                        "🔥 ExternalFilterScorer doc_id {} filtered out",
+                        current_doc
+                    );
                 }
             } else {
+                pgrx::warning!("🔥 ExternalFilterScorer no callback found for expression");
                 // No callback found - for testing, let's accept the document anyway
+                self.current_doc = current_doc;
                 self.current_score = 1.0;
                 return current_doc;
             }
         }
 
         // No more documents found
+        self.current_doc = tantivy::TERMINATED;
+        pgrx::warning!("🔥 ExternalFilterScorer no more documents, returning TERMINATED");
         tantivy::TERMINATED
     }
 
     fn doc(&self) -> DocId {
         // Return the current document ID (the one we're positioned at)
-        if self.doc_id > 0 {
-            self.doc_id - 1
-        } else {
-            tantivy::TERMINATED
-        }
+        pgrx::warning!(
+            "🔥 ExternalFilterScorer::doc called: current_doc={}",
+            self.current_doc
+        );
+        // ExternalFilterScorer::doc called
+        self.current_doc
     }
 
     fn size_hint(&self) -> u32 {
-        (self.max_doc - self.doc_id) as u32
+        let hint = (self.max_doc - self.doc_id) as u32;
+        pgrx::warning!(
+            "🔥 ExternalFilterScorer::size_hint called: doc_id={}, max_doc={}, hint={}",
+            self.doc_id,
+            self.max_doc,
+            hint
+        );
+        hint
     }
 }
 
@@ -730,9 +763,10 @@ impl ExternalFilterScorer {
         heaprel_oid: pg_sys::Oid,
     ) -> Self {
         let max_doc = reader.max_doc();
-        Self {
+        let mut scorer = Self {
             doc_id: 0,
             max_doc,
+            current_doc: tantivy::TERMINATED,
             current_score: 1.0,
             expression: config.expression.clone(),
             callback,
@@ -740,7 +774,16 @@ impl ExternalFilterScorer {
             reader,
             ff_helper: None, // Will be initialized when needed
             heaprel_oid,
+        };
+
+        // Initialize to the first valid document immediately
+        let first_doc = scorer.advance();
+        if first_doc != tantivy::TERMINATED {
+            // We found a valid document, position the scorer correctly
+            scorer.doc_id = first_doc + 1; // advance() already incremented it, so set it correctly
         }
+
+        scorer
     }
 
     /// Set the heap relation OID for field value extraction
@@ -757,23 +800,21 @@ impl ExternalFilterScorer {
     fn extract_field_values(&self, doc_id: DocId) -> HashMap<FieldName, OwnedValue> {
         let mut field_values = HashMap::default();
 
-        // For now, we'll implement a basic version that extracts values from fast fields
-        // In a full implementation, this would need to handle both fast fields and stored fields
-
-        // Try to get the document from the segment reader
-        // Since we don't have direct access to the document here, we'll need to work with
-        // the fast fields that are available
+        // Extract ctid first to access heap if needed
+        let ctid = self.extract_ctid(doc_id);
 
         // For each referenced field, try to extract its value
         for field_name in &self.config.referenced_fields {
-            // For now, we'll create placeholder values
-            // In a real implementation, we would:
-            // 1. Check if the field is a fast field and extract from fast fields
-            // 2. If not, extract from stored fields
-            // 3. Convert the value to the appropriate OwnedValue type
+            let field_value = if let Some(ctid_value) = ctid {
+                // Try to extract from heap
+                self.extract_field_from_heap(ctid_value, field_name)
+                    .unwrap_or(OwnedValue::Null)
+            } else {
+                // No ctid available, return null
+                OwnedValue::Null
+            };
 
-            // Placeholder implementation - always return a default value
-            field_values.insert(field_name.clone(), OwnedValue::Null);
+            field_values.insert(field_name.clone(), field_value);
         }
 
         field_values
@@ -1058,15 +1099,17 @@ struct IndexedWithFilterScorer {
 
 impl IndexedWithFilterScorer {
     fn new(
-        mut indexed_scorer: Box<dyn Scorer>,
+        indexed_scorer: Box<dyn Scorer>,
         external_filter_config: ExternalFilterConfig,
         external_filter_callback: Option<ExternalFilterCallback>,
         reader: SegmentReader,
         ctid_ff: crate::index::fast_fields_helper::FFType,
         heaprel_oid: pg_sys::Oid,
     ) -> Self {
-        // Initialize the scorer to the first valid document immediately
-        let first_doc = indexed_scorer.advance();
+        // Check what the current document is before advancing
+        let current_doc_before = indexed_scorer.doc();
+
+        // Find the first valid document that passes both indexed query and external filter
         let mut scorer = Self {
             indexed_scorer,
             external_filter_config,
@@ -1074,15 +1117,19 @@ impl IndexedWithFilterScorer {
             reader,
             ctid_ff,
             heaprel_oid,
-            current_doc: first_doc,
+            current_doc: tantivy::TERMINATED,
         };
-        // If we have a first document, check if it passes the external filter
-        if first_doc != tantivy::TERMINATED {
-            if !scorer.evaluate_external_filter(first_doc) {
-                // If the first document doesn't pass the filter, advance to find the next one
+
+        // Check if the current document (before advancing) passes the external filter
+        if current_doc_before != tantivy::TERMINATED {
+            if scorer.evaluate_external_filter(current_doc_before) {
+                scorer.current_doc = current_doc_before;
+            } else {
+                // Current document doesn't pass filter, find the next one
                 scorer.current_doc = scorer.advance_to_next_valid();
             }
         }
+
         scorer
     }
 }
@@ -1097,7 +1144,7 @@ impl Scorer for IndexedWithFilterScorer {
 impl tantivy::DocSet for IndexedWithFilterScorer {
     fn advance(&mut self) -> DocId {
         // IndexedWithFilterScorer::advance called
-        // Find the next valid document (we're already initialized)
+        // Find the next valid document
         self.current_doc = self.advance_to_next_valid();
         self.current_doc
     }
@@ -1123,14 +1170,21 @@ impl IndexedWithFilterScorer {
     fn advance_to_next_valid(&mut self) -> DocId {
         loop {
             let indexed_doc = self.indexed_scorer.advance();
+            pgrx::warning!("🔥 IndexedWithFilterScorer::advance_to_next_valid - indexed_scorer.advance() returned: {}", indexed_doc);
             if indexed_doc == tantivy::TERMINATED {
+                pgrx::warning!(
+                    "🔥 IndexedWithFilterScorer::advance_to_next_valid - no more documents"
+                );
                 return tantivy::TERMINATED;
             }
 
             // Check if this document passes the external filter
+            pgrx::warning!("🔥 IndexedWithFilterScorer::advance_to_next_valid - evaluating external filter for doc_id: {}", indexed_doc);
             if self.evaluate_external_filter(indexed_doc) {
+                pgrx::warning!("🔥 IndexedWithFilterScorer::advance_to_next_valid - doc_id {} PASSES external filter", indexed_doc);
                 return indexed_doc;
             }
+            pgrx::warning!("🔥 IndexedWithFilterScorer::advance_to_next_valid - doc_id {} FAILS external filter, continuing", indexed_doc);
             // Continue to next indexed document if the document was filtered out
         }
     }
@@ -1240,65 +1294,71 @@ impl IndexedWithFilterScorer {
             let tuple_desc = PgTupleDesc::from_pg_unchecked((*heaprel).rd_att);
             let heap_tuple = PgHeapTuple::from_heap_tuple(tuple_desc.clone(), &mut htup);
 
-            // Extract the field value
-            let field_value = match heap_tuple.get_by_name::<String>(&field_name.root()) {
-                Ok(Some(value)) => OwnedValue::Str(value),
-                Ok(None) => OwnedValue::Null,
-                Err(_) => {
-                    // Try other data types
-                    match heap_tuple.get_by_name::<i32>(&field_name.root()) {
-                        Ok(Some(value)) => {
-                            pgrx::warning!(
-                                "🔥 Extracted field '{}' = {} (i32)",
-                                field_name.root(),
-                                value
-                            );
-                            OwnedValue::I64(value as i64)
-                        }
-                        Ok(None) => OwnedValue::Null,
-                        Err(_) => {
-                            match heap_tuple.get_by_name::<i64>(&field_name.root()) {
-                                Ok(Some(value)) => {
-                                    pgrx::warning!(
-                                        "🔥 Extracted field '{}' = {} (i64)",
-                                        field_name.root(),
-                                        value
-                                    );
-                                    OwnedValue::I64(value)
-                                }
-                                Ok(None) => OwnedValue::Null,
-                                Err(_) => match heap_tuple.get_by_name::<f64>(&field_name.root()) {
-                                    Ok(Some(value)) => {
-                                        pgrx::warning!(
-                                            "🔥 Extracted field '{}' = {} (f64)",
-                                            field_name.root(),
-                                            value
-                                        );
-                                        OwnedValue::F64(value)
-                                    }
-                                    Ok(None) => OwnedValue::Null,
-                                    Err(_) => {
-                                        match heap_tuple.get_by_name::<bool>(&field_name.root()) {
-                                            Ok(Some(value)) => {
-                                                pgrx::warning!(
-                                                    "🔥 Extracted field '{}' = {} (bool)",
-                                                    field_name.root(),
-                                                    value
-                                                );
-                                                OwnedValue::Bool(value)
-                                            }
-                                            Ok(None) => OwnedValue::Null,
-                                            Err(_) => {
-                                                pgrx::warning!("🔥 Failed to extract field '{}': unsupported type", field_name.root());
-                                                OwnedValue::Null
-                                            }
-                                        }
-                                    }
-                                },
-                            }
-                        }
+            // Extract the field value - try different data types
+            let field_value = if let Ok(Some(value)) =
+                heap_tuple.get_by_name::<String>(&field_name.root())
+            {
+                pgrx::warning!(
+                    "🔥 Extracted field '{}' = '{}' (String)",
+                    field_name.root(),
+                    value
+                );
+                OwnedValue::Str(value)
+            } else if let Ok(Some(value)) = heap_tuple.get_by_name::<i32>(&field_name.root()) {
+                pgrx::warning!(
+                    "🔥 Extracted field '{}' = {} (i32)",
+                    field_name.root(),
+                    value
+                );
+                OwnedValue::I64(value as i64)
+            } else if let Ok(Some(value)) = heap_tuple.get_by_name::<i64>(&field_name.root()) {
+                pgrx::warning!(
+                    "🔥 Extracted field '{}' = {} (i64)",
+                    field_name.root(),
+                    value
+                );
+                OwnedValue::I64(value)
+            } else if let Ok(Some(value)) = heap_tuple.get_by_name::<f64>(&field_name.root()) {
+                pgrx::warning!(
+                    "🔥 Extracted field '{}' = {} (f64)",
+                    field_name.root(),
+                    value
+                );
+                OwnedValue::F64(value)
+            } else if let Ok(Some(value)) = heap_tuple.get_by_name::<bool>(&field_name.root()) {
+                pgrx::warning!(
+                    "🔥 Extracted field '{}' = {} (bool)",
+                    field_name.root(),
+                    value
+                );
+                OwnedValue::Bool(value)
+            } else if let Ok(Some(value)) = heap_tuple.get_by_name::<AnyNumeric>(&field_name.root())
+            {
+                // Handle PostgreSQL NUMERIC type
+                match value.try_into() {
+                    Ok(f) => {
+                        let f: f64 = f;
+                        pgrx::warning!(
+                            "🔥 Extracted field '{}' = {} (NUMERIC->f64)",
+                            field_name.root(),
+                            f
+                        );
+                        OwnedValue::F64(f)
+                    }
+                    Err(_) => {
+                        pgrx::warning!(
+                            "🔥 Failed to convert NUMERIC to f64 for field '{}'",
+                            field_name.root()
+                        );
+                        OwnedValue::Null
                     }
                 }
+            } else {
+                pgrx::warning!(
+                    "🔥 Failed to extract field '{}': unsupported type",
+                    field_name.root()
+                );
+                OwnedValue::Null
             };
 
             // Release the buffer and close the relation

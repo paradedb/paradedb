@@ -29,6 +29,7 @@ use crate::parallel_worker::{
     WorkerStyle,
 };
 use crate::postgres::insert::garbage_collect_index;
+use crate::postgres::latch::Latch;
 use crate::postgres::spinlock::Spinlock;
 use crate::postgres::storage::block::{SegmentMetaEntry, SEGMENT_METAS_START};
 use crate::postgres::storage::buffer::BufferManager;
@@ -325,7 +326,7 @@ impl<'a> BuildWorker<'a> {
             check_for_interrupts!();
 
             unsafe {
-                Self::watch_latch(1000);
+                Latch::new().wait(1000);
 
                 let metadata = unsafe { MetaPage::open(self.indexrel.oid()) };
                 let merge_entry = {
@@ -398,14 +399,6 @@ impl<'a> BuildWorker<'a> {
         }
 
         Ok(())
-    }
-
-    unsafe fn wait_latch(ms: i64) {
-        let events = pg_sys::WL_LATCH_SET as i32
-            | pg_sys::WL_TIMEOUT as i32
-            | pg_sys::WL_EXIT_ON_PM_DEATH as i32;
-        pg_sys::WaitLatch(pg_sys::MyLatch, events, ms, pg_sys::PG_WAIT_EXTENSION);
-        pg_sys::ResetLatch(pg_sys::MyLatch);
     }
 
     fn merge_group_size(&mut self, docs_per_segment: u32) -> usize {

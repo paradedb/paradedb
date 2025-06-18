@@ -16,8 +16,9 @@ A proximity query consists of a [`ProximityClause`](proximity_clause), a distanc
 Search for documents containing `historical` within 1 word of `book`.
 
 <CodeGroup>
-  ```sql Proximity Query Example SELECT * FROM mock_items WHERE id @@@
-  paradedb.proximity('description', 'historical', 1, 'book'); ```
+```sql Proximity Query Example SELECT * FROM mock_items WHERE id @@@
+paradedb.proximity('description', 'historical', 1, 'book');
+```
 </CodeGroup>
 
 <ParamField body="field" required>
@@ -36,8 +37,12 @@ Search for documents containing `historical` within 1 word of `book`.
 Another example matching multiple documents from `mock_items` is:
 
 <CodeGroup>
-  ```sql Advanced Example SELECT * FROM mock_items WHERE id @@@
-  paradedb.proximity( 'description', -- field to query
-  paradedb.prox_array('generic', 'white', paradedb.prox_regex('sl..k')), -- left
-  1, -- word/token distance 'shoes' -- right ); ```
+```sql Advanced Example
+SELECT * FROM mock_items WHERE id @@@ paradedb.proximity(
+    'description', -- field to query
+    paradedb.prox_array('generic', 'white', paradedb.prox_regex('sl..k')), -- left
+    1, -- word/token distance
+    'shoes' -- right
+);
+```
 </CodeGroup>

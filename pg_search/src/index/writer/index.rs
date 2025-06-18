@@ -458,7 +458,7 @@ impl SearchIndexMerger {
         self.directory.all_entries()
     }
 
-    pub fn searchable_segment_ids(&mut self) -> tantivy::Result<HashSet<SegmentId>> {
+    pub fn searchable_segment_ids(&self) -> tantivy::Result<HashSet<SegmentId>> {
         Ok(self.index.searchable_segment_ids()?.into_iter().collect())
     }
 

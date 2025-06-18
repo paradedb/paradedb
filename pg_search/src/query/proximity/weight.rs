@@ -9,7 +9,7 @@ use tantivy::query::{
     Scorer, Weight,
 };
 use tantivy::schema::IndexRecordOption;
-use tantivy::{DocId, DocSet, Score, SegmentReader, TantivyError, Term, TERMINATED};
+use tantivy::{DocId, DocSet, Score, SegmentReader, Term, TERMINATED};
 
 pub struct ProximityWeight {
     query: ProximityQuery,
@@ -163,9 +163,12 @@ impl ProximityWeight {
                         }
                         num_regex_terms += term_infos.len();
                         if num_regex_terms > *max_expansions {
-                            return Err(TantivyError::InvalidArgument(format!(
-                                "Regex ProximityClause(s) exceeded max expansions: {num_regex_terms} > {max_expansions}",
-                            )));
+                            // we have more regex matches than our max_expansions
+                            // just stop maching regular expressions now
+                            continue;
+                            // return Err(TantivyError::InvalidArgument(format!(
+                            //     "Regex ProximityClause(s) exceeded max expansions: {num_regex_terms} > {max_expansions}",
+                            // )));
                         }
                         let union = RegexPhraseWeight::get_union_from_term_infos(
                             &term_infos,

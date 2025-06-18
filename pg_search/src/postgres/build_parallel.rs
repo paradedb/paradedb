@@ -20,7 +20,7 @@ use crate::api::HashSet;
 use crate::gucs;
 use crate::index::mvcc::MVCCDirectory;
 use crate::index::writer::index::{
-    CommittedSegment, IndexWriterConfig, SearchIndexMerger, SerialIndexWriter,
+    CommittedSegment, IndexWriterConfig, Mergeable, SearchIndexMerger, SerialIndexWriter,
 };
 use crate::launch_parallel_process;
 use crate::parallel_worker::mqueue::MessageQueueSender;
@@ -29,9 +29,13 @@ use crate::parallel_worker::{
     WorkerStyle,
 };
 use crate::postgres::spinlock::Spinlock;
+use crate::postgres::storage::block::{SegmentMetaEntry, SEGMENT_METAS_START};
 use crate::postgres::storage::buffer::BufferManager;
+use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::storage::LinkedItemList;
 use crate::postgres::utils::{categorize_fields, row_to_search_document, CategorizedFieldData};
 use crate::schema::{SearchField, SearchIndexSchema};
+use itertools::Itertools;
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{
     check_for_interrupts, function_name, pg_guard, pg_sys, PgLogLevel, PgMemoryContexts,
@@ -72,8 +76,6 @@ struct WorkerCoordination {
     mutex: Spinlock,
     nstarted: usize,
     nlaunched: usize,
-    target_segment_pool: [usize; MAX_CREATE_INDEX_WORKERS],
-    pool_size: usize,
     roles: [WorkerRole; MAX_CREATE_INDEX_WORKERS],
     nroles: usize,
     nwriters_remaining: usize,
@@ -85,8 +87,6 @@ impl Default for WorkerCoordination {
             mutex: Default::default(),
             nstarted: Default::default(),
             nlaunched: Default::default(),
-            target_segment_pool: [0; MAX_CREATE_INDEX_WORKERS],
-            pool_size: Default::default(),
             roles: [WorkerRole::Writer; MAX_CREATE_INDEX_WORKERS],
             nroles: Default::default(),
             nwriters_remaining: Default::default(),
@@ -200,6 +200,7 @@ struct BuildWorker<'a> {
     coordination: &'a mut WorkerCoordination,
     heaprel: PgRelation,
     indexrel: PgRelation,
+    merge_group_size: Option<usize>,
 }
 
 impl ParallelWorker for BuildWorker<'_> {
@@ -237,6 +238,7 @@ impl ParallelWorker for BuildWorker<'_> {
                 coordination,
                 heaprel,
                 indexrel,
+                merge_group_size: None,
             }
         }
     }
@@ -269,6 +271,7 @@ impl<'a> BuildWorker<'a> {
             heaprel,
             indexrel,
             coordination,
+            merge_group_size: None,
         }
     }
 
@@ -316,20 +319,91 @@ impl<'a> BuildWorker<'a> {
     }
 
     fn do_merge(&mut self) -> anyhow::Result<()> {
+        // TODO: change this to spin until there's no writers remaining AND there's nothing left to merge
         while self.coordination.nwriters_remaining() > 0 {
             check_for_interrupts!();
 
-            let directory = MVCCDirectory::mergeable(self.indexrel.oid());
-            let merger = SearchIndexMerger::open(directory)?;
-            let segment_ids = merger.searchable_segment_ids()?;
-            pgrx::debug1!(
-                "do_merge: nwriters_remaining={}, segment_ids={:?}",
-                self.coordination.nwriters_remaining(),
-                segment_ids
-            );
-
             unsafe {
-                Self::do_wait(5000);
+                Self::do_wait(1000);
+
+                let mut segment_components = LinkedItemList::<SegmentMetaEntry>::open(
+                    self.indexrel.oid(),
+                    SEGMENT_METAS_START,
+                );
+                let all_entries = unsafe { segment_components.list() };
+
+                let metadata = MetaPage::open(self.indexrel.oid());
+                let segments_to_merge = {
+                    let merge_lock = metadata.acquire_merge_lock();
+                    let mut merge_list = merge_lock.merge_list();
+                    let potentially_mergeable_segments = {
+                        let mut non_mergeable_segments = merge_list.list_segment_ids();
+                        all_entries
+                            .iter()
+                            .filter(|entry| {
+                                if non_mergeable_segments.contains(&entry.segment_id) {
+                                    return false;
+                                }
+                                if entry.xmax == pg_sys::FrozenTransactionId {
+                                    return false;
+                                }
+                                true
+                            })
+                            .collect::<Vec<_>>()
+                    };
+
+                    if potentially_mergeable_segments.is_empty() {
+                        None
+                    } else {
+                        // use the first segment written to estimate the per-segment doc size
+                        let merge_group_size = self.merge_group_size.unwrap_or_else(|| {
+                            let docs_per_segment = potentially_mergeable_segments[0].max_doc;
+                            let nsegments = (estimate_heap_reltuples(&self.heaprel) as f64 / docs_per_segment as f64).ceil() as usize;
+                            let merge_group_size = (nsegments as f64 / adjusted_target_segment_count(&self.heaprel) as f64).ceil() as usize;
+
+                            pgrx::debug1!("do_merge: predicting the creation {nsegments} segments, so merge in groups of {merge_group_size}");
+
+                            self.merge_group_size = Some(merge_group_size);
+                            merge_group_size
+                        });
+
+                        if merge_group_size > 1
+                            && potentially_mergeable_segments.len() >= merge_group_size
+                        {
+                            let segments_to_merge = potentially_mergeable_segments
+                                .into_iter()
+                                .take(merge_group_size);
+                            merge_list.add_segment_ids(
+                                segments_to_merge.clone().map(|entry| &entry.segment_id),
+                            )?;
+                            Some(
+                                segments_to_merge
+                                    .map(|entry| entry.segment_id)
+                                    .collect::<Vec<_>>(),
+                            )
+                        } else {
+                            None
+                        }
+                    }
+                };
+
+                if let Some(segments_to_merge) = segments_to_merge {
+                    pgrx::debug1!(
+                        "do_merge: nwriters_remaining={}, segments to merge: {:?}",
+                        self.coordination.nwriters_remaining(),
+                        segments_to_merge
+                    );
+
+                    let directory = MVCCDirectory::mergeable(self.indexrel.oid());
+                    let mut merger = SearchIndexMerger::open(directory)?;
+
+                    if let Some(merged_meta) = merger.merge_segments(&segments_to_merge)? {
+                        pgrx::debug1!("do_merge: merged segment: {:?}", merged_meta.id());
+                        let merge_lock = metadata.acquire_merge_lock();
+                        let mut merge_list = merge_lock.merge_list();
+                        merge_list.add_segment_ids(std::iter::once(&merged_meta.id()))?;
+                    }
+                }
             }
         }
 

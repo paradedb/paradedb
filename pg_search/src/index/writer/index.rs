@@ -36,40 +36,14 @@ use crate::postgres::insert::garbage_collect_index;
 use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::{postgres::types::TantivyValueError, schema::SearchIndexSchema};
 
-#[derive(Clone, Debug)]
-enum DirectoryType {
-    Mvcc,
-    Ram(RamDirectory),
-}
-
 struct PendingSegment {
     segment: Segment,
     writer: SegmentWriter,
-    directory_type: DirectoryType,
     opstamp: Opstamp,
 }
 
 impl PendingSegment {
-    fn new_ram(
-        directory: RamDirectory,
-        schema: Schema,
-        memory_budget: NonZeroUsize,
-        indexrelid: pg_sys::Oid,
-    ) -> Result<Self> {
-        let mut index = Index::open_or_create(directory.clone(), schema)?;
-        setup_tokenizers(indexrelid, &mut index)?;
-
-        let segment = index.new_segment();
-        let writer = SegmentWriter::for_segment(memory_budget.into(), segment.clone())?;
-        Ok(Self {
-            segment,
-            writer,
-            directory_type: DirectoryType::Ram(directory),
-            opstamp: Default::default(),
-        })
-    }
-
-    fn new_mvcc(
+    fn new(
         directory: MVCCDirectory,
         memory_budget: NonZeroUsize,
         indexrelid: pg_sys::Oid,
@@ -82,7 +56,6 @@ impl PendingSegment {
         Ok(Self {
             segment,
             writer,
-            directory_type: DirectoryType::Mvcc,
             opstamp: Default::default(),
         })
     }
@@ -105,20 +78,12 @@ impl PendingSegment {
         Ok(())
     }
 
-    fn directory_type(&self) -> DirectoryType {
-        self.directory_type.clone()
-    }
-
-    #[allow(dead_code)]
     fn max_doc(&self) -> usize {
         self.writer.max_doc() as usize
     }
 
     fn mem_usage(&self) -> usize {
-        match &self.directory_type {
-            DirectoryType::Ram(directory) => self.writer.mem_usage() + directory.total_mem_usage(),
-            DirectoryType::Mvcc => self.writer.mem_usage(),
-        }
+        self.writer.mem_usage()
     }
 
     fn finalize(self) -> Result<Segment> {
@@ -246,11 +211,11 @@ impl SerialIndexWriter {
     ///
     /// Otherwise, we create a MVCCDirectory-backed segment.
     fn new_segment(&mut self) -> Result<PendingSegment> {
-        return PendingSegment::new_mvcc(
+        PendingSegment::new(
             self.directory.clone(),
             self.config.memory_budget,
             self.indexrelid,
-        );
+        )
     }
 
     /// Once the memory budget is reached, we "finalize" the segment:
@@ -266,65 +231,10 @@ impl SerialIndexWriter {
             return Ok(());
         };
 
-        let directory_type = pending_segment.directory_type();
         let finalized_segment = pending_segment.finalize()?;
-
-        // If we're committing the last segment, merge it with the previous segment so we don't have any leftover "small" segments
-        // If it's a RAMDirectory-backed segment, it must also be merged with the previous segment
-        match directory_type {
-            DirectoryType::Ram(_) => {
-                assert!(!self.new_metas.is_empty());
-                self.merge_then_commit_segment(finalized_segment)?;
-
-                pgrx::debug1!("writer {}: did a merge, garbage collecting index", self.id);
-                let index_relation = unsafe { PgRelation::open(self.indexrelid) };
-                unsafe {
-                    garbage_collect_index(&index_relation);
-                }
-            }
-            DirectoryType::Mvcc => self.commit_segment(finalized_segment)?,
-        }
+        self.commit_segment(finalized_segment)?;
 
         pgrx::debug1!("writer {}: done finalizing segment", self.id);
-        Ok(())
-    }
-
-    fn merge_then_commit_segment(&mut self, finalized_segment: Segment) -> Result<()> {
-        let previous_metas = self.new_metas.clone();
-
-        // pop off the smallest segment to merge into
-        let smallest_segment = self
-            .new_metas
-            .iter()
-            .enumerate()
-            .min_by_key(|(_, meta)| meta.max_doc() as usize)
-            .map(|(i, _)| i)
-            .expect("cannot merge without at least one segment");
-        let last_flushed_segment_meta = self.new_metas.remove(smallest_segment);
-
-        // do the merge
-        pgrx::debug1!(
-            "writer {}: merging into previous segment {}",
-            self.id,
-            last_flushed_segment_meta.id()
-        );
-        let last_flushed_segment = self.index.segment(last_flushed_segment_meta.clone());
-        let mut merger = SearchIndexMerger::open(self.directory.clone())?;
-        let merged_segment_meta = merger.merge_into(&[finalized_segment, last_flushed_segment])?;
-
-        // save the new meta entry
-        if let Some(merged_segment_meta) = merged_segment_meta {
-            pgrx::debug1!(
-                "writer {}: created merged segment {}",
-                self.id,
-                merged_segment_meta.id()
-            );
-            self.new_metas.push(merged_segment_meta.clone());
-            self.save_metas(self.new_metas.clone(), previous_metas)?;
-        } else {
-            pgrx::debug1!("writer {}: no merged segment created", self.id);
-        }
-
         Ok(())
     }
 

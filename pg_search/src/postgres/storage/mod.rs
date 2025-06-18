@@ -95,7 +95,7 @@ mod blocklist;
 pub mod buffer;
 pub mod linked_bytes;
 pub mod linked_items;
-mod merge;
+pub mod merge;
 pub mod metadata;
 pub mod utils;
 

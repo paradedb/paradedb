@@ -32,11 +32,11 @@ use crate::postgres::insert::garbage_collect_index;
 use crate::postgres::spinlock::Spinlock;
 use crate::postgres::storage::block::{SegmentMetaEntry, SEGMENT_METAS_START};
 use crate::postgres::storage::buffer::BufferManager;
+use crate::postgres::storage::merge::MergeList;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::storage::LinkedItemList;
 use crate::postgres::utils::{categorize_fields, row_to_search_document, CategorizedFieldData};
 use crate::schema::{SearchField, SearchIndexSchema};
-use itertools::Itertools;
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{
     check_for_interrupts, function_name, pg_guard, pg_sys, PgLogLevel, PgMemoryContexts,
@@ -325,126 +325,99 @@ impl<'a> BuildWorker<'a> {
             check_for_interrupts!();
 
             unsafe {
-                Self::do_wait(1000);
+                Self::watch_latch(1000);
 
-                let mut segment_components = LinkedItemList::<SegmentMetaEntry>::open(
-                    self.indexrel.oid(),
-                    SEGMENT_METAS_START,
-                );
-                let all_entries = unsafe { segment_components.list() };
-
-                let metadata = MetaPage::open(self.indexrel.oid());
-                let segments_to_merge = {
-                    let merge_lock = metadata.acquire_merge_lock();
+                let metadata = unsafe { MetaPage::open(self.indexrel.oid()) };
+                let merge_entry = {
+                    let merge_lock = unsafe { metadata.acquire_merge_lock() };
                     let mut merge_list = merge_lock.merge_list();
-                    let potentially_mergeable_segments = {
-                        let non_mergeable_segments = merge_list.list_segment_ids().collect::<Vec<_>>();
-                        all_entries
-                            .iter()
-                            .filter(|entry| {
-                                if non_mergeable_segments.contains(&entry.segment_id) {
-                                    return false;
-                                }
-                                if entry.xmax == pg_sys::FrozenTransactionId {
-                                    return false;
-                                }
-                                true
-                            })
-                            .collect::<Vec<_>>()
-                    };
-
-                    if potentially_mergeable_segments.is_empty() {
-                        None
-                    } else {
-                        // use the first segment written to estimate the per-segment doc size
-                        let merge_group_size = self.merge_group_size.unwrap_or_else(|| {
-                            let docs_per_segment = potentially_mergeable_segments[0].max_doc;
-                            let nsegments = (estimate_heap_reltuples(&self.heaprel) as f64 / docs_per_segment as f64).ceil() as usize;
-                            let merge_group_size = (nsegments as f64 / adjusted_target_segment_count(&self.heaprel) as f64).ceil() as usize;
-
-                            pgrx::debug1!("do_merge: predicting the creation {nsegments} segments, so merge in groups of {merge_group_size}");
-
-                            self.merge_group_size = Some(merge_group_size);
-                            merge_group_size
-                        });
-
-                        if merge_group_size > 1
-                            && potentially_mergeable_segments.len() >= merge_group_size
-                        {
-                            let segments_to_merge = potentially_mergeable_segments
-                                .into_iter()
-                                .take(merge_group_size);
-                            merge_list.add_segment_ids(
-                                segments_to_merge.clone().map(|entry| &entry.segment_id),
-                            )?;
-                            Some(
-                                segments_to_merge
-                                    .map(|entry| entry.segment_id)
-                                    .collect::<Vec<_>>(),
-                            )
-                        } else {
-                            None
-                        }
+                    let mergeable_entries = mergeable_entries(self.indexrel.oid(), &merge_list);
+                    if mergeable_entries.is_empty() {
+                        continue;
                     }
+
+                    // use the first segment written to estimate the per-segment doc size
+                    let merge_group_size = self.merge_group_size(mergeable_entries[0].max_doc);
+                    if merge_group_size <= 1 || mergeable_entries.len() < merge_group_size {
+                        continue;
+                    }
+
+                    let segment_ids: Vec<_> = mergeable_entries
+                        .into_iter()
+                        .take(merge_group_size)
+                        .map(|entry| entry.segment_id)
+                        .collect();
+                    merge_list.add_segment_ids(segment_ids.iter())?
                 };
 
-                if let Some(segments_to_merge) = segments_to_merge {
-                    pgrx::debug1!(
-                        "do_merge: nwriters_remaining={}, segments to merge: {:?}",
-                        self.coordination.nwriters_remaining(),
-                        segments_to_merge
-                    );
+                pgrx::debug1!(
+                    "do_merge: nwriters_remaining={}, segments to merge: {:?}",
+                    self.coordination.nwriters_remaining(),
+                    merge_entry
+                );
 
-                    let directory = MVCCDirectory::mergeable(self.indexrel.oid());
-                    let index = Index::open(directory.clone())?;
-                    let metas = index.searchable_segment_metas()?;
-                    let segment_metas = segments_to_merge
-                        .iter()
-                        .map(|id| metas.iter().find(|meta| meta.id() == *id).unwrap().clone())
-                        .collect::<Vec<_>>();
-                    let segments = segment_metas
-                        .iter()
-                        .map(|meta| index.segment(meta.clone()))
-                        .collect::<Vec<_>>();
-                    let mut merger = SearchIndexMerger::open(directory)?;
+                let directory = MVCCDirectory::mergeable(self.indexrel.oid());
+                let index = Index::open(directory.clone())?;
+                let metas = index.searchable_segment_metas()?;
+                let segment_metas = merge_entry
+                    .segment_ids(self.indexrel.oid())
+                    .iter()
+                    .map(|id| metas.iter().find(|meta| meta.id() == *id).unwrap().clone())
+                    .collect::<Vec<_>>();
+                let segments = segment_metas
+                    .iter()
+                    .map(|meta| index.segment(meta.clone()))
+                    .collect::<Vec<_>>();
+                let mut merger = SearchIndexMerger::open(directory)?;
 
-                    if let Some(merged_meta) = merger.merge_into(&segments)? {
-                        pgrx::debug1!("do_merge: merged segment: {:?}", merged_meta.id());
-                        let merge_lock = metadata.acquire_merge_lock();
-                        let mut merge_list = merge_lock.merge_list();
-                        merge_list.add_segment_ids(std::iter::once(&merged_meta.id()))?;
-                        drop(merge_lock);
+                if let Some(merged_meta) = merger.merge_into(&segments)? {
+                    pgrx::debug1!("do_merge: merged segment: {:?}", merged_meta.id());
+                    let merge_lock = metadata.acquire_merge_lock();
+                    let mut merge_list = merge_lock.merge_list();
+                    merge_list.add_segment_ids(std::iter::once(&merged_meta.id()))?;
+                    drop(merge_lock);
 
-                        pgrx::debug1!("do_merge: added to merge list: {:?}", merged_meta.id());
-                        let index_meta = index.load_metas()?;
-                        let previous_meta = IndexMeta {
-                            segments: segment_metas,
-                            ..index_meta.clone()
-                        };
-                        let new_meta = IndexMeta {
-                            segments: vec![merged_meta],
-                            ..index_meta.clone()
-                        };
-                        index
-                            .directory()
-                            .save_metas(&new_meta, &previous_meta, &mut ())?;
-                    }
-
-                    pgrx::debug1!("do_merge: garbage collecting");
-                    garbage_collect_index(&self.indexrel);
+                    pgrx::debug1!("do_merge: added to merge list: {:?}", merged_meta.id());
+                    let index_meta = index.load_metas()?;
+                    let previous_meta = IndexMeta {
+                        segments: segment_metas,
+                        ..index_meta.clone()
+                    };
+                    let new_meta = IndexMeta {
+                        segments: vec![merged_meta],
+                        ..index_meta.clone()
+                    };
+                    index
+                        .directory()
+                        .save_metas(&new_meta, &previous_meta, &mut ())?;
                 }
+
+                pgrx::debug1!("do_merge: garbage collecting");
+                garbage_collect_index(&self.indexrel);
             }
         }
 
         Ok(())
     }
 
-    unsafe fn do_wait(ms: i64) {
+    unsafe fn wait_latch(ms: i64) {
         let events = pg_sys::WL_LATCH_SET as i32
             | pg_sys::WL_TIMEOUT as i32
             | pg_sys::WL_EXIT_ON_PM_DEATH as i32;
         pg_sys::WaitLatch(pg_sys::MyLatch, events, ms, pg_sys::PG_WAIT_EXTENSION);
         pg_sys::ResetLatch(pg_sys::MyLatch);
+    }
+
+    fn merge_group_size(&mut self, docs_per_segment: u32) -> usize {
+        self.merge_group_size.unwrap_or_else(|| {
+            let nsegments = (estimate_heap_reltuples(&self.heaprel) as f64 / docs_per_segment as f64).ceil() as usize;
+            let merge_group_size = (nsegments as f64 / adjusted_target_segment_count(&self.heaprel) as f64).ceil() as usize;
+
+            pgrx::debug1!("do_merge: predicting the creation {nsegments} segments, so merge in groups of {merge_group_size}");
+
+            self.merge_group_size = Some(merge_group_size);
+            merge_group_size
+        })
     }
 }
 
@@ -756,4 +729,25 @@ fn estimate_heap_byte_size(heap_relation: &PgRelation) -> usize {
     };
 
     npages as usize * pg_sys::BLCKSZ as usize
+}
+
+fn mergeable_entries(index_oid: pg_sys::Oid, merge_list: &MergeList) -> Vec<SegmentMetaEntry> {
+    let segment_components =
+        LinkedItemList::<SegmentMetaEntry>::open(index_oid, SEGMENT_METAS_START);
+    let all_entries = unsafe { segment_components.list() };
+
+    let non_mergeable_segments = unsafe { merge_list.list_segment_ids().collect::<Vec<_>>() };
+    all_entries
+        .iter()
+        .filter(|entry| {
+            if non_mergeable_segments.contains(&entry.segment_id) {
+                return false;
+            }
+            if entry.xmax == pg_sys::FrozenTransactionId {
+                return false;
+            }
+            true
+        })
+        .map(|entry| entry.clone())
+        .collect::<Vec<_>>()
 }

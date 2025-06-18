@@ -227,6 +227,7 @@ fn collect_fast_field_try_for_attno(
                     if search_field.is_fast() {
                         let ff_type = if att.type_oid().value() == pg_sys::TEXTOID
                             || att.type_oid().value() == pg_sys::VARCHAROID
+                            || att.type_oid().value() == pg_sys::UUIDOID
                         {
                             FastFieldType::String
                         } else {

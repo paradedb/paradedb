@@ -632,11 +632,15 @@ struct ExternalFilterWeight {
 impl Weight for ExternalFilterWeight {
     fn scorer(&self, reader: &SegmentReader, _boost: Score) -> tantivy::Result<Box<dyn Scorer>> {
         pgrx::warning!("ExternalFilterWeight::scorer called - creating ExternalFilterScorer");
+
+        // Get heap relation OID from the global context
+        let heaprel_oid = get_heap_relation_oid().unwrap_or(pg_sys::Oid::INVALID);
+
         let scorer = ExternalFilterScorer::new(
             reader.clone(),
             self.config.clone(),
             self.callback.clone(),
-            pg_sys::InvalidOid, // Will be set later when we have the heap relation info
+            heaprel_oid,
         );
         pgrx::warning!(
             "🔥 Created ExternalFilterScorer with max_doc: {}, size_hint: {}",
@@ -667,6 +671,7 @@ pub struct ExternalFilterScorer {
     reader: SegmentReader,
     ff_helper: Option<FFHelper>,
     heaprel_oid: pg_sys::Oid,
+    ctid_ff: crate::index::fast_fields_helper::FFType,
 }
 
 impl Scorer for ExternalFilterScorer {
@@ -763,6 +768,7 @@ impl ExternalFilterScorer {
         heaprel_oid: pg_sys::Oid,
     ) -> Self {
         let max_doc = reader.max_doc();
+        let ctid_ff = crate::index::fast_fields_helper::FFType::new_ctid(reader.fast_fields());
         let mut scorer = Self {
             doc_id: 0,
             max_doc,
@@ -774,6 +780,7 @@ impl ExternalFilterScorer {
             reader,
             ff_helper: None, // Will be initialized when needed
             heaprel_oid,
+            ctid_ff,
         };
 
         // Initialize to the first valid document immediately
@@ -822,13 +829,8 @@ impl ExternalFilterScorer {
 
     /// Extract ctid from the document for heap access
     fn extract_ctid(&self, doc_id: DocId) -> Option<u64> {
-        // Try to get ctid from fast fields
-        let fast_fields = self.reader.fast_fields();
-        if let Ok(ctid_ff) = fast_fields.u64("ctid") {
-            ctid_ff.first(doc_id)
-        } else {
-            None
-        }
+        // Use the ctid fast field helper
+        self.ctid_ff.as_u64(doc_id)
     }
 
     /// Extract a field value from the heap tuple

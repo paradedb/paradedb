@@ -391,8 +391,6 @@ impl SearchIndexReader {
             })
             .collect::<Vec<_>>();
 
-        pgrx::warning!("🔥 Created {} ScorerIter instances", iters.len());
-
         SearchResults::MultiSegment(self.searcher.clone(), Default::default(), iters, 0)
     }
 

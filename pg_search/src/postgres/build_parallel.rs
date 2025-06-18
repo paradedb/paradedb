@@ -28,6 +28,7 @@ use crate::parallel_worker::{
     ParallelProcess, ParallelState, ParallelStateManager, ParallelStateType, ParallelWorker,
     WorkerStyle,
 };
+use crate::postgres::insert::garbage_collect_index;
 use crate::postgres::spinlock::Spinlock;
 use crate::postgres::storage::block::{SegmentMetaEntry, SEGMENT_METAS_START};
 use crate::postgres::storage::buffer::BufferManager;
@@ -43,7 +44,7 @@ use pgrx::{
 };
 use std::num::NonZeroUsize;
 use std::ptr::{addr_of_mut, NonNull};
-use tantivy::TantivyDocument;
+use tantivy::{Directory, Index, IndexMeta, SegmentMeta, TantivyDocument};
 
 // target_segment_pool in WorkerCoordination requires a fixed size array, so we have to limit the
 // number of workers to 512, which is okay because max_parallel_maintenance_workers is typically much smaller
@@ -337,7 +338,7 @@ impl<'a> BuildWorker<'a> {
                     let merge_lock = metadata.acquire_merge_lock();
                     let mut merge_list = merge_lock.merge_list();
                     let potentially_mergeable_segments = {
-                        let mut non_mergeable_segments = merge_list.list_segment_ids();
+                        let non_mergeable_segments = merge_list.list_segment_ids().collect::<Vec<_>>();
                         all_entries
                             .iter()
                             .filter(|entry| {
@@ -395,14 +396,42 @@ impl<'a> BuildWorker<'a> {
                     );
 
                     let directory = MVCCDirectory::mergeable(self.indexrel.oid());
+                    let index = Index::open(directory.clone())?;
+                    let metas = index.searchable_segment_metas()?;
+                    let segment_metas = segments_to_merge
+                        .iter()
+                        .map(|id| metas.iter().find(|meta| meta.id() == *id).unwrap().clone())
+                        .collect::<Vec<_>>();
+                    let segments = segment_metas
+                        .iter()
+                        .map(|meta| index.segment(meta.clone()))
+                        .collect::<Vec<_>>();
                     let mut merger = SearchIndexMerger::open(directory)?;
 
-                    if let Some(merged_meta) = merger.merge_segments(&segments_to_merge)? {
+                    if let Some(merged_meta) = merger.merge_into(&segments)? {
                         pgrx::debug1!("do_merge: merged segment: {:?}", merged_meta.id());
                         let merge_lock = metadata.acquire_merge_lock();
                         let mut merge_list = merge_lock.merge_list();
                         merge_list.add_segment_ids(std::iter::once(&merged_meta.id()))?;
+                        drop(merge_lock);
+
+                        pgrx::debug1!("do_merge: added to merge list: {:?}", merged_meta.id());
+                        let index_meta = index.load_metas()?;
+                        let previous_meta = IndexMeta {
+                            segments: segment_metas,
+                            ..index_meta.clone()
+                        };
+                        let new_meta = IndexMeta {
+                            segments: vec![merged_meta],
+                            ..index_meta.clone()
+                        };
+                        index
+                            .directory()
+                            .save_metas(&new_meta, &previous_meta, &mut ())?;
                     }
+
+                    pgrx::debug1!("do_merge: garbage collecting");
+                    garbage_collect_index(&self.indexrel);
                 }
             }
         }
@@ -552,13 +581,8 @@ pub(super) fn build_index(
             nlaunched_plus_leader += 1;
         }
 
-        let mut roles = vec![WorkerRole::Writer; nlaunched_plus_leader];
-        if !roles.is_empty() {
-            roles[0] = WorkerRole::Merger;
-        }
-
         // set_nlaunched last, because workers wait for this to be set
-        coordination.set_roles(roles);
+        coordination.set_roles(assign_roles(nlaunched_plus_leader));
         coordination.set_nlaunched(nlaunched_plus_leader);
 
         let response = if unsafe { pg_sys::parallel_leader_participation } {
@@ -622,6 +646,15 @@ pub(super) fn build_index(
     }
 }
 
+fn assign_roles(nworkers: usize) -> Vec<WorkerRole> {
+    let nmergers = nworkers / 3;
+    let nwriters = nworkers - nmergers;
+
+    let mut roles = vec![WorkerRole::Merger; nmergers];
+    roles.extend(vec![WorkerRole::Writer; nwriters]);
+    roles
+}
+
 /// Determine the number of workers to use for a given CREATE INDEX/REINDEX statement.
 ///
 /// The number of workers is determined by max_parallel_maintenance_workers. However, if max_parallel_maintenance_workers
@@ -656,28 +689,10 @@ fn create_index_nworkers(heaprel: &PgRelation) -> usize {
         return 0;
     }
 
-    // ensure that we never have more workers (including the leader) than both the target segment count
-    // and max allowed number of workers
-    let mut nworkers = maintenance_workers
-        .min(target_segment_count)
-        .min(MAX_CREATE_INDEX_WORKERS);
+    // ensure that we never have more workers (including the leader) than the max allowed number of workers
+    let mut nworkers = maintenance_workers.min(MAX_CREATE_INDEX_WORKERS);
 
-    pgrx::debug1!("create_index_nworkers: maintenance_workers: {maintenance_workers}, target_segment_count: {target_segment_count}, nworkers: {nworkers}");
-
-    // round down nworkers such that target_segment_count / nworkers is an integer
-    // for instance, if the target is 32 and nworkers is 10, we round down to 8
-    // this way, each worker builds the same number of segments, making them more evenly distributed
-    for i in (1..nworkers + 1).rev() {
-        if target_segment_count % i == 0 {
-            nworkers = i;
-            break;
-        }
-    }
-
-    pgrx::debug1!("create_index_nworkers: nworkers rounded down to {nworkers}");
-
-    // if the leader is participating, create one less worker because the leader also counts as a worker
-    if unsafe { pg_sys::parallel_leader_participation } {
+    if unsafe { pg_sys::parallel_leader_participation } && nworkers == MAX_CREATE_INDEX_WORKERS {
         nworkers -= 1;
     }
 

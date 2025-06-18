@@ -30,6 +30,7 @@ CREATE TABLE products (
 INSERT INTO products (name, description, price, category_id, category_name, in_stock, rating, tags) VALUES
 ('Apple iPhone 14', 'Latest Apple smartphone with great camera', 999.99, 1, 'Casual', true, 4.5, ARRAY['smartphone', 'apple']),
 ('MacBook Pro', 'Powerful Apple laptop for professionals', 2499.99, 1, 'Electronics', true, 4.8, ARRAY['laptop', 'apple']),
+('Apple iPhone 13', 'Latest Apple smartphone with medium camera', 899.99, 1, 'Casual', true, 4.5, ARRAY['smartphone', 'apple']),
 ('Nike Air Max', 'Comfortable running shoes for athletes', 149.99, 2, 'Footwear', true, 4.2, ARRAY['shoes', 'running']),
 ('Samsung Galaxy', 'Android smartphone with excellent display', 899.99, 1, 'Electronics', false, 4.3, ARRAY['smartphone', 'android']),
 ('Adidas Ultraboost', 'Premium running shoes with boost technology', 179.99, 2, 'Footwear', true, 4.6, ARRAY['shoes', 'running', 'premium']),

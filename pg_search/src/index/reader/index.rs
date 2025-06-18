@@ -816,7 +816,6 @@ mod scorer_iter {
         deferred: DeferredScorer,
         segment_ord: SegmentOrdinal,
         segment_reader: SegmentReader,
-        initialized: bool,
     }
 
     impl ScorerIter {
@@ -829,7 +828,6 @@ mod scorer_iter {
                 deferred: scorer,
                 segment_ord,
                 segment_reader,
-                initialized: false,
             }
         }
     }
@@ -839,12 +837,6 @@ mod scorer_iter {
 
         fn next(&mut self) -> Option<Self::Item> {
             loop {
-                // Initialize the scorer by calling advance() first
-                if !self.initialized {
-                    self.deferred.advance();
-                    self.initialized = true;
-                }
-
                 let doc_id = self.deferred.doc();
 
                 if doc_id == tantivy::TERMINATED {

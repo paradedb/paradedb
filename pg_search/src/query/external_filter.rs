@@ -942,7 +942,7 @@ impl Weight for IndexedWithFilterWeight {
         }
 
         // Get the indexed scorer
-        let indexed_scorer = self.indexed_weight.scorer(reader, boost)?;
+        let mut indexed_scorer = self.indexed_weight.scorer(reader, boost)?;
 
         // Create fast field helper for ctid extraction
         // For now, we'll create a simple FFType for ctid directly
@@ -958,18 +958,14 @@ impl Weight for IndexedWithFilterWeight {
             external_filter_callback.is_some()
         );
 
-        let scorer = IndexedWithFilterScorer {
+        // Create a IndexedWithFilterScorer for segment
+        let scorer = IndexedWithFilterScorer::new(
             indexed_scorer,
-            external_filter_config: self.external_filter_config.clone(),
+            self.external_filter_config.clone(),
             external_filter_callback,
-            reader: reader.clone(),
+            reader.clone(),
             ctid_ff,
             heaprel_oid,
-        };
-
-        pgrx::warning!(
-            "🔥 Created IndexedWithFilterScorer for segment {:?}",
-            reader.segment_id()
         );
         Ok(Box::new(scorer))
     }
@@ -1025,10 +1021,7 @@ impl IndexedWithFilterQuery {
 
 impl Query for IndexedWithFilterQuery {
     fn weight(&self, enable_scoring: EnableScoring) -> tantivy::Result<Box<dyn Weight>> {
-        pgrx::warning!(
-            "🔥 IndexedWithFilterQuery::weight called - creating custom weight: {:?}",
-            self
-        );
+        // IndexedWithFilterQuery::weight called - creating custom weight
 
         // Get the indexed query
         let indexed_query = match &self.cached_indexed_query {
@@ -1060,6 +1053,38 @@ struct IndexedWithFilterScorer {
     reader: SegmentReader,
     ctid_ff: crate::index::fast_fields_helper::FFType,
     heaprel_oid: pg_sys::Oid,
+    current_doc: DocId,
+}
+
+impl IndexedWithFilterScorer {
+    fn new(
+        mut indexed_scorer: Box<dyn Scorer>,
+        external_filter_config: ExternalFilterConfig,
+        external_filter_callback: Option<ExternalFilterCallback>,
+        reader: SegmentReader,
+        ctid_ff: crate::index::fast_fields_helper::FFType,
+        heaprel_oid: pg_sys::Oid,
+    ) -> Self {
+        // Initialize the scorer to the first valid document immediately
+        let first_doc = indexed_scorer.advance();
+        let mut scorer = Self {
+            indexed_scorer,
+            external_filter_config,
+            external_filter_callback,
+            reader,
+            ctid_ff,
+            heaprel_oid,
+            current_doc: first_doc,
+        };
+        // If we have a first document, check if it passes the external filter
+        if first_doc != tantivy::TERMINATED {
+            if !scorer.evaluate_external_filter(first_doc) {
+                // If the first document doesn't pass the filter, advance to find the next one
+                scorer.current_doc = scorer.advance_to_next_valid();
+            }
+        }
+        scorer
+    }
 }
 
 impl Scorer for IndexedWithFilterScorer {
@@ -1071,7 +1096,31 @@ impl Scorer for IndexedWithFilterScorer {
 
 impl tantivy::DocSet for IndexedWithFilterScorer {
     fn advance(&mut self) -> DocId {
-        // Find the next document that matches both the indexed query and the external filter
+        // IndexedWithFilterScorer::advance called
+        // Find the next valid document (we're already initialized)
+        self.current_doc = self.advance_to_next_valid();
+        self.current_doc
+    }
+
+    fn doc(&self) -> DocId {
+        self.current_doc
+    }
+
+    fn size_hint(&self) -> u32 {
+        // Conservative estimate: the indexed scorer's size hint (external filter can only reduce)
+        let original_hint = self.indexed_scorer.size_hint();
+
+        original_hint
+    }
+}
+
+impl IndexedWithFilterScorer {
+    /// Advances to the next valid document that passes both the indexed query and external filter.
+    ///
+    /// # Returns
+    ///
+    /// The next valid document ID, or `tantivy::TERMINATED` if no more documents are found
+    fn advance_to_next_valid(&mut self) -> DocId {
         loop {
             let indexed_doc = self.indexed_scorer.advance();
             if indexed_doc == tantivy::TERMINATED {
@@ -1081,23 +1130,11 @@ impl tantivy::DocSet for IndexedWithFilterScorer {
             // Check if this document passes the external filter
             if self.evaluate_external_filter(indexed_doc) {
                 return indexed_doc;
-            } else {
-                // Continue to next indexed document
             }
+            // Continue to next indexed document if the document was filtered out
         }
     }
 
-    fn doc(&self) -> DocId {
-        self.indexed_scorer.doc()
-    }
-
-    fn size_hint(&self) -> u32 {
-        // Conservative estimate: the indexed scorer's size hint (external filter can only reduce)
-        self.indexed_scorer.size_hint()
-    }
-}
-
-impl IndexedWithFilterScorer {
     /// Evaluate the external filter for a specific document
     fn evaluate_external_filter(&self, doc_id: DocId) -> bool {
         // Use the stored callback for this expression

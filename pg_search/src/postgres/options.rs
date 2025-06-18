@@ -607,7 +607,7 @@ fn key_field_config(field_type: &SearchFieldType) -> SearchFieldConfig {
                 fast: true,
             }
         }
-        SearchFieldType::Text(_) => SearchFieldConfig::Text {
+        SearchFieldType::Text(_) | SearchFieldType::Uuid(_) => SearchFieldConfig::Text {
             indexed: true,
             fast: true,
             fieldnorms: false,
@@ -621,7 +621,6 @@ fn key_field_config(field_type: &SearchFieldType) -> SearchFieldConfig {
             normalizer: SearchNormalizer::Raw,
             column: None,
         },
-        SearchFieldType::Uuid(_) => SearchFieldConfig::default_uuid(),
         SearchFieldType::Json(_) => SearchFieldConfig::Json {
             indexed: true,
             fast: true,

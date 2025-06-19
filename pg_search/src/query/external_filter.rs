@@ -607,31 +607,30 @@ pub fn create_postgres_callback(
             );
             pgrx::warning!("🔥 Field values provided: {:?}", field_values);
 
-            // For now, return a simple result based on field values to avoid crashes
-            // This is a temporary fix while we debug the expression evaluation issues
+            // Use the proper callback manager to evaluate the PostgreSQL expression
+            if let Ok(mut mgr) = manager.lock() {
+                unsafe {
+                    if !mgr.is_initialized() {
+                        pgrx::warning!("🔥 Initializing callback manager for first use");
+                        if let Err(e) = mgr.initialize() {
+                            pgrx::warning!("🔥 Failed to initialize callback manager: {}", e);
+                            return ExternalFilterResult::matches_with_default_score(false);
+                        }
+                    }
 
-            // Check if this is a NULL test expression
-            if expression.contains("NULLTEST") {
-                // For NULL tests, check if any field value is Null
-                let has_null = field_values.values().any(|v| matches!(v, OwnedValue::Null));
-                pgrx::warning!("🔥 NULL test evaluation: has_null={}", has_null);
-                return ExternalFilterResult::matches_with_default_score(has_null);
-            }
-
-            // Check if this is a category_name = 'Electronics' expression
-            if expression.contains("Electronics") {
-                if let Some(OwnedValue::Str(category)) =
-                    field_values.get(&FieldName::from("category_name"))
-                {
-                    let matches = category == "Electronics";
-                    pgrx::warning!("🔥 Electronics test evaluation: matches={}", matches);
-                    return ExternalFilterResult::matches_with_default_score(matches);
+                    let (matches, score) =
+                        mgr.evaluate_expression_with_postgres_and_score(field_values);
+                    pgrx::warning!(
+                        "🔥 PostgreSQL expression evaluation result: matches={}, score={}",
+                        matches,
+                        score
+                    );
+                    return ExternalFilterResult::new(matches, score);
                 }
+            } else {
+                pgrx::warning!("🔥 Failed to acquire callback manager lock");
+                return ExternalFilterResult::matches_with_default_score(false);
             }
-
-            // Default fallback
-            pgrx::warning!("🔥 Default evaluation: returning true");
-            ExternalFilterResult::matches_with_default_score(true)
         },
     )
 }

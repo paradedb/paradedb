@@ -443,13 +443,24 @@ impl UnifiedExpressionScorer {
     }
 
     fn advance_to_next_valid(&mut self) -> DocId {
-        // Simplified implementation - just return all documents for now
-        // TODO: Implement proper unified expression evaluation
-        if self.current_doc < self.max_doc {
-            self.current_doc
-        } else {
-            tantivy::TERMINATED
+        // Search for the next valid document
+        while self.current_doc < self.max_doc {
+            // TODO: Evaluate unified expression for self.current_doc
+            // For now, simplified implementation that limits to first few documents
+            // to avoid infinite loops during development
+
+            // Temporary safety check - only return first 10 documents to avoid infinite loops
+            if self.current_doc < 10 {
+                return self.current_doc;
+            } else {
+                // Reached safety limit - set current_doc to max_doc to terminate
+                self.current_doc = self.max_doc;
+                break;
+            }
         }
+
+        // No more documents or reached safety limit
+        tantivy::TERMINATED
     }
 
     fn extract_field_values(&self, doc_id: DocId) -> HashMap<FieldName, TantivyValue> {
@@ -469,7 +480,15 @@ impl tantivy::query::Scorer for UnifiedExpressionScorer {
 
 impl tantivy::DocSet for UnifiedExpressionScorer {
     fn advance(&mut self) -> DocId {
+        // If we're already terminated, don't advance further
+        if self.current_doc >= self.max_doc {
+            return tantivy::TERMINATED;
+        }
+
+        // Move to the next document
         self.current_doc += 1;
+
+        // Find the next valid document (or TERMINATED if none)
         self.advance_to_next_valid()
     }
 

@@ -229,19 +229,25 @@ unsafe fn parse_mixed_expression_tree(
         return None;
     }
 
-    // Unified approach: handle the entire expression in Tantivy
-    // The callback will evaluate both indexed (@@@) and non-indexed predicates on-demand
+    // For now, disable the UnifiedExpression approach since it's not implemented correctly
+    // The current implementation tries to iterate through all documents, which is wrong
+    // TODO: Implement proper UnifiedExpression that:
+    // 1. Parses the expression to separate indexed and non-indexed parts
+    // 2. Creates efficient Tantivy queries for indexed parts
+    // 3. Evaluates non-indexed parts only on candidate documents
+
+    pgrx::warning!("🔥 Falling back to IndexedWithFilter approach for complex expressions");
+
+    // Fall back to IndexedWithFilter approach which works correctly
     let full_expr = pg_sys::nodeToString(expr.cast::<core::ffi::c_void>());
     let full_expr_string = std::ffi::CStr::from_ptr(full_expr)
         .to_string_lossy()
         .into_owned();
     pg_sys::pfree(full_expr.cast());
 
-    // Use unified approach: handle entire expression in Tantivy with on-demand evaluation
-    pgrx::warning!("🔥 Unified approach: creating UnifiedExpression for entire expression");
-
-    Some(SearchQueryInput::UnifiedExpression {
-        expression: full_expr_string, // Entire expression
+    Some(SearchQueryInput::IndexedWithFilter {
+        indexed_query: Box::new(SearchQueryInput::All), // Scan all documents for now
+        filter_expression: full_expr_string,
         referenced_fields: attno_map.values().cloned().collect(),
     })
 }

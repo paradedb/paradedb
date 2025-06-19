@@ -302,80 +302,10 @@ impl CallbackManager {
         &mut self,
         field_values: &HashMap<FieldName, OwnedValue>,
     ) -> (bool, f32) {
-        // Check if the expression contains @@@ operators that can provide BM25 scores
-        let contains_search_operators = self
-            .expression
-            .contains(&anyelement_query_input_opoid().to_string()); // OID for @@@ operator
-
-        if contains_search_operators {
-            // Try to extract BM25 scores from @@@ operators
-            let (matches, score) = self.evaluate_with_bm25_scoring(field_values);
-            (matches, score)
-        } else {
-            // For non-search expressions, use default scoring
-            let matches = self.evaluate_expression_with_postgres(field_values);
-            let score = if matches { 1.0 } else { 0.0 };
-            (matches, score)
-        }
-    }
-
-    /// Evaluate expressions containing @@@ operators and extract BM25 scores
-    unsafe fn evaluate_with_bm25_scoring(
-        &mut self,
-        field_values: &HashMap<FieldName, OwnedValue>,
-    ) -> (bool, f32) {
-        // For now, we'll use a simplified approach:
-        // 1. Evaluate the boolean expression normally
-        // 2. If it matches and contains @@@ operators, try to extract scores
-
+        // For non-search expressions, use default scoring
         let matches = self.evaluate_expression_with_postgres(field_values);
-
-        if matches {
-            // If the expression matches, try to extract the BM25 score
-            // This is a simplified implementation - in a full implementation,
-            // we would parse the expression tree and evaluate @@@ operators separately
-            let score = self.extract_bm25_score_from_expression(field_values);
-            (matches, score)
-        } else {
-            (false, 0.0)
-        }
-    }
-
-    /// Extract BM25 score from @@@ operators in the expression
-    unsafe fn extract_bm25_score_from_expression(
-        &mut self,
-        field_values: &HashMap<FieldName, OwnedValue>,
-    ) -> f32 {
-        // This is a simplified implementation that attempts to extract scores
-        // from @@@ operators. In practice, this would require more sophisticated
-        // expression parsing and evaluation.
-
-        // For now, we'll return a score based on whether we can identify
-        // specific search patterns in the field values
-
-        // Check if we have an 'id' field that we can use to get the actual BM25 score
-        if let Some(OwnedValue::I64(doc_id)) = field_values.get(&FieldName::from("id")) {
-            // Try to get the BM25 score for this document
-            // This is a placeholder - in a real implementation, we would:
-            // 1. Parse the @@@ operators from the expression
-            // 2. Execute them against the Tantivy index
-            // 3. Return the actual BM25 score
-
-            // For now, return a score that varies based on the document content
-            // to demonstrate that scoring is working
-            match doc_id {
-                1 => 2.5521502,  // Apple iPhone 14 - highest score for "Apple"
-                7 => 1.6239789,  // Apple Watch - medium score for "Apple"
-                4 => 1.2838018,  // Samsung Galaxy - score for "smartphone"
-                10 => 1.2838018, // Budget Phone - score for "smartphone"
-                2 => 0.8,        // MacBook Pro - lower score (no direct match)
-                8 => 0.7,        // Sony Headphones - lower score
-                _ => 1.0,        // Default score for other matches
-            }
-        } else {
-            // No id field available, return default score
-            1.0
-        }
+        let score = if matches { 0.99 } else { 0.01 };
+        (matches, score)
     }
 
     /// Create a heap filter expression from a PostgreSQL node string

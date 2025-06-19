@@ -217,77 +217,6 @@ impl Qual {
     }
 }
 
-/// Extract indexed query parts from a complex PostgreSQL expression
-/// This attempts to parse OR expressions with mixed indexed/non-indexed predicates
-/// and extract only the indexed parts for BM25 scoring
-unsafe fn extract_indexed_query_from_expression(
-    expr: *mut pg_sys::Expr,
-) -> Option<SearchQueryInput> {
-    if expr.is_null() {
-        return None;
-    }
-
-    // For now, implement a simple heuristic
-    // In a full implementation, we would parse the expression tree and extract
-    // the indexed predicates (those using @@@ operators)
-
-    // Check if this is a BoolExpr (AND/OR)
-    if let Some(bool_expr) = nodecast!(BoolExpr, T_BoolExpr, expr.cast::<pg_sys::Node>()) {
-        match (*bool_expr).boolop {
-            pg_sys::BoolExprType::OR_EXPR => {
-                // For OR expressions, we want to extract the indexed parts
-                // For the specific case we're dealing with:
-                // (name @@@ 'Apple' OR description @@@ 'smartphone') OR category_name = 'Electronics'
-                // We want to extract: (name @@@ 'Apple' OR description @@@ 'smartphone')
-
-                let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
-                let mut indexed_parts = Vec::new();
-
-                for arg in args.iter_ptr() {
-                    // Check if this argument contains indexed operators
-                    let arg_string = {
-                        let node_string = pg_sys::nodeToString(arg.cast::<core::ffi::c_void>());
-                        let rust_string = std::ffi::CStr::from_ptr(node_string)
-                            .to_string_lossy()
-                            .into_owned();
-                        pg_sys::pfree(node_string.cast());
-                        rust_string
-                    };
-
-                    let query_opoid =
-                        crate::api::operator::anyelement_query_input_opoid().to_string();
-                    if arg_string.contains(&query_opoid) {
-                        // This part contains indexed operators
-                        // For now, we'll create a simple term query as a placeholder
-                        // In a full implementation, we would recursively parse this
-                        indexed_parts.push(SearchQueryInput::ParseWithField {
-                            field: "name".into(),
-                            query_string: "Apple OR smartphone".to_string(),
-                            lenient: Some(false),
-                            conjunction_mode: Some(false),
-                        });
-                    }
-                }
-
-                if indexed_parts.is_empty() {
-                    None
-                } else if indexed_parts.len() == 1 {
-                    Some(indexed_parts.into_iter().next().unwrap())
-                } else {
-                    Some(SearchQueryInput::Boolean {
-                        must: Default::default(),
-                        should: indexed_parts,
-                        must_not: Default::default(),
-                    })
-                }
-            }
-            _ => None,
-        }
-    } else {
-        None
-    }
-}
-
 impl From<&Qual> for SearchQueryInput {
     #[track_caller]
     fn from(value: &Qual) -> Self {
@@ -314,25 +243,12 @@ impl From<&Qual> for SearchQueryInput {
 
                 let referenced_fields = attno_map.values().cloned().collect();
 
-                // Check if this expression contains indexed operators
-                // If so, we need to extract the indexed parts to preserve BM25 scores
-                let query_opoid = crate::api::operator::anyelement_query_input_opoid().to_string();
-                let indexed_query = if expression.contains(&query_opoid) {
-                    // Expression contains our @@@ operators - try to extract indexed parts
-                    // For now, we'll use a heuristic: if the expression references the 'id' field,
-                    // it likely contains indexed predicates that we should preserve
-                    if attno_map.values().any(|field| field.root() == "id") {
-                        // This FilterExpression likely contains indexed predicates
-                        // We'll create a modified expression that extracts the indexed parts
-                        unsafe { extract_indexed_query_from_expression(*expr) }
-                            .unwrap_or(SearchQueryInput::All)
-                    } else {
-                        SearchQueryInput::All
-                    }
-                } else {
-                    // No indexed operators - use All query
-                    SearchQueryInput::All
-                };
+                // For FilterExpression (complex expressions that couldn't be parsed normally),
+                // we need to use SearchQueryInput::All as the indexed query because:
+                // 1. OR expressions with mixed indexed/non-indexed predicates need to evaluate ALL documents
+                // 2. The external filter will handle the complete boolean logic
+                // 3. This ensures we don't miss documents that match only non-indexed parts
+                let indexed_query = SearchQueryInput::All;
 
                 // Convert FilterExpression to IndexedWithFilter
                 SearchQueryInput::IndexedWithFilter {

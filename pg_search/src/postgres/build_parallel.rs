@@ -624,6 +624,7 @@ pub(super) fn build_index(
     }
 }
 
+/// After nworkers have launched, decide how many of them should be writers vs. mergers
 fn assign_roles(nworkers: usize) -> Vec<WorkerRole> {
     let nmergers = nworkers / 3;
     let nwriters = nworkers - nmergers;

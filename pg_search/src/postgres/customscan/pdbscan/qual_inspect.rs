@@ -390,9 +390,9 @@ unsafe fn parse_compositional_expression(
 
 /// Check if an operator OID represents a search operator (@@@)
 unsafe fn is_search_operator(opno: pg_sys::Oid) -> bool {
-    // These are the OIDs for the @@@ operator variants
-    // You may need to adjust these based on your actual operator OIDs
-    opno == pg_sys::Oid::from(1002908) || opno == pg_sys::Oid::from(1002932) // Add other @@@ operator OIDs as needed
+    // Get the actual @@@ operator OID from the API
+    let query_opoid = crate::api::operator::anyelement_query_input_opoid();
+    opno == query_opoid
 }
 
 /// Recursively walk the PostgreSQL expression tree and extract indexed predicates

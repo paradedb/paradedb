@@ -308,7 +308,7 @@ impl<'a> BuildWorker<'a> {
     fn do_merge(&mut self) -> anyhow::Result<()> {
         loop {
             check_for_interrupts!();
-            let is_last_loop = self.coordination.nwriters_remaining() == 0;
+            let writers_finished = self.coordination.nwriters_remaining() == 0;
 
             unsafe {
                 Latch::new().wait(1000);
@@ -321,13 +321,31 @@ impl<'a> BuildWorker<'a> {
                 // get the entries to merge, if there are any
                 // based on our estimates of how many segments will ultimately be created
                 // vs. how many segments we're targeting
-                let merge_entry = if !is_last_loop {
+                let merge_entry = {
                     if mergeable_entries.is_empty() {
+                        if writers_finished {
+                            pgrx::debug1!("do_merge: writers finished, no stragglers to merge");
+                            break;
+                        }
                         continue;
                     }
 
                     let merge_group_size = self.merge_group_size(mergeable_entries[0].max_doc);
-                    if merge_group_size <= 1 || mergeable_entries.len() < merge_group_size {
+
+                    if writers_finished {
+                        let directory = MVCCDirectory::snapshot(self.indexrel.oid());
+                        let index = Index::open(directory.clone())?;
+                        let nsegments = index.searchable_segment_ids()?.len();
+
+                        if nsegments <= adjusted_target_segment_count(&self.heaprel)
+                            || mergeable_entries.len() < 2
+                        {
+                            pgrx::debug1!(
+                                "do_merge: writers finished, not enough stragglers to merge"
+                            );
+                            break;
+                        }
+                    } else if merge_group_size <= 1 || mergeable_entries.len() < merge_group_size {
                         continue;
                     }
 
@@ -337,34 +355,6 @@ impl<'a> BuildWorker<'a> {
                         .map(|entry| entry.segment_id)
                         .collect();
                     merge_list.add_segment_ids(segment_ids.iter())?
-                }
-                // if all the writers are done, merge down the stragglers
-                else {
-                    let directory = MVCCDirectory::snapshot(self.indexrel.oid());
-                    let index = Index::open(directory.clone())?;
-                    let nsegments = index.searchable_segment_ids()?.len();
-                    let target_segment_count = adjusted_target_segment_count(&self.heaprel);
-
-                    let mergeable_ids = mergeable_entries
-                        .into_iter()
-                        .map(|entry| entry.segment_id)
-                        .collect::<Vec<_>>();
-
-                    if nsegments <= target_segment_count {
-                        pgrx::debug1!("do_merge: no stragglers, we've created {nsegments} and target is {target_segment_count}");
-                        break;
-                    }
-
-                    if mergeable_ids.len() < 2 {
-                        pgrx::debug1!(
-                            "do_merge: only {} straggler(s) to merge, skipping",
-                            mergeable_ids.len()
-                        );
-                        break;
-                    }
-
-                    pgrx::debug1!("do_merge: merging down {} stragglers", mergeable_ids.len());
-                    merge_list.add_segment_ids(mergeable_ids.iter())?
                 };
 
                 // don't hold the merge lock, allowing other workers to merge
@@ -380,10 +370,6 @@ impl<'a> BuildWorker<'a> {
                 // garbage collect the index, returning to the fsm
                 pgrx::debug1!("do_merge: garbage collecting");
                 garbage_collect_index(&self.indexrel);
-            }
-
-            if is_last_loop {
-                break;
             }
         }
 

@@ -329,6 +329,9 @@ impl<'a> BuildWorker<'a> {
                 Latch::new().wait(1000);
 
                 let metadata = unsafe { MetaPage::open(self.indexrel.oid()) };
+                // get the entries to merge, if there are any
+                // based on our estimates of how many segments will ultimately be created
+                // vs. how many segments we're targeting
                 let merge_entry = {
                     let merge_lock = metadata.acquire_merge_lock();
                     let mut merge_list = merge_lock.merge_list();
@@ -337,7 +340,6 @@ impl<'a> BuildWorker<'a> {
                         continue;
                     }
 
-                    // use the first segment written to estimate the per-segment doc size
                     let merge_group_size = self.merge_group_size(mergeable_entries[0].max_doc);
                     if merge_group_size <= 1 || mergeable_entries.len() < merge_group_size {
                         continue;
@@ -352,11 +354,11 @@ impl<'a> BuildWorker<'a> {
                 };
 
                 pgrx::debug1!(
-                    "do_merge: nwriters_remaining={}, segments to merge: {:?}",
-                    self.coordination.nwriters_remaining(),
+                    "do_merge: segments to merge: {:?}",
                     merge_entry
                 );
 
+                // do the merge
                 let directory = MVCCDirectory::mergeable(self.indexrel.oid());
                 let index = Index::open(directory.clone())?;
                 let mut merger = SearchIndexMerger::open(directory)?;
@@ -380,12 +382,14 @@ impl<'a> BuildWorker<'a> {
                 if let Some(merged_meta) = merger.merge_into(&segments)? {
                     pgrx::debug1!("do_merge: merged segment: {:?}", merged_meta.id());
 
+                    // update the merge list first, under the merge lock
                     {
                         let merge_lock = metadata.acquire_merge_lock();
                         let mut merge_list = merge_lock.merge_list();
                         merge_list.add_segment_ids(std::iter::once(&merged_meta.id()))?;
                     }
 
+                    // then update the index metas
                     let index_meta = index.load_metas()?;
                     let previous_meta = IndexMeta {
                         segments: metas_to_merge,
@@ -400,6 +404,7 @@ impl<'a> BuildWorker<'a> {
                         .save_metas(&new_meta, &previous_meta, &mut ())?;
                 }
 
+                // garbage collect the index, returning to the fsm
                 pgrx::debug1!("do_merge: garbage collecting");
                 garbage_collect_index(&self.indexrel);
             }

@@ -155,20 +155,27 @@ impl Scorer for UnifiedExpressionScorer {
 impl tantivy::DocSet for UnifiedExpressionScorer {
     fn advance(&mut self) -> DocId {
         loop {
-            self.current_doc += 1;
-            if self.current_doc >= self.max_doc {
+            // Check current document first if we haven't moved yet
+            if self.current_doc < self.max_doc {
+                match self.evaluate_expression(self.current_doc) {
+                    Ok((matches, _)) if matches => return self.current_doc,
+                    _ => {
+                        // Current document doesn't match, try next
+                        self.current_doc += 1;
+                    }
+                }
+            } else {
                 return tantivy::TERMINATED;
-            }
-
-            match self.evaluate_expression(self.current_doc) {
-                Ok((matches, _)) if matches => return self.current_doc,
-                _ => continue,
             }
         }
     }
 
     fn doc(&self) -> DocId {
-        self.current_doc
+        if self.current_doc >= self.max_doc {
+            tantivy::TERMINATED
+        } else {
+            self.current_doc
+        }
     }
 
     fn size_hint(&self) -> u32 {

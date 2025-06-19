@@ -237,12 +237,13 @@ unsafe fn parse_mixed_expression_tree(
         .into_owned();
     pg_sys::pfree(full_expr.cast());
 
-    // Check if this is a complex OR expression that could cause crashes
-    // Disable UnifiedExpression approach entirely - it has bugs and IndexedWithFilter works better
-    pgrx::warning!(
-        "🔥 Unified approach disabled - falling back to IndexedWithFilter or SearchQueryInput::All"
-    );
-    return None; // This will fall back to the working IndexedWithFilter approach
+    // Use unified approach: handle entire expression in Tantivy with on-demand evaluation
+    pgrx::warning!("🔥 Unified approach: creating UnifiedExpression for entire expression");
+
+    Some(SearchQueryInput::UnifiedExpression {
+        expression: full_expr_string, // Entire expression
+        referenced_fields: attno_map.values().cloned().collect(),
+    })
 }
 
 /// Recursively walk the PostgreSQL expression tree and extract indexed predicates
@@ -377,9 +378,12 @@ impl From<&Qual> for SearchQueryInput {
 
                 // Parse the expression tree to build the correct SearchQueryInput structure
                 unsafe { parse_mixed_expression_tree(*expr, attno_map) }.unwrap_or_else(|| {
-                    // Fallback: unified expression disabled due to bugs, use All instead
-                    pgrx::warning!("🔥 FilterExpression fallback: using SearchQueryInput::All since unified approach is disabled");
-                    SearchQueryInput::All
+                    // Fallback: use unified expression approach
+                    pgrx::warning!("🔥 FilterExpression fallback: using UnifiedExpression");
+                    SearchQueryInput::UnifiedExpression {
+                        expression,
+                        referenced_fields: attno_map.values().cloned().collect(),
+                    }
                 })
             }
             Qual::PushdownExpr { funcexpr } => unsafe {

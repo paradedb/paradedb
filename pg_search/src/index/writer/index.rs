@@ -19,12 +19,11 @@ use crate::api::{HashMap, HashSet};
 use anyhow::Result;
 use pgrx::{pg_sys, PgRelation};
 use std::num::NonZeroUsize;
-use tantivy::directory::RamDirectory;
 use tantivy::index::SegmentId;
 use tantivy::indexer::merger::IndexMerger;
 use tantivy::indexer::segment_serializer::SegmentSerializer;
 use tantivy::indexer::{AddOperation, SegmentWriter};
-use tantivy::schema::{Field, Schema};
+use tantivy::schema::Field;
 use tantivy::{
     Directory, Index, IndexMeta, IndexWriter, Opstamp, Segment, SegmentMeta, TantivyDocument,
 };
@@ -32,7 +31,6 @@ use thiserror::Error;
 
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::setup_tokenizers;
-use crate::postgres::insert::garbage_collect_index;
 use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::{postgres::types::TantivyValueError, schema::SearchIndexSchema};
 

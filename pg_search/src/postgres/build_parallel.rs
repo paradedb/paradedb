@@ -16,11 +16,10 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::FieldName;
-use crate::api::HashSet;
 use crate::gucs;
 use crate::index::mvcc::MVCCDirectory;
 use crate::index::writer::index::{
-    CommittedSegment, IndexWriterConfig, Mergeable, SearchIndexMerger, SerialIndexWriter,
+    IndexWriterConfig, Mergeable, SearchIndexMerger, SerialIndexWriter,
 };
 use crate::launch_parallel_process;
 use crate::parallel_worker::mqueue::MessageQueueSender;
@@ -33,7 +32,7 @@ use crate::postgres::latch::Latch;
 use crate::postgres::spinlock::Spinlock;
 use crate::postgres::storage::block::{SegmentMetaEntry, SEGMENT_METAS_START};
 use crate::postgres::storage::buffer::BufferManager;
-use crate::postgres::storage::merge::MergeList;
+use crate::postgres::storage::merge::{MergeEntry, MergeList};
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::storage::LinkedItemList;
 use crate::postgres::utils::{categorize_fields, row_to_search_document, CategorizedFieldData};
@@ -45,7 +44,7 @@ use pgrx::{
 };
 use std::num::NonZeroUsize;
 use std::ptr::{addr_of_mut, NonNull};
-use tantivy::{Directory, Index, IndexMeta, SegmentMeta, TantivyDocument};
+use tantivy::{Directory, Index, IndexMeta, TantivyDocument};
 
 // target_segment_pool in WorkerCoordination requires a fixed size array, so we have to limit the
 // number of workers to 512, which is okay because max_parallel_maintenance_workers is typically much smaller
@@ -76,7 +75,6 @@ enum WorkerRole {
 #[repr(C)]
 struct WorkerCoordination {
     mutex: Spinlock,
-    nstarted: usize,
     nlaunched: usize,
     roles: [WorkerRole; MAX_CREATE_INDEX_WORKERS],
     nroles: usize,
@@ -87,7 +85,6 @@ impl Default for WorkerCoordination {
     fn default() -> Self {
         Self {
             mutex: Default::default(),
-            nstarted: Default::default(),
             nlaunched: Default::default(),
             roles: [WorkerRole::Writer; MAX_CREATE_INDEX_WORKERS],
             nroles: Default::default(),
@@ -98,15 +95,6 @@ impl Default for WorkerCoordination {
 
 impl ParallelStateType for WorkerCoordination {}
 impl WorkerCoordination {
-    fn inc_nstarted(&mut self) {
-        let _lock = self.mutex.acquire();
-        self.nstarted += 1;
-    }
-    fn nstarted(&mut self) -> usize {
-        let _lock = self.mutex.acquire();
-        self.nstarted
-    }
-
     fn set_nlaunched(&mut self, nlaunched: usize) {
         let _lock = self.mutex.acquire();
         self.nlaunched = nlaunched;
@@ -252,9 +240,6 @@ impl ParallelWorker for BuildWorker<'_> {
             std::thread::yield_now();
         }
 
-        // communicate to the group that we've started
-        self.coordination.inc_nstarted();
-
         let response = self.do_work()?;
         Ok(mq_sender.send(serde_json::to_vec(&response)?)?)
     }
@@ -321,14 +306,13 @@ impl<'a> BuildWorker<'a> {
     }
 
     fn do_merge(&mut self) -> anyhow::Result<()> {
-        // TODO: change this to spin until there's no writers remaining AND there's nothing left to merge
         while self.coordination.nwriters_remaining() > 0 {
             check_for_interrupts!();
 
             unsafe {
                 Latch::new().wait(1000);
 
-                let metadata = unsafe { MetaPage::open(self.indexrel.oid()) };
+                let metadata = MetaPage::open(self.indexrel.oid());
                 // get the entries to merge, if there are any
                 // based on our estimates of how many segments will ultimately be created
                 // vs. how many segments we're targeting
@@ -353,56 +337,10 @@ impl<'a> BuildWorker<'a> {
                     merge_list.add_segment_ids(segment_ids.iter())?
                 };
 
-                pgrx::debug1!(
-                    "do_merge: segments to merge: {:?}",
-                    merge_entry
-                );
+                pgrx::debug1!("do_merge: segments to merge: {:?}", merge_entry);
 
                 // do the merge
-                let directory = MVCCDirectory::mergeable(self.indexrel.oid());
-                let index = Index::open(directory.clone())?;
-                let mut merger = SearchIndexMerger::open(directory)?;
-                let searchable_metas = index.searchable_segment_metas()?;
-                let metas_to_merge = merge_entry
-                    .segment_ids(self.indexrel.oid())
-                    .iter()
-                    .map(|id| {
-                        searchable_metas
-                            .iter()
-                            .find(|meta| meta.id() == *id)
-                            .unwrap()
-                            .clone()
-                    })
-                    .collect::<Vec<_>>();
-                let segments = metas_to_merge
-                    .iter()
-                    .map(|meta| index.segment(meta.clone()))
-                    .collect::<Vec<_>>();
-
-                if let Some(merged_meta) = merger.merge_into(&segments)? {
-                    pgrx::debug1!("do_merge: merged segment: {:?}", merged_meta.id());
-
-                    // update the merge list first, under the merge lock
-                    {
-                        let merge_lock = metadata.acquire_merge_lock();
-                        let mut merge_list = merge_lock.merge_list();
-                        merge_list.add_segment_ids(std::iter::once(&merged_meta.id()))?;
-                    }
-
-                    // then update the index metas
-                    let index_meta = index.load_metas()?;
-                    let previous_meta = IndexMeta {
-                        segments: metas_to_merge,
-                        ..index_meta.clone()
-                    };
-                    let new_meta = IndexMeta {
-                        segments: vec![merged_meta],
-                        ..index_meta.clone()
-                    };
-                    index
-                        .directory()
-                        .save_metas(&new_meta, &previous_meta, &mut ())?;
-                }
+                merge_down_entry(self.indexrel.oid(), &merge_entry)?;
 
                 // garbage collect the index, returning to the fsm
                 pgrx::debug1!("do_merge: garbage collecting");
@@ -415,10 +353,15 @@ impl<'a> BuildWorker<'a> {
 
     fn merge_group_size(&mut self, docs_per_segment: u32) -> usize {
         self.merge_group_size.unwrap_or_else(|| {
-            let nsegments = (estimate_heap_reltuples(&self.heaprel) as f64 / docs_per_segment as f64).ceil() as usize;
-            let merge_group_size = (nsegments as f64 / adjusted_target_segment_count(&self.heaprel) as f64).ceil() as usize;
+            let nsegments = (estimate_heap_reltuples(&self.heaprel) as f64
+                / docs_per_segment as f64)
+                .ceil() as usize;
+            let target_segment_count = adjusted_target_segment_count(&self.heaprel);
+            let merge_group_size = (nsegments as f64 / target_segment_count as f64).ceil() as usize;
 
-            pgrx::debug1!("do_merge: predicting the creation {nsegments} segments, so merge in groups of {merge_group_size}");
+            pgrx::debug1!(
+                "predicting {nsegments} total segments, targeting {target_segment_count}, merge in groups of {merge_group_size}"
+            );
 
             self.merge_group_size = Some(merge_group_size);
             merge_group_size
@@ -564,15 +507,6 @@ pub(super) fn build_index(
         coordination.set_nlaunched(nlaunched_plus_leader);
 
         let response = if unsafe { pg_sys::parallel_leader_participation } {
-            // if the leader is to participate too, it's nice for it to wait until all the other workers
-            // have indicated that they're running.  Otherwise, it's likely the leader will get ahead
-            // of the workers, which doesn't allow for "evenly" distributing the work
-            while coordination.nstarted() != nlaunched {
-                check_for_interrupts!();
-                std::thread::yield_now();
-            }
-
-            pgrx::debug1!("build_index: all workers have launched, building in parallel");
             // directly instantiate a worker for the leader and have it do its build
             let mut worker = BuildWorker::new_parallel_worker(*process.state_manager());
             Some(worker.do_work()?)
@@ -754,6 +688,56 @@ fn mergeable_entries(index_oid: pg_sys::Oid, merge_list: &MergeList) -> Vec<Segm
             }
             true
         })
-        .map(|entry| entry.clone())
+        .copied()
         .collect::<Vec<_>>()
+}
+
+unsafe fn merge_down_entry(index_oid: pg_sys::Oid, merge_entry: &MergeEntry) -> anyhow::Result<()> {
+    let directory = MVCCDirectory::mergeable(index_oid);
+    let index = Index::open(directory.clone())?;
+    let mut merger = SearchIndexMerger::open(directory)?;
+    let searchable_metas = index.searchable_segment_metas()?;
+    let metas_to_merge = merge_entry
+        .segment_ids(index_oid)
+        .iter()
+        .map(|id| {
+            searchable_metas
+                .iter()
+                .find(|meta| meta.id() == *id)
+                .unwrap()
+                .clone()
+        })
+        .collect::<Vec<_>>();
+    let segments = metas_to_merge
+        .iter()
+        .map(|meta| index.segment(meta.clone()))
+        .collect::<Vec<_>>();
+
+    if let Some(merged_meta) = merger.merge_into(&segments)? {
+        pgrx::debug1!("do_merge: merged segment: {:?}", merged_meta.id());
+
+        // update the merge list first, under the merge lock
+        {
+            let metadata = MetaPage::open(index_oid);
+            let merge_lock = metadata.acquire_merge_lock();
+            let mut merge_list = merge_lock.merge_list();
+            merge_list.add_segment_ids(std::iter::once(&merged_meta.id()))?;
+        }
+
+        // then update the index metas
+        let index_meta = index.load_metas()?;
+        let previous_meta = IndexMeta {
+            segments: metas_to_merge,
+            ..index_meta.clone()
+        };
+        let new_meta = IndexMeta {
+            segments: vec![merged_meta],
+            ..index_meta.clone()
+        };
+        index
+            .directory()
+            .save_metas(&new_meta, &previous_meta, &mut ())?;
+    }
+
+    Ok(())
 }

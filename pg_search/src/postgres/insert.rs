@@ -249,7 +249,7 @@ pub unsafe fn merge_index_with_policy(
     let metadata = MetaPage::open(indexrelid);
     let merge_lock = metadata.acquire_merge_lock();
     let directory = MVCCDirectory::mergeable(indexrelid);
-    let mut merger =
+    let merger =
         SearchIndexMerger::open(directory).expect("should be able to open a SearchIndexMerger");
     let merger_segment_ids = merger
         .searchable_segment_ids()

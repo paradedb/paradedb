@@ -236,37 +236,58 @@ unsafe fn parse_mixed_expression_tree(
 
             match (*bool_expr).boolop {
                 pg_sys::BoolExprType::OR_EXPR => {
-                    // For OR expressions, each branch can be handled independently
-                    let mut or_branches = Vec::new();
+                    // For OR expressions with mixed indexed/non-indexed predicates,
+                    // we need to create a single IndexedWithFilter that evaluates the entire OR expression
+
+                    // First, collect all indexed parts from the OR expression
+                    let mut indexed_parts = Vec::new();
+                    let mut has_non_indexed = false;
 
                     for arg in args_vec {
-                        if let Some(branch) = parse_mixed_expression_tree(arg.cast(), attno_map) {
-                            or_branches.push(branch);
+                        if let Some(indexed_part) = extract_indexed_parts_recursive(arg.cast()) {
+                            indexed_parts.push(indexed_part);
                         } else {
-                            // This branch is pure non-indexed - create an IndexedWithFilter with All
-                            let branch_expr = pg_sys::nodeToString(arg.cast::<core::ffi::c_void>());
-                            let branch_string = std::ffi::CStr::from_ptr(branch_expr)
-                                .to_string_lossy()
-                                .into_owned();
-                            pg_sys::pfree(branch_expr.cast());
-
-                            or_branches.push(SearchQueryInput::IndexedWithFilter {
-                                indexed_query: Box::new(SearchQueryInput::All),
-                                filter_expression: branch_string,
-                                referenced_fields: attno_map.values().cloned().collect(),
-                            });
+                            has_non_indexed = true;
                         }
                     }
 
-                    if or_branches.is_empty() {
+                    if indexed_parts.is_empty() {
+                        // Pure non-indexed OR - return None so parent can handle it
                         None
-                    } else if or_branches.len() == 1 {
-                        Some(or_branches.into_iter().next().unwrap())
+                    } else if !has_non_indexed {
+                        // Pure indexed OR - return the indexed query directly
+                        if indexed_parts.len() == 1 {
+                            Some(indexed_parts.into_iter().next().unwrap())
+                        } else {
+                            Some(SearchQueryInput::Boolean {
+                                must: Default::default(),
+                                should: indexed_parts,
+                                must_not: Default::default(),
+                            })
+                        }
                     } else {
-                        Some(SearchQueryInput::Boolean {
-                            must: Default::default(),
-                            should: or_branches,
-                            must_not: Default::default(),
+                        // Mixed OR - create IndexedWithFilter with the entire OR expression as the filter
+                        let indexed_query = if indexed_parts.len() == 1 {
+                            indexed_parts.into_iter().next().unwrap()
+                        } else {
+                            SearchQueryInput::Boolean {
+                                must: Default::default(),
+                                should: indexed_parts,
+                                must_not: Default::default(),
+                            }
+                        };
+
+                        // Use the entire OR expression as the filter
+                        let full_expr = pg_sys::nodeToString(expr.cast::<core::ffi::c_void>());
+                        let full_expr_string = std::ffi::CStr::from_ptr(full_expr)
+                            .to_string_lossy()
+                            .into_owned();
+                        pg_sys::pfree(full_expr.cast());
+
+                        Some(SearchQueryInput::IndexedWithFilter {
+                            indexed_query: Box::new(indexed_query),
+                            filter_expression: full_expr_string,
+                            referenced_fields: attno_map.values().cloned().collect(),
                         })
                     }
                 }
@@ -1132,6 +1153,55 @@ unsafe fn extract_quals_internal(
                 return (None, None);
             };
 
+            // Debug: log what BoolExpr we're processing
+            let node_string = pg_sys::nodeToString(node.cast::<core::ffi::c_void>());
+            let rust_string = std::ffi::CStr::from_ptr(node_string)
+                .to_string_lossy()
+                .into_owned();
+            pg_sys::pfree(node_string.cast());
+            pgrx::warning!(
+                "🔥 Processing BoolExpr: {} (op: {:?})",
+                rust_string,
+                (*boolexpr).boolop
+            );
+
+            // For OR expressions with mixed indexed/non-indexed predicates, we need special handling
+            if (*boolexpr).boolop == pg_sys::BoolExprType::OR_EXPR
+                && extract_all_quals_even_non_indexed
+            {
+                // Check if this is a mixed OR expression that should be handled by parse_mixed_expression_tree
+                let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
+                let mut has_indexed = false;
+                let mut has_non_indexed = false;
+
+                for arg in args.iter_ptr() {
+                    let (indexed_qual, _) = extract_quals_internal(
+                        root,
+                        rti,
+                        arg,
+                        pdbopoid,
+                        ri_type,
+                        schema,
+                        convert_external_to_special_qual,
+                        false, // Don't recurse
+                        uses_tantivy_to_query,
+                    );
+
+                    if indexed_qual.is_some() {
+                        has_indexed = true;
+                    } else {
+                        has_non_indexed = true;
+                    }
+                }
+
+                if has_indexed && has_non_indexed {
+                    // This is a mixed OR expression - create a FilterExpression for proper parsing
+                    if let Some(filter_qual) = try_create_filter_expression(root, rti, node) {
+                        return (None, Some(filter_qual));
+                    }
+                }
+            }
+
             let indexed_quals = list_internal(
                 root,
                 rti,
@@ -1295,6 +1365,17 @@ unsafe fn try_create_filter_expression(
     if node.is_null() {
         return None;
     }
+
+    // Debug: log what expression we're trying to create a filter for
+    let node_string = pg_sys::nodeToString(node.cast::<core::ffi::c_void>());
+    let rust_string = std::ffi::CStr::from_ptr(node_string)
+        .to_string_lossy()
+        .into_owned();
+    pg_sys::pfree(node_string.cast());
+    pgrx::warning!(
+        "🔥 try_create_filter_expression called with: {}",
+        rust_string
+    );
 
     // Clean any RestrictInfo wrappers first
     let cleaned_node = clean_restrictinfo_recursively(node);

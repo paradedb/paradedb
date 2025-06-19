@@ -341,7 +341,7 @@ impl From<&Qual> for SearchQueryInput {
                     quals.len()
                 );
 
-                if has_indexed && has_non_indexed {
+                if has_indexed || has_non_indexed {
                     // Mixed predicates - create IndexedWithFilter query
                     pgrx::warning!("Creating IndexedWithFilter query for mixed predicates");
 
@@ -435,61 +435,61 @@ impl From<&Qual> for SearchQueryInput {
 
                     pgrx::warning!("Created IndexedWithFilter query: {:?}", result);
                     result
-                } else if has_non_indexed {
-                    // Only non-indexed predicates
-                    pgrx::warning!("Creating ExternalFilter query for non-indexed predicates only");
+                // } else if has_non_indexed {
+                //     // Only non-indexed predicates
+                //     pgrx::warning!("Creating ExternalFilter query for non-indexed predicates only");
 
-                    // Extract the actual filter expressions and referenced fields
-                    let mut all_referenced_fields = std::collections::HashSet::new();
-                    let mut filter_expressions = Vec::new();
+                //     // Extract the actual filter expressions and referenced fields
+                //     let mut all_referenced_fields = std::collections::HashSet::new();
+                //     let mut filter_expressions = Vec::new();
 
-                    for qual in quals {
-                        match qual {
-                            Qual::FilterExpression { expr, attno_map } => {
-                                // Extract the expression string
-                                let expression = unsafe {
-                                    let node_string =
-                                        pg_sys::nodeToString((*expr).cast::<core::ffi::c_void>());
-                                    let rust_string = std::ffi::CStr::from_ptr(node_string)
-                                        .to_string_lossy()
-                                        .into_owned();
-                                    pg_sys::pfree(node_string.cast());
-                                    rust_string
-                                };
-                                filter_expressions.push(expression);
+                //     for qual in quals {
+                //         match qual {
+                //             Qual::FilterExpression { expr, attno_map } => {
+                //                 // Extract the expression string
+                //                 let expression = unsafe {
+                //                     let node_string =
+                //                         pg_sys::nodeToString((*expr).cast::<core::ffi::c_void>());
+                //                     let rust_string = std::ffi::CStr::from_ptr(node_string)
+                //                         .to_string_lossy()
+                //                         .into_owned();
+                //                     pg_sys::pfree(node_string.cast());
+                //                     rust_string
+                //                 };
+                //                 filter_expressions.push(expression);
 
-                                // Collect referenced fields
-                                for field_name in attno_map.values() {
-                                    all_referenced_fields.insert(field_name.clone());
-                                }
-                            }
-                            Qual::NonIndexedExpr => {
-                                // For now, treat NonIndexedExpr as a placeholder
-                                filter_expressions.push("TRUE".to_string());
-                            }
-                            _ => {
-                                // This shouldn't happen for non-indexed predicates, but handle it gracefully
-                                filter_expressions.push("TRUE".to_string());
-                            }
-                        }
-                    }
+                //                 // Collect referenced fields
+                //                 for field_name in attno_map.values() {
+                //                     all_referenced_fields.insert(field_name.clone());
+                //                 }
+                //             }
+                //             Qual::NonIndexedExpr => {
+                //                 // For now, treat NonIndexedExpr as a placeholder
+                //                 filter_expressions.push("TRUE".to_string());
+                //             }
+                //             _ => {
+                //                 // This shouldn't happen for non-indexed predicates, but handle it gracefully
+                //                 filter_expressions.push("TRUE".to_string());
+                //             }
+                //         }
+                //     }
 
-                    // Combine multiple filter expressions with AND
-                    let combined_filter_expression = if filter_expressions.len() == 1 {
-                        filter_expressions.into_iter().next().unwrap()
-                    } else if filter_expressions.is_empty() {
-                        "TRUE".to_string()
-                    } else {
-                        // Create an AND expression combining all filter expressions
-                        format!("({})", filter_expressions.join(" AND "))
-                    };
+                //     // Combine multiple filter expressions with AND
+                //     let combined_filter_expression = if filter_expressions.len() == 1 {
+                //         filter_expressions.into_iter().next().unwrap()
+                //     } else if filter_expressions.is_empty() {
+                //         "TRUE".to_string()
+                //     } else {
+                //         // Create an AND expression combining all filter expressions
+                //         format!("({})", filter_expressions.join(" AND "))
+                //     };
 
-                    let referenced_fields: Vec<_> = all_referenced_fields.into_iter().collect();
+                //     let referenced_fields: Vec<_> = all_referenced_fields.into_iter().collect();
 
-                    SearchQueryInput::ExternalFilter {
-                        expression: combined_filter_expression,
-                        referenced_fields,
-                    }
+                //     SearchQueryInput::ExternalFilter {
+                //         expression: combined_filter_expression,
+                //         referenced_fields,
+                //     }
                 } else {
                     // Regular boolean AND logic for indexed predicates
                     pgrx::warning!("Creating regular Boolean query for indexed predicates only");

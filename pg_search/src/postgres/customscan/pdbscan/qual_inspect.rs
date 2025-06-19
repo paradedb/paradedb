@@ -217,6 +217,133 @@ impl Qual {
     }
 }
 
+/// Extract indexed query parts from a PostgreSQL FilterExpression
+/// This parses the expression tree and extracts only the parts that use @@@ operators
+/// which can be handled by Tantivy, leaving non-indexed parts for external filtering
+unsafe fn extract_indexed_query_from_filter_expression(
+    expr: *mut pg_sys::Expr,
+    expression_string: &str,
+) -> Option<SearchQueryInput> {
+    if expr.is_null() {
+        return None;
+    }
+
+    let query_opoid = crate::api::operator::anyelement_query_input_opoid().to_string();
+
+    // If the expression doesn't contain our operator, there are no indexed parts
+    if !expression_string.contains(&query_opoid) {
+        return None;
+    }
+
+    // Parse the expression tree to extract indexed parts
+    extract_indexed_parts_recursive(expr)
+}
+
+/// Recursively walk the PostgreSQL expression tree and extract indexed predicates
+unsafe fn extract_indexed_parts_recursive(node: *mut pg_sys::Expr) -> Option<SearchQueryInput> {
+    if node.is_null() {
+        return None;
+    }
+
+    match (*node).type_ {
+        pg_sys::NodeTag::T_BoolExpr => {
+            let bool_expr = node.cast::<pg_sys::BoolExpr>();
+            let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
+
+            match (*bool_expr).boolop {
+                pg_sys::BoolExprType::OR_EXPR => {
+                    // For OR expressions, collect all indexed parts
+                    let mut indexed_parts = Vec::new();
+
+                    for arg in args.iter_ptr() {
+                        if let Some(indexed_part) = extract_indexed_parts_recursive(arg.cast()) {
+                            indexed_parts.push(indexed_part);
+                        }
+                    }
+
+                    if indexed_parts.is_empty() {
+                        None
+                    } else if indexed_parts.len() == 1 {
+                        Some(indexed_parts.into_iter().next().unwrap())
+                    } else {
+                        Some(SearchQueryInput::Boolean {
+                            must: Default::default(),
+                            should: indexed_parts,
+                            must_not: Default::default(),
+                        })
+                    }
+                }
+                pg_sys::BoolExprType::AND_EXPR => {
+                    // For AND expressions, collect all indexed parts
+                    let mut indexed_parts = Vec::new();
+
+                    for arg in args.iter_ptr() {
+                        if let Some(indexed_part) = extract_indexed_parts_recursive(arg.cast()) {
+                            indexed_parts.push(indexed_part);
+                        }
+                    }
+
+                    if indexed_parts.is_empty() {
+                        None
+                    } else if indexed_parts.len() == 1 {
+                        Some(indexed_parts.into_iter().next().unwrap())
+                    } else {
+                        Some(SearchQueryInput::Boolean {
+                            must: indexed_parts,
+                            should: Default::default(),
+                            must_not: Default::default(),
+                        })
+                    }
+                }
+                pg_sys::BoolExprType::NOT_EXPR => {
+                    // For NOT expressions, extract the inner part
+                    if let Some(arg) = args.iter_ptr().next() {
+                        if let Some(indexed_part) = extract_indexed_parts_recursive(arg.cast()) {
+                            Some(SearchQueryInput::Boolean {
+                                must: Default::default(),
+                                should: Default::default(),
+                                must_not: vec![indexed_part],
+                            })
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                }
+                _ => {
+                    // Unknown boolean expression type
+                    None
+                }
+            }
+        }
+        pg_sys::NodeTag::T_OpExpr => {
+            let op_expr = node.cast::<pg_sys::OpExpr>();
+            let query_opoid = crate::api::operator::anyelement_query_input_opoid();
+
+            // Check if this is our @@@ operator
+            if (*op_expr).opno == query_opoid {
+                // This is an indexed predicate - extract the query
+                let args = PgList::<pg_sys::Node>::from_pg((*op_expr).args);
+                let args_vec: Vec<_> = args.iter_ptr().collect();
+                if let Some(rhs) = args_vec.get(1) {
+                    if let Some(const_node) = nodecast!(Const, T_Const, *rhs) {
+                        // Extract the SearchQueryInput from the constant
+                        if let Some(search_query) = SearchQueryInput::from_datum(
+                            (*const_node).constvalue,
+                            (*const_node).constisnull,
+                        ) {
+                            return Some(search_query);
+                        }
+                    }
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
 impl From<&Qual> for SearchQueryInput {
     #[track_caller]
     fn from(value: &Qual) -> Self {
@@ -243,12 +370,16 @@ impl From<&Qual> for SearchQueryInput {
 
                 let referenced_fields = attno_map.values().cloned().collect();
 
-                // For FilterExpression (complex expressions that couldn't be parsed normally),
-                // we need to use SearchQueryInput::All as the indexed query because:
-                // 1. OR expressions with mixed indexed/non-indexed predicates need to evaluate ALL documents
-                // 2. The external filter will handle the complete boolean logic
-                // 3. This ensures we don't miss documents that match only non-indexed parts
-                let indexed_query = SearchQueryInput::All;
+                // For FilterExpression, we need to extract the indexed parts and create a proper Tantivy query
+                // The approach is:
+                // 1. Parse the expression tree to separate indexed (@@@) and non-indexed predicates
+                // 2. Create a Tantivy query for the indexed parts
+                // 3. Use external filter for non-indexed parts
+                // 4. Combine them appropriately (usually with OR for mixed expressions)
+                let indexed_query = unsafe {
+                    extract_indexed_query_from_filter_expression(*expr, &expression)
+                        .unwrap_or(SearchQueryInput::All)
+                };
 
                 // Convert FilterExpression to IndexedWithFilter
                 SearchQueryInput::IndexedWithFilter {
@@ -549,18 +680,17 @@ impl From<&Qual> for SearchQueryInput {
                     .any(|q| matches!(q, Qual::NonIndexedExpr | Qual::FilterExpression { .. }));
 
                 if has_non_indexed {
-                    // If we have non-indexed expressions in an OR, we need to evaluate everything
-                    // as an external filter since we can't partially evaluate OR clauses
+                    // For OR with mixed indexed/non-indexed predicates, we create a Boolean OR query
+                    // where each branch is either:
+                    // 1. A pure indexed query (for indexed predicates)
+                    // 2. An IndexedWithFilter(All, non_indexed_filter) (for non-indexed predicates)
 
-                    // Extract the actual filter expressions and referenced fields
-                    let mut all_referenced_fields = std::collections::HashSet::new();
-                    let mut filter_expressions = Vec::new();
-                    let mut indexed_parts = Vec::new();
+                    let mut or_branches = Vec::new();
 
                     for qual in quals {
                         match qual {
                             Qual::FilterExpression { expr, attno_map } => {
-                                // Extract the expression string
+                                // Extract the expression string for non-indexed filtering
                                 let expression = unsafe {
                                     let node_string =
                                         pg_sys::nodeToString((*expr).cast::<core::ffi::c_void>());
@@ -570,67 +700,44 @@ impl From<&Qual> for SearchQueryInput {
                                     pg_sys::pfree(node_string.cast());
                                     rust_string
                                 };
-                                filter_expressions.push(expression);
 
-                                // Collect referenced fields
-                                for field_name in attno_map.values() {
-                                    all_referenced_fields.insert(field_name.clone());
-                                }
+                                let referenced_fields: Vec<_> =
+                                    attno_map.values().cloned().collect();
+
+                                // Try to extract indexed parts from this filter expression
+                                let indexed_query = unsafe {
+                                    extract_indexed_query_from_filter_expression(*expr, &expression)
+                                        .unwrap_or(SearchQueryInput::All)
+                                };
+
+                                // Create an IndexedWithFilter branch for this FilterExpression
+                                or_branches.push(SearchQueryInput::IndexedWithFilter {
+                                    indexed_query: Box::new(indexed_query),
+                                    filter_expression: expression,
+                                    referenced_fields,
+                                });
                             }
                             Qual::NonIndexedExpr => {
-                                // For now, treat NonIndexedExpr as a placeholder
-                                filter_expressions.push("TRUE".to_string());
+                                // For non-indexed expressions, create an IndexedWithFilter with All
+                                or_branches.push(SearchQueryInput::IndexedWithFilter {
+                                    indexed_query: Box::new(SearchQueryInput::All),
+                                    filter_expression: "TRUE".to_string(),
+                                    referenced_fields: vec![],
+                                });
                             }
                             _ => {
-                                // For indexed expressions in OR with non-indexed, we need to:
-                                // 1. Keep the indexed part for BM25 scoring
-                                // 2. Convert to string representation for external filter evaluation
+                                // For pure indexed expressions, add them directly as Tantivy queries
                                 let indexed_query = SearchQueryInput::from(qual);
-                                indexed_parts.push(indexed_query);
-
-                                // For the external filter, we'll represent indexed predicates as TRUE
-                                // since they will be handled by the indexed query part
-                                filter_expressions.push("TRUE".to_string());
+                                or_branches.push(indexed_query);
                             }
                         }
                     }
 
-                    // Combine multiple filter expressions with OR
-                    let combined_filter_expression = if filter_expressions.len() == 1 {
-                        filter_expressions.into_iter().next().unwrap()
-                    } else if filter_expressions.is_empty() {
-                        "TRUE".to_string()
-                    } else {
-                        // Create an OR expression combining all filter expressions using the OR clause separator
-                        // This tells the callback manager to use OR logic instead of AND
-                        filter_expressions.join("|||OR_CLAUSE_SEPARATOR|||")
-                    };
-
-                    let referenced_fields: Vec<_> = all_referenced_fields.into_iter().collect();
-
-                    // Create the indexed query part from the indexed predicates
-                    let indexed_query = if indexed_parts.is_empty() {
-                        // No indexed parts, use All to match all documents
-                        SearchQueryInput::All
-                    } else if indexed_parts.len() == 1 {
-                        // Single indexed part, use it directly
-                        indexed_parts.into_iter().next().unwrap()
-                    } else {
-                        // Multiple indexed parts, combine with OR
-                        SearchQueryInput::Boolean {
-                            must: Default::default(),
-                            should: indexed_parts,
-                            must_not: Default::default(),
-                        }
-                    };
-
-                    // For OR with non-indexed expressions, we use IndexedWithFilter
-                    // The indexed query handles the BM25 scoring for indexed predicates
-                    // The external filter handles the complete OR evaluation
-                    SearchQueryInput::IndexedWithFilter {
-                        indexed_query: Box::new(indexed_query),
-                        filter_expression: combined_filter_expression,
-                        referenced_fields,
+                    // Create a Boolean OR query with all branches
+                    SearchQueryInput::Boolean {
+                        must: Default::default(),
+                        should: or_branches,
+                        must_not: Default::default(),
                     }
                 } else {
                     // Regular OR logic for indexed predicates only

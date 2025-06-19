@@ -337,9 +337,8 @@ impl<'a> BuildWorker<'a> {
                     merge_list.add_segment_ids(segment_ids.iter())?
                 };
 
-                pgrx::debug1!("do_merge: segments to merge: {:?}", merge_entry);
-
                 // do the merge
+                pgrx::debug1!("do_merge: segments to merge: {:?}", merge_entry);
                 merge_down_entry(self.indexrel.oid(), &merge_entry)?;
 
                 // garbage collect the index, returning to the fsm
@@ -604,11 +603,9 @@ fn create_index_nworkers(heaprel: &PgRelation) -> usize {
 
     // ensure that we never have more workers (including the leader) than the max allowed number of workers
     let mut nworkers = maintenance_workers.min(MAX_CREATE_INDEX_WORKERS);
-
     if unsafe { pg_sys::parallel_leader_participation } && nworkers == MAX_CREATE_INDEX_WORKERS {
         nworkers -= 1;
     }
-
     nworkers
 }
 
@@ -692,6 +689,9 @@ fn mergeable_entries(index_oid: pg_sys::Oid, merge_list: &MergeList) -> Vec<Segm
         .collect::<Vec<_>>()
 }
 
+/// Merge down the segments inside a single [`MergeEntry`],
+/// then update merge list to prevent them from being merged again,
+/// and finally update the index metas to reflect the merge
 unsafe fn merge_down_entry(index_oid: pg_sys::Oid, merge_entry: &MergeEntry) -> anyhow::Result<()> {
     let directory = MVCCDirectory::mergeable(index_oid);
     let index = Index::open(directory.clone())?;

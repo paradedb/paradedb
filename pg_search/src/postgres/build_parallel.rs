@@ -338,16 +338,18 @@ impl<'a> BuildWorker<'a> {
                         .collect();
                     merge_list.add_segment_ids(segment_ids.iter())?
                 }
-                // if all the writers are done, try and merge down all the stragglers
+                // if all the writers are done, merge down the stragglers
                 else {
                     let directory = MVCCDirectory::snapshot(self.indexrel.oid());
                     let index = Index::open(directory.clone())?;
                     let nsegments = index.searchable_segment_ids()?.len();
                     let target_segment_count = adjusted_target_segment_count(&self.heaprel);
+
                     let mergeable_ids = mergeable_entries
                         .into_iter()
                         .map(|entry| entry.segment_id)
                         .collect::<Vec<_>>();
+
                     if nsegments <= target_segment_count {
                         pgrx::debug1!("do_merge: no stragglers, we've created {nsegments} and target is {target_segment_count}");
                         break;
@@ -597,7 +599,40 @@ pub(super) fn build_index(
 
 /// After nworkers have launched, decide how many of them should be writers vs. mergers
 fn assign_roles(nworkers: usize) -> Vec<WorkerRole> {
-    let nmergers = nworkers / 4;
+    if nworkers < 2 {
+        ErrorReport::new(
+            PgSqlErrorCode::ERRCODE_INSUFFICIENT_RESOURCES,
+            format!("parallel index build requires at least 2 workers, but we only got {nworkers}"),
+            function_name!(),
+        )
+        .set_detail("this can also happen if other backends have used up all the workers")
+        .set_hint("increase `max_parallel_maintenance_workers`, `max_parallel_workers`, and `max_worker_processes`, or check if other backends have used up all the workers")
+        .report(PgLogLevel::ERROR);
+    }
+
+    if nworkers < 4 {
+        ErrorReport::new(
+            PgSqlErrorCode::ERRCODE_INSUFFICIENT_RESOURCES,
+            format!("parallel index build recommends at least 4 workers, but we only got {nworkers}"),
+            function_name!(),
+        )
+        .set_detail("fewer workers can increase index build time")
+        .set_hint("increase `max_parallel_maintenance_workers`, `max_parallel_workers`, and `max_worker_processes`, or check if other backends have used up all the workers")
+        .report(PgLogLevel::WARNING);
+    }
+
+    if unsafe { !pg_sys::parallel_leader_participation } {
+        ErrorReport::new(
+            PgSqlErrorCode::ERRCODE_WARNING,
+            "parallel_leader_participation is off",
+            function_name!(),
+        )
+        .set_detail("disabling parallel_leader_participation can increase index build time")
+        .set_hint("if this was unintentional, `SET parallel_leader_participation = on`")
+        .report(PgLogLevel::WARNING);
+    }
+
+    let nmergers = (nworkers / 4).max(1);
     let nwriters = nworkers - nmergers;
 
     let mut roles = vec![WorkerRole::Merger; nmergers];

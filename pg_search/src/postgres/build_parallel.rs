@@ -313,13 +313,14 @@ impl<'a> BuildWorker<'a> {
             unsafe {
                 Latch::new().wait(1000);
 
-                // get the entries to merge, if there are any
-                // based on our estimates of how many segments will ultimately be created
-                // vs. how many segments we're targeting
                 let metadata = MetaPage::open(self.indexrel.oid());
                 let merge_lock = metadata.acquire_merge_lock();
                 let mut merge_list = merge_lock.merge_list();
                 let mergeable_entries = mergeable_entries(self.indexrel.oid(), &merge_list);
+
+                // get the entries to merge, if there are any
+                // based on our estimates of how many segments will ultimately be created
+                // vs. how many segments we're targeting
                 let merge_entry = if !is_last_loop {
                     if mergeable_entries.is_empty() {
                         continue;
@@ -336,7 +337,9 @@ impl<'a> BuildWorker<'a> {
                         .map(|entry| entry.segment_id)
                         .collect();
                     merge_list.add_segment_ids(segment_ids.iter())?
-                } else {
+                }
+                // if all the writers are done, try and merge down all the stragglers
+                else {
                     let directory = MVCCDirectory::snapshot(self.indexrel.oid());
                     let index = Index::open(directory.clone())?;
                     let nsegments = index.searchable_segment_ids()?.len();
@@ -366,7 +369,10 @@ impl<'a> BuildWorker<'a> {
                 drop(merge_lock);
 
                 // do the merge
-                pgrx::debug1!("do_merge: segments to merge: {:?}", merge_entry);
+                pgrx::debug1!(
+                    "do_merge: segments to merge: {:?}",
+                    merge_entry.segment_ids(self.indexrel.oid())
+                );
                 merge_down_entry(self.indexrel.oid(), &merge_entry)?;
 
                 // garbage collect the index, returning to the fsm
@@ -388,7 +394,7 @@ impl<'a> BuildWorker<'a> {
                 / docs_per_segment as f64)
                 .ceil() as usize;
             let target_segment_count = adjusted_target_segment_count(&self.heaprel);
-            let merge_group_size = (nsegments as f64 / target_segment_count as f64).ceil() as usize;
+            let merge_group_size = nsegments / target_segment_count;
 
             pgrx::debug1!(
                 "predicting {nsegments} total segments, targeting {target_segment_count}, merge in groups of {merge_group_size}"
@@ -591,7 +597,7 @@ pub(super) fn build_index(
 
 /// After nworkers have launched, decide how many of them should be writers vs. mergers
 fn assign_roles(nworkers: usize) -> Vec<WorkerRole> {
-    let nmergers = nworkers / 3;
+    let nmergers = nworkers / 4;
     let nwriters = nworkers - nmergers;
 
     let mut roles = vec![WorkerRole::Merger; nmergers];

@@ -273,12 +273,7 @@ pub enum SearchQueryInput {
         expr: PostgresExpression,
     },
     /// External filter that calls back to PostgreSQL for evaluation
-    ExternalFilter {
-        /// Serialized expression for worker processes
-        expression: String,
-        /// Fields referenced in the expression
-        referenced_fields: Vec<FieldName>,
-    },
+
     /// Combination of indexed query with external filter
     IndexedWithFilter {
         indexed_query: Box<SearchQueryInput>,
@@ -316,7 +311,7 @@ impl SearchQueryInput {
             SearchQueryInput::WithIndex { query, .. } => Self::need_scores(query),
             SearchQueryInput::MoreLikeThis { .. } => true,
             SearchQueryInput::ScoreFilter { .. } => true,
-            SearchQueryInput::ExternalFilter { .. } => false,
+
             SearchQueryInput::IndexedWithFilter { indexed_query, .. } => {
                 Self::need_scores(indexed_query)
             }
@@ -513,7 +508,7 @@ impl AsHumanReadable for SearchQueryInput {
             }
             SearchQueryInput::WithIndex { query, .. } => s.push_str(&query.as_human_readable()),
             SearchQueryInput::PostgresExpression { .. } => s.push_str("<PostgresExpression>"),
-            SearchQueryInput::ExternalFilter { .. } => s.push_str("<ExternalFilter>"),
+
             SearchQueryInput::IndexedWithFilter { .. } => s.push_str("<IndexedWithFilter>"),
         }
         s
@@ -1787,26 +1782,7 @@ impl SearchQueryInput {
                 query.into_tantivy_query(schema, parser, searcher, index_oid)
             }
             Self::PostgresExpression { .. } => panic!("postgres expressions have not been solved"),
-            Self::ExternalFilter {
-                expression,
-                referenced_fields,
-            } => {
-                pgrx::warning!("Converting ExternalFilter to Tantivy query");
 
-                // Create an external filter query that will call back to PostgreSQL
-                use crate::query::external_filter::{ExternalFilterConfig, ExternalFilterQuery};
-
-                let config = ExternalFilterConfig {
-                    expression: expression.clone(),
-                    referenced_fields: referenced_fields.clone(),
-                };
-
-                pgrx::warning!(
-                    "Created ExternalFilterQuery with expression: {}",
-                    expression
-                );
-                Ok(Box::new(ExternalFilterQuery::new(config)))
-            }
             Self::IndexedWithFilter {
                 indexed_query,
                 filter_expression,

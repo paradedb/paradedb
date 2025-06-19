@@ -196,19 +196,6 @@ impl PdbScan {
         state: &mut CustomScanStateWrapper<Self>,
     ) {
         match query {
-            SearchQueryInput::ExternalFilter {
-                expression,
-                referenced_fields,
-            } => {
-                // Create a callback for this external filter
-                Self::create_external_filter_callback(
-                    expression,
-                    referenced_fields,
-                    planstate,
-                    expr_context,
-                    state,
-                );
-            }
             SearchQueryInput::IndexedWithFilter {
                 indexed_query,
                 filter_expression,
@@ -1842,7 +1829,6 @@ fn base_query_has_search_predicates(
         SearchQueryInput::PostgresExpression { .. } => true,
 
         // External filters are not search predicates themselves
-        SearchQueryInput::ExternalFilter { .. } => false,
 
         // IndexedWithFilter: check the indexed query part
         SearchQueryInput::IndexedWithFilter { indexed_query, .. } => {

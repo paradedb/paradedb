@@ -44,6 +44,7 @@ use pgrx::{
 };
 use std::num::NonZeroUsize;
 use std::ptr::{addr_of_mut, NonNull};
+use std::sync::OnceLock;
 use tantivy::{Directory, Index, IndexMeta, TantivyDocument};
 
 // target_segment_pool in WorkerCoordination requires a fixed size array, so we have to limit the
@@ -190,7 +191,7 @@ struct BuildWorker<'a> {
     coordination: &'a mut WorkerCoordination,
     heaprel: PgRelation,
     indexrel: PgRelation,
-    merge_group_size: Option<usize>,
+    merge_group_size: OnceLock<usize>,
 }
 
 impl ParallelWorker for BuildWorker<'_> {
@@ -228,7 +229,7 @@ impl ParallelWorker for BuildWorker<'_> {
                 coordination,
                 heaprel,
                 indexrel,
-                merge_group_size: None,
+                merge_group_size: OnceLock::new(),
             }
         }
     }
@@ -258,7 +259,7 @@ impl<'a> BuildWorker<'a> {
             heaprel,
             indexrel,
             coordination,
-            merge_group_size: None,
+            merge_group_size: OnceLock::new(),
         }
     }
 
@@ -313,15 +314,15 @@ impl<'a> BuildWorker<'a> {
             unsafe {
                 Latch::new().wait(1000);
 
-                let metadata = MetaPage::open(self.indexrel.oid());
-                let merge_lock = metadata.acquire_merge_lock();
-                let mut merge_list = merge_lock.merge_list();
-                let mergeable_entries = mergeable_entries(self.indexrel.oid(), &merge_list);
-
                 // get the entries to merge, if there are any
                 // based on our estimates of how many segments will ultimately be created
                 // vs. how many segments we're targeting
                 let merge_entry = {
+                    let metadata = MetaPage::open(self.indexrel.oid());
+                    let merge_lock = metadata.acquire_merge_lock();
+                    let mut merge_list = merge_lock.merge_list();
+                    let mergeable_entries = mergeable_entries(self.indexrel.oid(), &merge_list);
+
                     if mergeable_entries.is_empty() {
                         if writers_finished {
                             pgrx::debug1!("do_merge: writers finished, no stragglers to merge");
@@ -357,9 +358,6 @@ impl<'a> BuildWorker<'a> {
                     merge_list.add_segment_ids(segment_ids.iter())?
                 };
 
-                // don't hold the merge lock, allowing other workers to merge
-                drop(merge_lock);
-
                 // do the merge
                 pgrx::debug1!(
                     "do_merge: segments to merge: {:?}",
@@ -377,7 +375,7 @@ impl<'a> BuildWorker<'a> {
     }
 
     fn merge_group_size(&mut self, docs_per_segment: u32) -> usize {
-        self.merge_group_size.unwrap_or_else(|| {
+        *self.merge_group_size.get_or_init(|| {
             let nsegments = (estimate_heap_reltuples(&self.heaprel) as f64
                 / docs_per_segment as f64)
                 .ceil() as usize;
@@ -388,7 +386,6 @@ impl<'a> BuildWorker<'a> {
                 "predicting {nsegments} total segments, targeting {target_segment_count}, merge in groups of {merge_group_size}"
             );
 
-            self.merge_group_size = Some(merge_group_size);
             merge_group_size
         })
     }

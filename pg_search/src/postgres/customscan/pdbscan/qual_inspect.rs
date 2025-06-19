@@ -421,8 +421,8 @@ impl From<&Qual> for SearchQueryInput {
                     } else if filter_expressions.is_empty() {
                         "TRUE".to_string()
                     } else {
-                        // Create an AND expression combining all filter expressions
-                        format!("({})", filter_expressions.join(" AND "))
+                        // Create an AND expression combining all filter expressions using the clause separator
+                        filter_expressions.join("|||CLAUSE_SEPARATOR|||")
                     };
 
                     let referenced_fields: Vec<_> = all_referenced_fields.into_iter().collect();
@@ -582,8 +582,9 @@ impl From<&Qual> for SearchQueryInput {
                     } else if filter_expressions.is_empty() {
                         "TRUE".to_string()
                     } else {
-                        // Create an OR expression combining all filter expressions
-                        format!("({})", filter_expressions.join(" OR "))
+                        // Create an OR expression combining all filter expressions using the OR clause separator
+                        // This tells the callback manager to use OR logic instead of AND
+                        filter_expressions.join("|||OR_CLAUSE_SEPARATOR|||")
                     };
 
                     let referenced_fields: Vec<_> = all_referenced_fields.into_iter().collect();

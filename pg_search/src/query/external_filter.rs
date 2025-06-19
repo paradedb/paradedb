@@ -316,11 +316,19 @@ impl CallbackManager {
         );
 
         // Handle multiple clauses separated by our delimiter
-        if heap_filter_node_string.contains("|||CLAUSE_SEPARATOR|||") {
-            // Multiple clauses - combine them into a single AND expression
-            let clause_strings: Vec<&str> = heap_filter_node_string
-                .split("|||CLAUSE_SEPARATOR|||")
-                .collect();
+        if heap_filter_node_string.contains("|||CLAUSE_SEPARATOR|||")
+            || heap_filter_node_string.contains("|||OR_CLAUSE_SEPARATOR|||")
+        {
+            // Determine if this is AND or OR logic
+            let is_or_logic = heap_filter_node_string.contains("|||OR_CLAUSE_SEPARATOR|||");
+            let separator = if is_or_logic {
+                "|||OR_CLAUSE_SEPARATOR|||"
+            } else {
+                "|||CLAUSE_SEPARATOR|||"
+            };
+
+            // Multiple clauses - combine them into a single AND or OR expression
+            let clause_strings: Vec<&str> = heap_filter_node_string.split(separator).collect();
 
             // Create individual nodes for each clause
             let mut args_list = std::ptr::null_mut();
@@ -338,11 +346,15 @@ impl CallbackManager {
             }
 
             if !args_list.is_null() {
-                // Create a BoolExpr to combine all clauses with AND
+                // Create a BoolExpr to combine all clauses with AND or OR
                 let bool_expr = pg_sys::palloc0(std::mem::size_of::<pg_sys::BoolExpr>())
                     .cast::<pg_sys::BoolExpr>();
                 (*bool_expr).xpr.type_ = pg_sys::NodeTag::T_BoolExpr;
-                (*bool_expr).boolop = pg_sys::BoolExprType::AND_EXPR;
+                (*bool_expr).boolop = if is_or_logic {
+                    pg_sys::BoolExprType::OR_EXPR
+                } else {
+                    pg_sys::BoolExprType::AND_EXPR
+                };
                 (*bool_expr).args = args_list;
                 (*bool_expr).location = -1;
 
@@ -408,6 +420,8 @@ impl CallbackManager {
                             // Check field name to determine correct numeric type
                             if field_name.root().as_str() == "price" {
                                 pg_sys::NUMERICOID // DECIMAL/NUMERIC type
+                            } else if field_name.root().as_str() == "rating" {
+                                pg_sys::FLOAT4OID // REAL type (FLOAT4)
                             } else {
                                 pg_sys::FLOAT8OID // DOUBLE PRECISION type
                             }
@@ -477,11 +491,14 @@ impl CallbackManager {
                             isnull[array_index] = false;
                         }
                         OwnedValue::F64(f) => {
-                            // Check if this field should be NUMERIC (like price) or FLOAT8
+                            // Check if this field should be NUMERIC (like price), FLOAT4 (like rating), or FLOAT8
                             if field_name.root().as_str() == "price" {
                                 // Convert to NUMERIC for price fields
                                 let numeric = pgrx::AnyNumeric::try_from(*f).unwrap();
                                 datums[array_index] = numeric.into_datum().unwrap();
+                            } else if field_name.root().as_str() == "rating" {
+                                // Convert to FLOAT4 for rating fields
+                                datums[array_index] = (*f as f32).into_datum().unwrap();
                             } else {
                                 // Use FLOAT8 for other numeric fields
                                 datums[array_index] = (*f).into_datum().unwrap();
@@ -1208,29 +1225,9 @@ impl IndexedWithFilterScorer {
     fn extract_field_values(&self, doc_id: DocId) -> HashMap<FieldName, OwnedValue> {
         let mut field_values = HashMap::default();
 
-        // For each referenced field, try to extract its value
+        // For each referenced field, try to extract its value from heap
         for field_name in &self.external_filter_config.referenced_fields {
-            let field_value = match field_name.root().as_str() {
-                "category_name" => {
-                    // For category_name, we need to extract the actual value from the document
-                    // Since we don't have direct access to the document content here,
-                    // we'll need to implement a proper extraction mechanism
-
-                    // For now, let's implement a test-specific extraction
-                    // In a real implementation, this would use fast fields or stored fields
-                    self.extract_field_value_from_document(doc_id, field_name)
-                }
-                "price" => {
-                    // Extract price field
-                    self.extract_field_value_from_document(doc_id, field_name)
-                }
-                "in_stock" => {
-                    // Extract in_stock field
-                    self.extract_field_value_from_document(doc_id, field_name)
-                }
-                _ => OwnedValue::Null,
-            };
-
+            let field_value = self.extract_field_value_from_document(doc_id, field_name);
             field_values.insert(field_name.clone(), field_value);
         }
 
@@ -1310,6 +1307,13 @@ impl IndexedWithFilterScorer {
                     value
                 );
                 OwnedValue::I64(value)
+            } else if let Ok(Some(value)) = heap_tuple.get_by_name::<f32>(&field_name.root()) {
+                pgrx::warning!(
+                    "🔥 Extracted field '{}' = {} (f32->f64)",
+                    field_name.root(),
+                    value
+                );
+                OwnedValue::F64(value as f64)
             } else if let Ok(Some(value)) = heap_tuple.get_by_name::<f64>(&field_name.root()) {
                 pgrx::warning!(
                     "🔥 Extracted field '{}' = {} (f64)",

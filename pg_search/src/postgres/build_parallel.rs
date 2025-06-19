@@ -306,20 +306,21 @@ impl<'a> BuildWorker<'a> {
     }
 
     fn do_merge(&mut self) -> anyhow::Result<()> {
-        while self.coordination.nwriters_remaining() > 0 {
+        loop {
             check_for_interrupts!();
+            let is_last_loop = self.coordination.nwriters_remaining() == 0;
 
             unsafe {
                 Latch::new().wait(1000);
 
-                let metadata = MetaPage::open(self.indexrel.oid());
                 // get the entries to merge, if there are any
                 // based on our estimates of how many segments will ultimately be created
                 // vs. how many segments we're targeting
-                let merge_entry = {
-                    let merge_lock = metadata.acquire_merge_lock();
-                    let mut merge_list = merge_lock.merge_list();
-                    let mergeable_entries = mergeable_entries(self.indexrel.oid(), &merge_list);
+                let metadata = MetaPage::open(self.indexrel.oid());
+                let merge_lock = metadata.acquire_merge_lock();
+                let mut merge_list = merge_lock.merge_list();
+                let mergeable_entries = mergeable_entries(self.indexrel.oid(), &merge_list);
+                let merge_entry = if !is_last_loop {
                     if mergeable_entries.is_empty() {
                         continue;
                     }
@@ -335,7 +336,34 @@ impl<'a> BuildWorker<'a> {
                         .map(|entry| entry.segment_id)
                         .collect();
                     merge_list.add_segment_ids(segment_ids.iter())?
+                } else {
+                    let directory = MVCCDirectory::snapshot(self.indexrel.oid());
+                    let index = Index::open(directory.clone())?;
+                    let nsegments = index.searchable_segment_ids()?.len();
+                    let target_segment_count = adjusted_target_segment_count(&self.heaprel);
+                    let mergeable_ids = mergeable_entries
+                        .into_iter()
+                        .map(|entry| entry.segment_id)
+                        .collect::<Vec<_>>();
+                    if nsegments <= target_segment_count {
+                        pgrx::debug1!("do_merge: no stragglers, we've created {nsegments} and target is {target_segment_count}");
+                        break;
+                    }
+
+                    if mergeable_ids.len() < 2 {
+                        pgrx::debug1!(
+                            "do_merge: only {} straggler(s) to merge, skipping",
+                            mergeable_ids.len()
+                        );
+                        break;
+                    }
+
+                    pgrx::debug1!("do_merge: merging down {} stragglers", mergeable_ids.len());
+                    merge_list.add_segment_ids(mergeable_ids.iter())?
                 };
+
+                // don't hold the merge lock, allowing other workers to merge
+                drop(merge_lock);
 
                 // do the merge
                 pgrx::debug1!("do_merge: segments to merge: {:?}", merge_entry);
@@ -344,6 +372,10 @@ impl<'a> BuildWorker<'a> {
                 // garbage collect the index, returning to the fsm
                 pgrx::debug1!("do_merge: garbage collecting");
                 garbage_collect_index(&self.indexrel);
+            }
+
+            if is_last_loop {
+                break;
             }
         }
 

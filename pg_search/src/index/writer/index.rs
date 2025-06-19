@@ -238,7 +238,7 @@ impl SerialIndexWriter {
 
     fn commit_segment(&mut self, finalized_segment: Segment) -> Result<()> {
         pgrx::debug1!(
-            "writer {}: committing segment {} without merging",
+            "writer {}: committing segment {}",
             self.id,
             finalized_segment.id()
         );

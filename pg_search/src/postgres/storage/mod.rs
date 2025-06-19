@@ -101,3 +101,4 @@ pub mod utils;
 
 pub use self::linked_bytes::{LinkedBytesList, LinkedBytesListWriter};
 pub use self::linked_items::LinkedItemList;
+pub use self::utils::MAX_BUFFERS_TO_EXTEND_BY;

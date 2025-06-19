@@ -468,7 +468,7 @@ impl BufferManager {
         unsafe {
             let mut buffer_vec = self.bcache.new_buffers(npages);
             std::iter::from_fn(move || {
-                buffer_vec.claim_buffer().map(|pg_buffer| BufferMut {
+                buffer_vec.next().map(|pg_buffer| BufferMut {
                     dirty: false,
                     inner: Buffer { pg_buffer },
                 })

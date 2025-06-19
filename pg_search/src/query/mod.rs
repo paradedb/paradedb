@@ -20,6 +20,7 @@ pub mod iter_mut;
 mod more_like_this;
 mod range;
 mod score;
+pub mod unified_expr;
 
 use crate::api::FieldName;
 use crate::api::HashMap;
@@ -280,6 +281,11 @@ pub enum SearchQueryInput {
         filter_expression: String,
         referenced_fields: Vec<FieldName>,
     },
+    /// Unified expression evaluation handling both indexed and non-indexed predicates
+    UnifiedExpression {
+        expression: String,
+        referenced_fields: Vec<FieldName>,
+    },
 }
 
 impl SearchQueryInput {
@@ -315,6 +321,7 @@ impl SearchQueryInput {
             SearchQueryInput::IndexedWithFilter { indexed_query, .. } => {
                 Self::need_scores(indexed_query)
             }
+            SearchQueryInput::UnifiedExpression { .. } => true, // Always need scores for unified expressions
             _ => false,
         }
     }
@@ -510,6 +517,9 @@ impl AsHumanReadable for SearchQueryInput {
             SearchQueryInput::PostgresExpression { .. } => s.push_str("<PostgresExpression>"),
 
             SearchQueryInput::IndexedWithFilter { .. } => s.push_str("<IndexedWithFilter>"),
+            SearchQueryInput::UnifiedExpression { expression, .. } => {
+                s.push_str(&format!("<UnifiedExpression: {}>", expression))
+            }
         }
         s
     }
@@ -1814,6 +1824,28 @@ impl SearchQueryInput {
                     indexed_tantivy_query,
                     external_filter_query,
                 )))
+            }
+
+            Self::UnifiedExpression {
+                expression,
+                referenced_fields,
+            } => {
+                pgrx::warning!("🔥 Converting UnifiedExpression to Tantivy query");
+
+                use crate::query::unified_expr::UnifiedExpressionQuery;
+                use std::sync::Arc;
+
+                let unified_query = UnifiedExpressionQuery::new(
+                    expression.clone(),
+                    referenced_fields.clone(),
+                    Arc::new(schema.clone()),
+                );
+
+                pgrx::warning!(
+                    "🔥 Created UnifiedExpressionQuery with expression: {}",
+                    expression
+                );
+                Ok(Box::new(unified_query))
             }
         }
     }

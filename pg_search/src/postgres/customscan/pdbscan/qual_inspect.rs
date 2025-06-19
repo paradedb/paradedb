@@ -220,6 +220,7 @@ impl Qual {
 /// Parse a mixed expression tree containing both indexed and non-indexed predicates
 /// This function recursively walks the PostgreSQL expression tree and builds the appropriate
 /// SearchQueryInput structure that preserves boolean logic while separating indexed and non-indexed parts
+/// Unified expression handler - always creates IndexedWithFilter with entire expression
 unsafe fn parse_mixed_expression_tree(
     expr: *mut pg_sys::Expr,
     attno_map: &HashMap<pg_sys::AttrNumber, FieldName>,
@@ -228,172 +229,20 @@ unsafe fn parse_mixed_expression_tree(
         return None;
     }
 
-    match (*expr).type_ {
-        pg_sys::NodeTag::T_BoolExpr => {
-            let bool_expr = expr.cast::<pg_sys::BoolExpr>();
-            let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
-            let args_vec: Vec<_> = args.iter_ptr().collect();
+    // Unified approach: handle the entire expression in Tantivy
+    // The callback will evaluate both indexed (@@@) and non-indexed predicates on-demand
+    let full_expr = pg_sys::nodeToString(expr.cast::<core::ffi::c_void>());
+    let full_expr_string = std::ffi::CStr::from_ptr(full_expr)
+        .to_string_lossy()
+        .into_owned();
+    pg_sys::pfree(full_expr.cast());
 
-            match (*bool_expr).boolop {
-                pg_sys::BoolExprType::OR_EXPR => {
-                    // For OR expressions with mixed indexed/non-indexed predicates,
-                    // we need to create a single IndexedWithFilter that evaluates the entire OR expression
+    pgrx::warning!("🔥 Unified approach: creating UnifiedExpression for entire expression");
 
-                    // First, collect all indexed parts from the OR expression
-                    let mut indexed_parts = Vec::new();
-                    let mut has_non_indexed = false;
-
-                    for arg in args_vec {
-                        if let Some(indexed_part) = extract_indexed_parts_recursive(arg.cast()) {
-                            indexed_parts.push(indexed_part);
-                        } else {
-                            has_non_indexed = true;
-                        }
-                    }
-
-                    if indexed_parts.is_empty() {
-                        // Pure non-indexed OR - return None so parent can handle it
-                        None
-                    } else if !has_non_indexed {
-                        // Pure indexed OR - return the indexed query directly
-                        if indexed_parts.len() == 1 {
-                            Some(indexed_parts.into_iter().next().unwrap())
-                        } else {
-                            Some(SearchQueryInput::Boolean {
-                                must: Default::default(),
-                                should: indexed_parts,
-                                must_not: Default::default(),
-                            })
-                        }
-                    } else {
-                        // Mixed OR - create IndexedWithFilter with the entire OR expression as the filter
-                        let indexed_query = if indexed_parts.len() == 1 {
-                            indexed_parts.into_iter().next().unwrap()
-                        } else {
-                            SearchQueryInput::Boolean {
-                                must: Default::default(),
-                                should: indexed_parts,
-                                must_not: Default::default(),
-                            }
-                        };
-
-                        // Use the entire OR expression as the filter
-                        let full_expr = pg_sys::nodeToString(expr.cast::<core::ffi::c_void>());
-                        let full_expr_string = std::ffi::CStr::from_ptr(full_expr)
-                            .to_string_lossy()
-                            .into_owned();
-                        pg_sys::pfree(full_expr.cast());
-
-                        Some(SearchQueryInput::IndexedWithFilter {
-                            indexed_query: Box::new(indexed_query),
-                            filter_expression: full_expr_string,
-                            referenced_fields: attno_map.values().cloned().collect(),
-                        })
-                    }
-                }
-                pg_sys::BoolExprType::AND_EXPR => {
-                    // For AND expressions, we need to separate indexed and non-indexed parts
-                    let mut indexed_parts = Vec::new();
-                    let mut non_indexed_exprs = Vec::new();
-
-                    for arg in args_vec {
-                        if let Some(indexed_query) = extract_indexed_parts_recursive(arg.cast()) {
-                            indexed_parts.push(indexed_query);
-                        } else {
-                            // This is a non-indexed predicate
-                            let arg_expr = pg_sys::nodeToString(arg.cast::<core::ffi::c_void>());
-                            let arg_string = std::ffi::CStr::from_ptr(arg_expr)
-                                .to_string_lossy()
-                                .into_owned();
-                            pg_sys::pfree(arg_expr.cast());
-                            non_indexed_exprs.push(arg_string);
-                        }
-                    }
-
-                    // Build the result based on what we found
-                    if indexed_parts.is_empty() {
-                        // Pure non-indexed AND - return None so parent can handle it
-                        None
-                    } else if non_indexed_exprs.is_empty() {
-                        // Pure indexed AND - return the indexed query directly
-                        if indexed_parts.len() == 1 {
-                            Some(indexed_parts.into_iter().next().unwrap())
-                        } else {
-                            Some(SearchQueryInput::Boolean {
-                                must: indexed_parts,
-                                should: Default::default(),
-                                must_not: Default::default(),
-                            })
-                        }
-                    } else {
-                        // Mixed AND - create IndexedWithFilter
-                        let indexed_query = if indexed_parts.len() == 1 {
-                            indexed_parts.into_iter().next().unwrap()
-                        } else {
-                            SearchQueryInput::Boolean {
-                                must: indexed_parts,
-                                should: Default::default(),
-                                must_not: Default::default(),
-                            }
-                        };
-
-                        let filter_expression = if non_indexed_exprs.len() == 1 {
-                            non_indexed_exprs.into_iter().next().unwrap()
-                        } else {
-                            // Combine non-indexed expressions with AND - but we need proper PostgreSQL syntax
-                            format!("({})", non_indexed_exprs.join(") AND ("))
-                        };
-
-                        Some(SearchQueryInput::IndexedWithFilter {
-                            indexed_query: Box::new(indexed_query),
-                            filter_expression,
-                            referenced_fields: attno_map.values().cloned().collect(),
-                        })
-                    }
-                }
-                pg_sys::BoolExprType::NOT_EXPR => {
-                    // For NOT expressions, we need to be careful about the logic
-                    if let Some(arg) = args_vec.get(0) {
-                        if let Some(indexed_query) = extract_indexed_parts_recursive(arg.cast()) {
-                            // This is a NOT of an indexed predicate
-                            Some(SearchQueryInput::Boolean {
-                                must: Default::default(),
-                                should: Default::default(),
-                                must_not: vec![indexed_query],
-                            })
-                        } else {
-                            // This is a NOT of a non-indexed predicate - handle as external filter
-                            let arg_expr = pg_sys::nodeToString(arg.cast::<core::ffi::c_void>());
-                            let arg_string = std::ffi::CStr::from_ptr(arg_expr)
-                                .to_string_lossy()
-                                .into_owned();
-                            pg_sys::pfree(arg_expr.cast());
-
-                            Some(SearchQueryInput::IndexedWithFilter {
-                                indexed_query: Box::new(SearchQueryInput::All),
-                                filter_expression: format!("NOT ({})", arg_string),
-                                referenced_fields: attno_map.values().cloned().collect(),
-                            })
-                        }
-                    } else {
-                        None
-                    }
-                }
-                _ => {
-                    // Unknown boolean expression type
-                    None
-                }
-            }
-        }
-        pg_sys::NodeTag::T_OpExpr => {
-            // Check if this is an indexed predicate
-            extract_indexed_parts_recursive(expr)
-        }
-        _ => {
-            // Other expression types - treat as non-indexed
-            None
-        }
-    }
+    Some(SearchQueryInput::UnifiedExpression {
+        expression: full_expr_string, // Entire expression
+        referenced_fields: attno_map.values().cloned().collect(),
+    })
 }
 
 /// Recursively walk the PostgreSQL expression tree and extract indexed predicates
@@ -530,10 +379,9 @@ impl From<&Qual> for SearchQueryInput {
 
                 // Parse the expression tree to build the correct SearchQueryInput structure
                 unsafe { parse_mixed_expression_tree(*expr, attno_map) }.unwrap_or_else(|| {
-                    // Fallback: treat as pure external filter
-                    SearchQueryInput::IndexedWithFilter {
-                        indexed_query: Box::new(SearchQueryInput::All),
-                        filter_expression: expression,
+                    // Fallback: treat as unified expression
+                    SearchQueryInput::UnifiedExpression {
+                        expression,
                         referenced_fields,
                     }
                 })
@@ -1165,40 +1013,16 @@ unsafe fn extract_quals_internal(
                 (*boolexpr).boolop
             );
 
-            // For OR expressions with mixed indexed/non-indexed predicates, we need special handling
-            if (*boolexpr).boolop == pg_sys::BoolExprType::OR_EXPR
-                && extract_all_quals_even_non_indexed
-            {
-                // Check if this is a mixed OR expression that should be handled by parse_mixed_expression_tree
-                let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
-                let mut has_indexed = false;
-                let mut has_non_indexed = false;
+            // Unified approach: for any complex boolean expression when extracting all quals,
+            // use the unified IndexedWithFilter approach
+            if extract_all_quals_even_non_indexed {
+                pgrx::warning!(
+                    "🔥 Unified approach: BoolExpr detected, creating FilterExpression for entire expression"
+                );
 
-                for arg in args.iter_ptr() {
-                    let (indexed_qual, _) = extract_quals_internal(
-                        root,
-                        rti,
-                        arg,
-                        pdbopoid,
-                        ri_type,
-                        schema,
-                        convert_external_to_special_qual,
-                        false, // Don't recurse
-                        uses_tantivy_to_query,
-                    );
-
-                    if indexed_qual.is_some() {
-                        has_indexed = true;
-                    } else {
-                        has_non_indexed = true;
-                    }
-                }
-
-                if has_indexed && has_non_indexed {
-                    // This is a mixed OR expression - create a FilterExpression for proper parsing
-                    if let Some(filter_qual) = try_create_filter_expression(root, rti, node) {
-                        return (None, Some(filter_qual));
-                    }
+                // Always use unified handling for complex boolean expressions
+                if let Some(filter_qual) = try_create_filter_expression(root, rti, node) {
+                    return (None, Some(filter_qual));
                 }
             }
 

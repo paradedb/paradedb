@@ -220,7 +220,7 @@ impl Qual {
 /// Parse a mixed expression tree containing both indexed and non-indexed predicates
 /// This function recursively walks the PostgreSQL expression tree and builds the appropriate
 /// SearchQueryInput structure that preserves boolean logic while separating indexed and non-indexed parts
-/// Unified expression handler - always creates IndexedWithFilter with entire expression
+/// Unified expression handler - creates proper indexed queries with external filters
 unsafe fn parse_mixed_expression_tree(
     expr: *mut pg_sys::Expr,
     attno_map: &HashMap<pg_sys::AttrNumber, FieldName>,
@@ -229,27 +229,170 @@ unsafe fn parse_mixed_expression_tree(
         return None;
     }
 
-    // For now, disable the UnifiedExpression approach since it's not implemented correctly
-    // The current implementation tries to iterate through all documents, which is wrong
-    // TODO: Implement proper UnifiedExpression that:
-    // 1. Parses the expression to separate indexed and non-indexed parts
-    // 2. Creates efficient Tantivy queries for indexed parts
-    // 3. Evaluates non-indexed parts only on candidate documents
+    // Parse the expression into a compositional query structure
+    parse_compositional_expression(expr, attno_map)
+}
 
-    pgrx::warning!("🔥 Falling back to IndexedWithFilter approach for complex expressions");
+/// Parse expressions using a compositional approach that combines IndexedWithFilter and ExternalFilter
+/// This approach can handle complex OR expressions with mixed indexed/non-indexed predicates
+unsafe fn parse_compositional_expression(
+    expr: *mut pg_sys::Expr,
+    attno_map: &HashMap<pg_sys::AttrNumber, FieldName>,
+) -> Option<SearchQueryInput> {
+    if expr.is_null() {
+        return None;
+    }
 
-    // Fall back to IndexedWithFilter approach which works correctly
-    let full_expr = pg_sys::nodeToString(expr.cast::<core::ffi::c_void>());
-    let full_expr_string = std::ffi::CStr::from_ptr(full_expr)
-        .to_string_lossy()
-        .into_owned();
-    pg_sys::pfree(full_expr.cast());
+    match (*expr).type_ {
+        pg_sys::NodeTag::T_BoolExpr => {
+            let bool_expr = expr.cast::<pg_sys::BoolExpr>();
+            let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
 
-    Some(SearchQueryInput::IndexedWithFilter {
-        indexed_query: Box::new(SearchQueryInput::All), // Scan all documents for now
-        filter_expression: full_expr_string,
-        referenced_fields: attno_map.values().cloned().collect(),
-    })
+            match (*bool_expr).boolop {
+                pg_sys::BoolExprType::OR_EXPR => {
+                    pgrx::warning!("🔥 Compositional OR: parsing {} branches", args.len());
+
+                    let mut or_branches = Vec::new();
+
+                    for arg in args.iter_ptr() {
+                        if let Some(branch_query) =
+                            parse_compositional_expression(arg.cast(), attno_map)
+                        {
+                            or_branches.push(branch_query);
+                        } else {
+                            // If we can't parse a branch, create an external filter for it
+                            let branch_expr = pg_sys::nodeToString(arg.cast::<core::ffi::c_void>());
+                            let branch_expr_string = std::ffi::CStr::from_ptr(branch_expr)
+                                .to_string_lossy()
+                                .into_owned();
+                            pg_sys::pfree(branch_expr.cast());
+
+                            or_branches.push(SearchQueryInput::ExternalFilter {
+                                expression: branch_expr_string,
+                                referenced_fields: attno_map.values().cloned().collect(),
+                            });
+                        }
+                    }
+
+                    if or_branches.is_empty() {
+                        return None;
+                    } else if or_branches.len() == 1 {
+                        return Some(or_branches.into_iter().next().unwrap());
+                    } else {
+                        return Some(SearchQueryInput::Boolean {
+                            must: vec![],
+                            should: or_branches,
+                            must_not: vec![],
+                        });
+                    }
+                }
+                pg_sys::BoolExprType::AND_EXPR => {
+                    pgrx::warning!("🔥 Compositional AND: parsing {} branches", args.len());
+
+                    let mut and_branches = Vec::new();
+
+                    for arg in args.iter_ptr() {
+                        if let Some(branch_query) =
+                            parse_compositional_expression(arg.cast(), attno_map)
+                        {
+                            and_branches.push(branch_query);
+                        } else {
+                            // If we can't parse a branch, create an external filter for it
+                            let branch_expr = pg_sys::nodeToString(arg.cast::<core::ffi::c_void>());
+                            let branch_expr_string = std::ffi::CStr::from_ptr(branch_expr)
+                                .to_string_lossy()
+                                .into_owned();
+                            pg_sys::pfree(branch_expr.cast());
+
+                            and_branches.push(SearchQueryInput::ExternalFilter {
+                                expression: branch_expr_string,
+                                referenced_fields: attno_map.values().cloned().collect(),
+                            });
+                        }
+                    }
+
+                    if and_branches.is_empty() {
+                        return None;
+                    } else if and_branches.len() == 1 {
+                        return Some(and_branches.into_iter().next().unwrap());
+                    } else {
+                        return Some(SearchQueryInput::Boolean {
+                            must: and_branches,
+                            should: vec![],
+                            must_not: vec![],
+                        });
+                    }
+                }
+                pg_sys::BoolExprType::NOT_EXPR => {
+                    pgrx::warning!("🔥 Compositional NOT: parsing negation");
+
+                    if let Some(arg) = args.iter_ptr().next() {
+                        if let Some(inner_query) =
+                            parse_compositional_expression(arg.cast(), attno_map)
+                        {
+                            return Some(SearchQueryInput::Boolean {
+                                must: vec![SearchQueryInput::All],
+                                should: vec![],
+                                must_not: vec![inner_query],
+                            });
+                        }
+                    }
+                    return None;
+                }
+                _ => return None,
+            }
+        }
+        pg_sys::NodeTag::T_OpExpr => {
+            // Check if this is an indexed predicate (@@@ operator)
+            let opexpr = expr.cast::<pg_sys::OpExpr>();
+            if is_search_operator((*opexpr).opno) {
+                pgrx::warning!("🔥 Compositional: Found indexed predicate");
+
+                // This is an indexed predicate - extract it
+                if let Some(indexed_query) = extract_indexed_parts_recursive(expr) {
+                    return Some(indexed_query);
+                }
+            } else {
+                pgrx::warning!("🔥 Compositional: Found non-indexed predicate");
+
+                // This is a non-indexed predicate - create external filter
+                let expr_string_ptr = pg_sys::nodeToString(expr.cast::<core::ffi::c_void>());
+                let expr_string = std::ffi::CStr::from_ptr(expr_string_ptr)
+                    .to_string_lossy()
+                    .into_owned();
+                pg_sys::pfree(expr_string_ptr.cast());
+
+                return Some(SearchQueryInput::ExternalFilter {
+                    expression: expr_string,
+                    referenced_fields: attno_map.values().cloned().collect(),
+                });
+            }
+        }
+        _ => {
+            pgrx::warning!("🔥 Compositional: Unknown expression type, creating external filter");
+
+            // Unknown expression type - create external filter
+            let expr_string_ptr = pg_sys::nodeToString(expr.cast::<core::ffi::c_void>());
+            let expr_string = std::ffi::CStr::from_ptr(expr_string_ptr)
+                .to_string_lossy()
+                .into_owned();
+            pg_sys::pfree(expr_string_ptr.cast());
+
+            return Some(SearchQueryInput::ExternalFilter {
+                expression: expr_string,
+                referenced_fields: attno_map.values().cloned().collect(),
+            });
+        }
+    }
+
+    None
+}
+
+/// Check if an operator OID represents a search operator (@@@)
+unsafe fn is_search_operator(opno: pg_sys::Oid) -> bool {
+    // These are the OIDs for the @@@ operator variants
+    // You may need to adjust these based on your actual operator OIDs
+    opno == pg_sys::Oid::from(1002908) || opno == pg_sys::Oid::from(1002932) // Add other @@@ operator OIDs as needed
 }
 
 /// Recursively walk the PostgreSQL expression tree and extract indexed predicates
@@ -486,7 +629,7 @@ impl From<&Qual> for SearchQueryInput {
                 );
 
                 if has_non_indexed {
-                    // Mixed predicates - create IndexedWithFilter query
+                    // Mixed predicates - TEMPORARY: use IndexedWithFilter until UnifiedExpression is fixed
                     pgrx::warning!("Creating IndexedWithFilter query for mixed predicates");
 
                     // Separate indexed and non-indexed predicates

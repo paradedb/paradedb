@@ -321,16 +321,18 @@ impl WorkerBuildState {
         Ok(())
     }
 
+    /// Merge down a chunk of segments into a single segment, if we determine that doing this merge
+    /// will help us achieve our target segment count.
+    ///
+    /// If this is the last merge, we merge everything that's left down.
     fn try_merge(&mut self, is_last_merge: bool) -> anyhow::Result<()> {
+        // which segments should me merge together? if there's not enough, return early
         let segment_ids_to_merge = {
-            // check if there's enough segments to merge
             if self.unmerged_metas.is_empty() {
                 return Ok(());
             }
 
-            // merge down the segments in chunks, unless this is the last merge,
-            // in which case we should merge everything that's left down
-            let merge_group_size = if !is_last_merge {
+            let chunk_size = if !is_last_merge {
                 chunk_range(
                     self.estimated_nsegments(self.unmerged_metas[0].max_doc()),
                     self.worker_segment_target,
@@ -341,9 +343,9 @@ impl WorkerBuildState {
                 self.unmerged_metas.len()
             };
 
-            if merge_group_size <= 1 || self.unmerged_metas.len() < merge_group_size {
+            if chunk_size <= 1 || self.unmerged_metas.len() < chunk_size {
                 pgrx::debug1!(
-                    "try_merge: skipping merge because merge_group_size: {merge_group_size}, unmerged_metas: {:?}",
+                    "try_merge: skipping merge because chunk_size: {chunk_size}, unmerged_metas: {:?}",
                     self.unmerged_metas.len()
                 );
                 return Ok(());
@@ -355,7 +357,7 @@ impl WorkerBuildState {
             }
 
             self.unmerged_metas
-                .drain(..merge_group_size)
+                .drain(..chunk_size)
                 .map(|entry| entry.id())
                 .collect::<Vec<_>>()
         };
@@ -366,7 +368,6 @@ impl WorkerBuildState {
             segment_ids_to_merge.len(),
             segment_ids_to_merge
         );
-
         let directory = MVCCDirectory::mergeable(self.indexrel.oid());
         let mut merger = SearchIndexMerger::open(directory)?;
         merger.merge_segments(&segment_ids_to_merge)?;
@@ -380,6 +381,9 @@ impl WorkerBuildState {
         Ok(())
     }
 
+    /// Estimates how many segments this worker will make if no merging happens.
+    ///
+    /// This is used to determine how many segments to merge down in chunks.
     fn estimated_nsegments(&self, docs_per_segment: u32) -> usize {
         *self.estimated_nsegments.get_or_init(|| {
             let reltuples = estimate_heap_reltuples(&self.heaprel);

@@ -127,7 +127,7 @@ unsafe fn make_query_from_node_and_const(
     node: *mut pg_sys::Node,
     const_: *mut pg_sys::Const,
 ) -> (pg_sys::Oid, SearchQueryInput) {
-    let (heaprelid, attname) = fieldname_from_node(root, node).expect("node is not a Var/FuncExpr");
+    let (heaprelid, attname) = fieldname_from_node(root, node).expect("node is not a Var/Expr");
     // the query comes from the rhs of the @@@ operator.  we've already proved it's a `pg_sys::Const` node
     let query_string = String::from_datum((*const_).constvalue, (*const_).constisnull)
         .expect("query must not be NULL");

@@ -22,13 +22,13 @@ use crate::api::{fieldname_typoid, FieldName};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::nodecast;
-use crate::postgres::expression::{find_funcexpr_attnum, PG_SEARCH_PREFIX};
+use crate::postgres::expression::{find_expr_attnum, PG_SEARCH_PREFIX};
 use crate::postgres::utils::locate_bm25_index_from_heaprel;
 use crate::postgres::var::find_var_relation;
 use crate::query::SearchQueryInput;
 use pgrx::callconv::{BoxRet, FcInfo};
 use pgrx::datum::Datum;
-use pgrx::pg_sys::{FuncExpr, NodeTag};
+use pgrx::pg_sys::{FuncExpr, NodeTag, OpExpr};
 use pgrx::pgrx_sql_entity_graph::metadata::{
     ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
 };
@@ -335,26 +335,35 @@ pub unsafe fn find_node_relation(
     pg_sys::AttrNumber,
     Option<PgList<pg_sys::TargetEntry>>,
 ) {
-    match (*node).type_ {
-        NodeTag::T_Var => find_var_relation(node.cast(), root),
+    // If the Node is var, immediately return it: otherwise examine the arguments of whatever type
+    // it is.
+    let args = match (*node).type_ {
+        NodeTag::T_Var => return find_var_relation(node.cast(), root),
         NodeTag::T_FuncExpr => {
             let funcexpr: *mut FuncExpr = node.cast();
-            let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-            args.iter_ptr()
-                .filter_map(|arg| match (*arg).type_ {
-                    NodeTag::T_FuncExpr | NodeTag::T_Var => Some(find_node_relation(arg, root)),
-                    _ => None,
-                })
-                .reduce(|(acc_oid, acc_attno, acc_tl), (oid, _attno, _tl)| {
-                    if acc_oid != oid {
-                        panic!("expressions cannot contain multiple relations");
-                    }
-                    (acc_oid, acc_attno, acc_tl)
-                })
-                .unwrap_or_else(|| panic!("could not find a Var in the expression tree"))
+            PgList::<pg_sys::Node>::from_pg((*funcexpr).args)
         }
-        _ => (pg_sys::Oid::INVALID, 0, None),
-    }
+        NodeTag::T_OpExpr => {
+            let opexpr: *mut OpExpr = node.cast();
+            PgList::<pg_sys::Node>::from_pg((*opexpr).args)
+        }
+        _ => return (pg_sys::Oid::INVALID, 0, None),
+    };
+
+    args.iter_ptr()
+        .filter_map(|arg| match (*arg).type_ {
+            NodeTag::T_FuncExpr | NodeTag::T_OpExpr | NodeTag::T_Var => {
+                Some(find_node_relation(arg, root))
+            }
+            _ => None,
+        })
+        .reduce(|(acc_oid, acc_attno, acc_tl), (oid, _attno, _tl)| {
+            if acc_oid != oid {
+                panic!("expressions cannot contain multiple relations");
+            }
+            (acc_oid, acc_attno, acc_tl)
+        })
+        .unwrap_or_else(|| (pg_sys::Oid::INVALID, 0, None))
 }
 
 /// Given a [`pg_sys::PlannerInfo`] and a [`pg_sys::Var`] from it, figure out the name of the `Var`
@@ -391,8 +400,8 @@ pub unsafe fn fieldname_from_node(
     node: *mut pg_sys::Node,
 ) -> Option<(pg_sys::Oid, Option<FieldName>)> {
     match (*node).type_ {
-        NodeTag::T_FuncExpr => {
-            // We expect the funcexpr to contain the var of the field name we're looking for
+        NodeTag::T_FuncExpr | NodeTag::T_OpExpr => {
+            // We expect the funcexpr/opexpr to contain the var of the field name we're looking for
             let (heaprelid, _, _) = find_node_relation(node, root);
             if heaprelid == pg_sys::Oid::INVALID {
                 panic!("could not find heap relation for node");
@@ -401,7 +410,7 @@ pub unsafe fn fieldname_from_node(
             let indexrel = locate_bm25_index_from_heaprel(&heaprel)
                 .expect("could not find bm25 index for heaprelid");
 
-            let attnum = find_funcexpr_attnum(&heaprel, &indexrel, node)?;
+            let attnum = find_expr_attnum(&indexrel, node)?;
             let expression_str = format!("{}{}", PG_SEARCH_PREFIX, attnum).into();
             Some((heaprelid, Some(expression_str)))
         }

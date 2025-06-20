@@ -619,6 +619,18 @@ unsafe fn opexpr(
                 value: rhs,
             })
         }
+        pg_sys::NodeTag::T_OpExpr => node_opexpr(
+            root,
+            rti,
+            pdbopoid,
+            ri_type,
+            schema,
+            uses_tantivy_to_query,
+            opexpr,
+            lhs,
+            rhs,
+            convert_external_to_special_qual,
+        ),
 
         _ => None,
     }
@@ -641,11 +653,11 @@ unsafe fn node_opexpr(
         rhs = (*relabel_target).arg.cast();
     }
 
-    let const_ = nodecast!(Const, T_Const, rhs);
+    let rhs_as_const = nodecast!(Const, T_Const, rhs);
 
     let is_our_operator = (*opexpr).opno == pdbopoid;
 
-    if const_.is_none() {
+    if rhs_as_const.is_none() {
         // the rhs expression is not a Const, so it's some kind of expression
         // that we'll need to execute during query execution, if we can
 
@@ -687,7 +699,7 @@ unsafe fn node_opexpr(
         }
     }
 
-    let rhs = const_?;
+    let rhs = rhs_as_const?;
     if is_our_operator {
         // the rhs expression is a Const, so we can use it directly
         if is_node_range_table_entry(lhs, rti) {
@@ -737,6 +749,15 @@ unsafe fn is_node_range_table_entry(node: *mut pg_sys::Node, rti: pg_sys::Index)
             PgList::<pg_sys::Node>::from_pg((*funcexpr).args)
                 .iter_ptr()
                 .all(|arg| is_node_range_table_entry(arg, rti))
+        }
+        pg_sys::NodeTag::T_OpExpr => {
+            let opexpr = node.cast::<pg_sys::OpExpr>();
+            PgList::<pg_sys::Node>::from_pg((*opexpr).args)
+                .iter_ptr()
+                .all(|arg| {
+                    is_node_range_table_entry(arg, rti)
+                        || matches!((*arg).type_, pg_sys::NodeTag::T_Const)
+                })
         }
         _ => false,
     }

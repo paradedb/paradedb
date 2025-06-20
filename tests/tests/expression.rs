@@ -23,7 +23,7 @@ use rstest::*;
 use sqlx::PgConnection;
 
 #[rstest]
-fn expression_paradedb_term(mut conn: PgConnection) {
+fn expression_paradedb_func(mut conn: PgConnection) {
     r#"
     CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb');
 
@@ -38,22 +38,33 @@ fn expression_paradedb_term(mut conn: PgConnection) {
         "SELECT count(*) FROM paradedb.index_config WHERE index_config @@@ paradedb.term('_pg_search_1', 'test')"
             .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 1);
+
+    let (count,) = "SELECT count(*) FROM paradedb.index_config WHERE lower(description) @@@ 'test'"
+        .fetch_one::<(i64,)>(&mut conn);
+    assert_eq!(count, 1);
 }
 
 #[rstest]
-fn expression_query_string(mut conn: PgConnection) {
+fn expression_paradedb_op(mut conn: PgConnection) {
     r#"
     CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb');
 
     CREATE INDEX index_config_index ON paradedb.index_config
-        USING bm25 (id, lower(description)) WITH (key_field='id');
+        USING bm25 (id, (description || ' with cats')) WITH (key_field='id');
 
     INSERT INTO paradedb.index_config (description) VALUES ('Test description');
     "#
     .execute(&mut conn);
 
-    let (count,) = "SELECT count(*) FROM paradedb.index_config WHERE lower(description) @@@ 'test'"
-        .fetch_one::<(i64,)>(&mut conn);
+    // All entries in the index should match, since all of them now have cats.
+    let (count,) =
+        "SELECT count(*) FROM paradedb.index_config WHERE (description || ' with cats') @@@ 'cats'"
+            .fetch_one::<(i64,)>(&mut conn);
+    assert_eq!(count, 42);
+    // Inserted test value still should too.
+    let (count,) =
+        "SELECT count(*) FROM paradedb.index_config WHERE (description || ' with cats') @@@ 'description'"
+            .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 1);
 }
 

@@ -292,7 +292,8 @@ impl PdbScan {
         };
 
         // Create the callback
-        let callback = create_postgres_callback(expression.to_string(), attno_map);
+        let callback =
+            create_postgres_callback(expr_node.cast(), expression.to_string(), attno_map);
 
         // Register the callback in the global registry so it can be retrieved during query creation
         register_callback(expression, callback);

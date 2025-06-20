@@ -193,6 +193,8 @@ pub fn clear_callback(expression: &str) {
 /// Manager for PostgreSQL expression evaluation callbacks
 /// This handles the creation and evaluation of PostgreSQL expressions
 pub struct CallbackManager {
+    /// PostgreSQL expression node for evaluation
+    expr_node: *mut pg_sys::Expr,
     /// Serialized expression for recreation in worker processes
     expression: String,
     /// Mapping from attribute numbers to field names
@@ -210,8 +212,13 @@ unsafe impl Sync for CallbackManager {}
 
 impl CallbackManager {
     /// Create a new callback manager with serialized expression
-    pub fn new(expression: String, attno_map: HashMap<pg_sys::AttrNumber, FieldName>) -> Self {
+    pub fn new(
+        expr_node: *mut pg_sys::Expr,
+        expression: String,
+        attno_map: HashMap<pg_sys::AttrNumber, FieldName>,
+    ) -> Self {
         Self {
+            expr_node,
             expression,
             attno_map,
             expr_state: None,
@@ -231,21 +238,23 @@ impl CallbackManager {
         &mut self,
         field_values: &HashMap<FieldName, OwnedValue>,
     ) -> bool {
-        // For production, we'll implement a safer approach that doesn't use ExecEvalExpr
-        // which was causing crashes. Instead, we'll parse the expression and evaluate it directly.
-
-        pgrx::warning!("🔥 Using safe PostgreSQL expression evaluation");
-
-        // First try our optimized pattern matching for common cases
-        if let Some(result) = self.evaluate_common_expressions(field_values) {
-            pgrx::warning!("🔥 Used optimized evaluation: {}", result);
-            return result;
+        // Initialize if needed
+        if let Err(e) = self.initialize() {
+            pgrx::warning!("🔥 Failed to initialize expression evaluation: {}", e);
+            return false;
         }
 
-        // For complex expressions, use a safer fallback approach
-        // that doesn't risk crashing the server
-        pgrx::warning!("🔥 Using safe fallback for complex expression");
-        self.evaluate_expression_safely(field_values)
+        // Create a tuple slot with the field values
+        match self.create_tuple_slot_with_values(field_values) {
+            Ok(slot) => {
+                // Evaluate using PostgreSQL's expression evaluator
+                self.evaluate_expression_with_slot(slot)
+            }
+            Err(e) => {
+                pgrx::warning!("🔥 Failed to create tuple slot: {}", e);
+                false
+            }
+        }
     }
 
     /// Evaluate common expression patterns without using ExecEvalExpr
@@ -754,42 +763,28 @@ impl CallbackManager {
             return false;
         }
 
-        // Set up the expression context with the tuple slot
-        let econtext = &mut *expr_context;
-        econtext.ecxt_scantuple = slot;
+        // Reset the per-tuple memory context (following solve_expr.rs pattern)
+        pg_sys::MemoryContextReset((*expr_context).ecxt_per_tuple_memory);
 
-        pgrx::warning!("🔥 About to call ExecEvalExpr");
+        // Use PostgreSQL's memory context switching for safe evaluation
+        pgrx::PgMemoryContexts::For((*expr_context).ecxt_per_tuple_memory).switch_to(|_| {
+            // Set up the expression context with the tuple slot
+            (*expr_context).ecxt_scantuple = slot;
 
-        // Use a more defensive approach to evaluate the expression
-        let result = std::panic::catch_unwind(|| {
+            // Evaluate the expression using PostgreSQL's evaluator
             let mut is_null = false;
-            let result_datum =
-                pg_sys::ExecEvalExpr(expr_state, expr_context, &mut is_null as *mut bool);
+            let result_datum = pg_sys::ExecEvalExpr(expr_state, expr_context, &mut is_null);
 
             if is_null {
-                pgrx::warning!("🔥 Expression evaluation returned NULL");
+                pgrx::warning!("🔥 Expression evaluation result: NULL (treated as false)");
                 false
             } else {
-                // Convert the result datum to boolean
-                let result = pg_sys::DatumGetBool(result_datum);
+                // Convert the result to a boolean
+                let result = bool::from_datum(result_datum, false).unwrap_or(false);
                 pgrx::warning!("🔥 Expression evaluation result: {}", result);
                 result
             }
-        });
-
-        match result {
-            Ok(result) => {
-                pgrx::warning!(
-                    "🔥 Expression evaluation completed successfully: {}",
-                    result
-                );
-                result
-            }
-            Err(_) => {
-                pgrx::warning!("🔥 ERROR: Expression evaluation panicked! Falling back to false");
-                false
-            }
-        }
+        })
     }
 
     /// Clean up resources when done
@@ -803,9 +798,28 @@ impl CallbackManager {
 
     /// Initialize the expression state and context for the current thread
     pub unsafe fn initialize(&mut self) -> Result<(), String> {
-        // Since we're using the safe pattern-matching approach, we don't need
-        // to initialize PostgreSQL expression state which was causing crashes
-        pgrx::warning!("🔥 Using safe expression evaluation - no initialization needed");
+        // Only initialize if not already done
+        if self.expr_state.is_some() && self.expr_context.is_some() {
+            return Ok(());
+        }
+
+        // Initialize expression state using the actual PostgreSQL expression node
+        let expr_state = pg_sys::ExecInitExpr(self.expr_node.cast(), std::ptr::null_mut());
+        if expr_state.is_null() {
+            return Err("Failed to initialize expression state".to_string());
+        }
+        self.expr_state = Some(expr_state);
+
+        // Create expression context (following qual_inspect.rs pattern)
+        let expr_context = pg_sys::CreateStandaloneExprContext();
+        if expr_context.is_null() {
+            return Err("Failed to create expression context".to_string());
+        }
+        self.expr_context = Some(expr_context);
+
+        pgrx::warning!(
+            "🔥 Successfully initialized PostgreSQL expression evaluation with actual Expr node"
+        );
         Ok(())
     }
 }
@@ -820,6 +834,7 @@ impl Drop for CallbackManager {
 
 /// Create a callback function for PostgreSQL expression evaluation
 pub fn create_postgres_callback(
+    expr_node: *mut pg_sys::Expr,
     expression: String,
     attno_map: HashMap<pg_sys::AttrNumber, FieldName>,
 ) -> ExternalFilterCallback {
@@ -830,6 +845,7 @@ pub fn create_postgres_callback(
     pgrx::warning!("Callback will handle {} fields", attno_map.len());
 
     let manager = Arc::new(Mutex::new(CallbackManager::new(
+        expr_node,
         expression.clone(),
         attno_map,
     )));

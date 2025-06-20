@@ -175,7 +175,7 @@ pub fn adjust_maintenance_work_mem(nlaunched: usize) -> NonZeroUsize {
     adjust_mem(
         unsafe { pg_sys::maintenance_work_mem as usize },
         nlaunched,
-        64,
+        15,
     )
 }
 

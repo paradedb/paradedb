@@ -28,7 +28,6 @@ mod build;
 mod cost;
 mod delete;
 pub mod insert;
-mod latch;
 pub mod options;
 mod range;
 mod scan;

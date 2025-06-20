@@ -28,7 +28,6 @@ use crate::parallel_worker::{
     WorkerStyle,
 };
 use crate::postgres::insert::garbage_collect_index;
-use crate::postgres::latch::Latch;
 use crate::postgres::spinlock::Spinlock;
 use crate::postgres::storage::block::{SegmentMetaEntry, SEGMENT_METAS_START};
 use crate::postgres::storage::buffer::BufferManager;
@@ -66,19 +65,11 @@ impl ParallelStateType for WorkerConfig {}
 type ScanDesc = (usize, *mut pg_sys::ParallelTableScanDescData);
 impl ParallelStateType for pg_sys::ParallelTableScanDescData {}
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-enum WorkerRole {
-    Writer,
-    Merger,
-}
-
 #[derive(Copy, Clone)]
 #[repr(C)]
 struct WorkerCoordination {
     mutex: Spinlock,
     nlaunched: usize,
-    roles: [WorkerRole; MAX_CREATE_INDEX_WORKERS],
-    nroles: usize,
     nwriters_remaining: usize,
 }
 
@@ -87,8 +78,6 @@ impl Default for WorkerCoordination {
         Self {
             mutex: Default::default(),
             nlaunched: Default::default(),
-            roles: [WorkerRole::Writer; MAX_CREATE_INDEX_WORKERS],
-            nroles: Default::default(),
             nwriters_remaining: Default::default(),
         }
     }
@@ -104,24 +93,14 @@ impl WorkerCoordination {
         let _lock = self.mutex.acquire();
         self.nlaunched
     }
-    fn set_roles(&mut self, roles: Vec<WorkerRole>) {
+    fn set_nwriters_remaining(&mut self, nwriters_remaining: usize) {
         let _lock = self.mutex.acquire();
-        self.nroles = roles.len();
-        self.nwriters_remaining = roles.iter().filter(|r| **r == WorkerRole::Writer).count();
-        self.roles[..roles.len()].copy_from_slice(&roles);
+        self.nwriters_remaining = nwriters_remaining;
     }
-    fn claim_role(&mut self) -> WorkerRole {
-        let _lock = self.mutex.acquire();
-        self.nroles -= 1;
-        self.roles[self.nroles]
-    }
-    fn nwriters_remaining(&mut self) -> usize {
-        let _lock = self.mutex.acquire();
-        self.nwriters_remaining
-    }
-    fn dec_nwriters_remaining(&mut self) {
+    fn dec_nwriters_remaining(&mut self) -> usize {
         let _lock = self.mutex.acquire();
         self.nwriters_remaining -= 1;
+        self.nwriters_remaining
     }
 }
 
@@ -178,11 +157,9 @@ impl ParallelProcess for ParallelBuild {
     }
 }
 
-type RelTuples = f64;
 #[derive(serde::Serialize, serde::Deserialize)]
-enum WorkerResponse {
-    WriteFinished(RelTuples),
-    MergeFinished,
+struct WorkerResponse {
+    reltuples: f64,
 }
 
 struct BuildWorker<'a> {
@@ -191,7 +168,6 @@ struct BuildWorker<'a> {
     coordination: &'a mut WorkerCoordination,
     heaprel: PgRelation,
     indexrel: PgRelation,
-    merge_group_size: OnceLock<usize>,
 }
 
 impl ParallelWorker for BuildWorker<'_> {
@@ -229,7 +205,6 @@ impl ParallelWorker for BuildWorker<'_> {
                 coordination,
                 heaprel,
                 indexrel,
-                merge_group_size: OnceLock::new(),
             }
         }
     }
@@ -241,8 +216,8 @@ impl ParallelWorker for BuildWorker<'_> {
             std::thread::yield_now();
         }
 
-        let response = self.do_work()?;
-        Ok(mq_sender.send(serde_json::to_vec(&response)?)?)
+        let reltuples = self.do_build()?;
+        Ok(mq_sender.send(serde_json::to_vec(&WorkerResponse { reltuples })?)?)
     }
 }
 
@@ -259,22 +234,10 @@ impl<'a> BuildWorker<'a> {
             heaprel,
             indexrel,
             coordination,
-            merge_group_size: OnceLock::new(),
         }
     }
 
-    fn do_work(&mut self) -> anyhow::Result<WorkerResponse> {
-        if self.coordination.claim_role() == WorkerRole::Writer {
-            let reltuples = self.do_build()?;
-            self.coordination.dec_nwriters_remaining();
-            Ok(WorkerResponse::WriteFinished(reltuples))
-        } else {
-            self.do_merge()?;
-            Ok(WorkerResponse::MergeFinished)
-        }
-    }
-
-    fn do_build(&mut self) -> anyhow::Result<RelTuples> {
+    fn do_build(&mut self) -> anyhow::Result<f64> {
         unsafe {
             let index_info = pg_sys::BuildIndexInfo(self.indexrel.as_ptr());
             (*index_info).ii_Concurrent = self.config.concurrent;
@@ -301,102 +264,26 @@ impl<'a> BuildWorker<'a> {
                     .unwrap_or(std::ptr::null_mut()),
             );
 
-            let _ = build_state.writer.commit()?;
-            Ok(reltuples)
+            build_state.commit()?;
+            let nwriters_remaining = self.coordination.dec_nwriters_remaining();
+
+            pgrx::debug1!("do_build: nwriters_remaining: {}", nwriters_remaining);
+            build_state.do_merge(nwriters_remaining == 0)?;
+
+            Ok(reltuples as f64)
         }
-    }
-
-    fn do_merge(&mut self) -> anyhow::Result<()> {
-        loop {
-            check_for_interrupts!();
-            let writers_finished = self.coordination.nwriters_remaining() == 0;
-
-            unsafe {
-                Latch::new().wait(1000);
-
-                // get the entries to merge, if there are any
-                // based on our estimates of how many segments will ultimately be created
-                // vs. how many segments we're targeting
-                let merge_entry = {
-                    let metadata = MetaPage::open(self.indexrel.oid());
-                    let merge_lock = metadata.acquire_merge_lock();
-                    let mut merge_list = merge_lock.merge_list();
-                    let mergeable_entries = mergeable_entries(self.indexrel.oid(), &merge_list);
-
-                    if mergeable_entries.is_empty() {
-                        if writers_finished {
-                            pgrx::debug1!("do_merge: writers finished, no stragglers to merge");
-                            break;
-                        }
-                        continue;
-                    }
-
-                    let merge_group_size = self.merge_group_size(mergeable_entries[0].max_doc);
-
-                    if writers_finished {
-                        let directory = MVCCDirectory::snapshot(self.indexrel.oid());
-                        let index = Index::open(directory.clone())?;
-                        let nsegments = index.searchable_segment_ids()?.len();
-
-                        if nsegments <= adjusted_target_segment_count(&self.heaprel)
-                            || mergeable_entries.len() < 2
-                        {
-                            pgrx::debug1!(
-                                "do_merge: writers finished, not enough stragglers to merge"
-                            );
-                            break;
-                        }
-                    } else if merge_group_size <= 1 || mergeable_entries.len() < merge_group_size {
-                        continue;
-                    }
-
-                    let segment_ids: Vec<_> = mergeable_entries
-                        .into_iter()
-                        .take(merge_group_size)
-                        .map(|entry| entry.segment_id)
-                        .collect();
-                    merge_list.add_segment_ids(segment_ids.iter())?
-                };
-
-                // do the merge
-                pgrx::debug1!(
-                    "do_merge: segments to merge: {:?}",
-                    merge_entry.segment_ids(self.indexrel.oid())
-                );
-                merge_down_entry(self.indexrel.oid(), &merge_entry)?;
-
-                // garbage collect the index, returning to the fsm
-                pgrx::debug1!("do_merge: garbage collecting");
-                garbage_collect_index(&self.indexrel);
-            }
-        }
-
-        Ok(())
-    }
-
-    fn merge_group_size(&mut self, docs_per_segment: u32) -> usize {
-        *self.merge_group_size.get_or_init(|| {
-            let nsegments = (estimate_heap_reltuples(&self.heaprel) as f64
-                / docs_per_segment as f64)
-                .ceil() as usize;
-            let target_segment_count = adjusted_target_segment_count(&self.heaprel);
-            let merge_group_size = nsegments / target_segment_count;
-
-            pgrx::debug1!(
-                "predicting {nsegments} total segments, targeting {target_segment_count}, merge in groups of {merge_group_size}"
-            );
-
-            merge_group_size
-        })
     }
 }
 
 /// Internal state used by each parallel build worker
 struct WorkerBuildState {
-    writer: SerialIndexWriter,
+    writer: Option<SerialIndexWriter>,
     categorized_fields: Vec<(SearchField, CategorizedFieldData)>,
     key_field_name: FieldName,
     per_row_context: PgMemoryContexts,
+    merge_group_size: OnceLock<usize>,
+    indexrel: PgRelation,
+    heaprel: PgRelation,
 }
 
 impl WorkerBuildState {
@@ -413,10 +300,89 @@ impl WorkerBuildState {
         let categorized_fields = categorize_fields(&tupdesc, &schema);
         let key_field_name = schema.key_field().field_name();
         Ok(Self {
-            writer,
+            writer: Some(writer),
             categorized_fields,
             key_field_name,
             per_row_context: PgMemoryContexts::new("pg_search ambuild context"),
+            merge_group_size: OnceLock::new(),
+            indexrel: indexrel.clone(),
+            heaprel: indexrel.heap_relation().unwrap().clone(),
+        })
+    }
+
+    fn commit(&mut self) -> anyhow::Result<()> {
+        let writer = self.writer.take().expect("writer should be set");
+        let _ = writer.commit()?;
+        Ok(())
+    }
+
+    unsafe fn do_merge(&mut self, is_last_worker: bool) -> anyhow::Result<()> {
+        let merge_entry = {
+            let metadata = MetaPage::open(self.indexrel.oid());
+            let merge_lock = metadata.acquire_merge_lock();
+            let mut merge_list = merge_lock.merge_list();
+            let mergeable_entries = mergeable_entries(self.indexrel.oid(), &merge_list);
+
+            // check if there's enough segments to merge
+            if mergeable_entries.is_empty() {
+                return Ok(());
+            }
+
+            let merge_group_size = self.merge_group_size(mergeable_entries[0].max_doc);
+            if merge_group_size <= 1 {
+                return Ok(());
+            }
+
+            if !is_last_worker && mergeable_entries.len() < merge_group_size {
+                return Ok(());
+            }
+
+            pgrx::debug1!(
+                "do_merge: {:?} waiting to be merged",
+                mergeable_entries.len()
+            );
+
+            // if it's the last worker, ignore the merge group size and merge down all the segments
+            let nmerge = if is_last_worker {
+                mergeable_entries.len()
+            } else {
+                merge_group_size
+            };
+            let segment_ids: Vec<_> = mergeable_entries
+                .into_iter()
+                .take(nmerge)
+                .map(|entry| entry.segment_id)
+                .collect();
+            merge_list.add_segment_ids(segment_ids.iter())?
+        };
+
+        // do the merge
+        pgrx::debug1!(
+            "do_merge: segments to merge: {:?}",
+            merge_entry.segment_ids(self.indexrel.oid()),
+        );
+        merge_down_entry(self.indexrel.oid(), &merge_entry)?;
+
+        // garbage collect the index, returning to the fsm
+        pgrx::debug1!("do_merge: garbage collecting");
+        garbage_collect_index(&self.indexrel);
+
+        Ok(())
+    }
+
+    fn merge_group_size(&mut self, docs_per_segment: u32) -> usize {
+        *self.merge_group_size.get_or_init(|| {
+            let nsegments = (estimate_heap_reltuples(&self.heaprel) as f64
+                / docs_per_segment as f64)
+                .ceil() as usize;
+            let target_segment_count = adjusted_target_segment_count(&self.heaprel);
+            let merge_group_size = (nsegments as f64 / target_segment_count as f64).ceil() as usize;
+
+            pgrx::debug1!(
+                "predicting {nsegments} total segments, targeting {target_segment_count}, merge in groups of {merge_group_size}"
+            );
+
+            merge_group_size
         })
     }
 }
@@ -435,7 +401,7 @@ unsafe extern "C-unwind" fn build_callback(
     let build_state = &mut *state.cast::<WorkerBuildState>();
     let ctid_u64 = crate::postgres::utils::item_pointer_to_u64(*ctid);
 
-    build_state.per_row_context.switch_to(|_| {
+    let did_finalize = build_state.per_row_context.switch_to(|_| {
         let mut doc = TantivyDocument::new();
         row_to_search_document(
             values,
@@ -448,10 +414,18 @@ unsafe extern "C-unwind" fn build_callback(
 
         build_state
             .writer
+            .as_mut()
+            .expect("build_callback: writer should be set")
             .insert(doc, ctid_u64)
-            .unwrap_or_else(|e| panic!("{e}"));
+            .unwrap_or_else(|e| panic!("{e}"))
     });
     build_state.per_row_context.reset();
+
+    if did_finalize {
+        build_state
+            .do_merge(false)
+            .unwrap_or_else(|e| panic!("{e}"));
+    }
 }
 
 /// Build an index.  This is the workhorse behind `CREATE INDEX` and `REINDEX`.
@@ -462,7 +436,7 @@ pub(super) fn build_index(
     heaprel: PgRelation,
     indexrel: PgRelation,
     concurrent: bool,
-) -> anyhow::Result<RelTuples> {
+) -> anyhow::Result<f64> {
     struct SnapshotDropper(pg_sys::Snapshot);
     impl Drop for SnapshotDropper {
         fn drop(&mut self) {
@@ -491,7 +465,7 @@ pub(super) fn build_index(
     pgrx::debug1!("build_index: asked for {nworkers} workers");
 
     if adjusted_target_segment_count(&heaprel) > 1
-        && gucs::adjust_maintenance_work_mem(nworkers).get() / nworkers < 64 * 1024 * 1024
+        && gucs::adjust_maintenance_work_mem(nworkers).get() / nworkers < 15 * 1024 * 1024
     {
         ErrorReport::new(
             PgSqlErrorCode::ERRCODE_INSUFFICIENT_RESOURCES,
@@ -525,33 +499,23 @@ pub(super) fn build_index(
         }
 
         // set_nlaunched last, because workers wait for this to be set
-        coordination.set_roles(assign_roles(nlaunched_plus_leader));
+        coordination.set_nwriters_remaining(nlaunched_plus_leader);
         coordination.set_nlaunched(nlaunched_plus_leader);
 
-        let response = if unsafe { pg_sys::parallel_leader_participation } {
+        let mut total_tuples = if unsafe { pg_sys::parallel_leader_participation } {
             // directly instantiate a worker for the leader and have it do its build
             let mut worker = BuildWorker::new_parallel_worker(*process.state_manager());
-            Some(worker.do_work()?)
+            worker.do_build()?
         } else {
             pgrx::debug1!("build_index: leader is not participating");
-            None
-        };
-
-        // wait for the workers to finish by collecting all their response messages
-        let mut total_tuples = if let Some(WorkerResponse::WriteFinished(reltuples)) = response {
-            reltuples
-        } else {
             0.0
         };
 
+        // wait for the workers to finish by collecting all their response messages
         for (_, message) in process {
             check_for_interrupts!();
             let worker_response = serde_json::from_slice::<WorkerResponse>(&message)?;
-
-            if let WorkerResponse::WriteFinished(reltuples) = worker_response {
-                pgrx::debug1!("build_index: writer finished");
-                total_tuples += reltuples;
-            }
+            total_tuples += worker_response.reltuples;
         }
 
         Ok(total_tuples)
@@ -563,6 +527,7 @@ pub(super) fn build_index(
         let indexrelid = indexrel.oid();
 
         let mut coordination: WorkerCoordination = Default::default();
+        coordination.set_nwriters_remaining(1);
         coordination.set_nlaunched(1);
 
         let mut worker = BuildWorker::new(
@@ -578,49 +543,6 @@ pub(super) fn build_index(
 
         worker.do_build()
     }
-}
-
-/// After nworkers have launched, decide how many of them should be writers vs. mergers
-fn assign_roles(nworkers: usize) -> Vec<WorkerRole> {
-    if nworkers < 2 {
-        ErrorReport::new(
-            PgSqlErrorCode::ERRCODE_INSUFFICIENT_RESOURCES,
-            format!("parallel index build requires at least 2 workers, but we only got {nworkers}"),
-            function_name!(),
-        )
-        .set_detail("this can also happen if other backends have used up all the workers")
-        .set_hint("increase `max_parallel_maintenance_workers`, `max_parallel_workers`, and `max_worker_processes`, or check if other backends have used up all the workers")
-        .report(PgLogLevel::ERROR);
-    }
-
-    if nworkers < 4 {
-        ErrorReport::new(
-            PgSqlErrorCode::ERRCODE_INSUFFICIENT_RESOURCES,
-            format!("parallel index build recommends at least 4 workers, but we only got {nworkers}"),
-            function_name!(),
-        )
-        .set_detail("fewer workers can increase index build time")
-        .set_hint("increase `max_parallel_maintenance_workers`, `max_parallel_workers`, and `max_worker_processes`, or check if other backends have used up all the workers")
-        .report(PgLogLevel::WARNING);
-    }
-
-    if unsafe { !pg_sys::parallel_leader_participation } {
-        ErrorReport::new(
-            PgSqlErrorCode::ERRCODE_WARNING,
-            "parallel_leader_participation is off",
-            function_name!(),
-        )
-        .set_detail("disabling parallel_leader_participation can increase index build time")
-        .set_hint("if this was unintentional, `SET parallel_leader_participation = on`")
-        .report(PgLogLevel::WARNING);
-    }
-
-    let nmergers = (nworkers / 4).max(1);
-    let nwriters = nworkers - nmergers;
-
-    let mut roles = vec![WorkerRole::Merger; nmergers];
-    roles.extend(vec![WorkerRole::Writer; nwriters]);
-    roles
 }
 
 /// Determine the number of workers to use for a given CREATE INDEX/REINDEX statement.
@@ -670,7 +592,7 @@ fn adjusted_target_segment_count(heaprel: &PgRelation) -> usize {
     // If there are fewer rows than number of CPUs, use 1 worker
     let reltuples = estimate_heap_reltuples(heaprel);
     let target_segment_count = gucs::target_segment_count();
-    if reltuples <= target_segment_count as RelTuples {
+    if reltuples <= target_segment_count as f64 {
         pgrx::debug1!("number of reltuples ({reltuples}) is less than target segment count ({target_segment_count}), creating a single segment");
         return 1;
     }
@@ -685,7 +607,7 @@ fn adjusted_target_segment_count(heaprel: &PgRelation) -> usize {
     target_segment_count
 }
 
-fn estimate_heap_reltuples(heap_relation: &PgRelation) -> RelTuples {
+fn estimate_heap_reltuples(heap_relation: &PgRelation) -> f64 {
     let mut reltuples = heap_relation.reltuples().unwrap_or_default();
 
     // if the reltuples estimate is not available, estimate the number of tuples in the heap
@@ -710,7 +632,7 @@ fn estimate_heap_reltuples(heap_relation: &PgRelation) -> RelTuples {
         reltuples = npages as f32 * max_offset as f32;
     }
 
-    reltuples as RelTuples
+    reltuples as f64
 }
 
 fn estimate_heap_byte_size(heap_relation: &PgRelation) -> usize {

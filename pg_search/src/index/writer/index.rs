@@ -104,6 +104,8 @@ pub struct CommittedSegment {
     pub max_doc: u32,
 }
 
+type DidFinalize = bool;
+
 /// Unlike Tantivy's IndexWriter, the SerialIndexWriter does not spin up any threads.
 /// Everything happens in the foreground, making it ideal for Postgres.
 pub struct SerialIndexWriter {
@@ -157,7 +159,7 @@ impl SerialIndexWriter {
         self.indexrelid
     }
 
-    pub fn insert(&mut self, mut document: TantivyDocument, ctid: u64) -> Result<()> {
+    pub fn insert(&mut self, mut document: TantivyDocument, ctid: u64) -> Result<DidFinalize> {
         document.add_u64(self.ctid_field, ctid);
 
         if self.pending_segment.is_none() {
@@ -175,17 +177,19 @@ impl SerialIndexWriter {
 
         if mem_usage >= self.config.memory_budget.into() {
             pgrx::debug1!(
-                "writer {}: finalizing segment, mem_usage: {} (out of {}), num segments: {}, max doc: {}",
+                "writer {}: finalizing segment {} with {} docs, mem_usage: {} (out of {}), has created {} segments so far",
                 self.id,
+                pending_segment.segment.id(),
+                max_doc,
                 mem_usage,
                 self.config.memory_budget.get(),
-                self.new_metas.len(),
-                max_doc
+                self.new_metas.len()
             );
-            return self.finalize_segment();
+            self.finalize_segment()?;
+            return Ok(true);
         }
 
-        Ok(())
+        Ok(false)
     }
 
     pub fn commit(mut self) -> Result<HashSet<CommittedSegment>> {

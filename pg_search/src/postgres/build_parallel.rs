@@ -362,14 +362,13 @@ impl WorkerBuildState {
 
     fn merge_group_size(&mut self, docs_per_segment: u32) -> usize {
         *self.merge_group_size.get_or_init(|| {
-            let nsegments = (estimate_heap_reltuples(&self.heaprel)
-                / docs_per_segment as f64)
-                .ceil() as usize;
+            let reltuples = estimate_heap_reltuples(&self.heaprel);
+            let nsegments = (reltuples / docs_per_segment as f64).ceil() as usize;
             let target_segment_count = adjusted_target_segment_count(&self.heaprel);
             let merge_group_size = (nsegments as f64 / target_segment_count as f64).ceil() as usize;
 
             pgrx::debug1!(
-                "predicting {nsegments} total segments, targeting {target_segment_count}, merge in groups of {merge_group_size}"
+                "est. {reltuples} reltuples, {docs_per_segment} docs/segment, predicting {nsegments} total segments, targeting {target_segment_count}, so merge in groups of {merge_group_size}"
             );
 
             merge_group_size

@@ -359,9 +359,15 @@ impl WorkerBuildState {
             }
 
             let chunk_size = if !is_last_merge {
+                // chunk range gives us chunks with the larger ones at the front
+                // we want the larger ones at the back, because the smallest "straggler" segment will be written last
+                //
+                // for instance, imagine we have 3 segments of size [100, 100, 5]
+                // we would want the chunks to be [1,2] (merging together [100, 5]) and not [2,1] (merging together [100, 100])
                 let (_, chunk_size) = chunk_range(
                     self.estimated_nsegments(self.unmerged_metas[0].max_doc()),
                     self.worker_segment_target,
+                    // this achieves the effect of reversing the chunks
                     (self.worker_segment_target - self.nmerges).max(0),
                 );
 

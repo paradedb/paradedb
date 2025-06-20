@@ -199,9 +199,11 @@ pub struct CallbackManager {
     expression: String,
     /// Mapping from attribute numbers to field names
     attno_map: HashMap<pg_sys::AttrNumber, FieldName>,
-    /// Cached expression state (not thread-safe, recreated per thread)
+    /// Cached expression state (initialized once per planstate)
     expr_state: Option<*mut pg_sys::ExprState>,
-    /// Cached expression context (not thread-safe, recreated per thread)
+    /// The planstate to use for expression evaluation
+    planstate: Option<*mut pg_sys::PlanState>,
+    /// The expression context to use for evaluation
     expr_context: Option<*mut pg_sys::ExprContext>,
 }
 
@@ -222,33 +224,79 @@ impl CallbackManager {
             expression,
             attno_map,
             expr_state: None,
+            planstate: None,
             expr_context: None,
         }
     }
 
-    /// Check if the callback manager is initialized for the current thread
-    pub fn is_initialized(&self) -> bool {
-        // Since we're using the safe approach, we don't need expression state initialization
-        true
+    /// Set the planstate and expression context from the custom scan
+    /// This should be called during query setup
+    pub unsafe fn set_postgres_context(
+        &mut self,
+        planstate: *mut pg_sys::PlanState,
+        expr_context: *mut pg_sys::ExprContext,
+    ) {
+        self.planstate = Some(planstate);
+        self.expr_context = Some(expr_context);
+
+        // Initialize the expression state using the planstate (following solve_expr.rs pattern)
+        if self.expr_state.is_none() {
+            let expr_state = pg_sys::ExecInitExpr(self.expr_node.cast(), planstate);
+            self.expr_state = Some(expr_state);
+            pgrx::warning!("🔥 Initialized expression state using PostgreSQL planstate");
+        }
     }
 
-    /// Evaluate a PostgreSQL expression using proper expression parsing and evaluation
-    /// This handles various PostgreSQL expression types in a production-ready way
+    /// Check if the manager has been properly initialized with PostgreSQL context
+    pub fn is_initialized(&self) -> bool {
+        self.expr_state.is_some() && self.planstate.is_some() && self.expr_context.is_some()
+    }
+
+    /// Evaluate a PostgreSQL expression using PostgreSQL's existing infrastructure
+    /// This uses the same pattern as solve_expr.rs for proper expression evaluation
     pub unsafe fn evaluate_expression_with_postgres(
         &mut self,
         field_values: &HashMap<FieldName, OwnedValue>,
     ) -> bool {
-        // Initialize if needed
-        if let Err(e) = self.initialize() {
-            pgrx::warning!("🔥 Failed to initialize expression evaluation: {}", e);
+        // Ensure we have PostgreSQL context
+        if !self.is_initialized() {
+            pgrx::warning!("🔥 CallbackManager not initialized with PostgreSQL context");
             return false;
         }
 
-        // Create a tuple slot with the field values
+        let expr_state = self.expr_state.unwrap();
+        let expr_context = self.expr_context.unwrap();
+
+        // We need to create a tuple slot with our field values and set it in the expression context
         match self.create_tuple_slot_with_values(field_values) {
             Ok(slot) => {
-                // Evaluate using PostgreSQL's expression evaluator
-                self.evaluate_expression_with_slot(slot)
+                // Use PostgreSQL's memory context switching for safe evaluation
+                pgrx::PgMemoryContexts::For((*expr_context).ecxt_per_tuple_memory).switch_to(|_| {
+                    // Reset the per-tuple memory context
+                    pg_sys::MemoryContextReset((*expr_context).ecxt_per_tuple_memory);
+
+                    // Set our tuple slot in the expression context
+                    (*expr_context).ecxt_scantuple = slot;
+
+                    // Now evaluate the expression with our populated tuple slot
+                    let mut is_null = false;
+                    let result_datum = pg_sys::ExecEvalExpr(expr_state, expr_context, &mut is_null);
+
+                    // Clean up the slot
+                    pg_sys::ExecDropSingleTupleTableSlot(slot);
+
+                    if is_null {
+                        pgrx::warning!(
+                            "🔥 PostgreSQL expression evaluation result: NULL (treated as false)"
+                        );
+                        false
+                    } else {
+                        // Convert the result to a boolean
+                        let result = bool::from_datum(result_datum, false).unwrap_or(false);
+                        pgrx::warning!("🔥 PostgreSQL expression evaluation result: {}", result);
+                        result
+                    }
+                })
             }
             Err(e) => {
                 pgrx::warning!("🔥 Failed to create tuple slot: {}", e);
@@ -795,33 +843,6 @@ impl CallbackManager {
         // expr_state is cleaned up automatically when the expression context is freed
         self.expr_state = None;
     }
-
-    /// Initialize the expression state and context for the current thread
-    pub unsafe fn initialize(&mut self) -> Result<(), String> {
-        // Only initialize if not already done
-        if self.expr_state.is_some() && self.expr_context.is_some() {
-            return Ok(());
-        }
-
-        // Initialize expression state using the actual PostgreSQL expression node
-        let expr_state = pg_sys::ExecInitExpr(self.expr_node.cast(), std::ptr::null_mut());
-        if expr_state.is_null() {
-            return Err("Failed to initialize expression state".to_string());
-        }
-        self.expr_state = Some(expr_state);
-
-        // Create expression context (following qual_inspect.rs pattern)
-        let expr_context = pg_sys::CreateStandaloneExprContext();
-        if expr_context.is_null() {
-            return Err("Failed to create expression context".to_string());
-        }
-        self.expr_context = Some(expr_context);
-
-        pgrx::warning!(
-            "🔥 Successfully initialized PostgreSQL expression evaluation with actual Expr node"
-        );
-        Ok(())
-    }
 }
 
 impl Drop for CallbackManager {
@@ -837,6 +858,8 @@ pub fn create_postgres_callback(
     expr_node: *mut pg_sys::Expr,
     expression: String,
     attno_map: HashMap<pg_sys::AttrNumber, FieldName>,
+    planstate: *mut pg_sys::PlanState,
+    expr_context: *mut pg_sys::ExprContext,
 ) -> ExternalFilterCallback {
     pgrx::warning!(
         "Creating PostgreSQL callback for expression: {}",
@@ -844,11 +867,14 @@ pub fn create_postgres_callback(
     );
     pgrx::warning!("Callback will handle {} fields", attno_map.len());
 
-    let manager = Arc::new(Mutex::new(CallbackManager::new(
-        expr_node,
-        expression.clone(),
-        attno_map,
-    )));
+    let mut manager = CallbackManager::new(expr_node, expression.clone(), attno_map);
+
+    // Initialize the manager with PostgreSQL context
+    unsafe {
+        manager.set_postgres_context(planstate, expr_context);
+    }
+
+    let manager = Arc::new(Mutex::new(manager));
 
     Arc::new(
         move |doc_id: DocId, field_values: &HashMap<FieldName, OwnedValue>| {
@@ -861,14 +887,6 @@ pub fn create_postgres_callback(
             // Use the proper callback manager to evaluate the PostgreSQL expression
             if let Ok(mut mgr) = manager.lock() {
                 unsafe {
-                    if !mgr.is_initialized() {
-                        pgrx::warning!("🔥 Initializing callback manager for first use");
-                        if let Err(e) = mgr.initialize() {
-                            pgrx::warning!("🔥 Failed to initialize callback manager: {}", e);
-                            return ExternalFilterResult::matches_with_default_score(false);
-                        }
-                    }
-
                     let result = mgr.evaluate_expression_with_postgres(field_values);
                     pgrx::warning!(
                         "🔥 PostgreSQL expression evaluation result: matches={}",

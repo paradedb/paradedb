@@ -20,8 +20,6 @@ use anyhow::Result;
 use pgrx::{pg_sys, PgRelation};
 use std::num::NonZeroUsize;
 use tantivy::index::SegmentId;
-use tantivy::indexer::merger::IndexMerger;
-use tantivy::indexer::segment_serializer::SegmentSerializer;
 use tantivy::indexer::{AddOperation, SegmentWriter};
 use tantivy::schema::Field;
 use tantivy::{
@@ -330,15 +328,6 @@ pub trait Mergeable {
     /// Will panic if a segment_id has already been merged or if our internal tantivy communications
     /// channels fail for some reason.
     fn merge_segments(&mut self, segment_ids: &[SegmentId]) -> Result<Option<SegmentMeta>>;
-
-    /// Merge any [`Segment`]s into the current index.
-    ///
-    /// These segments can come from anywhere and can be backed by different Index/Directory types.
-    /// For instance, you can merge a RamDirectory-backed segment with a MVCCDirectory-backed segment.
-    ///
-    /// Unlike merge_segments, this method does not update the metas list because it has no knowledge of
-    /// what index the provided segments belong to.
-    fn merge_into(&mut self, segments: &[Segment]) -> Result<Option<SegmentMeta>>;
 }
 
 impl Mergeable for SearchIndexMerger {
@@ -360,40 +349,6 @@ impl Mergeable for SearchIndexMerger {
         }
 
         Ok(new_segment)
-    }
-
-    fn merge_into(&mut self, segments: &[Segment]) -> Result<Option<SegmentMeta>> {
-        assert!(
-            segments
-                .iter()
-                .all(|segment| !self.merged_segment_ids.contains(&segment.id())),
-            "segment was already merged by this merger instance"
-        );
-
-        let num_docs = segments
-            .iter()
-            .map(|segment| segment.meta().num_docs() as u64)
-            .sum::<u64>();
-        if num_docs == 0 {
-            return Ok(None);
-        }
-
-        let merged_segment = self.index.new_segment();
-        let merger = IndexMerger::open(
-            self.index.schema(),
-            segments,
-            {
-                let index = self.index.clone();
-                Box::new(move || index.directory().wants_cancel())
-            },
-            true,
-        )?;
-        let segment_serializer = SegmentSerializer::for_segment(merged_segment.clone())?;
-        let num_docs = merger.write(segment_serializer)?;
-        let segment_meta = self.index.new_segment_meta(merged_segment.id(), num_docs);
-
-        self.merged_segment_ids.insert(merged_segment.id());
-        Ok(Some(segment_meta))
     }
 }
 

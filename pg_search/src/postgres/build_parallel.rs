@@ -29,11 +29,7 @@ use crate::parallel_worker::{
 };
 use crate::postgres::insert::garbage_collect_index;
 use crate::postgres::spinlock::Spinlock;
-use crate::postgres::storage::block::{SegmentMetaEntry, SEGMENT_METAS_START};
 use crate::postgres::storage::buffer::BufferManager;
-use crate::postgres::storage::merge::{MergeEntry, MergeList};
-use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::storage::LinkedItemList;
 use crate::postgres::utils::{categorize_fields, row_to_search_document, CategorizedFieldData};
 use crate::schema::{SearchField, SearchIndexSchema};
 use pgrx::pg_sys::panic::ErrorReport;
@@ -44,7 +40,7 @@ use pgrx::{
 use std::num::NonZeroUsize;
 use std::ptr::{addr_of_mut, NonNull};
 use std::sync::OnceLock;
-use tantivy::{Directory, Index, IndexMeta, SegmentMeta, TantivyDocument};
+use tantivy::{SegmentMeta, TantivyDocument};
 
 // target_segment_pool in WorkerCoordination requires a fixed size array, so we have to limit the
 // number of workers to 512, which is okay because max_parallel_maintenance_workers is typically much smaller
@@ -190,7 +186,6 @@ impl ParallelWorker for BuildWorker<'_> {
     }
 
     fn run(mut self, mq_sender: &MessageQueueSender, worker_number: i32) -> anyhow::Result<()> {
-        pgrx::debug1!("build_worker: worker_number: {}", worker_number);
         // wait for the leader to tell us how many total workers have been launched
         while self.coordination.nlaunched() == 0 {
             check_for_interrupts!();
@@ -346,11 +341,11 @@ impl WorkerBuildState {
                 self.unmerged_metas.len()
             };
 
-            pgrx::debug1!(
-                "try_merge: is_last_merge: {is_last_merge}, merge_group_size: {merge_group_size}, unmerged_metas: {:?}",
-                self.unmerged_metas.len()
-            );
             if merge_group_size <= 1 || self.unmerged_metas.len() < merge_group_size {
+                pgrx::debug1!(
+                    "try_merge: skipping merge because merge_group_size: {merge_group_size}, unmerged_metas: {:?}",
+                    self.unmerged_metas.len()
+                );
                 return Ok(());
             }
 
@@ -359,10 +354,6 @@ impl WorkerBuildState {
                 return Ok(());
             }
 
-            pgrx::debug1!(
-                "do_merge: {:?} waiting to be merged",
-                self.unmerged_metas.len()
-            );
             self.unmerged_metas
                 .drain(..merge_group_size)
                 .map(|entry| entry.id())
@@ -370,7 +361,11 @@ impl WorkerBuildState {
         };
 
         // do the merge
-        pgrx::debug1!("do_merge: segments to merge: {:?}", segment_ids_to_merge,);
+        pgrx::debug1!(
+            "do_merge: about to merge {} segments: {:?}",
+            segment_ids_to_merge.len(),
+            segment_ids_to_merge
+        );
 
         let directory = MVCCDirectory::mergeable(self.indexrel.oid());
         let mut merger = SearchIndexMerger::open(directory)?;
@@ -588,8 +583,18 @@ fn create_index_nworkers(heaprel: &PgRelation) -> usize {
         return 0;
     }
 
-    // ensure that we never have more workers (including the leader) than the max allowed number of workers
-    let max_workers = MAX_CREATE_INDEX_WORKERS.min(target_segment_count);
+    // Ensure that we never have more workers (including the leader) than the max allowed number of workers.
+    //
+    // We also want nworkers to be less than target segment count. To illustrate why:
+    //
+    // Imagine we have 8 workers, a target segment count of 8, and a table size such that each worker produces 4 segments.
+    // In this scenario, each worker would do one big merge of all 4 segments at the very end, which means none of the
+    // merges would be able to re-use the FSM.
+    //
+    // On the other hand, imagine we have only 4 workers, over the same table and target segment count.
+    // In this scenario, each worker would target 2 segments, meaning it would do 2 merges -- once when it's about halfway done
+    // and once at the end. The merge at the end would be able to use the free space created by the first merge.
+    let max_workers = MAX_CREATE_INDEX_WORKERS.min(target_segment_count / 2);
     let mut nworkers = maintenance_workers.min(max_workers);
     if unsafe { pg_sys::parallel_leader_participation } && nworkers == max_workers {
         nworkers -= 1;

@@ -215,10 +215,10 @@ fn query_input_support_request_simplify(arg: pg_sys::Datum) -> Option<ReturnedNo
             arg.cast_mut_ptr::<pg_sys::Node>()
         )?;
 
-        // Rewrite this node touse the @@@(key_field, paradedb.searchqueryinput) operator.
+        // Rewrite this node to use the @@@(key_field, paradedb.searchqueryinput) operator.
         // This involves converting the rhs of the operator into a SearchQueryInput.
         let mut input_args = PgList::<pg_sys::Node>::from_pg((*(*srs).fcall).args);
-        let var = nodecast!(Var, T_Var, input_args.get_ptr(0)?)?;
+        let lhs = input_args.get_ptr(0)?;
 
         // NB:  there was a point where we only allowed a relation reference on the left of @@@
         // when the right side uses a builder function, but we've decided that also allowing a field
@@ -236,7 +236,7 @@ fn query_input_support_request_simplify(arg: pg_sys::Datum) -> Option<ReturnedNo
         Some(make_search_query_input_opexpr_node(
             srs,
             &mut input_args,
-            var,
+            lhs,
             query,
             None,
             anyelement_query_input_opoid(),

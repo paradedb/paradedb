@@ -28,9 +28,8 @@ use tokenizers::{create_normalizer_manager, create_tokenizer_manager, SearchToke
 pub fn setup_tokenizers(relation_oid: pg_sys::Oid, index: &mut Index) -> Result<()> {
     let index_relation = unsafe { PgRelation::open(relation_oid) };
     let options = unsafe { SearchIndexOptions::from_relation(&index_relation) };
-    let tuple_desc = index_relation.tuple_desc();
     let schema = SearchIndexSchema::open(relation_oid)?;
-    let categorized_fields = categorize_fields(&tuple_desc, &schema);
+    let categorized_fields = categorize_fields(&index_relation, &schema);
 
     let mut tokenizers: Vec<SearchTokenizer> = Vec::new();
     for (search_field, _) in categorized_fields {

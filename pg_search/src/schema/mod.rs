@@ -28,6 +28,7 @@ use crate::index::mvcc::MVCCDirectory;
 use crate::postgres::options::SearchIndexOptions;
 use anyhow::bail;
 
+use crate::postgres::utils::extract_field_attributes;
 use anyhow::Result;
 use derive_more::Into;
 use pgrx::{pg_sys, PgBuiltInOids, PgOid, PgRelation};
@@ -247,23 +248,23 @@ impl SearchField {
         let field_name: FieldName = schema.get_field_name(field).into();
         let field_config = options.field_config_or_default(&field_name);
         let attribute_name = field_config.alias().unwrap_or(field_name.as_ref());
-        let tuple_desc = index_relation.tuple_desc();
 
         let field_type: SearchFieldType = if field_name.is_ctid() {
             // the "ctid" field isn't an attribute, per se, in the index itself
             // it's one we add directly, so we need to account for it here
             SearchFieldType::U64(pg_sys::TIDOID)
         } else {
-            let attribute = tuple_desc
-                .iter()
-                .find(|attribute| attribute.name() == attribute_name)
+            let attribute_type_oid: PgOid = extract_field_attributes(&index_relation)
+                .into_iter()
+                .find(|(name, _)| **name == *attribute_name)
+                .map(|(_, type_oid)| type_oid.into())
                 .unwrap_or_else(|| {
                     panic!(
                         "the column {} referenced by the field configuration for {} should exist",
                         field_name, attribute_name
                     )
                 });
-            (&attribute.type_oid()).try_into().unwrap_or_else(|_| {
+            (&attribute_type_oid).try_into().unwrap_or_else(|_| {
                 panic!(
                     "failed to convert attribute {} to search field type",
                     attribute_name

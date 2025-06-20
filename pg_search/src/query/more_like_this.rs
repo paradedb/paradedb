@@ -123,7 +123,7 @@ impl MoreLikeThisQueryBuilder {
             .expect("more_like_this: should be able to open schema");
         let key_field = schema.key_field();
         let (key_field_name, key_oid) = (key_field.field_name(), key_field.field_type().typeoid());
-        let categorized_fields = categorize_fields(&index_relation.tuple_desc(), &schema);
+        let categorized_fields = categorize_fields(&index_relation, &schema);
 
         let doc_fields: Vec<(Field, Vec<OwnedValue>)> = pgrx::Spi::connect(|client| {
             let mut doc_fields = Vec::new();

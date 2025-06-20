@@ -290,8 +290,19 @@ impl WorkerBuildState {
         nlaunched: usize,
         worker_number: i32,
     ) -> anyhow::Result<Self> {
+        let heaprel = indexrel.heap_relation().unwrap();
+        let max_docs_per_segment = if worker_segment_target > 1 {
+            Some(
+                estimate_heap_reltuples(&heaprel) as u32
+                    / nlaunched as u32
+                    / worker_segment_target as u32,
+            )
+        } else {
+            None
+        };
         let config = IndexWriterConfig {
             memory_budget: per_worker_memory_budget,
+            max_docs_per_segment,
         };
         let writer = SerialIndexWriter::open(indexrel, config, worker_number)?;
         let schema = SearchIndexSchema::open(indexrel.oid())?;

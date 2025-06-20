@@ -48,6 +48,7 @@ impl InsertState {
     unsafe fn new(indexrel: &PgRelation) -> anyhow::Result<Self> {
         let config = IndexWriterConfig {
             memory_budget: gucs::adjust_work_mem(1),
+            max_docs_per_segment: None,
         };
         let writer = SerialIndexWriter::with_mvcc(
             indexrel,

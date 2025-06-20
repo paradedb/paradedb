@@ -93,6 +93,7 @@ impl PendingSegment {
 #[derive(Debug, Clone)]
 pub struct IndexWriterConfig {
     pub memory_budget: NonZeroUsize,
+    pub max_docs_per_segment: Option<u32>,
 }
 
 /// We want SerialIndexWriter to return a struct like SegmentMeta that implements Deserialize
@@ -196,6 +197,19 @@ impl SerialIndexWriter {
                 self.new_metas.len()
             );
             return self.finalize_segment();
+        }
+
+        if let Some(max_docs_per_segment) = self.config.max_docs_per_segment {
+            if max_doc >= max_docs_per_segment as usize {
+                pgrx::debug1!(
+                    "writer {}: finalizing segment {} with {} docs, has created {} segments so far",
+                    self.id,
+                    pending_segment.segment.id(),
+                    max_doc,
+                    self.new_metas.len()
+                );
+                return self.finalize_segment();
+            }
         }
 
         Ok(None)

@@ -150,8 +150,8 @@ impl BM25BufferCache {
         }
 
         pg_sys::LockRelationForExtension(self.indexrel, pg_sys::AccessExclusiveLock as i32);
-        for i in 0..npages {
-            buffers[i] = self.get_buffer(pg_sys::InvalidBlockNumber, None);
+        for buffer in buffers.iter_mut().take(npages) {
+            *buffer = self.get_buffer(pg_sys::InvalidBlockNumber, None);
         }
         pg_sys::UnlockRelationForExtension(self.indexrel, pg_sys::AccessExclusiveLock as i32);
         buffers
@@ -216,8 +216,8 @@ impl BM25BufferCache {
         if remaining > 0 {
             let extended_buffers = self.bulk_extend_relation(remaining);
             // bulk_extend_relation() returns buffers that are not locked
-            for i in 0..remaining {
-                buffers[cursor] = (extended_buffers[i], true);
+            for buffer in extended_buffers.iter().take(remaining) {
+                buffers[cursor] = (*buffer, true);
                 cursor += 1;
             }
         }

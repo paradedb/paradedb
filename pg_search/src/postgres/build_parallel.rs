@@ -65,22 +65,12 @@ impl ParallelStateType for WorkerConfig {}
 type ScanDesc = (usize, *mut pg_sys::ParallelTableScanDescData);
 impl ParallelStateType for pg_sys::ParallelTableScanDescData {}
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Default)]
 #[repr(C)]
 struct WorkerCoordination {
     mutex: Spinlock,
     nlaunched: usize,
     nwriters_remaining: usize,
-}
-
-impl Default for WorkerCoordination {
-    fn default() -> Self {
-        Self {
-            mutex: Default::default(),
-            nlaunched: Default::default(),
-            nwriters_remaining: Default::default(),
-        }
-    }
 }
 
 impl ParallelStateType for WorkerCoordination {}
@@ -372,7 +362,7 @@ impl WorkerBuildState {
 
     fn merge_group_size(&mut self, docs_per_segment: u32) -> usize {
         *self.merge_group_size.get_or_init(|| {
-            let nsegments = (estimate_heap_reltuples(&self.heaprel) as f64
+            let nsegments = (estimate_heap_reltuples(&self.heaprel)
                 / docs_per_segment as f64)
                 .ceil() as usize;
             let target_segment_count = adjusted_target_segment_count(&self.heaprel);

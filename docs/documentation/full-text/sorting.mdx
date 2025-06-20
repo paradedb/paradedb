@@ -124,6 +124,7 @@ LIMIT 5;
 Not all `ORDER BY`s are pushed down. The following queries are not pushed down:
 
 1. `ORDER BY` without a `LIMIT`.
+2. `ORDER BY` for [indexed expressions](https://www.postgresql.org/docs/current/indexes-expressional.html).
 </Note>
 
 ## Partial Ordering with Multiple Sort Fields

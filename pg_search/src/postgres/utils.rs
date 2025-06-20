@@ -23,9 +23,12 @@ use crate::schema::{SearchField, SearchIndexSchema};
 use anyhow::{anyhow, Result};
 use chrono::{NaiveDate, NaiveTime};
 use pgrx::itemptr::{item_pointer_get_both, item_pointer_set_all};
+use pgrx::pg_sys::Oid;
 use pgrx::*;
 use std::str::FromStr;
 use tantivy::schema::OwnedValue;
+
+use super::expression::PG_SEARCH_PREFIX;
 
 extern "C-unwind" {
     // SAFETY: `IsTransactionState()` doesn't raise an ERROR.  As such, we can avoid the pgrx
@@ -36,8 +39,13 @@ extern "C-unwind" {
 /// Finds and returns the `USING bm25` index on the specified relation with the
 /// highest OID, or [`None`] if there aren't any.
 pub fn locate_bm25_index(heaprelid: pg_sys::Oid) -> Option<PgRelation> {
+    unsafe { locate_bm25_index_from_heaprel(&PgRelation::open(heaprelid)) }
+}
+
+/// Finds and returns the `USING bm25` index on the specified relation with the
+/// highest OID, or [`None`] if there aren't any.
+pub fn locate_bm25_index_from_heaprel(heaprel: &PgRelation) -> Option<PgRelation> {
     unsafe {
-        let heaprel = PgRelation::open(heaprelid);
         let indices = heaprel.indices(pg_sys::AccessShareLock as _);
 
         // Find all bm25 indexes and keep the one with highest OID
@@ -85,54 +93,80 @@ pub struct CategorizedFieldData {
 }
 
 pub fn categorize_fields(
-    tupdesc: &PgTupleDesc,
+    indexrel: &PgRelation,
     schema: &SearchIndexSchema,
 ) -> Vec<(SearchField, CategorizedFieldData)> {
-    let mut categorized_fields = Vec::new();
-
     let mut alias_lookup = schema.alias_lookup();
+    extract_field_attributes(indexrel)
+        .into_iter()
+        .enumerate()
+        .flat_map(|(attno, (attname, attribute_type_oid))| {
+            // List any indexed fields that use this column as source data.
+            let mut search_fields = alias_lookup.remove(&attname).unwrap_or_default();
 
-    // Create a vector of index entries from the postgres row.
-    for (attno, attribute) in tupdesc.iter().enumerate() {
-        let attname = attribute.name().to_string();
-        let attribute_type_oid = attribute.type_oid();
-        let mut search_fields = Vec::new();
-
-        if let Some(alias_fields) = alias_lookup.remove(&attname) {
-            search_fields.extend(alias_fields.into_iter());
-        }
-
-        // If there's an indexed field with the same name as this column, add it to the list
-        if let Some(index_field) = schema.search_field(&attname) {
-            search_fields.push(index_field.clone());
-        }
-
-        for search_field in search_fields {
-            let array_type = unsafe { pg_sys::get_element_type(attribute_type_oid.value()) };
-            let (base_oid, is_array) = if array_type != pg_sys::InvalidOid {
-                (PgOid::from(array_type), true)
-            } else {
-                (attribute_type_oid, false)
+            // If there's an indexed field with the same name as a this column, add it to the list.
+            if let Some(index_field) = schema.search_field(&attname) {
+                search_fields.push(index_field)
             };
 
-            let is_json = matches!(
-                base_oid,
-                PgOid::BuiltIn(pg_sys::BuiltinOid::JSONBOID | pg_sys::BuiltinOid::JSONOID)
-            );
+            search_fields
+                .into_iter()
+                .map(|search_field| {
+                    let array_type = unsafe { pg_sys::get_element_type(attribute_type_oid) };
+                    let (base_oid, is_array) = if array_type != pg_sys::InvalidOid {
+                        (array_type, true)
+                    } else {
+                        (attribute_type_oid, false)
+                    };
 
-            categorized_fields.push((
-                search_field,
-                CategorizedFieldData {
-                    attno,
-                    base_oid,
-                    is_array,
-                    is_json,
-                },
-            ));
-        }
+                    let base_oid = PgOid::from(base_oid);
+                    let is_json = matches!(
+                        base_oid,
+                        PgOid::BuiltIn(pg_sys::BuiltinOid::JSONBOID | pg_sys::BuiltinOid::JSONOID)
+                    );
+                    (
+                        search_field.clone(),
+                        CategorizedFieldData {
+                            attno,
+                            base_oid,
+                            is_array,
+                            is_json,
+                        },
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+/// Extracts the field attributes from the index relation.
+/// It returns a vector of tuples containing the field name and its type OID.
+pub fn extract_field_attributes(indexrel: &PgRelation) -> Vec<(String, Oid)> {
+    let tupdesc = unsafe { PgTupleDesc::from_pg_unchecked(indexrel.rd_att) };
+    let index_info = unsafe { pg_sys::BuildIndexInfo(indexrel.as_ptr()) };
+    let expressions = unsafe { PgList::<pg_sys::Expr>::from_pg((*index_info).ii_Expressions) };
+    let mut expressions_iter = expressions.iter_ptr();
+
+    let mut field_attributes = Vec::new();
+    for i in 0..(unsafe { *index_info }).ii_NumIndexAttrs {
+        let heap_attno = (unsafe { *index_info }).ii_IndexAttrNumbers[i as usize];
+        let (attname, attribute_type_oid) = if heap_attno == 0 {
+            // Is an expression.
+            let Some(expression) = expressions_iter.next() else {
+                panic!("Expected expression for index attribute {i}.");
+            };
+            let node = expression.cast();
+            (format!("{}{}", PG_SEARCH_PREFIX, i), unsafe {
+                pg_sys::exprType(node)
+            })
+        } else {
+            // Is a field.
+            let att = tupdesc.get(i as usize).expect("attribute should exist");
+            (att.name().to_owned(), att.type_oid().value())
+        };
+        field_attributes.push((attname, attribute_type_oid));
     }
-
-    categorized_fields
+    field_attributes
 }
 
 pub unsafe fn row_to_search_document(

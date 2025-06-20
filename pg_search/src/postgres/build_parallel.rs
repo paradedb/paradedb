@@ -136,6 +136,7 @@ impl ParallelProcess for ParallelBuild {
 #[derive(serde::Serialize, serde::Deserialize)]
 struct WorkerResponse {
     reltuples: f64,
+    nmerges: usize,
 }
 
 struct BuildWorker<'a> {
@@ -192,8 +193,8 @@ impl ParallelWorker for BuildWorker<'_> {
             std::thread::yield_now();
         }
 
-        let reltuples = self.do_build(worker_number)?;
-        Ok(mq_sender.send(serde_json::to_vec(&WorkerResponse { reltuples })?)?)
+        let (reltuples, nmerges) = self.do_build(worker_number)?;
+        Ok(mq_sender.send(serde_json::to_vec(&WorkerResponse { reltuples, nmerges })?)?)
     }
 }
 
@@ -213,7 +214,7 @@ impl<'a> BuildWorker<'a> {
         }
     }
 
-    fn do_build(&mut self, worker_number: i32) -> anyhow::Result<f64> {
+    fn do_build(&mut self, worker_number: i32) -> anyhow::Result<(f64, usize)> {
         unsafe {
             let index_info = pg_sys::BuildIndexInfo(self.indexrel.as_ptr());
             (*index_info).ii_Concurrent = self.config.concurrent;
@@ -250,7 +251,7 @@ impl<'a> BuildWorker<'a> {
             );
 
             build_state.commit()?;
-            Ok(reltuples as f64)
+            Ok((reltuples as f64, build_state.nmerges))
         }
     }
 }
@@ -511,22 +512,25 @@ pub(super) fn build_index(
         coordination.set_nlaunched(nlaunched_plus_leader);
         pgrx::debug1!("build_index: has {nlaunched_plus_leader} workers (including leader)");
 
-        let mut total_tuples = if unsafe { pg_sys::parallel_leader_participation } {
-            // directly instantiate a worker for the leader and have it do its build
-            let mut worker = BuildWorker::new_parallel_worker(*process.state_manager());
-            worker.do_build(nlaunched_plus_leader as i32)?
-        } else {
-            pgrx::debug1!("build_index: leader is not participating");
-            0.0
-        };
+        let (mut total_tuples, mut total_merges) =
+            if unsafe { pg_sys::parallel_leader_participation } {
+                // directly instantiate a worker for the leader and have it do its build
+                let mut worker = BuildWorker::new_parallel_worker(*process.state_manager());
+                worker.do_build(nlaunched_plus_leader as i32)?
+            } else {
+                pgrx::debug1!("build_index: leader is not participating");
+                (0.0, 0)
+            };
 
         // wait for the workers to finish by collecting all their response messages
         for (_, message) in process {
             check_for_interrupts!();
             let worker_response = serde_json::from_slice::<WorkerResponse>(&message)?;
             total_tuples += worker_response.reltuples;
+            total_merges += worker_response.nmerges;
         }
 
+        pgrx::debug1!("build_index: total_tuples: {total_tuples}, total_merges: {total_merges}");
         Ok(total_tuples)
     } else {
         pgrx::debug1!("build_index: not doing a parallel build");
@@ -549,7 +553,9 @@ pub(super) fn build_index(
             &mut coordination,
         );
 
-        worker.do_build(1)
+        let (total_tuples, total_merges) = worker.do_build(1)?;
+        pgrx::debug1!("build_index: total_tuples: {total_tuples}, total_merges: {total_merges}");
+        Ok(total_tuples)
     }
 }
 

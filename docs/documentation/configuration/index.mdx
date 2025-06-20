@@ -4,19 +4,18 @@ title: Index Build
 
 ### Maintenance Working Memory
 
-The default Postgres `maintenance_work_mem` value of `64MB` is quite conservative and can significantly slow down index builds. For large indexes,
-we strongly recommend increasing `maintenance_work_mem`.
+The default Postgres `maintenance_work_mem` value of `64MB` is quite conservative and can slow down parallel index builds. We recommend at least `64MB` per
+[parallel worker](/documentation/configuration/index#parallel-indexing-workers).
 
 ```bash postgresql.conf
 maintenance_work_mem = 16GB
 ```
 
-`maintenance_work_mem` should not exceed the server's available memory.
+Each worker is required to have at least `15MB` memory. If `maintenance_work_mem` is set too low, an error will be returned.
 
-### Parallel Indexing Processes
+### Parallel Indexing Workers
 
 ParadeDB uses Postgres' `max_parallel_maintenance_workers` setting to determine the degree of parallelism during `CREATE INDEX`/`REINDEX`. Postgres' default is `2`, which may be too low for large tables.
-Consider using a value closer to the number of CPU threads on the host computer.
 
 ```sql
 SET max_parallel_maintenance_workers = 8;
@@ -36,13 +35,3 @@ performance.
 ```sql
 SET paradedb.target_segment_count = 32;
 ```
-
-### Choosing the Right Settings
-
-More workers and more memory per worker will generally improve `CREATE INDEX` speeds. As a general rule of thumb, `maintenance_work_mem` can be set as high as
-25% of total memory (to make room for other processes) and `max_parallel_maintenance_workers` can be set as high as the number of CPUs on the host machine.
-
-During indexing, each worker is assigned an amount of memory approximately equal to `maintenance_work_mem / max_parallel_maintenance_workers`. This means that if you want
-`8` workers, each with `1GB` of memory, then `maintenance_work_mem` should be set to `8GB`.
-
-Each worker is required to have at least `64MB` memory. If `maintenance_work_mem` is set too low, it will be ignored and `64MB * max_parallel_maintenance_workers` will be used.

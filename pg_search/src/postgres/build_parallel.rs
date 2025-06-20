@@ -24,8 +24,8 @@ use crate::index::writer::index::{
 use crate::launch_parallel_process;
 use crate::parallel_worker::mqueue::MessageQueueSender;
 use crate::parallel_worker::{
-    ParallelProcess, ParallelState, ParallelStateManager, ParallelStateType, ParallelWorker,
-    WorkerStyle,
+    chunk_range, ParallelProcess, ParallelState, ParallelStateManager, ParallelStateType,
+    ParallelWorker, WorkerStyle,
 };
 use crate::postgres::insert::garbage_collect_index;
 use crate::postgres::spinlock::Spinlock;
@@ -44,7 +44,7 @@ use pgrx::{
 use std::num::NonZeroUsize;
 use std::ptr::{addr_of_mut, NonNull};
 use std::sync::OnceLock;
-use tantivy::{Directory, Index, IndexMeta, TantivyDocument};
+use tantivy::{Directory, Index, IndexMeta, SegmentMeta, TantivyDocument};
 
 // target_segment_pool in WorkerCoordination requires a fixed size array, so we have to limit the
 // number of workers to 512, which is okay because max_parallel_maintenance_workers is typically much smaller
@@ -70,7 +70,6 @@ impl ParallelStateType for pg_sys::ParallelTableScanDescData {}
 struct WorkerCoordination {
     mutex: Spinlock,
     nlaunched: usize,
-    nwriters_remaining: usize,
 }
 
 impl ParallelStateType for WorkerCoordination {}
@@ -82,15 +81,6 @@ impl WorkerCoordination {
     fn nlaunched(&mut self) -> usize {
         let _lock = self.mutex.acquire();
         self.nlaunched
-    }
-    fn set_nwriters_remaining(&mut self, nwriters_remaining: usize) {
-        let _lock = self.mutex.acquire();
-        self.nwriters_remaining = nwriters_remaining;
-    }
-    fn dec_nwriters_remaining(&mut self) -> usize {
-        let _lock = self.mutex.acquire();
-        self.nwriters_remaining -= 1;
-        self.nwriters_remaining
     }
 }
 
@@ -199,14 +189,15 @@ impl ParallelWorker for BuildWorker<'_> {
         }
     }
 
-    fn run(mut self, mq_sender: &MessageQueueSender, _worker_number: i32) -> anyhow::Result<()> {
+    fn run(mut self, mq_sender: &MessageQueueSender, worker_number: i32) -> anyhow::Result<()> {
+        pgrx::debug1!("build_worker: worker_number: {}", worker_number);
         // wait for the leader to tell us how many total workers have been launched
         while self.coordination.nlaunched() == 0 {
             check_for_interrupts!();
             std::thread::yield_now();
         }
 
-        let reltuples = self.do_build()?;
+        let reltuples = self.do_build(worker_number)?;
         Ok(mq_sender.send(serde_json::to_vec(&WorkerResponse { reltuples })?)?)
     }
 }
@@ -227,17 +218,26 @@ impl<'a> BuildWorker<'a> {
         }
     }
 
-    fn do_build(&mut self) -> anyhow::Result<f64> {
+    fn do_build(&mut self, worker_number: i32) -> anyhow::Result<f64> {
         unsafe {
             let index_info = pg_sys::BuildIndexInfo(self.indexrel.as_ptr());
             (*index_info).ii_Concurrent = self.config.concurrent;
             let nlaunched = self.coordination.nlaunched();
             let per_worker_memory_budget =
                 gucs::adjust_maintenance_work_mem(nlaunched).get() / nlaunched;
+            let target_segment_count = adjusted_target_segment_count(&self.heaprel);
+            let (_, worker_segment_target) =
+                chunk_range(target_segment_count, nlaunched, worker_number as usize);
+
+            pgrx::debug1!("build_worker {worker_number}: target_segment_count: {target_segment_count}, nlaunched: {nlaunched}, worker_segment_target: {worker_segment_target}");
+
             let mut build_state = WorkerBuildState::new(
                 &self.indexrel,
                 NonZeroUsize::new(per_worker_memory_budget)
                     .expect("per worker memory budget should be non-zero"),
+                worker_segment_target.max(1),
+                nlaunched,
+                worker_number as i32,
             )?;
 
             let reltuples = pg_sys::table_index_build_scan(
@@ -255,11 +255,6 @@ impl<'a> BuildWorker<'a> {
             );
 
             build_state.commit()?;
-            let nwriters_remaining = self.coordination.dec_nwriters_remaining();
-
-            pgrx::debug1!("do_build: nwriters_remaining: {}", nwriters_remaining);
-            build_state.do_merge(nwriters_remaining == 0)?;
-
             Ok(reltuples as f64)
         }
     }
@@ -271,20 +266,38 @@ struct WorkerBuildState {
     categorized_fields: Vec<(SearchField, CategorizedFieldData)>,
     key_field_name: FieldName,
     per_row_context: PgMemoryContexts,
-    merge_group_size: OnceLock<usize>,
     indexrel: PgRelation,
     heaprel: PgRelation,
+    // the following statistics are used to determine when and what to merge:
+    //
+    // 1. how many segments does this worker expect to make, assuming no merges?
+    estimated_nsegments: OnceLock<usize>,
+    //
+    // 2. how many segments is this worker supposed to make? (assigned by the leader)
+    worker_segment_target: usize,
+    //
+    // 3. how many merges has this worker done so far? (incrementing counter)
+    nmerges: usize,
+    //
+    // 4. how many workers are there in total? (including the leader)
+    nlaunched: usize,
+    //
+    // 5. unmerged segment metas that this worker has created so far
+    unmerged_metas: Vec<SegmentMeta>,
 }
 
 impl WorkerBuildState {
     pub fn new(
         indexrel: &PgRelation,
         per_worker_memory_budget: NonZeroUsize,
+        worker_segment_target: usize,
+        nlaunched: usize,
+        worker_number: i32,
     ) -> anyhow::Result<Self> {
         let config = IndexWriterConfig {
             memory_budget: per_worker_memory_budget,
         };
-        let writer = SerialIndexWriter::open(indexrel, config)?;
+        let writer = SerialIndexWriter::open(indexrel, config, worker_number)?;
         let schema = SearchIndexSchema::open(indexrel.oid())?;
         let tupdesc = indexrel.tuple_desc();
         let categorized_fields = categorize_fields(&tupdesc, &schema);
@@ -294,84 +307,91 @@ impl WorkerBuildState {
             categorized_fields,
             key_field_name,
             per_row_context: PgMemoryContexts::new("pg_search ambuild context"),
-            merge_group_size: OnceLock::new(),
             indexrel: indexrel.clone(),
             heaprel: indexrel.heap_relation().unwrap().clone(),
+            worker_segment_target,
+            nlaunched,
+            estimated_nsegments: OnceLock::new(),
+            nmerges: Default::default(),
+            unmerged_metas: Default::default(),
         })
     }
 
     fn commit(&mut self) -> anyhow::Result<()> {
         let writer = self.writer.take().expect("writer should be set");
-        let _ = writer.commit()?;
+        if let Some(segment_meta) = writer.commit()? {
+            self.unmerged_metas.push(segment_meta);
+            self.try_merge(true)?;
+        }
         Ok(())
     }
 
-    unsafe fn do_merge(&mut self, is_last_worker: bool) -> anyhow::Result<()> {
-        let merge_entry = {
-            let metadata = MetaPage::open(self.indexrel.oid());
-            let merge_lock = metadata.acquire_merge_lock();
-            let mut merge_list = merge_lock.merge_list();
-            let mergeable_entries = mergeable_entries(self.indexrel.oid(), &merge_list);
-
+    fn try_merge(&mut self, is_last_merge: bool) -> anyhow::Result<()> {
+        let segment_ids_to_merge = {
             // check if there's enough segments to merge
-            if mergeable_entries.is_empty() {
+            if self.unmerged_metas.is_empty() {
                 return Ok(());
             }
 
-            let merge_group_size = self.merge_group_size(mergeable_entries[0].max_doc);
-            if merge_group_size <= 1 {
+            // merge down the segments in chunks, unless this is the last merge,
+            // in which case we should merge everything that's left down
+            let merge_group_size = if !is_last_merge {
+                chunk_range(
+                    self.estimated_nsegments(self.unmerged_metas[0].max_doc()),
+                    self.worker_segment_target,
+                    self.nmerges,
+                )
+                .1
+            } else {
+                self.unmerged_metas.len()
+            };
+
+            pgrx::debug1!(
+                "try_merge: is_last_merge: {is_last_merge}, merge_group_size: {merge_group_size}, unmerged_metas: {:?}",
+                self.unmerged_metas.len()
+            );
+            if merge_group_size <= 1 || self.unmerged_metas.len() < merge_group_size {
                 return Ok(());
             }
 
-            if !is_last_worker && mergeable_entries.len() < merge_group_size {
+            if !is_last_merge && self.nmerges == self.worker_segment_target - 1 {
+                pgrx::debug1!("try_merge: skipping merge because this is not the last merge, and we can only do one more");
                 return Ok(());
             }
 
             pgrx::debug1!(
                 "do_merge: {:?} waiting to be merged",
-                mergeable_entries.len()
+                self.unmerged_metas.len()
             );
-
-            // if it's the last worker, ignore the merge group size and merge down all the segments
-            let nmerge = if is_last_worker {
-                mergeable_entries.len()
-            } else {
-                merge_group_size
-            };
-            let segment_ids: Vec<_> = mergeable_entries
-                .into_iter()
-                .take(nmerge)
-                .map(|entry| entry.segment_id)
-                .collect();
-            merge_list.add_segment_ids(segment_ids.iter())?
+            self.unmerged_metas
+                .drain(..merge_group_size)
+                .map(|entry| entry.id())
+                .collect::<Vec<_>>()
         };
 
         // do the merge
-        pgrx::debug1!(
-            "do_merge: segments to merge: {:?}",
-            merge_entry.segment_ids(self.indexrel.oid()),
-        );
-        merge_down_entry(self.indexrel.oid(), &merge_entry)?;
+        pgrx::debug1!("do_merge: segments to merge: {:?}", segment_ids_to_merge,);
+
+        let directory = MVCCDirectory::mergeable(self.indexrel.oid());
+        let mut merger = SearchIndexMerger::open(directory)?;
+        merger.merge_segments(&segment_ids_to_merge)?;
 
         // garbage collect the index, returning to the fsm
         pgrx::debug1!("do_merge: garbage collecting");
-        garbage_collect_index(&self.indexrel);
+        unsafe { garbage_collect_index(&self.indexrel) };
+
+        self.nmerges += 1;
 
         Ok(())
     }
 
-    fn merge_group_size(&mut self, docs_per_segment: u32) -> usize {
-        *self.merge_group_size.get_or_init(|| {
+    fn estimated_nsegments(&self, docs_per_segment: u32) -> usize {
+        *self.estimated_nsegments.get_or_init(|| {
             let reltuples = estimate_heap_reltuples(&self.heaprel);
-            let nsegments = (reltuples / docs_per_segment as f64).ceil() as usize;
-            let target_segment_count = adjusted_target_segment_count(&self.heaprel);
-            let merge_group_size = (nsegments as f64 / target_segment_count as f64).ceil() as usize;
-
-            pgrx::debug1!(
-                "est. {reltuples} reltuples, {docs_per_segment} docs/segment, predicting {nsegments} total segments, targeting {target_segment_count}, so merge in groups of {merge_group_size}"
-            );
-
-            merge_group_size
+            let reltuples_per_worker = reltuples / self.nlaunched as f64;
+            let nsegments = (reltuples_per_worker / docs_per_segment as f64).ceil() as usize;
+            pgrx::debug1!("estimated that this worker will make {nsegments} segments, based on reltuples: {reltuples}, nlaunched: {}, reltuples_per_worker: {reltuples_per_worker}, docs_per_segment: {docs_per_segment}", self.nlaunched);
+            nsegments
         })
     }
 }
@@ -390,7 +410,7 @@ unsafe extern "C-unwind" fn build_callback(
     let build_state = &mut *state.cast::<WorkerBuildState>();
     let ctid_u64 = crate::postgres::utils::item_pointer_to_u64(*ctid);
 
-    let did_finalize = build_state.per_row_context.switch_to(|_| {
+    let segment_meta = build_state.per_row_context.switch_to(|_| {
         let mut doc = TantivyDocument::new();
         row_to_search_document(
             values,
@@ -410,9 +430,10 @@ unsafe extern "C-unwind" fn build_callback(
     });
     build_state.per_row_context.reset();
 
-    if did_finalize {
+    if let Some(segment_meta) = segment_meta {
+        build_state.unmerged_metas.push(segment_meta);
         build_state
-            .do_merge(false)
+            .try_merge(false)
             .unwrap_or_else(|e| panic!("{e}"));
     }
 }
@@ -474,7 +495,7 @@ pub(super) fn build_index(
         1024
     ) {
         let nlaunched = process.launched_workers();
-        pgrx::debug1!("build_index: launched {nworkers} workers");
+        pgrx::debug1!("build_index: launched {nworkers} workers (not including leader)");
         let coordination = process
             .state_manager_mut()
             .object::<WorkerCoordination>(2)
@@ -488,13 +509,13 @@ pub(super) fn build_index(
         }
 
         // set_nlaunched last, because workers wait for this to be set
-        coordination.set_nwriters_remaining(nlaunched_plus_leader);
         coordination.set_nlaunched(nlaunched_plus_leader);
+        pgrx::debug1!("build_index: has {nlaunched_plus_leader} workers (including leader)");
 
         let mut total_tuples = if unsafe { pg_sys::parallel_leader_participation } {
             // directly instantiate a worker for the leader and have it do its build
             let mut worker = BuildWorker::new_parallel_worker(*process.state_manager());
-            worker.do_build()?
+            worker.do_build(nlaunched_plus_leader as i32)?
         } else {
             pgrx::debug1!("build_index: leader is not participating");
             0.0
@@ -516,7 +537,6 @@ pub(super) fn build_index(
         let indexrelid = indexrel.oid();
 
         let mut coordination: WorkerCoordination = Default::default();
-        coordination.set_nwriters_remaining(1);
         coordination.set_nlaunched(1);
 
         let mut worker = BuildWorker::new(
@@ -530,7 +550,7 @@ pub(super) fn build_index(
             &mut coordination,
         );
 
-        worker.do_build()
+        worker.do_build(1)
     }
 }
 
@@ -569,8 +589,9 @@ fn create_index_nworkers(heaprel: &PgRelation) -> usize {
     }
 
     // ensure that we never have more workers (including the leader) than the max allowed number of workers
-    let mut nworkers = maintenance_workers.min(MAX_CREATE_INDEX_WORKERS);
-    if unsafe { pg_sys::parallel_leader_participation } && nworkers == MAX_CREATE_INDEX_WORKERS {
+    let max_workers = MAX_CREATE_INDEX_WORKERS.min(target_segment_count);
+    let mut nworkers = maintenance_workers.min(max_workers);
+    if unsafe { pg_sys::parallel_leader_participation } && nworkers == max_workers {
         nworkers -= 1;
     }
     nworkers
@@ -633,78 +654,4 @@ fn estimate_heap_byte_size(heap_relation: &PgRelation) -> usize {
     };
 
     npages as usize * pg_sys::BLCKSZ as usize
-}
-
-fn mergeable_entries(index_oid: pg_sys::Oid, merge_list: &MergeList) -> Vec<SegmentMetaEntry> {
-    let segment_components =
-        LinkedItemList::<SegmentMetaEntry>::open(index_oid, SEGMENT_METAS_START);
-    let all_entries = unsafe { segment_components.list() };
-
-    let non_mergeable_segments = unsafe { merge_list.list_segment_ids().collect::<Vec<_>>() };
-    all_entries
-        .iter()
-        .filter(|entry| {
-            if non_mergeable_segments.contains(&entry.segment_id) {
-                return false;
-            }
-            if entry.xmax == pg_sys::FrozenTransactionId {
-                return false;
-            }
-            true
-        })
-        .copied()
-        .collect::<Vec<_>>()
-}
-
-/// Merge down the segments inside a single [`MergeEntry`],
-/// then update merge list to prevent them from being merged again,
-/// and finally update the index metas to reflect the merge
-unsafe fn merge_down_entry(index_oid: pg_sys::Oid, merge_entry: &MergeEntry) -> anyhow::Result<()> {
-    let directory = MVCCDirectory::mergeable(index_oid);
-    let index = Index::open(directory.clone())?;
-    let mut merger = SearchIndexMerger::open(directory)?;
-    let searchable_metas = index.searchable_segment_metas()?;
-    let metas_to_merge = merge_entry
-        .segment_ids(index_oid)
-        .iter()
-        .map(|id| {
-            searchable_metas
-                .iter()
-                .find(|meta| meta.id() == *id)
-                .unwrap()
-                .clone()
-        })
-        .collect::<Vec<_>>();
-    let segments = metas_to_merge
-        .iter()
-        .map(|meta| index.segment(meta.clone()))
-        .collect::<Vec<_>>();
-
-    if let Some(merged_meta) = merger.merge_into(&segments)? {
-        pgrx::debug1!("do_merge: merged segment: {:?}", merged_meta.id());
-
-        // update the merge list first, under the merge lock
-        {
-            let metadata = MetaPage::open(index_oid);
-            let merge_lock = metadata.acquire_merge_lock();
-            let mut merge_list = merge_lock.merge_list();
-            merge_list.add_segment_ids(std::iter::once(&merged_meta.id()))?;
-        }
-
-        // then update the index metas
-        let index_meta = index.load_metas()?;
-        let previous_meta = IndexMeta {
-            segments: metas_to_merge,
-            ..index_meta.clone()
-        };
-        let new_meta = IndexMeta {
-            segments: vec![merged_meta],
-            ..index_meta.clone()
-        };
-        index
-            .directory()
-            .save_metas(&new_meta, &previous_meta, &mut ())?;
-    }
-
-    Ok(())
 }

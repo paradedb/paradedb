@@ -49,7 +49,12 @@ impl InsertState {
         let config = IndexWriterConfig {
             memory_budget: gucs::adjust_work_mem(1),
         };
-        let writer = SerialIndexWriter::with_mvcc(indexrel, MvccSatisfies::Mergeable, config)?;
+        let writer = SerialIndexWriter::with_mvcc(
+            indexrel,
+            MvccSatisfies::Mergeable,
+            config,
+            Default::default(),
+        )?;
         let schema = SearchIndexSchema::open(indexrel.oid())?;
         let tupdesc = unsafe { PgTupleDesc::from_pg_unchecked(indexrel.rd_att) };
         let categorized_fields = categorize_fields(&tupdesc, &schema);

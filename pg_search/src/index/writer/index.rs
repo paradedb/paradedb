@@ -104,8 +104,6 @@ pub struct CommittedSegment {
     pub max_doc: u32,
 }
 
-type DidFinalize = bool;
-
 /// Unlike Tantivy's IndexWriter, the SerialIndexWriter does not spin up any threads.
 /// Everything happens in the foreground, making it ideal for Postgres.
 pub struct SerialIndexWriter {
@@ -121,18 +119,28 @@ pub struct SerialIndexWriter {
 }
 
 impl SerialIndexWriter {
-    pub fn open(index_relation: &PgRelation, config: IndexWriterConfig) -> Result<Self> {
-        Self::with_mvcc(index_relation, MvccSatisfies::Snapshot, config)
+    pub fn open(
+        index_relation: &PgRelation,
+        config: IndexWriterConfig,
+        worker_number: i32,
+    ) -> Result<Self> {
+        Self::with_mvcc(
+            index_relation,
+            MvccSatisfies::Snapshot,
+            config,
+            worker_number,
+        )
     }
 
     pub fn with_mvcc(
         index_relation: &PgRelation,
         mvcc_satisfies: MvccSatisfies,
         config: IndexWriterConfig,
+        worker_number: i32,
     ) -> Result<Self> {
         pgrx::debug1!(
             "writer {}: opening index writer with config: {:?}, satisfies: {:?}",
-            unsafe { pgrx::pg_sys::ParallelWorkerNumber },
+            worker_number,
             config,
             mvcc_satisfies
         );
@@ -144,7 +152,7 @@ impl SerialIndexWriter {
         let ctid_field = schema.ctid_field();
 
         Ok(Self {
-            id: unsafe { pgrx::pg_sys::ParallelWorkerNumber },
+            id: worker_number,
             indexrelid: index_relation.oid(),
             ctid_field,
             config,
@@ -159,7 +167,11 @@ impl SerialIndexWriter {
         self.indexrelid
     }
 
-    pub fn insert(&mut self, mut document: TantivyDocument, ctid: u64) -> Result<DidFinalize> {
+    pub fn insert(
+        &mut self,
+        mut document: TantivyDocument,
+        ctid: u64,
+    ) -> Result<Option<SegmentMeta>> {
         document.add_u64(self.ctid_field, ctid);
 
         if self.pending_segment.is_none() {
@@ -185,25 +197,14 @@ impl SerialIndexWriter {
                 self.config.memory_budget.get(),
                 self.new_metas.len()
             );
-            self.finalize_segment()?;
-            return Ok(true);
+            return self.finalize_segment();
         }
 
-        Ok(false)
+        Ok(None)
     }
 
-    pub fn commit(mut self) -> Result<HashSet<CommittedSegment>> {
-        self.finalize_segment()?;
-        let committed_segments = self
-            .new_metas
-            .iter()
-            .map(|meta| CommittedSegment {
-                segment_id: meta.id(),
-                max_doc: meta.max_doc(),
-            })
-            .collect::<HashSet<_>>();
-        pgrx::debug1!("writer {}: wrote metas: {:?}", self.id, committed_segments);
-        Ok(committed_segments)
+    pub fn commit(mut self) -> Result<Option<SegmentMeta>> {
+        self.finalize_segment()
     }
 
     /// Intelligently create a new segment, backed by either a RamDirectory or a MVCCDirectory.
@@ -226,30 +227,28 @@ impl SerialIndexWriter {
     /// 2. Merge the segment with the previous segment if we're using a RAMDirectory
     /// 3. Save the new meta entry
     /// 4. Return any free space to the FSM
-    fn finalize_segment(&mut self) -> Result<()> {
+    fn finalize_segment(&mut self) -> Result<Option<SegmentMeta>> {
         pgrx::debug1!("writer {}: finalizing segment", self.id);
         let Some(pending_segment) = self.pending_segment.take() else {
             // no docs were ever added
-            return Ok(());
+            return Ok(None);
         };
 
         let finalized_segment = pending_segment.finalize()?;
-        self.commit_segment(finalized_segment)?;
-
-        pgrx::debug1!("writer {}: done finalizing segment", self.id);
-        Ok(())
+        Ok(Some(self.commit_segment(finalized_segment)?))
     }
 
-    fn commit_segment(&mut self, finalized_segment: Segment) -> Result<()> {
+    fn commit_segment(&mut self, finalized_segment: Segment) -> Result<SegmentMeta> {
         pgrx::debug1!(
             "writer {}: committing segment {}",
             self.id,
             finalized_segment.id()
         );
         let previous_metas = self.new_metas.clone();
-        self.new_metas.push(finalized_segment.meta().clone());
+        let new_meta = finalized_segment.meta().clone();
+        self.new_metas.push(new_meta.clone());
         self.save_metas(self.new_metas.clone(), previous_metas)?;
-        Ok(())
+        Ok(new_meta)
     }
 
     fn save_metas(

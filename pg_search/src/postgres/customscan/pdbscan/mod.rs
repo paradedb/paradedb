@@ -1844,6 +1844,7 @@ fn base_query_has_search_predicates(
 
         // UnifiedExpression: assume it could have search predicates
         SearchQueryInput::UnifiedExpression { .. } => true,
+        SearchQueryInput::Composition { .. } => true,
     }
 }
 

@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+pub mod composition;
 pub mod external_filter;
 pub mod iter_mut;
 mod more_like_this;
@@ -289,6 +290,10 @@ pub enum SearchQueryInput {
         expression: String,
         referenced_fields: Vec<FieldName>,
     },
+    /// Compositional query that builds an expression tree
+    Composition {
+        node: crate::query::composition::CompositionNode,
+    },
 }
 
 impl SearchQueryInput {
@@ -326,6 +331,7 @@ impl SearchQueryInput {
                 Self::need_scores(indexed_query)
             }
             SearchQueryInput::UnifiedExpression { .. } => true, // Always need scores for unified expressions
+            SearchQueryInput::Composition { node } => node.has_tantivy_leaves(), // Need scores if there are Tantivy components
             _ => false,
         }
     }
@@ -525,6 +531,9 @@ impl AsHumanReadable for SearchQueryInput {
             SearchQueryInput::IndexedWithFilter { .. } => s.push_str("<IndexedWithFilter>"),
             SearchQueryInput::UnifiedExpression { expression, .. } => {
                 s.push_str(&format!("<UnifiedExpression: {}>", expression))
+            }
+            SearchQueryInput::Composition { node } => {
+                s.push_str(&format!("<Composition: {:?}>", node))
             }
         }
         s
@@ -1875,6 +1884,29 @@ impl SearchQueryInput {
                     expression
                 );
                 Ok(Box::new(unified_query))
+            }
+
+            Self::Composition { node } => {
+                pgrx::warning!("🔥 Converting Composition to Tantivy query");
+
+                use crate::query::composition::CompositionQuery;
+
+                let composition_query = CompositionQuery::new(node);
+
+                pgrx::warning!(
+                    "🔥 Created CompositionQuery with {} Tantivy leaves and {} PostgreSQL leaves",
+                    if composition_query.has_tantivy_components() {
+                        "some"
+                    } else {
+                        "no"
+                    },
+                    if composition_query.needs_postgres_evaluation() {
+                        "some"
+                    } else {
+                        "no"
+                    }
+                );
+                Ok(Box::new(composition_query))
             }
         }
     }

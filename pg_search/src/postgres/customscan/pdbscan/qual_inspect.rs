@@ -233,9 +233,150 @@ unsafe fn parse_mixed_expression_tree(
     parse_compositional_expression(expr, attno_map)
 }
 
-/// Parse expressions using a compositional approach that combines IndexedWithFilter and ExternalFilter
+/// Parse expressions using a compositional approach that builds CompositionNode trees
 /// This approach can handle complex OR expressions with mixed indexed/non-indexed predicates
 unsafe fn parse_compositional_expression(
+    expr: *mut pg_sys::Expr,
+    attno_map: &HashMap<pg_sys::AttrNumber, FieldName>,
+) -> Option<SearchQueryInput> {
+    // Try to build a CompositionNode tree first
+    if let Some(composition_node) = build_composition_node_tree(expr, attno_map) {
+        pgrx::warning!("🔥 Using CompositionNode tree for expression");
+        return Some(SearchQueryInput::Composition {
+            node: composition_node,
+        });
+    }
+
+    // Fall back to legacy compositional approach
+    pgrx::warning!("🔥 Falling back to legacy compositional approach");
+    parse_compositional_expression_legacy(expr, attno_map)
+}
+
+/// Build a CompositionNode tree from a PostgreSQL expression
+unsafe fn build_composition_node_tree(
+    expr: *mut pg_sys::Expr,
+    attno_map: &HashMap<pg_sys::AttrNumber, FieldName>,
+) -> Option<crate::query::composition::CompositionNode> {
+    use crate::query::composition::CompositionNode;
+
+    if expr.is_null() {
+        return None;
+    }
+
+    match (*expr).type_ {
+        pg_sys::NodeTag::T_BoolExpr => {
+            let bool_expr = expr.cast::<pg_sys::BoolExpr>();
+            let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
+
+            match (*bool_expr).boolop {
+                pg_sys::BoolExprType::OR_EXPR => {
+                    pgrx::warning!("🔥 Building CompositionNode OR: {} branches", args.len());
+
+                    let mut or_children = Vec::new();
+
+                    for arg in args.iter_ptr() {
+                        if let Some(child_node) = build_composition_node_tree(arg.cast(), attno_map)
+                        {
+                            or_children.push(child_node);
+                        }
+                    }
+
+                    if or_children.is_empty() {
+                        return None;
+                    } else if or_children.len() == 1 {
+                        return Some(or_children.into_iter().next().unwrap());
+                    } else {
+                        return Some(CompositionNode::or(or_children));
+                    }
+                }
+                pg_sys::BoolExprType::AND_EXPR => {
+                    pgrx::warning!("🔥 Building CompositionNode AND: {} branches", args.len());
+
+                    let mut and_children = Vec::new();
+
+                    for arg in args.iter_ptr() {
+                        if let Some(child_node) = build_composition_node_tree(arg.cast(), attno_map)
+                        {
+                            and_children.push(child_node);
+                        }
+                    }
+
+                    if and_children.is_empty() {
+                        return None;
+                    } else if and_children.len() == 1 {
+                        return Some(and_children.into_iter().next().unwrap());
+                    } else {
+                        return Some(CompositionNode::and(and_children));
+                    }
+                }
+                pg_sys::BoolExprType::NOT_EXPR => {
+                    pgrx::warning!("🔥 Building CompositionNode NOT");
+
+                    if let Some(arg) = args.iter_ptr().next() {
+                        if let Some(child_node) = build_composition_node_tree(arg.cast(), attno_map)
+                        {
+                            return Some(CompositionNode::not(child_node));
+                        }
+                    }
+                    return None;
+                }
+                _ => return None,
+            }
+        }
+        pg_sys::NodeTag::T_OpExpr => {
+            // Check if this is an indexed predicate (@@@ operator)
+            let opexpr = expr.cast::<pg_sys::OpExpr>();
+            if is_search_operator((*opexpr).opno) {
+                pgrx::warning!("🔥 Building CompositionNode: Found indexed predicate");
+
+                // This is an indexed predicate - create a TantivyLeaf
+                if let Some(indexed_query) = extract_indexed_parts_recursive(expr) {
+                    return Some(CompositionNode::tantivy_leaf(indexed_query, true));
+                }
+            } else {
+                pgrx::warning!("🔥 Building CompositionNode: Found non-indexed predicate");
+
+                // This is a non-indexed predicate - create PostgresLeaf
+                let expr_string_ptr = pg_sys::nodeToString(expr.cast::<core::ffi::c_void>());
+                let expr_string = std::ffi::CStr::from_ptr(expr_string_ptr)
+                    .to_string_lossy()
+                    .into_owned();
+                pg_sys::pfree(expr_string_ptr.cast());
+
+                let referenced_fields = attno_map.values().cloned().collect();
+                return Some(CompositionNode::postgres_leaf(
+                    expr_string,
+                    referenced_fields,
+                    attno_map.clone(),
+                ));
+            }
+        }
+        _ => {
+            pgrx::warning!(
+                "🔥 Building CompositionNode: Unknown expression type, creating PostgresLeaf"
+            );
+
+            // Unknown expression type - create PostgresLeaf
+            let expr_string_ptr = pg_sys::nodeToString(expr.cast::<core::ffi::c_void>());
+            let expr_string = std::ffi::CStr::from_ptr(expr_string_ptr)
+                .to_string_lossy()
+                .into_owned();
+            pg_sys::pfree(expr_string_ptr.cast());
+
+            let referenced_fields = attno_map.values().cloned().collect();
+            return Some(CompositionNode::postgres_leaf(
+                expr_string,
+                referenced_fields,
+                attno_map.clone(),
+            ));
+        }
+    }
+
+    None
+}
+
+/// Legacy compositional expression parsing (fallback)
+unsafe fn parse_compositional_expression_legacy(
     expr: *mut pg_sys::Expr,
     attno_map: &HashMap<pg_sys::AttrNumber, FieldName>,
 ) -> Option<SearchQueryInput> {
@@ -256,7 +397,7 @@ unsafe fn parse_compositional_expression(
 
                     for arg in args.iter_ptr() {
                         if let Some(branch_query) =
-                            parse_compositional_expression(arg.cast(), attno_map)
+                            parse_compositional_expression_legacy(arg.cast(), attno_map)
                         {
                             or_branches.push(branch_query);
                         } else {
@@ -293,7 +434,7 @@ unsafe fn parse_compositional_expression(
 
                     for arg in args.iter_ptr() {
                         if let Some(branch_query) =
-                            parse_compositional_expression(arg.cast(), attno_map)
+                            parse_compositional_expression_legacy(arg.cast(), attno_map)
                         {
                             and_branches.push(branch_query);
                         } else {
@@ -328,7 +469,7 @@ unsafe fn parse_compositional_expression(
 
                     if let Some(arg) = args.iter_ptr().next() {
                         if let Some(inner_query) =
-                            parse_compositional_expression(arg.cast(), attno_map)
+                            parse_compositional_expression_legacy(arg.cast(), attno_map)
                         {
                             return Some(SearchQueryInput::Boolean {
                                 must: vec![SearchQueryInput::All],

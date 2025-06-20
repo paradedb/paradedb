@@ -65,11 +65,20 @@ impl ParallelStateType for pg_sys::ParallelTableScanDescData {}
 #[repr(C)]
 struct WorkerCoordination {
     mutex: Spinlock,
+    nstarted: usize,
     nlaunched: usize,
 }
 
 impl ParallelStateType for WorkerCoordination {}
 impl WorkerCoordination {
+    fn inc_nstarted(&mut self) {
+        let _lock = self.mutex.acquire();
+        self.nstarted += 1;
+    }
+    fn nstarted(&mut self) -> usize {
+        let _lock = self.mutex.acquire();
+        self.nstarted
+    }
     fn set_nlaunched(&mut self, nlaunched: usize) {
         let _lock = self.mutex.acquire();
         self.nlaunched = nlaunched;
@@ -193,6 +202,9 @@ impl ParallelWorker for BuildWorker<'_> {
             std::thread::yield_now();
         }
 
+        // communicate to the group that we've started
+        self.coordination.inc_nstarted();
+
         let (reltuples, nmerges) = self.do_build(worker_number)?;
         Ok(mq_sender.send(serde_json::to_vec(&WorkerResponse { reltuples, nmerges })?)?)
     }
@@ -291,6 +303,8 @@ impl WorkerBuildState {
         worker_number: i32,
     ) -> anyhow::Result<Self> {
         let heaprel = indexrel.heap_relation().unwrap();
+        // if we're making more than one segment, do an early cutoff based on doc count in case
+        // the memory budget is so high that all the docs fit into one segment
         let max_docs_per_segment = if worker_segment_target > 1 {
             Some(
                 estimate_heap_reltuples(&heaprel) as u32
@@ -345,29 +359,40 @@ impl WorkerBuildState {
             }
 
             let chunk_size = if !is_last_merge {
-                chunk_range(
+                let (_, chunk_size) = chunk_range(
                     self.estimated_nsegments(self.unmerged_metas[0].max_doc()),
                     self.worker_segment_target,
                     self.nmerges,
-                )
-                .1
+                );
+
+                if chunk_size <= 1 || self.unmerged_metas.len() < chunk_size {
+                    pgrx::debug1!(
+                        "try_merge: skipping merge because chunk_size: {chunk_size}, unmerged_metas: {:?}",
+                        self.unmerged_metas.len()
+                    );
+                    return Ok(());
+                }
+
+                if self.nmerges == self.worker_segment_target - 1 {
+                    pgrx::debug1!("try_merge: skipping merge because this is not the last merge, and we can only do one more");
+                    return Ok(());
+                }
+
+                chunk_size
             } else {
-                self.unmerged_metas.len()
+                // it's the last merge, to hit our target segment count, solve the following equation for chunk_size:
+                //
+                // worker_segment_target = self.nmerges + unmerged_segments_len - chunk_size + 1
+                let chunk_size =
+                    self.nmerges - self.worker_segment_target + self.unmerged_metas.len() + 1;
+                if chunk_size <= 1 || self.unmerged_metas.len() < chunk_size {
+                    return Ok(());
+                }
+
+                chunk_size
             };
 
-            if chunk_size <= 1 || self.unmerged_metas.len() < chunk_size {
-                pgrx::debug1!(
-                    "try_merge: skipping merge because chunk_size: {chunk_size}, unmerged_metas: {:?}",
-                    self.unmerged_metas.len()
-                );
-                return Ok(());
-            }
-
-            if !is_last_merge && self.nmerges == self.worker_segment_target - 1 {
-                pgrx::debug1!("try_merge: skipping merge because this is not the last merge, and we can only do one more");
-                return Ok(());
-            }
-
+            self.unmerged_metas.sort_by_key(|entry| entry.max_doc());
             self.unmerged_metas
                 .drain(..chunk_size)
                 .map(|entry| entry.id())
@@ -376,7 +401,8 @@ impl WorkerBuildState {
 
         // do the merge
         pgrx::debug1!(
-            "do_merge: about to merge {} segments: {:?}",
+            "do_merge: last merge {}, about to merge {} segments: {:?}",
+            is_last_merge,
             segment_ids_to_merge.len(),
             segment_ids_to_merge
         );
@@ -525,6 +551,14 @@ pub(super) fn build_index(
 
         let (mut total_tuples, mut total_merges) =
             if unsafe { pg_sys::parallel_leader_participation } {
+                // if the leader is to participate too, it's nice for it to wait until all the other workers
+                // have indicated that they're running.  Otherwise, it's likely the leader will get ahead
+                // of the workers, which doesn't allow for "evenly" distributing the work
+                while coordination.nstarted() != nlaunched {
+                    check_for_interrupts!();
+                    std::thread::yield_now();
+                }
+
                 // directly instantiate a worker for the leader and have it do its build
                 let mut worker = BuildWorker::new_parallel_worker(*process.state_manager());
                 worker.do_build(nlaunched_plus_leader as i32)?
@@ -615,11 +649,23 @@ fn create_index_nworkers(heaprel: &PgRelation) -> usize {
     // On the other hand, imagine we have only 4 workers, over the same table and target segment count.
     // In this scenario, each worker would target 2 segments, meaning it would do 2 merges -- once when it's about halfway done
     // and once at the end. The merge at the end would be able to use the free space created by the first merge.
-    let max_workers = MAX_CREATE_INDEX_WORKERS.min(target_segment_count / 2);
+    let max_workers = MAX_CREATE_INDEX_WORKERS.min((target_segment_count + 1) / 2);
     let mut nworkers = maintenance_workers.min(max_workers);
-    if unsafe { pg_sys::parallel_leader_participation } && nworkers == max_workers {
+
+    // round down nworkers such that target_segment_count / nworkers is an integer
+    // for instance, if the target is 32 and nworkers is 10, we round down to 8
+    // this way, each worker builds the same number of segments, making them more evenly distributed
+    for i in (1..nworkers + 1).rev() {
+        if target_segment_count % i == 0 {
+            nworkers = i;
+            break;
+        }
+    }
+
+    if unsafe { pg_sys::parallel_leader_participation } {
         nworkers -= 1;
     }
+
     nworkers
 }
 

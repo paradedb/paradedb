@@ -362,7 +362,7 @@ impl WorkerBuildState {
                 let (_, chunk_size) = chunk_range(
                     self.estimated_nsegments(self.unmerged_metas[0].max_doc()),
                     self.worker_segment_target,
-                    self.nmerges,
+                    (self.worker_segment_target - self.nmerges).max(0),
                 );
 
                 if chunk_size <= 1 || self.unmerged_metas.len() < chunk_size {
@@ -655,14 +655,14 @@ fn create_index_nworkers(heaprel: &PgRelation) -> usize {
     // round down nworkers such that target_segment_count / nworkers is an integer
     // for instance, if the target is 32 and nworkers is 10, we round down to 8
     // this way, each worker builds the same number of segments, making them more evenly distributed
-    for i in (1..nworkers + 1).rev() {
-        if target_segment_count % i == 0 {
-            nworkers = i;
-            break;
-        }
-    }
+    // for i in (1..nworkers + 1).rev() {
+    //     if target_segment_count % i == 0 {
+    //         nworkers = i;
+    //         break;
+    //     }
+    // }
 
-    if unsafe { pg_sys::parallel_leader_participation } {
+    if unsafe { pg_sys::parallel_leader_participation } && nworkers == max_workers {
         nworkers -= 1;
     }
 

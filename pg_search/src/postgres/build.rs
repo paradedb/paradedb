@@ -23,7 +23,7 @@ use crate::postgres::storage::block::{
     SegmentMetaEntry, CLEANUP_LOCK, METADATA, SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
 };
 use crate::postgres::storage::buffer::BufferManager;
-use crate::postgres::storage::metadata::{MetaPage, MetaPageMut};
+use crate::postgres::storage::metadata::MetaPageMut;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use crate::schema::{SearchFieldType, SearchIndexSchema};
 use anyhow::Result;
@@ -69,8 +69,6 @@ pub extern "C-unwind" fn ambuild(
         let heap_tuples = build_index(heap_relation, index_relation, (*index_info).ii_Concurrent)
             .unwrap_or_else(|e| panic!("{e}"));
 
-        pgrx::debug1!("build_index: clearing merge list");
-        clear_merge_list(index_oid).unwrap_or_else(|e| panic!("{e}"));
         record_create_index_segment_ids(index_oid).unwrap_or_else(|e| panic!("{e}"));
 
         pgrx::debug1!("build_index: flushing buffers");
@@ -207,19 +205,6 @@ fn create_index(index_relation: &PgRelation) -> Result<()> {
         ..IndexSettings::default()
     };
     let _ = Index::create(directory, schema, settings)?;
-    Ok(())
-}
-
-unsafe fn clear_merge_list(index_oid: pg_sys::Oid) -> anyhow::Result<()> {
-    let metadata = unsafe { MetaPage::open(index_oid) };
-    let merge_lock = metadata.acquire_merge_lock();
-    let mut merge_list = merge_lock.merge_list();
-
-    for entry in merge_list.list() {
-        merge_list.remove_entry(entry)?;
-    }
-
-    merge_list.garbage_collect();
     Ok(())
 }
 

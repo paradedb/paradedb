@@ -19,7 +19,7 @@ use crate::api::HashMap;
 use crate::postgres::storage::block::{bm25_max_free_space, BM25PageSpecialData, PgItem};
 use parking_lot::Mutex;
 use pgrx::pg_sys::OffsetNumber;
-use pgrx::{check_for_interrupts, pg_sys};
+use pgrx::{check_for_interrupts, pg_sys, PgMemoryContexts};
 
 /// Matches Postgres's [`MAX_BUFFERS_TO_EXTEND_BY`]
 pub const MAX_BUFFERS_TO_EXTEND_BY: usize = 64;
@@ -83,6 +83,7 @@ impl BM25Page for pg_sys::Page {
 pub struct BM25BufferCache {
     indexrel: pg_sys::Relation,
     cache: Mutex<HashMap<pg_sys::BlockNumber, Vec<u8>>>,
+    bulkwrite_bas: pg_sys::BufferAccessStrategy,
 }
 
 unsafe impl Send for BM25BufferCache {}
@@ -95,6 +96,9 @@ impl BM25BufferCache {
             Self {
                 indexrel,
                 cache: Default::default(),
+                bulkwrite_bas: PgMemoryContexts::TopTransactionContext.switch_to(|_| {
+                    pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_BULKWRITE)
+                }),
             }
         }
     }
@@ -119,9 +123,6 @@ impl BM25BufferCache {
             if can_use_extend_buffered_rel_by {
                 let mut filled = 0;
                 let mut extended_by = 0;
-                let strategy =
-                    pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_BULKWRITE);
-
                 loop {
                     check_for_interrupts!();
                     let bmr = pg_sys::BufferManagerRelation {
@@ -131,7 +132,7 @@ impl BM25BufferCache {
                     pg_sys::ExtendBufferedRelBy(
                         bmr,
                         pg_sys::ForkNumber::MAIN_FORKNUM,
-                        strategy,
+                        self.bulkwrite_bas,
                         0,
                         (npages - filled) as _,
                         buffers.as_mut_ptr().add(filled),
@@ -144,7 +145,6 @@ impl BM25BufferCache {
                     }
                 }
 
-                pg_sys::FreeAccessStrategy(strategy);
                 return buffers;
             }
         }
@@ -272,6 +272,7 @@ impl BM25BufferCache {
 impl Drop for BM25BufferCache {
     fn drop(&mut self) {
         unsafe {
+            pg_sys::FreeAccessStrategy(self.bulkwrite_bas);
             if crate::postgres::utils::IsTransactionState() {
                 pg_sys::RelationClose(self.indexrel);
             }

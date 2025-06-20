@@ -42,10 +42,6 @@ use std::ptr::{addr_of_mut, NonNull};
 use std::sync::OnceLock;
 use tantivy::{SegmentMeta, TantivyDocument};
 
-// target_segment_pool in WorkerCoordination requires a fixed size array, so we have to limit the
-// number of workers to 512, which is okay because max_parallel_maintenance_workers is typically much smaller
-const MAX_CREATE_INDEX_WORKERS: usize = 512;
-
 /// General, immutable configuration used for the workers
 #[derive(Copy, Clone)]
 #[repr(C)]
@@ -245,7 +241,7 @@ impl<'a> BuildWorker<'a> {
                     .expect("per worker memory budget should be non-zero"),
                 worker_segment_target.max(1),
                 nlaunched,
-                worker_number as i32,
+                worker_number,
             )?;
 
             let reltuples = pg_sys::table_index_build_scan(
@@ -347,10 +343,8 @@ impl WorkerBuildState {
         Ok(())
     }
 
-    /// Merge down a chunk of segments into a single segment, if we determine that doing this merge
-    /// will help us achieve our target segment count.
-    ///
-    /// If this is the last merge, we merge everything that's left down.
+    /// Based on our calculated chunk size, merge down a chunk of segments into a single segment
+    /// if we have created at least that many segments.
     fn try_merge(&mut self, is_last_merge: bool) -> anyhow::Result<()> {
         // which segments should me merge together? if there's not enough, return early
         let segment_ids_to_merge = {
@@ -359,6 +353,8 @@ impl WorkerBuildState {
             }
 
             let chunk_size = if !is_last_merge {
+                // calculate the chunk size for this merge iteration
+                //
                 // chunk range gives us chunks with the larger ones at the front
                 // we want the larger ones at the back, because the smallest "straggler" segment will be written last
                 //
@@ -386,9 +382,11 @@ impl WorkerBuildState {
 
                 chunk_size
             } else {
-                // it's the last merge, to hit our target segment count, solve the following equation for chunk_size:
+                // if it's the last merge, ignore the chunk size and instead solve the following equation for chunk_size:
                 //
                 // worker_segment_target = self.nmerges + unmerged_segments_len - chunk_size + 1
+                //
+                // this guarantees we hit the target segment count exactly, assuming we haven't already exceeded it
                 let chunk_size =
                     self.nmerges - self.worker_segment_target + self.unmerged_metas.len() + 1;
                 if chunk_size <= 1 || self.unmerged_metas.len() < chunk_size {
@@ -517,19 +515,6 @@ pub(super) fn build_index(
     let nworkers = create_index_nworkers(&heaprel);
     pgrx::debug1!("build_index: asked for {nworkers} workers");
 
-    if adjusted_target_segment_count(&heaprel) > 1
-        && gucs::adjust_maintenance_work_mem(nworkers).get() / nworkers < 15 * 1024 * 1024
-    {
-        ErrorReport::new(
-            PgSqlErrorCode::ERRCODE_INSUFFICIENT_RESOURCES,
-            "maintenance_work_mem may be too low",
-            function_name!(),
-        )
-        .set_detail("this can significantly increase the time it takes to build the index")
-        .set_hint("increase maintenance_work_mem")
-        .report(PgLogLevel::WARNING);
-    }
-
     if let Some(mut process) = launch_parallel_process!(
         ParallelBuild<BuildWorker>,
         process,
@@ -640,6 +625,17 @@ fn create_index_nworkers(heaprel: &PgRelation) -> usize {
         }
     };
 
+    if maintenance_workers < 3 {
+        ErrorReport::new(
+            PgSqlErrorCode::ERRCODE_INSUFFICIENT_RESOURCES,
+            format!("only {maintenance_workers} parallel workers were available for index build"),
+            function_name!(),
+        )
+        .set_detail("for large tables, increasing the number of workers can reduce the time it takes to build the index")
+        .set_hint("`SET max_parallel_maintenance_workers = <number>`")
+        .report(PgLogLevel::WARNING);
+    }
+
     if maintenance_workers == 0 {
         return 0;
     }
@@ -655,18 +651,8 @@ fn create_index_nworkers(heaprel: &PgRelation) -> usize {
     // On the other hand, imagine we have only 4 workers, over the same table and target segment count.
     // In this scenario, each worker would target 2 segments, meaning it would do 2 merges -- once when it's about halfway done
     // and once at the end. The merge at the end would be able to use the free space created by the first merge.
-    let max_workers = MAX_CREATE_INDEX_WORKERS.min((target_segment_count + 1) / 2);
+    let max_workers = target_segment_count.div_ceil(2);
     let mut nworkers = maintenance_workers.min(max_workers);
-
-    // round down nworkers such that target_segment_count / nworkers is an integer
-    // for instance, if the target is 32 and nworkers is 10, we round down to 8
-    // this way, each worker builds the same number of segments, making them more evenly distributed
-    // for i in (1..nworkers + 1).rev() {
-    //     if target_segment_count % i == 0 {
-    //         nworkers = i;
-    //         break;
-    //     }
-    // }
 
     if unsafe { pg_sys::parallel_leader_participation } && nworkers == max_workers {
         nworkers -= 1;

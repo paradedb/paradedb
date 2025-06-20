@@ -409,21 +409,26 @@ mod tests {
         config: IndexWriterConfig,
         relation_oid: pg_sys::Oid,
         num_docs: usize,
-    ) -> HashSet<CommittedSegment> {
+    ) -> HashSet<SegmentId> {
         let index_relation = unsafe { PgRelation::open(relation_oid) };
-        let mut writer = SerialIndexWriter::open(&index_relation, config).unwrap();
+        let mut writer =
+            SerialIndexWriter::open(&index_relation, config, Default::default()).unwrap();
         let schema = SearchIndexSchema::open(relation_oid).unwrap();
         let ctid_field = schema.ctid_field();
         let text_field = schema.search_field("data").unwrap().field();
+        let mut segment_ids = HashSet::default();
 
         for i in 0..num_docs {
             let mut document = TantivyDocument::new();
             document.add_text(text_field, "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. Curabitur pretium tincidunt lacus. Nulla gravida orci a odio. Nullam, turpis et commodo pharetra, est eros bibendum elit, nec luctus magna felis sollicitudin mauris. Integer in mauris eu nibh euismod gravida. Duis ac tellus et risus vulputate vehicula. Donec lobortis risus a elit. Etiam tempor.");
             document.add_u64(ctid_field, i as u64);
-            writer.insert(document, i as u64).unwrap();
+            if let Some(meta) = writer.insert(document, i as u64).unwrap() {
+                segment_ids.insert(meta.id());
+            }
         }
 
-        writer.commit().unwrap()
+        segment_ids.extend(writer.commit().unwrap().iter().map(|meta| meta.id()));
+        segment_ids
     }
 
     #[pg_test]
@@ -431,16 +436,16 @@ mod tests {
         let relation_oid = get_relation_oid();
         let config = IndexWriterConfig {
             memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
+            max_docs_per_segment: None,
         };
         let segment_ids = simulate_index_writer(config, relation_oid, 8);
         assert_eq!(segment_ids.len(), 1);
-        assert_eq!(segment_ids.iter().map(|s| s.max_doc).sum::<u32>(), 8);
 
         let config = IndexWriterConfig {
             memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
+            max_docs_per_segment: None,
         };
         let segment_ids = simulate_index_writer(config, relation_oid, 25000);
         assert_eq!(segment_ids.len(), 5);
-        assert_eq!(segment_ids.iter().map(|s| s.max_doc).sum::<u32>(), 25000);
     }
 }

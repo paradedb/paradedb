@@ -15,7 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use pgrx::{pg_sys, GucContext, GucFlags, GucRegistry, GucSetting};
+use pgrx::pg_sys::panic::ErrorReport;
+use pgrx::{
+    function_name, pg_sys, GucContext, GucFlags, GucRegistry, GucSetting, PgLogLevel,
+    PgSqlErrorCode,
+};
 use std::num::NonZeroUsize;
 
 /// Allows the user to toggle the use of our "ParadeDB Custom Scan".  The default is `true`.
@@ -147,40 +151,50 @@ pub fn per_tuple_cost() -> f64 {
     PER_TUPLE_COST.get()
 }
 
-pub fn adjust_mem(mem: usize, nlaunched: usize, min_mem_per_worker: usize) -> NonZeroUsize {
-    // NB:  These limits come from [`tantivy::index_writer::MEMORY_BUDGET_NUM_BYTES_MAX`], which is not publicly exposed
-    mod limits {
-        // Size of the margin for the `memory_arena`. A segment is closed when the remaining memory
-        // in the `memory_arena` goes below MARGIN_IN_BYTES.
-        pub const MARGIN_IN_BYTES: usize = 1_000_000;
+// NB:  These limits come from [`tantivy::index_writer::MEMORY_BUDGET_NUM_BYTES_MAX`], which is not publicly exposed
+mod limits {
+    const MARGIN_IN_BYTES: usize = 1_000_000;
+    // Size of the margin for the `memory_arena`. A segment is closed when the remaining memory
+    // in the `memory_arena` goes below MARGIN_IN_BYTES.
+    pub const MEMORY_BUDGET_NUM_BYTES_MIN: usize = 15 * MARGIN_IN_BYTES;
 
-        // We impose the memory per thread to be no greater than 4GB as that's tantivy's limit
-        pub const MEMORY_BUDGET_NUM_BYTES_MAX: usize = (4 * 1024 * 1024 * 1024) - MARGIN_IN_BYTES;
-    }
+    // We impose the memory per thread to be no greater than 4GB as that's tantivy's limit
+    pub const MEMORY_BUDGET_NUM_BYTES_MAX: usize = (4 * 1024 * 1024 * 1024) - MARGIN_IN_BYTES;
+}
 
+pub fn adjust_maintenance_work_mem(nlaunched: usize) -> NonZeroUsize {
     let nlaunched = nlaunched.max(1);
-    let mwm_as_bytes = mem * 1024;
+    let mwm_as_bytes = unsafe { pg_sys::maintenance_work_mem as usize } * 1024;
     let per_worker_budget = mwm_as_bytes / nlaunched;
+
+    if per_worker_budget < limits::MEMORY_BUDGET_NUM_BYTES_MIN {
+        ErrorReport::new(
+            PgSqlErrorCode::ERRCODE_INSUFFICIENT_RESOURCES,
+            "`maintenance_work_mem` is not high enough to give each parallel worker 15MB",
+            function_name!(),
+        )
+        .set_detail(format!("this query asked for {nlaunched} workers, so `maintenance_work_mem` must be at least {nlaunched} * 15MB"))
+        .set_hint("`SET maintenance_work_mem = <number>`")
+        .report(PgLogLevel::ERROR);
+    } else {
+        pgrx::debug1!(
+            "adjust_maintenance_work_mem: per_worker_budget: {per_worker_budget}, minimum: {}",
+            limits::MEMORY_BUDGET_NUM_BYTES_MIN
+        );
+    }
 
     // clamp the per_thread_budget to the min/max values
     let per_worker_budget = per_worker_budget.clamp(
-        limits::MARGIN_IN_BYTES * min_mem_per_worker,
+        limits::MEMORY_BUDGET_NUM_BYTES_MIN,
         limits::MEMORY_BUDGET_NUM_BYTES_MAX - 1,
     );
 
     NonZeroUsize::new(per_worker_budget * nlaunched).unwrap()
 }
 
-pub fn adjust_maintenance_work_mem(nlaunched: usize) -> NonZeroUsize {
-    adjust_mem(
-        unsafe { pg_sys::maintenance_work_mem as usize },
-        nlaunched,
-        15,
-    )
-}
-
-pub fn adjust_work_mem(nlaunched: usize) -> NonZeroUsize {
-    adjust_mem(unsafe { pg_sys::work_mem as usize }, nlaunched, 15)
+pub fn adjust_work_mem() -> NonZeroUsize {
+    NonZeroUsize::new(unsafe { pg_sys::work_mem as usize }.max(limits::MEMORY_BUDGET_NUM_BYTES_MIN))
+        .unwrap()
 }
 
 pub fn target_segment_count() -> usize {

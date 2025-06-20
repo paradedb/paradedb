@@ -380,8 +380,8 @@ pub unsafe fn attname_from_var(
     (heaprelid, attname)
 }
 
-/// Given a [`pg_sys::PlannerInfo`] and a [`pg_sys::Node`] from it, figure out the name of the `Node`,
-/// it supports `FuncExpr` and `Var` nodes. Note that for the heap relation, the `Var` must be
+/// Given a [`pg_sys::PlannerInfo`] and a [`pg_sys::Node`] from it, figure out the name of the `Node`.
+/// It supports `FuncExpr` and `Var` nodes. Note that for the heap relation, the `Var` must be
 /// the first argument of the `FuncExpr`.
 /// This function requires the node to be related to a `bm25` index, otherwise it will panic.
 ///

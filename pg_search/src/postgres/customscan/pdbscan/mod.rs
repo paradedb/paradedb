@@ -24,6 +24,7 @@ mod pushdown;
 mod qual_inspect;
 mod scan_state;
 mod solve_expr;
+mod unified_evaluator;
 
 use crate::api::operator::{anyelement_query_input_opoid, estimate_selectivity};
 use crate::api::Cardinality;
@@ -58,6 +59,9 @@ use crate::postgres::customscan::pdbscan::qual_inspect::{
     extract_join_predicates, extract_quals_with_non_indexed, Qual,
 };
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
+use crate::postgres::customscan::pdbscan::unified_evaluator::{
+    apply_unified_heap_filter, UnifiedEvaluationResult,
+};
 use crate::postgres::customscan::{self, CustomScan, CustomScanState};
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::var::find_var_relation;
@@ -73,7 +77,7 @@ use pgrx::{
 use std::ffi::CStr;
 use std::ptr::addr_of_mut;
 use tantivy::snippet::SnippetGenerator;
-use tantivy::Index;
+use tantivy::{DocAddress, Index};
 
 #[derive(Default)]
 pub struct PdbScan;
@@ -213,82 +217,68 @@ impl PdbScan {
         ri_type: RestrictInfoType,
         schema: &SearchIndexSchema,
     ) -> (Option<Qual>, RestrictInfoType, PgList<pg_sys::RestrictInfo>) {
+        // Phase 1 of Unified Expression Evaluation: Simplified query planning
+        // Instead of trying to separate indexed and non-indexed predicates,
+        // we use a unified approach that handles entire expressions
+
         let mut uses_tantivy_to_query = false;
 
-        // Try extracting quals with separation of indexed and non-indexed predicates
-        let (indexed_quals, all_quals) = extract_quals_with_non_indexed(
+        // First, try to extract any search operators (@@@ operators) from the expressions
+        // This determines if we should use our custom scan at all
+        let (indexed_quals, _all_quals) = extract_quals_with_non_indexed(
             root,
             rti,
             restrict_info.as_ptr().cast(),
             pdbopoid,
             ri_type,
             schema,
-            false, // Base relation quals should not convert external to all
+            true, // Always convert external predicates to allow partial extraction
             &mut uses_tantivy_to_query,
         );
 
-        if indexed_quals.is_some() {
-            // All predicates can be indexed, no heap filtering needed
-            return (indexed_quals, ri_type, restrict_info);
-        }
-
-        // If we have non-indexed quals (in case of indexed_quals being None, but all_quals being Some),
-        // store them for heap filtering
-        if all_quals.is_some() {
-            // We have some indexed and some non-indexed predicates
-            // Set up heap filtering for all predicates since we can't easily separate them
-            if let Some(all_node_string) = extract_restrictinfo_string(&restrict_info, rti, root) {
+        // If we found any search operators, we proceed with the unified approach
+        if uses_tantivy_to_query {
+            // Extract the entire expression as a node string for heap filtering
+            // This ensures we preserve the complete boolean logic
+            if let Some(node_string) = extract_restrictinfo_string(&restrict_info, rti, root) {
                 builder
                     .custom_private()
-                    .set_heap_filter_node_string(Some(all_node_string));
+                    .set_heap_filter_node_string(Some(node_string));
+            }
+
+            // For the Tantivy query, we use a simplified approach:
+            // - If we have indexed predicates, use them
+            // - Otherwise, use All to scan all documents (heap filter will do the filtering)
+            let tantivy_qual = if indexed_quals.is_some() {
+                indexed_quals
             } else {
-                // If we couldn't extract the non-indexed quals, then we can't use the custom scan
-                return (indexed_quals, ri_type, restrict_info);
-            }
+                // Use All query to scan all documents, letting heap filter handle everything
+                Some(Qual::All)
+            };
+
+            return (tantivy_qual, ri_type, restrict_info);
         }
 
-        // If we have search operators but couldn't extract indexed quals, try partial extraction
-        if uses_tantivy_to_query {
-            // Try to extract just the search operators by being more permissive
-            let mut partial_uses_tantivy_to_query = false;
-            let (partial_quals, partial_non_indexed) = extract_quals_with_non_indexed(
-                root,
-                rti,
-                restrict_info.as_ptr().cast(),
-                pdbopoid,
-                ri_type,
-                schema,
-                true, // Convert external predicates to "All" to allow partial extraction
-                &mut partial_uses_tantivy_to_query,
-            );
-
-            if partial_quals.is_some() && partial_uses_tantivy_to_query {
-                return (partial_quals, ri_type, restrict_info);
-            }
-        }
-
-        // If we couldn't push down quals, try to push down quals from the join
-        // This is only done if we have a join predicate, and only if we have used our operator
+        // If we have no search operators, try to extract from join clauses
         let joinri: PgList<pg_sys::RestrictInfo> = PgList::from_pg(builder.args().rel().joininfo);
         let mut join_uses_tantivy_to_query = false;
-        let (join_indexed_quals, join_all_quals) = extract_quals_with_non_indexed(
+        let (join_indexed_quals, _join_all_quals) = extract_quals_with_non_indexed(
             root,
             rti,
             joinri.as_ptr().cast(),
             anyelement_query_input_opoid(),
             RestrictInfoType::Join,
             schema,
-            true, // Join quals should convert external to all
+            true, // Always convert external predicates for joins
             &mut join_uses_tantivy_to_query,
         );
 
-        // If we have used our operator in the join, or if we have used our operator in the
-        // base relation, then we can use the join quals
-        if uses_tantivy_to_query || join_uses_tantivy_to_query {
-            (join_indexed_quals, RestrictInfoType::Join, joinri)
-        } else {
-            (join_indexed_quals, ri_type, restrict_info)
+        if join_uses_tantivy_to_query {
+            return (join_indexed_quals, RestrictInfoType::Join, joinri);
         }
+
+        // No search operators found anywhere, can't use custom scan
+        (None, ri_type, restrict_info)
     }
 
     /// Initialize the heap filter expression state using the heap filter node string (if it exists).
@@ -1059,11 +1049,16 @@ impl CustomScan for PdbScan {
                             }
                         };
 
-                        // Apply heap filtering if needed
-                        if !apply_heap_filter(state, slot) {
+                        // Apply enhanced heap filtering with unified expression evaluation
+                        let filter_result =
+                            apply_enhanced_heap_filter(state, slot, score, doc_address);
+                        if !filter_result.matches {
                             // Tuple doesn't pass heap filter, skip it
                             continue;
                         }
+
+                        // Use the enhanced score from the unified evaluator
+                        let enhanced_score = filter_result.score;
 
                         if !state.custom_state().need_scores()
                             && !state.custom_state().need_snippets()
@@ -1093,7 +1088,8 @@ impl CustomScan for PdbScan {
                                     .custom_state()
                                     .const_score_node
                                     .expect("const_score_node should be set");
-                                (*const_score_node).constvalue = score.into_datum().unwrap();
+                                (*const_score_node).constvalue =
+                                    enhanced_score.into_datum().unwrap();
                                 (*const_score_node).constisnull = false;
                             }
 
@@ -1174,8 +1170,10 @@ impl CustomScan for PdbScan {
                 ExecState::Virtual { slot } => unsafe {
                     state.custom_state_mut().virtual_tuple_count += 1;
 
-                    // Apply heap filtering if needed
-                    if !apply_heap_filter(state, slot) {
+                    // Apply enhanced heap filtering - for virtual tuples, we don't have a specific score
+                    let filter_result =
+                        apply_enhanced_heap_filter(state, slot, 1.0, DocAddress::new(0, 0));
+                    if !filter_result.matches {
                         // Tuple doesn't pass heap filter, skip it
                         continue;
                     }
@@ -2147,5 +2145,51 @@ unsafe fn remove_operator(node: *mut pg_sys::Node, operator_oid: pg_sys::Oid) ->
             new_bool_expr.cast()
         }
         _ => node, // For other node types, return as-is
+    }
+}
+
+/// Enhanced heap filter that uses the UnifiedExpressionEvaluator for better scoring
+/// This replaces the simple boolean apply_heap_filter with enhanced scoring capabilities
+unsafe fn apply_enhanced_heap_filter(
+    state: &mut CustomScanStateWrapper<PdbScan>,
+    slot: *mut pg_sys::TupleTableSlot,
+    current_score: f32,
+    doc_address: DocAddress,
+) -> UnifiedEvaluationResult {
+    // Get values first to avoid borrowing conflicts
+    let heap_filter_expr_state = state.custom_state().heap_filter_expr_state;
+
+    // If there's no heap filter, just return the current score
+    if heap_filter_expr_state.is_none() {
+        return UnifiedEvaluationResult::new(true, current_score);
+    }
+
+    let expr_context = (*state.planstate()).ps_ExprContext;
+    let has_search_reader = state.custom_state().search_reader.is_some();
+    let has_indexrel = state.custom_state().indexrel.is_some();
+
+    if has_search_reader && has_indexrel {
+        // Get the references we need
+        let search_reader = state.custom_state().search_reader.as_ref().unwrap();
+        let indexrel_oid = *state.custom_state().indexrel.as_ref().unwrap();
+        let indexrel = PgRelation::from_pg(indexrel_oid);
+        let schema =
+            SearchIndexSchema::open(indexrel.oid()).expect("should be able to open schema");
+
+        // Use the unified heap filter for enhanced scoring
+        apply_unified_heap_filter(
+            search_reader,
+            &schema,
+            heap_filter_expr_state,
+            expr_context,
+            slot,
+            0, // We don't have the actual DocId here, using 0 as placeholder
+            doc_address,
+            current_score,
+        )
+    } else {
+        // Fall back to the original apply_heap_filter behavior
+        let matches = apply_heap_filter(state, slot);
+        UnifiedEvaluationResult::new(matches, current_score)
     }
 }

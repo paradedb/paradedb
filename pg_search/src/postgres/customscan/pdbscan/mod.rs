@@ -56,7 +56,7 @@ use crate::postgres::customscan::pdbscan::projections::{
     inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
 };
 use crate::postgres::customscan::pdbscan::qual_inspect::{
-    extract_join_predicates, extract_quals_with_non_indexed, Qual,
+    extract_join_predicates, extract_quals, extract_quals_with_non_indexed, Qual,
 };
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::customscan::pdbscan::unified_evaluator::{
@@ -217,14 +217,13 @@ impl PdbScan {
         ri_type: RestrictInfoType,
         schema: &SearchIndexSchema,
     ) -> (Option<Qual>, RestrictInfoType, PgList<pg_sys::RestrictInfo>) {
-        // Phase 1 of Unified Expression Evaluation: Simplified query planning
-        // Instead of trying to separate indexed and non-indexed predicates,
-        // we use a unified approach that handles entire expressions
+        // Phase 4: Enhanced unified approach with smart base query optimization
+        // Instead of using All query, we extract indexed predicates to create a more efficient base query
+        // that reduces the document set before unified evaluation
 
         let mut uses_tantivy_to_query = false;
 
         // First, try to extract any search operators (@@@ operators) from the expressions
-        // This determines if we should use our custom scan at all
         let (indexed_quals, _all_quals) = extract_quals_with_non_indexed(
             root,
             rti,
@@ -246,17 +245,19 @@ impl PdbScan {
                     .set_heap_filter_node_string(Some(node_string));
             }
 
-            // For the Tantivy query, we use a simplified approach:
-            // - If we have indexed predicates, use them
-            // - Otherwise, use All to scan all documents (heap filter will do the filtering)
-            let tantivy_qual = if indexed_quals.is_some() {
-                indexed_quals
-            } else {
-                // Use All query to scan all documents, letting heap filter handle everything
-                Some(Qual::All)
-            };
+            // Phase 4: Smart base query optimization
+            // Create an optimized base query that reduces the document set
+            let optimized_base_qual = optimize_base_query_for_unified_evaluation(
+                &indexed_quals,
+                &restrict_info,
+                root,
+                rti,
+                pdbopoid,
+                ri_type,
+                schema,
+            );
 
-            return (tantivy_qual, ri_type, restrict_info);
+            return (optimized_base_qual, ri_type, restrict_info);
         }
 
         // If we have no search operators, try to extract from join clauses
@@ -2290,5 +2291,186 @@ unsafe fn apply_enhanced_heap_filter(
         // Fall back to the original apply_heap_filter behavior
         let matches = apply_heap_filter(state, slot);
         UnifiedEvaluationResult::new(matches, current_score)
+    }
+}
+
+/// Phase 4: Smart base query optimization for unified evaluation
+/// Creates an optimized base query that reduces the document set while preserving
+/// the ability to handle mixed expressions in the heap filter
+unsafe fn optimize_base_query_for_unified_evaluation(
+    indexed_quals: &Option<Qual>,
+    restrict_info: &PgList<pg_sys::RestrictInfo>,
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+    pdbopoid: pg_sys::Oid,
+    ri_type: RestrictInfoType,
+    schema: &SearchIndexSchema,
+) -> Option<Qual> {
+    // Phase 4: Strategy for base query optimization:
+    // 1. If we have indexed predicates, use them to create a selective base query
+    // 2. For mixed expressions like "(name @@@ 'Apple' OR description @@@ 'smartphone') OR category = 'Electronics'"
+    //    extract the indexed parts: "(name @@@ 'Apple' OR description @@@ 'smartphone')"
+    // 3. This reduces the document set while letting unified evaluation handle the complete logic
+
+    if let Some(ref indexed_qual) = indexed_quals {
+        // We have indexed predicates - use them as the base query
+        // This is already optimal for pure indexed queries
+        return indexed_quals.clone();
+    }
+
+    // No direct indexed predicates found, but we might have mixed expressions
+    // Try to extract indexed components from mixed boolean expressions
+    let extracted_indexed_components = extract_indexed_components_from_mixed_expressions(
+        restrict_info,
+        root,
+        rti,
+        pdbopoid,
+        ri_type,
+        schema,
+    );
+
+    if let Some(indexed_components) = extracted_indexed_components {
+        // We found some indexed components in mixed expressions
+        // Use them as a pre-filter to reduce the document set
+        return Some(indexed_components);
+    }
+
+    // No indexed components found at all - fall back to All query
+    // The unified evaluator will handle all filtering in the heap filter
+    Some(Qual::All)
+}
+
+/// Phase 4: Extract indexed components from mixed boolean expressions
+/// This function analyzes complex expressions to find indexed predicates that can be
+/// used as a base query to reduce the document set
+unsafe fn extract_indexed_components_from_mixed_expressions(
+    restrict_info: &PgList<pg_sys::RestrictInfo>,
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+    pdbopoid: pg_sys::Oid,
+    ri_type: RestrictInfoType,
+    schema: &SearchIndexSchema,
+) -> Option<Qual> {
+    let mut indexed_components = Vec::new();
+
+    for ri in restrict_info.iter_ptr() {
+        let clause = if !(*ri).orclause.is_null() {
+            (*ri).orclause
+        } else {
+            (*ri).clause
+        };
+
+        // Try to extract indexed components from this clause
+        if let Some(indexed_component) = extract_indexed_component_from_clause(
+            clause.cast(),
+            root,
+            rti,
+            pdbopoid,
+            ri_type,
+            schema,
+        ) {
+            indexed_components.push(indexed_component);
+        }
+    }
+
+    if indexed_components.is_empty() {
+        return None;
+    }
+
+    // Combine multiple indexed components with AND
+    // This creates a selective base query that reduces the document set
+    if indexed_components.len() == 1 {
+        Some(indexed_components.into_iter().next().unwrap())
+    } else {
+        Some(Qual::And(indexed_components))
+    }
+}
+
+/// Phase 4: Extract indexed component from a single clause
+/// Analyzes a PostgreSQL expression tree to find indexed predicates
+unsafe fn extract_indexed_component_from_clause(
+    clause: *mut pg_sys::Node,
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+    pdbopoid: pg_sys::Oid,
+    ri_type: RestrictInfoType,
+    schema: &SearchIndexSchema,
+) -> Option<Qual> {
+    if clause.is_null() {
+        return None;
+    }
+
+    match (*clause).type_ {
+        pg_sys::NodeTag::T_OpExpr => {
+            let op_expr = clause.cast::<pg_sys::OpExpr>();
+            if (*op_expr).opno == pdbopoid {
+                // This is a @@@ operator - try to extract it as an indexed predicate
+                let mut uses_tantivy = false;
+                extract_quals(
+                    root,
+                    rti,
+                    clause,
+                    pdbopoid,
+                    ri_type,
+                    schema,
+                    true,
+                    &mut uses_tantivy,
+                )
+            } else {
+                None
+            }
+        }
+        pg_sys::NodeTag::T_BoolExpr => {
+            let bool_expr = clause.cast::<pg_sys::BoolExpr>();
+            let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
+
+            match (*bool_expr).boolop {
+                pg_sys::BoolExprType::AND_EXPR => {
+                    // For AND expressions, extract all indexed components
+                    let mut and_components = Vec::new();
+                    for arg in args.iter_ptr() {
+                        if let Some(component) = extract_indexed_component_from_clause(
+                            arg, root, rti, pdbopoid, ri_type, schema,
+                        ) {
+                            and_components.push(component);
+                        }
+                    }
+                    if and_components.is_empty() {
+                        None
+                    } else if and_components.len() == 1 {
+                        Some(and_components.into_iter().next().unwrap())
+                    } else {
+                        Some(Qual::And(and_components))
+                    }
+                }
+                pg_sys::BoolExprType::OR_EXPR => {
+                    // For OR expressions, extract indexed components that can be used as a pre-filter
+                    let mut or_components = Vec::new();
+                    for arg in args.iter_ptr() {
+                        if let Some(component) = extract_indexed_component_from_clause(
+                            arg, root, rti, pdbopoid, ri_type, schema,
+                        ) {
+                            or_components.push(component);
+                        }
+                    }
+                    if or_components.is_empty() {
+                        None
+                    } else if or_components.len() == 1 {
+                        Some(or_components.into_iter().next().unwrap())
+                    } else {
+                        // Phase 4: For OR with mixed indexed/non-indexed predicates,
+                        // we can use the indexed parts as a pre-filter
+                        // The unified evaluator will handle the complete OR logic
+                        Some(Qual::Or(or_components))
+                    }
+                }
+                pg_sys::BoolExprType::NOT_EXPR => {
+                    // NOT expressions are tricky for optimization - skip for now
+                    None
+                }
+                _ => None,
+            }
+        }
+        _ => None,
     }
 }

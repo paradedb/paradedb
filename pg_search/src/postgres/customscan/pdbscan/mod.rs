@@ -60,7 +60,7 @@ use crate::postgres::customscan::pdbscan::qual_inspect::{
 };
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::customscan::pdbscan::unified_evaluator::{
-    apply_unified_heap_filter, UnifiedEvaluationResult,
+    apply_complete_unified_heap_filter, apply_unified_heap_filter, UnifiedEvaluationResult,
 };
 use crate::postgres::customscan::{self, CustomScan, CustomScanState};
 use crate::postgres::rel_get_bm25_index;
@@ -1050,8 +1050,47 @@ impl CustomScan for PdbScan {
                         };
 
                         // Apply enhanced heap filtering with unified expression evaluation
-                        let filter_result =
-                            apply_enhanced_heap_filter(state, slot, score, doc_address);
+                        let filter_result = {
+                            // Get expr_context first to avoid borrowing conflicts
+                            let expr_context = (*state.planstate()).ps_ExprContext;
+
+                            // Get all other values we need upfront to avoid borrowing conflicts
+                            let heap_filter_node_string =
+                                state.custom_state().heap_filter_node_string.clone();
+                            let has_search_reader = state.custom_state().search_reader.is_some();
+                            let has_indexrel = state.custom_state().indexrel.is_some();
+
+                            if let Some(heap_filter_node_string) = heap_filter_node_string {
+                                if has_search_reader && has_indexrel {
+                                    // Get the references we need
+                                    let search_reader =
+                                        state.custom_state().search_reader.as_ref().unwrap();
+                                    let indexrel_oid =
+                                        *state.custom_state().indexrel.as_ref().unwrap();
+
+                                    // Now we can safely create the schema without borrowing conflicts
+                                    let indexrel = PgRelation::from_pg(indexrel_oid);
+                                    let schema = SearchIndexSchema::open(indexrel.oid())
+                                        .expect("should be able to open schema");
+
+                                    apply_complete_unified_heap_filter(
+                                        search_reader,
+                                        &schema,
+                                        &heap_filter_node_string,
+                                        expr_context,
+                                        slot,
+                                        doc_address.doc_id,
+                                        doc_address,
+                                        score,
+                                    )
+                                } else {
+                                    apply_enhanced_heap_filter(state, slot, score, doc_address)
+                                }
+                            } else {
+                                apply_enhanced_heap_filter(state, slot, score, doc_address)
+                            }
+                        };
+
                         if !filter_result.matches {
                             // Tuple doesn't pass heap filter, skip it
                             continue;
@@ -1947,7 +1986,9 @@ unsafe fn create_heap_filter_expr(heap_filter_node_string: &str) -> *mut pg_sys:
             let clause_node = pg_sys::stringToNode(clause_cstr.as_ptr());
 
             if !clause_node.is_null() {
-                args_list = pg_sys::lappend(args_list, clause_node.cast::<core::ffi::c_void>());
+                // For the legacy ExprState path, replace @@@ operators with TRUE constants
+                let processed_node = replace_search_operators_with_true(clause_node.cast());
+                args_list = pg_sys::lappend(args_list, processed_node.cast::<core::ffi::c_void>());
             } else {
                 panic!("Failed to parse clause string: {}", clause_str);
             }
@@ -1967,16 +2008,72 @@ unsafe fn create_heap_filter_expr(heap_filter_node_string: &str) -> *mut pg_sys:
             panic!("Failed to parse any clauses: {}", heap_filter_node_string);
         }
     } else {
-        // Single clause - simple stringToNode + ExecInitExpr
+        // Single clause - for legacy ExprState path, process @@@ operators
         let node_cstr = std::ffi::CString::new(heap_filter_node_string)
             .expect("Failed to create CString from node string");
         let node = pg_sys::stringToNode(node_cstr.as_ptr());
 
         if !node.is_null() {
-            node.cast::<pg_sys::Expr>()
+            // For the legacy ExprState path, replace @@@ operators with TRUE constants
+            let processed_node = replace_search_operators_with_true(node.cast());
+            processed_node.cast::<pg_sys::Expr>()
         } else {
             panic!("Failed to deserialize node: {}", heap_filter_node_string);
         }
+    }
+}
+
+/// Replace @@@ operators with TRUE constants in expressions for heap evaluation
+/// Since documents reaching heap filter have already passed Tantivy search,
+/// @@@ operators should be considered TRUE for those documents
+unsafe fn replace_search_operators_with_true(node: *mut pg_sys::Node) -> *mut pg_sys::Node {
+    if node.is_null() {
+        return node;
+    }
+
+    match (*node).type_ {
+        pg_sys::NodeTag::T_OpExpr => {
+            let opexpr = node.cast::<pg_sys::OpExpr>();
+            if (*opexpr).opno == anyelement_query_input_opoid() {
+                // This is a @@@ operator - replace with TRUE constant
+                return create_bool_const_true().unwrap_or(node);
+            }
+            // Otherwise, recurse into args to handle nested expressions
+            let args_list = (*opexpr).args;
+            if args_list.is_null() {
+                return node;
+            }
+            let old_args = PgList::<pg_sys::Node>::from_pg(args_list);
+            let mut new_args = std::ptr::null_mut();
+            for arg in old_args.iter_ptr() {
+                let processed = replace_search_operators_with_true(arg);
+                new_args = pg_sys::lappend(new_args, processed.cast::<core::ffi::c_void>());
+            }
+            // Build a shallow copy with replaced args
+            let new_opexpr = pg_sys::copyObjectImpl(node.cast()).cast::<pg_sys::OpExpr>();
+            (*new_opexpr).args = new_args;
+            new_opexpr.cast()
+        }
+        pg_sys::NodeTag::T_BoolExpr => {
+            let boolexpr = node.cast::<pg_sys::BoolExpr>();
+            if (*boolexpr).args.is_null() {
+                return node;
+            }
+
+            // Process all arguments to replace @@@ operators with TRUE
+            let old_args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
+            let mut new_args = std::ptr::null_mut();
+            for arg in old_args.iter_ptr() {
+                let processed = replace_search_operators_with_true(arg);
+                new_args = pg_sys::lappend(new_args, processed.cast::<core::ffi::c_void>());
+            }
+
+            // Create new boolean expression with processed arguments
+            let new_bool_expr = pg_sys::copyObjectImpl(node.cast()).cast::<pg_sys::BoolExpr>();
+            (*new_bool_expr).args = new_args;
+            new_bool_expr.cast()
+        }
+        _ => node, // For other node types, return as-is
     }
 }
 
@@ -2012,9 +2109,9 @@ unsafe fn create_human_readable_filter_text(
     "<expression>".to_string()
 }
 
-/// Extract non-indexed predicates from restrict_info and serialize them as node strings
+/// Extract complete expressions from restrict_info and serialize them as node strings
+/// Preserves both indexed and non-indexed predicates for unified evaluation
 /// Replaces cross-relation expressions with TRUE to avoid evaluation errors
-/// Returns the node string for execution - display text will be generated in EXPLAIN using proper context
 unsafe fn extract_restrictinfo_string(
     restrict_info: &PgList<pg_sys::RestrictInfo>,
     current_rti: pg_sys::Index,
@@ -2038,11 +2135,13 @@ unsafe fn extract_restrictinfo_string(
         // Clean any nested RestrictInfo nodes recursively
         let cleaned_clause = clean_restrictinfo_recursively(clause.cast());
 
-        // For the node string (execution): replace cross-relation expressions with TRUE constants
+        // For the unified approach: replace cross-relation expressions with TRUE constants
+        // but PRESERVE search operators (@@@ operators) for unified evaluation
         let processed_clause =
             replace_cross_relation_expressions_with_true(cleaned_clause, current_rti);
-        let processed_clause =
-            remove_operator_safe(processed_clause, anyelement_query_input_opoid());
+
+        // Unified Approach: DO NOT remove search operators - preserve the entire expression
+        // This allows the unified evaluator to handle both indexed and non-indexed predicates
         let clause_string: *mut i8 =
             pg_sys::nodeToString(processed_clause.cast::<core::ffi::c_void>());
         let rust_string = std::ffi::CStr::from_ptr(clause_string)

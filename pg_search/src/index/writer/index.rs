@@ -19,12 +19,9 @@ use crate::api::{HashMap, HashSet};
 use anyhow::Result;
 use pgrx::{pg_sys, PgRelation};
 use std::num::NonZeroUsize;
-use tantivy::directory::RamDirectory;
 use tantivy::index::SegmentId;
-use tantivy::indexer::merger::IndexMerger;
-use tantivy::indexer::segment_serializer::SegmentSerializer;
 use tantivy::indexer::{AddOperation, SegmentWriter};
-use tantivy::schema::{Field, Schema};
+use tantivy::schema::Field;
 use tantivy::{
     Directory, Index, IndexMeta, IndexWriter, Opstamp, Segment, SegmentMeta, TantivyDocument,
 };
@@ -32,44 +29,17 @@ use thiserror::Error;
 
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::setup_tokenizers;
-use crate::postgres::insert::garbage_collect_index;
 use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::{postgres::types::TantivyValueError, schema::SearchIndexSchema};
-
-#[derive(Clone, Debug)]
-enum DirectoryType {
-    Mvcc,
-    Ram(RamDirectory),
-}
 
 struct PendingSegment {
     segment: Segment,
     writer: SegmentWriter,
-    directory_type: DirectoryType,
     opstamp: Opstamp,
 }
 
 impl PendingSegment {
-    fn new_ram(
-        directory: RamDirectory,
-        schema: Schema,
-        memory_budget: NonZeroUsize,
-        indexrelid: pg_sys::Oid,
-    ) -> Result<Self> {
-        let mut index = Index::open_or_create(directory.clone(), schema)?;
-        setup_tokenizers(indexrelid, &mut index)?;
-
-        let segment = index.new_segment();
-        let writer = SegmentWriter::for_segment(memory_budget.into(), segment.clone())?;
-        Ok(Self {
-            segment,
-            writer,
-            directory_type: DirectoryType::Ram(directory),
-            opstamp: Default::default(),
-        })
-    }
-
-    fn new_mvcc(
+    fn new(
         directory: MVCCDirectory,
         memory_budget: NonZeroUsize,
         indexrelid: pg_sys::Oid,
@@ -82,7 +52,6 @@ impl PendingSegment {
         Ok(Self {
             segment,
             writer,
-            directory_type: DirectoryType::Mvcc,
             opstamp: Default::default(),
         })
     }
@@ -105,20 +74,12 @@ impl PendingSegment {
         Ok(())
     }
 
-    fn directory_type(&self) -> DirectoryType {
-        self.directory_type.clone()
-    }
-
-    #[allow(dead_code)]
     fn max_doc(&self) -> usize {
         self.writer.max_doc() as usize
     }
 
     fn mem_usage(&self) -> usize {
-        match &self.directory_type {
-            DirectoryType::Ram(directory) => self.writer.mem_usage() + directory.total_mem_usage(),
-            DirectoryType::Mvcc => self.writer.mem_usage(),
-        }
+        self.writer.mem_usage()
     }
 
     fn finalize(self) -> Result<Segment> {
@@ -131,9 +92,8 @@ impl PendingSegment {
 
 #[derive(Debug, Clone)]
 pub struct IndexWriterConfig {
-    pub target_segment_count: Option<NonZeroUsize>,
     pub memory_budget: NonZeroUsize,
-    pub target_docs_per_segment: Option<usize>,
+    pub max_docs_per_segment: Option<u32>,
 }
 
 /// We want SerialIndexWriter to return a struct like SegmentMeta that implements Deserialize
@@ -145,10 +105,6 @@ pub struct CommittedSegment {
 
 /// Unlike Tantivy's IndexWriter, the SerialIndexWriter does not spin up any threads.
 /// Everything happens in the foreground, making it ideal for Postgres.
-///
-/// Also unlike Tantivy's IndexWriter, the SerialIndexWriter is able to create segments of a specific
-/// size specified by `target_docs_per_segment`. It does this by merging the current segment with
-/// the previous segment until the target size is reached.
 pub struct SerialIndexWriter {
     // for logging purposes
     id: i32,
@@ -162,18 +118,28 @@ pub struct SerialIndexWriter {
 }
 
 impl SerialIndexWriter {
-    pub fn open(index_relation: &PgRelation, config: IndexWriterConfig) -> Result<Self> {
-        Self::with_mvcc(index_relation, MvccSatisfies::Snapshot, config)
+    pub fn open(
+        index_relation: &PgRelation,
+        config: IndexWriterConfig,
+        worker_number: i32,
+    ) -> Result<Self> {
+        Self::with_mvcc(
+            index_relation,
+            MvccSatisfies::Snapshot,
+            config,
+            worker_number,
+        )
     }
 
     pub fn with_mvcc(
         index_relation: &PgRelation,
         mvcc_satisfies: MvccSatisfies,
         config: IndexWriterConfig,
+        worker_number: i32,
     ) -> Result<Self> {
         pgrx::debug1!(
             "writer {}: opening index writer with config: {:?}, satisfies: {:?}",
-            unsafe { pgrx::pg_sys::ParallelWorkerNumber },
+            worker_number,
             config,
             mvcc_satisfies
         );
@@ -185,7 +151,7 @@ impl SerialIndexWriter {
         let ctid_field = schema.ctid_field();
 
         Ok(Self {
-            id: unsafe { pgrx::pg_sys::ParallelWorkerNumber },
+            id: worker_number,
             indexrelid: index_relation.oid(),
             ctid_field,
             config,
@@ -200,7 +166,11 @@ impl SerialIndexWriter {
         self.indexrelid
     }
 
-    pub fn insert(&mut self, mut document: TantivyDocument, ctid: u64) -> Result<()> {
+    pub fn insert(
+        &mut self,
+        mut document: TantivyDocument,
+        ctid: u64,
+    ) -> Result<Option<SegmentMeta>> {
         document.add_u64(self.ctid_field, ctid);
 
         if self.pending_segment.is_none() {
@@ -218,66 +188,35 @@ impl SerialIndexWriter {
 
         if mem_usage >= self.config.memory_budget.into() {
             pgrx::debug1!(
-                "writer {}: finalizing segment, mem_usage: {} (out of {}), num segments: {}, max doc: {}",
+                "writer {}: finalizing segment {} with {} docs, mem_usage: {} (out of {}), has created {} segments so far",
                 self.id,
+                pending_segment.segment.id(),
+                max_doc,
                 mem_usage,
                 self.config.memory_budget.get(),
-                self.new_metas.len(),
-                max_doc
+                self.new_metas.len()
             );
             return self.finalize_segment();
         }
 
-        if let Some(mut target_docs_per_segment) = self.config.target_docs_per_segment {
-            // If there's a target segment count, subtract 1 to account for the fact that the writer first creates
-            // `target_segment_count` number of single-doc segments.
-            if self.config.target_segment_count.is_some() {
-                target_docs_per_segment -= 1;
-            }
-            // If the target segment count is not 1, we can finalize if we've reached the target docs per segment
-            // If the target segment count is 1, then the target_docs_per_segment doesn't matter so avoid the extra merging
-            if self.config.target_segment_count != Some(NonZeroUsize::new(1).unwrap())
-                && max_doc >= target_docs_per_segment
-            {
+        if let Some(max_docs_per_segment) = self.config.max_docs_per_segment {
+            if max_doc >= max_docs_per_segment as usize {
                 pgrx::debug1!(
-                    "writer {}: finalizing segment, has reached target docs per segment ({} out of {})",
+                    "writer {}: finalizing segment {} with {} docs, has created {} segments so far",
                     self.id,
+                    pending_segment.segment.id(),
                     max_doc,
-                    target_docs_per_segment
+                    self.new_metas.len()
                 );
                 return self.finalize_segment();
             }
         }
 
-        if let Some(target_segment_count) = self.config.target_segment_count {
-            let target_segment_count = target_segment_count.get();
-            if target_segment_count > 1 && self.new_metas.len() < target_segment_count {
-                pgrx::debug1!(
-                    "writer {}: finalizing segment, has not reached target segment count ({} out of {}), max doc: {}",
-                    self.id,
-                    self.new_metas.len(),
-                    target_segment_count,
-                    max_doc
-                );
-                return self.finalize_segment();
-            }
-        }
-
-        Ok(())
+        Ok(None)
     }
 
-    pub fn commit(mut self) -> Result<HashSet<CommittedSegment>> {
-        self.finalize_segment()?;
-        let committed_segments = self
-            .new_metas
-            .iter()
-            .map(|meta| CommittedSegment {
-                segment_id: meta.id(),
-                max_doc: meta.max_doc(),
-            })
-            .collect::<HashSet<_>>();
-        pgrx::debug1!("writer {}: wrote metas: {:?}", self.id, committed_segments);
-        Ok(committed_segments)
+    pub fn commit(mut self) -> Result<Option<SegmentMeta>> {
+        self.finalize_segment()
     }
 
     /// Intelligently create a new segment, backed by either a RamDirectory or a MVCCDirectory.
@@ -287,44 +226,8 @@ impl SerialIndexWriter {
     ///
     /// Otherwise, we create a MVCCDirectory-backed segment.
     fn new_segment(&mut self) -> Result<PendingSegment> {
-        if self.new_metas.is_empty() {
-            pgrx::debug1!(
-                "writer {}: metas is empty, creating a MVCCDirectory-backed segment",
-                self.id
-            );
-            return PendingSegment::new_mvcc(
-                self.directory.clone(),
-                self.config.memory_budget,
-                self.indexrelid,
-            );
-        }
-
-        if let Some(target_segment_count) = self.config.target_segment_count {
-            if self.new_metas.len() < target_segment_count.get() {
-                pgrx::debug1!(
-                    "writer {}: has not reached target segment count ({} out of {}), creating a MVCCDirectory-backed segment",
-                    self.id,
-                    self.new_metas.len(),
-                    target_segment_count.get()
-                );
-                return PendingSegment::new_mvcc(
-                    self.directory.clone(),
-                    self.config.memory_budget,
-                    self.indexrelid,
-                );
-            }
-        } else {
-            return PendingSegment::new_mvcc(
-                self.directory.clone(),
-                self.config.memory_budget,
-                self.indexrelid,
-            );
-        }
-
-        pgrx::debug1!("writer {}: creating a RAMDirectory-backed segment", self.id);
-        PendingSegment::new_ram(
-            RamDirectory::create(),
-            self.index.schema(),
+        PendingSegment::new(
+            self.directory.clone(),
             self.config.memory_budget,
             self.indexrelid,
         )
@@ -336,85 +239,28 @@ impl SerialIndexWriter {
     /// 2. Merge the segment with the previous segment if we're using a RAMDirectory
     /// 3. Save the new meta entry
     /// 4. Return any free space to the FSM
-    fn finalize_segment(&mut self) -> Result<()> {
+    fn finalize_segment(&mut self) -> Result<Option<SegmentMeta>> {
         pgrx::debug1!("writer {}: finalizing segment", self.id);
         let Some(pending_segment) = self.pending_segment.take() else {
             // no docs were ever added
-            return Ok(());
+            return Ok(None);
         };
 
-        let directory_type = pending_segment.directory_type();
         let finalized_segment = pending_segment.finalize()?;
-
-        // If we're committing the last segment, merge it with the previous segment so we don't have any leftover "small" segments
-        // If it's a RAMDirectory-backed segment, it must also be merged with the previous segment
-        match directory_type {
-            DirectoryType::Ram(_) => {
-                assert!(!self.new_metas.is_empty());
-                self.merge_then_commit_segment(finalized_segment)?;
-
-                pgrx::debug1!("writer {}: did a merge, garbage collecting index", self.id);
-                let index_relation = unsafe { PgRelation::open(self.indexrelid) };
-                unsafe {
-                    garbage_collect_index(&index_relation);
-                }
-            }
-            DirectoryType::Mvcc => self.commit_segment(finalized_segment)?,
-        }
-
-        pgrx::debug1!("writer {}: done finalizing segment", self.id);
-        Ok(())
+        Ok(Some(self.commit_segment(finalized_segment)?))
     }
 
-    fn merge_then_commit_segment(&mut self, finalized_segment: Segment) -> Result<()> {
-        let previous_metas = self.new_metas.clone();
-
-        // pop off the smallest segment to merge into
-        let smallest_segment = self
-            .new_metas
-            .iter()
-            .enumerate()
-            .min_by_key(|(_, meta)| meta.max_doc() as usize)
-            .map(|(i, _)| i)
-            .expect("cannot merge without at least one segment");
-        let last_flushed_segment_meta = self.new_metas.remove(smallest_segment);
-
-        // do the merge
+    fn commit_segment(&mut self, finalized_segment: Segment) -> Result<SegmentMeta> {
         pgrx::debug1!(
-            "writer {}: merging into previous segment {}",
-            self.id,
-            last_flushed_segment_meta.id()
-        );
-        let last_flushed_segment = self.index.segment(last_flushed_segment_meta.clone());
-        let mut merger = SearchIndexMerger::open(self.directory.clone())?;
-        let merged_segment_meta = merger.merge_into(&[finalized_segment, last_flushed_segment])?;
-
-        // save the new meta entry
-        if let Some(merged_segment_meta) = merged_segment_meta {
-            pgrx::debug1!(
-                "writer {}: created merged segment {}",
-                self.id,
-                merged_segment_meta.id()
-            );
-            self.new_metas.push(merged_segment_meta.clone());
-            self.save_metas(self.new_metas.clone(), previous_metas)?;
-        } else {
-            pgrx::debug1!("writer {}: no merged segment created", self.id);
-        }
-
-        Ok(())
-    }
-
-    fn commit_segment(&mut self, finalized_segment: Segment) -> Result<()> {
-        pgrx::debug1!(
-            "writer {}: committing segment {} without merging",
+            "writer {}: committing segment {}",
             self.id,
             finalized_segment.id()
         );
         let previous_metas = self.new_metas.clone();
-        self.new_metas.push(finalized_segment.meta().clone());
+        let new_meta = finalized_segment.meta().clone();
+        self.new_metas.push(new_meta.clone());
         self.save_metas(self.new_metas.clone(), previous_metas)?;
-        Ok(())
+        Ok(new_meta)
     }
 
     fn save_metas(
@@ -458,7 +304,7 @@ impl SearchIndexMerger {
         self.directory.all_entries()
     }
 
-    pub fn searchable_segment_ids(&mut self) -> tantivy::Result<HashSet<SegmentId>> {
+    pub fn searchable_segment_ids(&self) -> tantivy::Result<HashSet<SegmentId>> {
         Ok(self.index.searchable_segment_ids()?.into_iter().collect())
     }
 
@@ -496,15 +342,6 @@ pub trait Mergeable {
     /// Will panic if a segment_id has already been merged or if our internal tantivy communications
     /// channels fail for some reason.
     fn merge_segments(&mut self, segment_ids: &[SegmentId]) -> Result<Option<SegmentMeta>>;
-
-    /// Merge any [`Segment`]s into the current index.
-    ///
-    /// These segments can come from anywhere and can be backed by different Index/Directory types.
-    /// For instance, you can merge a RamDirectory-backed segment with a MVCCDirectory-backed segment.
-    ///
-    /// Unlike merge_segments, this method does not update the metas list because it has no knowledge of
-    /// what index the provided segments belong to.
-    fn merge_into(&mut self, segments: &[Segment]) -> Result<Option<SegmentMeta>>;
 }
 
 impl Mergeable for SearchIndexMerger {
@@ -526,40 +363,6 @@ impl Mergeable for SearchIndexMerger {
         }
 
         Ok(new_segment)
-    }
-
-    fn merge_into(&mut self, segments: &[Segment]) -> Result<Option<SegmentMeta>> {
-        assert!(
-            segments
-                .iter()
-                .all(|segment| !self.merged_segment_ids.contains(&segment.id())),
-            "segment was already merged by this merger instance"
-        );
-
-        let num_docs = segments
-            .iter()
-            .map(|segment| segment.meta().num_docs() as u64)
-            .sum::<u64>();
-        if num_docs == 0 {
-            return Ok(None);
-        }
-
-        let merged_segment = self.index.new_segment();
-        let merger = IndexMerger::open(
-            self.index.schema(),
-            segments,
-            {
-                let index = self.index.clone();
-                Box::new(move || index.directory().wants_cancel())
-            },
-            true,
-        )?;
-        let segment_serializer = SegmentSerializer::for_segment(merged_segment.clone())?;
-        let num_docs = merger.write(segment_serializer)?;
-        let segment_meta = self.index.new_segment_meta(merged_segment.id(), num_docs);
-
-        self.merged_segment_ids.insert(merged_segment.id());
-        Ok(Some(segment_meta))
     }
 }
 
@@ -606,131 +409,54 @@ mod tests {
         config: IndexWriterConfig,
         relation_oid: pg_sys::Oid,
         num_docs: usize,
-    ) -> HashSet<CommittedSegment> {
+    ) -> HashSet<SegmentId> {
         let index_relation = unsafe { PgRelation::open(relation_oid) };
-        let mut writer = SerialIndexWriter::open(&index_relation, config).unwrap();
+        let mut writer =
+            SerialIndexWriter::open(&index_relation, config, Default::default()).unwrap();
         let schema = SearchIndexSchema::open(relation_oid).unwrap();
         let ctid_field = schema.ctid_field();
         let text_field = schema.search_field("data").unwrap().field();
+        let mut segment_ids = HashSet::default();
 
         for i in 0..num_docs {
             let mut document = TantivyDocument::new();
             document.add_text(text_field, "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. Curabitur pretium tincidunt lacus. Nulla gravida orci a odio. Nullam, turpis et commodo pharetra, est eros bibendum elit, nec luctus magna felis sollicitudin mauris. Integer in mauris eu nibh euismod gravida. Duis ac tellus et risus vulputate vehicula. Donec lobortis risus a elit. Etiam tempor.");
             document.add_u64(ctid_field, i as u64);
-            writer.insert(document, i as u64).unwrap();
+            if let Some(meta) = writer.insert(document, i as u64).unwrap() {
+                segment_ids.insert(meta.id());
+            }
         }
 
-        writer.commit().unwrap()
+        segment_ids.extend(writer.commit().unwrap().iter().map(|meta| meta.id()));
+        segment_ids
     }
 
     #[pg_test]
-    fn test_index_writer_target_one_segment() {
+    fn test_index_writer_mem_budget() {
         let relation_oid = get_relation_oid();
         let config = IndexWriterConfig {
             memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
-            target_segment_count: Some(NonZeroUsize::new(1).unwrap()),
-            target_docs_per_segment: None,
-        };
-        let segment_ids = simulate_index_writer(config, relation_oid, 25000);
-        assert_eq!(segment_ids.len(), 1);
-        assert_eq!(segment_ids.iter().next().unwrap().max_doc, 25000);
-    }
-
-    #[pg_test]
-    fn test_index_writer_target_two_segments() {
-        let relation_oid = get_relation_oid();
-        let config = IndexWriterConfig {
-            memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
-            target_segment_count: Some(NonZeroUsize::new(2).unwrap()),
-            target_docs_per_segment: None,
-        };
-        let segment_ids = simulate_index_writer(config, relation_oid, 25000);
-        assert_eq!(segment_ids.len(), 2);
-        assert_eq!(segment_ids.iter().map(|s| s.max_doc).sum::<u32>(), 25000);
-    }
-
-    #[pg_test]
-    fn test_index_writer_target_ten_segments() {
-        let relation_oid = get_relation_oid();
-        let config = IndexWriterConfig {
-            memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
-            target_segment_count: Some(NonZeroUsize::new(10).unwrap()),
-            target_docs_per_segment: None,
-        };
-        let segment_ids = simulate_index_writer(config, relation_oid, 25000);
-        assert_eq!(segment_ids.len(), 10);
-        assert_eq!(segment_ids.iter().map(|s| s.max_doc).sum::<u32>(), 25000);
-    }
-
-    #[pg_test]
-    fn test_index_writer_target_docs_per_segment() {
-        let relation_oid = get_relation_oid();
-        let config = IndexWriterConfig {
-            memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
-            target_segment_count: None,
-            target_docs_per_segment: Some(2500),
-        };
-        let segment_ids = simulate_index_writer(config, relation_oid, 50000);
-        assert_eq!(segment_ids.len(), 20);
-        assert_eq!(segment_ids.iter().map(|s| s.max_doc).sum::<u32>(), 50000);
-    }
-
-    #[pg_test]
-    fn test_index_writer_target_segment_count_and_docs_per_segment() {
-        let relation_oid = get_relation_oid();
-        let config = IndexWriterConfig {
-            memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
-            target_segment_count: Some(NonZeroUsize::new(10).unwrap()),
-            target_docs_per_segment: Some(2500),
-        };
-        let segment_ids = simulate_index_writer(config, relation_oid, 25000);
-        assert_eq!(segment_ids.len(), 10);
-        assert_eq!(
-            vec![2500; 10],
-            segment_ids.iter().map(|s| s.max_doc).collect::<Vec<_>>()
-        );
-        assert_eq!(segment_ids.iter().map(|s| s.max_doc).sum::<u32>(), 25000);
-    }
-
-    #[pg_test]
-    fn test_index_writer_target_eight_single_doc_segments() {
-        let relation_oid = get_relation_oid();
-        let config = IndexWriterConfig {
-            memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
-            target_segment_count: Some(NonZeroUsize::new(8).unwrap()),
-            target_docs_per_segment: None,
-        };
-        let segment_ids = simulate_index_writer(config, relation_oid, 8);
-        assert_eq!(segment_ids.len(), 8);
-        assert_eq!(segment_ids.iter().next().unwrap().max_doc, 1);
-        assert_eq!(segment_ids.iter().nth(1).unwrap().max_doc, 1);
-        assert_eq!(segment_ids.iter().nth(2).unwrap().max_doc, 1);
-        assert_eq!(segment_ids.iter().nth(3).unwrap().max_doc, 1);
-        assert_eq!(segment_ids.iter().nth(4).unwrap().max_doc, 1);
-        assert_eq!(segment_ids.iter().nth(5).unwrap().max_doc, 1);
-        assert_eq!(segment_ids.iter().nth(6).unwrap().max_doc, 1);
-        assert_eq!(segment_ids.iter().nth(7).unwrap().max_doc, 1);
-    }
-
-    #[pg_test]
-    fn test_index_writer_no_target_segment_count() {
-        let relation_oid = get_relation_oid();
-        let config = IndexWriterConfig {
-            memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
-            target_segment_count: None,
-            target_docs_per_segment: None,
+            max_docs_per_segment: None,
         };
         let segment_ids = simulate_index_writer(config, relation_oid, 8);
         assert_eq!(segment_ids.len(), 1);
-        assert_eq!(segment_ids.iter().map(|s| s.max_doc).sum::<u32>(), 8);
 
         let config = IndexWriterConfig {
             memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
-            target_segment_count: None,
-            target_docs_per_segment: None,
+            max_docs_per_segment: None,
         };
         let segment_ids = simulate_index_writer(config, relation_oid, 25000);
         assert_eq!(segment_ids.len(), 5);
-        assert_eq!(segment_ids.iter().map(|s| s.max_doc).sum::<u32>(), 25000);
+    }
+
+    #[pg_test]
+    fn test_index_writer_max_docs_per_segment() {
+        let relation_oid = get_relation_oid();
+        let config = IndexWriterConfig {
+            memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
+            max_docs_per_segment: Some(1000),
+        };
+        let segment_ids = simulate_index_writer(config, relation_oid, 25000);
+        assert_eq!(segment_ids.len(), 25);
     }
 }

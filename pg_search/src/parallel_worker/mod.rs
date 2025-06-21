@@ -560,3 +560,26 @@ mod tests {
         }
     }
 }
+
+/*
+    // thanks, Daniel Lemire:  https://x.com/lemire/status/1925609310274400509
+
+    // N is the total number of elements
+    // M is the number of chunks
+    // i is the index of the chunk (0-indexed)
+    std::pair<size_t, size_t> get_chunk_range_simple(size_t N, size_t M, size_t i) {
+        // Calculate the quotient and remainder
+        size_t quotient = N / M;
+        size_t remainder = N % M;
+        size_t start = quotient * i + (i < remainder ? i : remainder);
+        size_t length = quotient + (i < remainder ? 1 : 0);
+        return {start, length};
+    }
+*/
+pub fn chunk_range(n: usize, m: usize, i: usize) -> (usize, usize) {
+    let quotient = n / m;
+    let remainder = n % m;
+    let start = quotient * i + (if i < remainder { i } else { remainder });
+    let length = quotient + if i < remainder { 1 } else { 0 };
+    (start, length)
+}

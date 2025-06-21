@@ -48,6 +48,12 @@ extern "C-unwind" {
     pub fn set_ps_display_remove_suffix();
 }
 
+mod ps {
+    use std::ffi::CStr;
+    pub const WRITING: &CStr = c"writing";
+    pub const MERGING: &CStr = c"merging";
+}
+
 /// General, immutable configuration used for the workers
 #[derive(Copy, Clone)]
 #[repr(C)]
@@ -230,7 +236,7 @@ impl<'a> BuildWorker<'a> {
 
     fn do_build(&mut self, worker_number: i32) -> anyhow::Result<(f64, usize)> {
         unsafe {
-            set_ps_display_suffix(c"writing".as_ptr());
+            set_ps_display_suffix(ps::WRITING.as_ptr());
 
             let index_info = pg_sys::BuildIndexInfo(self.indexrel.as_ptr());
             (*index_info).ii_Concurrent = self.config.concurrent;
@@ -414,7 +420,7 @@ impl WorkerBuildState {
                 .collect::<Vec<_>>()
         };
 
-        unsafe { set_ps_display_suffix(c"merging".as_ptr()) };
+        unsafe { set_ps_display_suffix(ps::MERGING.as_ptr()) };
 
         // do the merge
         pgrx::debug1!(
@@ -490,7 +496,7 @@ unsafe extern "C-unwind" fn build_callback(
             .try_merge(false)
             .unwrap_or_else(|e| panic!("{e}"));
 
-        unsafe { set_ps_display_suffix(c"writing".as_ptr()) };
+        unsafe { set_ps_display_suffix(ps::WRITING.as_ptr()) };
     }
 }
 

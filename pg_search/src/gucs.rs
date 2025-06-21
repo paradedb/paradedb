@@ -193,8 +193,13 @@ pub fn adjust_maintenance_work_mem(nlaunched: usize) -> NonZeroUsize {
 }
 
 pub fn adjust_work_mem() -> NonZeroUsize {
-    NonZeroUsize::new(unsafe { pg_sys::work_mem as usize }.max(limits::MEMORY_BUDGET_NUM_BYTES_MIN))
-        .unwrap()
+    let wm_as_bytes = unsafe { pg_sys::work_mem as usize * 1024 };
+    let wm_as_bytes = wm_as_bytes.clamp(
+        limits::MEMORY_BUDGET_NUM_BYTES_MIN,
+        limits::MEMORY_BUDGET_NUM_BYTES_MAX - 1,
+    );
+
+    NonZeroUsize::new(wm_as_bytes).unwrap()
 }
 
 pub fn target_segment_count() -> usize {
@@ -229,6 +234,15 @@ mod tests {
                 diff
             );
         }};
+    }
+
+    #[pg_test]
+    fn test_adjust_work_mem() {
+        Spi::run("SET work_mem = '4MB';").unwrap();
+        assert_approx_eq!(adjust_work_mem().get(), 15 * 1_000_000, 1.0);
+
+        Spi::run("SET work_mem = '1GB';").unwrap();
+        assert_approx_eq!(adjust_work_mem().get(), 1024 * 1024 * 1024, 1.0);
     }
 
     #[pg_test]

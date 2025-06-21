@@ -229,7 +229,7 @@ impl<'a> BuildWorker<'a> {
             let nlaunched = self.coordination.nlaunched();
             let per_worker_memory_budget =
                 gucs::adjust_maintenance_work_mem(nlaunched).get() / nlaunched;
-            let target_segment_count = adjusted_target_segment_count(&self.heaprel);
+            let target_segment_count = plan::adjusted_target_segment_count(&self.heaprel);
             let (_, worker_segment_target) =
                 chunk_range(target_segment_count, nlaunched, worker_number as usize);
 
@@ -303,7 +303,7 @@ impl WorkerBuildState {
         // the memory budget is so high that all the docs fit into one segment
         let max_docs_per_segment = if worker_segment_target > 1 {
             Some(
-                estimate_heap_reltuples(&heaprel) as u32
+                plan::estimate_heap_reltuples(&heaprel) as u32
                     / nlaunched as u32
                     / worker_segment_target as u32,
             )
@@ -355,7 +355,7 @@ impl WorkerBuildState {
             let chunk_size = if !is_last_merge {
                 // calculate the chunk size for this merge iteration
                 //
-                // chunk range gives us chunks with the larger ones at the front
+                // chunk_range gives us chunks with the larger ones at the front
                 // we want the larger ones at the back, because the smallest "straggler" segment will be written last
                 //
                 // for instance, imagine we have 3 segments of size [100, 100, 5]
@@ -430,7 +430,7 @@ impl WorkerBuildState {
     /// This is used to determine how many segments to merge down in chunks.
     fn estimated_nsegments(&self, docs_per_segment: u32) -> usize {
         *self.estimated_nsegments.get_or_init(|| {
-            let reltuples = estimate_heap_reltuples(&self.heaprel);
+            let reltuples = plan::estimate_heap_reltuples(&self.heaprel);
             let reltuples_per_worker = reltuples / self.nlaunched as f64;
             let nsegments = (reltuples_per_worker / docs_per_segment as f64).ceil() as usize;
             pgrx::debug1!("estimated that this worker will make {nsegments} segments, based on reltuples: {reltuples}, nlaunched: {}, reltuples_per_worker: {reltuples_per_worker}, docs_per_segment: {docs_per_segment}", self.nlaunched);
@@ -514,7 +514,7 @@ pub(super) fn build_index(
     });
 
     let process = ParallelBuild::new(&heaprel, &indexrel, snapshot.0, concurrent);
-    let nworkers = create_index_nworkers(&heaprel);
+    let nworkers = plan::create_index_nworkers(&heaprel);
     pgrx::debug1!("build_index: asked for {nworkers} workers");
 
     if let Some(mut process) = launch_parallel_process!(
@@ -597,98 +597,126 @@ pub(super) fn build_index(
     }
 }
 
-/// Determine the number of workers to use for a given CREATE INDEX/REINDEX statement.
-///
-/// The number of workers is determined by max_parallel_maintenance_workers. However, if max_parallel_maintenance_workers
-/// is greater than available parallelism, we use available parallelism.
-///
-/// If the leader is participating, we subtract 1 from the number of workers because the leader also counts as a worker.
-fn create_index_nworkers(heaprel: &PgRelation) -> usize {
-    // We don't want a parallel build to happen if we're creating a single segment
-    let target_segment_count = adjusted_target_segment_count(heaprel);
-    if target_segment_count == 1 {
-        return 0;
-    }
+mod plan {
+    use super::*;
 
-    // NB: we _could_ use pg_sys::plan_create_index_workers(), or on v17+ accept IndexIndex::ii_ParallelWorkers,
-    // but doing either of these would prohibit the user from having direct control over the number of
-    // workers used for a given CREATE INDEX/REINDEX statement.  Internal discussions led to that
-    // being more important that us trying to be "smart"
-    let maintenance_workers = unsafe {
-        if !heaprel.rd_options.is_null() {
-            let options = heaprel.rd_options.cast::<pg_sys::StdRdOptions>();
-            if (*options).parallel_workers <= 0 {
-                pg_sys::max_parallel_maintenance_workers as usize
-            } else {
-                (*options).parallel_workers as usize
-            }
-        } else {
-            pg_sys::max_parallel_maintenance_workers as usize
+    /// Determine the number of workers to use for a given CREATE INDEX/REINDEX statement.
+    ///
+    /// The number of workers is determined by max_parallel_maintenance_workers. However, if max_parallel_maintenance_workers
+    /// is greater than available parallelism, we use available parallelism.
+    ///
+    /// If the leader is participating, we subtract 1 from the number of workers because the leader also counts as a worker.
+    pub(super) fn create_index_nworkers(heaprel: &PgRelation) -> usize {
+        // We don't want a parallel build to happen if we're creating a single segment
+        let target_segment_count = plan::adjusted_target_segment_count(heaprel);
+        if target_segment_count == 1 {
+            return 0;
         }
-    };
 
-    if maintenance_workers < 3 {
-        ErrorReport::new(
-            PgSqlErrorCode::ERRCODE_INSUFFICIENT_RESOURCES,
-            format!("only {maintenance_workers} parallel workers were available for index build"),
-            function_name!(),
-        )
-        .set_detail("for large tables, increasing the number of workers can reduce the time it takes to build the index")
-        .set_hint("`SET max_parallel_maintenance_workers = <number>`")
-        .report(PgLogLevel::WARNING);
+        // NB: we _could_ use pg_sys::plan_create_index_workers(), or on v17+ accept IndexIndex::ii_ParallelWorkers,
+        // but doing either of these would prohibit the user from having direct control over the number of
+        // workers used for a given CREATE INDEX/REINDEX statement.  Internal discussions led to that
+        // being more important that us trying to be "smart"
+        let maintenance_workers = unsafe {
+            if !heaprel.rd_options.is_null() {
+                let options = heaprel.rd_options.cast::<pg_sys::StdRdOptions>();
+                if (*options).parallel_workers <= 0 {
+                    pg_sys::max_parallel_maintenance_workers as usize
+                } else {
+                    (*options).parallel_workers as usize
+                }
+            } else {
+                pg_sys::max_parallel_maintenance_workers as usize
+            }
+        };
+
+        if maintenance_workers < 3 {
+            ErrorReport::new(
+                PgSqlErrorCode::ERRCODE_INSUFFICIENT_RESOURCES,
+                format!("only {maintenance_workers} parallel workers were available for index build"),
+                function_name!(),
+            )
+            .set_detail("for large tables, increasing the number of workers can reduce the time it takes to build the index")
+            .set_hint("`SET max_parallel_maintenance_workers = <number>`")
+            .report(PgLogLevel::WARNING);
+        }
+
+        if maintenance_workers == 0 {
+            return 0;
+        }
+
+        // Ensure that we never have more workers (including the leader) than the max allowed number of workers.
+        //
+        // We also want nworkers to be at most 1/2 of the target segment count. To illustrate why:
+        //
+        // Imagine we have 8 workers, a target segment count of 8, and a table size such that each worker produces 4 segments.
+        // In this scenario, each worker would do one big merge of all 4 segments at the very end, which means none of the
+        // merges would be able to re-use the FSM.
+        //
+        // On the other hand, imagine we have only 4 workers, over the same table and target segment count.
+        // In this scenario, each worker would target 2 segments, meaning it would do 2 merges -- once when it's about halfway done
+        // and once at the end. The merge at the end would be able to use the free space created by the first merge.
+        let max_workers = target_segment_count.div_ceil(2);
+        let mut nworkers = maintenance_workers.min(max_workers);
+
+        if unsafe { pg_sys::parallel_leader_participation } && nworkers == max_workers {
+            nworkers -= 1;
+        }
+
+        nworkers
     }
 
-    if maintenance_workers == 0 {
-        return 0;
+    /// If we determine that the table is very small, we should just create a single segment
+    pub(super) fn adjusted_target_segment_count(heaprel: &PgRelation) -> usize {
+        // If there are fewer rows than number of CPUs, use 1 worker
+        let reltuples = plan::estimate_heap_reltuples(heaprel);
+        let target_segment_count = gucs::target_segment_count();
+        if reltuples <= target_segment_count as f64 {
+            pgrx::debug1!("number of reltuples ({reltuples}) is less than target segment count ({target_segment_count}), creating a single segment");
+            return 1;
+        }
+
+        // If the entire heap fits inside the smallest allowed Tantivy segment memory budget of 15MB, use 1 worker
+        let byte_size = plan::estimate_heap_byte_size(heaprel);
+        if byte_size <= 15 * 1024 * 1024 {
+            pgrx::debug1!(
+                "heap byte size ({byte_size}) is less than 15MB, creating a single segment"
+            );
+            return 1;
+        }
+
+        target_segment_count
     }
 
-    // Ensure that we never have more workers (including the leader) than the max allowed number of workers.
-    //
-    // We also want nworkers to be less than target segment count. To illustrate why:
-    //
-    // Imagine we have 8 workers, a target segment count of 8, and a table size such that each worker produces 4 segments.
-    // In this scenario, each worker would do one big merge of all 4 segments at the very end, which means none of the
-    // merges would be able to re-use the FSM.
-    //
-    // On the other hand, imagine we have only 4 workers, over the same table and target segment count.
-    // In this scenario, each worker would target 2 segments, meaning it would do 2 merges -- once when it's about halfway done
-    // and once at the end. The merge at the end would be able to use the free space created by the first merge.
-    let max_workers = target_segment_count.div_ceil(2);
-    let mut nworkers = maintenance_workers.min(max_workers);
+    pub(super) fn estimate_heap_reltuples(heap_relation: &PgRelation) -> f64 {
+        let mut reltuples = heap_relation.reltuples().unwrap_or_default();
 
-    if unsafe { pg_sys::parallel_leader_participation } && nworkers == max_workers {
-        nworkers -= 1;
+        // if the reltuples estimate is not available, estimate the number of tuples in the heap
+        // by multiplying the number of pages by the max offset number of the first page
+        if reltuples <= 0.0 {
+            let npages = unsafe {
+                pg_sys::RelationGetNumberOfBlocksInFork(
+                    heap_relation.as_ptr(),
+                    pg_sys::ForkNumber::MAIN_FORKNUM,
+                )
+            };
+
+            if npages == 0 {
+                // the tuple count actually is 0
+                return 0.0;
+            }
+
+            let bman = BufferManager::new(heap_relation.oid());
+            let buffer = bman.get_buffer(0);
+            let page = buffer.page();
+            let max_offset = page.max_offset_number();
+            reltuples = npages as f32 * max_offset as f32;
+        }
+
+        reltuples as f64
     }
 
-    nworkers
-}
-
-/// If we determine that the table is very small, we should just create a single segment
-fn adjusted_target_segment_count(heaprel: &PgRelation) -> usize {
-    // If there are fewer rows than number of CPUs, use 1 worker
-    let reltuples = estimate_heap_reltuples(heaprel);
-    let target_segment_count = gucs::target_segment_count();
-    if reltuples <= target_segment_count as f64 {
-        pgrx::debug1!("number of reltuples ({reltuples}) is less than target segment count ({target_segment_count}), creating a single segment");
-        return 1;
-    }
-
-    // If the entire heap fits inside the smallest allowed Tantivy segment memory budget of 15MB, use 1 worker
-    let byte_size = estimate_heap_byte_size(heaprel);
-    if byte_size <= 15 * 1024 * 1024 {
-        pgrx::debug1!("heap byte size ({byte_size}) is less than 15MB, creating a single segment");
-        return 1;
-    }
-
-    target_segment_count
-}
-
-fn estimate_heap_reltuples(heap_relation: &PgRelation) -> f64 {
-    let mut reltuples = heap_relation.reltuples().unwrap_or_default();
-
-    // if the reltuples estimate is not available, estimate the number of tuples in the heap
-    // by multiplying the number of pages by the max offset number of the first page
-    if reltuples <= 0.0 {
+    pub(super) fn estimate_heap_byte_size(heap_relation: &PgRelation) -> usize {
         let npages = unsafe {
             pg_sys::RelationGetNumberOfBlocksInFork(
                 heap_relation.as_ptr(),
@@ -696,28 +724,6 @@ fn estimate_heap_reltuples(heap_relation: &PgRelation) -> f64 {
             )
         };
 
-        if npages == 0 {
-            // the tuple count actually is 0
-            return 0.0;
-        }
-
-        let bman = BufferManager::new(heap_relation.oid());
-        let buffer = bman.get_buffer(0);
-        let page = buffer.page();
-        let max_offset = page.max_offset_number();
-        reltuples = npages as f32 * max_offset as f32;
+        npages as usize * pg_sys::BLCKSZ as usize
     }
-
-    reltuples as f64
-}
-
-fn estimate_heap_byte_size(heap_relation: &PgRelation) -> usize {
-    let npages = unsafe {
-        pg_sys::RelationGetNumberOfBlocksInFork(
-            heap_relation.as_ptr(),
-            pg_sys::ForkNumber::MAIN_FORKNUM,
-        )
-    };
-
-    npages as usize * pg_sys::BLCKSZ as usize
 }

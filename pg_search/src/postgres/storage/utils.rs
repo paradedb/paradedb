@@ -280,6 +280,10 @@ impl Drop for BM25BufferCache {
     }
 }
 
+/// Holds an array of buffers -- used for bulk allocating new buffers.
+///
+/// These buffers can either be locked (if retrieved from the FSM) or unlocked (if the relation was extended)
+/// [`BufferMutVec`] locks/releases them appropriately when they are claimed/dropped.
 type NeedsLock = bool;
 pub struct BufferMutVec {
     inner: [(pg_sys::Buffer, NeedsLock); MAX_BUFFERS_TO_EXTEND_BY],
@@ -319,27 +323,28 @@ impl BufferMutVec {
 
 impl Drop for BufferMutVec {
     fn drop(&mut self) {
-        loop {
-            if self.cursor >= MAX_BUFFERS_TO_EXTEND_BY {
-                break;
-            }
-
-            unsafe {
-                let (buffer, needs_lock) = self.inner[self.cursor];
-                if buffer == pg_sys::InvalidBuffer as pg_sys::Buffer {
+        if unsafe { pg_sys::InterruptHoldoffCount > 0 }
+            && unsafe { crate::postgres::utils::IsTransactionState() }
+        {
+            loop {
+                if self.cursor >= MAX_BUFFERS_TO_EXTEND_BY {
                     break;
                 }
 
-                if pg_sys::InterruptHoldoffCount > 0 && crate::postgres::utils::IsTransactionState()
-                {
+                unsafe {
+                    let (buffer, needs_lock) = self.inner[self.cursor];
+                    if buffer == pg_sys::InvalidBuffer as pg_sys::Buffer {
+                        break;
+                    }
+
                     if needs_lock {
                         pg_sys::ReleaseBuffer(buffer);
                     } else {
                         pg_sys::UnlockReleaseBuffer(buffer);
                     }
-                }
 
-                self.cursor += 1;
+                    self.cursor += 1;
+                }
             }
         }
     }

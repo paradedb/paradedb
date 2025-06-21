@@ -655,7 +655,7 @@ mod plan {
         //
         // Imagine we have 8 workers, a target segment count of 8, and a table size such that each worker produces 4 segments.
         // In this scenario, each worker would do one big merge of all 4 segments at the very end, which means none of the
-        // merges would be able to re-use the FSM.
+        // merges would be able to reuse the FSM.
         //
         // On the other hand, imagine we have only 4 workers, over the same table and target segment count.
         // In this scenario, each worker would target 2 segments, meaning it would do 2 merges -- once when it's about halfway done

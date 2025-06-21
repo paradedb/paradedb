@@ -27,6 +27,7 @@ use tantivy::SegmentReader;
 mod build;
 mod cost;
 mod delete;
+pub mod expression;
 pub mod insert;
 pub mod options;
 mod range;

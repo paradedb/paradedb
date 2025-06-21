@@ -24,7 +24,7 @@ Note that the index's column list contains fields of type text, JSON, numeric, t
 
 ```sql
 CREATE INDEX <index_name> ON <schema_name>.<table_name>
-USING bm25 (<columns>)
+USING bm25 (<columns_or_expressions>)
 WITH (key_field='<key_field>');
 ```
 
@@ -37,8 +37,8 @@ WITH (key_field='<key_field>');
 <ParamField body="table_name" required>
   The name of the table being indexed.
 </ParamField>
-<ParamField body="columns" required>
-  A comma-separated list of columns to index, starting with the key field. Text, numeric, datetime, boolean, range, enum, and JSON types can be indexed.
+<ParamField body="columns_or_expressions" required>
+  A comma-separated list of columns or [expressions](https://www.postgresql.org/docs/current/indexes-expressional.html) to index, starting with the `key_field`. Text, numeric, datetime, boolean, range, enum, and JSON types can be indexed.
 </ParamField>
 <ParamField body="key_field" required>
   The name of a column in the table that represents a unique identifier for each

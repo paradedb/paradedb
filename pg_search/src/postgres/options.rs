@@ -18,6 +18,7 @@
 use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::postgres::insert::DEFAULT_LAYER_SIZES;
+use crate::postgres::utils::extract_field_attributes;
 use crate::schema::IndexRecordOption;
 use crate::schema::{SearchFieldConfig, SearchFieldType};
 
@@ -653,11 +654,10 @@ fn ctid_field_config() -> SearchFieldConfig {
 
 fn get_attribute_oid(field_name: &str, relation_oid: pg_sys::Oid) -> Option<PgOid> {
     let index_relation = unsafe { PgRelation::open(relation_oid) };
-    let tuple_desc = index_relation.tuple_desc();
-    tuple_desc
-        .iter()
-        .find(|attribute| attribute.name() == field_name)
-        .map(|attribute| attribute.type_oid())
+    extract_field_attributes(&index_relation)
+        .into_iter()
+        .find(|(name, _)| name == field_name)
+        .map(|(_, type_oid)| type_oid.into())
 }
 
 fn get_field_type(field_name: &str, relation_oid: pg_sys::Oid) -> SearchFieldType {

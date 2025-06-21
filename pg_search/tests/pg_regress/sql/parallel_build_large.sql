@@ -3,10 +3,17 @@
 SET max_parallel_workers = 8;
 SET client_min_messages TO INFO;
 
+-- This should return a "not enough memory" error
+SET maintenance_work_mem = '64MB';
+SET max_parallel_maintenance_workers = 8;
+SET paradedb.target_segment_count = 16;
+CREATE INDEX parallel_build_large_idx ON parallel_build_large USING bm25 (id, name) WITH (key_field = 'id');
+
+-- These should complete and create the target segment count
 DO $$
 DECLARE
-    maintenance_work_mem text[] := ARRAY['2GB', '64MB'];
-    maintenance_workers int[] := ARRAY[16, 8, 2];
+    maintenance_work_mem text[] := ARRAY['2GB', '128MB'];
+    maintenance_workers int[] := ARRAY[6, 2];
     leader_participation boolean[] := ARRAY[true, false];
     target_segments int[] := ARRAY[4, 32];
     mw int;

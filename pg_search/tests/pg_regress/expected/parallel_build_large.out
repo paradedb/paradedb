@@ -10,10 +10,17 @@ SELECT 'lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod 
 FROM generate_series(1, 35000);
 SET max_parallel_workers = 8;
 SET client_min_messages TO INFO;
+-- This should return a "not enough memory" error
+SET maintenance_work_mem = '64MB';
+SET max_parallel_maintenance_workers = 8;
+SET paradedb.target_segment_count = 16;
+CREATE INDEX parallel_build_large_idx ON parallel_build_large USING bm25 (id, name) WITH (key_field = 'id');
+ERROR:  `maintenance_work_mem` is not high enough to give each parallel worker 15MB
+-- These should complete and create the target segment count
 DO $$
 DECLARE
-    maintenance_work_mem text[] := ARRAY['2GB', '64MB'];
-    maintenance_workers int[] := ARRAY[16, 8, 2];
+    maintenance_work_mem text[] := ARRAY['2GB', '128MB'];
+    maintenance_workers int[] := ARRAY[6, 2];
     leader_participation boolean[] := ARRAY[true, false];
     target_segments int[] := ARRAY[4, 32];
     mw int;
@@ -47,39 +54,29 @@ BEGIN
         END LOOP;
     END LOOP;
 END $$;
-INFO:  Config: workers=16, work_mem=2GB,leader_participation=t, segments=4-> Count: 4, Num Docs: 35000
-WARNING:  maintenance_work_mem may be too low
-INFO:  Config: workers=16, work_mem=64MB,leader_participation=t, segments=4-> Count: 4, Num Docs: 35000
-INFO:  Config: workers=16, work_mem=2GB,leader_participation=t, segments=32-> Count: 32, Num Docs: 35000
-WARNING:  maintenance_work_mem may be too low
-INFO:  Config: workers=16, work_mem=64MB,leader_participation=t, segments=32-> Count: 32, Num Docs: 35000
-INFO:  Config: workers=16, work_mem=2GB,leader_participation=f, segments=4-> Count: 4, Num Docs: 35000
-WARNING:  maintenance_work_mem may be too low
-INFO:  Config: workers=16, work_mem=64MB,leader_participation=f, segments=4-> Count: 4, Num Docs: 35000
-INFO:  Config: workers=16, work_mem=2GB,leader_participation=f, segments=32-> Count: 32, Num Docs: 35000
-WARNING:  maintenance_work_mem may be too low
-INFO:  Config: workers=16, work_mem=64MB,leader_participation=f, segments=32-> Count: 32, Num Docs: 35000
-INFO:  Config: workers=8, work_mem=2GB,leader_participation=t, segments=4-> Count: 4, Num Docs: 35000
-WARNING:  maintenance_work_mem may be too low
-INFO:  Config: workers=8, work_mem=64MB,leader_participation=t, segments=4-> Count: 4, Num Docs: 35000
-INFO:  Config: workers=8, work_mem=2GB,leader_participation=t, segments=32-> Count: 32, Num Docs: 35000
-WARNING:  maintenance_work_mem may be too low
-INFO:  Config: workers=8, work_mem=64MB,leader_participation=t, segments=32-> Count: 32, Num Docs: 35000
-INFO:  Config: workers=8, work_mem=2GB,leader_participation=f, segments=4-> Count: 4, Num Docs: 35000
-WARNING:  maintenance_work_mem may be too low
-INFO:  Config: workers=8, work_mem=64MB,leader_participation=f, segments=4-> Count: 4, Num Docs: 35000
-INFO:  Config: workers=8, work_mem=2GB,leader_participation=f, segments=32-> Count: 32, Num Docs: 35000
-WARNING:  maintenance_work_mem may be too low
-INFO:  Config: workers=8, work_mem=64MB,leader_participation=f, segments=32-> Count: 32, Num Docs: 35000
+INFO:  Config: workers=6, work_mem=2GB,leader_participation=t, segments=4-> Count: 4, Num Docs: 35000
+INFO:  Config: workers=6, work_mem=128MB,leader_participation=t, segments=4-> Count: 4, Num Docs: 35000
+INFO:  Config: workers=6, work_mem=2GB,leader_participation=t, segments=32-> Count: 32, Num Docs: 35000
+INFO:  Config: workers=6, work_mem=128MB,leader_participation=t, segments=32-> Count: 32, Num Docs: 35000
+INFO:  Config: workers=6, work_mem=2GB,leader_participation=f, segments=4-> Count: 4, Num Docs: 35000
+INFO:  Config: workers=6, work_mem=128MB,leader_participation=f, segments=4-> Count: 4, Num Docs: 35000
+INFO:  Config: workers=6, work_mem=2GB,leader_participation=f, segments=32-> Count: 32, Num Docs: 35000
+INFO:  Config: workers=6, work_mem=128MB,leader_participation=f, segments=32-> Count: 32, Num Docs: 35000
+WARNING:  only 2 parallel workers were available for index build
 INFO:  Config: workers=2, work_mem=2GB,leader_participation=t, segments=4-> Count: 4, Num Docs: 35000
-INFO:  Config: workers=2, work_mem=64MB,leader_participation=t, segments=4-> Count: 4, Num Docs: 35000
+WARNING:  only 2 parallel workers were available for index build
+INFO:  Config: workers=2, work_mem=128MB,leader_participation=t, segments=4-> Count: 4, Num Docs: 35000
+WARNING:  only 2 parallel workers were available for index build
 INFO:  Config: workers=2, work_mem=2GB,leader_participation=t, segments=32-> Count: 32, Num Docs: 35000
-INFO:  Config: workers=2, work_mem=64MB,leader_participation=t, segments=32-> Count: 32, Num Docs: 35000
+WARNING:  only 2 parallel workers were available for index build
+INFO:  Config: workers=2, work_mem=128MB,leader_participation=t, segments=32-> Count: 32, Num Docs: 35000
+WARNING:  only 2 parallel workers were available for index build
 INFO:  Config: workers=2, work_mem=2GB,leader_participation=f, segments=4-> Count: 4, Num Docs: 35000
-WARNING:  maintenance_work_mem may be too low
-INFO:  Config: workers=2, work_mem=64MB,leader_participation=f, segments=4-> Count: 4, Num Docs: 35000
+WARNING:  only 2 parallel workers were available for index build
+INFO:  Config: workers=2, work_mem=128MB,leader_participation=f, segments=4-> Count: 4, Num Docs: 35000
+WARNING:  only 2 parallel workers were available for index build
 INFO:  Config: workers=2, work_mem=2GB,leader_participation=f, segments=32-> Count: 32, Num Docs: 35000
-WARNING:  maintenance_work_mem may be too low
-INFO:  Config: workers=2, work_mem=64MB,leader_participation=f, segments=32-> Count: 32, Num Docs: 35000
+WARNING:  only 2 parallel workers were available for index build
+INFO:  Config: workers=2, work_mem=128MB,leader_participation=f, segments=32-> Count: 32, Num Docs: 35000
 \i common/parallel_build_large_cleanup.sql
 DROP TABLE IF EXISTS parallel_build_large;

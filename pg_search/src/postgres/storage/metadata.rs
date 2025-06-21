@@ -176,13 +176,13 @@ impl MetaPageMut {
         Self { buffer, bman }
     }
 
-    pub unsafe fn record_create_index_segment_ids<'a>(
+    pub unsafe fn record_create_index_segment_ids(
         mut self,
-        segment_ids: impl IntoIterator<Item = &'a SegmentId>,
+        segment_ids: impl IntoIterator<Item = SegmentId>,
     ) -> anyhow::Result<()> {
         let segment_id_bytes = segment_ids
             .into_iter()
-            .flat_map(|segment_id| segment_id.uuid_bytes().iter().copied())
+            .flat_map(|segment_id| segment_id.uuid_bytes().to_vec())
             .collect::<Vec<_>>();
         let segment_ids_list = LinkedBytesList::create(self.bman.relation_oid());
         let mut writer = segment_ids_list.writer();

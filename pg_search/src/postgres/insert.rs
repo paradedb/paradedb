@@ -47,11 +47,15 @@ pub struct InsertState {
 impl InsertState {
     unsafe fn new(indexrel: &PgRelation) -> anyhow::Result<Self> {
         let config = IndexWriterConfig {
-            memory_budget: gucs::adjust_work_mem(1),
-            target_segment_count: None,
-            target_docs_per_segment: None,
+            memory_budget: gucs::adjust_work_mem(),
+            max_docs_per_segment: None,
         };
-        let writer = SerialIndexWriter::with_mvcc(indexrel, MvccSatisfies::Mergeable, config)?;
+        let writer = SerialIndexWriter::with_mvcc(
+            indexrel,
+            MvccSatisfies::Mergeable,
+            config,
+            Default::default(),
+        )?;
         let schema = SearchIndexSchema::open(indexrel.oid())?;
         let categorized_fields = categorize_fields(indexrel, &schema);
         let key_field_name = schema.key_field().field_name();
@@ -250,7 +254,7 @@ pub unsafe fn merge_index_with_policy(
     let metadata = MetaPage::open(indexrelid);
     let merge_lock = metadata.acquire_merge_lock();
     let directory = MVCCDirectory::mergeable(indexrelid);
-    let mut merger =
+    let merger =
         SearchIndexMerger::open(directory).expect("should be able to open a SearchIndexMerger");
     let merger_segment_ids = merger
         .searchable_segment_ids()

@@ -67,16 +67,10 @@ pub extern "C-unwind" fn ambuild(
         ambuildempty(indexrel);
 
         let index_oid = index_relation.oid();
-        let (heap_tuples, committed_segments) =
-            build_index(heap_relation, index_relation, (*index_info).ii_Concurrent)
-                .unwrap_or_else(|e| panic!("{e}"));
+        let heap_tuples = build_index(heap_relation, index_relation, (*index_info).ii_Concurrent)
+            .unwrap_or_else(|e| panic!("{e}"));
 
-        let metadata = MetaPageMut::new(index_oid);
-        metadata
-            .record_create_index_segment_ids(
-                committed_segments.iter().map(|segment| &segment.segment_id),
-            )
-            .expect("do_heap_scan: should be able to record segment ids in merge lock");
+        record_create_index_segment_ids(index_oid).unwrap_or_else(|e| panic!("{e}"));
 
         pgrx::debug1!("build_index: flushing buffers");
         pg_sys::FlushRelationBuffers(indexrel);
@@ -209,5 +203,19 @@ fn create_index(index_relation: &PgRelation) -> Result<()> {
         ..IndexSettings::default()
     };
     let _ = Index::create(directory, schema, settings)?;
+    Ok(())
+}
+
+unsafe fn record_create_index_segment_ids(index_oid: pg_sys::Oid) -> anyhow::Result<()> {
+    let metadata = MetaPageMut::new(index_oid);
+    let directory = MVCCDirectory::snapshot(index_oid);
+    let index = Index::open(directory.clone())?;
+    let segment_ids = index.searchable_segment_ids()?;
+
+    pgrx::debug1!("record_create_index_segment_ids: {:?}", segment_ids);
+
+    metadata
+        .record_create_index_segment_ids(segment_ids)
+        .expect("do_heap_scan: should be able to record segment ids in merge lock");
     Ok(())
 }

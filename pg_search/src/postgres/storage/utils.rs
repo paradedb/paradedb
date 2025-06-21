@@ -290,7 +290,7 @@ impl BufferMutVec {
     pub fn new(buffers: [(pg_sys::Buffer, NeedsLock); MAX_BUFFERS_TO_EXTEND_BY]) -> Self {
         Self {
             inner: buffers,
-            cursor: Default::default(),
+            cursor: 0,
         }
     }
 

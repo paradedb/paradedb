@@ -448,4 +448,15 @@ mod tests {
         let segment_ids = simulate_index_writer(config, relation_oid, 25000);
         assert_eq!(segment_ids.len(), 5);
     }
+
+    #[pg_test]
+    fn test_index_writer_max_docs_per_segment() {
+        let relation_oid = get_relation_oid();
+        let config = IndexWriterConfig {
+            memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
+            max_docs_per_segment: Some(1000),
+        };
+        let segment_ids = simulate_index_writer(config, relation_oid, 25000);
+        assert_eq!(segment_ids.len(), 25);
+    }
 }

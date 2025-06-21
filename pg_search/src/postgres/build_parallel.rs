@@ -387,13 +387,15 @@ impl WorkerBuildState {
                 // worker_segment_target = self.nmerges + unmerged_segments_len - chunk_size + 1
                 //
                 // this guarantees we hit the target segment count exactly, assuming we haven't already exceeded it
-                let chunk_size =
-                    self.nmerges - self.worker_segment_target + self.unmerged_metas.len() + 1;
-                if chunk_size <= 1 || self.unmerged_metas.len() < chunk_size {
+                // convert to i32 because it's possible that chunk_size comes out negative
+                let chunk_size: i32 = self.nmerges as i32 - self.worker_segment_target as i32
+                    + self.unmerged_metas.len() as i32
+                    + 1;
+                if chunk_size <= 1 || self.unmerged_metas.len() < chunk_size as usize {
                     return Ok(());
                 }
 
-                chunk_size
+                chunk_size as usize
             };
 
             self.unmerged_metas.sort_by_key(|entry| entry.max_doc());

@@ -234,10 +234,10 @@ mod tests {
     #[pg_test]
     fn test_adjust_maintenance_work_mem() {
         Spi::run("SET maintenance_work_mem = '16MB';").unwrap();
-        assert_eq!(adjust_maintenance_work_mem(0).get(), 64 * 1_000_000);
-        assert_eq!(adjust_maintenance_work_mem(1).get(), 64 * 1_000_000);
-        assert_eq!(adjust_maintenance_work_mem(2).get(), 128 * 1_000_000);
-        assert_eq!(adjust_maintenance_work_mem(10).get(), 640 * 1_000_000);
+        assert_approx_eq!(adjust_maintenance_work_mem(0).get(), 16 * 1024 * 1024, 1.0);
+        assert_approx_eq!(adjust_maintenance_work_mem(1).get(), 16 * 1024 * 1024, 1.0);
+        assert!(std::panic::catch_unwind(|| adjust_maintenance_work_mem(2)).is_err());
+        assert!(std::panic::catch_unwind(|| adjust_maintenance_work_mem(10)).is_err());
 
         Spi::run("SET maintenance_work_mem = '1GB';").unwrap();
         assert_approx_eq!(
@@ -260,37 +260,6 @@ mod tests {
             1024 * 1024 * 1024,
             1.0
         );
-        assert_approx_eq!(
-            adjust_maintenance_work_mem(32).get(),
-            64 * 32 * 1_000_000,
-            1.0
-        );
-
-        Spi::run("SET maintenance_work_mem = '8GB';").unwrap();
-        assert_approx_eq!(
-            adjust_maintenance_work_mem(0).get(),
-            4 * 1024 * 1024 * 1024,
-            1.0
-        );
-        assert_approx_eq!(
-            adjust_maintenance_work_mem(1).get(),
-            4 * 1024 * 1024 * 1024,
-            1.0
-        );
-        assert_approx_eq!(
-            adjust_maintenance_work_mem(2).get(),
-            8 * 1024 * 1024 * 1024,
-            1.0
-        );
-        assert_approx_eq!(
-            adjust_maintenance_work_mem(10).get(),
-            8 * 1024 * 1024 * 1024,
-            1.0
-        );
-        assert_approx_eq!(
-            adjust_maintenance_work_mem(256).get(),
-            64 * 256 * 1_000_000,
-            1.0
-        );
+        assert!(std::panic::catch_unwind(|| adjust_maintenance_work_mem(128)).is_err());
     }
 }

@@ -38,9 +38,15 @@ use pgrx::{
     PgRelation, PgSqlErrorCode,
 };
 use std::num::NonZeroUsize;
+use std::os::raw::c_char;
 use std::ptr::{addr_of_mut, NonNull};
 use std::sync::OnceLock;
 use tantivy::{SegmentMeta, TantivyDocument};
+
+extern "C-unwind" {
+    pub fn set_ps_display_suffix(suffix: *const c_char);
+    pub fn set_ps_display_remove_suffix();
+}
 
 /// General, immutable configuration used for the workers
 #[derive(Copy, Clone)]
@@ -224,6 +230,8 @@ impl<'a> BuildWorker<'a> {
 
     fn do_build(&mut self, worker_number: i32) -> anyhow::Result<(f64, usize)> {
         unsafe {
+            set_ps_display_suffix(c"writing".as_ptr());
+
             let index_info = pg_sys::BuildIndexInfo(self.indexrel.as_ptr());
             (*index_info).ii_Concurrent = self.config.concurrent;
             let nlaunched = self.coordination.nlaunched();
@@ -339,6 +347,8 @@ impl WorkerBuildState {
             self.unmerged_metas.push(segment_meta);
             self.try_merge(true)?;
         }
+
+        unsafe { set_ps_display_remove_suffix() };
         Ok(())
     }
 
@@ -403,6 +413,8 @@ impl WorkerBuildState {
                 .map(|entry| entry.id())
                 .collect::<Vec<_>>()
         };
+
+        unsafe { set_ps_display_suffix(c"merging".as_ptr()) };
 
         // do the merge
         pgrx::debug1!(
@@ -477,6 +489,8 @@ unsafe extern "C-unwind" fn build_callback(
         build_state
             .try_merge(false)
             .unwrap_or_else(|e| panic!("{e}"));
+
+        unsafe { set_ps_display_suffix(c"writing".as_ptr()) };
     }
 }
 
@@ -516,7 +530,7 @@ pub(super) fn build_index(
     let nworkers = plan::create_index_nworkers(&heaprel);
     pgrx::debug1!("build_index: asked for {nworkers} workers");
 
-    if let Some(mut process) = launch_parallel_process!(
+    let total_tuples = if let Some(mut process) = launch_parallel_process!(
         ParallelBuild<BuildWorker>,
         process,
         WorkerStyle::Maintenance,
@@ -568,7 +582,7 @@ pub(super) fn build_index(
         }
 
         pgrx::debug1!("build_index: total_tuples: {total_tuples}, total_merges: {total_merges}");
-        Ok(total_tuples)
+        total_tuples
     } else {
         pgrx::debug1!("build_index: not doing a parallel build");
         // not doing a parallel build, so directly instantiate a BuildWorker and serially run the
@@ -592,8 +606,11 @@ pub(super) fn build_index(
 
         let (total_tuples, total_merges) = worker.do_build(1)?;
         pgrx::debug1!("build_index: total_tuples: {total_tuples}, total_merges: {total_merges}");
-        Ok(total_tuples)
-    }
+        total_tuples
+    };
+
+    unsafe { set_ps_display_remove_suffix() };
+    Ok(total_tuples)
 }
 
 mod plan {

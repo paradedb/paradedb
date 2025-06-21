@@ -630,6 +630,11 @@ mod plan {
             }
         };
 
+        // must also be less than max_parallel_workers and max_worker_processes
+        let maintenance_workers = maintenance_workers
+            .min(unsafe { pg_sys::max_parallel_workers as usize })
+            .min(unsafe { pg_sys::max_worker_processes as usize });
+
         if maintenance_workers < 3 {
             ErrorReport::new(
                 PgSqlErrorCode::ERRCODE_INSUFFICIENT_RESOURCES,

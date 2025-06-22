@@ -27,7 +27,8 @@ use tokenizers::manager::SearchTokenizerFilters;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
 
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
+// TODO: re-enable this once we are okay with a breaking change
+// #[serde(deny_unknown_fields)]
 pub enum SearchFieldConfig {
     Text {
         #[serde(default = "default_as_true")]

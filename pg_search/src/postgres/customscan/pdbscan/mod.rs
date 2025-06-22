@@ -1074,7 +1074,7 @@ impl CustomScan for PdbScan {
                                     let schema = SearchIndexSchema::open(indexrel.oid())
                                         .expect("should be able to open schema");
 
-                                    apply_complete_unified_heap_filter(
+                                    let result = apply_complete_unified_heap_filter(
                                         search_reader,
                                         &schema,
                                         &heap_filter_node_string,
@@ -1083,7 +1083,9 @@ impl CustomScan for PdbScan {
                                         doc_address.doc_id,
                                         doc_address,
                                         score,
-                                    )
+                                    );
+
+                                    result
                                 } else {
                                     apply_enhanced_heap_filter(state, slot, score, doc_address)
                                 }
@@ -2122,6 +2124,46 @@ unsafe fn extract_restrictinfo_string(
         return None;
     }
 
+    // CRITICAL FIX: Check if we have a single complex expression that should not be split
+    if restrict_info.len() == 1 {
+        let ri = restrict_info.get_ptr(0).unwrap();
+        let clause = if !(*ri).orclause.is_null() {
+            (*ri).orclause
+        } else {
+            (*ri).clause
+        };
+
+        // Clean any nested RestrictInfo nodes recursively
+        let cleaned_clause = clean_restrictinfo_recursively(clause.cast());
+
+        // Check if this is a complex expression that should be treated as a single unit
+        let is_complex_expression = match (*cleaned_clause).type_ {
+            pg_sys::NodeTag::T_BoolExpr => {
+                let bool_expr = cleaned_clause.cast::<pg_sys::BoolExpr>();
+                match (*bool_expr).boolop {
+                    pg_sys::BoolExprType::NOT_EXPR => true, // NOT expressions must not be split
+                    pg_sys::BoolExprType::OR_EXPR => true,  // OR expressions must not be split
+                    pg_sys::BoolExprType::AND_EXPR => true, // AND expressions must not be split
+                    _ => false,
+                }
+            }
+            _ => false,
+        };
+
+        if is_complex_expression {
+            // Treat as a single expression - do not use CLAUSE_SEPARATOR
+            let processed_clause =
+                replace_cross_relation_expressions_with_true(cleaned_clause, current_rti);
+
+            let clause_string: *mut i8 =
+                pg_sys::nodeToString(processed_clause.cast::<core::ffi::c_void>());
+            let rust_string = std::ffi::CStr::from_ptr(clause_string)
+                .to_string_lossy()
+                .into_owned();
+            return Some(rust_string);
+        }
+    }
+
     // Extract just the clauses (not the RestrictInfo wrappers) and serialize them
     let mut clause_strings = Vec::new();
 
@@ -2306,15 +2348,13 @@ unsafe fn optimize_base_query_for_unified_evaluation(
     ri_type: RestrictInfoType,
     schema: &SearchIndexSchema,
 ) -> Option<Qual> {
-    // Phase 4: Strategy for base query optimization:
-    // 1. If we have indexed predicates, use them to create a selective base query
-    // 2. For mixed expressions like "(name @@@ 'Apple' OR description @@@ 'smartphone') OR category = 'Electronics'"
-    //    extract the indexed parts: "(name @@@ 'Apple' OR description @@@ 'smartphone')"
-    // 3. This reduces the document set while letting unified evaluation handle the complete logic
+    // CRITICAL FIX: The unified approach still needs search predicates to be executed by Tantivy
+    // as the base query. The unified evaluator handles the COMBINATION of indexed and non-indexed
+    // predicates, but the indexed predicates must still drive the base query to get the right document set.
 
     if let Some(ref indexed_qual) = indexed_quals {
         // We have indexed predicates - use them as the base query
-        // This is already optimal for pure indexed queries
+        // This is the correct approach for both pure indexed and mixed queries
         return indexed_quals.clone();
     }
 
@@ -2335,9 +2375,10 @@ unsafe fn optimize_base_query_for_unified_evaluation(
         return Some(indexed_components);
     }
 
-    // No indexed components found at all - fall back to All query
-    // The unified evaluator will handle all filtering in the heap filter
-    Some(Qual::All)
+    // CRITICAL CHANGE: If no indexed components found, we should NOT use unified evaluation
+    // because there are no search predicates to benefit from it. Return None to indicate
+    // that we can't handle this query with the custom scan.
+    None
 }
 
 /// Phase 4: Extract indexed components from mixed boolean expressions
@@ -2465,8 +2506,24 @@ unsafe fn extract_indexed_component_from_clause(
                     }
                 }
                 pg_sys::BoolExprType::NOT_EXPR => {
-                    // NOT expressions are tricky for optimization - skip for now
-                    None
+                    // Handle NOT expressions by extracting the inner indexed component
+                    // and wrapping it in a NOT qual
+                    if args.len() == 1 {
+                        if let Some(inner_component) = extract_indexed_component_from_clause(
+                            args.get_ptr(0).unwrap(),
+                            root,
+                            rti,
+                            pdbopoid,
+                            ri_type,
+                            schema,
+                        ) {
+                            Some(Qual::Not(Box::new(inner_component)))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
                 }
                 _ => None,
             }

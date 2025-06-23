@@ -28,6 +28,9 @@ use crate::parallel_worker::{
     ParallelWorker, WorkerStyle,
 };
 use crate::postgres::insert::garbage_collect_index;
+use crate::postgres::ps_status::{
+    set_ps_display_remove_suffix, set_ps_display_suffix, INDEXING, MERGING,
+};
 use crate::postgres::spinlock::Spinlock;
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::utils::{categorize_fields, row_to_search_document, CategorizedFieldData};
@@ -339,6 +342,8 @@ impl WorkerBuildState {
             self.unmerged_metas.push(segment_meta);
             self.try_merge(true)?;
         }
+
+        unsafe { set_ps_display_remove_suffix() };
         Ok(())
     }
 
@@ -404,6 +409,8 @@ impl WorkerBuildState {
                 .collect::<Vec<_>>()
         };
 
+        unsafe { set_ps_display_suffix(MERGING.as_ptr()) };
+
         // do the merge
         pgrx::debug1!(
             "do_merge: last merge {}, about to merge {} segments: {:?}",
@@ -448,6 +455,7 @@ unsafe extern "C-unwind" fn build_callback(
     state: *mut std::os::raw::c_void,
 ) {
     check_for_interrupts!();
+    set_ps_display_suffix(INDEXING.as_ptr());
 
     let build_state = &mut *state.cast::<WorkerBuildState>();
     let ctid_u64 = crate::postgres::utils::item_pointer_to_u64(*ctid);
@@ -516,7 +524,7 @@ pub(super) fn build_index(
     let nworkers = plan::create_index_nworkers(&heaprel);
     pgrx::debug1!("build_index: asked for {nworkers} workers");
 
-    if let Some(mut process) = launch_parallel_process!(
+    let total_tuples = if let Some(mut process) = launch_parallel_process!(
         ParallelBuild<BuildWorker>,
         process,
         WorkerStyle::Maintenance,
@@ -568,7 +576,7 @@ pub(super) fn build_index(
         }
 
         pgrx::debug1!("build_index: total_tuples: {total_tuples}, total_merges: {total_merges}");
-        Ok(total_tuples)
+        total_tuples
     } else {
         pgrx::debug1!("build_index: not doing a parallel build");
         // not doing a parallel build, so directly instantiate a BuildWorker and serially run the
@@ -592,8 +600,11 @@ pub(super) fn build_index(
 
         let (total_tuples, total_merges) = worker.do_build(1)?;
         pgrx::debug1!("build_index: total_tuples: {total_tuples}, total_merges: {total_merges}");
-        Ok(total_tuples)
-    }
+        total_tuples
+    };
+
+    unsafe { set_ps_display_remove_suffix() };
+    Ok(total_tuples)
 }
 
 mod plan {

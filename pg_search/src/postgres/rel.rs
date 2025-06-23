@@ -22,6 +22,7 @@ impl Debug for PgSearchRelation {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PgSearchRelation")
             .field("relation", &self.oid())
+            .field("lockmode", &self.lockmode())
             .finish()
     }
 }
@@ -86,6 +87,10 @@ impl PgSearchRelation {
         }
     }
 
+    pub fn lockmode(&self) -> Option<pg_sys::LOCKMODE> {
+        unsafe { self.0.as_ref().unwrap_unchecked().2 }
+    }
+
     pub fn oid(&self) -> pg_sys::Oid {
         unsafe { (*self.as_ptr()).rd_id }
     }
@@ -122,12 +127,12 @@ impl PgSearchRelation {
     }
 
     pub fn heap_relation(&self) -> Option<PgSearchRelation> {
-        // SAFETY: we know self.boxed and its members are correct as we created it
-        let rd_index: PgBox<pg_sys::FormData_pg_index> = unsafe { PgBox::from_pg(self.rd_index) };
-        if rd_index.is_null() {
-            None
-        } else {
-            Some(PgSearchRelation::open(rd_index.indrelid))
+        unsafe {
+            if self.rd_index.is_null() {
+                None
+            } else {
+                Some(PgSearchRelation::open((*self.rd_index).indrelid))
+            }
         }
     }
 

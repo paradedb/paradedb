@@ -1,4 +1,21 @@
-use pgrx::{name_data_to_str, pg_sys, PgTupleDesc};
+// Copyright (c) 2023-2025 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+//! Provides a reference-counted wrapper around an open Postgres [`pg_sys::Relation`].
+use pgrx::{name_data_to_str, pg_sys, PgList, PgTupleDesc};
 use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
 use std::ptr::NonNull;
@@ -63,18 +80,24 @@ impl Deref for PgSearchRelation {
 }
 
 impl PgSearchRelation {
+    /// Take ownership of a [`pg_sys::Relation`] pointer previously created by Postgres
+    ///
+    /// This relation will not be closed when we're dropped.
     pub unsafe fn from_pg(relation: pg_sys::Relation) -> Self {
-        unsafe {
-            Self(Some(Rc::new((
-                NonNull::new_unchecked(relation),
-                false,
-                None,
-            ))))
-        }
+        Self(Some(Rc::new((
+            NonNull::new(relation)
+                .expect("PgSearchRelation::from_pg: provided relation cannot be NULL"),
+            false,
+            None,
+        ))))
     }
 
+    /// Open a relation with the specified [`pg_sys::Oid`].
+    ///
+    /// This relation will be closed when we're the last of our reference-counted clones to be dropped.
     pub fn open(oid: pg_sys::Oid) -> Self {
         unsafe {
+            // SAFETY: RelationIdGetRelation() always returns a valid RelationData pointer
             Self(Some(Rc::new((
                 NonNull::new_unchecked(pg_sys::RelationIdGetRelation(oid)),
                 true,
@@ -83,8 +106,12 @@ impl PgSearchRelation {
         }
     }
 
+    /// Open a relation with the specified [`pg_sys::Oid`] under the specified [`pg_sys::LOCKMODE`].
+    ///
+    /// This relation will be closed when we're the last of our reference-counted clones to be dropped.
     pub fn with_lock(oid: pg_sys::Oid, lockmode: pg_sys::LOCKMODE) -> Self {
         unsafe {
+            // SAFETY: relation_open() always returns a valid RelationData pointer
             Self(Some(Rc::new((
                 NonNull::new_unchecked(pg_sys::relation_open(oid, lockmode)),
                 true,
@@ -94,10 +121,12 @@ impl PgSearchRelation {
     }
 
     pub fn lockmode(&self) -> Option<pg_sys::LOCKMODE> {
+        // SAFETY: self.0 is always Some
         unsafe { self.0.as_ref().unwrap_unchecked().2 }
     }
 
     pub fn oid(&self) -> pg_sys::Oid {
+        // SAFETY: self.as_ptr() is always a valid pointer
         unsafe { (*self.as_ptr()).rd_id }
     }
 
@@ -133,17 +162,14 @@ impl PgSearchRelation {
     }
 
     pub fn heap_relation(&self) -> Option<PgSearchRelation> {
-        unsafe {
-            if self.rd_index.is_null() {
-                None
-            } else {
-                Some(PgSearchRelation::open((*self.rd_index).indrelid))
-            }
+        if self.rd_index.is_null() {
+            None
+        } else {
+            unsafe { Some(PgSearchRelation::open((*self.rd_index).indrelid)) }
         }
     }
 
     pub fn indices(&self, lockmode: pg_sys::LOCKMODE) -> impl Iterator<Item = PgSearchRelation> {
-        use crate::PgList;
         // SAFETY: we know self.as_ptr() is a valid pointer as we created it
         let list =
             unsafe { PgList::<pg_sys::Oid>::from_pg(pg_sys::RelationGetIndexList(self.as_ptr())) };

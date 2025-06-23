@@ -82,6 +82,9 @@ impl LinkedBytesListWriter {
         let mut data_cursor = Cursor::new(bytes);
         let mut bytes_written = 0;
 
+        let buffer = self.list.bman.get_buffer(self.last_blockno);
+        drop(buffer);
+
         while bytes_written < bytes.len() {
             check_for_interrupts!();
             self.blocklist_builder.push(self.last_blockno);

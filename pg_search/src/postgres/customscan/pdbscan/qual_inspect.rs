@@ -411,25 +411,15 @@ impl From<&Qual> for SearchQueryInput {
                     _ => {
                         let must_not = vec![SearchQueryInput::from(qual.as_ref())];
 
-                        // CRITICAL FIX: If the inner expression contains search operators,
-                        // we should NOT use SearchQueryInput::All because that forces PostgreSQL
-                        // to evaluate @@@ operators, which will always return TRUE.
-                        // Instead, let Tantivy handle the entire NOT(search_predicate) query.
-                        if qual.contains_search_operators() {
-                            // For NOT expressions containing search operators,
-                            // create a proper Boolean query without the All clause
-                            SearchQueryInput::Boolean {
-                                must: vec![], // Don't use All - let Tantivy handle the NOT logic
-                                should: Default::default(),
-                                must_not,
-                            }
-                        } else {
-                            // For NOT expressions without search operators, use the original logic
-                            SearchQueryInput::Boolean {
-                                must: vec![SearchQueryInput::All],
-                                should: Default::default(),
-                                must_not,
-                            }
+                        // CRITICAL FIX: For NOT expressions containing search operators,
+                        // we MUST include SearchQueryInput::All in the must array.
+                        // A Boolean query with empty must[] and must_not[] means "start with no documents, exclude some"
+                        // which results in no documents. We need "start with all documents, exclude some".
+                        // Tantivy handles @@@ operators directly, so PostgreSQL won't evaluate them.
+                        SearchQueryInput::Boolean {
+                            must: vec![SearchQueryInput::All], // Always include All for NOT queries
+                            should: Default::default(),
+                            must_not,
                         }
                     }
                 }

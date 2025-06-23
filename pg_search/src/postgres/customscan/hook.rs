@@ -70,14 +70,20 @@ pub extern "C-unwind" fn paradedb_rel_pathlist_callback<CS: CustomScan>(
 ) {
     unsafe {
         if !gucs::enable_custom_scan() {
+            pgrx::warning!("🔗 [HOOK] Custom scan disabled via GUC for rti={}", rti);
             return;
         }
 
-        pgrx::log!("🔗 [HOOK] rel_pathlist_callback called for rti={}", rti);
+        pgrx::warning!("🔗 [HOOK] rel_pathlist_callback called for rti={}", rti);
 
         if let Some(mut path) =
             CS::rel_pathlist_callback(CustomPathBuilder::new::<CS>(root, rel, rti, rte))
         {
+            pgrx::warning!(
+                "🔗 [HOOK] Custom path created successfully for rti={}, {:?}",
+                rti,
+                path
+            );
             let forced = path.flags & Flags::Force as u32 != 0;
             path.flags ^= Flags::Force as u32; // make sure to clear this flag because it's special to us
 
@@ -112,6 +118,8 @@ pub extern "C-unwind" fn paradedb_rel_pathlist_callback<CS: CustomScan>(
 
             // add this path for consideration
             pg_sys::add_path(rel, custom_path.cast());
+        } else {
+            pgrx::warning!("🔗 [HOOK] No custom path created for rti={}", rti);
         }
     }
 }

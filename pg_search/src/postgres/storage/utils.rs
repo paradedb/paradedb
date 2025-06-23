@@ -19,9 +19,8 @@ use crate::api::HashMap;
 use crate::postgres::storage::block::{bm25_max_free_space, BM25PageSpecialData, PgItem};
 use parking_lot::Mutex;
 use pgrx::pg_sys::OffsetNumber;
-use pgrx::{check_for_interrupts, pg_sys, PgMemoryContexts, PgRelation};
+use pgrx::{check_for_interrupts, pg_sys, PgMemoryContexts};
 use std::fmt::{Debug, Formatter};
-use std::sync::Arc;
 
 /// Matches Postgres's [`MAX_BUFFERS_TO_EXTEND_BY`]
 pub const MAX_BUFFERS_TO_EXTEND_BY: usize = 64;

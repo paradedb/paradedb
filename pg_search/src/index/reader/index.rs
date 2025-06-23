@@ -27,7 +27,7 @@ use crate::query::SearchQueryInput;
 use crate::schema::SearchField;
 use crate::schema::SearchIndexSchema;
 use anyhow::Result;
-use pgrx::{pg_sys, PgRelation};
+use pgrx::pg_sys;
 use std::cmp::Ordering;
 use std::fmt::{Debug, Display};
 use std::path::PathBuf;

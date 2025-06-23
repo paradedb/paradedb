@@ -7,7 +7,7 @@ use crate::postgres::storage::block::{
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use anyhow::Result;
-use pgrx::{pg_sys, PgRelation};
+use pgrx::pg_sys;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;

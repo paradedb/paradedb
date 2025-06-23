@@ -17,8 +17,7 @@
 
 use crate::postgres::rel::PgSearchRelation;
 use anyhow::{anyhow, Result};
-use pgrx::{pg_sys, PgRelation, Spi};
-use std::sync::Arc;
+use pgrx::{pg_sys, Spi};
 
 pub enum IndexKind {
     Index(crate::postgres::rel::PgSearchRelation),

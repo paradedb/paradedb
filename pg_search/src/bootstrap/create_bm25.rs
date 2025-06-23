@@ -37,7 +37,6 @@ use pgrx::prelude::*;
 use pgrx::JsonB;
 use pgrx::PgRelation;
 use serde_json::Value;
-use std::sync::Arc;
 
 #[pg_extern]
 pub unsafe fn index_fields(index: PgRelation) -> anyhow::Result<JsonB> {
@@ -396,7 +395,7 @@ fn force_merge_raw_bytes(
         drop(index);
 
         // reopen the index with a RowExclusiveLock b/c we are going to be changing its physical structure
-        (PgSearchRelation::with_lock(oid, pg_sys::RowExclusiveLock as _))
+        PgSearchRelation::with_lock(oid, pg_sys::RowExclusiveLock as _)
     };
 
     let merge_policy = LayeredMergePolicy::new(vec![oversized_layer_size_bytes.try_into()?]);

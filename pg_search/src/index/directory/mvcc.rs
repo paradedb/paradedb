@@ -26,7 +26,7 @@ use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
 use crate::postgres::storage::LinkedItemList;
 use crate::postgres::storage::MAX_BUFFERS_TO_EXTEND_BY;
 use parking_lot::Mutex;
-use pgrx::{pg_sys, PgRelation};
+use pgrx::pg_sys;
 use std::any::Any;
 use std::collections::hash_map::Entry;
 use std::error::Error;
@@ -485,7 +485,7 @@ mod tests {
             Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
                 .expect("spi should succeed")
                 .unwrap();
-        let indexrel = (PgSearchRelation::open(relation_oid));
+        let indexrel = PgSearchRelation::open(relation_oid);
         let linked_list = LinkedItemList::<SegmentMetaEntry>::open(&indexrel, SEGMENT_METAS_START);
         let mut listed_files = unsafe { linked_list.list() };
         assert_eq!(listed_files.len(), 1);

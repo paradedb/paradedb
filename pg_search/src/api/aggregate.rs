@@ -13,7 +13,6 @@ use crate::query::SearchQueryInput;
 use pgrx::{check_for_interrupts, default, pg_extern, pg_sys, Json, JsonB, PgRelation};
 use rustc_hash::FxHashSet;
 use std::error::Error;
-use std::sync::Arc;
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::aggregation::{AggregationLimitsGuard, DistributedAggregationCollector};

@@ -52,9 +52,7 @@ pub fn locate_bm25_index_from_heaprel(heaprel: &PgSearchRelation) -> Option<PgSe
         indices
             .into_iter()
             .filter(|index| pg_sys::get_index_isvalid(index.oid()) && is_bm25_index(index))
-            .max_by_key(|index| index.oid().to_u32())
-            .map(PgSearchRelation::from)
-    }
+            .max_by_key(|index| index.oid().to_u32())}
 }
 
 /// Rather than using pgrx' version of this function, we use our own, which doesn't leave 2

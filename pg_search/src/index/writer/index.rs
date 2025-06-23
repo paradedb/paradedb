@@ -17,9 +17,7 @@
 
 use crate::api::{HashMap, HashSet};
 use anyhow::Result;
-use pgrx::{pg_sys, PgRelation};
 use std::num::NonZeroUsize;
-use std::sync::Arc;
 use tantivy::index::SegmentId;
 use tantivy::indexer::{AddOperation, SegmentWriter};
 use tantivy::schema::Field;

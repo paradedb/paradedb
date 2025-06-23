@@ -22,12 +22,12 @@ use crate::postgres::storage::blocklist;
 use crate::postgres::storage::buffer::{BufferManager, PageHeaderMethods};
 use anyhow::Result;
 use pgrx::pg_sys::BlockNumber;
-use pgrx::{check_for_interrupts, pg_sys, PgRelation};
+use pgrx::{check_for_interrupts, pg_sys};
 use std::cmp::min;
 use std::fmt::Debug;
 use std::io::{Cursor, Read, Write};
 use std::ops::{Deref, Range};
-use std::sync::{Arc, OnceLock};
+use std::sync::OnceLock;
 
 // ---------------------------------------------------------------
 // Linked list implementation over block storage,
@@ -426,7 +426,7 @@ mod tests {
             Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
                 .expect("spi should succeed")
                 .unwrap();
-        let indexrel = (PgSearchRelation::open(relation_oid));
+        let indexrel = PgSearchRelation::open(relation_oid);
 
         // Test read/write from newly created linked list
         let bytes: Vec<u8> = (1..=255).cycle().take(100_000).collect();
@@ -455,7 +455,7 @@ mod tests {
             Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
                 .expect("spi should succeed")
                 .unwrap();
-        let indexrel = (PgSearchRelation::open(relation_oid));
+        let indexrel = PgSearchRelation::open(relation_oid);
 
         let linked_list = LinkedBytesList::create(&indexrel);
         assert!(linked_list.is_empty());
@@ -475,7 +475,7 @@ mod tests {
             Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
                 .expect("spi should succeed")
                 .unwrap();
-        let indexrel = (PgSearchRelation::open(relation_oid));
+        let indexrel = PgSearchRelation::open(relation_oid);
 
         let linked_list = LinkedBytesList::create(&indexrel);
         let bytes: Vec<u8> = (1..=255).cycle().take(100_000).collect();

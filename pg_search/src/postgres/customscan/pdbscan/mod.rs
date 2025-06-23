@@ -93,7 +93,7 @@ impl PdbScan {
             .as_ref()
             .expect("custom_state.indexrel should already be open");
 
-        let search_reader = SearchIndexReader::open(&indexrel, unsafe {
+        let search_reader = SearchIndexReader::open(indexrel, unsafe {
             if pg_sys::ParallelWorkerNumber == -1 {
                 // the leader only sees snapshot-visible segments
                 MvccSatisfies::Snapshot

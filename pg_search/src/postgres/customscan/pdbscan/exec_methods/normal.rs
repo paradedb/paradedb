@@ -22,8 +22,7 @@ use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::utils::u64_to_item_pointer;
 use pgrx::itemptr::item_pointer_get_block_number;
-use pgrx::{pg_sys, PgRelation};
-use std::sync::Arc;
+use pgrx::pg_sys;
 
 pub struct NormalScanExecState {
     can_use_visibility_map: bool,

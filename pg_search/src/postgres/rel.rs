@@ -1,4 +1,4 @@
-use pgrx::{name_data_to_str, pg_sys, PgBox, PgTupleDesc};
+use pgrx::{name_data_to_str, pg_sys, PgTupleDesc};
 use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
 use std::ptr::NonNull;
@@ -32,14 +32,12 @@ impl Drop for PgSearchRelation {
         if let Some(arc) = self.0.take() {
             if let Some((relation, need_close, lockmode)) = Arc::into_inner(arc) {
                 unsafe {
-                    if need_close {
-                        if pg_sys::IsTransactionState() {
-                            match lockmode {
-                                Some(lockmode) => {
-                                    pg_sys::relation_close(relation.as_ptr(), lockmode)
-                                }
-                                None => pg_sys::RelationClose(relation.as_ptr()),
+                    if need_close && pg_sys::IsTransactionState() {
+                        match lockmode {
+                            Some(lockmode) => {
+                                pg_sys::relation_close(relation.as_ptr(), lockmode)
                             }
+                            None => pg_sys::RelationClose(relation.as_ptr()),
                         }
                     }
                 }

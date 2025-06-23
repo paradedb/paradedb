@@ -105,7 +105,7 @@ pub unsafe fn init_insert_state(
 ) -> &mut InsertState {
     if index_info.ii_AmCache.is_null() {
         // we don't have any cached state yet, so create it now
-        let index_relation = (PgSearchRelation::from_pg(index_relation));
+        let index_relation = PgSearchRelation::from_pg(index_relation);
         let state = InsertState::new(&index_relation)
             .expect("should be able to open new SearchIndex for writing");
 
@@ -247,10 +247,10 @@ pub unsafe fn merge_index_with_policy(
     // locked here so we can cause `ambulkdelete()` to block, waiting for all merging to finish
     // before it decides to find the segments it should vacuum.  The reason is that it needs to see
     // the final merged segment, not the original segments that will be deleted
-    let cleanup_lock = BufferManager::new(&indexrel).get_buffer(CLEANUP_LOCK);
-    let metadata = MetaPage::open(&indexrel);
+    let cleanup_lock = BufferManager::new(indexrel).get_buffer(CLEANUP_LOCK);
+    let metadata = MetaPage::open(indexrel);
     let merge_lock = metadata.acquire_merge_lock();
-    let directory = MVCCDirectory::mergeable(&indexrel);
+    let directory = MVCCDirectory::mergeable(indexrel);
     let merger =
         SearchIndexMerger::open(directory).expect("should be able to open a SearchIndexMerger");
     let merger_segment_ids = merger
@@ -326,7 +326,7 @@ pub unsafe fn merge_index_with_policy(
                     break;
                 }
                 if gc_after_merge {
-                    garbage_collect_index(&indexrel);
+                    garbage_collect_index(indexrel);
                     need_gc = false;
                 }
             }
@@ -370,7 +370,7 @@ pub unsafe fn merge_index_with_policy(
                 }
 
                 if gc_after_merge {
-                    garbage_collect_index(&indexrel);
+                    garbage_collect_index(indexrel);
                     need_gc = false;
                 }
             }
@@ -386,7 +386,7 @@ pub unsafe fn merge_index_with_policy(
 
         // we can garbage collect and return blocks back to the FSM without being under the MergeLock
         if need_gc {
-            garbage_collect_index(&indexrel);
+            garbage_collect_index(indexrel);
         }
 
         // if merging was cancelled due to a legit interrupt we'd prefer that be provided to the user

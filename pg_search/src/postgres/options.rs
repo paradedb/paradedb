@@ -653,7 +653,7 @@ fn ctid_field_config() -> SearchFieldConfig {
 }
 
 fn get_attribute_oid(field_name: &str, indexrel: &PgSearchRelation) -> Option<PgOid> {
-    extract_field_attributes(&indexrel)
+    extract_field_attributes(indexrel)
         .into_iter()
         .find(|(name, _)| name == field_name)
         .map(|(_, type_oid)| type_oid.into())

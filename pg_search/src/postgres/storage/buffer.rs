@@ -2,8 +2,7 @@ use crate::postgres::storage::block::{
     bm25_max_free_space, BM25PageSpecialData, PgItem, FIXED_BLOCK_NUMBERS,
 };
 use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
-use pgrx::{pg_sys, PgRelation};
-use std::sync::Arc;
+use pgrx::pg_sys;
 
 #[derive(Debug)]
 pub struct Buffer {

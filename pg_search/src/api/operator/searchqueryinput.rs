@@ -38,7 +38,6 @@ use pgrx::{
     FromDatum, Internal, PgList, PgOid, PgRelation,
 };
 use std::ptr::NonNull;
-use std::sync::Arc;
 
 /// SQL API for allowing the user to specify the index to query.
 ///

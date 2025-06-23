@@ -25,7 +25,6 @@ use crate::postgres::{parallel, ScanStrategy};
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys::IndexScanDesc;
 use pgrx::*;
-use std::sync::Arc;
 
 pub struct Bm25ScanState {
     need_scores: bool,

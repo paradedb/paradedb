@@ -35,7 +35,6 @@ use pgrx::pgrx_sql_entity_graph::metadata::{
 };
 use pgrx::*;
 use std::ptr::NonNull;
-use std::sync::Arc;
 
 #[derive(Debug)]
 #[repr(transparent)]

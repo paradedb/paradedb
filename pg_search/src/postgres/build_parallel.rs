@@ -182,9 +182,9 @@ impl ParallelWorker for BuildWorker<'_> {
             };
 
             let heaprel =
-                (PgSearchRelation::with_lock(config.heaprelid, heap_lock as pg_sys::LOCKMODE));
+                PgSearchRelation::with_lock(config.heaprelid, heap_lock as pg_sys::LOCKMODE);
             let indexrel =
-                (PgSearchRelation::with_lock(config.indexrelid, index_lock as pg_sys::LOCKMODE));
+                PgSearchRelation::with_lock(config.indexrelid, index_lock as pg_sys::LOCKMODE);
             let table_scan_desc = pg_sys::table_beginscan_parallel(heaprel.as_ptr(), scandesc);
 
             Self {

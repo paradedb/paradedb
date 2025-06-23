@@ -16,8 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::utils;
-use pgrx::{pg_sys, PgRelation};
-use std::sync::Arc;
+use pgrx::pg_sys;
 
 /// Helper to manage the information necessary to validate that a "ctid" is currently visible to
 /// a snapshot

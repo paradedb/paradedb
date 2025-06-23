@@ -106,7 +106,7 @@ mod tests {
             Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
                 .expect("spi should succeed")
                 .unwrap();
-        let indexrel = (PgSearchRelation::open(relation_oid));
+        let indexrel = PgSearchRelation::open(relation_oid);
 
         let bytes: Vec<u8> = (1..=255).cycle().take(100_000).collect();
         let segment = format!("{}.term", uuid::Uuid::new_v4());

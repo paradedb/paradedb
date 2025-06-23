@@ -2,7 +2,6 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::categorize_fields;
 use crate::schema::SearchIndexSchema;
-use std::sync::Arc;
 use tantivy::query::{
     BooleanQuery, EnableScoring, MoreLikeThis as TantivyMoreLikeThis, Query, Weight,
 };

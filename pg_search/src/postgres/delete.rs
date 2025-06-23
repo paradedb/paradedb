@@ -16,7 +16,6 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use pgrx::{pg_sys::ItemPointerData, *};
-use std::sync::Arc;
 
 use super::storage::block::CLEANUP_LOCK;
 use crate::index::fast_fields_helper::FFType;
@@ -27,7 +26,7 @@ use crate::postgres::storage::metadata::MetaPage;
 
 use crate::postgres::rel::PgSearchRelation;
 use anyhow::Result;
-use pgrx::{pg_sys, PgRelation};
+use pgrx::pg_sys;
 use tantivy::index::SegmentId;
 use tantivy::indexer::delete_queue::DeleteQueue;
 use tantivy::indexer::{advance_deletes, DeleteOperation, SegmentEntry};
@@ -42,7 +41,7 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
 ) -> *mut pg_sys::IndexBulkDeleteResult {
     let info = PgBox::from_pg(info);
     let mut stats = PgBox::<pg_sys::IndexBulkDeleteResult>::from_pg(stats.cast());
-    let index_relation = (PgSearchRelation::from_pg(info.index));
+    let index_relation = PgSearchRelation::from_pg(info.index);
     let callback =
         callback.expect("the ambulkdelete() callback should be a valid function pointer");
     let callback = move |ctid_val: u64| {

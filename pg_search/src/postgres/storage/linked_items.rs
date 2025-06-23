@@ -19,10 +19,9 @@ use super::block::{BM25PageSpecialData, LinkedList, LinkedListData, MVCCEntry, P
 use super::buffer::{BufferManager, BufferMut};
 use anyhow::Result;
 use pgrx::pg_sys::BlockNumber;
-use pgrx::{pg_sys, PgRelation};
+use pgrx::pg_sys;
 use std::fmt::Debug;
 use std::ops::{Deref, DerefMut};
-use std::sync::Arc;
 // ---------------------------------------------------------------
 // Linked list implementation over block storage,
 // where each node in the list is a pg_sys::Item
@@ -566,7 +565,7 @@ mod tests {
     #[pg_test]
     unsafe fn test_linked_items_garbage_collect_single_page() {
         let relation_oid = init_bm25_index();
-        let indexrel = (PgSearchRelation::open(relation_oid));
+        let indexrel = PgSearchRelation::open(relation_oid);
         let delete_xid = pg_sys::FrozenTransactionId;
 
         let mut list = LinkedItemList::<SegmentMetaEntry>::create(&indexrel);
@@ -598,7 +597,7 @@ mod tests {
     #[pg_test]
     unsafe fn test_linked_items_garbage_collect_multiple_pages() {
         let relation_oid = init_bm25_index();
-        let indexrel = (PgSearchRelation::open(relation_oid));
+        let indexrel = PgSearchRelation::open(relation_oid);
 
         let deleted_xid = pg_sys::FrozenTransactionId;
         let not_deleted_xid = pg_sys::InvalidTransactionId;
@@ -686,7 +685,7 @@ mod tests {
     #[pg_test]
     unsafe fn test_linked_items_duplicate_then_replace() {
         let relation_oid = init_bm25_index();
-        let indexrel = (PgSearchRelation::open(relation_oid));
+        let indexrel = PgSearchRelation::open(relation_oid);
 
         // Add 2000 entries.
         let mut list = LinkedItemList::<SegmentMetaEntry>::create(&indexrel);

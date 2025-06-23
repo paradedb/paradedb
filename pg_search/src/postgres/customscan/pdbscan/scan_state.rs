@@ -110,17 +110,17 @@ impl PdbScanState {
         self.lockmode = lockmode;
         if self.heaprel.is_none() {
             self.heaprel = if lockmode == pg_sys::NoLock as pg_sys::LOCKMODE {
-                unsafe { Some((PgSearchRelation::open(self.heaprelid))) }
+                unsafe { Some(PgSearchRelation::open(self.heaprelid)) }
             } else {
-                unsafe { Some((PgSearchRelation::with_lock(self.heaprelid, lockmode))) }
+                unsafe { Some(PgSearchRelation::with_lock(self.heaprelid, lockmode)) }
             }
         };
 
         if self.indexrel.is_none() {
             self.indexrel = if lockmode == pg_sys::NoLock as pg_sys::LOCKMODE {
-                unsafe { Some((PgSearchRelation::open(self.indexrelid))) }
+                unsafe { Some(PgSearchRelation::open(self.indexrelid)) }
             } else {
-                unsafe { Some((PgSearchRelation::with_lock(self.indexrelid, lockmode))) }
+                unsafe { Some(PgSearchRelation::with_lock(self.indexrelid, lockmode)) }
             }
         };
     }
@@ -243,12 +243,12 @@ impl PdbScanState {
 
     #[inline(always)]
     pub fn heaprelname(&self) -> &str {
-        unsafe { name_data_to_str(&(*(*self.heaprel()).rd_rel).relname) }
+        unsafe { name_data_to_str(&(*self.heaprel().rd_rel).relname) }
     }
 
     #[inline(always)]
     pub fn indexrelname(&self) -> &str {
-        unsafe { name_data_to_str(&(*(*self.indexrel()).rd_rel).relname) }
+        unsafe { name_data_to_str(&(*self.indexrel().rd_rel).relname) }
     }
 
     #[inline(always)]
@@ -360,7 +360,7 @@ impl PdbScanState {
 
         pg_sys::ReleaseBuffer(buffer);
 
-        let tuple_desc = PgTupleDesc::from_pg_unchecked((*heaprel).rd_att);
+        let tuple_desc = PgTupleDesc::from_pg_unchecked(heaprel.rd_att);
         let heap_tuple = PgHeapTuple::from_heap_tuple(tuple_desc.clone(), &mut htup);
         let (index, attribute) = heap_tuple.get_attribute_by_name(&field.root()).unwrap();
 

@@ -21,8 +21,7 @@ use crate::postgres::storage::block::{
 use crate::postgres::storage::buffer::{BufferManager, BufferMut};
 use crate::postgres::storage::merge::{MergeLock, SegmentIdBytes, VacuumList, VacuumSentinel};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
-use pgrx::{pg_sys, PgRelation};
-use std::sync::Arc;
+use pgrx::pg_sys;
 use tantivy::index::SegmentId;
 
 /// The metadata stored on the [`Metadata`] page

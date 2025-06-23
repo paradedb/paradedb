@@ -22,7 +22,6 @@ use crate::query::SearchQueryInput;
 use pgrx::*;
 use rel::PgSearchRelation;
 use std::io::Write;
-use std::sync::Arc;
 use tantivy::index::SegmentId;
 use tantivy::SegmentReader;
 
@@ -125,7 +124,7 @@ pub fn rel_get_bm25_index(
         let rel = PgSearchRelation::with_lock(relid, pg_sys::AccessShareLock as _);
         rel.indices(pg_sys::AccessShareLock as _)
             .find(is_bm25_index)
-            .map(|index| (rel, PgSearchRelation::from(index)))
+            .map(|index| (rel, index))
     }
 }
 

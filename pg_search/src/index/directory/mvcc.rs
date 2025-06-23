@@ -19,6 +19,7 @@ use super::utils::{load_metas, save_new_metas, save_schema, save_settings};
 use crate::api::{HashMap, HashSet};
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     bm25_max_free_space, FileEntry, MVCCEntry, SegmentMetaEntry, SEGMENT_METAS_START,
 };
@@ -61,10 +62,7 @@ pub enum MvccSatisfies {
 }
 
 impl MvccSatisfies {
-    pub fn directory(
-        self,
-        index_relation: &crate::postgres::rel::PgSearchRelation,
-    ) -> MVCCDirectory {
+    pub fn directory(self, index_relation: &PgSearchRelation) -> MVCCDirectory {
         match self {
             MvccSatisfies::ParallelWorker(segment_ids) => {
                 MVCCDirectory::parallel_worker(index_relation, segment_ids)
@@ -82,7 +80,7 @@ type AtomicFileEntry = (FileEntry, Arc<AtomicUsize>);
 /// and should back all Tantivy Indexes used in insert and scan operations
 #[derive(Clone)]
 pub struct MVCCDirectory {
-    indexrel: crate::postgres::rel::PgSearchRelation,
+    indexrel: PgSearchRelation,
     mvcc_style: MvccSatisfies,
 
     // keep a cache of readers behind an Arc<Mutex<_>> so that if/when this MVCCDirectory is
@@ -118,28 +116,25 @@ unsafe impl Sync for MVCCDirectory {}
 
 impl MVCCDirectory {
     pub fn parallel_worker(
-        index_relation: &crate::postgres::rel::PgSearchRelation,
+        index_relation: &PgSearchRelation,
         segment_ids: HashSet<SegmentId>,
     ) -> Self {
         Self::with_mvcc_style(index_relation, MvccSatisfies::ParallelWorker(segment_ids))
     }
 
-    pub fn snapshot(index_relation: &crate::postgres::rel::PgSearchRelation) -> Self {
+    pub fn snapshot(index_relation: &PgSearchRelation) -> Self {
         Self::with_mvcc_style(index_relation, MvccSatisfies::Snapshot)
     }
 
-    pub fn vacuum(index_relation: &crate::postgres::rel::PgSearchRelation) -> Self {
+    pub fn vacuum(index_relation: &PgSearchRelation) -> Self {
         Self::with_mvcc_style(index_relation, MvccSatisfies::Vacuum)
     }
 
-    pub fn mergeable(index_relation: &crate::postgres::rel::PgSearchRelation) -> Self {
+    pub fn mergeable(index_relation: &PgSearchRelation) -> Self {
         Self::with_mvcc_style(index_relation, MvccSatisfies::Mergeable)
     }
 
-    fn with_mvcc_style(
-        index_relation: &crate::postgres::rel::PgSearchRelation,
-        mvcc_style: MvccSatisfies,
-    ) -> Self {
+    fn with_mvcc_style(index_relation: &PgSearchRelation, mvcc_style: MvccSatisfies) -> Self {
         Self {
             indexrel: Clone::clone(index_relation),
             mvcc_style,
@@ -209,7 +204,7 @@ impl MVCCDirectory {
         self.all_entries.lock().clone()
     }
 
-    pub(crate) fn indexrel(&self) -> &crate::postgres::rel::PgSearchRelation {
+    pub(crate) fn indexrel(&self) -> &PgSearchRelation {
         &self.indexrel
     }
 }

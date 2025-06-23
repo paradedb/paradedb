@@ -44,7 +44,7 @@ use tantivy::DocAddress;
 const NULL_TERM_ORDINAL: TermOrdinal = u64::MAX;
 
 pub struct FastFieldExecState {
-    heaprel: Option<crate::postgres::rel::PgSearchRelation>,
+    heaprel: Option<PgSearchRelation>,
     tupdesc: Option<PgTupleDesc<'static>>,
 
     /// Execution time WhichFastFields.
@@ -543,10 +543,7 @@ pub fn explain(state: &CustomScanStateWrapper<PdbScan>, explainer: &mut Explaine
     }
 }
 
-pub fn estimate_cardinality(
-    indexrel: &crate::postgres::rel::PgSearchRelation,
-    field: &FieldName,
-) -> Option<usize> {
+pub fn estimate_cardinality(indexrel: &PgSearchRelation, field: &FieldName) -> Option<usize> {
     let reader = SearchIndexReader::open(indexrel, MvccSatisfies::Snapshot)
         .expect("estimate_cardinality: should be able to open SearchIndexReader");
     let searcher = reader.searcher();

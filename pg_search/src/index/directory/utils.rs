@@ -1,5 +1,6 @@
 use crate::api::{HashMap, HashSet};
 use crate::index::mvcc::{MvccSatisfies, PinCushion};
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     DeleteEntry, FileEntry, LinkedList, MVCCEntry, PgItem, SegmentFileDetails, SegmentMetaEntry,
     SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
@@ -18,10 +19,7 @@ use tantivy::{
     IndexMeta,
 };
 
-pub fn save_schema(
-    indexrel: &crate::postgres::rel::PgSearchRelation,
-    tantivy_schema: &Schema,
-) -> Result<()> {
+pub fn save_schema(indexrel: &PgSearchRelation, tantivy_schema: &Schema) -> Result<()> {
     let schema = LinkedBytesList::open(indexrel, SCHEMA_START);
     if schema.is_empty() {
         let bytes = serde_json::to_vec(tantivy_schema)?;
@@ -32,10 +30,7 @@ pub fn save_schema(
     Ok(())
 }
 
-pub fn save_settings(
-    indexrel: &crate::postgres::rel::PgSearchRelation,
-    tantivy_settings: &IndexSettings,
-) -> Result<()> {
+pub fn save_settings(indexrel: &PgSearchRelation, tantivy_settings: &IndexSettings) -> Result<()> {
     let settings = LinkedBytesList::open(indexrel, SETTINGS_START);
     if settings.is_empty() {
         let bytes = serde_json::to_vec(tantivy_settings)?;
@@ -47,7 +42,7 @@ pub fn save_settings(
 }
 
 pub unsafe fn save_new_metas(
-    indexrel: &crate::postgres::rel::PgSearchRelation,
+    indexrel: &PgSearchRelation,
     new_meta: &IndexMeta,
     prev_meta: &IndexMeta,
     directory_entries: &mut HashMap<PathBuf, FileEntry>,
@@ -318,7 +313,7 @@ pub unsafe fn save_new_metas(
 }
 
 pub unsafe fn load_metas(
-    indexrel: &crate::postgres::rel::PgSearchRelation,
+    indexrel: &PgSearchRelation,
     inventory: &SegmentMetaInventory,
     solve_mvcc: &MvccSatisfies,
 ) -> tantivy::Result<(Vec<SegmentMetaEntry>, IndexMeta, PinCushion)> {

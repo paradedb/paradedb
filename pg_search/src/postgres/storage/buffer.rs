@@ -1,3 +1,4 @@
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     bm25_max_free_space, BM25PageSpecialData, PgItem, FIXED_BLOCK_NUMBERS,
 };
@@ -443,7 +444,7 @@ pub struct BufferManager {
 }
 
 impl BufferManager {
-    pub fn new(rel: &crate::postgres::rel::PgSearchRelation) -> Self {
+    pub fn new(rel: &PgSearchRelation) -> Self {
         Self {
             bcache: BM25BufferCache::open(rel),
         }

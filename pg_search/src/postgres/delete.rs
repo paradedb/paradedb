@@ -156,10 +156,7 @@ struct SegmentDeleter {
 }
 
 impl SegmentDeleter {
-    pub fn open(
-        index_relation: &crate::postgres::rel::PgSearchRelation,
-        segment_id: SegmentId,
-    ) -> Result<Self> {
+    pub fn open(index_relation: &PgSearchRelation, segment_id: SegmentId) -> Result<Self> {
         let delete_queue = DeleteQueue::new();
         let delete_cursor = delete_queue.cursor();
 

@@ -137,7 +137,7 @@ fn bm25_amhandler_oid() -> Option<pg_sys::Oid> {
     }
 }
 
-unsafe fn init_fixed_buffers(index_relation: &crate::postgres::rel::PgSearchRelation) {
+unsafe fn init_fixed_buffers(index_relation: &PgSearchRelation) {
     let mut bman = BufferManager::new(index_relation);
 
     // Init merge lock buffer
@@ -209,9 +209,7 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
     Ok(())
 }
 
-unsafe fn record_create_index_segment_ids(
-    indexrel: &crate::postgres::rel::PgSearchRelation,
-) -> anyhow::Result<()> {
+unsafe fn record_create_index_segment_ids(indexrel: &PgSearchRelation) -> anyhow::Result<()> {
     let metadata = MetaPageMut::new(indexrel);
     let directory = MVCCDirectory::snapshot(indexrel);
     let index = Index::open(directory.clone())?;

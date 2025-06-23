@@ -127,7 +127,7 @@ pub fn searchqueryinput_typoid() -> pg_sys::Oid {
 }
 
 pub(crate) fn estimate_selectivity(
-    indexrel: &crate::postgres::rel::PgSearchRelation,
+    indexrel: &PgSearchRelation,
     search_query_input: &SearchQueryInput,
 ) -> Option<f64> {
     let reltuples = indexrel

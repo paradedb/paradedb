@@ -46,7 +46,7 @@ pub struct InsertState {
 }
 
 impl InsertState {
-    unsafe fn new(indexrel: &crate::postgres::rel::PgSearchRelation) -> anyhow::Result<Self> {
+    unsafe fn new(indexrel: &PgSearchRelation) -> anyhow::Result<Self> {
         let config = IndexWriterConfig {
             memory_budget: gucs::adjust_work_mem(),
             max_docs_per_segment: None,
@@ -211,7 +211,7 @@ pub(crate) const DEFAULT_LAYER_SIZES: &[u64] = &[
     100 * 1024 * 1024, // 100MB
 ];
 
-unsafe fn do_merge(indexrel: crate::postgres::rel::PgSearchRelation) -> (NumCandidates, NumMerged) {
+unsafe fn do_merge(indexrel: PgSearchRelation) -> (NumCandidates, NumMerged) {
     let indexrel = {
         let heaprel = indexrel
             .heap_relation()
@@ -237,7 +237,7 @@ unsafe fn do_merge(indexrel: crate::postgres::rel::PgSearchRelation) -> (NumCand
 }
 
 pub unsafe fn merge_index_with_policy(
-    indexrel: &crate::postgres::rel::PgSearchRelation,
+    indexrel: &PgSearchRelation,
     mut merge_policy: LayeredMergePolicy,
     verbose: bool,
     gc_after_merge: bool,
@@ -411,7 +411,7 @@ pub unsafe fn merge_index_with_policy(
 /// moved to the `SEGMENT_METAS_GARBAGE` list until those replicas indicate that they are no longer
 /// in use, at which point they can be freed by `free_garbage`.
 ///
-pub unsafe fn garbage_collect_index(indexrel: &crate::postgres::rel::PgSearchRelation) {
+pub unsafe fn garbage_collect_index(indexrel: &PgSearchRelation) {
     // Remove items which are no longer visible to active local transactions from SEGMENT_METAS,
     // and place them in SEGMENT_METAS_RECYLCABLE until they are no longer visible to remote
     // transactions either.
@@ -430,10 +430,7 @@ pub unsafe fn garbage_collect_index(indexrel: &crate::postgres::rel::PgSearchRel
     free_entries(indexrel, entries);
 }
 
-pub fn free_entries(
-    indexrel: &crate::postgres::rel::PgSearchRelation,
-    freeable_entries: Vec<SegmentMetaEntry>,
-) {
+pub fn free_entries(indexrel: &PgSearchRelation, freeable_entries: Vec<SegmentMetaEntry>) {
     for entry in freeable_entries {
         for (file_entry, _) in entry.file_entries() {
             unsafe {

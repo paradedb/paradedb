@@ -152,8 +152,8 @@ struct BuildWorker<'a> {
     config: WorkerConfig,
     table_scan_desc: Option<NonNull<pg_sys::TableScanDescData>>,
     coordination: &'a mut WorkerCoordination,
-    heaprel: crate::postgres::rel::PgSearchRelation,
-    indexrel: crate::postgres::rel::PgSearchRelation,
+    heaprel: PgSearchRelation,
+    indexrel: PgSearchRelation,
 }
 
 impl ParallelWorker for BuildWorker<'_> {
@@ -214,8 +214,8 @@ impl ParallelWorker for BuildWorker<'_> {
 
 impl<'a> BuildWorker<'a> {
     fn new(
-        heaprel: &crate::postgres::rel::PgSearchRelation,
-        indexrel: &crate::postgres::rel::PgSearchRelation,
+        heaprel: &PgSearchRelation,
+        indexrel: &PgSearchRelation,
         config: WorkerConfig,
         coordination: &'a mut WorkerCoordination,
     ) -> Self {
@@ -277,8 +277,8 @@ struct WorkerBuildState {
     categorized_fields: Vec<(SearchField, CategorizedFieldData)>,
     key_field_name: FieldName,
     per_row_context: PgMemoryContexts,
-    indexrel: crate::postgres::rel::PgSearchRelation,
-    heaprel: crate::postgres::rel::PgSearchRelation,
+    indexrel: PgSearchRelation,
+    heaprel: PgSearchRelation,
     // the following statistics are used to determine when and what to merge:
     //
     // 1. how many segments does this worker expect to make, assuming no merges?
@@ -299,8 +299,8 @@ struct WorkerBuildState {
 
 impl WorkerBuildState {
     pub fn new(
-        heaprel: &crate::postgres::rel::PgSearchRelation,
-        indexrel: &crate::postgres::rel::PgSearchRelation,
+        heaprel: &PgSearchRelation,
+        indexrel: &PgSearchRelation,
         per_worker_memory_budget: NonZeroUsize,
         worker_segment_target: usize,
         nlaunched: usize,
@@ -497,8 +497,8 @@ unsafe extern "C-unwind" fn build_callback(
 /// If the system allows, it will build the index in parallel.  Otherwise the index is built in
 /// serially in this connected backend.
 pub(super) fn build_index(
-    heaprel: crate::postgres::rel::PgSearchRelation,
-    indexrel: crate::postgres::rel::PgSearchRelation,
+    heaprel: PgSearchRelation,
+    indexrel: PgSearchRelation,
     concurrent: bool,
 ) -> anyhow::Result<f64> {
     struct SnapshotDropper(pg_sys::Snapshot);
@@ -619,7 +619,7 @@ mod plan {
     /// is greater than available parallelism, we use available parallelism.
     ///
     /// If the leader is participating, we subtract 1 from the number of workers because the leader also counts as a worker.
-    pub(super) fn create_index_nworkers(heaprel: &crate::postgres::rel::PgSearchRelation) -> usize {
+    pub(super) fn create_index_nworkers(heaprel: &PgSearchRelation) -> usize {
         // We don't want a parallel build to happen if we're creating a single segment
         let target_segment_count = plan::adjusted_target_segment_count(heaprel);
         if target_segment_count == 1 {

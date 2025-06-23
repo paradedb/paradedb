@@ -20,13 +20,14 @@ use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::is_block_all_visible;
 use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::u64_to_item_pointer;
 use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::pg_sys;
 
 pub struct NormalScanExecState {
     can_use_visibility_map: bool,
-    heaprel: Option<crate::postgres::rel::PgSearchRelation>,
+    heaprel: Option<PgSearchRelation>,
     slot: *mut pg_sys::TupleTableSlot,
     vmbuff: pg_sys::Buffer,
 

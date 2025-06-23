@@ -17,6 +17,7 @@
 
 use super::block::{BM25PageSpecialData, LinkedList, LinkedListData, MVCCEntry, PgItem};
 use super::buffer::{BufferManager, BufferMut};
+use crate::postgres::rel::PgSearchRelation;
 use anyhow::Result;
 use pgrx::pg_sys;
 use pgrx::pg_sys::BlockNumber;
@@ -83,10 +84,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedList for 
 }
 
 impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<T> {
-    pub fn open(
-        indexrel: &crate::postgres::rel::PgSearchRelation,
-        header_blockno: pg_sys::BlockNumber,
-    ) -> Self {
+    pub fn open(indexrel: &PgSearchRelation, header_blockno: pg_sys::BlockNumber) -> Self {
         Self {
             header_blockno,
             bman: BufferManager::new(indexrel),
@@ -94,7 +92,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         }
     }
 
-    pub fn create(indexrel: &crate::postgres::rel::PgSearchRelation) -> Self {
+    pub fn create(indexrel: &PgSearchRelation) -> Self {
         let (mut _self, mut header_buffer) = Self::create_without_start_page(indexrel);
 
         let mut start_buffer = _self.bman.new_buffer();
@@ -110,9 +108,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         _self
     }
 
-    fn create_without_start_page(
-        indexrel: &crate::postgres::rel::PgSearchRelation,
-    ) -> (Self, BufferMut) {
+    fn create_without_start_page(indexrel: &PgSearchRelation) -> (Self, BufferMut) {
         let mut bman = BufferManager::new(indexrel);
 
         let mut header_buffer = bman.new_buffer();
@@ -731,7 +727,7 @@ mod tests {
             .unwrap()
     }
 
-    fn make_fake_postings(indexrel: &crate::postgres::rel::PgSearchRelation) -> FileEntry {
+    fn make_fake_postings(indexrel: &PgSearchRelation) -> FileEntry {
         let mut postings_file_block = BufferManager::new(indexrel).new_buffer();
         postings_file_block.init_page();
         FileEntry {

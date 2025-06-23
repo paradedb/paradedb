@@ -1427,7 +1427,7 @@ pub fn text_lower_funcoid() -> pg_sys::Oid {
 
 #[inline(always)]
 pub fn is_block_all_visible(
-    heaprel: &crate::postgres::rel::PgSearchRelation,
+    heaprel: &PgSearchRelation,
     vmbuff: &mut pg_sys::Buffer,
     heap_blockno: pg_sys::BlockNumber,
 ) -> bool {

@@ -1,3 +1,4 @@
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{bm25_max_free_space, FileEntry, LinkedList};
 use crate::postgres::storage::linked_bytes::RangeData;
 use crate::postgres::storage::LinkedBytesList;
@@ -20,7 +21,7 @@ pub struct SegmentComponentReader {
 }
 
 impl SegmentComponentReader {
-    pub unsafe fn new(indexrel: &crate::postgres::rel::PgSearchRelation, entry: FileEntry) -> Self {
+    pub unsafe fn new(indexrel: &PgSearchRelation, entry: FileEntry) -> Self {
         let block_list = LinkedBytesList::open(indexrel, entry.starting_block);
 
         Self {

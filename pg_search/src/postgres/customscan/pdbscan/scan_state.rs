@@ -64,8 +64,8 @@ pub struct PdbScanState {
     pub invisible_tuple_count: usize,
 
     pub heaprelid: pg_sys::Oid,
-    pub heaprel: Option<crate::postgres::rel::PgSearchRelation>,
-    pub indexrel: Option<crate::postgres::rel::PgSearchRelation>,
+    pub heaprel: Option<PgSearchRelation>,
+    pub indexrel: Option<PgSearchRelation>,
     pub indexrelid: pg_sys::Oid,
     pub lockmode: pg_sys::LOCKMODE,
 
@@ -235,7 +235,7 @@ impl PdbScanState {
     }
 
     #[inline(always)]
-    pub fn indexrel(&self) -> &crate::postgres::rel::PgSearchRelation {
+    pub fn indexrel(&self) -> &PgSearchRelation {
         self.indexrel
             .as_ref()
             .expect("PdbScanState: indexrel should be initialized")

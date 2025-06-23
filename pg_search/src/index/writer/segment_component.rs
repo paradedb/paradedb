@@ -1,4 +1,5 @@
 use crate::index::directory::mvcc::BUFWRITER_CAPACITY;
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{FileEntry, SegmentFileDetails};
 use crate::postgres::storage::{LinkedBytesList, LinkedBytesListWriter};
 use pgrx::*;
@@ -15,7 +16,7 @@ pub struct SegmentComponentWriter {
 }
 
 impl SegmentComponentWriter {
-    pub unsafe fn new(indexrel: &crate::postgres::rel::PgSearchRelation, path: &Path) -> Self {
+    pub unsafe fn new(indexrel: &PgSearchRelation, path: &Path) -> Self {
         if path.component_type() == Some(SegmentComponent::Store) {
             Self {
                 inner: None,
@@ -89,7 +90,7 @@ struct InnerSegmentComponentWriter {
 }
 
 impl InnerSegmentComponentWriter {
-    pub unsafe fn new(indexrel: &crate::postgres::rel::PgSearchRelation) -> Self {
+    pub unsafe fn new(indexrel: &PgSearchRelation) -> Self {
         let segment_component = LinkedBytesList::create(indexrel);
 
         Self {

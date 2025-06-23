@@ -18,6 +18,7 @@
 use super::block::{
     bm25_max_free_space, BM25PageSpecialData, LinkedList, LinkedListData, FIXED_BLOCK_NUMBERS,
 };
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::blocklist;
 use crate::postgres::storage::buffer::{BufferManager, PageHeaderMethods};
 use anyhow::Result;
@@ -28,7 +29,6 @@ use std::fmt::Debug;
 use std::io::{Cursor, Read, Write};
 use std::ops::{Deref, Range};
 use std::sync::OnceLock;
-
 // ---------------------------------------------------------------
 // Linked list implementation over block storage,
 // where each node is a page filled with bm25_max_free_space()
@@ -249,10 +249,7 @@ impl Deref for RangeData {
 }
 
 impl LinkedBytesList {
-    pub fn open(
-        rel: &crate::postgres::rel::PgSearchRelation,
-        header_blockno: pg_sys::BlockNumber,
-    ) -> Self {
+    pub fn open(rel: &PgSearchRelation, header_blockno: pg_sys::BlockNumber) -> Self {
         Self {
             bman: BufferManager::new(rel),
             header_blockno,
@@ -260,7 +257,7 @@ impl LinkedBytesList {
         }
     }
 
-    pub unsafe fn create(rel: &crate::postgres::rel::PgSearchRelation) -> Self {
+    pub unsafe fn create(rel: &PgSearchRelation) -> Self {
         let mut bman = BufferManager::new(rel);
         let mut buffers = bman.new_buffers(2);
 

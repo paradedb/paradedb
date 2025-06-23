@@ -146,7 +146,7 @@ pub struct SearchIndexSchema {
 }
 
 impl SearchIndexSchema {
-    pub fn open(indexrel: &crate::postgres::rel::PgSearchRelation) -> Result<Self> {
+    pub fn open(indexrel: &PgSearchRelation) -> Result<Self> {
         let directory = MVCCDirectory::snapshot(indexrel);
         let index = Index::open(directory)?;
         let schema = index.schema().clone();

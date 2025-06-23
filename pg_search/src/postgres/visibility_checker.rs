@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils;
 use pgrx::pg_sys;
 
@@ -26,7 +27,7 @@ pub struct VisibilityChecker {
     tid: pg_sys::ItemPointerData,
 
     // we hold onto this b/c `scan` points to the relation this does
-    _heaprel: crate::postgres::rel::PgSearchRelation,
+    _heaprel: PgSearchRelation,
 }
 
 impl Drop for VisibilityChecker {
@@ -45,10 +46,7 @@ impl Drop for VisibilityChecker {
 impl VisibilityChecker {
     /// Construct a new [`VisibilityChecker`] that can validate ctid visibility against the specified
     /// `relation` and `snapshot`
-    pub fn with_rel_and_snap(
-        heaprel: &crate::postgres::rel::PgSearchRelation,
-        snapshot: pg_sys::Snapshot,
-    ) -> Self {
+    pub fn with_rel_and_snap(heaprel: &PgSearchRelation, snapshot: pg_sys::Snapshot) -> Self {
         unsafe {
             Self {
                 scan: pg_sys::table_index_fetch_begin(heaprel.as_ptr()),

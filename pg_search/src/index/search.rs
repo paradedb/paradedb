@@ -19,14 +19,12 @@ use crate::postgres::options::SearchIndexOptions;
 use crate::postgres::utils::categorize_fields;
 use crate::schema::SearchIndexSchema;
 
+use crate::postgres::rel::PgSearchRelation;
 use anyhow::Result;
 use tantivy::Index;
 use tokenizers::{create_normalizer_manager, create_tokenizer_manager, SearchTokenizer};
 
-pub fn setup_tokenizers(
-    index_relation: &crate::postgres::rel::PgSearchRelation,
-    index: &mut Index,
-) -> Result<()> {
+pub fn setup_tokenizers(index_relation: &PgSearchRelation, index: &mut Index) -> Result<()> {
     let options = unsafe { SearchIndexOptions::from_relation(index_relation) };
     let schema = SearchIndexSchema::open(index_relation)?;
     let categorized_fields = categorize_fields(index_relation, &schema);

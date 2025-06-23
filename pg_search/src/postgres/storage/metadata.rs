@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     block_number_is_valid, BM25PageSpecialData, LinkedList, SegmentMetaEntry, METADATA,
 };
@@ -60,7 +61,7 @@ pub struct MetaPage {
 }
 
 impl MetaPage {
-    pub unsafe fn open(indexrel: &crate::postgres::rel::PgSearchRelation) -> Self {
+    pub unsafe fn open(indexrel: &PgSearchRelation) -> Self {
         let mut bman = BufferManager::new(indexrel);
         let buffer = bman.get_buffer(METADATA);
         let page = buffer.page();
@@ -171,7 +172,7 @@ pub struct MetaPageMut {
 }
 
 impl MetaPageMut {
-    pub fn new(indexrel: &crate::postgres::rel::PgSearchRelation) -> Self {
+    pub fn new(indexrel: &PgSearchRelation) -> Self {
         let mut bman = BufferManager::new(indexrel);
         let buffer = bman.get_buffer_mut(METADATA);
         Self { buffer, bman }
@@ -199,9 +200,7 @@ impl MetaPageMut {
 }
 
 #[inline(always)]
-fn new_buffer_and_init_page(
-    indexrel: &crate::postgres::rel::PgSearchRelation,
-) -> pg_sys::BlockNumber {
+fn new_buffer_and_init_page(indexrel: &PgSearchRelation) -> pg_sys::BlockNumber {
     let mut bman = BufferManager::new(indexrel);
     let mut start_buffer = bman.new_buffer();
     let mut start_page = start_buffer.init_page();

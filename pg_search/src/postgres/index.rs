@@ -20,8 +20,8 @@ use anyhow::{anyhow, Result};
 use pgrx::{pg_sys, Spi};
 
 pub enum IndexKind {
-    Index(crate::postgres::rel::PgSearchRelation),
-    PartitionedIndex(Vec<crate::postgres::rel::PgSearchRelation>),
+    Index(PgSearchRelation),
+    PartitionedIndex(Vec<PgSearchRelation>),
 }
 
 impl IndexKind {
@@ -63,7 +63,7 @@ impl IndexKind {
     /// Return an iterator over the partitions of this index, which might be
     /// of length 1 if it is not partitioned.
     ///
-    pub fn partitions(self) -> Box<dyn Iterator<Item = crate::postgres::rel::PgSearchRelation>> {
+    pub fn partitions(self) -> Box<dyn Iterator<Item = PgSearchRelation>> {
         match self {
             Self::Index(rel) => Box::new(std::iter::once(rel)),
             Self::PartitionedIndex(rel) => Box::new(rel.into_iter()),

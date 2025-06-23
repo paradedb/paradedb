@@ -28,6 +28,7 @@ use thiserror::Error;
 
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::setup_tokenizers;
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::{postgres::types::TantivyValueError, schema::SearchIndexSchema};
 
@@ -103,7 +104,7 @@ pub struct CommittedSegment {
 pub struct SerialIndexWriter {
     // for logging purposes
     id: i32,
-    indexrel: crate::postgres::rel::PgSearchRelation,
+    indexrel: PgSearchRelation,
     ctid_field: Field,
     config: IndexWriterConfig,
     index: Index,
@@ -114,7 +115,7 @@ pub struct SerialIndexWriter {
 
 impl SerialIndexWriter {
     pub fn open(
-        index_relation: &crate::postgres::rel::PgSearchRelation,
+        index_relation: &PgSearchRelation,
         config: IndexWriterConfig,
         worker_number: i32,
     ) -> Result<Self> {
@@ -127,7 +128,7 @@ impl SerialIndexWriter {
     }
 
     pub fn with_mvcc(
-        index_relation: &crate::postgres::rel::PgSearchRelation,
+        index_relation: &PgSearchRelation,
         mvcc_satisfies: MvccSatisfies,
         config: IndexWriterConfig,
         worker_number: i32,
@@ -206,9 +207,7 @@ impl SerialIndexWriter {
         Ok(None)
     }
 
-    pub fn commit(
-        mut self,
-    ) -> Result<Option<(SegmentMeta, crate::postgres::rel::PgSearchRelation)>> {
+    pub fn commit(mut self) -> Result<Option<(SegmentMeta, PgSearchRelation)>> {
         self.finalize_segment()
             .map(|segment_meta| segment_meta.map(|segment_meta| (segment_meta, self.indexrel)))
     }

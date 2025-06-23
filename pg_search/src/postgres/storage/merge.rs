@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::HashSet;
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     block_number_is_valid, bm25_max_free_space, BM25PageSpecialData, LinkedList, MVCCEntry, PgItem,
 };
@@ -46,10 +47,7 @@ pub struct MergeLock {
 
 impl MergeLock {
     /// This is a blocking operation to acquire an exclusive lock on the merge lock buffer
-    pub unsafe fn acquire(
-        indexrel: &crate::postgres::rel::PgSearchRelation,
-        block_number: pg_sys::BlockNumber,
-    ) -> Self {
+    pub unsafe fn acquire(indexrel: &PgSearchRelation, block_number: pg_sys::BlockNumber) -> Self {
         let mut bman = BufferManager::new(indexrel);
         let mut buffer = bman.get_buffer_mut(block_number);
         let mut page = buffer.page_mut();
@@ -85,7 +83,7 @@ struct VacuumListData {
 }
 
 pub struct VacuumList {
-    indexrel: crate::postgres::rel::PgSearchRelation,
+    indexrel: PgSearchRelation,
     start_block_number: pg_sys::BlockNumber,
     ambulkdelete_sentinel: pg_sys::BlockNumber,
 }
@@ -100,7 +98,7 @@ impl VacuumList {
     /// * `start_block_number` - The block number of the first block in the list.
     /// * `ambulkdelete_sentinel` - The block number of the sentinel block. It is the caller's responsibility to ensure this is a valid block number.
     pub fn open(
-        indexrel: &crate::postgres::rel::PgSearchRelation,
+        indexrel: &PgSearchRelation,
         start_block_number: pg_sys::BlockNumber,
         ambulkdelete_sentinel: pg_sys::BlockNumber,
     ) -> VacuumList {
@@ -259,10 +257,7 @@ impl MVCCEntry for MergeEntry {
 }
 
 impl MergeEntry {
-    pub unsafe fn segment_ids(
-        &self,
-        indexrel: &crate::postgres::rel::PgSearchRelation,
-    ) -> Vec<SegmentId> {
+    pub unsafe fn segment_ids(&self, indexrel: &PgSearchRelation) -> Vec<SegmentId> {
         let bytes = LinkedBytesList::open(indexrel, self.segment_ids_start_blockno);
         let bytes = bytes.read_all();
         bytes
@@ -280,10 +275,7 @@ pub struct MergeList {
 }
 
 impl MergeList {
-    pub fn open(
-        entries: LinkedItemList<MergeEntry>,
-        indexrel: &crate::postgres::rel::PgSearchRelation,
-    ) -> Self {
+    pub fn open(entries: LinkedItemList<MergeEntry>, indexrel: &PgSearchRelation) -> Self {
         let bman = BufferManager::new(indexrel);
         Self { entries, bman }
     }

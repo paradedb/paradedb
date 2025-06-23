@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::HashMap;
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{bm25_max_free_space, BM25PageSpecialData, PgItem};
 use parking_lot::Mutex;
 use pgrx::pg_sys::OffsetNumber;
@@ -81,7 +82,7 @@ impl BM25Page for pg_sys::Page {
 }
 
 pub struct BM25BufferCache {
-    rel: crate::postgres::rel::PgSearchRelation,
+    rel: PgSearchRelation,
     cache: Mutex<HashMap<pg_sys::BlockNumber, Vec<u8>>>,
     bulkwrite_bas: pg_sys::BufferAccessStrategy,
 }
@@ -98,7 +99,7 @@ unsafe impl Send for BM25BufferCache {}
 unsafe impl Sync for BM25BufferCache {}
 
 impl BM25BufferCache {
-    pub fn open(rel: &crate::postgres::rel::PgSearchRelation) -> Self {
+    pub fn open(rel: &PgSearchRelation) -> Self {
         unsafe {
             Self {
                 rel: Clone::clone(rel),
@@ -110,7 +111,7 @@ impl BM25BufferCache {
         }
     }
 
-    pub fn rel(&self) -> &crate::postgres::rel::PgSearchRelation {
+    pub fn rel(&self) -> &PgSearchRelation {
         &self.rel
     }
 

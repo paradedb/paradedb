@@ -110,17 +110,17 @@ impl PdbScanState {
         self.lockmode = lockmode;
         if self.heaprel.is_none() {
             self.heaprel = if lockmode == pg_sys::NoLock as pg_sys::LOCKMODE {
-                unsafe { Some(PgSearchRelation::open(self.heaprelid)) }
+                Some(PgSearchRelation::open(self.heaprelid))
             } else {
-                unsafe { Some(PgSearchRelation::with_lock(self.heaprelid, lockmode)) }
+                Some(PgSearchRelation::with_lock(self.heaprelid, lockmode))
             }
         };
 
         if self.indexrel.is_none() {
             self.indexrel = if lockmode == pg_sys::NoLock as pg_sys::LOCKMODE {
-                unsafe { Some(PgSearchRelation::open(self.indexrelid)) }
+                Some(PgSearchRelation::open(self.indexrelid))
             } else {
-                unsafe { Some(PgSearchRelation::with_lock(self.indexrelid, lockmode)) }
+                Some(PgSearchRelation::with_lock(self.indexrelid, lockmode))
             }
         };
     }

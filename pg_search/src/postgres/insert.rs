@@ -87,7 +87,7 @@ unsafe fn init_insert_state(
     use crate::postgres::fake_aminsertcleanup::{get_insert_state, push_insert_state};
 
     if index_info.ii_AmCache.is_null() {
-        let index_relation = (PgSearchRelation::from_pg(index_relation));
+        let index_relation = PgSearchRelation::from_pg(index_relation);
         let state = InsertState::new(&index_relation)
             .expect("should be able to open new SearchIndex for writing");
 

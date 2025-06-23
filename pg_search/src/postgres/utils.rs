@@ -38,8 +38,8 @@ extern "C-unwind" {
 
 /// Finds and returns the `USING bm25` index on the specified relation with the
 /// highest OID, or [`None`] if there aren't any.
-pub fn locate_bm25_index(heaprelid: pg_sys::Oid) -> Option<crate::postgres::rel::PgSearchRelation> {
-    unsafe { locate_bm25_index_from_heaprel(&PgSearchRelation::open(heaprelid)) }
+pub fn locate_bm25_index(heaprelid: pg_sys::Oid) -> Option<PgSearchRelation> {
+    locate_bm25_index_from_heaprel(&PgSearchRelation::open(heaprelid))
 }
 
 /// Finds and returns the `USING bm25` index on the specified relation with the
@@ -52,7 +52,8 @@ pub fn locate_bm25_index_from_heaprel(heaprel: &PgSearchRelation) -> Option<PgSe
         indices
             .into_iter()
             .filter(|index| pg_sys::get_index_isvalid(index.oid()) && is_bm25_index(index))
-            .max_by_key(|index| index.oid().to_u32())}
+            .max_by_key(|index| index.oid().to_u32())
+    }
 }
 
 /// Rather than using pgrx' version of this function, we use our own, which doesn't leave 2

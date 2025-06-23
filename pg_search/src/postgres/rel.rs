@@ -2,15 +2,16 @@ use pgrx::{name_data_to_str, pg_sys, PgTupleDesc};
 use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
 use std::ptr::NonNull;
-use std::sync::Arc;
+use std::rc::Rc;
 
 type NeedClose = bool;
 
+#[allow(clippy::type_complexity)]
 #[derive(Clone)]
 #[repr(transparent)]
 pub struct PgSearchRelation(
     Option<
-        Arc<(
+        Rc<(
             NonNull<pg_sys::RelationData>,
             NeedClose,
             Option<pg_sys::LOCKMODE>,
@@ -29,14 +30,12 @@ impl Debug for PgSearchRelation {
 
 impl Drop for PgSearchRelation {
     fn drop(&mut self) {
-        if let Some(arc) = self.0.take() {
-            if let Some((relation, need_close, lockmode)) = Arc::into_inner(arc) {
+        if let Some(rc) = self.0.take() {
+            if let Some((relation, need_close, lockmode)) = Rc::into_inner(rc) {
                 unsafe {
                     if need_close && pg_sys::IsTransactionState() {
                         match lockmode {
-                            Some(lockmode) => {
-                                pg_sys::relation_close(relation.as_ptr(), lockmode)
-                            }
+                            Some(lockmode) => pg_sys::relation_close(relation.as_ptr(), lockmode),
                             None => pg_sys::RelationClose(relation.as_ptr()),
                         }
                     }
@@ -57,7 +56,7 @@ impl Deref for PgSearchRelation {
 impl PgSearchRelation {
     pub unsafe fn from_pg(relation: pg_sys::Relation) -> Self {
         unsafe {
-            Self(Some(Arc::new((
+            Self(Some(Rc::new((
                 NonNull::new_unchecked(relation),
                 false,
                 None,
@@ -67,7 +66,7 @@ impl PgSearchRelation {
 
     pub fn open(oid: pg_sys::Oid) -> Self {
         unsafe {
-            Self(Some(Arc::new((
+            Self(Some(Rc::new((
                 NonNull::new_unchecked(pg_sys::RelationIdGetRelation(oid)),
                 true,
                 None,
@@ -77,7 +76,7 @@ impl PgSearchRelation {
 
     pub fn with_lock(oid: pg_sys::Oid, lockmode: pg_sys::LOCKMODE) -> Self {
         unsafe {
-            Self(Some(Arc::new((
+            Self(Some(Rc::new((
                 NonNull::new_unchecked(pg_sys::relation_open(oid, lockmode)),
                 true,
                 Some(lockmode),
@@ -142,7 +141,7 @@ impl PgSearchRelation {
 
         list.iter_oid()
             .filter(|oid| *oid != pg_sys::InvalidOid)
-            .map(|oid| unsafe { PgSearchRelation::with_lock(oid, lockmode) })
+            .map(|oid| PgSearchRelation::with_lock(oid, lockmode))
             .collect::<Vec<_>>()
             .into_iter()
     }

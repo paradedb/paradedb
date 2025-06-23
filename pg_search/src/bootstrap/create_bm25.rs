@@ -390,7 +390,7 @@ fn force_merge_raw_bytes(
     oversized_layer_size_bytes: i64,
 ) -> anyhow::Result<TableIterator<'static, (name!(new_segments, i64), name!(merged_segments, i64))>>
 {
-    let index = unsafe {
+    let index = {
         let oid = index.oid();
         drop(index);
 
@@ -410,7 +410,12 @@ fn force_merge_raw_bytes(
 #[pg_extern]
 fn merge_lock_garbage_collect(index: PgRelation) -> SetOfIterator<'static, i32> {
     unsafe {
-        let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessExclusiveLock as _);
+        let index = {
+            let oid = index.oid();
+            drop(index);
+            // reopen the index with a RowExclusiveLock b/c we are going to be changing its physical structure
+            PgSearchRelation::with_lock(oid, pg_sys::RowExclusiveLock as _)
+        };
         let metadata = MetaPage::open(&index);
         let merge_lock = metadata.acquire_merge_lock();
         let mut merge_list = merge_lock.merge_list();

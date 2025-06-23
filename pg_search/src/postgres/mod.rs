@@ -120,12 +120,10 @@ fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRouti
 pub fn rel_get_bm25_index(
     relid: pg_sys::Oid,
 ) -> Option<(rel::PgSearchRelation, rel::PgSearchRelation)> {
-    unsafe {
-        let rel = PgSearchRelation::with_lock(relid, pg_sys::AccessShareLock as _);
-        rel.indices(pg_sys::AccessShareLock as _)
-            .find(is_bm25_index)
-            .map(|index| (rel, index))
-    }
+    let rel = PgSearchRelation::with_lock(relid, pg_sys::AccessShareLock as _);
+    rel.indices(pg_sys::AccessShareLock as _)
+        .find(is_bm25_index)
+        .map(|index| (rel, index))
 }
 
 // 16 bytes for segment id + 4 bytes for u32 num_deleted_docs

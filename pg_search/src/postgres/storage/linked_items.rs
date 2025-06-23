@@ -18,8 +18,8 @@
 use super::block::{BM25PageSpecialData, LinkedList, LinkedListData, MVCCEntry, PgItem};
 use super::buffer::{BufferManager, BufferMut};
 use anyhow::Result;
-use pgrx::pg_sys::BlockNumber;
 use pgrx::pg_sys;
+use pgrx::pg_sys::BlockNumber;
 use std::fmt::Debug;
 use std::ops::{Deref, DerefMut};
 // ---------------------------------------------------------------

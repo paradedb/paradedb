@@ -144,7 +144,10 @@ struct ExactBuffer<const CAPACITY: usize, W: Write> {
 
 impl<const CAPACITY: usize, W: Write> Drop for ExactBuffer<CAPACITY, W> {
     fn drop(&mut self) {
-        self.flush().ok();
+        // self.flush() creates buffers -- don't do this if we are not in a transaction i.e. have aborted
+        if unsafe { pg_sys::IsTransactionState() } {
+            self.flush().ok();
+        }
     }
 }
 

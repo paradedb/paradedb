@@ -24,6 +24,10 @@ impl Drop for Buffer {
 
 impl Buffer {
     fn new(pg_buffer: pg_sys::Buffer) -> Self {
+        assert!(
+            unsafe { pg_sys::IsTransactionState() },
+            "buffer cannot be allocated outside of a transaction"
+        );
         assert!(pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
         Self { pg_buffer }
     }

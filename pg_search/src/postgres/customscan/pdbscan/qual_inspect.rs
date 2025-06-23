@@ -201,6 +201,29 @@ impl Qual {
             _ => {}
         }
     }
+
+    /// Check if this Qual contains search operators (@@@ operators)
+    /// Search operators are represented by Qual::OpExpr variants
+    pub fn contains_search_operators(&self) -> bool {
+        match self {
+            Qual::All => false,
+            Qual::ExternalVar => false,
+            Qual::ExternalExpr => false,
+            Qual::NonIndexedExpr => false,
+            Qual::OpExpr { .. } => true, // This IS a search operator
+            Qual::Expr { .. } => false,
+            Qual::PushdownExpr { .. } => false,
+            Qual::PushdownVarEqTrue { .. } => false,
+            Qual::PushdownVarEqFalse { .. } => false,
+            Qual::PushdownVarIsTrue { .. } => false,
+            Qual::PushdownVarIsFalse { .. } => false,
+            Qual::PushdownIsNotNull { .. } => false,
+            Qual::ScoreExpr { .. } => false,
+            Qual::And(quals) => quals.iter().any(|q| q.contains_search_operators()),
+            Qual::Or(quals) => quals.iter().any(|q| q.contains_search_operators()),
+            Qual::Not(qual) => qual.contains_search_operators(),
+        }
+    }
 }
 
 impl From<&Qual> for SearchQueryInput {
@@ -388,10 +411,25 @@ impl From<&Qual> for SearchQueryInput {
                     _ => {
                         let must_not = vec![SearchQueryInput::from(qual.as_ref())];
 
-                        SearchQueryInput::Boolean {
-                            must: vec![SearchQueryInput::All],
-                            should: Default::default(),
-                            must_not,
+                        // CRITICAL FIX: If the inner expression contains search operators,
+                        // we should NOT use SearchQueryInput::All because that forces PostgreSQL
+                        // to evaluate @@@ operators, which will always return TRUE.
+                        // Instead, let Tantivy handle the entire NOT(search_predicate) query.
+                        if qual.contains_search_operators() {
+                            // For NOT expressions containing search operators,
+                            // create a proper Boolean query without the All clause
+                            SearchQueryInput::Boolean {
+                                must: vec![], // Don't use All - let Tantivy handle the NOT logic
+                                should: Default::default(),
+                                must_not,
+                            }
+                        } else {
+                            // For NOT expressions without search operators, use the original logic
+                            SearchQueryInput::Boolean {
+                                must: vec![SearchQueryInput::All],
+                                should: Default::default(),
+                                must_not,
+                            }
                         }
                     }
                 }

@@ -73,6 +73,8 @@ pub extern "C-unwind" fn paradedb_rel_pathlist_callback<CS: CustomScan>(
             return;
         }
 
+        pgrx::log!("🔗 [HOOK] rel_pathlist_callback called for rti={}", rti);
+
         if let Some(mut path) =
             CS::rel_pathlist_callback(CustomPathBuilder::new::<CS>(root, rel, rti, rte))
         {

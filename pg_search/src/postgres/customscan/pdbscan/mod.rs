@@ -322,6 +322,28 @@ impl CustomScan for PdbScan {
     fn rel_pathlist_callback(
         mut builder: CustomPathBuilder<Self::PrivateData>,
     ) -> Option<pg_sys::CustomPath> {
+        // Debug logging to track which table and test is being processed
+        let table_name = unsafe {
+            let rte = builder.args().rte();
+            if rte.relid != pg_sys::InvalidOid {
+                match pg_sys::get_rel_name(rte.relid) {
+                    name if !name.is_null() => {
+                        let name_cstr = std::ffi::CStr::from_ptr(name);
+                        name_cstr.to_string_lossy().to_string()
+                    }
+                    _ => "unknown".to_string(),
+                }
+            } else {
+                "no_table".to_string()
+            }
+        };
+
+        let restrict_info = unsafe {
+            PgList::<pg_sys::RestrictInfo>::from_pg((*builder.args().rel).baserestrictinfo)
+        };
+        pgrx::log!("🎯 [PDBSCAN] rel_pathlist_callback called for table={}, rti={}, {} restriction clauses", 
+                   table_name, builder.args().rti, restrict_info.len());
+
         unsafe {
             let (restrict_info, ri_type) = builder.restrict_info();
             if matches!(ri_type, RestrictInfoType::None) {
@@ -433,6 +455,10 @@ impl CustomScan for PdbScan {
                 // if we are not able to push down all of the quals, then do not propose the custom
                 // scan, as that would mean executing filtering against heap tuples (which amounts
                 // to a join, and would require more planning).
+                pgrx::log!(
+                    "🎯 [PDBSCAN] No quals extracted for table={}, returning None (no custom scan)",
+                    table_name
+                );
                 return None;
             };
             let query = SearchQueryInput::from(&quals);
@@ -1078,7 +1104,7 @@ impl CustomScan for PdbScan {
 
                             if let Some(heap_filter_node_string) = heap_filter_node_string {
                                 if has_search_reader && has_indexrel {
-                                    pgrx::warning!("🚀 [DEBUG] Using unified heap filter with node string: '{}'", heap_filter_node_string);
+                                    pgrx::warning!("🚀 [DEBUG] Using unified heap filter with node string length: {}", heap_filter_node_string.len());
 
                                     // Get the indexrel OID safely
                                     let indexrel_oid =
@@ -2398,52 +2424,19 @@ unsafe fn optimize_base_query_for_unified_evaluation(
     ri_type: RestrictInfoType,
     schema: &SearchIndexSchema,
 ) -> Option<Qual> {
-    // CRITICAL FIX: The unified approach still needs search predicates to be executed by Tantivy
-    // as the base query. The unified evaluator handles the COMBINATION of indexed and non-indexed
-    // predicates, but the indexed predicates must still drive the base query to get the right document set.
+    // CRITICAL FIX: The unified approach requires that expressions containing search operators
+    // be handled entirely by Tantivy, not decomposed into indexed/non-indexed parts.
 
+    // First, check if we have direct indexed predicates
     if let Some(ref indexed_qual) = indexed_quals {
         // We have indexed predicates - use them as the base query
-        // This is the correct approach for both pure indexed and mixed queries
         return indexed_quals.clone();
     }
 
-    // No direct indexed predicates found, but we might have mixed expressions
-    // Try to extract indexed components from mixed boolean expressions
-    let extracted_indexed_components = extract_indexed_components_from_mixed_expressions(
-        restrict_info,
-        root,
-        rti,
-        pdbopoid,
-        ri_type,
-        schema,
-    );
+    // No direct indexed predicates found, but we might have complex expressions
+    // containing search operators that should be handled entirely by Tantivy
 
-    if let Some(indexed_components) = extracted_indexed_components {
-        // We found some indexed components in mixed expressions
-        // Use them as a pre-filter to reduce the document set
-        return Some(indexed_components);
-    }
-
-    // CRITICAL CHANGE: If no indexed components found, we should NOT use unified evaluation
-    // because there are no search predicates to benefit from it. Return None to indicate
-    // that we can't handle this query with the custom scan.
-    None
-}
-
-/// Phase 4: Extract indexed components from mixed boolean expressions
-/// This function analyzes complex expressions to find indexed predicates that can be
-/// used as a base query to reduce the document set
-unsafe fn extract_indexed_components_from_mixed_expressions(
-    restrict_info: &PgList<pg_sys::RestrictInfo>,
-    root: *mut pg_sys::PlannerInfo,
-    rti: pg_sys::Index,
-    pdbopoid: pg_sys::Oid,
-    ri_type: RestrictInfoType,
-    schema: &SearchIndexSchema,
-) -> Option<Qual> {
-    let mut indexed_components = Vec::new();
-
+    // Check if any of the restrict_info expressions contain search operators
     for ri in restrict_info.iter_ptr() {
         let clause = if !(*ri).orclause.is_null() {
             (*ri).orclause
@@ -2451,133 +2444,71 @@ unsafe fn extract_indexed_components_from_mixed_expressions(
             (*ri).clause
         };
 
-        // Try to extract indexed components from this clause
-        if let Some(indexed_component) = extract_indexed_component_from_clause(
-            clause.cast(),
-            root,
-            rti,
-            pdbopoid,
-            ri_type,
-            schema,
-        ) {
-            indexed_components.push(indexed_component);
+        // Clean any nested RestrictInfo nodes recursively
+        let cleaned_clause = clean_restrictinfo_recursively(clause.cast());
+
+        // Check if this expression contains search operators
+        if expression_contains_search_operators(cleaned_clause, pdbopoid) {
+            // This expression contains search operators - it should be handled entirely by Tantivy
+            // Try to convert it to a Qual for the base query
+            let mut uses_tantivy = false;
+            if let Some(tantivy_qual) = extract_quals(
+                root,
+                rti,
+                cleaned_clause,
+                pdbopoid,
+                ri_type,
+                schema,
+                true,
+                &mut uses_tantivy,
+            ) {
+                if uses_tantivy {
+                    // Successfully converted to a Tantivy query - use this as the base query
+                    return Some(tantivy_qual);
+                }
+            }
         }
     }
 
-    if indexed_components.is_empty() {
-        return None;
-    }
-
-    // Combine multiple indexed components with AND
-    // This creates a selective base query that reduces the document set
-    if indexed_components.len() == 1 {
-        Some(indexed_components.into_iter().next().unwrap())
-    } else {
-        Some(Qual::And(indexed_components))
-    }
+    // If no expressions with search operators found, return None to indicate
+    // that we can't handle this query with the custom scan
+    None
 }
 
-/// Phase 4: Extract indexed component from a single clause
-/// Analyzes a PostgreSQL expression tree to find indexed predicates
-unsafe fn extract_indexed_component_from_clause(
-    clause: *mut pg_sys::Node,
-    root: *mut pg_sys::PlannerInfo,
-    rti: pg_sys::Index,
+/// Check if a PostgreSQL expression contains search operators (@@@)
+unsafe fn expression_contains_search_operators(
+    node: *mut pg_sys::Node,
     pdbopoid: pg_sys::Oid,
-    ri_type: RestrictInfoType,
-    schema: &SearchIndexSchema,
-) -> Option<Qual> {
-    if clause.is_null() {
-        return None;
+) -> bool {
+    if node.is_null() {
+        return false;
     }
 
-    match (*clause).type_ {
+    match (*node).type_ {
         pg_sys::NodeTag::T_OpExpr => {
-            let op_expr = clause.cast::<pg_sys::OpExpr>();
+            let op_expr = node.cast::<pg_sys::OpExpr>();
             if (*op_expr).opno == pdbopoid {
-                // This is a @@@ operator - try to extract it as an indexed predicate
-                let mut uses_tantivy = false;
-                extract_quals(
-                    root,
-                    rti,
-                    clause,
-                    pdbopoid,
-                    ri_type,
-                    schema,
-                    true,
-                    &mut uses_tantivy,
-                )
-            } else {
-                None
+                return true;
             }
+            // Check arguments recursively
+            let args = PgList::<pg_sys::Node>::from_pg((*op_expr).args);
+            for arg in args.iter_ptr() {
+                if expression_contains_search_operators(arg, pdbopoid) {
+                    return true;
+                }
+            }
+            false
         }
         pg_sys::NodeTag::T_BoolExpr => {
-            let bool_expr = clause.cast::<pg_sys::BoolExpr>();
+            let bool_expr = node.cast::<pg_sys::BoolExpr>();
             let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
-
-            match (*bool_expr).boolop {
-                pg_sys::BoolExprType::AND_EXPR => {
-                    // For AND expressions, extract all indexed components
-                    let mut and_components = Vec::new();
-                    for arg in args.iter_ptr() {
-                        if let Some(component) = extract_indexed_component_from_clause(
-                            arg, root, rti, pdbopoid, ri_type, schema,
-                        ) {
-                            and_components.push(component);
-                        }
-                    }
-                    if and_components.is_empty() {
-                        None
-                    } else if and_components.len() == 1 {
-                        Some(and_components.into_iter().next().unwrap())
-                    } else {
-                        Some(Qual::And(and_components))
-                    }
+            for arg in args.iter_ptr() {
+                if expression_contains_search_operators(arg, pdbopoid) {
+                    return true;
                 }
-                pg_sys::BoolExprType::OR_EXPR => {
-                    // For OR expressions, extract indexed components that can be used as a pre-filter
-                    let mut or_components = Vec::new();
-                    for arg in args.iter_ptr() {
-                        if let Some(component) = extract_indexed_component_from_clause(
-                            arg, root, rti, pdbopoid, ri_type, schema,
-                        ) {
-                            or_components.push(component);
-                        }
-                    }
-                    if or_components.is_empty() {
-                        None
-                    } else if or_components.len() == 1 {
-                        Some(or_components.into_iter().next().unwrap())
-                    } else {
-                        // Phase 4: For OR with mixed indexed/non-indexed predicates,
-                        // we can use the indexed parts as a pre-filter
-                        // The unified evaluator will handle the complete OR logic
-                        Some(Qual::Or(or_components))
-                    }
-                }
-                pg_sys::BoolExprType::NOT_EXPR => {
-                    // Handle NOT expressions by extracting the inner indexed component
-                    // and wrapping it in a NOT qual
-                    if args.len() == 1 {
-                        if let Some(inner_component) = extract_indexed_component_from_clause(
-                            args.get_ptr(0).unwrap(),
-                            root,
-                            rti,
-                            pdbopoid,
-                            ri_type,
-                            schema,
-                        ) {
-                            Some(Qual::Not(Box::new(inner_component)))
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                }
-                _ => None,
             }
+            false
         }
-        _ => None,
+        _ => false,
     }
 }

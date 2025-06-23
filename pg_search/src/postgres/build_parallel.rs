@@ -28,6 +28,9 @@ use crate::parallel_worker::{
     ParallelWorker, WorkerStyle,
 };
 use crate::postgres::insert::garbage_collect_index;
+use crate::postgres::ps_status::{
+    set_ps_display_remove_suffix, set_ps_display_suffix, INDEXING, MERGING,
+};
 use crate::postgres::spinlock::Spinlock;
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::utils::{categorize_fields, row_to_search_document, CategorizedFieldData};
@@ -38,21 +41,9 @@ use pgrx::{
     PgRelation, PgSqlErrorCode,
 };
 use std::num::NonZeroUsize;
-use std::os::raw::c_char;
 use std::ptr::{addr_of_mut, NonNull};
 use std::sync::OnceLock;
 use tantivy::{SegmentMeta, TantivyDocument};
-
-extern "C-unwind" {
-    pub fn set_ps_display_suffix(suffix: *const c_char);
-    pub fn set_ps_display_remove_suffix();
-}
-
-mod ps {
-    use std::ffi::CStr;
-    pub const INDEXING: &CStr = c"indexing";
-    pub const MERGING: &CStr = c"merging";
-}
 
 /// General, immutable configuration used for the workers
 #[derive(Copy, Clone)]
@@ -418,7 +409,7 @@ impl WorkerBuildState {
                 .collect::<Vec<_>>()
         };
 
-        unsafe { set_ps_display_suffix(ps::MERGING.as_ptr()) };
+        unsafe { set_ps_display_suffix(MERGING.as_ptr()) };
 
         // do the merge
         pgrx::debug1!(
@@ -464,7 +455,7 @@ unsafe extern "C-unwind" fn build_callback(
     state: *mut std::os::raw::c_void,
 ) {
     check_for_interrupts!();
-    set_ps_display_suffix(ps::INDEXING.as_ptr());
+    set_ps_display_suffix(INDEXING.as_ptr());
 
     let build_state = &mut *state.cast::<WorkerBuildState>();
     let ctid_u64 = crate::postgres::utils::item_pointer_to_u64(*ctid);

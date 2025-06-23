@@ -232,6 +232,17 @@ impl FFType {
             None
         }
     }
+
+    /// Given [`DocId`]s, what are their u64 "fast field" values?
+    ///
+    /// The given `output` slice must be the same length as the docs slice.
+    #[inline(always)]
+    pub fn as_u64s(&self, docs: &[DocId], output: &mut [Option<u64>]) {
+        let FFType::U64(ff) = self else {
+            panic!("Expected a u64 column.");
+        };
+        ff.first_vals(docs, output);
+    }
 }
 
 #[derive(Debug, Clone, Ord, Eq, PartialOrd, PartialEq, Serialize, Deserialize, Hash)]

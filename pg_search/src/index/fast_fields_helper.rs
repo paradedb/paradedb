@@ -235,7 +235,7 @@ impl FFType {
 
     /// Given [`DocId`]s, what are their u64 "fast field" values?
     ///
-    /// The given `output` sluce must be the same length as the docs slice.
+    /// The given `output` slice must be the same length as the docs slice.
     #[inline(always)]
     pub fn as_u64s(&self, docs: &[DocId], output: &mut [Option<u64>]) {
         let FFType::U64(ff) = self else {

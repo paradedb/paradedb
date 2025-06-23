@@ -30,6 +30,7 @@ mod delete;
 pub mod expression;
 pub mod insert;
 pub mod options;
+mod ps_status;
 mod range;
 mod scan;
 mod vacuum;

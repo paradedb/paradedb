@@ -554,68 +554,57 @@ impl<'a> UnifiedExpressionEvaluator<'a> {
     ) -> Result<UnifiedEvaluationResult, &'static str> {
         let op_oid = (*op_expr).opno;
 
-        // Handle common operators
-        if op_oid == 98_u32.into() {
-            // text = text (equality)
-            // For string equality, we can evaluate by comparing the values
-            let args = PgList::<pg_sys::Node>::from_pg((*op_expr).args);
-            if args.len() == 2 {
-                let left_val = self.extract_value_from_slot(args.get_ptr(0).unwrap(), slot);
-                let right_val = self.extract_value_from_node(args.get_ptr(1).unwrap());
+        pgrx::warning!(
+            "🔧 [DEBUG] Evaluating operator OID: {} using generic PostgreSQL evaluation",
+            op_oid
+        );
 
-                if let (Some(left), Some(right)) = (left_val, right_val) {
-                    let matches = left == right;
-                    pgrx::warning!(
-                        "🔧 [DEBUG] String equality: '{}' = '{}' -> {}",
-                        left,
-                        right,
-                        matches
-                    );
-                    if matches {
-                        Ok(UnifiedEvaluationResult::non_indexed_match())
-                    } else {
-                        Ok(UnifiedEvaluationResult::no_match())
-                    }
-                } else {
-                    Ok(UnifiedEvaluationResult::no_match())
-                }
-            } else {
-                Ok(UnifiedEvaluationResult::no_match())
-            }
-        } else if op_oid == 531_u32.into() {
-            // text <> text (not equal)
-            // For string inequality, we can evaluate by comparing the values
-            let args = PgList::<pg_sys::Node>::from_pg((*op_expr).args);
-            if args.len() == 2 {
-                let left_val = self.extract_value_from_slot(args.get_ptr(0).unwrap(), slot);
-                let right_val = self.extract_value_from_node(args.get_ptr(1).unwrap());
+        // Initialize expression state
+        let expr_state = pg_sys::ExecInitExpr(op_expr.cast::<pg_sys::Expr>(), std::ptr::null_mut());
 
-                if let (Some(left), Some(right)) = (left_val, right_val) {
-                    let matches = left != right;
-                    pgrx::warning!(
-                        "🔧 [DEBUG] String inequality: '{}' <> '{}' -> {}",
-                        left,
-                        right,
-                        matches
-                    );
-                    if matches {
-                        Ok(UnifiedEvaluationResult::non_indexed_match())
-                    } else {
-                        Ok(UnifiedEvaluationResult::no_match())
-                    }
-                } else {
-                    Ok(UnifiedEvaluationResult::no_match())
-                }
-            } else {
-                Ok(UnifiedEvaluationResult::no_match())
-            }
-        } else {
-            // For other operators, use conservative approach
+        if expr_state.is_null() {
             pgrx::warning!(
-                "⚠️ [DEBUG] Unknown operator OID: {}, assuming match",
+                "❌ [DEBUG] Failed to initialize expression state for operator {}",
                 op_oid
             );
-            Ok(UnifiedEvaluationResult::non_indexed_match())
+            return Ok(UnifiedEvaluationResult::no_match());
+        }
+
+        // Set up the expression context with the current slot
+        let old_slot = (*self.expr_context).ecxt_scantuple;
+        (*self.expr_context).ecxt_scantuple = slot;
+
+        // Evaluate the expression using PostgreSQL's expression evaluator
+        let mut is_null = false;
+        let result_datum =
+            pg_sys::ExecEvalExprSwitchContext(expr_state, self.expr_context, &mut is_null);
+
+        // Restore the original slot
+        (*self.expr_context).ecxt_scantuple = old_slot;
+
+        // Clean up the expression state
+        pg_sys::pfree(expr_state.cast());
+
+        if is_null {
+            pgrx::warning!(
+                "🔧 [DEBUG] Expression evaluated to NULL for operator {}",
+                op_oid
+            );
+            Ok(UnifiedEvaluationResult::no_match())
+        } else {
+            // Convert the result datum to a boolean
+            let result_bool = pg_sys::DatumGetBool(result_datum);
+            pgrx::warning!(
+                "🔧 [DEBUG] Operator {} evaluated to: {}",
+                op_oid,
+                result_bool
+            );
+
+            if result_bool {
+                Ok(UnifiedEvaluationResult::non_indexed_match())
+            } else {
+                Ok(UnifiedEvaluationResult::no_match())
+            }
         }
     }
 

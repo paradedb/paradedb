@@ -30,7 +30,7 @@ use pgrx::{pg_sys, PgRelation};
 use std::any::Any;
 use std::collections::hash_map::Entry;
 use std::error::Error;
-use std::fmt::{Debug, Display};
+use std::fmt::{Debug, Display, Formatter};
 use std::panic::panic_any;
 use std::path::Path;
 use std::path::PathBuf;
@@ -61,14 +61,17 @@ pub enum MvccSatisfies {
 }
 
 impl MvccSatisfies {
-    pub fn directory(self, index_relation: &PgRelation) -> MVCCDirectory {
+    pub fn directory(
+        self,
+        index_relation: &crate::postgres::rel::PgSearchRelation,
+    ) -> MVCCDirectory {
         match self {
             MvccSatisfies::ParallelWorker(segment_ids) => {
-                MVCCDirectory::parallel_worker(index_relation.oid(), segment_ids)
+                MVCCDirectory::parallel_worker(index_relation, segment_ids)
             }
-            MvccSatisfies::Snapshot => MVCCDirectory::snapshot(index_relation.oid()),
-            MvccSatisfies::Vacuum => MVCCDirectory::vacuum(index_relation.oid()),
-            MvccSatisfies::Mergeable => MVCCDirectory::mergeable(index_relation.oid()),
+            MvccSatisfies::Snapshot => MVCCDirectory::snapshot(index_relation),
+            MvccSatisfies::Vacuum => MVCCDirectory::vacuum(index_relation),
+            MvccSatisfies::Mergeable => MVCCDirectory::mergeable(index_relation),
         }
     }
 }
@@ -77,9 +80,9 @@ type AtomicFileEntry = (FileEntry, Arc<AtomicUsize>);
 /// Tantivy Directory trait implementation over block storage
 /// This Directory implementation respects Postgres MVCC visibility rules
 /// and should back all Tantivy Indexes used in insert and scan operations
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct MVCCDirectory {
-    relation_oid: pg_sys::Oid,
+    indexrel: crate::postgres::rel::PgSearchRelation,
     mvcc_style: MvccSatisfies,
 
     // keep a cache of readers behind an Arc<Mutex<_>> so that if/when this MVCCDirectory is
@@ -96,29 +99,49 @@ pub struct MVCCDirectory {
     pin_cushion: Arc<Mutex<Option<PinCushion>>>,
 }
 
+impl Debug for MVCCDirectory {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MVCCDirectory")
+            .field("indexrel", &self.indexrel.oid())
+            .field("mvcc_style", &self.mvcc_style)
+            .field("readers", &self.readers)
+            .field("new_files", &self.new_files)
+            .field("loaded_metas", &self.loaded_metas)
+            .field("all_entries", &self.all_entries)
+            .field("pin_cushion", &self.pin_cushion)
+            .finish()
+    }
+}
+
 unsafe impl Send for MVCCDirectory {}
 unsafe impl Sync for MVCCDirectory {}
 
 impl MVCCDirectory {
-    pub fn parallel_worker(relation_oid: pg_sys::Oid, segment_ids: HashSet<SegmentId>) -> Self {
-        Self::with_mvcc_style(relation_oid, MvccSatisfies::ParallelWorker(segment_ids))
+    pub fn parallel_worker(
+        index_relation: &crate::postgres::rel::PgSearchRelation,
+        segment_ids: HashSet<SegmentId>,
+    ) -> Self {
+        Self::with_mvcc_style(index_relation, MvccSatisfies::ParallelWorker(segment_ids))
     }
 
-    pub fn snapshot(relation_oid: pg_sys::Oid) -> Self {
-        Self::with_mvcc_style(relation_oid, MvccSatisfies::Snapshot)
+    pub fn snapshot(index_relation: &crate::postgres::rel::PgSearchRelation) -> Self {
+        Self::with_mvcc_style(index_relation, MvccSatisfies::Snapshot)
     }
 
-    pub fn vacuum(relation_oid: pg_sys::Oid) -> Self {
-        Self::with_mvcc_style(relation_oid, MvccSatisfies::Vacuum)
+    pub fn vacuum(index_relation: &crate::postgres::rel::PgSearchRelation) -> Self {
+        Self::with_mvcc_style(index_relation, MvccSatisfies::Vacuum)
     }
 
-    pub fn mergeable(relation_oid: pg_sys::Oid) -> Self {
-        Self::with_mvcc_style(relation_oid, MvccSatisfies::Mergeable)
+    pub fn mergeable(index_relation: &crate::postgres::rel::PgSearchRelation) -> Self {
+        Self::with_mvcc_style(index_relation, MvccSatisfies::Mergeable)
     }
 
-    fn with_mvcc_style(relation_oid: pg_sys::Oid, mvcc_style: MvccSatisfies) -> Self {
+    fn with_mvcc_style(
+        index_relation: &crate::postgres::rel::PgSearchRelation,
+        mvcc_style: MvccSatisfies,
+    ) -> Self {
         Self {
-            relation_oid,
+            indexrel: Clone::clone(index_relation),
             mvcc_style,
             readers: Default::default(),
             new_files: Default::default(),
@@ -185,6 +208,10 @@ impl MVCCDirectory {
     pub(crate) fn all_entries(&self) -> HashMap<SegmentId, SegmentMetaEntry> {
         self.all_entries.lock().clone()
     }
+
+    pub(crate) fn indexrel(&self) -> &crate::postgres::rel::PgSearchRelation {
+        &self.indexrel
+    }
 }
 
 impl Directory for MVCCDirectory {
@@ -215,7 +242,7 @@ impl Directory for MVCCDirectory {
                 };
                 Ok(vacant
                     .insert(Arc::new(unsafe {
-                        SegmentComponentReader::new(self.relation_oid, file_entry)
+                        SegmentComponentReader::new(&self.indexrel, file_entry)
                     }))
                     .clone())
             }
@@ -237,7 +264,7 @@ impl Directory for MVCCDirectory {
         &self,
         path: &Path,
     ) -> result::Result<Box<dyn TerminatingWrite>, OpenWriteError> {
-        let writer = unsafe { SegmentComponentWriter::new(self.relation_oid, path) };
+        let writer = unsafe { SegmentComponentWriter::new(&self.indexrel, path) };
         self.new_files.lock().insert(
             path.to_path_buf(),
             (writer.file_entry(), writer.total_bytes()),
@@ -283,7 +310,7 @@ impl Directory for MVCCDirectory {
     fn list_managed_files(&self) -> tantivy::Result<std::collections::HashSet<PathBuf>> {
         unsafe {
             let segment_metas =
-                LinkedItemList::<SegmentMetaEntry>::open(self.relation_oid, SEGMENT_METAS_START);
+                LinkedItemList::<SegmentMetaEntry>::open(&self.indexrel, SEGMENT_METAS_START);
             Ok(segment_metas
                 .list()
                 .iter()
@@ -329,10 +356,10 @@ impl Directory for MVCCDirectory {
         };
 
         // Save Schema and IndexSettings if this is the first time
-        save_schema(self.relation_oid, &meta.schema)
+        save_schema(&self.indexrel, &meta.schema)
             .map_err(|err| tantivy::TantivyError::SchemaError(err.to_string()))?;
 
-        save_settings(self.relation_oid, &meta.index_settings)
+        save_settings(&self.indexrel, &meta.index_settings)
             .map_err(|err| tantivy::TantivyError::InternalError(err.to_string()))?;
 
         // If there were no new segments, skip the rest of the work
@@ -341,7 +368,7 @@ impl Directory for MVCCDirectory {
         }
 
         unsafe {
-            save_new_metas(self.relation_oid, meta, previous_meta, payload)
+            save_new_metas(&self.indexrel, meta, previous_meta, payload)
                 .map_err(|err| tantivy::TantivyError::InternalError(err.to_string()))?;
         }
 
@@ -350,7 +377,7 @@ impl Directory for MVCCDirectory {
 
     fn load_metas(&self, inventory: &SegmentMetaInventory) -> tantivy::Result<IndexMeta> {
         let loaded_metas = self.loaded_metas.get_or_init(|| unsafe {
-            match load_metas(self.relation_oid, inventory, &self.mvcc_style) {
+            match load_metas(&self.indexrel, inventory, &self.mvcc_style) {
                 Err(e) => Arc::new(Err(e)),
                 Ok((all_entries, index_meta, pin_cushion)) => {
                     *self.all_entries.lock() = all_entries
@@ -446,10 +473,11 @@ impl PinCushion {
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
+    use crate::postgres::rel::PgSearchRelation;
     use pgrx::prelude::*;
 
     #[pg_test]
-    fn test_list_meta_entries() {
+    unsafe fn test_list_meta_entries() {
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
         Spi::run("INSERT INTO t (data) VALUES ('test');").unwrap();
         Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
@@ -457,9 +485,8 @@ mod tests {
             Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
                 .expect("spi should succeed")
                 .unwrap();
-
-        let linked_list =
-            LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START);
+        let indexrel = (PgSearchRelation::open(relation_oid));
+        let linked_list = LinkedItemList::<SegmentMetaEntry>::open(&indexrel, SEGMENT_METAS_START);
         let mut listed_files = unsafe { linked_list.list() };
         assert_eq!(listed_files.len(), 1);
         let entry = listed_files.pop().unwrap();

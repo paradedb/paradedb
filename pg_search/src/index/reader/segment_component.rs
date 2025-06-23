@@ -20,8 +20,8 @@ pub struct SegmentComponentReader {
 }
 
 impl SegmentComponentReader {
-    pub unsafe fn new(relation_oid: pg_sys::Oid, entry: FileEntry) -> Self {
-        let block_list = LinkedBytesList::open(relation_oid, entry.starting_block);
+    pub unsafe fn new(indexrel: &crate::postgres::rel::PgSearchRelation, entry: FileEntry) -> Self {
+        let block_list = LinkedBytesList::open(indexrel, entry.starting_block);
 
         Self {
             block_list,
@@ -93,6 +93,7 @@ mod tests {
     use super::*;
 
     use crate::index::writer::segment_component::SegmentComponentWriter;
+    use crate::postgres::rel::PgSearchRelation;
     use std::io::Write;
     use std::path::Path;
     use tantivy::directory::TerminatingWrite;
@@ -105,17 +106,18 @@ mod tests {
             Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
                 .expect("spi should succeed")
                 .unwrap();
+        let indexrel = (PgSearchRelation::open(relation_oid));
 
         let bytes: Vec<u8> = (1..=255).cycle().take(100_000).collect();
         let segment = format!("{}.term", uuid::Uuid::new_v4());
         let path = Path::new(segment.as_str());
 
-        let mut writer = unsafe { SegmentComponentWriter::new(relation_oid, path) };
+        let mut writer = unsafe { SegmentComponentWriter::new(&indexrel, path) };
         writer.write_all(&bytes).unwrap();
         let file_entry = writer.file_entry();
         writer.terminate().unwrap();
 
-        let reader = SegmentComponentReader::new(relation_oid, file_entry);
+        let reader = SegmentComponentReader::new(&indexrel, file_entry);
 
         assert_eq!(reader.len(), 100_000);
         assert_eq!(

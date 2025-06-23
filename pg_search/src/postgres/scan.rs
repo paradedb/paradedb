@@ -20,10 +20,12 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{SearchIndexReader, SearchResults};
 use crate::postgres::options::SearchIndexOptions;
 use crate::postgres::parallel::list_segment_ids;
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::{parallel, ScanStrategy};
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys::IndexScanDesc;
 use pgrx::*;
+use std::sync::Arc;
 
 pub struct Bm25ScanState {
     need_scores: bool,
@@ -89,7 +91,7 @@ pub extern "C-unwind" fn amrescan(
         let indexrel = (*scan).indexRelation;
         let keys = std::slice::from_raw_parts(keys as *const pg_sys::ScanKeyData, nkeys as usize);
 
-        (PgRelation::from_pg(indexrel), keys)
+        ((PgSearchRelation::from_pg(indexrel)), keys)
     };
 
     // build a Boolean "must" clause of all the ScanKeys

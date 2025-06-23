@@ -21,7 +21,8 @@ use crate::postgres::storage::block::{
 use crate::postgres::storage::buffer::{BufferManager, BufferMut};
 use crate::postgres::storage::merge::{MergeLock, SegmentIdBytes, VacuumList, VacuumSentinel};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
-use pgrx::pg_sys;
+use pgrx::{pg_sys, PgRelation};
+use std::sync::Arc;
 use tantivy::index::SegmentId;
 
 /// The metadata stored on the [`Metadata`] page
@@ -60,8 +61,8 @@ pub struct MetaPage {
 }
 
 impl MetaPage {
-    pub unsafe fn open(relation_oid: pg_sys::Oid) -> Self {
-        let mut bman = BufferManager::new(relation_oid);
+    pub unsafe fn open(indexrel: &crate::postgres::rel::PgSearchRelation) -> Self {
+        let mut bman = BufferManager::new(indexrel);
         let buffer = bman.get_buffer(METADATA);
         let page = buffer.page();
         let metadata = page.contents::<MetaPageData>();
@@ -82,20 +83,20 @@ impl MetaPage {
             let metadata = page.contents_mut::<MetaPageData>();
 
             if !block_number_is_valid(metadata.active_vacuum_list) {
-                metadata.active_vacuum_list = new_buffer_and_init_page(relation_oid);
+                metadata.active_vacuum_list = new_buffer_and_init_page(indexrel);
             }
 
             if !block_number_is_valid(metadata.ambulkdelete_sentinel) {
-                metadata.ambulkdelete_sentinel = new_buffer_and_init_page(relation_oid);
+                metadata.ambulkdelete_sentinel = new_buffer_and_init_page(indexrel);
             }
 
             if !block_number_is_valid(metadata.segment_meta_garbage) {
                 metadata.segment_meta_garbage =
-                    LinkedItemList::<SegmentMetaEntry>::create(relation_oid).get_header_blockno();
+                    LinkedItemList::<SegmentMetaEntry>::create(indexrel).get_header_blockno();
             }
 
             if !block_number_is_valid(metadata.merge_lock) {
-                metadata.merge_lock = new_buffer_and_init_page(relation_oid);
+                metadata.merge_lock = new_buffer_and_init_page(indexrel);
             }
         }
 
@@ -108,7 +109,7 @@ impl MetaPage {
     /// Acquires the merge lock.
     pub unsafe fn acquire_merge_lock(&self) -> MergeLock {
         assert!(block_number_is_valid(self.data.merge_lock));
-        MergeLock::acquire(self.bman.relation_oid(), self.data.merge_lock)
+        MergeLock::acquire(self.bman.bm25cache().rel(), self.data.merge_lock)
     }
 
     ///
@@ -126,7 +127,7 @@ impl MetaPage {
         }
 
         Some(LinkedItemList::<SegmentMetaEntry>::open(
-            self.bman.relation_oid(),
+            self.bman.bm25cache().rel(),
             self.data.segment_meta_garbage,
         ))
     }
@@ -134,7 +135,7 @@ impl MetaPage {
     pub fn vacuum_list(&self) -> VacuumList {
         assert!(block_number_is_valid(self.data.active_vacuum_list));
         VacuumList::open(
-            self.bman.relation_oid(),
+            self.bman.bm25cache().rel(),
             self.data.active_vacuum_list,
             self.data.ambulkdelete_sentinel,
         )
@@ -151,7 +152,8 @@ impl MetaPage {
             return Vec::new();
         }
 
-        let entries = LinkedBytesList::open(self.bman.relation_oid(), self.data.create_index_list);
+        let entries =
+            LinkedBytesList::open(self.bman.bm25cache().rel(), self.data.create_index_list);
         let bytes = entries.read_all();
         bytes
             .chunks(size_of::<SegmentIdBytes>())
@@ -170,8 +172,8 @@ pub struct MetaPageMut {
 }
 
 impl MetaPageMut {
-    pub fn new(relation_oid: pg_sys::Oid) -> Self {
-        let mut bman = BufferManager::new(relation_oid);
+    pub fn new(indexrel: &crate::postgres::rel::PgSearchRelation) -> Self {
+        let mut bman = BufferManager::new(indexrel);
         let buffer = bman.get_buffer_mut(METADATA);
         Self { buffer, bman }
     }
@@ -184,7 +186,7 @@ impl MetaPageMut {
             .into_iter()
             .flat_map(|segment_id| segment_id.uuid_bytes().to_vec())
             .collect::<Vec<_>>();
-        let segment_ids_list = LinkedBytesList::create(self.bman.relation_oid());
+        let segment_ids_list = LinkedBytesList::create(self.bman.bm25cache().rel());
         let mut writer = segment_ids_list.writer();
         writer.write(&segment_id_bytes)?;
         let segment_ids_list = writer.into_inner()?;
@@ -198,8 +200,10 @@ impl MetaPageMut {
 }
 
 #[inline(always)]
-fn new_buffer_and_init_page(relation_oid: pg_sys::Oid) -> pg_sys::BlockNumber {
-    let mut bman = BufferManager::new(relation_oid);
+fn new_buffer_and_init_page(
+    indexrel: &crate::postgres::rel::PgSearchRelation,
+) -> pg_sys::BlockNumber {
+    let mut bman = BufferManager::new(indexrel);
     let mut start_buffer = bman.new_buffer();
     let mut start_page = start_buffer.init_page();
 

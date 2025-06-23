@@ -16,7 +16,8 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::utils;
-use pgrx::pg_sys;
+use pgrx::{pg_sys, PgRelation};
+use std::sync::Arc;
 
 /// Helper to manage the information necessary to validate that a "ctid" is currently visible to
 /// a snapshot
@@ -24,6 +25,9 @@ pub struct VisibilityChecker {
     scan: *mut pg_sys::IndexFetchTableData,
     snapshot: pg_sys::Snapshot,
     tid: pg_sys::ItemPointerData,
+
+    // we hold onto this b/c `scan` points to the relation this does
+    _heaprel: crate::postgres::rel::PgSearchRelation,
 }
 
 impl Drop for VisibilityChecker {
@@ -42,12 +46,16 @@ impl Drop for VisibilityChecker {
 impl VisibilityChecker {
     /// Construct a new [`VisibilityChecker`] that can validate ctid visibility against the specified
     /// `relation` and `snapshot`
-    pub fn with_rel_and_snap(heaprel: pg_sys::Relation, snapshot: pg_sys::Snapshot) -> Self {
+    pub fn with_rel_and_snap(
+        heaprel: &crate::postgres::rel::PgSearchRelation,
+        snapshot: pg_sys::Snapshot,
+    ) -> Self {
         unsafe {
             Self {
-                scan: pg_sys::table_index_fetch_begin(heaprel),
+                scan: pg_sys::table_index_fetch_begin(heaprel.as_ptr()),
                 snapshot,
                 tid: pg_sys::ItemPointerData::default(),
+                _heaprel: Clone::clone(heaprel),
             }
         }
     }

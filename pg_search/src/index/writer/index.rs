@@ -19,6 +19,7 @@ use crate::api::{HashMap, HashSet};
 use anyhow::Result;
 use pgrx::{pg_sys, PgRelation};
 use std::num::NonZeroUsize;
+use std::sync::Arc;
 use tantivy::index::SegmentId;
 use tantivy::indexer::{AddOperation, SegmentWriter};
 use tantivy::schema::Field;
@@ -39,13 +40,9 @@ struct PendingSegment {
 }
 
 impl PendingSegment {
-    fn new(
-        directory: MVCCDirectory,
-        memory_budget: NonZeroUsize,
-        indexrelid: pg_sys::Oid,
-    ) -> Result<Self> {
+    fn new(directory: MVCCDirectory, memory_budget: NonZeroUsize) -> Result<Self> {
         let mut index = Index::open(directory.clone())?;
-        setup_tokenizers(indexrelid, &mut index)?;
+        setup_tokenizers(directory.indexrel(), &mut index)?;
 
         let segment = index.new_segment();
         let writer = SegmentWriter::for_segment(memory_budget.into(), segment.clone())?;
@@ -108,7 +105,7 @@ pub struct CommittedSegment {
 pub struct SerialIndexWriter {
     // for logging purposes
     id: i32,
-    indexrelid: pg_sys::Oid,
+    indexrel: crate::postgres::rel::PgSearchRelation,
     ctid_field: Field,
     config: IndexWriterConfig,
     index: Index,
@@ -119,7 +116,7 @@ pub struct SerialIndexWriter {
 
 impl SerialIndexWriter {
     pub fn open(
-        index_relation: &PgRelation,
+        index_relation: &crate::postgres::rel::PgSearchRelation,
         config: IndexWriterConfig,
         worker_number: i32,
     ) -> Result<Self> {
@@ -132,7 +129,7 @@ impl SerialIndexWriter {
     }
 
     pub fn with_mvcc(
-        index_relation: &PgRelation,
+        index_relation: &crate::postgres::rel::PgSearchRelation,
         mvcc_satisfies: MvccSatisfies,
         config: IndexWriterConfig,
         worker_number: i32,
@@ -146,13 +143,13 @@ impl SerialIndexWriter {
 
         let directory = mvcc_satisfies.clone().directory(index_relation);
         let mut index = Index::open(directory.clone())?;
-        let schema = SearchIndexSchema::open(index_relation.oid())?;
-        setup_tokenizers(index_relation.oid(), &mut index)?;
+        let schema = SearchIndexSchema::open(index_relation)?;
+        setup_tokenizers(index_relation, &mut index)?;
         let ctid_field = schema.ctid_field();
 
         Ok(Self {
             id: worker_number,
-            indexrelid: index_relation.oid(),
+            indexrel: Clone::clone(index_relation),
             ctid_field,
             config,
             index,
@@ -160,10 +157,6 @@ impl SerialIndexWriter {
             pending_segment: Default::default(),
             new_metas: Default::default(),
         })
-    }
-
-    pub fn index_oid(&self) -> pg_sys::Oid {
-        self.indexrelid
     }
 
     pub fn insert(
@@ -215,8 +208,11 @@ impl SerialIndexWriter {
         Ok(None)
     }
 
-    pub fn commit(mut self) -> Result<Option<SegmentMeta>> {
+    pub fn commit(
+        mut self,
+    ) -> Result<Option<(SegmentMeta, crate::postgres::rel::PgSearchRelation)>> {
         self.finalize_segment()
+            .map(|segment_meta| segment_meta.map(|segment_meta| (segment_meta, self.indexrel)))
     }
 
     /// Intelligently create a new segment, backed by either a RamDirectory or a MVCCDirectory.
@@ -226,11 +222,7 @@ impl SerialIndexWriter {
     ///
     /// Otherwise, we create a MVCCDirectory-backed segment.
     fn new_segment(&mut self) -> Result<PendingSegment> {
-        PendingSegment::new(
-            self.directory.clone(),
-            self.config.memory_budget,
-            self.indexrelid,
-        )
+        PendingSegment::new(self.directory.clone(), self.config.memory_budget)
     }
 
     /// Once the memory budget is reached, we "finalize" the segment:
@@ -389,6 +381,7 @@ pub enum IndexError {
 mod tests {
     use super::*;
     use crate::api::HashSet;
+    use crate::postgres::rel::PgSearchRelation;
     use crate::schema::SearchIndexSchema;
     use pgrx::prelude::*;
     use std::num::NonZeroUsize;
@@ -410,10 +403,10 @@ mod tests {
         relation_oid: pg_sys::Oid,
         num_docs: usize,
     ) -> HashSet<SegmentId> {
-        let index_relation = unsafe { PgRelation::open(relation_oid) };
+        let index_relation = PgSearchRelation::open(relation_oid);
         let mut writer =
             SerialIndexWriter::open(&index_relation, config, Default::default()).unwrap();
-        let schema = SearchIndexSchema::open(relation_oid).unwrap();
+        let schema = SearchIndexSchema::open(&index_relation).unwrap();
         let ctid_field = schema.ctid_field();
         let text_field = schema.search_field("data").unwrap().field();
         let mut segment_ids = HashSet::default();
@@ -427,7 +420,7 @@ mod tests {
             }
         }
 
-        segment_ids.extend(writer.commit().unwrap().iter().map(|meta| meta.id()));
+        segment_ids.extend(writer.commit().unwrap().iter().map(|(meta, _)| meta.id()));
         segment_ids
     }
 

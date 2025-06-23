@@ -24,6 +24,7 @@ use crate::gucs::per_tuple_cost;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
@@ -37,6 +38,7 @@ use pgrx::{
     FromDatum, Internal, PgList, PgOid, PgRelation,
 };
 use std::ptr::NonNull;
+use std::sync::Arc;
 
 /// SQL API for allowing the user to specify the index to query.
 ///
@@ -145,9 +147,8 @@ pub fn search_with_query_input(
             .index_oid()
             .unwrap_or_else(|| panic!("the query argument must be wrapped in a `SearchQueryInput::WithIndex` variant.  Try using `paradedb.with_index('<index name>', <original expression>)`"));
 
-        let index_relation = unsafe {
-            PgRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE)
-        };
+        let index_relation =
+            PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
         let search_reader = SearchIndexReader::open(&index_relation, MvccSatisfies::Snapshot)
             .expect("search_with_query_input: should be able to open a SearchIndexReader");
         let schema = search_reader.schema();

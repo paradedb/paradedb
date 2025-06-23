@@ -15,9 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use super::expression::PG_SEARCH_PREFIX;
 use crate::api::FieldName;
 use crate::index::writer::index::IndexError;
 use crate::postgres::build::is_bm25_index;
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
 use crate::schema::{SearchField, SearchIndexSchema};
 use anyhow::{anyhow, Result};
@@ -28,8 +30,6 @@ use pgrx::*;
 use std::str::FromStr;
 use tantivy::schema::OwnedValue;
 
-use super::expression::PG_SEARCH_PREFIX;
-
 extern "C-unwind" {
     // SAFETY: `IsTransactionState()` doesn't raise an ERROR.  As such, we can avoid the pgrx
     // sigsetjmp overhead by linking to the function directly.
@@ -38,13 +38,13 @@ extern "C-unwind" {
 
 /// Finds and returns the `USING bm25` index on the specified relation with the
 /// highest OID, or [`None`] if there aren't any.
-pub fn locate_bm25_index(heaprelid: pg_sys::Oid) -> Option<PgRelation> {
-    unsafe { locate_bm25_index_from_heaprel(&PgRelation::open(heaprelid)) }
+pub fn locate_bm25_index(heaprelid: pg_sys::Oid) -> Option<crate::postgres::rel::PgSearchRelation> {
+    unsafe { locate_bm25_index_from_heaprel(&PgSearchRelation::open(heaprelid)) }
 }
 
 /// Finds and returns the `USING bm25` index on the specified relation with the
 /// highest OID, or [`None`] if there aren't any.
-pub fn locate_bm25_index_from_heaprel(heaprel: &PgRelation) -> Option<PgRelation> {
+pub fn locate_bm25_index_from_heaprel(heaprel: &PgSearchRelation) -> Option<PgSearchRelation> {
     unsafe {
         let indices = heaprel.indices(pg_sys::AccessShareLock as _);
 
@@ -53,6 +53,7 @@ pub fn locate_bm25_index_from_heaprel(heaprel: &PgRelation) -> Option<PgRelation
             .into_iter()
             .filter(|index| pg_sys::get_index_isvalid(index.oid()) && is_bm25_index(index))
             .max_by_key(|index| index.oid().to_u32())
+            .map(PgSearchRelation::from)
     }
 }
 
@@ -93,7 +94,7 @@ pub struct CategorizedFieldData {
 }
 
 pub fn categorize_fields(
-    indexrel: &PgRelation,
+    indexrel: &PgSearchRelation,
     schema: &SearchIndexSchema,
 ) -> Vec<(SearchField, CategorizedFieldData)> {
     let mut alias_lookup = schema.alias_lookup();
@@ -141,7 +142,7 @@ pub fn categorize_fields(
 
 /// Extracts the field attributes from the index relation.
 /// It returns a vector of tuples containing the field name and its type OID.
-pub fn extract_field_attributes(indexrel: &PgRelation) -> Vec<(String, Oid)> {
+pub fn extract_field_attributes(indexrel: &PgSearchRelation) -> Vec<(String, Oid)> {
     let tupdesc = unsafe { PgTupleDesc::from_pg_unchecked(indexrel.rd_att) };
     let index_info = unsafe { pg_sys::BuildIndexInfo(indexrel.as_ptr()) };
     let expressions = unsafe { PgList::<pg_sys::Expr>::from_pg((*index_info).ii_Expressions) };

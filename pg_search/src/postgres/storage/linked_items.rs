@@ -18,11 +18,11 @@
 use super::block::{BM25PageSpecialData, LinkedList, LinkedListData, MVCCEntry, PgItem};
 use super::buffer::{BufferManager, BufferMut};
 use anyhow::Result;
-use pgrx::pg_sys;
 use pgrx::pg_sys::BlockNumber;
+use pgrx::{pg_sys, PgRelation};
 use std::fmt::Debug;
 use std::ops::{Deref, DerefMut};
-
+use std::sync::Arc;
 // ---------------------------------------------------------------
 // Linked list implementation over block storage,
 // where each node in the list is a pg_sys::Item
@@ -84,16 +84,19 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedList for 
 }
 
 impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<T> {
-    pub fn open(relation_oid: pg_sys::Oid, header_blockno: pg_sys::BlockNumber) -> Self {
+    pub fn open(
+        indexrel: &crate::postgres::rel::PgSearchRelation,
+        header_blockno: pg_sys::BlockNumber,
+    ) -> Self {
         Self {
             header_blockno,
-            bman: BufferManager::new(relation_oid),
+            bman: BufferManager::new(indexrel),
             _marker: std::marker::PhantomData,
         }
     }
 
-    pub fn create(relation_oid: pg_sys::Oid) -> Self {
-        let (mut _self, mut header_buffer) = Self::create_without_start_page(relation_oid);
+    pub fn create(indexrel: &crate::postgres::rel::PgSearchRelation) -> Self {
+        let (mut _self, mut header_buffer) = Self::create_without_start_page(indexrel);
 
         let mut start_buffer = _self.bman.new_buffer();
         let start_blockno = start_buffer.number();
@@ -108,8 +111,10 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         _self
     }
 
-    fn create_without_start_page(relation_oid: pg_sys::Oid) -> (Self, BufferMut) {
-        let mut bman = BufferManager::new(relation_oid);
+    fn create_without_start_page(
+        indexrel: &crate::postgres::rel::PgSearchRelation,
+    ) -> (Self, BufferMut) {
+        let mut bman = BufferManager::new(indexrel);
 
         let mut header_buffer = bman.new_buffer();
         let header_blockno = header_buffer.number();
@@ -370,7 +375,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         // We create the duplicate without a start page: it will be filled in in the first
         // iteration of the loop below.
         let (mut cloned, mut previous_buffer) =
-            LinkedItemList::create_without_start_page(self.bman.relation_oid());
+            LinkedItemList::create_without_start_page(self.bman.bm25cache().rel());
 
         // TODO: This code could either:
         // * switch to compacting pages as it goes.
@@ -535,6 +540,7 @@ mod tests {
     use tantivy::index::SegmentId;
     use uuid::Uuid;
 
+    use crate::postgres::rel::PgSearchRelation;
     use crate::postgres::storage::block::{FileEntry, SegmentMetaEntry};
 
     fn random_segment_id() -> SegmentId {
@@ -560,20 +566,20 @@ mod tests {
     #[pg_test]
     unsafe fn test_linked_items_garbage_collect_single_page() {
         let relation_oid = init_bm25_index();
-
+        let indexrel = (PgSearchRelation::open(relation_oid));
         let delete_xid = pg_sys::FrozenTransactionId;
 
-        let mut list = LinkedItemList::<SegmentMetaEntry>::create(relation_oid);
+        let mut list = LinkedItemList::<SegmentMetaEntry>::create(&indexrel);
         let entries_to_delete = vec![SegmentMetaEntry {
             segment_id: random_segment_id(),
             xmax: delete_xid,
-            postings: Some(make_fake_postings(relation_oid)),
+            postings: Some(make_fake_postings(&indexrel)),
             ..Default::default()
         }];
         let entries_to_keep = vec![SegmentMetaEntry {
             segment_id: random_segment_id(),
             xmax: pg_sys::InvalidTransactionId,
-            postings: Some(make_fake_postings(relation_oid)),
+            postings: Some(make_fake_postings(&indexrel)),
             ..Default::default()
         }];
 
@@ -592,13 +598,14 @@ mod tests {
     #[pg_test]
     unsafe fn test_linked_items_garbage_collect_multiple_pages() {
         let relation_oid = init_bm25_index();
+        let indexrel = (PgSearchRelation::open(relation_oid));
 
         let deleted_xid = pg_sys::FrozenTransactionId;
         let not_deleted_xid = pg_sys::InvalidTransactionId;
 
         // Add 2000 entries, delete every 10th entry
         {
-            let mut list = LinkedItemList::<SegmentMetaEntry>::create(relation_oid);
+            let mut list = LinkedItemList::<SegmentMetaEntry>::create(&indexrel);
             let entries = (1..2000)
                 .map(|i| SegmentMetaEntry {
                     segment_id: random_segment_id(),
@@ -607,7 +614,7 @@ mod tests {
                     } else {
                         not_deleted_xid
                     },
-                    postings: Some(make_fake_postings(relation_oid)),
+                    postings: Some(make_fake_postings(&indexrel)),
                     ..Default::default()
                 })
                 .collect::<Vec<_>>();
@@ -625,12 +632,12 @@ mod tests {
         }
         // First n pages are full, next m pages need to be compacted, next n are full
         {
-            let mut list = LinkedItemList::<SegmentMetaEntry>::create(relation_oid);
+            let mut list = LinkedItemList::<SegmentMetaEntry>::create(&indexrel);
             let entries_1 = (1..500)
                 .map(|_| SegmentMetaEntry {
                     segment_id: random_segment_id(),
                     xmax: not_deleted_xid,
-                    postings: Some(make_fake_postings(relation_oid)),
+                    postings: Some(make_fake_postings(&indexrel)),
                     ..Default::default()
                 })
                 .collect::<Vec<_>>();
@@ -640,7 +647,7 @@ mod tests {
                 .map(|_| SegmentMetaEntry {
                     segment_id: random_segment_id(),
                     xmax: deleted_xid,
-                    postings: Some(make_fake_postings(relation_oid)),
+                    postings: Some(make_fake_postings(&indexrel)),
                     ..Default::default()
                 })
                 .collect::<Vec<_>>();
@@ -650,7 +657,7 @@ mod tests {
                 .map(|_| SegmentMetaEntry {
                     segment_id: random_segment_id(),
                     xmax: not_deleted_xid,
-                    postings: Some(make_fake_postings(relation_oid)),
+                    postings: Some(make_fake_postings(&indexrel)),
                     ..Default::default()
                 })
                 .collect::<Vec<_>>();
@@ -679,14 +686,15 @@ mod tests {
     #[pg_test]
     unsafe fn test_linked_items_duplicate_then_replace() {
         let relation_oid = init_bm25_index();
+        let indexrel = (PgSearchRelation::open(relation_oid));
 
         // Add 2000 entries.
-        let mut list = LinkedItemList::<SegmentMetaEntry>::create(relation_oid);
+        let mut list = LinkedItemList::<SegmentMetaEntry>::create(&indexrel);
         let entries = (1..2000)
             .map(|_| SegmentMetaEntry {
                 segment_id: random_segment_id(),
                 xmax: pg_sys::InvalidTransactionId,
-                postings: Some(make_fake_postings(relation_oid)),
+                postings: Some(make_fake_postings(&indexrel)),
                 ..Default::default()
             })
             .collect::<Vec<_>>();
@@ -724,8 +732,8 @@ mod tests {
             .unwrap()
     }
 
-    fn make_fake_postings(relation_oid: pg_sys::Oid) -> FileEntry {
-        let mut postings_file_block = BufferManager::new(relation_oid).new_buffer();
+    fn make_fake_postings(indexrel: &crate::postgres::rel::PgSearchRelation) -> FileEntry {
+        let mut postings_file_block = BufferManager::new(indexrel).new_buffer();
         postings_file_block.init_page();
         FileEntry {
             starting_block: postings_file_block.number(),

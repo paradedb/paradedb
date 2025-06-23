@@ -19,7 +19,9 @@ use crate::api::HashMap;
 use crate::postgres::storage::block::{bm25_max_free_space, BM25PageSpecialData, PgItem};
 use parking_lot::Mutex;
 use pgrx::pg_sys::OffsetNumber;
-use pgrx::{check_for_interrupts, pg_sys, PgMemoryContexts};
+use pgrx::{check_for_interrupts, pg_sys, PgMemoryContexts, PgRelation};
+use std::fmt::{Debug, Formatter};
+use std::sync::Arc;
 
 /// Matches Postgres's [`MAX_BUFFERS_TO_EXTEND_BY`]
 pub const MAX_BUFFERS_TO_EXTEND_BY: usize = 64;
@@ -79,22 +81,28 @@ impl BM25Page for pg_sys::Page {
     }
 }
 
-#[derive(Debug)]
 pub struct BM25BufferCache {
-    indexrel: pg_sys::Relation,
+    rel: crate::postgres::rel::PgSearchRelation,
     cache: Mutex<HashMap<pg_sys::BlockNumber, Vec<u8>>>,
     bulkwrite_bas: pg_sys::BufferAccessStrategy,
+}
+
+impl Debug for BM25BufferCache {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BM25BufferCache")
+            .field("indexrel", &self.rel.oid())
+            .finish()
+    }
 }
 
 unsafe impl Send for BM25BufferCache {}
 unsafe impl Sync for BM25BufferCache {}
 
 impl BM25BufferCache {
-    pub fn open(indexrelid: pg_sys::Oid) -> Self {
+    pub fn open(rel: &crate::postgres::rel::PgSearchRelation) -> Self {
         unsafe {
-            let indexrel = pg_sys::RelationIdGetRelation(indexrelid);
             Self {
-                indexrel,
+                rel: Clone::clone(rel),
                 cache: Default::default(),
                 bulkwrite_bas: PgMemoryContexts::TopTransactionContext.switch_to(|_| {
                     pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_BULKWRITE)
@@ -103,8 +111,8 @@ impl BM25BufferCache {
         }
     }
 
-    pub unsafe fn indexrel(&self) -> *mut pg_sys::RelationData {
-        self.indexrel
+    pub fn rel(&self) -> &crate::postgres::rel::PgSearchRelation {
+        &self.rel
     }
 
     unsafe fn bulk_extend_relation(
@@ -126,7 +134,7 @@ impl BM25BufferCache {
                 loop {
                     check_for_interrupts!();
                     let bmr = pg_sys::BufferManagerRelation {
-                        rel: self.indexrel,
+                        rel: self.rel.as_ptr(),
                         ..Default::default()
                     };
                     pg_sys::ExtendBufferedRelBy(
@@ -149,11 +157,11 @@ impl BM25BufferCache {
             }
         }
 
-        pg_sys::LockRelationForExtension(self.indexrel, pg_sys::AccessExclusiveLock as i32);
+        pg_sys::LockRelationForExtension(self.rel.as_ptr(), pg_sys::AccessExclusiveLock as i32);
         for buffer in buffers.iter_mut().take(npages) {
             *buffer = self.get_buffer(pg_sys::InvalidBlockNumber, None);
         }
-        pg_sys::UnlockRelationForExtension(self.indexrel, pg_sys::AccessExclusiveLock as i32);
+        pg_sys::UnlockRelationForExtension(self.rel.as_ptr(), pg_sys::AccessExclusiveLock as i32);
         buffers
     }
 
@@ -161,12 +169,13 @@ impl BM25BufferCache {
         loop {
             check_for_interrupts!();
             // ask for a page with at least `bm25_max_free_space()` -- that's how much we need to do our things
-            let blockno = pg_sys::GetPageWithFreeSpace(self.indexrel, bm25_max_free_space() as _);
+            let blockno =
+                pg_sys::GetPageWithFreeSpace(self.rel.as_ptr(), bm25_max_free_space() as _);
             if blockno == pg_sys::InvalidBlockNumber {
                 return None;
             }
             // we got one, so let Postgres know so the FSM will stop considering it
-            pg_sys::RecordUsedIndexPage(self.indexrel, blockno);
+            pg_sys::RecordUsedIndexPage(self.rel.as_ptr(), blockno);
 
             let buffer = self.get_buffer(blockno, None);
             if pg_sys::ConditionalLockBuffer(buffer) {
@@ -240,7 +249,7 @@ impl BM25BufferCache {
         lock: Option<u32>,
     ) -> pg_sys::Buffer {
         let buffer = pg_sys::ReadBufferExtended(
-            self.indexrel,
+            self.rel.as_ptr(),
             pg_sys::ForkNumber::MAIN_FORKNUM,
             blockno,
             pg_sys::ReadBufferMode::RBM_NORMAL,
@@ -273,9 +282,6 @@ impl Drop for BM25BufferCache {
     fn drop(&mut self) {
         unsafe {
             pg_sys::FreeAccessStrategy(self.bulkwrite_bas);
-            if crate::postgres::utils::IsTransactionState() {
-                pg_sys::RelationClose(self.indexrel);
-            }
         }
     }
 }

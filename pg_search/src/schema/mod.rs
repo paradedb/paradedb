@@ -19,19 +19,19 @@ mod anyenum;
 mod config;
 pub mod range;
 
-pub use anyenum::AnyEnum;
-pub use config::*;
-
 use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::index::mvcc::MVCCDirectory;
 use crate::postgres::options::SearchIndexOptions;
+pub use anyenum::AnyEnum;
 use anyhow::bail;
+pub use config::*;
 
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::extract_field_attributes;
 use anyhow::Result;
 use derive_more::Into;
-use pgrx::{pg_sys, PgBuiltInOids, PgOid, PgRelation};
+use pgrx::{pg_sys, PgBuiltInOids, PgOid};
 use serde::{Deserialize, Serialize};
 use tantivy::index::Index;
 use tantivy::schema::{Field, FieldEntry, FieldType, OwnedValue, Schema};
@@ -146,13 +146,13 @@ pub struct SearchIndexSchema {
 }
 
 impl SearchIndexSchema {
-    pub fn open(relation_oid: pg_sys::Oid) -> Result<Self> {
-        let directory = MVCCDirectory::snapshot(relation_oid);
+    pub fn open(indexrel: &crate::postgres::rel::PgSearchRelation) -> Result<Self> {
+        let directory = MVCCDirectory::snapshot(indexrel);
         let index = Index::open(directory)?;
         let schema = index.schema().clone();
         Ok(Self {
             schema,
-            relation_oid,
+            relation_oid: indexrel.oid(),
         })
     }
 
@@ -163,7 +163,7 @@ impl SearchIndexSchema {
     }
 
     pub fn key_field(&self) -> SearchField {
-        let index_relation = unsafe { PgRelation::open(self.relation_oid) };
+        let index_relation = PgSearchRelation::open(self.relation_oid);
         let options = unsafe { SearchIndexOptions::from_relation(&index_relation) };
         let key_field_name = options.key_field_name();
         let field = self.schema.get_field(&key_field_name.root()).unwrap();
@@ -196,7 +196,7 @@ impl SearchIndexSchema {
     /// marked it as their source column with the 'column' key.
     pub fn alias_lookup(&self) -> HashMap<String, Vec<SearchField>> {
         let mut lookup = HashMap::default();
-        let index_relation = unsafe { PgRelation::open(self.relation_oid) };
+        let index_relation = PgSearchRelation::open(self.relation_oid);
 
         let options = unsafe { SearchIndexOptions::from_relation(&index_relation) };
         let aliased_text_configs = options.aliased_text_configs();
@@ -242,7 +242,7 @@ pub struct SearchField {
 
 impl SearchField {
     pub fn new(field: Field, relation_oid: pg_sys::Oid, schema: Schema) -> Self {
-        let index_relation = unsafe { PgRelation::open(relation_oid) };
+        let index_relation = PgSearchRelation::open(relation_oid);
         let options = unsafe { SearchIndexOptions::from_relation(&index_relation) };
 
         let field_name: FieldName = schema.get_field_name(field).into();

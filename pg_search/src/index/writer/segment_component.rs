@@ -15,7 +15,7 @@ pub struct SegmentComponentWriter {
 }
 
 impl SegmentComponentWriter {
-    pub unsafe fn new(relation_oid: pg_sys::Oid, path: &Path) -> Self {
+    pub unsafe fn new(indexrel: &crate::postgres::rel::PgSearchRelation, path: &Path) -> Self {
         if path.component_type() == Some(SegmentComponent::Store) {
             Self {
                 inner: None,
@@ -23,7 +23,7 @@ impl SegmentComponentWriter {
             }
         } else {
             Self {
-                inner: Some(InnerSegmentComponentWriter::new(relation_oid)),
+                inner: Some(InnerSegmentComponentWriter::new(indexrel)),
                 path: path.to_path_buf(),
             }
         }
@@ -89,8 +89,8 @@ struct InnerSegmentComponentWriter {
 }
 
 impl InnerSegmentComponentWriter {
-    pub unsafe fn new(relation_oid: pg_sys::Oid) -> Self {
-        let segment_component = LinkedBytesList::create(relation_oid);
+    pub unsafe fn new(indexrel: &crate::postgres::rel::PgSearchRelation) -> Self {
+        let segment_component = LinkedBytesList::create(indexrel);
 
         Self {
             header_blockno: segment_component.header_blockno,

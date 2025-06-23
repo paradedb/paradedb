@@ -7,11 +7,13 @@ use crate::parallel_worker::mqueue::MessageQueueSender;
 use crate::parallel_worker::ParallelStateManager;
 use crate::parallel_worker::{chunk_range, WorkerStyle};
 use crate::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, ParallelWorker};
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::spinlock::Spinlock;
 use crate::query::SearchQueryInput;
 use pgrx::{check_for_interrupts, default, pg_extern, pg_sys, Json, JsonB, PgRelation};
 use rustc_hash::FxHashSet;
 use std::error::Error;
+use std::sync::Arc;
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::aggregation::{AggregationLimitsGuard, DistributedAggregationCollector};
@@ -181,7 +183,7 @@ impl<'a> ParallelAggregationWorker<'a> {
             return Ok(None);
         }
         let indexrel =
-            unsafe { PgRelation::with_lock(self.config.indexrelid, pg_sys::AccessShareLock as _) };
+            PgSearchRelation::with_lock(self.config.indexrelid, pg_sys::AccessShareLock as _);
         let reader = SearchIndexReader::open(
             &indexrel,
             MvccSatisfies::ParallelWorker(segment_ids.clone()),
@@ -281,6 +283,7 @@ pub fn aggregate(
     bucket_limit: default!(i64, 65000),
 ) -> Result<JsonB, Box<dyn Error>> {
     unsafe {
+        let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
         let reader = SearchIndexReader::open(&index, MvccSatisfies::Snapshot)?;
         let agg_req = serde_json::from_value(agg.0)?;
         let process = ParallelAggregation::new(

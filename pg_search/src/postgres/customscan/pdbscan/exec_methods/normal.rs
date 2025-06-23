@@ -22,11 +22,12 @@ use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::utils::u64_to_item_pointer;
 use pgrx::itemptr::item_pointer_get_block_number;
-use pgrx::pg_sys;
+use pgrx::{pg_sys, PgRelation};
+use std::sync::Arc;
 
 pub struct NormalScanExecState {
     can_use_visibility_map: bool,
-    heaprel: pg_sys::Relation,
+    heaprel: Option<crate::postgres::rel::PgSearchRelation>,
     slot: *mut pg_sys::TupleTableSlot,
     vmbuff: pg_sys::Buffer,
 
@@ -42,7 +43,7 @@ impl Default for NormalScanExecState {
     fn default() -> Self {
         Self {
             can_use_visibility_map: false,
-            heaprel: std::ptr::null_mut(),
+            heaprel: None,
             slot: std::ptr::null_mut(),
             vmbuff: pg_sys::InvalidBuffer as pg_sys::Buffer,
             search_results: SearchResults::None,
@@ -66,7 +67,7 @@ impl Drop for NormalScanExecState {
 impl ExecMethod for NormalScanExecState {
     fn init(&mut self, state: &mut PdbScanState, cstate: *mut pg_sys::CustomScanState) {
         unsafe {
-            self.heaprel = state.heaprel.unwrap();
+            self.heaprel = state.heaprel.clone();
             self.slot = pg_sys::MakeTupleTableSlot(
                 (*cstate).ss.ps.ps_ResultTupleDesc,
                 &pg_sys::TTSOpsVirtual,
@@ -123,7 +124,13 @@ impl ExecMethod for NormalScanExecState {
                 } else {
                     // new block so check its visibility
                     self.blockvis.0 = blockno;
-                    self.blockvis.1 = is_block_all_visible(self.heaprel, &mut self.vmbuff, blockno);
+                    self.blockvis.1 = is_block_all_visible(
+                        self.heaprel
+                            .as_ref()
+                            .expect("NormalScanExecState: heaprel should be initialized"),
+                        &mut self.vmbuff,
+                        blockno,
+                    );
                     self.blockvis.1
                 };
 

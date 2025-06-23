@@ -20,7 +20,9 @@ use crate::postgres::build::is_bm25_index;
 use crate::postgres::spinlock::Spinlock;
 use crate::query::SearchQueryInput;
 use pgrx::*;
+use rel::PgSearchRelation;
 use std::io::Write;
+use std::sync::Arc;
 use tantivy::index::SegmentId;
 use tantivy::SegmentReader;
 
@@ -43,6 +45,7 @@ pub mod datetime;
 pub mod fake_aminsertcleanup;
 pub mod index;
 mod parallel;
+pub mod rel;
 pub mod spinlock;
 pub mod storage;
 pub mod types;
@@ -115,12 +118,14 @@ fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRouti
     amroutine.into_pg_boxed()
 }
 
-pub fn rel_get_bm25_index(relid: pg_sys::Oid) -> Option<(PgRelation, PgRelation)> {
+pub fn rel_get_bm25_index(
+    relid: pg_sys::Oid,
+) -> Option<(rel::PgSearchRelation, rel::PgSearchRelation)> {
     unsafe {
-        let rel = PgRelation::with_lock(relid, pg_sys::AccessShareLock as _);
+        let rel = PgSearchRelation::with_lock(relid, pg_sys::AccessShareLock as _);
         rel.indices(pg_sys::AccessShareLock as _)
             .find(is_bm25_index)
-            .map(|index| (rel, index))
+            .map(|index| (rel, PgSearchRelation::from(index)))
     }
 }
 

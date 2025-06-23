@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use pgrx::{pg_sys::ItemPointerData, *};
+use std::sync::Arc;
 
 use super::storage::block::CLEANUP_LOCK;
 use crate::index::fast_fields_helper::FFType;
@@ -24,6 +25,7 @@ use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::metadata::MetaPage;
 
+use crate::postgres::rel::PgSearchRelation;
 use anyhow::Result;
 use pgrx::{pg_sys, PgRelation};
 use tantivy::index::SegmentId;
@@ -31,7 +33,7 @@ use tantivy::indexer::delete_queue::DeleteQueue;
 use tantivy::indexer::{advance_deletes, DeleteOperation, SegmentEntry};
 use tantivy::{Directory, DocId, Index, IndexMeta, Opstamp};
 
-#[pg_guard]
+// #[pg_guard]
 pub unsafe extern "C-unwind" fn ambulkdelete(
     info: *mut pg_sys::IndexVacuumInfo,
     stats: *mut pg_sys::IndexBulkDeleteResult,
@@ -40,7 +42,7 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
 ) -> *mut pg_sys::IndexBulkDeleteResult {
     let info = PgBox::from_pg(info);
     let mut stats = PgBox::<pg_sys::IndexBulkDeleteResult>::from_pg(stats.cast());
-    let index_relation = PgRelation::from_pg(info.index);
+    let index_relation = (PgSearchRelation::from_pg(info.index));
     let callback =
         callback.expect("the ambulkdelete() callback should be a valid function pointer");
     let callback = move |ctid_val: u64| {
@@ -51,8 +53,8 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
 
     // first, we need an exclusive lock on the CLEANUP_LOCK.  Once we get it, we know that there
     // are no concurrent merges happening
-    let cleanup_lock = BufferManager::new(index_relation.oid()).get_buffer_mut(CLEANUP_LOCK);
-    let mut metadata = MetaPage::open(index_relation.oid());
+    let cleanup_lock = BufferManager::new(&index_relation).get_buffer_mut(CLEANUP_LOCK);
+    let mut metadata = MetaPage::open(&index_relation);
 
     // take the MergeLock
     let merge_lock = metadata.acquire_merge_lock();
@@ -139,7 +141,7 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     // Effectively, we're blocking ambulkdelete from finishing until we know that concurrent
     // scans have finished too
     if did_delete {
-        drop(BufferManager::new(index_relation.oid()).get_buffer_for_cleanup(CLEANUP_LOCK));
+        drop(BufferManager::new(&index_relation).get_buffer_for_cleanup(CLEANUP_LOCK));
     }
 
     // we're done, no need to hold onto the sentinel any longer
@@ -155,11 +157,14 @@ struct SegmentDeleter {
 }
 
 impl SegmentDeleter {
-    pub fn open(index_relation: &PgRelation, segment_id: SegmentId) -> Result<Self> {
+    pub fn open(
+        index_relation: &crate::postgres::rel::PgSearchRelation,
+        segment_id: SegmentId,
+    ) -> Result<Self> {
         let delete_queue = DeleteQueue::new();
         let delete_cursor = delete_queue.cursor();
 
-        let directory = MVCCDirectory::vacuum(index_relation.oid());
+        let directory = MVCCDirectory::vacuum(index_relation);
         let index = Index::open(directory)?;
         let searchable_segment_metas = index.searchable_segment_metas()?;
         let segment_meta = searchable_segment_metas

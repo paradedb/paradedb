@@ -22,13 +22,17 @@ pub mod operator;
 pub mod tokenize;
 
 use pgrx::{
-    direct_function_call, pg_cast, pg_sys, InOutFuncs, IntoDatum, PostgresType, StringInfo,
+    direct_function_call, name_data_to_str, pg_cast, pg_sys, InOutFuncs, IntoDatum, PgBox,
+    PgRelation, PgTupleDesc, PostgresType, StringInfo,
 };
 pub use rustc_hash::FxHashMap as HashMap;
 pub use rustc_hash::FxHashSet as HashSet;
 use serde::{Deserialize, Serialize};
 use std::ffi::CStr;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
+use std::ops::Deref;
+use std::ptr::NonNull;
+use std::sync::Arc;
 use tantivy::json_utils::split_json_path;
 
 #[macro_export]

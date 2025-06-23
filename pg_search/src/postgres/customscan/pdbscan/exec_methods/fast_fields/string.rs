@@ -103,11 +103,16 @@ impl ExecMethod for StringFastFieldExecState {
             match self.search_results.next() {
                 None => ExecState::Eof,
                 Some((scored, doc_address, term)) => {
+                    let heaprel = self
+                        .inner
+                        .heaprel
+                        .as_ref()
+                        .expect("MixedFastFieldsExecState: heaprel should be initialized");
                     let slot = self.inner.slot;
                     let natts = (*(*slot).tts_tupleDescriptor).natts as usize;
 
                     crate::postgres::utils::u64_to_item_pointer(scored.ctid, &mut (*slot).tts_tid);
-                    (*slot).tts_tableOid = (*self.inner.heaprel).rd_id;
+                    (*slot).tts_tableOid = heaprel.oid();
 
                     let blockno = item_pointer_get_block_number(&(*slot).tts_tid);
                     let is_visible = if blockno == self.inner.blockvis.0 {
@@ -116,11 +121,8 @@ impl ExecMethod for StringFastFieldExecState {
                     } else {
                         // new block so check its visibility
                         self.inner.blockvis.0 = blockno;
-                        self.inner.blockvis.1 = is_block_all_visible(
-                            self.inner.heaprel,
-                            &mut self.inner.vmbuff,
-                            blockno,
-                        );
+                        self.inner.blockvis.1 =
+                            is_block_all_visible(heaprel, &mut self.inner.vmbuff, blockno);
                         self.inner.blockvis.1
                     };
 

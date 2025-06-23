@@ -23,6 +23,7 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::nodecast;
 use crate::postgres::expression::{find_expr_attnum, PG_SEARCH_PREFIX};
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::locate_bm25_index_from_heaprel;
 use crate::postgres::var::find_var_relation;
 use crate::query::SearchQueryInput;
@@ -34,6 +35,7 @@ use pgrx::pgrx_sql_entity_graph::metadata::{
 };
 use pgrx::*;
 use std::ptr::NonNull;
+use std::sync::Arc;
 
 #[derive(Debug)]
 #[repr(transparent)]
@@ -126,7 +128,7 @@ pub fn searchqueryinput_typoid() -> pg_sys::Oid {
 }
 
 pub(crate) fn estimate_selectivity(
-    indexrel: &PgRelation,
+    indexrel: &crate::postgres::rel::PgSearchRelation,
     search_query_input: &SearchQueryInput,
 ) -> Option<f64> {
     let reltuples = indexrel
@@ -165,7 +167,7 @@ unsafe fn make_search_query_input_opexpr_node(
     }
 
     // we need to use what should be the only `USING bm25` index on the table
-    let heaprel = PgRelation::open(relid);
+    let heaprel = PgSearchRelation::open(relid);
     let indexrel = locate_bm25_index_from_heaprel(&heaprel).unwrap_or_else(|| {
         panic!(
             "relation `{}.{}` must have a `USING bm25` index",
@@ -406,7 +408,7 @@ pub unsafe fn fieldname_from_node(
             if heaprelid == pg_sys::Oid::INVALID {
                 panic!("could not find heap relation for node");
             }
-            let heaprel = PgRelation::open(heaprelid);
+            let heaprel = PgSearchRelation::open(heaprelid);
             let indexrel = locate_bm25_index_from_heaprel(&heaprel)
                 .expect("could not find bm25 index for heaprelid");
 

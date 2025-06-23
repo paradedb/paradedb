@@ -6,6 +6,13 @@ use std::rc::Rc;
 
 type NeedClose = bool;
 
+/// Represents an opened Postgres relation to be used by pg_search.
+///
+/// [`PgSearchRelation`] is reference counted and will close the underlying
+/// [`pg_sys::Relation`] when the last reference is dropped, accounting for
+/// the state of the current transaction.
+///
+/// Instances of [`PgSearchRelation`] can be closed as necessary.
 #[allow(clippy::type_complexity)]
 #[derive(Clone)]
 #[repr(transparent)]
@@ -49,6 +56,8 @@ impl Deref for PgSearchRelation {
     type Target = pg_sys::RelationData;
 
     fn deref(&self) -> &Self::Target {
+        // SAFETY: the backing pointer is always correct for use by Rust as we couldn't have
+        // gotten here otherwise
         unsafe { self.as_ptr().as_ref().unwrap_unchecked() }
     }
 }

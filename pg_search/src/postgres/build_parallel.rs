@@ -50,7 +50,7 @@ extern "C-unwind" {
 
 mod ps {
     use std::ffi::CStr;
-    pub const WRITING: &CStr = c"writing";
+    pub const INDEXING: &CStr = c"indexing";
     pub const MERGING: &CStr = c"merging";
 }
 
@@ -236,8 +236,6 @@ impl<'a> BuildWorker<'a> {
 
     fn do_build(&mut self, worker_number: i32) -> anyhow::Result<(f64, usize)> {
         unsafe {
-            set_ps_display_suffix(ps::WRITING.as_ptr());
-
             let index_info = pg_sys::BuildIndexInfo(self.indexrel.as_ptr());
             (*index_info).ii_Concurrent = self.config.concurrent;
             let nlaunched = self.coordination.nlaunched();
@@ -466,6 +464,7 @@ unsafe extern "C-unwind" fn build_callback(
     state: *mut std::os::raw::c_void,
 ) {
     check_for_interrupts!();
+    set_ps_display_suffix(ps::INDEXING.as_ptr());
 
     let build_state = &mut *state.cast::<WorkerBuildState>();
     let ctid_u64 = crate::postgres::utils::item_pointer_to_u64(*ctid);
@@ -495,8 +494,6 @@ unsafe extern "C-unwind" fn build_callback(
         build_state
             .try_merge(false)
             .unwrap_or_else(|e| panic!("{e}"));
-
-        unsafe { set_ps_display_suffix(ps::WRITING.as_ptr()) };
     }
 }
 

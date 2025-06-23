@@ -340,7 +340,12 @@ impl PdbScanState {
 
         #[cfg(feature = "pg14")]
         {
-            if !pg_sys::heap_fetch(heaprel, pg_sys::GetActiveSnapshot(), &mut htup, &mut buffer) {
+            if !pg_sys::heap_fetch(
+                heaprel.as_ptr(),
+                pg_sys::GetActiveSnapshot(),
+                &mut htup,
+                &mut buffer,
+            ) {
                 return None;
             }
         }

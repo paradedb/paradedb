@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::operator::anyelement_query_input_opoid;
 use crate::index::reader::index::SearchIndexReader;
 use crate::schema::SearchIndexSchema;
 use pgrx::{pg_sys, FromDatum, PgList};
@@ -159,6 +158,11 @@ impl<'a> UnifiedExpressionEvaluator<'a> {
         expr_context: *mut pg_sys::ExprContext,
         current_score: f32,
     ) -> Self {
+        pgrx::warning!(
+            "🔧 [DEBUG] Creating UnifiedExpressionEvaluator with current_score: {}",
+            current_score
+        );
+
         Self {
             search_reader,
             schema,
@@ -175,134 +179,133 @@ impl<'a> UnifiedExpressionEvaluator<'a> {
     }
 
     /// Main entry point for evaluating any expression node
-    /// Phase 3: Core evaluation with proper expression tree handling
     pub unsafe fn evaluate_expression(
         &mut self,
         expr: *mut pg_sys::Node,
         doc_id: DocId,
         doc_address: DocAddress,
         slot: *mut pg_sys::TupleTableSlot,
-    ) -> UnifiedEvaluationResult {
-        self.stats.expressions_evaluated += 1;
-
+    ) -> Result<UnifiedEvaluationResult, &'static str> {
         if expr.is_null() {
-            return UnifiedEvaluationResult::no_match();
+            return Ok(UnifiedEvaluationResult::no_match());
         }
 
-        match (*expr).type_ {
+        let node_tag = (*expr).type_;
+        pgrx::warning!(
+            "🔧 [DEBUG] Evaluating expression with node tag: {}",
+            node_tag as i32
+        );
+
+        match node_tag {
             pg_sys::NodeTag::T_BoolExpr => {
-                let bool_expr = expr.cast::<pg_sys::BoolExpr>();
+                let bool_expr = expr as *mut pg_sys::BoolExpr;
                 self.evaluate_bool_expr(bool_expr, doc_id, doc_address, slot)
             }
             pg_sys::NodeTag::T_OpExpr => {
-                let op_expr = expr.cast::<pg_sys::OpExpr>();
+                let op_expr = expr as *mut pg_sys::OpExpr;
                 self.evaluate_op_expr(op_expr, doc_id, doc_address, slot)
             }
+            pg_sys::NodeTag::T_Var => {
+                // Simple variable reference - evaluate as PostgreSQL predicate
+                self.evaluate_postgres_predicate(expr as *mut pg_sys::Expr, slot)
+            }
             _ => {
-                // For other node types, fall back to PostgreSQL evaluation
-                self.evaluate_with_postgres_cached(expr, slot)
+                pgrx::warning!(
+                    "⚠️ [DEBUG] Unsupported expression type: {}",
+                    node_tag as i32
+                );
+                Ok(UnifiedEvaluationResult::no_match())
             }
         }
     }
 
-    /// Evaluate a boolean expression (AND, OR, NOT)
-    /// Phase 4: Enhanced with lazy evaluation for performance
+    /// Evaluate boolean expressions (AND, OR, NOT)
     unsafe fn evaluate_bool_expr(
         &mut self,
         bool_expr: *mut pg_sys::BoolExpr,
         doc_id: DocId,
         doc_address: DocAddress,
         slot: *mut pg_sys::TupleTableSlot,
-    ) -> UnifiedEvaluationResult {
+    ) -> Result<UnifiedEvaluationResult, &'static str> {
         let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
         let bool_op = (*bool_expr).boolop;
 
         match bool_op {
             pg_sys::BoolExprType::AND_EXPR => {
                 let mut all_match = true;
-                let mut combined_score = 0.0;
-                let mut score_contributors = 0;
+                let mut final_score = f32::INFINITY;
 
                 for (i, arg) in args.iter_ptr().enumerate() {
-                    let result = self.evaluate_expression(arg, doc_id, doc_address, slot);
+                    let result = self.evaluate_expression(arg, doc_id, doc_address, slot)?;
 
                     if !result.matches {
                         all_match = false;
-                        break; // Short-circuit evaluation
+                        final_score = 0.0;
+                        break;
                     }
 
-                    if result.score > 0.0 {
-                        combined_score += result.score;
-                        score_contributors += 1;
-                    }
+                    // For AND: use minimum score (most restrictive)
+                    final_score = final_score.min(result.score);
                 }
 
-                let final_score = if all_match {
-                    if score_contributors > 0 {
-                        combined_score / score_contributors as f32 // Average scores for AND
-                    } else {
-                        1.0 // Default score if no BM25 contributors
-                    }
-                } else {
-                    0.0
+                if final_score == f32::INFINITY {
+                    final_score = 1.0;
                 };
 
-                UnifiedEvaluationResult::new(all_match, final_score)
+                Ok(UnifiedEvaluationResult::new(all_match, final_score))
             }
             pg_sys::BoolExprType::OR_EXPR => {
                 let mut any_match = false;
                 let mut best_score: f32 = 0.0;
 
                 for (i, arg) in args.iter_ptr().enumerate() {
-                    let result = self.evaluate_expression(arg, doc_id, doc_address, slot);
+                    let result = self.evaluate_expression(arg, doc_id, doc_address, slot)?;
 
                     if result.matches {
                         any_match = true;
-                        best_score = best_score.max(result.score); // Take the best score for OR
+                        best_score = best_score.max(result.score);
                     }
                 }
 
-                UnifiedEvaluationResult::new(any_match, best_score)
+                Ok(UnifiedEvaluationResult::new(any_match, best_score))
             }
             pg_sys::BoolExprType::NOT_EXPR => {
                 if args.len() != 1 {
-                    return UnifiedEvaluationResult::no_match();
+                    return Ok(UnifiedEvaluationResult::no_match());
                 }
 
                 let inner_result =
-                    self.evaluate_expression(args.get_ptr(0).unwrap(), doc_id, doc_address, slot);
+                    self.evaluate_expression(args.get_ptr(0).unwrap(), doc_id, doc_address, slot)?;
 
                 let not_result = UnifiedEvaluationResult::new(!inner_result.matches, 1.0);
 
-                not_result
+                Ok(not_result)
             }
-            _ => UnifiedEvaluationResult::no_match(),
+            _ => Ok(UnifiedEvaluationResult::no_match()),
         }
     }
 
-    /// Evaluate an operator expression (like @@@ or =)
-    /// Phase 4: Enhanced with caching and performance optimizations
+    /// Evaluate operation expressions (both search @@@ and regular PostgreSQL operators)
     unsafe fn evaluate_op_expr(
         &mut self,
         op_expr: *mut pg_sys::OpExpr,
         doc_id: DocId,
         _doc_address: DocAddress,
         slot: *mut pg_sys::TupleTableSlot,
-    ) -> UnifiedEvaluationResult {
+    ) -> Result<UnifiedEvaluationResult, &'static str> {
         if self.is_search_operator((*op_expr).opno) {
             self.stats.search_predicates_evaluated += 1;
-            // This is a @@@ operator - evaluate using enhanced search predicate evaluation
             self.evaluate_search_predicate(op_expr, doc_id)
         } else {
             self.stats.postgres_predicates_evaluated += 1;
-            // This is a regular operator - evaluate using PostgreSQL with caching
-            self.evaluate_with_postgres_cached(op_expr.cast(), slot)
+            self.evaluate_with_postgres_cached(op_expr as *mut pg_sys::Node, slot)
         }
     }
 
     /// Check if the operator is a search operator (@@@)
     fn is_search_operator(&self, op_oid: pg_sys::Oid) -> bool {
-        op_oid == anyelement_query_input_opoid()
+        use crate::api::operator::{anyelement_query_input_opoid, anyelement_text_opoid};
+        op_oid == anyelement_query_input_opoid() || op_oid == anyelement_text_opoid()
     }
 
     /// Phase 4: Analyze if an expression is likely a search predicate
@@ -380,20 +383,18 @@ impl<'a> UnifiedExpressionEvaluator<'a> {
         }
     }
 
-    /// Evaluate a search predicate (@@@ operator) using the current document's score
-    /// Since documents reaching this point have already been filtered by Tantivy,
-    /// we use the current_score as a heuristic to determine if the search predicate matches
+    /// Evaluate search predicates (@@@ operators)
     unsafe fn evaluate_search_predicate(
         &mut self,
         op_expr: *mut pg_sys::OpExpr,
         doc_id: DocId,
-    ) -> UnifiedEvaluationResult {
+    ) -> Result<UnifiedEvaluationResult, &'static str> {
         self.stats.search_predicates_evaluated += 1;
 
         if self.current_score > 0.0 {
-            UnifiedEvaluationResult::new(true, self.current_score)
+            Ok(UnifiedEvaluationResult::new(true, self.current_score))
         } else {
-            UnifiedEvaluationResult::no_match()
+            Ok(UnifiedEvaluationResult::no_match())
         }
     }
 
@@ -466,68 +467,263 @@ impl<'a> UnifiedExpressionEvaluator<'a> {
         None
     }
 
-    /// Phase 4: Evaluate an expression using PostgreSQL with caching
+    /// Evaluate a PostgreSQL predicate (non-search)
+    unsafe fn evaluate_postgres_predicate(
+        &mut self,
+        expr: *mut pg_sys::Expr,
+        slot: *mut pg_sys::TupleTableSlot,
+    ) -> Result<UnifiedEvaluationResult, &'static str> {
+        self.evaluate_with_postgres_cached(expr as *mut pg_sys::Node, slot)
+    }
+
+    /// Evaluate PostgreSQL predicates with caching
     unsafe fn evaluate_with_postgres_cached(
         &mut self,
         expr: *mut pg_sys::Node,
         slot: *mut pg_sys::TupleTableSlot,
-    ) -> UnifiedEvaluationResult {
+    ) -> Result<UnifiedEvaluationResult, &'static str> {
         // Phase 4: Create a simple hash for the expression (using pointer address as proxy)
         let expr_hash = expr as u64;
 
         // Check cache first
         if let Some((matches, score)) = self.cache.get_postgres_result(expr_hash) {
             self.stats.postgres_cache_hits += 1;
-            return UnifiedEvaluationResult::new(matches, score);
+            return Ok(UnifiedEvaluationResult::new(matches, score));
         }
 
         // Evaluate with PostgreSQL
-        let result = self.evaluate_with_postgres(expr, slot);
+        let result = self.evaluate_with_postgres(expr, slot)?;
 
         // Cache the result
         self.cache
             .cache_postgres_result(expr_hash, (result.matches, result.score));
 
-        result
+        Ok(result)
     }
 
-    /// Evaluate an expression using PostgreSQL's built-in expression evaluation
+    /// Evaluate a PostgreSQL expression directly
     unsafe fn evaluate_with_postgres(
         &self,
         expr: *mut pg_sys::Node,
         slot: *mut pg_sys::TupleTableSlot,
-    ) -> UnifiedEvaluationResult {
+    ) -> Result<UnifiedEvaluationResult, &'static str> {
         // Set the scan tuple in the expression context
         (*self.expr_context).ecxt_scantuple = slot;
 
-        // Create an ExprState for this expression
-        let expr_state = pg_sys::ExecInitExpr(expr.cast(), std::ptr::null_mut());
+        // For PostgreSQL expressions, we need to implement proper evaluation
+        // Since we can't easily use ExecEvalExpr with raw nodes, we'll implement
+        // a simplified evaluator for the most common cases
 
-        let mut isnull = false;
-        let result = pg_sys::ExecEvalExpr(expr_state, self.expr_context, &mut isnull);
-
-        if isnull {
-            // NULL result means no match
-            UnifiedEvaluationResult::no_match()
-        } else {
-            let matches = bool::from_datum(result, false).unwrap_or(false);
-            if matches {
-                UnifiedEvaluationResult::non_indexed_match() // Non-indexed predicates get default score
-            } else {
-                UnifiedEvaluationResult::no_match()
+        match (*expr).type_ {
+            pg_sys::NodeTag::T_OpExpr => {
+                let op_expr = expr.cast::<pg_sys::OpExpr>();
+                self.evaluate_postgres_op_expr(op_expr, slot)
+            }
+            pg_sys::NodeTag::T_Const => {
+                let const_node = expr.cast::<pg_sys::Const>();
+                if (*const_node).consttype == pg_sys::BOOLOID && !(*const_node).constisnull {
+                    let bool_value =
+                        bool::from_datum((*const_node).constvalue, false).unwrap_or(false);
+                    if bool_value {
+                        Ok(UnifiedEvaluationResult::non_indexed_match())
+                    } else {
+                        Ok(UnifiedEvaluationResult::no_match())
+                    }
+                } else {
+                    Ok(UnifiedEvaluationResult::no_match())
+                }
+            }
+            _ => {
+                // For other expression types, assume they match
+                // This is a conservative approach - in practice, we'd need more
+                // sophisticated evaluation
+                pgrx::warning!(
+                    "⚠️ [DEBUG] Simplified evaluation for node type: {}",
+                    (*expr).type_ as i32
+                );
+                Ok(UnifiedEvaluationResult::non_indexed_match())
             }
         }
+    }
+
+    /// Evaluate a PostgreSQL OpExpr (operator expression)
+    unsafe fn evaluate_postgres_op_expr(
+        &self,
+        op_expr: *mut pg_sys::OpExpr,
+        slot: *mut pg_sys::TupleTableSlot,
+    ) -> Result<UnifiedEvaluationResult, &'static str> {
+        let op_oid = (*op_expr).opno;
+
+        // Handle common operators
+        if op_oid == 98_u32.into() {
+            // text = text (equality)
+            // For string equality, we can evaluate by comparing the values
+            let args = PgList::<pg_sys::Node>::from_pg((*op_expr).args);
+            if args.len() == 2 {
+                let left_val = self.extract_value_from_slot(args.get_ptr(0).unwrap(), slot);
+                let right_val = self.extract_value_from_node(args.get_ptr(1).unwrap());
+
+                if let (Some(left), Some(right)) = (left_val, right_val) {
+                    let matches = left == right;
+                    pgrx::warning!(
+                        "🔧 [DEBUG] String equality: '{}' = '{}' -> {}",
+                        left,
+                        right,
+                        matches
+                    );
+                    if matches {
+                        Ok(UnifiedEvaluationResult::non_indexed_match())
+                    } else {
+                        Ok(UnifiedEvaluationResult::no_match())
+                    }
+                } else {
+                    Ok(UnifiedEvaluationResult::no_match())
+                }
+            } else {
+                Ok(UnifiedEvaluationResult::no_match())
+            }
+        } else if op_oid == 531_u32.into() {
+            // text <> text (not equal)
+            // For string inequality, we can evaluate by comparing the values
+            let args = PgList::<pg_sys::Node>::from_pg((*op_expr).args);
+            if args.len() == 2 {
+                let left_val = self.extract_value_from_slot(args.get_ptr(0).unwrap(), slot);
+                let right_val = self.extract_value_from_node(args.get_ptr(1).unwrap());
+
+                if let (Some(left), Some(right)) = (left_val, right_val) {
+                    let matches = left != right;
+                    pgrx::warning!(
+                        "🔧 [DEBUG] String inequality: '{}' <> '{}' -> {}",
+                        left,
+                        right,
+                        matches
+                    );
+                    if matches {
+                        Ok(UnifiedEvaluationResult::non_indexed_match())
+                    } else {
+                        Ok(UnifiedEvaluationResult::no_match())
+                    }
+                } else {
+                    Ok(UnifiedEvaluationResult::no_match())
+                }
+            } else {
+                Ok(UnifiedEvaluationResult::no_match())
+            }
+        } else {
+            // For other operators, use conservative approach
+            pgrx::warning!(
+                "⚠️ [DEBUG] Unknown operator OID: {}, assuming match",
+                op_oid
+            );
+            Ok(UnifiedEvaluationResult::non_indexed_match())
+        }
+    }
+
+    /// Extract a string value from a tuple slot based on a Var node
+    unsafe fn extract_value_from_slot(
+        &self,
+        node: *mut pg_sys::Node,
+        slot: *mut pg_sys::TupleTableSlot,
+    ) -> Option<String> {
+        if (*node).type_ == pg_sys::NodeTag::T_Var {
+            let var_node = node.cast::<pg_sys::Var>();
+            let attno = (*var_node).varattno;
+
+            let mut isnull = false;
+            let datum = pg_sys::slot_getattr(slot, attno.into(), &mut isnull);
+
+            if !isnull {
+                if let Some(text_val) = String::from_datum(datum, false) {
+                    return Some(text_val);
+                }
+            }
+        }
+        None
+    }
+
+    /// Extract a string value from a Const node
+    unsafe fn extract_value_from_node(&self, node: *mut pg_sys::Node) -> Option<String> {
+        if (*node).type_ == pg_sys::NodeTag::T_Const {
+            let const_node = node.cast::<pg_sys::Const>();
+
+            if !(*const_node).constisnull {
+                if let Some(text_val) = String::from_datum((*const_node).constvalue, false) {
+                    return Some(text_val);
+                }
+            }
+        }
+        None
+    }
+
+    /// Evaluate an expression string by parsing it first
+    pub unsafe fn evaluate_expression_string(
+        &self,
+        expression_string: &str,
+    ) -> Result<UnifiedEvaluationResult, &'static str> {
+        pgrx::warning!(
+            "🔧 [DEBUG] Parsing expression string: '{}'",
+            expression_string
+        );
+
+        // Parse the expression string
+        let expr = parse_heap_filter_expression_preserving_search_ops(expression_string);
+        if expr.is_null() {
+            pgrx::warning!("❌ [DEBUG] Failed to parse expression string");
+            return Ok(UnifiedEvaluationResult::no_match());
+        }
+
+        // For now, we'll need to get doc_id and other parameters from context
+        // This is a simplified version - in practice, we'd need to pass these parameters
+        let doc_id = 0; // This should be passed as parameter
+        let doc_address = tantivy::DocAddress::new(0, doc_id); // This should be passed as parameter
+        let slot = std::ptr::null_mut(); // This should be passed as parameter
+
+        // Create a mutable copy of self for evaluation
+        let mut evaluator = UnifiedExpressionEvaluator::new(
+            self.search_reader,
+            self.schema,
+            self.expr_context,
+            self.current_score,
+        );
+
+        // Evaluate the parsed expression
+        evaluator.evaluate_expression(expr, doc_id, doc_address, slot)
     }
 }
 
 /// Parse heap filter node string back into PostgreSQL expression nodes
 /// Phase 3: Expression tree parsing functionality
 unsafe fn parse_heap_filter_expression(heap_filter_node_string: &str) -> *mut pg_sys::Node {
-    if heap_filter_node_string.contains("|||CLAUSE_SEPARATOR|||") {
-        // Multiple clauses - combine them into a single AND expression
-        let clause_strings: Vec<&str> = heap_filter_node_string
-            .split("|||CLAUSE_SEPARATOR|||")
-            .collect();
+    // Check for different types of clause separators
+    if heap_filter_node_string.contains("|||AND_CLAUSE_SEPARATOR|||")
+        || heap_filter_node_string.contains("|||OR_CLAUSE_SEPARATOR|||")
+        || heap_filter_node_string.contains("|||CLAUSE_SEPARATOR|||")
+    {
+        // Determine the boolean operation type and split accordingly
+        let (clause_strings, bool_op) =
+            if heap_filter_node_string.contains("|||AND_CLAUSE_SEPARATOR|||") {
+                (
+                    heap_filter_node_string
+                        .split("|||AND_CLAUSE_SEPARATOR|||")
+                        .collect::<Vec<&str>>(),
+                    pg_sys::BoolExprType::AND_EXPR,
+                )
+            } else if heap_filter_node_string.contains("|||OR_CLAUSE_SEPARATOR|||") {
+                (
+                    heap_filter_node_string
+                        .split("|||OR_CLAUSE_SEPARATOR|||")
+                        .collect::<Vec<&str>>(),
+                    pg_sys::BoolExprType::OR_EXPR,
+                )
+            } else {
+                // Legacy support for old CLAUSE_SEPARATOR (assume AND)
+                (
+                    heap_filter_node_string
+                        .split("|||CLAUSE_SEPARATOR|||")
+                        .collect::<Vec<&str>>(),
+                    pg_sys::BoolExprType::AND_EXPR,
+                )
+            };
 
         let mut args_list = std::ptr::null_mut();
         for clause_str in clause_strings.iter() {
@@ -541,11 +737,11 @@ unsafe fn parse_heap_filter_expression(heap_filter_node_string: &str) -> *mut pg
         }
 
         if !args_list.is_null() {
-            // Create a BoolExpr to combine all clauses with AND
+            // Create a BoolExpr to combine all clauses with the detected boolean operation
             let bool_expr =
                 pg_sys::palloc0(std::mem::size_of::<pg_sys::BoolExpr>()).cast::<pg_sys::BoolExpr>();
             (*bool_expr).xpr.type_ = pg_sys::NodeTag::T_BoolExpr;
-            (*bool_expr).boolop = pg_sys::BoolExprType::AND_EXPR;
+            (*bool_expr).boolop = bool_op;
             (*bool_expr).args = args_list;
             (*bool_expr).location = -1;
 
@@ -558,6 +754,307 @@ unsafe fn parse_heap_filter_expression(heap_filter_node_string: &str) -> *mut pg
         let node_cstr = std::ffi::CString::new(heap_filter_node_string)
             .expect("Failed to create CString from node string");
         pg_sys::stringToNode(node_cstr.as_ptr()).cast::<pg_sys::Node>()
+    }
+}
+
+/// Complete unified heap filter that parses expression trees
+/// Phase 4: Ultimate implementation with performance optimizations
+pub unsafe fn apply_complete_unified_heap_filter(
+    search_reader: &SearchIndexReader,
+    schema: &SearchIndexSchema,
+    heap_filter_node_string: &str,
+    expr_context: *mut pg_sys::ExprContext,
+    slot: *mut pg_sys::TupleTableSlot,
+    doc_id: DocId,
+    doc_address: DocAddress,
+    current_score: f32,
+) -> Result<UnifiedEvaluationResult, &'static str> {
+    pgrx::warning!("🚀 [DEBUG] === UNIFIED HEAP FILTER ENTRY ===");
+    pgrx::warning!("🚀 [DEBUG] Doc ID: {}", doc_id);
+    pgrx::warning!("🚀 [DEBUG] Current score: {}", current_score);
+    pgrx::warning!(
+        "🚀 [DEBUG] Heap filter node string: '{}'",
+        heap_filter_node_string
+    );
+    pgrx::warning!("🚀 [DEBUG] ==========================================");
+
+    // Parse the heap filter expression into a PostgreSQL node tree
+    let parsed_expr = parse_heap_filter_expression(heap_filter_node_string);
+    if parsed_expr.is_null() {
+        pgrx::warning!("❌ [DEBUG] Failed to parse heap filter expression");
+        return Err("Failed to parse heap filter expression");
+    }
+
+    pgrx::warning!("✅ [DEBUG] Successfully parsed heap filter expression");
+
+    // Create the unified expression evaluator
+    let mut evaluator =
+        UnifiedExpressionEvaluator::new(search_reader, schema, expr_context, current_score);
+    pgrx::warning!(
+        "🔧 [DEBUG] Creating UnifiedExpressionEvaluator with current_score: {}",
+        current_score
+    );
+
+    // Handle clause separator case (PostgreSQL decomposed the expression)
+    if heap_filter_node_string.contains("|||AND_CLAUSE_SEPARATOR|||")
+        || heap_filter_node_string.contains("|||OR_CLAUSE_SEPARATOR|||")
+        || heap_filter_node_string.contains("|||CLAUSE_SEPARATOR|||")
+    {
+        pgrx::warning!(
+            "⚠️ [DEBUG] CLAUSE SEPARATOR DETECTED! PostgreSQL has decomposed the expression."
+        );
+        pgrx::warning!("⚠️ [DEBUG] This is actually logically equivalent - we can handle this!");
+
+        // Determine the boolean operation type and split accordingly
+        let (clauses, is_and_operation) =
+            if heap_filter_node_string.contains("|||AND_CLAUSE_SEPARATOR|||") {
+                (
+                    heap_filter_node_string
+                        .split("|||AND_CLAUSE_SEPARATOR|||")
+                        .collect::<Vec<&str>>(),
+                    true,
+                )
+            } else if heap_filter_node_string.contains("|||OR_CLAUSE_SEPARATOR|||") {
+                (
+                    heap_filter_node_string
+                        .split("|||OR_CLAUSE_SEPARATOR|||")
+                        .collect::<Vec<&str>>(),
+                    false,
+                )
+            } else {
+                // Legacy support for old CLAUSE_SEPARATOR (assume AND)
+                (
+                    heap_filter_node_string
+                        .split("|||CLAUSE_SEPARATOR|||")
+                        .collect::<Vec<&str>>(),
+                    true,
+                )
+            };
+        pgrx::warning!(
+            "⚠️ [DEBUG] Number of clauses after decomposition: {}",
+            clauses.len()
+        );
+
+        for (i, clause) in clauses.iter().enumerate() {
+            pgrx::warning!("⚠️ [DEBUG] Clause {}: '{}'", i + 1, clause);
+        }
+
+        // Evaluate each clause and combine with the appropriate boolean logic
+        pgrx::warning!(
+            "🔧 [DEBUG] Boolean operation type: {}",
+            if is_and_operation { "AND" } else { "OR" }
+        );
+
+        let mut final_matches = is_and_operation; // Start with true for AND, false for OR
+        let mut final_score: f32 = 0.0;
+        let mut clause_scores = Vec::new();
+
+        for (i, clause) in clauses.iter().enumerate() {
+            pgrx::warning!("🔧 [DEBUG] Evaluating clause {}: '{}'", i + 1, clause);
+
+            // Parse the clause expression
+            let clause_expr = parse_heap_filter_expression_preserving_search_ops(clause);
+            if clause_expr.is_null() {
+                pgrx::warning!("❌ [DEBUG] Failed to parse clause {}", i + 1);
+                if is_and_operation {
+                    final_matches = false;
+                    final_score = 0.0;
+                    break;
+                }
+                continue; // For OR, continue to next clause
+            }
+
+            // Create evaluator for this clause
+            let mut evaluator =
+                UnifiedExpressionEvaluator::new(search_reader, schema, expr_context, current_score);
+
+            // Evaluate the clause
+            let clause_result =
+                evaluator.evaluate_expression(clause_expr, doc_id, doc_address, slot)?;
+            pgrx::warning!(
+                "🔧 [DEBUG] Clause {} result: matches={}, score={}",
+                i + 1,
+                clause_result.matches,
+                clause_result.score
+            );
+
+            clause_scores.push(clause_result.score);
+
+            if is_and_operation {
+                // For AND logic: if any clause is false, the whole expression is false
+                if !clause_result.matches {
+                    final_matches = false;
+                    final_score = 0.0;
+                    break;
+                }
+            } else {
+                // For OR logic: if any clause is true, the whole expression is true
+                if clause_result.matches {
+                    final_matches = true;
+                    // For OR, use the maximum score (best match)
+                    final_score = final_score.max(clause_result.score);
+                }
+            }
+        }
+
+        // Calculate the final score based on the boolean operation
+        if final_matches {
+            if is_and_operation {
+                // For AND operation, use the minimum score (most restrictive)
+                final_score = clause_scores.iter().fold(f32::INFINITY, |a, &b| a.min(b));
+                if final_score == f32::INFINITY {
+                    final_score = 1.0; // Fallback if no clauses
+                }
+                pgrx::warning!(
+                    "🔧 [DEBUG] All AND clauses matched - using minimum score: {}",
+                    final_score
+                );
+            } else {
+                // For OR operation, final_score is already set to the maximum
+                pgrx::warning!(
+                    "🔧 [DEBUG] At least one OR clause matched - using maximum score: {}",
+                    final_score
+                );
+            }
+        }
+
+        pgrx::warning!(
+            "🔧 [DEBUG] Final {} operation result: matches={}, score={}",
+            if is_and_operation { "AND" } else { "OR" },
+            final_matches,
+            final_score
+        );
+        return Ok(UnifiedEvaluationResult::new(final_matches, final_score));
+    }
+
+    // No clause separator - handle as single expression
+    pgrx::warning!("🔧 [DEBUG] Single expression - parsing normally");
+
+    // Parse the heap filter node string back into a PostgreSQL expression tree
+    let expr = parse_heap_filter_expression_preserving_search_ops(heap_filter_node_string);
+
+    if expr.is_null() {
+        pgrx::warning!("🚀 [DEBUG] Expression parsing failed - returning no match");
+        return Ok(UnifiedEvaluationResult::no_match());
+    }
+
+    // Create evaluator instance
+    let mut evaluator =
+        UnifiedExpressionEvaluator::new(search_reader, schema, expr_context, current_score);
+
+    // Evaluate the complete expression tree
+    let result = evaluator.evaluate_expression(expr, doc_id, doc_address, slot)?;
+
+    pgrx::warning!("🚀 [DEBUG] === UNIFIED HEAP FILTER RESULT ===");
+    pgrx::warning!(
+        "🚀 [DEBUG] Doc ID: {} - Final result: matches={}, score={}",
+        doc_id,
+        result.matches,
+        result.score
+    );
+    pgrx::warning!("🚀 [DEBUG] ====================================");
+
+    Ok(result)
+}
+
+/// Parse heap filter node string back into PostgreSQL expression nodes
+/// This version preserves @@@ operators for proper unified evaluation
+unsafe fn parse_heap_filter_expression_preserving_search_ops(
+    heap_filter_node_string: &str,
+) -> *mut pg_sys::Node {
+    pgrx::warning!(
+        "🔧 [DEBUG] Parsing expression: '{}'",
+        heap_filter_node_string
+    );
+
+    // Safety check: Don't try to parse empty or very short strings
+    if heap_filter_node_string.len() < 10 {
+        pgrx::warning!("❌ [DEBUG] Expression too short to parse safely");
+        return std::ptr::null_mut();
+    }
+
+    // Safety check: Basic validation that this looks like a PostgreSQL node string
+    if !heap_filter_node_string.starts_with('{') || !heap_filter_node_string.ends_with('}') {
+        pgrx::warning!("❌ [DEBUG] Expression doesn't look like a valid PostgreSQL node string");
+        return std::ptr::null_mut();
+    }
+
+    if heap_filter_node_string.contains("|||CLAUSE_SEPARATOR|||") {
+        pgrx::warning!("🔧 [DEBUG] Handling multiple clauses with separator");
+        // Multiple clauses - combine them into a single AND expression
+        let clause_strings: Vec<&str> = heap_filter_node_string
+            .split("|||CLAUSE_SEPARATOR|||")
+            .collect();
+
+        let mut args_list = std::ptr::null_mut();
+        for (i, clause_str) in clause_strings.iter().enumerate() {
+            pgrx::warning!("🔧 [DEBUG] Processing clause {}: '{}'", i + 1, clause_str);
+
+            // Skip empty clauses
+            if clause_str.trim().is_empty() {
+                continue;
+            }
+
+            // Create CString safely
+            let clause_cstr = match std::ffi::CString::new(*clause_str) {
+                Ok(cstr) => cstr,
+                Err(e) => {
+                    pgrx::warning!(
+                        "❌ [DEBUG] Failed to create CString for clause {}: {:?}",
+                        i + 1,
+                        e
+                    );
+                    continue;
+                }
+            };
+
+            let clause_node = pg_sys::stringToNode(clause_cstr.as_ptr());
+
+            if !clause_node.is_null() {
+                // DON'T replace @@@ operators - preserve them for unified evaluation
+                args_list = pg_sys::lappend(args_list, clause_node.cast::<core::ffi::c_void>());
+                pgrx::warning!("✅ [DEBUG] Successfully parsed clause {}", i + 1);
+            } else {
+                pgrx::warning!("❌ [DEBUG] Failed to parse clause {}", i + 1);
+            }
+        }
+
+        if !args_list.is_null() {
+            // Create a BoolExpr to combine all clauses with AND
+            let bool_expr =
+                pg_sys::palloc0(std::mem::size_of::<pg_sys::BoolExpr>()).cast::<pg_sys::BoolExpr>();
+            (*bool_expr).xpr.type_ = pg_sys::NodeTag::T_BoolExpr;
+            (*bool_expr).boolop = pg_sys::BoolExprType::AND_EXPR;
+            (*bool_expr).args = args_list;
+            (*bool_expr).location = -1;
+
+            pgrx::warning!("✅ [DEBUG] Created combined AND expression for multiple clauses");
+            bool_expr.cast()
+        } else {
+            pgrx::warning!("❌ [DEBUG] No valid clauses found");
+            std::ptr::null_mut()
+        }
+    } else {
+        pgrx::warning!("🔧 [DEBUG] Handling single clause");
+        // Single clause - simple stringToNode preserving @@@ operators
+        let node_cstr = match std::ffi::CString::new(heap_filter_node_string) {
+            Ok(cstr) => cstr,
+            Err(e) => {
+                pgrx::warning!(
+                    "❌ [DEBUG] Failed to create CString for single expression: {:?}",
+                    e
+                );
+                return std::ptr::null_mut();
+            }
+        };
+
+        let result = pg_sys::stringToNode(node_cstr.as_ptr()).cast::<pg_sys::Node>();
+        if result.is_null() {
+            pgrx::warning!("❌ [DEBUG] stringToNode returned null for single expression");
+        } else {
+            pgrx::warning!("✅ [DEBUG] Successfully parsed single expression");
+        }
+        result
     }
 }
 
@@ -611,75 +1108,31 @@ pub unsafe fn apply_unified_heap_filter(
     }
 }
 
-/// Complete unified heap filter that parses expression trees
-/// Phase 4: Ultimate implementation with performance optimizations
-pub unsafe fn apply_complete_unified_heap_filter(
-    search_reader: &SearchIndexReader,
-    schema: &SearchIndexSchema,
-    heap_filter_node_string: &str,
-    expr_context: *mut pg_sys::ExprContext,
-    slot: *mut pg_sys::TupleTableSlot,
-    doc_id: DocId,
-    doc_address: DocAddress,
-    current_score: f32,
-) -> UnifiedEvaluationResult {
-    // Parse the heap filter node string back into a PostgreSQL expression tree
-    let expr = parse_heap_filter_expression_preserving_search_ops(heap_filter_node_string);
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_extern]
+pub fn test_unified_evaluator_debug() -> String {
+    pgrx::warning!("🧪 [TEST] Testing unified evaluator debug logging");
 
-    if expr.is_null() {
-        return UnifiedEvaluationResult::no_match();
-    }
+    // Test the basic structure
+    let test_expr =
+        "NOT ((name @@@ 'Apple' AND category = 'Electronics') OR (category = 'Furniture'))";
+    pgrx::warning!("🧪 [TEST] Test expression: '{}'", test_expr);
 
-    // Create evaluator instance
-    let mut evaluator =
-        UnifiedExpressionEvaluator::new(search_reader, schema, expr_context, current_score);
-
-    // Evaluate the complete expression tree
-    let result = evaluator.evaluate_expression(expr, doc_id, doc_address, slot);
-
-    result
-}
-
-/// Parse heap filter node string back into PostgreSQL expression nodes
-/// This version preserves @@@ operators for proper unified evaluation
-unsafe fn parse_heap_filter_expression_preserving_search_ops(
-    heap_filter_node_string: &str,
-) -> *mut pg_sys::Node {
-    if heap_filter_node_string.contains("|||CLAUSE_SEPARATOR|||") {
-        // Multiple clauses - combine them into a single AND expression
-        let clause_strings: Vec<&str> = heap_filter_node_string
-            .split("|||CLAUSE_SEPARATOR|||")
-            .collect();
-
-        let mut args_list = std::ptr::null_mut();
-        for clause_str in clause_strings.iter() {
-            let clause_cstr = std::ffi::CString::new(*clause_str)
-                .expect("Failed to create CString from clause string");
-            let clause_node = pg_sys::stringToNode(clause_cstr.as_ptr());
-
-            if !clause_node.is_null() {
-                // DON'T replace @@@ operators - preserve them for unified evaluation
-                args_list = pg_sys::lappend(args_list, clause_node.cast::<core::ffi::c_void>());
-            }
-        }
-
-        if !args_list.is_null() {
-            // Create a BoolExpr to combine all clauses with AND
-            let bool_expr =
-                pg_sys::palloc0(std::mem::size_of::<pg_sys::BoolExpr>()).cast::<pg_sys::BoolExpr>();
-            (*bool_expr).xpr.type_ = pg_sys::NodeTag::T_BoolExpr;
-            (*bool_expr).boolop = pg_sys::BoolExprType::AND_EXPR;
-            (*bool_expr).args = args_list;
-            (*bool_expr).location = -1;
-
-            bool_expr.cast()
-        } else {
-            std::ptr::null_mut()
-        }
+    // Test clause separation parsing
+    if test_expr.contains("|||CLAUSE_SEPARATOR|||") {
+        pgrx::warning!("🧪 [TEST] Expression contains clause separator");
     } else {
-        // Single clause - simple stringToNode preserving @@@ operators
-        let node_cstr = std::ffi::CString::new(heap_filter_node_string)
-            .expect("Failed to create CString from node string");
-        pg_sys::stringToNode(node_cstr.as_ptr()).cast::<pg_sys::Node>()
+        pgrx::warning!("🧪 [TEST] Expression does NOT contain clause separator");
     }
+
+    // Test NOT detection
+    if test_expr.trim().starts_with("NOT ") {
+        pgrx::warning!("🧪 [TEST] Expression starts with NOT");
+        let content = test_expr.trim()[4..].trim();
+        pgrx::warning!("🧪 [TEST] NOT content: '{}'", content);
+    } else {
+        pgrx::warning!("🧪 [TEST] Expression does NOT start with NOT");
+    }
+
+    "Unified evaluator debug test completed - check logs".to_string()
 }

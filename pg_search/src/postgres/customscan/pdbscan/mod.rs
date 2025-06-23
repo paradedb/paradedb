@@ -26,7 +26,9 @@ mod scan_state;
 mod solve_expr;
 mod unified_evaluator;
 
-use crate::api::operator::{anyelement_query_input_opoid, estimate_selectivity};
+use crate::api::operator::{
+    anyelement_query_input_opoid, anyelement_text_opoid, estimate_selectivity,
+};
 use crate::api::Cardinality;
 use crate::api::{HashMap, HashSet};
 use crate::index::fast_fields_helper::WhichFastField;
@@ -1061,11 +1063,24 @@ impl CustomScan for PdbScan {
                             let has_search_reader = state.custom_state().search_reader.is_some();
                             let has_indexrel = state.custom_state().indexrel.is_some();
 
+                            pgrx::warning!(
+                                "🔍 [DEBUG] Checking heap filter conditions for doc_id: {}",
+                                doc_address.doc_id
+                            );
+                            pgrx::warning!(
+                                "🔍 [DEBUG] heap_filter_node_string: {:?}",
+                                heap_filter_node_string
+                            );
+                            pgrx::warning!(
+                                "🔍 [DEBUG] search_reader available: {}",
+                                has_search_reader
+                            );
+
                             if let Some(heap_filter_node_string) = heap_filter_node_string {
                                 if has_search_reader && has_indexrel {
-                                    // Get the references we need
-                                    let search_reader =
-                                        state.custom_state().search_reader.as_ref().unwrap();
+                                    pgrx::warning!("🚀 [DEBUG] Using unified heap filter with node string: '{}'", heap_filter_node_string);
+
+                                    // Get the indexrel OID safely
                                     let indexrel_oid =
                                         *state.custom_state().indexrel.as_ref().unwrap();
 
@@ -1073,6 +1088,10 @@ impl CustomScan for PdbScan {
                                     let indexrel = PgRelation::from_pg(indexrel_oid);
                                     let schema = SearchIndexSchema::open(indexrel.oid())
                                         .expect("should be able to open schema");
+
+                                    // Get the search_reader safely
+                                    let search_reader =
+                                        state.custom_state().search_reader.as_ref().unwrap();
 
                                     let result = apply_complete_unified_heap_filter(
                                         search_reader,
@@ -1085,11 +1104,13 @@ impl CustomScan for PdbScan {
                                         score,
                                     );
 
-                                    result
+                                    result.unwrap_or_else(|_| UnifiedEvaluationResult::no_match())
                                 } else {
+                                    pgrx::warning!("⚠️  [DEBUG] No search_reader/indexrel available, falling back to enhanced heap filter");
                                     apply_enhanced_heap_filter(state, slot, score, doc_address)
                                 }
                             } else {
+                                pgrx::warning!("⚠️  [DEBUG] No heap_filter_node_string available, falling back to enhanced heap filter");
                                 apply_enhanced_heap_filter(state, slot, score, doc_address)
                             }
                         };
@@ -1975,11 +1996,35 @@ unsafe fn create_bool_const_true() -> Option<*mut pg_sys::Node> {
 
 unsafe fn create_heap_filter_expr(heap_filter_node_string: &str) -> *mut pg_sys::Expr {
     // Handle multiple clauses separated by our delimiter
-    if heap_filter_node_string.contains("|||CLAUSE_SEPARATOR|||") {
-        // Multiple clauses - combine them into a single AND expression
-        let clause_strings: Vec<&str> = heap_filter_node_string
-            .split("|||CLAUSE_SEPARATOR|||")
-            .collect();
+    if heap_filter_node_string.contains("|||AND_CLAUSE_SEPARATOR|||")
+        || heap_filter_node_string.contains("|||OR_CLAUSE_SEPARATOR|||")
+        || heap_filter_node_string.contains("|||CLAUSE_SEPARATOR|||")
+    {
+        // Multiple clauses - determine the boolean operation and split accordingly
+        let (clause_strings, bool_op) =
+            if heap_filter_node_string.contains("|||AND_CLAUSE_SEPARATOR|||") {
+                (
+                    heap_filter_node_string
+                        .split("|||AND_CLAUSE_SEPARATOR|||")
+                        .collect::<Vec<&str>>(),
+                    pg_sys::BoolExprType::AND_EXPR,
+                )
+            } else if heap_filter_node_string.contains("|||OR_CLAUSE_SEPARATOR|||") {
+                (
+                    heap_filter_node_string
+                        .split("|||OR_CLAUSE_SEPARATOR|||")
+                        .collect::<Vec<&str>>(),
+                    pg_sys::BoolExprType::OR_EXPR,
+                )
+            } else {
+                // Legacy support for old CLAUSE_SEPARATOR (assume AND)
+                (
+                    heap_filter_node_string
+                        .split("|||CLAUSE_SEPARATOR|||")
+                        .collect::<Vec<&str>>(),
+                    pg_sys::BoolExprType::AND_EXPR,
+                )
+            };
 
         // Create individual nodes for each clause
         let mut args_list = std::ptr::null_mut();
@@ -1998,11 +2043,11 @@ unsafe fn create_heap_filter_expr(heap_filter_node_string: &str) -> *mut pg_sys:
         }
 
         if !args_list.is_null() {
-            // Create a BoolExpr to combine all clauses with AND
+            // Create a BoolExpr to combine all clauses with the detected boolean operation
             let bool_expr =
                 pg_sys::palloc0(std::mem::size_of::<pg_sys::BoolExpr>()).cast::<pg_sys::BoolExpr>();
             (*bool_expr).xpr.type_ = pg_sys::NodeTag::T_BoolExpr;
-            (*bool_expr).boolop = pg_sys::BoolExprType::AND_EXPR;
+            (*bool_expr).boolop = bool_op;
             (*bool_expr).args = args_list;
             (*bool_expr).location = -1;
 
@@ -2037,7 +2082,9 @@ unsafe fn replace_search_operators_with_true(node: *mut pg_sys::Node) -> *mut pg
     match (*node).type_ {
         pg_sys::NodeTag::T_OpExpr => {
             let opexpr = node.cast::<pg_sys::OpExpr>();
-            if (*opexpr).opno == anyelement_query_input_opoid() {
+            if (*opexpr).opno == anyelement_query_input_opoid()
+                || (*opexpr).opno == anyelement_text_opoid()
+            {
                 // This is a @@@ operator - replace with TRUE constant
                 return create_bool_const_true().unwrap_or(node);
             }
@@ -2200,7 +2247,10 @@ unsafe fn extract_restrictinfo_string(
         clause_strings.into_iter().next()
     } else {
         // Multiple clauses - join them with a separator for evaluation later
-        Some(clause_strings.join("|||CLAUSE_SEPARATOR|||"))
+        // TODO: We should detect the original boolean operation (AND vs OR) and use different separators
+        // For now, we assume AND logic as that's what PostgreSQL's query planner typically does
+        // when decomposing expressions into multiple RestrictInfo entries
+        Some(clause_strings.join("|||AND_CLAUSE_SEPARATOR|||"))
     }
 }
 

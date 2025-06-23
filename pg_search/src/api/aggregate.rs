@@ -430,6 +430,8 @@ pub mod mvcc_collector {
                 inner: self.inner.for_segment(segment_local_id, segment)?,
                 lock: self.lock.clone(),
                 ctid_ff: FFType::new(segment.fast_fields(), "ctid"),
+                ctids_buffer: Vec::new(),
+                filtered_buffer: Vec::new(),
             })
         }
 
@@ -459,6 +461,8 @@ pub mod mvcc_collector {
         inner: SC,
         lock: Arc<Mutex<TSVisibilityChecker>>,
         ctid_ff: FFType,
+        ctids_buffer: Vec<Option<u64>>,
+        filtered_buffer: Vec<u32>,
     }
     unsafe impl<C: SegmentCollector> Send for MVCCFilterSegmentCollector<C> {}
     unsafe impl<C: SegmentCollector> Sync for MVCCFilterSegmentCollector<C> {}
@@ -474,25 +478,25 @@ pub mod mvcc_collector {
         }
 
         fn collect_block(&mut self, docs: &[DocId]) {
-            let ctids = docs
-                .iter()
-                .map(|doc_id| {
-                    self.ctid_ff
-                        .as_u64(*doc_id)
-                        .expect("ctid should be present")
-                })
-                .collect::<Vec<_>>();
-            let mut filtered = Vec::with_capacity(docs.len());
+            // Get the ctids for these docs.
+            if self.ctids_buffer.len() < docs.len() {
+                self.ctids_buffer.resize(docs.len(), None);
+            }
+            self.ctid_ff
+                .as_u64s(docs, &mut self.ctids_buffer[..docs.len()]);
 
+            // Determine which ctids are visible.
+            self.filtered_buffer.clear();
             let mut vischeck = self.lock.lock();
-            for (doc, ctid) in docs.iter().zip(ctids.iter()) {
-                if vischeck.is_visible(*ctid) {
-                    filtered.push(*doc);
+            for (doc, ctid) in docs.iter().zip(self.ctids_buffer.iter()) {
+                let ctid = ctid.expect("ctid should be present");
+                if vischeck.is_visible(ctid) {
+                    self.filtered_buffer.push(*doc);
                 }
             }
             drop(vischeck);
 
-            self.inner.collect_block(&filtered);
+            self.inner.collect_block(&self.filtered_buffer);
         }
 
         fn harvest(self) -> Self::Fruit {

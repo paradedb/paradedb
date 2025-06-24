@@ -17,6 +17,7 @@
 
 #![allow(clippy::unnecessary_cast)] // helps with integer casting differences between postgres versions
 mod exec_methods;
+mod optimized_unified_evaluator;
 pub mod parallel;
 mod privdat;
 mod projections;
@@ -46,6 +47,9 @@ use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::pdbscan::exec_methods::{
     fast_fields, normal::NormalScanExecState, ExecState,
+};
+use crate::postgres::customscan::pdbscan::optimized_unified_evaluator::{
+    apply_optimized_unified_heap_filter, OptimizedEvaluationResult,
 };
 use crate::postgres::customscan::pdbscan::parallel::{compute_nworkers, list_segment_ids};
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
@@ -1223,10 +1227,7 @@ impl CustomScan for PdbScan {
                                 "🔍 [DEBUG] heap_filter_node_string: {:?}",
                                 heap_filter_node_string
                             );
-                            debug_log!(
-                                "🔍 [DEBUG] search_reader available: {}",
-                                has_search_reader
-                            );
+                            debug_log!("🔍 [DEBUG] search_reader available: {}", has_search_reader);
 
                             if let Some(heap_filter_node_string) = heap_filter_node_string {
                                 if has_search_reader && has_indexrel {
@@ -1256,7 +1257,9 @@ impl CustomScan for PdbScan {
                                         score,
                                     );
 
-                                    result.unwrap_or_else(|_| UnifiedEvaluationResult::no_match())
+                                    result
+                                        .unwrap_or_else(|_| UnifiedEvaluationResult::no_match())
+                                        .into()
                                 } else {
                                     debug_log!("⚠️  [DEBUG] No search_reader/indexrel available, falling back to enhanced heap filter");
                                     apply_enhanced_heap_filter(state, slot, score, doc_address)
@@ -2492,20 +2495,20 @@ unsafe fn remove_operator(node: *mut pg_sys::Node, operator_oid: pg_sys::Oid) ->
     }
 }
 
-/// Enhanced heap filter that uses the UnifiedExpressionEvaluator for better scoring
+/// Enhanced heap filter that uses the OptimizedExpressionEvaluator for better scoring
 /// This replaces the simple boolean apply_heap_filter with enhanced scoring capabilities
 unsafe fn apply_enhanced_heap_filter(
     state: &mut CustomScanStateWrapper<PdbScan>,
     slot: *mut pg_sys::TupleTableSlot,
     current_score: f32,
     doc_address: DocAddress,
-) -> UnifiedEvaluationResult {
+) -> OptimizedEvaluationResult {
     // Get values first to avoid borrowing conflicts
-    let heap_filter_expr_state = state.custom_state().heap_filter_expr_state;
+    let heap_filter_node_string = state.custom_state().heap_filter_node_string.clone();
 
     // If there's no heap filter, just return the current score
-    if heap_filter_expr_state.is_none() {
-        return UnifiedEvaluationResult::new(true, current_score);
+    if heap_filter_node_string.is_none() {
+        return OptimizedEvaluationResult::new(true, current_score);
     }
 
     let expr_context = (*state.planstate()).ps_ExprContext;
@@ -2520,21 +2523,29 @@ unsafe fn apply_enhanced_heap_filter(
         let schema =
             SearchIndexSchema::open(indexrel.oid()).expect("should be able to open schema");
 
-        // Use the unified heap filter for enhanced scoring
-        apply_unified_heap_filter(
+        // Use the optimized heap filter for enhanced scoring
+        match apply_optimized_unified_heap_filter(
             search_reader,
             &schema,
-            heap_filter_expr_state,
+            heap_filter_node_string.as_ref().unwrap(),
             expr_context,
             slot,
             0, // We don't have the actual DocId here, using 0 as placeholder
             doc_address,
             current_score,
-        )
+        ) {
+            Ok(result) => result,
+            Err(e) => {
+                pgrx::log!("Error in optimized heap filter: {}", e);
+                // Fall back to the original apply_heap_filter behavior
+                let matches = apply_heap_filter(state, slot);
+                OptimizedEvaluationResult::new(matches, current_score)
+            }
+        }
     } else {
         // Fall back to the original apply_heap_filter behavior
         let matches = apply_heap_filter(state, slot);
-        UnifiedEvaluationResult::new(matches, current_score)
+        OptimizedEvaluationResult::new(matches, current_score)
     }
 }
 
@@ -2599,9 +2610,7 @@ unsafe fn optimize_base_query_for_unified_evaluation(
 
         // Check if this expression contains search operators
         if expression_contains_search_operators(cleaned_clause, pdbopoid) {
-            debug_log!(
-                "🔧 [OPTIMIZE] Found expression with search operators, trying to convert"
-            );
+            debug_log!("🔧 [OPTIMIZE] Found expression with search operators, trying to convert");
 
             // This expression contains search operators - it should be handled entirely by Tantivy
             // Try to convert it to a Qual for the base query

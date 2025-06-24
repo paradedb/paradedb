@@ -740,7 +740,7 @@ impl<'a> UnifiedExpressionEvaluator<'a> {
 
 /// Parse heap filter node string back into PostgreSQL expression nodes
 /// Phase 3: Expression tree parsing functionality
-unsafe fn parse_heap_filter_expression(heap_filter_node_string: &str) -> *mut pg_sys::Node {
+pub unsafe fn parse_heap_filter_expression(heap_filter_node_string: &str) -> *mut pg_sys::Node {
     // Check for different types of clause separators
     if heap_filter_node_string.contains("|||AND_CLAUSE_SEPARATOR|||")
         || heap_filter_node_string.contains("|||OR_CLAUSE_SEPARATOR|||")

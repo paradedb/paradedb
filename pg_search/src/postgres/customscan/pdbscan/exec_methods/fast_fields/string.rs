@@ -107,7 +107,7 @@ impl ExecMethod for StringFastFieldExecState {
                         .inner
                         .heaprel
                         .as_ref()
-                        .expect("MixedFastFieldsExecState: heaprel should be initialized");
+                        .expect("StringFastFieldExecState: heaprel should be initialized");
                     let slot = self.inner.slot;
                     let natts = (*(*slot).tts_tupleDescriptor).natts as usize;
 

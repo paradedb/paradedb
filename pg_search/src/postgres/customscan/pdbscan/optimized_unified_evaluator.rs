@@ -234,10 +234,10 @@ impl ExpressionTreeOptimizer {
                                 }
                                 Ok(inner_search_query) => {
                                     // Found search operators in inner expression
-                                    // Create NOT query for the search operators
-                                    // The heap filter will handle the complete NOT expression logic
+                                    // For NOT operations, must includes ALL to scan all documents
+                                    // then apply NOT logic via must_not
                                     Ok(SearchQueryInput::Boolean {
-                                        must: vec![],
+                                        must: vec![SearchQueryInput::All],
                                         should: vec![],
                                         must_not: vec![inner_search_query],
                                     })
@@ -850,6 +850,7 @@ impl PostgreSQLLeafEvaluator {
         let expr_state = pg_sys::ExecInitExpr(expr.cast::<pg_sys::Expr>(), std::ptr::null_mut());
 
         if expr_state.is_null() {
+            pgrx::debug1!("🚨 [POSTGRES_LEAF] ExecInitExpr failed - expression state is null");
             return Ok(OptimizedEvaluationResult::no_match());
         }
 
@@ -869,10 +870,15 @@ impl PostgreSQLLeafEvaluator {
         pg_sys::pfree(expr_state.cast());
 
         if is_null {
+            pgrx::debug1!("🚨 [POSTGRES_LEAF] ExecEvalExpr returned null");
             Ok(OptimizedEvaluationResult::no_match())
         } else {
             // Convert the result datum to a boolean
             let result_bool = pg_sys::DatumGetBool(result_datum);
+            pgrx::debug1!(
+                "🔍 [POSTGRES_LEAF] Expression evaluated: matches={}",
+                result_bool
+            );
             if result_bool {
                 Ok(OptimizedEvaluationResult::default_match())
             } else {
@@ -971,7 +977,12 @@ impl<'a> OptimizedExpressionTreeEvaluator<'a> {
             BooleanOperator::Not => {
                 if let Some(child) = children.first() {
                     let result = self.evaluate_tree(child, doc_id, slot)?;
-                    Ok(OptimizedEvaluationResult::new(!result.matches, 1.0))
+                    // For NOT operations, preserve the score if the result is inverted to true
+                    let inverted_score = if !result.matches { result.score } else { 1.0 };
+                    Ok(OptimizedEvaluationResult::new(
+                        !result.matches,
+                        inverted_score,
+                    ))
                 } else {
                     Ok(OptimizedEvaluationResult::no_match())
                 }

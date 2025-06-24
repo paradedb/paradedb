@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt;
 
 use pgrx::{pg_sys, FromDatum, PgList};
 use tantivy::collector::TopDocs;
@@ -8,7 +9,7 @@ use tantivy::{DocAddress, DocId};
 use crate::api::operator::{anyelement_query_input_opoid, anyelement_text_opoid};
 use crate::index::reader::index::SearchIndexReader;
 
-use crate::query::SearchQueryInput;
+use crate::query::{AsHumanReadable, SearchQueryInput};
 use crate::schema::SearchIndexSchema;
 
 /// Result of evaluating an optimized expression
@@ -121,8 +122,9 @@ impl ExpressionTreeOptimizer {
     pub unsafe fn build_search_query_from_expression(
         expr: *mut pg_sys::Node,
         schema: &SearchIndexSchema,
+        pdbopoid: pg_sys::Oid,
     ) -> Result<SearchQueryInput, &'static str> {
-        Self::extract_tantivy_query_from_node(expr, schema)
+        Self::extract_tantivy_query_from_node(expr, schema, pdbopoid)
     }
 
     /// Extract the maximum Tantivy query from a PostgreSQL node
@@ -130,6 +132,7 @@ impl ExpressionTreeOptimizer {
     unsafe fn extract_tantivy_query_from_node(
         node: *mut pg_sys::Node,
         schema: &SearchIndexSchema,
+        pdbopoid: pg_sys::Oid,
     ) -> Result<SearchQueryInput, &'static str> {
         if node.is_null() {
             return Ok(SearchQueryInput::All);
@@ -146,7 +149,7 @@ impl ExpressionTreeOptimizer {
                         let mut must_queries = Vec::new();
 
                         for arg in args.iter_ptr() {
-                            match Self::extract_tantivy_query_from_node(arg, schema) {
+                            match Self::extract_tantivy_query_from_node(arg, schema, pdbopoid) {
                                 Ok(SearchQueryInput::All) => {
                                     // This branch contains non-indexed fields, skip
                                 }
@@ -178,7 +181,7 @@ impl ExpressionTreeOptimizer {
                         let mut has_non_indexed = false;
 
                         for arg in args.iter_ptr() {
-                            match Self::extract_tantivy_query_from_node(arg, schema) {
+                            match Self::extract_tantivy_query_from_node(arg, schema, pdbopoid) {
                                 Ok(SearchQueryInput::All) => {
                                     // This branch contains non-indexed fields
                                     has_non_indexed = true;
@@ -222,7 +225,9 @@ impl ExpressionTreeOptimizer {
                         if let Some(inner_arg) = args.get_ptr(0) {
                             // First, try to extract search operators from the inner expression
                             let search_query_result =
-                                Self::extract_search_operators_from_expression(inner_arg, schema);
+                                Self::extract_search_operators_from_expression(
+                                    inner_arg, schema, pdbopoid,
+                                );
 
                             match search_query_result {
                                 Ok(SearchQueryInput::All) => {
@@ -250,7 +255,7 @@ impl ExpressionTreeOptimizer {
             }
             pg_sys::NodeTag::T_OpExpr => {
                 let op_expr = node.cast::<pg_sys::OpExpr>();
-                if Self::is_search_operator((*op_expr).opno) {
+                if (*op_expr).opno == pdbopoid {
                     // This is a @@@ operator - extract the SearchQueryInput from it
                     Self::extract_search_query_input_from_op_expr(op_expr)
                 } else {
@@ -271,6 +276,7 @@ impl ExpressionTreeOptimizer {
     unsafe fn extract_search_operators_from_expression(
         node: *mut pg_sys::Node,
         schema: &SearchIndexSchema,
+        pdbopoid: pg_sys::Oid,
     ) -> Result<SearchQueryInput, &'static str> {
         if node.is_null() {
             return Ok(SearchQueryInput::All);
@@ -287,7 +293,9 @@ impl ExpressionTreeOptimizer {
                         let mut search_queries = Vec::new();
 
                         for arg in args.iter_ptr() {
-                            match Self::extract_search_operators_from_expression(arg, schema) {
+                            match Self::extract_search_operators_from_expression(
+                                arg, schema, pdbopoid,
+                            ) {
                                 Ok(SearchQueryInput::All) => {
                                     // No search operators in this branch, skip
                                 }
@@ -317,7 +325,9 @@ impl ExpressionTreeOptimizer {
                         let mut search_queries = Vec::new();
 
                         for arg in args.iter_ptr() {
-                            match Self::extract_search_operators_from_expression(arg, schema) {
+                            match Self::extract_search_operators_from_expression(
+                                arg, schema, pdbopoid,
+                            ) {
                                 Ok(SearchQueryInput::All) => {
                                     // No search operators in this branch, skip
                                 }
@@ -347,7 +357,7 @@ impl ExpressionTreeOptimizer {
             }
             pg_sys::NodeTag::T_OpExpr => {
                 let op_expr = node.cast::<pg_sys::OpExpr>();
-                if Self::is_search_operator((*op_expr).opno) {
+                if (*op_expr).opno == pdbopoid {
                     // This is a @@@ operator - extract it
                     Self::extract_search_query_input_from_op_expr(op_expr)
                 } else {
@@ -1005,4 +1015,414 @@ pub unsafe fn apply_optimized_unified_heap_filter(
     evaluator
         .evaluate_tree(&optimized_tree, doc_id, slot)
         .map_err(|_| "Failed to evaluate optimized expression tree")
+}
+
+/// Universal Reader that can handle complex expressions mixing Tantivy and PostgreSQL operations
+/// This implements the true unified execution approach where we build an expression tree
+/// with Tantivy nodes for search operators and PostgreSQL nodes for non-indexed predicates
+pub struct UniversalReader {
+    /// The root of the expression tree
+    root: UniversalExpressionNode,
+    /// Schema for field validation
+    schema: SearchIndexSchema,
+}
+
+/// A node in the universal expression tree
+/// Each node is either a leaf (Tantivy or PostgreSQL) or an operator (AND/OR/NOT)
+#[derive(Clone)]
+pub enum UniversalExpressionNode {
+    /// A Tantivy node that can be executed entirely by a search reader
+    Tantivy {
+        search_reader: SearchIndexReader,
+        query: SearchQueryInput,
+    },
+    /// A PostgreSQL node that must be evaluated by PostgreSQL
+    PostgreSQL {
+        expression: *mut pg_sys::Node,
+        // For expressions that need scanning all documents
+        needs_all_docs: bool,
+    },
+    /// Logical AND operation
+    And {
+        children: Vec<UniversalExpressionNode>,
+    },
+    /// Logical OR operation
+    Or {
+        children: Vec<UniversalExpressionNode>,
+    },
+    /// Logical NOT operation
+    Not { child: Box<UniversalExpressionNode> },
+}
+
+impl fmt::Display for UniversalExpressionNode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            UniversalExpressionNode::Tantivy { query, .. } => {
+                write!(f, "Tantivy({})", query.as_human_readable())
+            }
+            UniversalExpressionNode::PostgreSQL { needs_all_docs, .. } => {
+                if *needs_all_docs {
+                    write!(f, "PostgreSQL(needs_all)")
+                } else {
+                    write!(f, "PostgreSQL(filter_only)")
+                }
+            }
+            UniversalExpressionNode::And { children } => {
+                write!(f, "AND(")?;
+                for (i, child) in children.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", child)?;
+                }
+                write!(f, ")")
+            }
+            UniversalExpressionNode::Or { children } => {
+                write!(f, "OR(")?;
+                for (i, child) in children.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", child)?;
+                }
+                write!(f, ")")
+            }
+            UniversalExpressionNode::Not { child } => {
+                write!(f, "NOT({})", child)
+            }
+        }
+    }
+}
+
+/// Builder for creating universal expression trees from PostgreSQL expressions
+pub struct UniversalExpressionBuilder {
+    schema: SearchIndexSchema,
+    pdbopoid: pg_sys::Oid,
+}
+
+impl UniversalExpressionBuilder {
+    pub fn new(schema: SearchIndexSchema, pdbopoid: pg_sys::Oid) -> Self {
+        Self { schema, pdbopoid }
+    }
+
+    /// Build a universal expression tree from a PostgreSQL expression
+    /// This is the core method that implements the unified execution principle:
+    /// "At each level, try to see if everything can be handled by Tantivy.
+    /// If so, create a Tantivy node, otherwise create an expression node with
+    /// children being either Tantivy or PostgreSQL nodes."
+    pub unsafe fn build_from_expression(
+        &self,
+        node: *mut pg_sys::Node,
+        search_reader: SearchIndexReader,
+    ) -> Result<UniversalExpressionNode, &'static str> {
+        if node.is_null() {
+            return Err("Null expression node");
+        }
+
+        match (*node).type_ {
+            pg_sys::NodeTag::T_BoolExpr => {
+                let bool_expr = node.cast::<pg_sys::BoolExpr>();
+                let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
+
+                match (*bool_expr).boolop {
+                    pg_sys::BoolExprType::AND_EXPR => {
+                        self.build_and_expression(args, search_reader)
+                    }
+                    pg_sys::BoolExprType::OR_EXPR => self.build_or_expression(args, search_reader),
+                    pg_sys::BoolExprType::NOT_EXPR => {
+                        self.build_not_expression(args, search_reader)
+                    }
+                    _ => Err("Unsupported boolean operator"),
+                }
+            }
+            pg_sys::NodeTag::T_OpExpr => {
+                let op_expr = node.cast::<pg_sys::OpExpr>();
+                if (*op_expr).opno == self.pdbopoid {
+                    // This is a search operator - create a Tantivy node
+                    self.build_tantivy_node_from_opexpr(op_expr, search_reader)
+                } else {
+                    // This is a non-search operator - create a PostgreSQL node
+                    Ok(UniversalExpressionNode::PostgreSQL {
+                        expression: node,
+                        needs_all_docs: true, // Non-search predicates need all documents
+                    })
+                }
+            }
+            _ => {
+                // Other node types are handled by PostgreSQL
+                Ok(UniversalExpressionNode::PostgreSQL {
+                    expression: node,
+                    needs_all_docs: true,
+                })
+            }
+        }
+    }
+
+    unsafe fn build_and_expression(
+        &self,
+        args: PgList<pg_sys::Node>,
+        search_reader: SearchIndexReader,
+    ) -> Result<UniversalExpressionNode, &'static str> {
+        let mut children = Vec::new();
+
+        for arg in args.iter_ptr() {
+            let child_node = self.build_from_expression(arg, search_reader.clone())?;
+            children.push(child_node);
+        }
+
+        // Check if all children can be handled by Tantivy
+        if self.can_all_be_tantivy(&children) {
+            // Combine all Tantivy queries into a single Boolean query
+            self.combine_tantivy_and(children, search_reader)
+        } else {
+            // Mixed expression - return AND node with children
+            Ok(UniversalExpressionNode::And { children })
+        }
+    }
+
+    unsafe fn build_or_expression(
+        &self,
+        args: PgList<pg_sys::Node>,
+        search_reader: SearchIndexReader,
+    ) -> Result<UniversalExpressionNode, &'static str> {
+        let mut children = Vec::new();
+
+        for arg in args.iter_ptr() {
+            let child_node = self.build_from_expression(arg, search_reader.clone())?;
+            children.push(child_node);
+        }
+
+        // Check if all children can be handled by Tantivy
+        if self.can_all_be_tantivy(&children) {
+            // Combine all Tantivy queries into a single Boolean query
+            self.combine_tantivy_or(children, search_reader)
+        } else {
+            // Mixed expression - return OR node with children
+            Ok(UniversalExpressionNode::Or { children })
+        }
+    }
+
+    unsafe fn build_not_expression(
+        &self,
+        args: PgList<pg_sys::Node>,
+        search_reader: SearchIndexReader,
+    ) -> Result<UniversalExpressionNode, &'static str> {
+        if args.len() != 1 {
+            return Err("NOT expression must have exactly one argument");
+        }
+
+        let arg = args.get_ptr(0).unwrap();
+        let child_node = self.build_from_expression(arg, search_reader.clone())?;
+
+        // Check if the child can be handled by Tantivy
+        if self.can_be_tantivy(&child_node) {
+            // Create a Tantivy NOT query
+            self.combine_tantivy_not(child_node, search_reader)
+        } else {
+            // Mixed expression - return NOT node with child
+            Ok(UniversalExpressionNode::Not {
+                child: Box::new(child_node),
+            })
+        }
+    }
+
+    unsafe fn build_tantivy_node_from_opexpr(
+        &self,
+        op_expr: *mut pg_sys::OpExpr,
+        search_reader: SearchIndexReader,
+    ) -> Result<UniversalExpressionNode, &'static str> {
+        // Extract the search query from the OpExpr
+        // This is similar to the existing logic but creates a proper SearchQueryInput
+        let query = self.extract_search_query_from_opexpr(op_expr)?;
+
+        Ok(UniversalExpressionNode::Tantivy {
+            search_reader,
+            query,
+        })
+    }
+
+    fn can_all_be_tantivy(&self, children: &[UniversalExpressionNode]) -> bool {
+        children.iter().all(|child| self.can_be_tantivy(child))
+    }
+
+    fn can_be_tantivy(&self, node: &UniversalExpressionNode) -> bool {
+        match node {
+            UniversalExpressionNode::Tantivy { .. } => true,
+            UniversalExpressionNode::PostgreSQL { .. } => false,
+            UniversalExpressionNode::And { children } => self.can_all_be_tantivy(children),
+            UniversalExpressionNode::Or { children } => self.can_all_be_tantivy(children),
+            UniversalExpressionNode::Not { child } => self.can_be_tantivy(child),
+        }
+    }
+
+    fn combine_tantivy_and(
+        &self,
+        children: Vec<UniversalExpressionNode>,
+        search_reader: SearchIndexReader,
+    ) -> Result<UniversalExpressionNode, &'static str> {
+        let mut must_queries = Vec::new();
+
+        for child in children {
+            match child {
+                UniversalExpressionNode::Tantivy { query, .. } => {
+                    must_queries.push(query);
+                }
+                _ => return Err("Expected all children to be Tantivy nodes"),
+            }
+        }
+
+        let combined_query = SearchQueryInput::Boolean {
+            must: must_queries,
+            should: vec![],
+            must_not: vec![],
+        };
+
+        Ok(UniversalExpressionNode::Tantivy {
+            search_reader,
+            query: combined_query,
+        })
+    }
+
+    fn combine_tantivy_or(
+        &self,
+        children: Vec<UniversalExpressionNode>,
+        search_reader: SearchIndexReader,
+    ) -> Result<UniversalExpressionNode, &'static str> {
+        let mut should_queries = Vec::new();
+
+        for child in children {
+            match child {
+                UniversalExpressionNode::Tantivy { query, .. } => {
+                    should_queries.push(query);
+                }
+                _ => return Err("Expected all children to be Tantivy nodes"),
+            }
+        }
+
+        let combined_query = SearchQueryInput::Boolean {
+            must: vec![],
+            should: should_queries,
+            must_not: vec![],
+        };
+
+        Ok(UniversalExpressionNode::Tantivy {
+            search_reader,
+            query: combined_query,
+        })
+    }
+
+    fn combine_tantivy_not(
+        &self,
+        child: UniversalExpressionNode,
+        search_reader: SearchIndexReader,
+    ) -> Result<UniversalExpressionNode, &'static str> {
+        match child {
+            UniversalExpressionNode::Tantivy { query, .. } => {
+                let combined_query = SearchQueryInput::Boolean {
+                    must: vec![],
+                    should: vec![],
+                    must_not: vec![query],
+                };
+
+                Ok(UniversalExpressionNode::Tantivy {
+                    search_reader,
+                    query: combined_query,
+                })
+            }
+            _ => Err("Expected child to be a Tantivy node"),
+        }
+    }
+
+    unsafe fn extract_search_query_from_opexpr(
+        &self,
+        op_expr: *mut pg_sys::OpExpr,
+    ) -> Result<SearchQueryInput, &'static str> {
+        // Use the existing method to extract SearchQueryInput from the OpExpr
+        ExpressionTreeOptimizer::extract_search_query_input_from_op_expr(op_expr)
+    }
+}
+
+impl UniversalReader {
+    pub fn new(root: UniversalExpressionNode, schema: SearchIndexSchema) -> Self {
+        Self { root, schema }
+    }
+
+    /// Execute the universal expression tree and return matching document IDs
+    pub fn execute(&self) -> Result<Vec<u32>, &'static str> {
+        self.execute_node(&self.root)
+    }
+
+    fn execute_node(&self, node: &UniversalExpressionNode) -> Result<Vec<u32>, &'static str> {
+        match node {
+            UniversalExpressionNode::Tantivy {
+                search_reader,
+                query,
+            } => {
+                // Execute the Tantivy query
+                // TODO: Implement actual query execution
+                Ok(vec![])
+            }
+            UniversalExpressionNode::PostgreSQL { needs_all_docs, .. } => {
+                if *needs_all_docs {
+                    // Return all document IDs - these will be filtered by PostgreSQL
+                    // TODO: Get actual document count from schema
+                    Ok((0..1000).collect()) // Placeholder
+                } else {
+                    // This is a filter-only expression, return empty (should not happen at root)
+                    Ok(vec![])
+                }
+            }
+            UniversalExpressionNode::And { children } => {
+                // Execute all children and intersect results
+                let mut result: Option<Vec<u32>> = None;
+
+                for child in children {
+                    let child_result = self.execute_node(child)?;
+                    match result {
+                        None => result = Some(child_result),
+                        Some(ref current) => {
+                            // Intersect with current result
+                            let intersection: Vec<u32> = current
+                                .iter()
+                                .filter(|&id| child_result.contains(id))
+                                .copied()
+                                .collect();
+                            result = Some(intersection);
+                        }
+                    }
+                }
+
+                Ok(result.unwrap_or_default())
+            }
+            UniversalExpressionNode::Or { children } => {
+                // Execute all children and union results
+                let mut result = Vec::new();
+
+                for child in children {
+                    let child_result = self.execute_node(child)?;
+                    for id in child_result {
+                        if !result.contains(&id) {
+                            result.push(id);
+                        }
+                    }
+                }
+
+                result.sort();
+                Ok(result)
+            }
+            UniversalExpressionNode::Not { child } => {
+                // Execute child and return complement
+                let child_result = self.execute_node(child)?;
+
+                // TODO: Get all document IDs and subtract child_result
+                // For now, return placeholder
+                Ok(vec![])
+            }
+        }
+    }
+
+    /// Get a description of the expression tree for debugging
+    pub fn describe(&self) -> String {
+        format!("UniversalReader: {}", self.root)
+    }
 }

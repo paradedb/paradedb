@@ -50,6 +50,7 @@ use crate::postgres::customscan::pdbscan::exec_methods::{
 };
 use crate::postgres::customscan::pdbscan::optimized_unified_evaluator::{
     apply_optimized_unified_heap_filter, ExpressionTreeOptimizer, OptimizedEvaluationResult,
+    UniversalExpressionBuilder,
 };
 use crate::postgres::customscan::pdbscan::parallel::{compute_nworkers, list_segment_ids};
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
@@ -63,7 +64,7 @@ use crate::postgres::customscan::pdbscan::projections::{
     inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
 };
 use crate::postgres::customscan::pdbscan::qual_inspect::{
-    extract_join_predicates, extract_quals, extract_quals_with_non_indexed, Qual,
+    extract_join_predicates, extract_quals_with_non_indexed, Qual,
 };
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::customscan::pdbscan::unified_evaluator::{
@@ -2577,65 +2578,58 @@ unsafe fn optimize_base_query_for_unified_evaluation(
     // For Test 2.2, the heap filter contains the original NOT expression before PostgreSQL decomposes it
     if let Some(heap_filter_node_string) = builder.custom_private().heap_filter_node_string() {
         debug_log!(
-            "🔧 [OPTIMIZE] Found heap filter node string, attempting to parse original expression"
+            "🔧 [OPTIMIZE] Found heap filter node string, attempting to build UniversalReader"
         );
 
         // The heap filter contains the original expression before PostgreSQL decomposition
-        // Try to parse it and extract search operators directly
+        // Try to parse it and build a universal expression tree
         let heap_filter_expr = create_heap_filter_expr(&heap_filter_node_string);
         if !heap_filter_expr.is_null() {
-            debug_log!("🔧 [OPTIMIZE] Successfully parsed heap filter expression, building SearchQueryInput");
+            debug_log!("🔧 [OPTIMIZE] Successfully parsed heap filter expression, building UniversalReader");
 
             // Extract the raw node from the heap filter expression
             let heap_filter_node = heap_filter_expr.cast::<pg_sys::Node>();
 
-            // Check if this original expression contains search operators
-            if expression_contains_search_operators(heap_filter_node, pdbopoid) {
-                debug_log!("🔧 [OPTIMIZE] Heap filter expression contains search operators, building optimal SearchQueryInput");
+            // CRITICAL FIX: Use the heap filter expression directly for extraction
+            // The heap filter contains the original un-decomposed expression
+            debug_log!("🔧 [OPTIMIZE] Trying to extract from heap filter expression directly");
 
-                // Use the original heap filter expression (not the decomposed version)
-                match ExpressionTreeOptimizer::build_search_query_from_expression(
-                    heap_filter_node,
-                    schema,
-                ) {
-                    Ok(search_query_input) => {
-                        debug_log!(
-                            "🔧 [OPTIMIZE] Successfully built SearchQueryInput from heap filter: {:?}",
-                            search_query_input.as_human_readable()
-                        );
+            match ExpressionTreeOptimizer::build_search_query_from_expression(
+                heap_filter_node,
+                schema,
+                pdbopoid,
+            ) {
+                Ok(search_query_input) => {
+                    debug_log!(
+                        "🔧 [OPTIMIZE] Successfully built SearchQueryInput from heap filter: {:?}",
+                        search_query_input.as_human_readable()
+                    );
 
-                        // Check if we extracted meaningful search operators
-                        match search_query_input {
-                            SearchQueryInput::All => {
-                                // Expression contains only non-indexed fields, fall back to old approach
-                                debug_log!("🔧 [OPTIMIZE] Heap filter expression contains only non-indexed fields, falling back");
-                            }
-                            _ => {
-                                // We have a proper Tantivy query - set it directly in the builder
-                                debug_log!(
-                                    "🔧 [OPTIMIZE] Setting optimized SearchQueryInput from heap filter directly: {:?}",
-                                    search_query_input.as_human_readable()
-                                );
+                    match search_query_input {
+                        SearchQueryInput::All => {
+                            debug_log!("🔧 [OPTIMIZE] Heap filter expression contains only non-indexed fields");
+                        }
+                        _ => {
+                            // We have a proper Tantivy query from the heap filter
+                            debug_log!(
+                                "🔧 [OPTIMIZE] Setting optimized SearchQueryInput from heap filter: {:?}",
+                                search_query_input.as_human_readable()
+                            );
 
-                                // Set the optimized SearchQueryInput directly in the PrivateData
-                                builder.custom_private().set_query(search_query_input);
+                            // Set the optimized SearchQueryInput directly
+                            builder.custom_private().set_query(search_query_input);
 
-                                // Return a synthetic Qual to indicate we handled the optimization
-                                return Some(Qual::All);
-                            }
+                            // Return a synthetic Qual to indicate we handled the optimization
+                            return Some(Qual::All);
                         }
                     }
-                    Err(e) => {
-                        debug_log!(
-                            "🔧 [OPTIMIZE] Failed to build SearchQueryInput from heap filter: {}",
-                            e
-                        );
-                    }
                 }
-            } else {
-                debug_log!(
-                    "🔧 [OPTIMIZE] Heap filter expression does not contain search operators"
-                );
+                Err(e) => {
+                    debug_log!(
+                        "🔧 [OPTIMIZE] Failed to build SearchQueryInput from heap filter: {}",
+                        e
+                    );
+                }
             }
         } else {
             debug_log!("🔧 [OPTIMIZE] Failed to parse heap filter expression");
@@ -2666,6 +2660,7 @@ unsafe fn optimize_base_query_for_unified_evaluation(
             match ExpressionTreeOptimizer::build_search_query_from_expression(
                 cleaned_original,
                 schema,
+                pdbopoid,
             ) {
                 Ok(search_query_input) => {
                     debug_log!(

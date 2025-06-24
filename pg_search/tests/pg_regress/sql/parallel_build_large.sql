@@ -1,7 +1,6 @@
 \i common/parallel_build_large_setup.sql
 
 SET max_parallel_workers = 8;
-SET client_min_messages TO INFO;
 
 -- This should return a "not enough memory" error
 SET maintenance_work_mem = '64MB';
@@ -35,11 +34,15 @@ BEGIN
 
                     CREATE INDEX parallel_build_large_idx ON parallel_build_large USING bm25 (id, name) WITH (key_field = 'id');
 
-                    -- Check index info and display results
                     SELECT COUNT(*) INTO count_val FROM paradedb.index_info('parallel_build_large_idx');
+                    IF ts = 4 THEN
+                        ASSERT count_val = 4, format('Expected index info count to be 4, but got %s', count_val);
+                    ELSIF ts = 32 THEN
+                        ASSERT count_val BETWEEN 28 AND 32, format('Expected index info count to be between 28 and 32, but got %s', count_val);
+                    END IF;
+
                     SELECT SUM(num_docs) INTO num_docs_val FROM paradedb.index_info('parallel_build_large_idx');
-                    RAISE INFO 'Config: workers=%, work_mem=%,leader_participation=%, segments=%-> Count: %, Num Docs: %',
-                        mw, mwm,lp, ts, count_val, num_docs_val;
+                    ASSERT num_docs_val = 35000, format('Expected num_docs to be 35000, but got %s', num_docs_val);
 
                     DROP INDEX parallel_build_large_idx;
                 END LOOP;

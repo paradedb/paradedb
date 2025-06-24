@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::fast_fields_helper::WhichFastField;
-use crate::index::reader::index::SearchResults;
+use crate::index::reader::index::MultiSegmentSearchResults;
 use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::{
     non_string_ff_to_datum, FastFieldExecState,
 };
@@ -30,12 +30,14 @@ use pgrx::pg_sys::CustomScanState;
 
 pub struct NumericFastFieldExecState {
     inner: FastFieldExecState,
+    search_results: Option<MultiSegmentSearchResults>,
 }
 
 impl NumericFastFieldExecState {
     pub fn new(which_fast_fields: Vec<WhichFastField>) -> Self {
         Self {
             inner: FastFieldExecState::new(which_fast_fields),
+            search_results: None,
         }
     }
 }
@@ -48,23 +50,25 @@ impl ExecMethod for NumericFastFieldExecState {
     fn query(&mut self, state: &mut PdbScanState) -> bool {
         if let Some(parallel_state) = state.parallel_state {
             if let Some(segment_id) = unsafe { checkout_segment(parallel_state) } {
-                self.inner.search_results = state
-                    .search_reader
-                    .as_ref()
-                    .unwrap()
-                    .search_segments([segment_id].into_iter(), 0);
+                self.search_results = Some(
+                    state
+                        .search_reader
+                        .as_ref()
+                        .unwrap()
+                        .search_segments([segment_id].into_iter()),
+                );
                 return true;
             }
 
             // no more segments to query
-            self.inner.search_results = SearchResults::None;
+            self.search_results = None;
             false
         } else if self.inner.did_query {
             // not parallel, so we're done
             false
         } else {
             // not parallel, first time query
-            self.inner.search_results = state.search_reader.as_ref().unwrap().search(state.limit);
+            self.search_results = Some(state.search_reader.as_ref().unwrap().search(state.limit));
             self.inner.did_query = true;
             true
         }
@@ -72,7 +76,7 @@ impl ExecMethod for NumericFastFieldExecState {
 
     fn internal_next(&mut self, state: &mut PdbScanState) -> ExecState {
         unsafe {
-            match self.inner.search_results.next() {
+            match self.search_results.as_mut().and_then(|r| r.next()) {
                 None => ExecState::Eof,
                 Some((scored, doc_address)) => {
                     let heaprel = self
@@ -144,5 +148,6 @@ impl ExecMethod for NumericFastFieldExecState {
 
     fn reset(&mut self, _state: &mut PdbScanState) {
         self.inner.reset(_state);
+        self.search_results = None;
     }
 }

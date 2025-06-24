@@ -18,7 +18,7 @@
 use std::rc::Rc;
 
 use crate::index::fast_fields_helper::{FFIndex, WhichFastField};
-use crate::index::reader::index::{SearchIndexReader, SearchIndexScore, SearchResults};
+use crate::index::reader::index::{SearchIndexReader, SearchIndexScore};
 use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::{
     non_string_ff_to_datum, ords_to_sorted_terms, FastFieldExecState,
 };
@@ -77,7 +77,6 @@ impl ExecMethod for StringFastFieldExecState {
             }
 
             // no more segments to query
-            self.inner.search_results = SearchResults::None;
             false
         } else if self.inner.did_query {
             // not parallel, so we're done

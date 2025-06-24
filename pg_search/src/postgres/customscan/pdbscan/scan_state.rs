@@ -18,7 +18,7 @@
 use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::api::Varno;
-use crate::index::reader::index::{SearchIndexReader, SearchResults};
+use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::builders::custom_path::{ExecMethodType, SortDirection};
 use crate::postgres::customscan::pdbscan::exec_methods::ExecMethod;
 use crate::postgres::customscan::pdbscan::projections::snippet::SnippetType;
@@ -51,7 +51,6 @@ pub struct PdbScanState {
     search_query_input: SearchQueryInput,
     pub search_reader: Option<SearchIndexReader>,
 
-    pub search_results: SearchResults,
     pub targetlist_len: usize,
 
     pub limit: Option<usize>,
@@ -316,7 +315,6 @@ impl PdbScanState {
                 }
             }
         }
-        self.search_results = SearchResults::None;
         self.query_count = 0;
         self.heap_tuple_check_count = 0;
         self.virtual_tuple_count = 0;

@@ -16,10 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use std::cell::RefCell;
-use std::iter::Peekable;
 
 use crate::api::FieldName;
-use crate::index::reader::index::{SearchIndexReader, SearchResults};
+use crate::index::reader::index::{SearchIndexReader, TopNSearchResults};
 use crate::postgres::customscan::builders::custom_path::SortDirection;
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
@@ -45,7 +44,7 @@ pub struct TopNScanExecState {
     sort_field: Option<FieldName>,
 
     // state tracking
-    search_results: Peekable<SearchResults>,
+    search_results: TopNSearchResults,
     nresults: usize,
     did_query: bool,
     found: usize,
@@ -64,7 +63,7 @@ impl TopNScanExecState {
             search_query_input: None,
             search_reader: None,
             sort_field: None,
-            search_results: SearchResults::None.peekable(),
+            search_results: TopNSearchResults::empty(),
             nresults: 0,
             did_query: false,
             found: 0,
@@ -162,13 +161,13 @@ impl ExecMethod for TopNScanExecState {
                 self.sort_direction.into(),
                 local_limit,
                 self.offset,
-            )
-            .peekable();
+            );
 
         // Record the offset to start from for the next query.
         self.offset = next_offset;
 
-        self.search_results.peek().is_some()
+        // If we got any results at all, then the query was a success.
+        self.search_results.original_len() > 0
     }
 
     fn increment_visible(&mut self) {
@@ -244,7 +243,7 @@ impl ExecMethod for TopNScanExecState {
         self.did_query = false;
         self.search_query_input = Some(state.search_query_input().clone());
         self.search_reader = state.search_reader.clone();
-        self.search_results = SearchResults::None.peekable();
+        self.search_results = TopNSearchResults::empty();
         self.sort_field = state.sort_field.clone();
 
         // Reset counters - excluding nresults which tracks processed results

@@ -1,17 +1,18 @@
 # workflows/publish-github-release.yml
 #
 # Publish GitHub Release
-# Publish the ParadeDB GitHub Release. Pushes to `main` publish an official release while
-# pushes to `staging` publish a beta release.
+# Publish a ParadeDB GitHub Release, which triggers the entire release process. This workflow
+# is always triggered manually via the GitHub Actions UI.
 
 name: Publish GitHub Release
 
 on:
-  push:
-    branches:
-      - main
-      - staging
   workflow_dispatch:
+    inputs:
+      beta:
+        type: boolean
+        description: Whether to publish a beta release. Default is `true`.
+        default: true
 
 concurrency:
   group: publish-github-release-${{ github.head_ref || github.ref }}
@@ -33,23 +34,20 @@ jobs:
       - name: Retrieve & Increment Release Version Number
         id: version
         run: |
-          if [[ ${{ github.ref }} == "refs/heads/main" ]]; then
+          if [[ ${{ inputs.beta }} == "false" ]]; then
             echo 'Using prod configuration...'
             CURRENT_RELEASE_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}"
 
             # Increment GHA variable version by 0.0.1 for next release
             GHA_VAR_NAME="VERSION_PATCH"
             GHA_VAR_VALUE="$(( ${{ vars.VERSION_PATCH }} + 1 ))"
-          elif [[ ${{ github.ref }} == "refs/heads/staging" ]]; then
+          else
             echo 'Using staging configuration...'
             CURRENT_RELEASE_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-rc.${{ vars.VERSION_RC }}"
 
             # Increment GHA variable version by -rc.1 for next release
             GHA_VAR_NAME="VERSION_RC"
             GHA_VAR_VALUE="$(( ${{ vars.VERSION_RC }} + 1 ))"
-          else
-            echo "Error: Invalid branch, exiting..."
-            exit 1
           fi
 
           # Output the current release version to create the GitHub Release tag, and the new version to update GitHub Actions variable
@@ -61,8 +59,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
         run: |
-          # On `main` we update patch and reset the RC version to 1
-          if [[ ${{ github.ref }} == "refs/heads/main" ]]; then
+          # On prod releases we update patch and reset the RC version to 1
+          if [[ ${{ inputs.beta }} == "false" ]]; then
             gh api \
               --method PATCH \
               -H "Accept: application/vnd.github+json" \
@@ -78,8 +76,8 @@ jobs:
               /repos/paradedb/paradedb/actions/variables/VERSION_RC \
               -f name='VERSION_RC' \
               -f value='1'
-          # On `staging` we only update the RC version
-          elif [[ ${{ github.ref }} == "refs/heads/staging" ]]; then
+          # On beta releases we only update the RC version
+          else
             gh api \
               --method PATCH \
               -H "Accept: application/vnd.github+json" \
@@ -87,8 +85,6 @@ jobs:
               /repos/paradedb/paradedb/actions/variables/${{ steps.version.outputs.gha_var_name }} \
               -f name='${{ steps.version.outputs.gha_var_name }}' \
               -f value='${{ steps.version.outputs.gha_var_value }}'
-          else
-            echo "Error: Invalid branch" && false
           fi
 
       # The tag_name will have `-rc.X` suffix and be marked as a prerelease for staging releases,
@@ -99,6 +95,6 @@ jobs:
           tag_name: v${{ steps.version.outputs.version }}
           target_commitish: "main"
           generate_release_notes: true
-          prerelease: ${{ github.ref == 'refs/heads/staging' }}
+          prerelease: ${{ inputs.beta }}
         env:
           GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}

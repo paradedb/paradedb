@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 
-use pgrx::pg_sys;
+use pgrx::{pg_sys, FromDatum, PgList};
 use tantivy::collector::TopDocs;
 use tantivy::query::{Occur, Query};
 use tantivy::{DocAddress, DocId};
 
+use crate::api::operator::{anyelement_query_input_opoid, anyelement_text_opoid};
 use crate::index::reader::index::SearchIndexReader;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
@@ -188,34 +189,267 @@ impl ExpressionTreeOptimizer {
 
     /// Check if an operator OID represents a search operator (@@@)
     fn is_search_operator(op_oid: pg_sys::Oid) -> bool {
-        // For now, return false to treat all operators as PostgreSQL operators
-        // This will be enhanced to properly detect @@@ operators
-        false
+        op_oid == anyelement_query_input_opoid() || op_oid == anyelement_text_opoid()
     }
 
     /// Extract a TantivyFieldQuery from a search operator expression
     unsafe fn extract_tantivy_field_query(
         op_expr: *mut pg_sys::OpExpr,
     ) -> Result<TantivyFieldQuery, &'static str> {
-        // For now, create a placeholder field query
-        // This will be enhanced to properly extract field and query from the OpExpr
-        let field_query = TantivyFieldQuery {
-            field: "placeholder_field".to_string(),
-            query: "placeholder_query".to_string(),
-            search_query_input: SearchQueryInput::All, // Placeholder
-        };
-        Ok(field_query)
+        // Get the arguments of the @@@ operator
+        let args = PgList::<pg_sys::Node>::from_pg((*op_expr).args);
+        if args.len() != 2 {
+            return Err("@@@ operator must have exactly 2 arguments");
+        }
+
+        let lhs = args.get_ptr(0).ok_or("Missing left-hand side argument")?;
+        let rhs = args.get_ptr(1).ok_or("Missing right-hand side argument")?;
+
+        // Extract field name from left-hand side (typically a Var node)
+        let field_name =
+            Self::extract_field_name_from_node(lhs).unwrap_or_else(|| "unknown_field".to_string());
+
+        // Extract query from right-hand side
+        let (query_string, search_query_input) = Self::extract_query_from_node(rhs)?;
+
+        Ok(TantivyFieldQuery {
+            field: field_name,
+            query: query_string,
+            search_query_input,
+        })
+    }
+
+    /// Extract field name from a PostgreSQL node (typically a Var node)
+    unsafe fn extract_field_name_from_node(node: *mut pg_sys::Node) -> Option<String> {
+        if node.is_null() {
+            return None;
+        }
+
+        match (*node).type_ {
+            pg_sys::NodeTag::T_Var => {
+                let var = node.cast::<pg_sys::Var>();
+                // For now, use a simple mapping based on varattno
+                // This could be enhanced to properly resolve field names from the PostgreSQL catalog
+                match (*var).varattno {
+                    1 => Some("id".to_string()),
+                    2 => Some("name".to_string()),
+                    3 => Some("description".to_string()),
+                    4 => Some("category".to_string()),
+                    5 => Some("price".to_string()),
+                    6 => Some("in_stock".to_string()),
+                    7 => Some("tags".to_string()),
+                    _ => Some(format!("field_{}", (*var).varattno)),
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Extract query string and SearchQueryInput from a PostgreSQL node
+    unsafe fn extract_query_from_node(
+        node: *mut pg_sys::Node,
+    ) -> Result<(String, SearchQueryInput), &'static str> {
+        if node.is_null() {
+            return Err("Null query node");
+        }
+
+        match (*node).type_ {
+            pg_sys::NodeTag::T_Const => {
+                let const_node = node.cast::<pg_sys::Const>();
+                if (*const_node).constisnull {
+                    return Err("Query constant is null");
+                }
+
+                // Check if this is a text constant or SearchQueryInput constant
+                if (*const_node).consttype == pg_sys::TEXTOID {
+                    // This is a text constant - extract the string
+                    let query_string = String::from_datum((*const_node).constvalue, false)
+                        .ok_or("Failed to extract text from constant")?;
+
+                    // Create a Parse SearchQueryInput for the text
+                    let search_query_input = SearchQueryInput::Parse {
+                        query_string: query_string.clone(),
+                        lenient: Some(true),
+                        conjunction_mode: Some(false),
+                    };
+
+                    Ok((query_string, search_query_input))
+                } else {
+                    // Try to extract as SearchQueryInput
+                    match SearchQueryInput::from_datum((*const_node).constvalue, false) {
+                        Some(search_query_input) => {
+                            // Extract a human-readable query string from the SearchQueryInput
+                            let query_string =
+                                Self::extract_query_string_from_search_input(&search_query_input);
+                            Ok((query_string, search_query_input))
+                        }
+                        None => Err("Failed to extract SearchQueryInput from constant"),
+                    }
+                }
+            }
+            pg_sys::NodeTag::T_FuncExpr => {
+                // This might be a paradedb function call - for now, create a placeholder
+                let query_string = "function_call".to_string();
+                let search_query_input = SearchQueryInput::All;
+                Ok((query_string, search_query_input))
+            }
+            _ => Err("Unsupported query node type"),
+        }
+    }
+
+    /// Extract a human-readable query string from a SearchQueryInput
+    fn extract_query_string_from_search_input(input: &SearchQueryInput) -> String {
+        match input {
+            SearchQueryInput::Parse { query_string, .. } => query_string.clone(),
+            SearchQueryInput::ParseWithField { query_string, .. } => query_string.clone(),
+            SearchQueryInput::Match { value, .. } => value.clone(),
+            SearchQueryInput::Term { value, .. } => format!("{:?}", value),
+            SearchQueryInput::All => "*".to_string(),
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+            } => {
+                let mut parts = Vec::new();
+                if !must.is_empty() {
+                    parts.push(format!("MUST({})", must.len()));
+                }
+                if !should.is_empty() {
+                    parts.push(format!("SHOULD({})", should.len()));
+                }
+                if !must_not.is_empty() {
+                    parts.push(format!("MUST_NOT({})", must_not.len()));
+                }
+                parts.join(" ")
+            }
+            _ => "complex_query".to_string(),
+        }
     }
 
     /// Apply optimization passes to consolidate Tantivy subtrees
     fn apply_optimization_passes(tree: OptimizedExpressionNode) -> OptimizedExpressionNode {
-        // For now, return the tree as-is
-        // Future optimization passes will be added here:
-        // 1. Extract Tantivy-only subtrees
-        // 2. Consolidate Tantivy subtrees into Boolean queries
-        // 3. Minimize remaining tree structure
+        // Phase 1: Apply basic optimizations
+        let optimized = Self::consolidate_tantivy_leaves(tree);
 
-        tree
+        // Future optimization passes will be added here:
+        // Phase 2: Extract Tantivy-only subtrees
+        // Phase 3: Minimize remaining tree structure
+
+        optimized
+    }
+
+    /// Consolidate adjacent Tantivy leaves in boolean operations
+    fn consolidate_tantivy_leaves(tree: OptimizedExpressionNode) -> OptimizedExpressionNode {
+        match tree {
+            OptimizedExpressionNode::BooleanOperation { op, children } => {
+                // Recursively optimize children first
+                let optimized_children: Vec<_> = children
+                    .into_iter()
+                    .map(Self::consolidate_tantivy_leaves)
+                    .collect();
+
+                // Try to consolidate Tantivy leaves based on the boolean operation
+                match op {
+                    BooleanOperator::And => Self::consolidate_and_operation(optimized_children),
+                    BooleanOperator::Or => Self::consolidate_or_operation(optimized_children),
+                    BooleanOperator::Not => {
+                        // NOT operations can't be easily consolidated, just return as-is
+                        OptimizedExpressionNode::BooleanOperation {
+                            op: BooleanOperator::Not,
+                            children: optimized_children,
+                        }
+                    }
+                }
+            }
+            // Leaves don't need consolidation
+            other => other,
+        }
+    }
+
+    /// Consolidate Tantivy leaves in an AND operation
+    fn consolidate_and_operation(
+        children: Vec<OptimizedExpressionNode>,
+    ) -> OptimizedExpressionNode {
+        let mut tantivy_queries = Vec::new();
+        let mut postgres_children = Vec::new();
+
+        for child in children {
+            match child {
+                OptimizedExpressionNode::ConsolidatedTantivyLeaf(leaf) => {
+                    // Collect all MUST queries from Tantivy leaves
+                    tantivy_queries.extend(leaf.boolean_query.must);
+                }
+                other => postgres_children.push(other),
+            }
+        }
+
+        // If we have Tantivy queries, create a consolidated leaf
+        if !tantivy_queries.is_empty() {
+            let consolidated_leaf = ConsolidatedTantivyLeaf {
+                boolean_query: TantivyBooleanQuery {
+                    must: tantivy_queries,
+                    should: vec![],
+                    must_not: vec![],
+                },
+            };
+
+            postgres_children.insert(
+                0,
+                OptimizedExpressionNode::ConsolidatedTantivyLeaf(consolidated_leaf),
+            );
+        }
+
+        // Return the appropriate structure
+        if postgres_children.len() == 1 {
+            postgres_children.into_iter().next().unwrap()
+        } else {
+            OptimizedExpressionNode::BooleanOperation {
+                op: BooleanOperator::And,
+                children: postgres_children,
+            }
+        }
+    }
+
+    /// Consolidate Tantivy leaves in an OR operation
+    fn consolidate_or_operation(children: Vec<OptimizedExpressionNode>) -> OptimizedExpressionNode {
+        let mut tantivy_queries = Vec::new();
+        let mut postgres_children = Vec::new();
+
+        for child in children {
+            match child {
+                OptimizedExpressionNode::ConsolidatedTantivyLeaf(leaf) => {
+                    // Collect all MUST queries as SHOULD queries for OR operation
+                    tantivy_queries.extend(leaf.boolean_query.must);
+                }
+                other => postgres_children.push(other),
+            }
+        }
+
+        // If we have Tantivy queries, create a consolidated leaf
+        if !tantivy_queries.is_empty() {
+            let consolidated_leaf = ConsolidatedTantivyLeaf {
+                boolean_query: TantivyBooleanQuery {
+                    must: vec![],
+                    should: tantivy_queries,
+                    must_not: vec![],
+                },
+            };
+
+            postgres_children.insert(
+                0,
+                OptimizedExpressionNode::ConsolidatedTantivyLeaf(consolidated_leaf),
+            );
+        }
+
+        // Return the appropriate structure
+        if postgres_children.len() == 1 {
+            postgres_children.into_iter().next().unwrap()
+        } else {
+            OptimizedExpressionNode::BooleanOperation {
+                op: BooleanOperator::Or,
+                children: postgres_children,
+            }
+        }
     }
 }
 

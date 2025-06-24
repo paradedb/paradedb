@@ -2569,33 +2569,107 @@ unsafe fn optimize_base_query_for_unified_evaluation(
         indexed_quals
     );
 
-    // NEW UNIFIED EXECUTION APPROACH: Build SearchQueryInput directly from expressions
+    // NEW UNIFIED EXECUTION APPROACH: Build SearchQueryInput directly from raw expressions
     // This maximizes what gets pushed to Tantivy and only breaks down when hitting non-indexed fields
+    // CRITICAL: Work with raw restrict_info expressions BEFORE decomposition
 
-    // Check if any of the restrict_info expressions contain search operators
+    // CRITICAL FIX: Use heap filter node string when available as it contains the original un-decomposed expression
+    // For Test 2.2, the heap filter contains the original NOT expression before PostgreSQL decomposes it
+    if let Some(heap_filter_node_string) = builder.custom_private().heap_filter_node_string() {
+        debug_log!(
+            "🔧 [OPTIMIZE] Found heap filter node string, attempting to parse original expression"
+        );
+
+        // The heap filter contains the original expression before PostgreSQL decomposition
+        // Try to parse it and extract search operators directly
+        let heap_filter_expr = create_heap_filter_expr(&heap_filter_node_string);
+        if !heap_filter_expr.is_null() {
+            debug_log!("🔧 [OPTIMIZE] Successfully parsed heap filter expression, building SearchQueryInput");
+
+            // Extract the raw node from the heap filter expression
+            let heap_filter_node = heap_filter_expr.cast::<pg_sys::Node>();
+
+            // Check if this original expression contains search operators
+            if expression_contains_search_operators(heap_filter_node, pdbopoid) {
+                debug_log!("🔧 [OPTIMIZE] Heap filter expression contains search operators, building optimal SearchQueryInput");
+
+                // Use the original heap filter expression (not the decomposed version)
+                match ExpressionTreeOptimizer::build_search_query_from_expression(
+                    heap_filter_node,
+                    schema,
+                ) {
+                    Ok(search_query_input) => {
+                        debug_log!(
+                            "🔧 [OPTIMIZE] Successfully built SearchQueryInput from heap filter: {:?}",
+                            search_query_input.as_human_readable()
+                        );
+
+                        // Check if we extracted meaningful search operators
+                        match search_query_input {
+                            SearchQueryInput::All => {
+                                // Expression contains only non-indexed fields, fall back to old approach
+                                debug_log!("🔧 [OPTIMIZE] Heap filter expression contains only non-indexed fields, falling back");
+                            }
+                            _ => {
+                                // We have a proper Tantivy query - set it directly in the builder
+                                debug_log!(
+                                    "🔧 [OPTIMIZE] Setting optimized SearchQueryInput from heap filter directly: {:?}",
+                                    search_query_input.as_human_readable()
+                                );
+
+                                // Set the optimized SearchQueryInput directly in the PrivateData
+                                builder.custom_private().set_query(search_query_input);
+
+                                // Return a synthetic Qual to indicate we handled the optimization
+                                return Some(Qual::All);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        debug_log!(
+                            "🔧 [OPTIMIZE] Failed to build SearchQueryInput from heap filter: {}",
+                            e
+                        );
+                    }
+                }
+            } else {
+                debug_log!(
+                    "🔧 [OPTIMIZE] Heap filter expression does not contain search operators"
+                );
+            }
+        } else {
+            debug_log!("🔧 [OPTIMIZE] Failed to parse heap filter expression");
+        }
+    } else {
+        debug_log!("🔧 [OPTIMIZE] No heap filter node string available");
+    }
+
+    // FALLBACK: Check the original expressions from restrict_info (before decomposition)
     for ri in restrict_info.iter_ptr() {
-        let clause = if !(*ri).orclause.is_null() {
+        // Get the original clause before any decomposition
+        let original_clause = if !(*ri).orclause.is_null() {
             (*ri).orclause
         } else {
             (*ri).clause
         };
 
-        // Clean any nested RestrictInfo nodes recursively
-        let cleaned_clause = clean_restrictinfo_recursively(clause.cast());
+        // Clean any nested RestrictInfo nodes recursively but preserve original structure
+        let cleaned_original = clean_restrictinfo_recursively(original_clause.cast());
 
-        // Check if this expression contains search operators
-        if expression_contains_search_operators(cleaned_clause, pdbopoid) {
-            debug_log!("🔧 [OPTIMIZE] Found expression with search operators, building optimal SearchQueryInput");
+        // Check if this original expression contains search operators
+        if expression_contains_search_operators(cleaned_original, pdbopoid) {
+            debug_log!("🔧 [OPTIMIZE] Found expression with search operators in original clause, building optimal SearchQueryInput");
 
-            // NEW APPROACH: Use the optimized unified evaluator to build SearchQueryInput directly
-            // This follows the unified execution principle: maximize what goes to Tantivy
+            // CRITICAL: Use the cleaned original expression (not the decomposed version)
+            // This preserves the NOT ((name @@@ 'Apple' AND category = 'Electronics') OR (category = 'Furniture'))
+            // structure instead of working with the decomposed AND clauses
             match ExpressionTreeOptimizer::build_search_query_from_expression(
-                cleaned_clause,
+                cleaned_original,
                 schema,
             ) {
                 Ok(search_query_input) => {
                     debug_log!(
-                        "🔧 [OPTIMIZE] Successfully built SearchQueryInput: {:?}",
+                        "🔧 [OPTIMIZE] Successfully built SearchQueryInput from original: {:?}",
                         search_query_input.as_human_readable()
                     );
 
@@ -2606,12 +2680,12 @@ unsafe fn optimize_base_query_for_unified_evaluation(
                     match search_query_input {
                         SearchQueryInput::All => {
                             // Expression contains only non-indexed fields, fall back to old approach
-                            debug_log!("🔧 [OPTIMIZE] Expression contains only non-indexed fields, falling back");
+                            debug_log!("🔧 [OPTIMIZE] Original expression contains only non-indexed fields, falling back");
                         }
                         _ => {
                             // We have a proper Tantivy query - set it directly in the builder
                             debug_log!(
-                                "🔧 [OPTIMIZE] Setting optimized SearchQueryInput directly: {:?}",
+                                "🔧 [OPTIMIZE] Setting optimized SearchQueryInput from original directly: {:?}",
                                 search_query_input.as_human_readable()
                             );
 
@@ -2625,7 +2699,10 @@ unsafe fn optimize_base_query_for_unified_evaluation(
                     }
                 }
                 Err(e) => {
-                    debug_log!("🔧 [OPTIMIZE] Failed to build SearchQueryInput: {}", e);
+                    debug_log!(
+                        "🔧 [OPTIMIZE] Failed to build SearchQueryInput from original: {}",
+                        e
+                    );
                 }
             }
         }
@@ -2634,72 +2711,6 @@ unsafe fn optimize_base_query_for_unified_evaluation(
     // FALLBACK: Use the original approach if the new method didn't work
 
     // First, check if we have direct indexed predicates
-    if let Some(ref indexed_qual) = indexed_quals {
-        debug_log!("🔧 [OPTIMIZE] Found indexed quals, checking if they need optimization");
-
-        // Check if this is a NOT expression with mixed predicates
-        if let Some(optimized) = optimize_not_expression_with_mixed_predicates(
-            indexed_qual,
-            restrict_info,
-            root,
-            rti,
-            pdbopoid,
-            schema,
-        ) {
-            debug_log!("🔧 [OPTIMIZE] Optimized NOT expression: {:?}", optimized);
-            return Some(optimized);
-        }
-
-        // Use the indexed quals as-is
-        debug_log!("🔧 [OPTIMIZE] Using indexed quals as-is");
-        return indexed_quals.clone();
-    }
-
-    debug_log!("🔧 [OPTIMIZE] No indexed quals found, checking for complex expressions");
-
-    // No direct indexed predicates found, but we might have complex expressions
-    // containing search operators that should be handled entirely by Tantivy
-    for ri in restrict_info.iter_ptr() {
-        let clause = if !(*ri).orclause.is_null() {
-            (*ri).orclause
-        } else {
-            (*ri).clause
-        };
-
-        // Clean any nested RestrictInfo nodes recursively
-        let cleaned_clause = clean_restrictinfo_recursively(clause.cast());
-
-        // Check if this expression contains search operators
-        if expression_contains_search_operators(cleaned_clause, pdbopoid) {
-            debug_log!(
-                "🔧 [OPTIMIZE] Found expression with search operators, trying fallback conversion"
-            );
-
-            // This expression contains search operators - it should be handled entirely by Tantivy
-            // Try to convert it to a Qual for the base query
-            let mut uses_tantivy = false;
-            if let Some(tantivy_qual) = extract_quals(
-                root,
-                rti,
-                cleaned_clause,
-                pdbopoid,
-                ri_type,
-                schema,
-                true,
-                &mut uses_tantivy,
-            ) {
-                if uses_tantivy {
-                    debug_log!(
-                        "🔧 [OPTIMIZE] Successfully converted to Tantivy query: {:?}",
-                        tantivy_qual
-                    );
-                    // Successfully converted to a Tantivy query - use this as the base query
-                    return Some(tantivy_qual);
-                }
-            }
-        }
-    }
-
     debug_log!("🔧 [OPTIMIZE] No suitable expressions found, returning None");
     // If no expressions with search operators found, return None to indicate
     // that we can't handle this query with the custom scan

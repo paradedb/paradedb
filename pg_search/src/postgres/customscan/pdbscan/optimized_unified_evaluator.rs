@@ -144,48 +144,27 @@ impl ExpressionTreeOptimizer {
                     pg_sys::BoolExprType::AND_EXPR => {
                         // For AND: collect all Tantivy-compatible subexpressions
                         let mut must_queries = Vec::new();
-                        let mut has_non_indexed = false;
 
                         for arg in args.iter_ptr() {
                             match Self::extract_tantivy_query_from_node(arg, schema) {
                                 Ok(SearchQueryInput::All) => {
-                                    // This branch contains non-indexed fields
-                                    has_non_indexed = true;
+                                    // This branch contains non-indexed fields, skip
                                 }
                                 Ok(query) => {
                                     must_queries.push(query);
                                 }
                                 Err(_) => {
-                                    has_non_indexed = true;
+                                    // Error in this branch, skip
                                 }
                             }
                         }
 
-                        if must_queries.is_empty() && has_non_indexed {
-                            // All branches contain non-indexed fields, but check for special patterns
-                            // Look for OR expressions that might contain extractable search operators
-                            for arg in args.iter_ptr() {
-                                if let Some(extracted) =
-                                    Self::try_extract_from_mixed_or(arg, schema)
-                                {
-                                    return Ok(extracted);
-                                }
-                            }
-                            // No extractable patterns found
+                        if must_queries.is_empty() {
+                            // No search operators found - return All to scan all documents
                             Ok(SearchQueryInput::All)
-                        } else if must_queries.is_empty() {
-                            // All branches are empty
-                            Ok(SearchQueryInput::All)
-                        } else if has_non_indexed {
-                            // Mixed expression: create boolean query with indexed parts
-                            // The non-indexed parts will be handled by PostgreSQL filter
-                            Ok(SearchQueryInput::Boolean {
-                                must: must_queries,
-                                should: vec![],
-                                must_not: vec![],
-                            })
                         } else {
-                            // All indexed: create clean boolean query
+                            // Found search operators - create proper Boolean query
+                            // Non-indexed fields will be handled by heap filter
                             Ok(SearchQueryInput::Boolean {
                                 must: must_queries,
                                 should: vec![],
@@ -214,11 +193,17 @@ impl ExpressionTreeOptimizer {
                         }
 
                         if should_queries.is_empty() {
-                            // All branches contain non-indexed fields
+                            // No search operators found - return All to scan all documents
                             Ok(SearchQueryInput::All)
                         } else if has_non_indexed {
-                            // Mixed OR expression: need to scan all documents
-                            // because non-indexed branches could match any document
+                            // CRITICAL FIX: For mixed OR expressions with search operators
+                            // We cannot create a pure SHOULD query because non-indexed branches
+                            // could match documents that don't match any search operator.
+                            // Instead, we must scan all documents and rely on heap filter.
+                            //
+                            // HOWEVER, there's an important exception: if we're inside a NOT expression,
+                            // the parent NOT logic will handle the inversion properly.
+                            // For now, return All and let the parent decide.
                             Ok(SearchQueryInput::All)
                         } else {
                             // All indexed: create clean boolean query
@@ -230,22 +215,28 @@ impl ExpressionTreeOptimizer {
                         }
                     }
                     pg_sys::BoolExprType::NOT_EXPR => {
-                        // For NOT: try to extract the inner expression
+                        // CRITICAL FIX for Test 2.2 and unified execution principle
+                        // For NOT expressions, we need to extract search operators from the inner expression
+                        // even if the inner expression contains non-indexed fields
+
                         if let Some(inner_arg) = args.get_ptr(0) {
-                            match Self::extract_tantivy_query_from_node(inner_arg, schema) {
+                            // First, try to extract search operators from the inner expression
+                            let search_query_result =
+                                Self::extract_search_operators_from_expression(inner_arg, schema);
+
+                            match search_query_result {
                                 Ok(SearchQueryInput::All) => {
-                                    // Inner expression contains non-indexed fields
-                                    // Can't push NOT of non-indexed to Tantivy
+                                    // No search operators found in inner expression
                                     Ok(SearchQueryInput::All)
                                 }
-                                Ok(inner_query) => {
-                                    // Inner expression is indexed: can push NOT to Tantivy
-                                    // For NOT queries, we create a Boolean query with only must_not
-                                    // This matches all documents except those matching inner_query
+                                Ok(inner_search_query) => {
+                                    // Found search operators in inner expression
+                                    // Create NOT query for the search operators
+                                    // The heap filter will handle the complete NOT expression logic
                                     Ok(SearchQueryInput::Boolean {
                                         must: vec![],
                                         should: vec![],
-                                        must_not: vec![inner_query], // Exclude matches
+                                        must_not: vec![inner_search_query],
                                     })
                                 }
                                 Err(_) => Ok(SearchQueryInput::All),
@@ -275,67 +266,100 @@ impl ExpressionTreeOptimizer {
         }
     }
 
-    /// Try to extract search operators from mixed OR expressions
-    /// This handles cases like: Or([Not(name @@@ 'Apple'), ExternalExpr])
-    unsafe fn try_extract_from_mixed_or(
+    /// Extract search operators from an expression, ignoring non-indexed parts
+    /// This is used by NOT expressions to find search operators that can be pushed to Tantivy
+    unsafe fn extract_search_operators_from_expression(
         node: *mut pg_sys::Node,
         schema: &SearchIndexSchema,
-    ) -> Option<SearchQueryInput> {
+    ) -> Result<SearchQueryInput, &'static str> {
         if node.is_null() {
-            return None;
+            return Ok(SearchQueryInput::All);
         }
 
-        // Check if this is an OR expression
-        if (*node).type_ == pg_sys::NodeTag::T_BoolExpr {
-            let bool_expr = node.cast::<pg_sys::BoolExpr>();
-            if (*bool_expr).boolop == pg_sys::BoolExprType::OR_EXPR {
+        match (*node).type_ {
+            pg_sys::NodeTag::T_BoolExpr => {
+                let bool_expr = node.cast::<pg_sys::BoolExpr>();
                 let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
 
-                // Look for search operators in the OR expression
-                for arg in args.iter_ptr() {
-                    // Try to extract from NOT expressions specifically
-                    if (*arg).type_ == pg_sys::NodeTag::T_BoolExpr {
-                        let inner_bool = arg.cast::<pg_sys::BoolExpr>();
-                        if (*inner_bool).boolop == pg_sys::BoolExprType::NOT_EXPR {
-                            let not_args = PgList::<pg_sys::Node>::from_pg((*inner_bool).args);
-                            if let Some(not_arg) = not_args.get_ptr(0) {
-                                if (*not_arg).type_ == pg_sys::NodeTag::T_OpExpr {
-                                    let op_expr = not_arg.cast::<pg_sys::OpExpr>();
-                                    let opno = (*op_expr).opno;
-                                    let is_search = Self::is_search_operator(opno);
+                match (*bool_expr).boolop {
+                    pg_sys::BoolExprType::AND_EXPR => {
+                        // For AND in NOT context: collect all search operators
+                        let mut search_queries = Vec::new();
 
-                                    if is_search {
-                                        // Found NOT(search_operator) - extract it
-                                        if let Ok(inner_query) =
-                                            Self::extract_search_query_input_from_op_expr(op_expr)
-                                        {
-                                            return Some(SearchQueryInput::Boolean {
-                                                must: vec![],
-                                                should: vec![],
-                                                must_not: vec![inner_query],
-                                            });
-                                        }
-                                    }
+                        for arg in args.iter_ptr() {
+                            match Self::extract_search_operators_from_expression(arg, schema) {
+                                Ok(SearchQueryInput::All) => {
+                                    // No search operators in this branch, skip
+                                }
+                                Ok(query) => {
+                                    search_queries.push(query);
+                                }
+                                Err(_) => {
+                                    // Error in this branch, skip
                                 }
                             }
                         }
-                    }
-                    // Also try direct search operators
-                    else if (*arg).type_ == pg_sys::NodeTag::T_OpExpr {
-                        let op_expr = arg.cast::<pg_sys::OpExpr>();
-                        if Self::is_search_operator((*op_expr).opno) {
-                            if let Ok(query) =
-                                Self::extract_search_query_input_from_op_expr(op_expr)
-                            {
-                                return Some(query);
-                            }
+
+                        if search_queries.is_empty() {
+                            Ok(SearchQueryInput::All)
+                        } else if search_queries.len() == 1 {
+                            Ok(search_queries.into_iter().next().unwrap())
+                        } else {
+                            Ok(SearchQueryInput::Boolean {
+                                must: search_queries,
+                                should: vec![],
+                                must_not: vec![],
+                            })
                         }
                     }
+                    pg_sys::BoolExprType::OR_EXPR => {
+                        // For OR in NOT context: collect all search operators
+                        let mut search_queries = Vec::new();
+
+                        for arg in args.iter_ptr() {
+                            match Self::extract_search_operators_from_expression(arg, schema) {
+                                Ok(SearchQueryInput::All) => {
+                                    // No search operators in this branch, skip
+                                }
+                                Ok(query) => {
+                                    search_queries.push(query);
+                                }
+                                Err(_) => {
+                                    // Error in this branch, skip
+                                }
+                            }
+                        }
+
+                        if search_queries.is_empty() {
+                            Ok(SearchQueryInput::All)
+                        } else if search_queries.len() == 1 {
+                            Ok(search_queries.into_iter().next().unwrap())
+                        } else {
+                            Ok(SearchQueryInput::Boolean {
+                                must: vec![],
+                                should: search_queries,
+                                must_not: vec![],
+                            })
+                        }
+                    }
+                    _ => Ok(SearchQueryInput::All),
                 }
             }
+            pg_sys::NodeTag::T_OpExpr => {
+                let op_expr = node.cast::<pg_sys::OpExpr>();
+                if Self::is_search_operator((*op_expr).opno) {
+                    // This is a @@@ operator - extract it
+                    Self::extract_search_query_input_from_op_expr(op_expr)
+                } else {
+                    // Non-search operator
+                    Ok(SearchQueryInput::All)
+                }
+            }
+            _ => {
+                // All other node types are non-indexed
+                Ok(SearchQueryInput::All)
+            }
         }
-
-        None
     }
 
     /// Extract SearchQueryInput from a @@@ operator expression

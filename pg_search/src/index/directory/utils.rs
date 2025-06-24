@@ -1,5 +1,6 @@
 use crate::api::{HashMap, HashSet};
 use crate::index::mvcc::{MvccSatisfies, PinCushion};
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     DeleteEntry, FileEntry, LinkedList, MVCCEntry, PgItem, SegmentFileDetails, SegmentMetaEntry,
     SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
@@ -18,8 +19,8 @@ use tantivy::{
     IndexMeta,
 };
 
-pub fn save_schema(relation_oid: pg_sys::Oid, tantivy_schema: &Schema) -> Result<()> {
-    let schema = LinkedBytesList::open(relation_oid, SCHEMA_START);
+pub fn save_schema(indexrel: &PgSearchRelation, tantivy_schema: &Schema) -> Result<()> {
+    let schema = LinkedBytesList::open(indexrel, SCHEMA_START);
     if schema.is_empty() {
         let bytes = serde_json::to_vec(tantivy_schema)?;
         unsafe {
@@ -29,8 +30,8 @@ pub fn save_schema(relation_oid: pg_sys::Oid, tantivy_schema: &Schema) -> Result
     Ok(())
 }
 
-pub fn save_settings(relation_oid: pg_sys::Oid, tantivy_settings: &IndexSettings) -> Result<()> {
-    let settings = LinkedBytesList::open(relation_oid, SETTINGS_START);
+pub fn save_settings(indexrel: &PgSearchRelation, tantivy_settings: &IndexSettings) -> Result<()> {
+    let settings = LinkedBytesList::open(indexrel, SETTINGS_START);
     if settings.is_empty() {
         let bytes = serde_json::to_vec(tantivy_settings)?;
         unsafe {
@@ -41,7 +42,7 @@ pub fn save_settings(relation_oid: pg_sys::Oid, tantivy_settings: &IndexSettings
 }
 
 pub unsafe fn save_new_metas(
-    relation_oid: pg_sys::Oid,
+    indexrel: &PgSearchRelation,
     new_meta: &IndexMeta,
     prev_meta: &IndexMeta,
     directory_entries: &mut HashMap<PathBuf, FileEntry>,
@@ -49,7 +50,7 @@ pub unsafe fn save_new_metas(
     // in order to ensure that all of our mutations to the list of segments appear atomically on
     // physical replicas, we atomically operate on a deep copy of the list.
     let mut segment_metas_linked_list =
-        LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START);
+        LinkedItemList::<SegmentMetaEntry>::open(indexrel, SEGMENT_METAS_START);
     let mut linked_list = segment_metas_linked_list.atomically();
 
     let incoming_segments = new_meta
@@ -312,7 +313,7 @@ pub unsafe fn save_new_metas(
 }
 
 pub unsafe fn load_metas(
-    relation_oid: pg_sys::Oid,
+    indexrel: &PgSearchRelation,
     inventory: &SegmentMetaInventory,
     solve_mvcc: &MvccSatisfies,
 ) -> tantivy::Result<(Vec<SegmentMetaEntry>, IndexMeta, PinCushion)> {
@@ -322,8 +323,7 @@ pub unsafe fn load_metas(
     let mut pin_cushion = PinCushion::default();
 
     // Collect segments from each relevant list.
-    let mut segment_metas =
-        LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START);
+    let mut segment_metas = LinkedItemList::<SegmentMetaEntry>::open(indexrel, SEGMENT_METAS_START);
     let mut exhausted_metas_lists = false;
 
     loop {
@@ -369,7 +369,7 @@ pub unsafe fn load_metas(
             {
                 // If we haven't tried the `segment_metas_garbage` list, try that next.
                 if !exhausted_metas_lists {
-                    if let Some(garbage) = MetaPage::open(relation_oid).segment_metas_garbage() {
+                    if let Some(garbage) = MetaPage::open(indexrel).segment_metas_garbage() {
                         segment_metas = garbage;
                         exhausted_metas_lists = true;
                         continue;
@@ -409,8 +409,8 @@ pub unsafe fn load_metas(
         }
     }
 
-    let schema = LinkedBytesList::open(relation_oid, SCHEMA_START);
-    let settings = LinkedBytesList::open(relation_oid, SETTINGS_START);
+    let schema = LinkedBytesList::open(indexrel, SCHEMA_START);
+    let settings = LinkedBytesList::open(indexrel, SETTINGS_START);
     let deserialized_schema = serde_json::from_slice(&schema.read_all())?;
     let deserialized_settings = serde_json::from_slice(&settings.read_all())?;
 

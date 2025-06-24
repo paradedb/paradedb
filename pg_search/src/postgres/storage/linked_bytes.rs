@@ -18,6 +18,7 @@
 use super::block::{
     bm25_max_free_space, BM25PageSpecialData, LinkedList, LinkedListData, FIXED_BLOCK_NUMBERS,
 };
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::blocklist;
 use crate::postgres::storage::buffer::{BufferManager, PageHeaderMethods};
 use anyhow::Result;
@@ -28,7 +29,6 @@ use std::fmt::Debug;
 use std::io::{Cursor, Read, Write};
 use std::ops::{Deref, Range};
 use std::sync::OnceLock;
-
 // ---------------------------------------------------------------
 // Linked list implementation over block storage,
 // where each node is a page filled with bm25_max_free_space()
@@ -249,16 +249,16 @@ impl Deref for RangeData {
 }
 
 impl LinkedBytesList {
-    pub fn open(relation_oid: pg_sys::Oid, header_blockno: pg_sys::BlockNumber) -> Self {
+    pub fn open(rel: &PgSearchRelation, header_blockno: pg_sys::BlockNumber) -> Self {
         Self {
-            bman: BufferManager::new(relation_oid),
+            bman: BufferManager::new(rel),
             header_blockno,
             blocklist_reader: Default::default(),
         }
     }
 
-    pub unsafe fn create(relation_oid: pg_sys::Oid) -> Self {
-        let mut bman = BufferManager::new(relation_oid);
+    pub unsafe fn create(rel: &PgSearchRelation) -> Self {
+        let mut bman = BufferManager::new(rel);
         let mut buffers = bman.new_buffers(2);
 
         let mut header_buffer = buffers.next().unwrap();
@@ -410,6 +410,7 @@ impl LinkedBytesList {
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
+    use crate::postgres::rel::PgSearchRelation;
     use crate::postgres::storage::block::BM25PageSpecialData;
     use crate::postgres::storage::utils::BM25BufferCache;
     use pgrx::prelude::*;
@@ -422,11 +423,12 @@ mod tests {
             Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
                 .expect("spi should succeed")
                 .unwrap();
+        let indexrel = PgSearchRelation::open(relation_oid);
 
         // Test read/write from newly created linked list
         let bytes: Vec<u8> = (1..=255).cycle().take(100_000).collect();
         let start_blockno = {
-            let linked_list = LinkedBytesList::create(relation_oid);
+            let linked_list = LinkedBytesList::create(&indexrel);
             let mut writer = linked_list.writer();
             writer.write(&bytes).unwrap();
             let linked_list = writer.into_inner().unwrap();
@@ -437,7 +439,7 @@ mod tests {
         };
 
         // Test read from already created linked list
-        let linked_list = LinkedBytesList::open(relation_oid, start_blockno);
+        let linked_list = LinkedBytesList::open(&indexrel, start_blockno);
         let read_bytes = linked_list.read_all();
         assert_eq!(bytes, read_bytes);
     }
@@ -450,8 +452,9 @@ mod tests {
             Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
                 .expect("spi should succeed")
                 .unwrap();
+        let indexrel = PgSearchRelation::open(relation_oid);
 
-        let linked_list = LinkedBytesList::create(relation_oid);
+        let linked_list = LinkedBytesList::create(&indexrel);
         assert!(linked_list.is_empty());
 
         let bytes: Vec<u8> = (1..=255).cycle().take(100_000).collect();
@@ -469,8 +472,9 @@ mod tests {
             Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
                 .expect("spi should succeed")
                 .unwrap();
+        let indexrel = PgSearchRelation::open(relation_oid);
 
-        let linked_list = LinkedBytesList::create(relation_oid);
+        let linked_list = LinkedBytesList::create(&indexrel);
         let bytes: Vec<u8> = (1..=255).cycle().take(100_000).collect();
         let mut writer = linked_list.writer();
         writer.write(&bytes).unwrap();
@@ -479,7 +483,7 @@ mod tests {
         linked_list.return_to_fsm();
 
         while blockno != pg_sys::InvalidBlockNumber {
-            let buffer = BM25BufferCache::open(relation_oid)
+            let buffer = BM25BufferCache::open(&indexrel)
                 .get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
             let page = pg_sys::BufferGetPage(buffer);
             let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;

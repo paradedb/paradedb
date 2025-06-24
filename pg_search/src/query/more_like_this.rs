@@ -1,3 +1,4 @@
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::categorize_fields;
 use crate::schema::SearchIndexSchema;
@@ -115,11 +116,11 @@ impl MoreLikeThisQueryBuilder {
         key_value: OwnedValue,
         index_oid: pgrx::pg_sys::Oid,
     ) -> MoreLikeThisQuery {
-        let index_relation = unsafe { pgrx::PgRelation::open(index_oid) };
+        let index_relation = PgSearchRelation::open(index_oid);
         let heap_relation = index_relation
             .heap_relation()
             .expect("more_like_this: index should have a heap relation");
-        let schema = SearchIndexSchema::open(index_relation.oid())
+        let schema = SearchIndexSchema::open(&index_relation)
             .expect("more_like_this: should be able to open schema");
         let key_field = schema.key_field();
         let (key_field_name, key_oid) = (key_field.field_name(), key_field.field_type().typeoid());

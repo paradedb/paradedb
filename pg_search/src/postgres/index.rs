@@ -15,19 +15,20 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::postgres::rel::PgSearchRelation;
 use anyhow::{anyhow, Result};
-use pgrx::{pg_sys, PgRelation, Spi};
+use pgrx::{pg_sys, Spi};
 
 pub enum IndexKind {
-    Index(PgRelation),
-    PartitionedIndex(Vec<PgRelation>),
+    Index(PgSearchRelation),
+    PartitionedIndex(Vec<PgSearchRelation>),
 }
 
 impl IndexKind {
     ///
     /// Get the IndexKind for the given relation, or an error if it is not an index.
     ///
-    pub fn for_index(index_relation: PgRelation) -> Result<IndexKind> {
+    pub fn for_index(index_relation: PgSearchRelation) -> Result<IndexKind> {
         let index_relkind = unsafe { pg_sys::get_rel_relkind(index_relation.oid()) as u8 };
         match index_relkind {
             pg_sys::RELKIND_INDEX => {
@@ -49,7 +50,7 @@ impl IndexKind {
                     .into_iter()
                     .map(|oid| {
                         // TODO: Do these acquisitions need to be sorted?
-                        unsafe { PgRelation::with_lock(oid, pg_sys::AccessShareLock as _) }
+                        PgSearchRelation::with_lock(oid, pg_sys::AccessShareLock as _)
                     })
                     .collect();
                 Ok(IndexKind::PartitionedIndex(child_relations))
@@ -62,7 +63,7 @@ impl IndexKind {
     /// Return an iterator over the partitions of this index, which might be
     /// of length 1 if it is not partitioned.
     ///
-    pub fn partitions(self) -> Box<dyn Iterator<Item = PgRelation>> {
+    pub fn partitions(self) -> Box<dyn Iterator<Item = PgSearchRelation>> {
         match self {
             Self::Index(rel) => Box::new(std::iter::once(rel)),
             Self::PartitionedIndex(rel) => Box::new(rel.into_iter()),

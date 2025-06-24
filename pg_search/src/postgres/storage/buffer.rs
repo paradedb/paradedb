@@ -1,3 +1,4 @@
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     bm25_max_free_space, BM25PageSpecialData, PgItem, FIXED_BLOCK_NUMBERS,
 };
@@ -118,7 +119,11 @@ impl BufferMut {
                 FIXED_BLOCK_NUMBERS.iter().all(|fb| *fb != blockno),
                 "record_free_index_page: blockno {blockno} cannot ever be recycled"
             );
-            pg_sys::RecordPageWithFreeSpace(bman.bcache.indexrel(), blockno, bm25_max_free_space());
+            pg_sys::RecordPageWithFreeSpace(
+                bman.bcache.rel().as_ptr(),
+                blockno,
+                bm25_max_free_space(),
+            );
         }
     }
 }
@@ -439,14 +444,10 @@ pub struct BufferManager {
 }
 
 impl BufferManager {
-    pub fn new(indexrelid: pg_sys::Oid) -> Self {
+    pub fn new(rel: &PgSearchRelation) -> Self {
         Self {
-            bcache: BM25BufferCache::open(indexrelid),
+            bcache: BM25BufferCache::open(rel),
         }
-    }
-
-    pub fn relation_oid(&self) -> pg_sys::Oid {
-        unsafe { (*self.bcache.indexrel()).rd_id }
     }
 
     pub fn bm25cache(&self) -> &BM25BufferCache {

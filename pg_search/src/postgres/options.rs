@@ -22,6 +22,7 @@ use crate::postgres::utils::extract_field_attributes;
 use crate::schema::IndexRecordOption;
 use crate::schema::{SearchFieldConfig, SearchFieldType};
 
+use crate::postgres::rel::PgSearchRelation;
 use anyhow::Result;
 use memoffset::*;
 use pgrx::pg_sys::AsPgCStr;
@@ -30,7 +31,6 @@ use serde_json::Map;
 use std::ffi::CStr;
 use tokenizers::manager::SearchTokenizerFilters;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
-
 /* ADDING OPTIONS
  * in init(), call pg_sys::add_{type}_reloption (check postgres docs for what args you need)
  * add the corresponding entries to SearchIndexOptionsData struct definition
@@ -238,24 +238,24 @@ pub struct SearchIndexOptions {
     json_configs: HashMap<FieldName, SearchFieldConfig>,
     range_configs: HashMap<FieldName, SearchFieldConfig>,
     datetime_configs: HashMap<FieldName, SearchFieldConfig>,
-    relation_oid: pg_sys::Oid,
+    indexrel: PgSearchRelation,
 }
 
 impl SearchIndexOptions {
-    pub unsafe fn from_relation(indexrel: &PgRelation) -> Self {
+    pub unsafe fn from_relation(indexrel: &PgSearchRelation) -> Self {
         let data = SearchIndexOptionsData::from_relation(indexrel);
         let key_field_name = data.key_field_name();
 
         let text_configs = data.text_configs();
         for (field_name, config) in &text_configs {
-            validate_field_config(field_name, &key_field_name, config, indexrel.oid(), |t| {
+            validate_field_config(field_name, &key_field_name, config, indexrel, |t| {
                 matches!(t, SearchFieldType::Text(_) | SearchFieldType::Uuid(_))
             });
         }
 
         let numeric_configs = data.numeric_configs();
         for (field_name, config) in &numeric_configs {
-            validate_field_config(field_name, &key_field_name, config, indexrel.oid(), |t| {
+            validate_field_config(field_name, &key_field_name, config, indexrel, |t| {
                 matches!(
                     t,
                     SearchFieldType::I64(_) | SearchFieldType::U64(_) | SearchFieldType::F64(_)
@@ -265,28 +265,28 @@ impl SearchIndexOptions {
 
         let boolean_configs = data.boolean_configs();
         for (field_name, config) in &boolean_configs {
-            validate_field_config(field_name, &key_field_name, config, indexrel.oid(), |t| {
+            validate_field_config(field_name, &key_field_name, config, indexrel, |t| {
                 matches!(t, SearchFieldType::Bool(_))
             });
         }
 
         let json_configs = data.json_configs();
         for (field_name, config) in &json_configs {
-            validate_field_config(field_name, &key_field_name, config, indexrel.oid(), |t| {
+            validate_field_config(field_name, &key_field_name, config, indexrel, |t| {
                 matches!(t, SearchFieldType::Json(_))
             });
         }
 
         let range_configs = data.range_configs();
         for (field_name, config) in &range_configs {
-            validate_field_config(field_name, &key_field_name, config, indexrel.oid(), |t| {
+            validate_field_config(field_name, &key_field_name, config, indexrel, |t| {
                 matches!(t, SearchFieldType::Range(_))
             });
         }
 
         let datetime_configs = data.datetime_configs();
         for (field_name, config) in &datetime_configs {
-            validate_field_config(field_name, &key_field_name, config, indexrel.oid(), |t| {
+            validate_field_config(field_name, &key_field_name, config, indexrel, |t| {
                 matches!(t, SearchFieldType::Date(_))
             });
         }
@@ -300,7 +300,7 @@ impl SearchIndexOptions {
             json_configs,
             range_configs,
             datetime_configs,
-            relation_oid: indexrel.oid(),
+            indexrel: Clone::clone(indexrel),
         }
     }
 
@@ -321,8 +321,8 @@ impl SearchIndexOptions {
         }
 
         let field_type = match field_config.as_ref().and_then(|config| config.alias()) {
-            Some(alias) => get_field_type(alias, self.relation_oid),
-            None => get_field_type(field_name, self.relation_oid),
+            Some(alias) => get_field_type(alias, &self.indexrel),
+            None => get_field_type(field_name, &self.indexrel),
         };
         field_config.unwrap_or_else(|| field_type.default_config())
     }
@@ -336,7 +336,7 @@ impl SearchIndexOptions {
         if field_name.root() == self.key_field_name.root() {
             return Some(key_field_config(&get_field_type(
                 field_name,
-                self.relation_oid,
+                &self.indexrel,
             )));
         }
 
@@ -358,7 +358,7 @@ impl SearchIndexOptions {
             .filter(|(_field_name, config)| {
                 if let Some(alias) = config.alias() {
                     assert!(matches!(
-                        get_field_type(alias, self.relation_oid),
+                        get_field_type(alias, &self.indexrel),
                         SearchFieldType::Text(_)
                     ));
                     true
@@ -377,7 +377,7 @@ impl SearchIndexOptions {
             .filter(|(_field_name, config)| {
                 if let Some(alias) = config.alias() {
                     assert!(matches!(
-                        get_field_type(alias, self.relation_oid),
+                        get_field_type(alias, &self.indexrel),
                         SearchFieldType::Json(_)
                     ));
                     true
@@ -406,7 +406,7 @@ struct SearchIndexOptionsData {
 }
 
 impl SearchIndexOptionsData {
-    pub unsafe fn from_relation(indexrel: &PgRelation) -> &Self {
+    pub unsafe fn from_relation(indexrel: &PgSearchRelation) -> &Self {
         let mut ptr = indexrel.rd_options as *const Self;
         if ptr.is_null() {
             ptr = pg_sys::palloc0(std::mem::size_of::<Self>()) as *const Self;
@@ -652,16 +652,15 @@ fn ctid_field_config() -> SearchFieldConfig {
     }
 }
 
-fn get_attribute_oid(field_name: &str, relation_oid: pg_sys::Oid) -> Option<PgOid> {
-    let index_relation = unsafe { PgRelation::open(relation_oid) };
-    extract_field_attributes(&index_relation)
+fn get_attribute_oid(field_name: &str, indexrel: &PgSearchRelation) -> Option<PgOid> {
+    extract_field_attributes(indexrel)
         .into_iter()
         .find(|(name, _)| name == field_name)
         .map(|(_, type_oid)| type_oid.into())
 }
 
-fn get_field_type(field_name: &str, relation_oid: pg_sys::Oid) -> SearchFieldType {
-    let attribute_oid = get_attribute_oid(field_name, relation_oid)
+fn get_field_type(field_name: &str, indexrel: &PgSearchRelation) -> SearchFieldType {
+    let attribute_oid = get_attribute_oid(field_name, indexrel)
         .unwrap_or_else(|| panic!("field type should have been set for `{}`", field_name));
     (&attribute_oid).try_into().unwrap()
 }
@@ -670,7 +669,7 @@ fn validate_field_config(
     field_name: &FieldName,
     key_field_name: &FieldName,
     config: &SearchFieldConfig,
-    relation_oid: pg_sys::Oid,
+    indexrel: &PgSearchRelation,
     matches: fn(&SearchFieldType) -> bool,
 ) {
     if field_name.is_ctid() {
@@ -685,7 +684,7 @@ fn validate_field_config(
     }
 
     if let Some(alias) = config.alias() {
-        if get_attribute_oid(alias, relation_oid).is_none() {
+        if get_attribute_oid(alias, indexrel).is_none() {
             panic!(
                 "the column `{}` referenced by the field configuration for '{}' does not exist",
                 alias, field_name
@@ -694,7 +693,7 @@ fn validate_field_config(
     }
 
     let field_name = config.alias().unwrap_or(field_name);
-    let field_type = get_field_type(field_name, relation_oid);
+    let field_type = get_field_type(field_name, indexrel);
     if matches(&field_type) {
         return;
     }

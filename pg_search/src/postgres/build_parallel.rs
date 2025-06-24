@@ -31,6 +31,7 @@ use crate::postgres::insert::garbage_collect_index;
 use crate::postgres::ps_status::{
     set_ps_display_remove_suffix, set_ps_display_suffix, INDEXING, MERGING,
 };
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::spinlock::Spinlock;
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::utils::{categorize_fields, row_to_search_document, CategorizedFieldData};
@@ -38,7 +39,7 @@ use crate::schema::{SearchField, SearchIndexSchema};
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{
     check_for_interrupts, function_name, pg_guard, pg_sys, PgLogLevel, PgMemoryContexts,
-    PgRelation, PgSqlErrorCode,
+    PgSqlErrorCode,
 };
 use std::num::NonZeroUsize;
 use std::ptr::{addr_of_mut, NonNull};
@@ -111,8 +112,8 @@ impl ParallelState for ScanDesc {
 
 impl ParallelBuild {
     fn new(
-        heaprel: &PgRelation,
-        indexrel: &PgRelation,
+        heaprel: &PgSearchRelation,
+        indexrel: &PgSearchRelation,
         snapshot: pg_sys::Snapshot,
         concurrent: bool,
     ) -> Self {
@@ -151,8 +152,8 @@ struct BuildWorker<'a> {
     config: WorkerConfig,
     table_scan_desc: Option<NonNull<pg_sys::TableScanDescData>>,
     coordination: &'a mut WorkerCoordination,
-    heaprel: PgRelation,
-    indexrel: PgRelation,
+    heaprel: PgSearchRelation,
+    indexrel: PgSearchRelation,
 }
 
 impl ParallelWorker for BuildWorker<'_> {
@@ -180,8 +181,10 @@ impl ParallelWorker for BuildWorker<'_> {
                 (pg_sys::ShareUpdateExclusiveLock, pg_sys::RowExclusiveLock)
             };
 
-            let heaprel = PgRelation::with_lock(config.heaprelid, heap_lock as pg_sys::LOCKMODE);
-            let indexrel = PgRelation::with_lock(config.indexrelid, index_lock as pg_sys::LOCKMODE);
+            let heaprel =
+                PgSearchRelation::with_lock(config.heaprelid, heap_lock as pg_sys::LOCKMODE);
+            let indexrel =
+                PgSearchRelation::with_lock(config.indexrelid, index_lock as pg_sys::LOCKMODE);
             let table_scan_desc = pg_sys::table_beginscan_parallel(heaprel.as_ptr(), scandesc);
 
             Self {
@@ -211,16 +214,16 @@ impl ParallelWorker for BuildWorker<'_> {
 
 impl<'a> BuildWorker<'a> {
     fn new(
-        heaprel: PgRelation,
-        indexrel: PgRelation,
+        heaprel: &PgSearchRelation,
+        indexrel: &PgSearchRelation,
         config: WorkerConfig,
         coordination: &'a mut WorkerCoordination,
     ) -> Self {
         Self {
             config,
             table_scan_desc: None,
-            heaprel,
-            indexrel,
+            heaprel: Clone::clone(heaprel),
+            indexrel: Clone::clone(indexrel),
             coordination,
         }
     }
@@ -239,6 +242,7 @@ impl<'a> BuildWorker<'a> {
             pgrx::debug1!("build_worker {worker_number}: target_segment_count: {target_segment_count}, nlaunched: {nlaunched}, worker_segment_target: {worker_segment_target}");
 
             let mut build_state = WorkerBuildState::new(
+                &self.heaprel,
                 &self.indexrel,
                 NonZeroUsize::new(per_worker_memory_budget)
                     .expect("per worker memory budget should be non-zero"),
@@ -273,8 +277,8 @@ struct WorkerBuildState {
     categorized_fields: Vec<(SearchField, CategorizedFieldData)>,
     key_field_name: FieldName,
     per_row_context: PgMemoryContexts,
-    indexrel: PgRelation,
-    heaprel: PgRelation,
+    indexrel: PgSearchRelation,
+    heaprel: PgSearchRelation,
     // the following statistics are used to determine when and what to merge:
     //
     // 1. how many segments does this worker expect to make, assuming no merges?
@@ -295,18 +299,18 @@ struct WorkerBuildState {
 
 impl WorkerBuildState {
     pub fn new(
-        indexrel: &PgRelation,
+        heaprel: &PgSearchRelation,
+        indexrel: &PgSearchRelation,
         per_worker_memory_budget: NonZeroUsize,
         worker_segment_target: usize,
         nlaunched: usize,
         worker_number: i32,
     ) -> anyhow::Result<Self> {
-        let heaprel = indexrel.heap_relation().unwrap();
         // if we're making more than one segment, do an early cutoff based on doc count in case
         // the memory budget is so high that all the docs fit into one segment
         let max_docs_per_segment = if worker_segment_target > 1 {
             Some(
-                plan::estimate_heap_reltuples(&heaprel) as u32
+                plan::estimate_heap_reltuples(heaprel) as u32
                     / nlaunched as u32
                     / worker_segment_target as u32,
             )
@@ -318,7 +322,7 @@ impl WorkerBuildState {
             max_docs_per_segment,
         };
         let writer = SerialIndexWriter::open(indexrel, config, worker_number)?;
-        let schema = SearchIndexSchema::open(indexrel.oid())?;
+        let schema = SearchIndexSchema::open(indexrel)?;
         let categorized_fields = categorize_fields(indexrel, &schema);
         let key_field_name = schema.key_field().field_name();
         Ok(Self {
@@ -327,7 +331,7 @@ impl WorkerBuildState {
             key_field_name,
             per_row_context: PgMemoryContexts::new("pg_search ambuild context"),
             indexrel: indexrel.clone(),
-            heaprel: indexrel.heap_relation().unwrap().clone(),
+            heaprel: heaprel.clone(),
             worker_segment_target,
             nlaunched,
             estimated_nsegments: OnceLock::new(),
@@ -338,7 +342,7 @@ impl WorkerBuildState {
 
     fn commit(&mut self) -> anyhow::Result<()> {
         let writer = self.writer.take().expect("writer should be set");
-        if let Some(segment_meta) = writer.commit()? {
+        if let Some((segment_meta, _)) = writer.commit()? {
             self.unmerged_metas.push(segment_meta);
             self.try_merge(true)?;
         }
@@ -418,7 +422,7 @@ impl WorkerBuildState {
             segment_ids_to_merge.len(),
             segment_ids_to_merge
         );
-        let directory = MVCCDirectory::mergeable(self.indexrel.oid());
+        let directory = MVCCDirectory::mergeable(&self.indexrel);
         let mut merger = SearchIndexMerger::open(directory)?;
         merger.merge_segments(&segment_ids_to_merge)?;
 
@@ -493,8 +497,8 @@ unsafe extern "C-unwind" fn build_callback(
 /// If the system allows, it will build the index in parallel.  Otherwise the index is built in
 /// serially in this connected backend.
 pub(super) fn build_index(
-    heaprel: PgRelation,
-    indexrel: PgRelation,
+    heaprel: PgSearchRelation,
+    indexrel: PgSearchRelation,
     concurrent: bool,
 ) -> anyhow::Result<f64> {
     struct SnapshotDropper(pg_sys::Snapshot);
@@ -588,8 +592,8 @@ pub(super) fn build_index(
         coordination.set_nlaunched(1);
 
         let mut worker = BuildWorker::new(
-            heaprel,
-            indexrel,
+            &heaprel,
+            &indexrel,
             WorkerConfig {
                 heaprelid,
                 indexrelid,
@@ -609,14 +613,13 @@ pub(super) fn build_index(
 
 mod plan {
     use super::*;
-
     /// Determine the number of workers to use for a given CREATE INDEX/REINDEX statement.
     ///
     /// The number of workers is determined by max_parallel_maintenance_workers. However, if max_parallel_maintenance_workers
     /// is greater than available parallelism, we use available parallelism.
     ///
     /// If the leader is participating, we subtract 1 from the number of workers because the leader also counts as a worker.
-    pub(super) fn create_index_nworkers(heaprel: &PgRelation) -> usize {
+    pub(super) fn create_index_nworkers(heaprel: &PgSearchRelation) -> usize {
         // We don't want a parallel build to happen if we're creating a single segment
         let target_segment_count = plan::adjusted_target_segment_count(heaprel);
         if target_segment_count == 1 {
@@ -682,7 +685,7 @@ mod plan {
     }
 
     /// If we determine that the table is very small, we should just create a single segment
-    pub(super) fn adjusted_target_segment_count(heaprel: &PgRelation) -> usize {
+    pub(super) fn adjusted_target_segment_count(heaprel: &PgSearchRelation) -> usize {
         // If there are fewer rows than number of CPUs, use 1 worker
         let reltuples = plan::estimate_heap_reltuples(heaprel);
         let target_segment_count = gucs::target_segment_count();
@@ -703,8 +706,8 @@ mod plan {
         target_segment_count
     }
 
-    pub(super) fn estimate_heap_reltuples(heap_relation: &PgRelation) -> f64 {
-        let mut reltuples = heap_relation.reltuples().unwrap_or_default();
+    pub(super) fn estimate_heap_reltuples(heap_relation: &PgSearchRelation) -> f64 {
+        let mut reltuples = unsafe { (*heap_relation.rd_rel).reltuples };
 
         // if the reltuples estimate is not available, estimate the number of tuples in the heap
         // by multiplying the number of pages by the max offset number of the first page
@@ -721,7 +724,7 @@ mod plan {
                 return 0.0;
             }
 
-            let bman = BufferManager::new(heap_relation.oid());
+            let bman = BufferManager::new(heap_relation);
             let buffer = bman.get_buffer(0);
             let page = buffer.page();
             let max_offset = page.max_offset_number();
@@ -731,7 +734,7 @@ mod plan {
         reltuples as f64
     }
 
-    pub(super) fn estimate_heap_byte_size(heap_relation: &PgRelation) -> usize {
+    pub(super) fn estimate_heap_byte_size(heap_relation: &PgSearchRelation) -> usize {
         let npages = unsafe {
             pg_sys::RelationGetNumberOfBlocksInFork(
                 heap_relation.as_ptr(),

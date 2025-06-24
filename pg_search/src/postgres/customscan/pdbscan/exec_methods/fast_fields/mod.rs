@@ -31,10 +31,11 @@ use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
 use crate::postgres::customscan::pdbscan::projections::score::{score_funcoid, uses_scores};
 use crate::postgres::customscan::pdbscan::{scan_state::PdbScanState, PdbScan};
+use crate::postgres::rel::PgSearchRelation;
 use crate::schema::SearchIndexSchema;
 use itertools::Itertools;
 use pgrx::pg_sys::CustomScanState;
-use pgrx::{pg_sys, IntoDatum, PgList, PgOid, PgRelation, PgTupleDesc};
+use pgrx::{pg_sys, IntoDatum, PgList, PgOid, PgTupleDesc};
 use std::rc::Rc;
 use tantivy::columnar::StrColumn;
 use tantivy::termdict::TermOrdinal;
@@ -43,7 +44,7 @@ use tantivy::DocAddress;
 const NULL_TERM_ORDINAL: TermOrdinal = u64::MAX;
 
 pub struct FastFieldExecState {
-    heaprel: pg_sys::Relation,
+    heaprel: Option<PgSearchRelation>,
     tupdesc: Option<PgTupleDesc<'static>>,
 
     /// Execution time WhichFastFields.
@@ -75,7 +76,7 @@ impl Drop for FastFieldExecState {
 impl FastFieldExecState {
     pub fn new(which_fast_fields: Vec<WhichFastField>) -> Self {
         Self {
-            heaprel: std::ptr::null_mut(),
+            heaprel: None,
             tupdesc: None,
             which_fast_fields,
             ffhelper: Default::default(),
@@ -89,7 +90,7 @@ impl FastFieldExecState {
 
     fn init(&mut self, state: &mut PdbScanState, cstate: *mut CustomScanState) {
         unsafe {
-            self.heaprel = state.heaprel();
+            self.heaprel = Some(Clone::clone(state.heaprel()));
             self.tupdesc = Some(PgTupleDesc::from_pg_unchecked(
                 (*cstate).ss.ps.ps_ResultTupleDesc,
             ));
@@ -161,7 +162,7 @@ pub unsafe fn collect_fast_fields(
     referenced_columns: &HashSet<pg_sys::AttrNumber>,
     rti: pg_sys::Index,
     schema: &SearchIndexSchema,
-    heaprel: &PgRelation,
+    heaprel: &PgSearchRelation,
     is_execution_time: bool,
 ) -> Vec<WhichFastField> {
     let fast_fields = pullup_fast_fields(
@@ -183,7 +184,7 @@ fn collect_fast_field_try_for_attno(
     processed_attnos: &mut HashSet<pg_sys::AttrNumber>,
     matches: &mut Vec<WhichFastField>,
     tupdesc: &PgTupleDesc<'_>,
-    heaprel: &PgRelation,
+    heaprel: &PgSearchRelation,
     schema: &SearchIndexSchema,
 ) -> bool {
     // Skip if we've already processed this attribute number
@@ -249,7 +250,7 @@ pub unsafe fn pullup_fast_fields(
     node: *mut pg_sys::List,
     referenced_columns: &HashSet<pg_sys::AttrNumber>,
     schema: &SearchIndexSchema,
-    heaprel: &PgRelation,
+    heaprel: &PgSearchRelation,
     rti: pg_sys::Index,
     is_execution_time: bool,
 ) -> Option<Vec<WhichFastField>> {
@@ -542,7 +543,7 @@ pub fn explain(state: &CustomScanStateWrapper<PdbScan>, explainer: &mut Explaine
     }
 }
 
-pub fn estimate_cardinality(indexrel: &PgRelation, field: &FieldName) -> Option<usize> {
+pub fn estimate_cardinality(indexrel: &PgSearchRelation, field: &FieldName) -> Option<usize> {
     let reader = SearchIndexReader::open(indexrel, MvccSatisfies::Snapshot)
         .expect("estimate_cardinality: should be able to open SearchIndexReader");
     let searcher = reader.searcher();

@@ -28,7 +28,7 @@ pub use rustc_hash::FxHashMap as HashMap;
 pub use rustc_hash::FxHashSet as HashSet;
 use serde::{Deserialize, Serialize};
 use std::ffi::CStr;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use tantivy::json_utils::split_json_path;
 
 #[macro_export]

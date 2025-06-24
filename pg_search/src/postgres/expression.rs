@@ -15,12 +15,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use pgrx::{pg_sys, PgList, PgRelation};
+use crate::postgres::rel::PgSearchRelation;
+use pgrx::{pg_sys, PgList};
 
 pub const PG_SEARCH_PREFIX: &str = "_pg_search_";
 
 /// Returns the attribute number of the node in the index.
-pub fn find_expr_attnum(indexrel: &PgRelation, node: *mut pg_sys::Node) -> Option<i32> {
+pub fn find_expr_attnum(indexrel: &PgSearchRelation, node: *mut pg_sys::Node) -> Option<i32> {
     let index_info = unsafe { *pg_sys::BuildIndexInfo(indexrel.as_ptr()) };
 
     let expressions = unsafe { PgList::<pg_sys::Expr>::from_pg(index_info.ii_Expressions) };

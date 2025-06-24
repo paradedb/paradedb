@@ -24,13 +24,13 @@ use crate::postgres::customscan::pdbscan::exec_methods::ExecMethod;
 use crate::postgres::customscan::pdbscan::projections::snippet::SnippetType;
 use crate::postgres::customscan::pdbscan::qual_inspect::Qual;
 use crate::postgres::customscan::CustomScanState;
-use crate::postgres::options::SearchIndexOptions;
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::u64_to_item_pointer;
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::postgres::ParallelScanState;
 use crate::query::{AsHumanReadable, SearchQueryInput};
 use pgrx::heap_tuple::PgHeapTuple;
-use pgrx::{name_data_to_str, pg_sys, PgRelation, PgTupleDesc};
+use pgrx::{name_data_to_str, pg_sys, PgTupleDesc};
 use std::cell::UnsafeCell;
 use tantivy::snippet::SnippetGenerator;
 use tantivy::SegmentReader;
@@ -64,13 +64,10 @@ pub struct PdbScanState {
     pub invisible_tuple_count: usize,
 
     pub heaprelid: pg_sys::Oid,
-    pub heaprel: Option<pg_sys::Relation>,
-    pub indexrel: Option<pg_sys::Relation>,
+    pub heaprel: Option<PgSearchRelation>,
+    pub indexrel: Option<PgSearchRelation>,
     pub indexrelid: pg_sys::Oid,
     pub lockmode: pg_sys::LOCKMODE,
-
-    pub heaprel_namespace: String,
-    pub heaprel_relname: String,
 
     pub visibility_checker: Option<VisibilityChecker>,
     pub segment_count: usize,
@@ -109,6 +106,25 @@ impl CustomScanState for PdbScanState {
 }
 
 impl PdbScanState {
+    pub fn open_relations(&mut self, lockmode: pg_sys::LOCKMODE) {
+        self.lockmode = lockmode;
+        if self.heaprel.is_none() {
+            self.heaprel = if lockmode == pg_sys::NoLock as pg_sys::LOCKMODE {
+                Some(PgSearchRelation::open(self.heaprelid))
+            } else {
+                Some(PgSearchRelation::with_lock(self.heaprelid, lockmode))
+            }
+        };
+
+        if self.indexrel.is_none() {
+            self.indexrel = if lockmode == pg_sys::NoLock as pg_sys::LOCKMODE {
+                Some(PgSearchRelation::open(self.indexrelid))
+            } else {
+                Some(PgSearchRelation::with_lock(self.indexrelid, lockmode))
+            }
+        };
+    }
+
     pub fn set_base_search_query_input(&mut self, input: SearchQueryInput) {
         self.base_search_query_input = input;
     }
@@ -206,48 +222,38 @@ impl PdbScanState {
     }
 
     #[inline(always)]
-    pub fn determine_key_field(&self) -> FieldName {
-        unsafe {
-            let indexrel = PgRelation::with_lock(self.indexrelid, pg_sys::AccessShareLock as _);
-            let ops = SearchIndexOptions::from_relation(&indexrel);
-            ops.key_field_name()
-        }
-    }
-
-    #[inline(always)]
     pub fn need_snippets(&self) -> bool {
         !self.snippet_generators.is_empty()
     }
 
     #[track_caller]
     #[inline(always)]
-    pub fn heaprel(&self) -> pg_sys::Relation {
-        self.heaprel.unwrap()
+    pub fn heaprel(&self) -> &PgSearchRelation {
+        self.heaprel
+            .as_ref()
+            .expect("PdbScanState: heaprel should be initialized")
     }
 
     #[inline(always)]
-    pub fn indexrel(&self) -> pg_sys::Relation {
-        self.indexrel.unwrap()
-    }
-
-    #[inline(always)]
-    pub fn heaprel_namespace(&self) -> &str {
-        &self.heaprel_namespace
+    pub fn indexrel(&self) -> &PgSearchRelation {
+        self.indexrel
+            .as_ref()
+            .expect("PdbScanState: indexrel should be initialized")
     }
 
     #[inline(always)]
     pub fn heaprelname(&self) -> &str {
-        &self.heaprel_relname
+        unsafe { name_data_to_str(&(*self.heaprel().rd_rel).relname) }
     }
 
     #[inline(always)]
     pub fn indexrelname(&self) -> &str {
-        unsafe { name_data_to_str(&(*(*self.indexrel()).rd_rel).relname) }
+        unsafe { name_data_to_str(&(*self.indexrel().rd_rel).relname) }
     }
 
     #[inline(always)]
     pub fn heaptupdesc(&self) -> pg_sys::TupleDesc {
-        unsafe { (*self.heaprel()).rd_att }
+        self.heaprel().rd_att
     }
 
     #[inline(always)]
@@ -322,9 +328,7 @@ impl PdbScanState {
     ///
     /// This function supports text, text[], and json/jsonb fields
     unsafe fn doc_from_heap(&self, ctid: u64, field: &FieldName) -> Option<String> {
-        let heaprel = self
-            .heaprel
-            .expect("make_snippet: heaprel should be initialized");
+        let heaprel = self.heaprel();
         let mut ipd = pg_sys::ItemPointerData::default();
         u64_to_item_pointer(ctid, &mut ipd);
 
@@ -336,7 +340,12 @@ impl PdbScanState {
 
         #[cfg(feature = "pg14")]
         {
-            if !pg_sys::heap_fetch(heaprel, pg_sys::GetActiveSnapshot(), &mut htup, &mut buffer) {
+            if !pg_sys::heap_fetch(
+                heaprel.as_ptr(),
+                pg_sys::GetActiveSnapshot(),
+                &mut htup,
+                &mut buffer,
+            ) {
                 return None;
             }
         }
@@ -344,7 +353,7 @@ impl PdbScanState {
         #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
         {
             if !pg_sys::heap_fetch(
-                heaprel,
+                heaprel.as_ptr(),
                 pg_sys::GetActiveSnapshot(),
                 &mut htup,
                 &mut buffer,
@@ -356,7 +365,7 @@ impl PdbScanState {
 
         pg_sys::ReleaseBuffer(buffer);
 
-        let tuple_desc = PgTupleDesc::from_pg_unchecked((*heaprel).rd_att);
+        let tuple_desc = PgTupleDesc::from_pg_unchecked(heaprel.rd_att);
         let heap_tuple = PgHeapTuple::from_heap_tuple(tuple_desc.clone(), &mut htup);
         let (index, attribute) = heap_tuple.get_attribute_by_name(&field.root()).unwrap();
 

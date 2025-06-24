@@ -59,6 +59,7 @@ use crate::postgres::customscan::pdbscan::qual_inspect::{
 };
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::customscan::{self, CustomScan, CustomScanState};
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::var::find_var_relation;
 use crate::postgres::visibility_checker::VisibilityChecker;
@@ -90,10 +91,9 @@ impl PdbScan {
             .custom_state()
             .indexrel
             .as_ref()
-            .map(|indexrel| unsafe { PgRelation::from_pg(*indexrel) })
             .expect("custom_state.indexrel should already be open");
 
-        let search_reader = SearchIndexReader::open(&indexrel, unsafe {
+        let search_reader = SearchIndexReader::open(indexrel, unsafe {
             if pg_sys::ParallelWorkerNumber == -1 {
                 // the leader only sees snapshot-visible segments
                 MvccSatisfies::Snapshot
@@ -301,9 +301,9 @@ impl CustomScan for PdbScan {
             let root = builder.args().root;
             let rel = builder.args().rel;
 
-            let directory = MVCCDirectory::snapshot(bm25_index.oid());
+            let directory = MVCCDirectory::snapshot(&bm25_index);
             let index = Index::open(directory).expect("custom_scan: should be able to open index");
-            let schema = SearchIndexSchema::open(bm25_index.oid())
+            let schema = SearchIndexSchema::open(&bm25_index)
                 .expect("custom_scan: should be able to open schema");
             let pathkey = pullup_orderby_pathkey(&mut builder, rti, &schema, root);
 
@@ -618,11 +618,11 @@ impl CustomScan for PdbScan {
 
             // Extract the indexrelid early to avoid borrow checker issues later
             let indexrelid = private_data.indexrelid().expect("indexrelid should be set");
-            let indexrel = PgRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
-            let directory = MVCCDirectory::snapshot(indexrel.oid());
+            let indexrel = PgSearchRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
+            let directory = MVCCDirectory::snapshot(&indexrel);
             let index = Index::open(directory)
                 .expect("should be able to open index for snippet extraction");
-            let schema = SearchIndexSchema::open(indexrelid)
+            let schema = SearchIndexSchema::open(&indexrel)
                 .expect("should be able to open schema for snippet extraction");
 
             let base_query = builder
@@ -661,6 +661,10 @@ impl CustomScan for PdbScan {
                 .custom_private()
                 .indexrelid()
                 .expect("indexrelid should have a value");
+
+            builder
+                .custom_state()
+                .open_relations(pg_sys::AccessShareLock as _);
 
             builder.custom_state().execution_rti =
                 (*builder.args().cscan).scan.scanrelid as pg_sys::Index;
@@ -867,26 +871,7 @@ impl CustomScan for PdbScan {
             assert!(!rte.is_null());
             let lockmode = (*rte).rellockmode as pg_sys::LOCKMODE;
 
-            let (heaprel, indexrel) = if lockmode == pg_sys::NoLock as pg_sys::LOCKMODE {
-                (
-                    pg_sys::RelationIdGetRelation(state.custom_state().heaprelid),
-                    pg_sys::RelationIdGetRelation(state.custom_state().indexrelid),
-                )
-            } else {
-                (
-                    pg_sys::relation_open(state.custom_state().heaprelid, lockmode),
-                    pg_sys::relation_open(state.custom_state().indexrelid, lockmode),
-                )
-            };
-
-            state.custom_state_mut().heaprel = Some(heaprel);
-            state.custom_state_mut().indexrel = Some(indexrel);
-            state.custom_state_mut().lockmode = lockmode;
-
-            state.custom_state_mut().heaprel_namespace =
-                PgRelation::from_pg(heaprel).namespace().to_string();
-            state.custom_state_mut().heaprel_relname =
-                PgRelation::from_pg(heaprel).name().to_string();
+            state.custom_state_mut().open_relations(lockmode);
 
             if eflags & (pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) != 0 {
                 // don't do anything else if we're only explaining the query
@@ -894,9 +879,11 @@ impl CustomScan for PdbScan {
             }
 
             // setup the structures we need to do mvcc checking
-            state.custom_state_mut().visibility_checker = Some(
-                VisibilityChecker::with_rel_and_snap(heaprel, pg_sys::GetActiveSnapshot()),
-            );
+            state.custom_state_mut().visibility_checker =
+                Some(VisibilityChecker::with_rel_and_snap(
+                    state.custom_state().heaprel(),
+                    pg_sys::GetActiveSnapshot(),
+                ));
 
             // and finally, get the custom scan itself properly initialized
             let tupdesc = state.custom_state().heaptupdesc();
@@ -904,7 +891,7 @@ impl CustomScan for PdbScan {
                 estate,
                 addr_of_mut!(state.csstate.ss),
                 tupdesc,
-                pg_sys::table_slot_callbacks(state.custom_state().heaprel()),
+                pg_sys::table_slot_callbacks(state.custom_state().heaprel().as_ptr()),
             );
             pg_sys::ExecInitResultTypeTL(addr_of_mut!(state.csstate.ss.ps));
             pg_sys::ExecAssignProjectionInfo(
@@ -1103,16 +1090,8 @@ impl CustomScan for PdbScan {
         ));
         drop(std::mem::take(&mut state.custom_state_mut().search_results));
 
-        if let Some(heaprel) = state.custom_state_mut().heaprel.take() {
-            unsafe {
-                pg_sys::relation_close(heaprel, state.custom_state().lockmode);
-            }
-        }
-        if let Some(indexrel) = state.custom_state_mut().indexrel.take() {
-            unsafe {
-                pg_sys::relation_close(indexrel, state.custom_state().lockmode);
-            }
-        }
+        state.custom_state_mut().heaprel.take();
+        state.custom_state_mut().indexrel.take();
     }
 }
 
@@ -1258,14 +1237,10 @@ fn compute_exec_which_fast_fields(
     planned_which_fast_fields: HashSet<WhichFastField>,
 ) -> Option<Vec<WhichFastField>> {
     let exec_which_fast_fields = unsafe {
-        let indexrel = PgRelation::open(builder.custom_state().indexrelid);
-        let heaprel = indexrel
-            .heap_relation()
-            .expect("index should belong to a table");
-        let directory = MVCCDirectory::snapshot(indexrel.oid());
+        let directory = MVCCDirectory::snapshot(builder.custom_state().indexrel());
         let index =
             Index::open(directory).expect("create_custom_scan_state: should be able to open index");
-        let schema = SearchIndexSchema::open(indexrel.oid())
+        let schema = SearchIndexSchema::open(builder.custom_state().indexrel())
             .expect("custom_scan: should be able to open schema");
 
         // Calculate the ordered set of fast fields which have actually been requested in
@@ -1281,7 +1256,7 @@ fn compute_exec_which_fast_fields(
             &HashSet::default(),
             builder.custom_state().execution_rti,
             &schema,
-            &heaprel,
+            builder.custom_state().heaprel(),
             true,
         )
     };
@@ -1452,12 +1427,12 @@ pub fn text_lower_funcoid() -> pg_sys::Oid {
 
 #[inline(always)]
 pub fn is_block_all_visible(
-    heaprel: pg_sys::Relation,
+    heaprel: &PgSearchRelation,
     vmbuff: &mut pg_sys::Buffer,
     heap_blockno: pg_sys::BlockNumber,
 ) -> bool {
     unsafe {
-        let status = pg_sys::visibilitymap_get_status(heaprel, heap_blockno, vmbuff);
+        let status = pg_sys::visibilitymap_get_status(heaprel.as_ptr(), heap_blockno, vmbuff);
         status != 0
     }
 }

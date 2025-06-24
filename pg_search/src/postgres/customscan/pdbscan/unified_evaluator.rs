@@ -45,6 +45,14 @@ impl UnifiedEvaluationResult {
         }
     }
 
+    /// Create a result for a non-indexed match preserving the current score
+    pub fn non_indexed_match_with_score(current_score: f32) -> Self {
+        Self {
+            matches: true,
+            score: current_score,
+        }
+    }
+
     /// Create a result for no match
     pub fn no_match() -> Self {
         Self {
@@ -525,7 +533,9 @@ impl<'a> UnifiedExpressionEvaluator<'a> {
                     if (*const_node).consttype == pg_sys::BOOLOID {
                         let bool_val = pg_sys::DatumGetBool((*const_node).constvalue);
                         if bool_val {
-                            Ok(UnifiedEvaluationResult::non_indexed_match())
+                            Ok(UnifiedEvaluationResult::non_indexed_match_with_score(
+                                self.current_score,
+                            ))
                         } else {
                             Ok(UnifiedEvaluationResult::no_match())
                         }
@@ -584,7 +594,9 @@ impl<'a> UnifiedExpressionEvaluator<'a> {
                     );
 
                     if result_bool {
-                        Ok(UnifiedEvaluationResult::non_indexed_match())
+                        Ok(UnifiedEvaluationResult::non_indexed_match_with_score(
+                            self.current_score,
+                        ))
                     } else {
                         Ok(UnifiedEvaluationResult::no_match())
                     }
@@ -648,7 +660,9 @@ impl<'a> UnifiedExpressionEvaluator<'a> {
             );
 
             if result_bool {
-                Ok(UnifiedEvaluationResult::non_indexed_match())
+                Ok(UnifiedEvaluationResult::non_indexed_match_with_score(
+                    self.current_score,
+                ))
             } else {
                 Ok(UnifiedEvaluationResult::no_match())
             }

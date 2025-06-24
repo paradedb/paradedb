@@ -2604,7 +2604,14 @@ unsafe fn optimize_base_query_for_unified_evaluation(
 
                     match search_query_input {
                         SearchQueryInput::All => {
-                            debug_log!("🔧 [OPTIMIZE] Heap filter expression contains only non-indexed fields");
+                            debug_log!("🔧 [OPTIMIZE] Heap filter expression contains search operators but requires ALL query for unified evaluation");
+                            // CRITICAL FIX: Even if we get SearchQueryInput::All, if the expression contains
+                            // search operators, we still want a custom scan for unified evaluation and scoring
+                            if expression_contains_search_operators(heap_filter_node, pdbopoid) {
+                                // Set ALL query for unified evaluation
+                                builder.custom_private().set_query(search_query_input);
+                                return Some(Qual::All);
+                            }
                         }
                         _ => {
                             // We have a proper Tantivy query from the heap filter
@@ -2673,8 +2680,12 @@ unsafe fn optimize_base_query_for_unified_evaluation(
                     // and let the heap filter handle the complete expression
                     match search_query_input {
                         SearchQueryInput::All => {
-                            // Expression contains only non-indexed fields, fall back to old approach
-                            debug_log!("🔧 [OPTIMIZE] Original expression contains only non-indexed fields, falling back");
+                            // CRITICAL FIX: Even if we get SearchQueryInput::All, if the original expression contains
+                            // search operators, we still want a custom scan for unified evaluation and scoring
+                            debug_log!("🔧 [OPTIMIZE] Original expression requires ALL query but contains search operators");
+                            // Set ALL query for unified evaluation
+                            builder.custom_private().set_query(search_query_input);
+                            return Some(Qual::All);
                         }
                         _ => {
                             // We have a proper Tantivy query - set it directly in the builder

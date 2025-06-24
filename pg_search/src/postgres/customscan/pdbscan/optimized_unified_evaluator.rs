@@ -199,14 +199,12 @@ impl ExpressionTreeOptimizer {
                             // No search operators found - return All to scan all documents
                             Ok(SearchQueryInput::All)
                         } else if has_non_indexed {
-                            // CRITICAL FIX: For mixed OR expressions with search operators
-                            // We cannot create a pure SHOULD query because non-indexed branches
-                            // could match documents that don't match any search operator.
-                            // Instead, we must scan all documents and rely on heap filter.
-                            //
-                            // HOWEVER, there's an important exception: if we're inside a NOT expression,
-                            // the parent NOT logic will handle the inversion properly.
-                            // For now, return All and let the parent decide.
+                            // For mixed OR expressions with search operators and non-indexed predicates:
+                            // We MUST use SearchQueryInput::All to scan all documents because:
+                            // 1. Documents matching the non-indexed predicate might not match any search operator
+                            // 2. The unified heap filter will properly evaluate the complete OR expression
+                            // 3. This ensures we get scoring for the search operator matches
+                            // 4. The custom scan will be created and scoring will work
                             Ok(SearchQueryInput::All)
                         } else {
                             // All indexed: create clean boolean query

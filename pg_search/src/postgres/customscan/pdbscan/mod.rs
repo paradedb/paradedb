@@ -50,8 +50,8 @@ use crate::postgres::customscan::pdbscan::exec_methods::{
 };
 use crate::postgres::customscan::pdbscan::optimized_unified_evaluator::{
     apply_optimized_unified_heap_filter, ExpressionTreeOptimizer, OptimizedEvaluationResult,
-    UniversalExpressionBuilder,
 };
+// Import moved to the existing use statement above
 use crate::postgres::customscan::pdbscan::parallel::{compute_nworkers, list_segment_ids};
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
 use crate::postgres::customscan::pdbscan::projections::score::{
@@ -67,9 +67,6 @@ use crate::postgres::customscan::pdbscan::qual_inspect::{
     extract_join_predicates, extract_quals_with_non_indexed, Qual,
 };
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
-use crate::postgres::customscan::pdbscan::unified_evaluator::{
-    apply_complete_unified_heap_filter, UnifiedEvaluationResult,
-};
 use crate::postgres::customscan::{self, CustomScan, CustomScanState};
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::var::find_var_relation;
@@ -1249,7 +1246,7 @@ impl CustomScan for PdbScan {
                                     let search_reader =
                                         state.custom_state().search_reader.as_ref().unwrap();
 
-                                    let result = apply_complete_unified_heap_filter(
+                                    let result = apply_optimized_unified_heap_filter(
                                         search_reader,
                                         &schema,
                                         &heap_filter_node_string,
@@ -1258,11 +1255,10 @@ impl CustomScan for PdbScan {
                                         doc_address.doc_id,
                                         doc_address,
                                         score,
+                                        anyelement_query_input_opoid(),
                                     );
 
-                                    result
-                                        .unwrap_or_else(|_| UnifiedEvaluationResult::no_match())
-                                        .into()
+                                    result.unwrap_or_else(|_| OptimizedEvaluationResult::no_match())
                                 } else {
                                     debug_log!("⚠️  [DEBUG] No search_reader/indexrel available, falling back to enhanced heap filter");
                                     apply_enhanced_heap_filter(state, slot, score, doc_address)
@@ -2536,6 +2532,7 @@ unsafe fn apply_enhanced_heap_filter(
             0, // We don't have the actual DocId here, using 0 as placeholder
             doc_address,
             current_score,
+            anyelement_query_input_opoid(),
         ) {
             Ok(result) => result,
             Err(e) => {
@@ -2618,6 +2615,8 @@ unsafe fn optimize_base_query_for_unified_evaluation(
 
                             // Set the optimized SearchQueryInput directly
                             builder.custom_private().set_query(search_query_input);
+
+                            // TODO: Create Universal Reader at execution time when we have access to the indexrel
 
                             // Return a synthetic Qual to indicate we handled the optimization
                             return Some(Qual::All);

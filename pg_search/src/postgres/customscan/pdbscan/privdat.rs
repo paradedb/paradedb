@@ -53,6 +53,9 @@ pub struct PrivateData {
     // Store the heap filter expression as a serialized PostgreSQL node string
     // This will be deserialized at execution time and converted to ExprState for evaluation
     heap_filter_node_string: Option<String>,
+    // Universal Reader is not serialized - it will be recreated at execution time
+    #[serde(skip)]
+    universal_reader: Option<super::optimized_unified_evaluator::UniversalReader>,
 }
 
 mod var_attname_lookup_serializer {
@@ -230,6 +233,13 @@ impl PrivateData {
     pub fn set_heap_filter_node_string(&mut self, heap_filter_node_string: Option<String>) {
         self.heap_filter_node_string = heap_filter_node_string;
     }
+
+    pub fn set_universal_reader(
+        &mut self,
+        universal_reader: super::optimized_unified_evaluator::UniversalReader,
+    ) {
+        self.universal_reader = Some(universal_reader);
+    }
 }
 
 //
@@ -308,5 +318,9 @@ impl PrivateData {
 
     pub fn heap_filter_node_string(&self) -> &Option<String> {
         &self.heap_filter_node_string
+    }
+
+    pub fn universal_reader(&self) -> &Option<super::optimized_unified_evaluator::UniversalReader> {
+        &self.universal_reader
     }
 }

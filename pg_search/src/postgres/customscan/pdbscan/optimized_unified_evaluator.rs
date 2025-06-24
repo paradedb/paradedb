@@ -994,6 +994,7 @@ pub unsafe fn apply_optimized_unified_heap_filter(
     doc_id: DocId,
     _doc_address: DocAddress,
     _current_score: f32,
+    pdbopoid: pg_sys::Oid,
 ) -> Result<OptimizedEvaluationResult, &'static str> {
     // Parse the heap filter expression into a PostgreSQL node tree
     let parsed_expr =
@@ -1004,9 +1005,30 @@ pub unsafe fn apply_optimized_unified_heap_filter(
         return Err("Failed to parse heap filter expression");
     }
 
-    // Parse and optimize the expression tree
-    let optimized_tree = ExpressionTreeOptimizer::from_postgres_node(parsed_expr)
-        .map_err(|_| "Failed to optimize expression tree")?;
+    // Parse and optimize the expression tree - use the method that accepts pdbopoid
+    let search_query =
+        ExpressionTreeOptimizer::build_search_query_from_expression(parsed_expr, schema, pdbopoid)
+            .map_err(|_| "Failed to build search query from expression")?;
+
+    // For now, create a simple optimized tree from the search query result
+    // This provides the correct operator detection while maintaining the interface
+    let optimized_tree = if matches!(search_query, SearchQueryInput::All) {
+        // If we get ALL, it means no search operators were found, treat as PostgreSQL expression
+        OptimizedExpressionNode::PostgreSQLLeaf(PostgreSQLLeaf { expr: parsed_expr })
+    } else {
+        // If we got a real search query, create a Tantivy leaf
+        OptimizedExpressionNode::ConsolidatedTantivyLeaf(ConsolidatedTantivyLeaf {
+            boolean_query: TantivyBooleanQuery {
+                must: vec![TantivyFieldQuery {
+                    field: "name".to_string(), // Default field for now
+                    query: search_query.as_human_readable(),
+                    search_query_input: search_query,
+                }],
+                should: vec![],
+                must_not: vec![],
+            },
+        })
+    };
 
     // Create the optimized evaluator
     let evaluator = OptimizedExpressionTreeEvaluator::new(search_reader, schema, expr_context);
@@ -1020,6 +1042,7 @@ pub unsafe fn apply_optimized_unified_heap_filter(
 /// Universal Reader that can handle complex expressions mixing Tantivy and PostgreSQL operations
 /// This implements the true unified execution approach where we build an expression tree
 /// with Tantivy nodes for search operators and PostgreSQL nodes for non-indexed predicates
+#[derive(Debug)]
 pub struct UniversalReader {
     /// The root of the expression tree
     root: UniversalExpressionNode,
@@ -1089,6 +1112,35 @@ impl fmt::Display for UniversalExpressionNode {
             }
             UniversalExpressionNode::Not { child } => {
                 write!(f, "NOT({})", child)
+            }
+        }
+    }
+}
+
+impl fmt::Debug for UniversalExpressionNode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            UniversalExpressionNode::Tantivy { query, .. } => f
+                .debug_struct("Tantivy")
+                .field("query", &query.as_human_readable())
+                .field("search_reader", &"<SearchIndexReader>")
+                .finish(),
+            UniversalExpressionNode::PostgreSQL {
+                needs_all_docs,
+                expression,
+            } => f
+                .debug_struct("PostgreSQL")
+                .field("needs_all_docs", needs_all_docs)
+                .field("expression", &format!("{:p}", expression))
+                .finish(),
+            UniversalExpressionNode::And { children } => {
+                f.debug_struct("And").field("children", children).finish()
+            }
+            UniversalExpressionNode::Or { children } => {
+                f.debug_struct("Or").field("children", children).finish()
+            }
+            UniversalExpressionNode::Not { child } => {
+                f.debug_struct("Not").field("child", child).finish()
             }
         }
     }
@@ -1342,87 +1394,149 @@ impl UniversalExpressionBuilder {
     }
 }
 
+#[derive(Debug)]
+pub struct UniversalEvaluationResult {
+    pub matches: bool,
+    pub score: f32,
+}
+
 impl UniversalReader {
     pub fn new(root: UniversalExpressionNode, schema: SearchIndexSchema) -> Self {
         Self { root, schema }
     }
 
-    /// Execute the universal expression tree and return matching document IDs
-    pub fn execute(&self) -> Result<Vec<u32>, &'static str> {
-        self.execute_node(&self.root)
+    /// Execute the Universal Reader for a specific document
+    pub unsafe fn execute_for_current_doc(
+        &self,
+        doc_id: DocId,
+        slot: *mut pg_sys::TupleTableSlot,
+    ) -> Result<UniversalEvaluationResult, &'static str> {
+        self.execute_node(&self.root, doc_id, slot)
     }
 
-    fn execute_node(&self, node: &UniversalExpressionNode) -> Result<Vec<u32>, &'static str> {
+    /// Execute a specific node in the expression tree
+    unsafe fn execute_node(
+        &self,
+        node: &UniversalExpressionNode,
+        doc_id: DocId,
+        slot: *mut pg_sys::TupleTableSlot,
+    ) -> Result<UniversalEvaluationResult, &'static str> {
         match node {
             UniversalExpressionNode::Tantivy {
                 search_reader,
                 query,
             } => {
-                // Execute the Tantivy query
-                // TODO: Implement actual query execution
-                Ok(vec![])
+                // Check if this document matches the Tantivy query
+                // For now, return a simplified result
+                // TODO: Implement proper search reader document matching
+                Ok(UniversalEvaluationResult {
+                    matches: true, // Simplified - would check actual query
+                    score: 1.0,    // Simplified - would get actual BM25 score
+                })
             }
-            UniversalExpressionNode::PostgreSQL { needs_all_docs, .. } => {
-                if *needs_all_docs {
-                    // Return all document IDs - these will be filtered by PostgreSQL
-                    // TODO: Get actual document count from schema
-                    Ok((0..1000).collect()) // Placeholder
-                } else {
-                    // This is a filter-only expression, return empty (should not happen at root)
-                    Ok(vec![])
-                }
+            UniversalExpressionNode::PostgreSQL { expression, .. } => {
+                // Execute PostgreSQL expression
+                // For now, return a simplified result
+                // TODO: Implement proper PostgreSQL expression evaluation
+                Ok(UniversalEvaluationResult {
+                    matches: true, // Simplified - would evaluate actual expression
+                    score: 1.0,    // PostgreSQL predicates get default score
+                })
             }
             UniversalExpressionNode::And { children } => {
-                // Execute all children and intersect results
-                let mut result: Option<Vec<u32>> = None;
+                let mut all_match = true;
+                let mut total_score = 0.0;
+                let mut score_count = 0;
 
                 for child in children {
-                    let child_result = self.execute_node(child)?;
-                    match result {
-                        None => result = Some(child_result),
-                        Some(ref current) => {
-                            // Intersect with current result
-                            let intersection: Vec<u32> = current
-                                .iter()
-                                .filter(|&id| child_result.contains(id))
-                                .copied()
-                                .collect();
-                            result = Some(intersection);
-                        }
+                    let result = self.execute_node(child, doc_id, slot)?;
+                    if !result.matches {
+                        all_match = false;
+                        break;
+                    }
+                    if result.score > 0.0 {
+                        total_score += result.score;
+                        score_count += 1;
                     }
                 }
 
-                Ok(result.unwrap_or_default())
+                let final_score = if all_match && score_count > 0 {
+                    total_score / score_count as f32
+                } else if all_match {
+                    1.0
+                } else {
+                    0.0
+                };
+
+                Ok(UniversalEvaluationResult {
+                    matches: all_match,
+                    score: final_score,
+                })
             }
             UniversalExpressionNode::Or { children } => {
-                // Execute all children and union results
-                let mut result = Vec::new();
+                let mut any_match = false;
+                let mut best_score: f32 = 0.0;
 
                 for child in children {
-                    let child_result = self.execute_node(child)?;
-                    for id in child_result {
-                        if !result.contains(&id) {
-                            result.push(id);
-                        }
+                    let result = self.execute_node(child, doc_id, slot)?;
+                    if result.matches {
+                        any_match = true;
+                        best_score = best_score.max(result.score);
                     }
                 }
 
-                result.sort();
-                Ok(result)
+                Ok(UniversalEvaluationResult {
+                    matches: any_match,
+                    score: if any_match { best_score.max(1.0) } else { 0.0 },
+                })
             }
             UniversalExpressionNode::Not { child } => {
-                // Execute child and return complement
-                let child_result = self.execute_node(child)?;
+                let child_result = self.execute_node(child, doc_id, slot)?;
 
-                // TODO: Get all document IDs and subtract child_result
-                // For now, return placeholder
-                Ok(vec![])
+                Ok(UniversalEvaluationResult {
+                    matches: !child_result.matches,
+                    score: if !child_result.matches { 1.0 } else { 0.0 },
+                })
             }
         }
     }
+}
 
-    /// Get a description of the expression tree for debugging
-    pub fn describe(&self) -> String {
-        format!("UniversalReader: {}", self.root)
+/// Extract the optimal base query from a Universal Expression Tree
+pub fn extract_base_query_from_tree(tree: &UniversalExpressionNode) -> SearchQueryInput {
+    match tree {
+        UniversalExpressionNode::Tantivy { query, .. } => query.clone(),
+        UniversalExpressionNode::And { children } | UniversalExpressionNode::Or { children } => {
+            // Find first Tantivy node and use its query
+            for child in children {
+                if let UniversalExpressionNode::Tantivy { query, .. } = child {
+                    return query.clone();
+                }
+                // Recursively search in complex children
+                let child_query = extract_base_query_from_tree(child);
+                if !matches!(child_query, SearchQueryInput::All) {
+                    return child_query;
+                }
+            }
+            SearchQueryInput::All
+        }
+        UniversalExpressionNode::Not { child } => {
+            // For NOT, we typically need to scan all documents unless we can optimize
+            // Check if the child has a Tantivy query we can use
+            let child_query = extract_base_query_from_tree(child);
+            match child_query {
+                SearchQueryInput::All => SearchQueryInput::All,
+                _ => {
+                    // For NOT queries with specific Tantivy predicates, we still scan all
+                    // since we need to find documents that DON'T match
+                    SearchQueryInput::All
+                }
+            }
+        }
+        UniversalExpressionNode::PostgreSQL {
+            needs_all_docs: true,
+            ..
+        } => SearchQueryInput::All,
+        _ => SearchQueryInput::All,
     }
 }

@@ -501,47 +501,93 @@ impl<'a> UnifiedExpressionEvaluator<'a> {
         Ok(result)
     }
 
-    /// Evaluate a PostgreSQL expression directly
+    /// Evaluate an expression using PostgreSQL's expression evaluator
     unsafe fn evaluate_with_postgres(
         &self,
         expr: *mut pg_sys::Node,
         slot: *mut pg_sys::TupleTableSlot,
     ) -> Result<UnifiedEvaluationResult, &'static str> {
-        // Set the scan tuple in the expression context
-        (*self.expr_context).ecxt_scantuple = slot;
-
-        // For PostgreSQL expressions, we need to implement proper evaluation
-        // Since we can't easily use ExecEvalExpr with raw nodes, we'll implement
-        // a simplified evaluator for the most common cases
-
         match (*expr).type_ {
             pg_sys::NodeTag::T_OpExpr => {
                 let op_expr = expr.cast::<pg_sys::OpExpr>();
                 self.evaluate_postgres_op_expr(op_expr, slot)
             }
             pg_sys::NodeTag::T_Const => {
+                // Handle constant values
                 let const_node = expr.cast::<pg_sys::Const>();
-                if (*const_node).consttype == pg_sys::BOOLOID && !(*const_node).constisnull {
-                    let bool_value =
-                        bool::from_datum((*const_node).constvalue, false).unwrap_or(false);
-                    if bool_value {
+                if (*const_node).constisnull {
+                    Ok(UnifiedEvaluationResult::no_match())
+                } else {
+                    // For non-null constants, we need to determine their boolean value
+                    // For now, assume non-null constants are true
+                    // In practice, we'd need to properly evaluate the constant's value
+                    if (*const_node).consttype == pg_sys::BOOLOID {
+                        let bool_val = pg_sys::DatumGetBool((*const_node).constvalue);
+                        if bool_val {
+                            Ok(UnifiedEvaluationResult::non_indexed_match())
+                        } else {
+                            Ok(UnifiedEvaluationResult::no_match())
+                        }
+                    } else {
+                        Ok(UnifiedEvaluationResult::no_match())
+                    }
+                }
+            }
+            // For all other expression types (including T_Var), use PostgreSQL's generic evaluation
+            _ => {
+                pgrx::warning!(
+                    "🔧 [DEBUG] Using generic PostgreSQL evaluation for node type: {}",
+                    (*expr).type_ as i32
+                );
+
+                // Initialize expression state
+                let expr_state =
+                    pg_sys::ExecInitExpr(expr.cast::<pg_sys::Expr>(), std::ptr::null_mut());
+
+                if expr_state.is_null() {
+                    pgrx::warning!(
+                        "❌ [DEBUG] Failed to initialize expression state for node type {}",
+                        (*expr).type_ as i32
+                    );
+                    return Ok(UnifiedEvaluationResult::no_match());
+                }
+
+                // Set up the expression context with the current slot
+                let old_slot = (*self.expr_context).ecxt_scantuple;
+                (*self.expr_context).ecxt_scantuple = slot;
+
+                // Evaluate the expression using PostgreSQL's expression evaluator
+                let mut is_null = false;
+                let result_datum =
+                    pg_sys::ExecEvalExprSwitchContext(expr_state, self.expr_context, &mut is_null);
+
+                // Restore the original slot
+                (*self.expr_context).ecxt_scantuple = old_slot;
+
+                // Clean up the expression state
+                pg_sys::pfree(expr_state.cast());
+
+                if is_null {
+                    pgrx::warning!(
+                        "🔧 [DEBUG] Expression evaluated to NULL for node type {}",
+                        (*expr).type_ as i32
+                    );
+                    Ok(UnifiedEvaluationResult::no_match())
+                } else {
+                    // Convert the result datum to a boolean
+                    let result_bool = pg_sys::DatumGetBool(result_datum);
+                    pgrx::warning!(
+                        "🔧 [DEBUG] Node type {} evaluated to: {}",
+                        (*expr).type_ as i32,
+                        result_bool
+                    );
+
+                    if result_bool {
                         Ok(UnifiedEvaluationResult::non_indexed_match())
                     } else {
                         Ok(UnifiedEvaluationResult::no_match())
                     }
-                } else {
-                    Ok(UnifiedEvaluationResult::no_match())
                 }
-            }
-            _ => {
-                // For other expression types, assume they match
-                // This is a conservative approach - in practice, we'd need more
-                // sophisticated evaluation
-                pgrx::warning!(
-                    "⚠️ [DEBUG] Simplified evaluation for node type: {}",
-                    (*expr).type_ as i32
-                );
-                Ok(UnifiedEvaluationResult::non_indexed_match())
             }
         }
     }

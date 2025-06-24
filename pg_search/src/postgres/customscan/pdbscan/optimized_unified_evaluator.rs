@@ -7,6 +7,7 @@ use tantivy::{DocAddress, DocId};
 
 use crate::api::operator::{anyelement_query_input_opoid, anyelement_text_opoid};
 use crate::index::reader::index::SearchIndexReader;
+
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 
@@ -115,46 +116,298 @@ pub enum BooleanOperator {
 pub struct ExpressionTreeOptimizer;
 
 impl ExpressionTreeOptimizer {
-    /// Parse a PostgreSQL expression tree into an optimized expression tree
-    pub unsafe fn parse_and_optimize(
+    /// Build SearchQueryInput from expression tree, maximizing Tantivy usage
+    /// Only break down when hitting non-indexed fields
+    pub unsafe fn build_search_query_from_expression(
         expr: *mut pg_sys::Node,
-    ) -> Result<OptimizedExpressionNode, &'static str> {
-        let tree = Self::parse_expression_tree(expr)?;
-        Ok(Self::apply_optimization_passes(tree))
+        schema: &SearchIndexSchema,
+    ) -> Result<SearchQueryInput, &'static str> {
+        Self::extract_tantivy_query_from_node(expr, schema)
     }
 
-    /// Parse a PostgreSQL expression tree into an initial optimized tree
-    unsafe fn parse_expression_tree(
+    /// Extract the maximum Tantivy query from a PostgreSQL node
+    /// This follows the unified execution principle: push as much as possible to Tantivy
+    unsafe fn extract_tantivy_query_from_node(
+        node: *mut pg_sys::Node,
+        schema: &SearchIndexSchema,
+    ) -> Result<SearchQueryInput, &'static str> {
+        if node.is_null() {
+            return Ok(SearchQueryInput::All);
+        }
+
+        match (*node).type_ {
+            pg_sys::NodeTag::T_BoolExpr => {
+                let bool_expr = node.cast::<pg_sys::BoolExpr>();
+                let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
+
+                match (*bool_expr).boolop {
+                    pg_sys::BoolExprType::AND_EXPR => {
+                        // For AND: collect all Tantivy-compatible subexpressions
+                        let mut must_queries = Vec::new();
+                        let mut has_non_indexed = false;
+
+                        for arg in args.iter_ptr() {
+                            match Self::extract_tantivy_query_from_node(arg, schema) {
+                                Ok(SearchQueryInput::All) => {
+                                    // This branch contains non-indexed fields
+                                    has_non_indexed = true;
+                                }
+                                Ok(query) => {
+                                    must_queries.push(query);
+                                }
+                                Err(_) => {
+                                    has_non_indexed = true;
+                                }
+                            }
+                        }
+
+                        if must_queries.is_empty() && has_non_indexed {
+                            // All branches contain non-indexed fields, but check for special patterns
+                            // Look for OR expressions that might contain extractable search operators
+                            for arg in args.iter_ptr() {
+                                if let Some(extracted) =
+                                    Self::try_extract_from_mixed_or(arg, schema)
+                                {
+                                    return Ok(extracted);
+                                }
+                            }
+                            // No extractable patterns found
+                            Ok(SearchQueryInput::All)
+                        } else if must_queries.is_empty() {
+                            // All branches are empty
+                            Ok(SearchQueryInput::All)
+                        } else if has_non_indexed {
+                            // Mixed expression: create boolean query with indexed parts
+                            // The non-indexed parts will be handled by PostgreSQL filter
+                            Ok(SearchQueryInput::Boolean {
+                                must: must_queries,
+                                should: vec![],
+                                must_not: vec![],
+                            })
+                        } else {
+                            // All indexed: create clean boolean query
+                            Ok(SearchQueryInput::Boolean {
+                                must: must_queries,
+                                should: vec![],
+                                must_not: vec![],
+                            })
+                        }
+                    }
+                    pg_sys::BoolExprType::OR_EXPR => {
+                        // For OR: collect all Tantivy-compatible subexpressions
+                        let mut should_queries = Vec::new();
+                        let mut has_non_indexed = false;
+
+                        for arg in args.iter_ptr() {
+                            match Self::extract_tantivy_query_from_node(arg, schema) {
+                                Ok(SearchQueryInput::All) => {
+                                    // This branch contains non-indexed fields
+                                    has_non_indexed = true;
+                                }
+                                Ok(query) => {
+                                    should_queries.push(query);
+                                }
+                                Err(_) => {
+                                    has_non_indexed = true;
+                                }
+                            }
+                        }
+
+                        if should_queries.is_empty() {
+                            // All branches contain non-indexed fields
+                            Ok(SearchQueryInput::All)
+                        } else if has_non_indexed {
+                            // Mixed OR expression: need to scan all documents
+                            // because non-indexed branches could match any document
+                            Ok(SearchQueryInput::All)
+                        } else {
+                            // All indexed: create clean boolean query
+                            Ok(SearchQueryInput::Boolean {
+                                must: vec![],
+                                should: should_queries,
+                                must_not: vec![],
+                            })
+                        }
+                    }
+                    pg_sys::BoolExprType::NOT_EXPR => {
+                        // For NOT: try to extract the inner expression
+                        if let Some(inner_arg) = args.get_ptr(0) {
+                            match Self::extract_tantivy_query_from_node(inner_arg, schema) {
+                                Ok(SearchQueryInput::All) => {
+                                    // Inner expression contains non-indexed fields
+                                    // Can't push NOT of non-indexed to Tantivy
+                                    Ok(SearchQueryInput::All)
+                                }
+                                Ok(inner_query) => {
+                                    // Inner expression is indexed: can push NOT to Tantivy
+                                    // For NOT queries, we create a Boolean query with only must_not
+                                    // This matches all documents except those matching inner_query
+                                    Ok(SearchQueryInput::Boolean {
+                                        must: vec![],
+                                        should: vec![],
+                                        must_not: vec![inner_query], // Exclude matches
+                                    })
+                                }
+                                Err(_) => Ok(SearchQueryInput::All),
+                            }
+                        } else {
+                            Err("NOT expression missing argument")
+                        }
+                    }
+                    _ => Err("Unsupported boolean expression type"),
+                }
+            }
+            pg_sys::NodeTag::T_OpExpr => {
+                let op_expr = node.cast::<pg_sys::OpExpr>();
+                if Self::is_search_operator((*op_expr).opno) {
+                    // This is a @@@ operator - extract the SearchQueryInput from it
+                    Self::extract_search_query_input_from_op_expr(op_expr)
+                } else {
+                    // This is a non-search operator (non-indexed field)
+                    // Return All to indicate it needs PostgreSQL evaluation
+                    Ok(SearchQueryInput::All)
+                }
+            }
+            _ => {
+                // All other node types are non-indexed
+                Ok(SearchQueryInput::All)
+            }
+        }
+    }
+
+    /// Try to extract search operators from mixed OR expressions
+    /// This handles cases like: Or([Not(name @@@ 'Apple'), ExternalExpr])
+    unsafe fn try_extract_from_mixed_or(
+        node: *mut pg_sys::Node,
+        schema: &SearchIndexSchema,
+    ) -> Option<SearchQueryInput> {
+        if node.is_null() {
+            return None;
+        }
+
+        // Check if this is an OR expression
+        if (*node).type_ == pg_sys::NodeTag::T_BoolExpr {
+            let bool_expr = node.cast::<pg_sys::BoolExpr>();
+            if (*bool_expr).boolop == pg_sys::BoolExprType::OR_EXPR {
+                let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
+
+                // Look for search operators in the OR expression
+                for arg in args.iter_ptr() {
+                    // Try to extract from NOT expressions specifically
+                    if (*arg).type_ == pg_sys::NodeTag::T_BoolExpr {
+                        let inner_bool = arg.cast::<pg_sys::BoolExpr>();
+                        if (*inner_bool).boolop == pg_sys::BoolExprType::NOT_EXPR {
+                            let not_args = PgList::<pg_sys::Node>::from_pg((*inner_bool).args);
+                            if let Some(not_arg) = not_args.get_ptr(0) {
+                                if (*not_arg).type_ == pg_sys::NodeTag::T_OpExpr {
+                                    let op_expr = not_arg.cast::<pg_sys::OpExpr>();
+                                    let opno = (*op_expr).opno;
+                                    let is_search = Self::is_search_operator(opno);
+
+                                    if is_search {
+                                        // Found NOT(search_operator) - extract it
+                                        if let Ok(inner_query) =
+                                            Self::extract_search_query_input_from_op_expr(op_expr)
+                                        {
+                                            return Some(SearchQueryInput::Boolean {
+                                                must: vec![],
+                                                should: vec![],
+                                                must_not: vec![inner_query],
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    // Also try direct search operators
+                    else if (*arg).type_ == pg_sys::NodeTag::T_OpExpr {
+                        let op_expr = arg.cast::<pg_sys::OpExpr>();
+                        if Self::is_search_operator((*op_expr).opno) {
+                            if let Ok(query) =
+                                Self::extract_search_query_input_from_op_expr(op_expr)
+                            {
+                                return Some(query);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Extract SearchQueryInput from a @@@ operator expression
+    unsafe fn extract_search_query_input_from_op_expr(
+        op_expr: *mut pg_sys::OpExpr,
+    ) -> Result<SearchQueryInput, &'static str> {
+        let args = PgList::<pg_sys::Node>::from_pg((*op_expr).args);
+        if args.len() != 2 {
+            return Err("@@@ operator must have exactly 2 arguments");
+        }
+
+        let _lhs = args.get_ptr(0).ok_or("Missing left-hand side argument")?;
+        let rhs = args.get_ptr(1).ok_or("Missing right-hand side argument")?;
+
+        // Extract SearchQueryInput from the right-hand side (the query)
+        if (*rhs).type_ == pg_sys::NodeTag::T_Const {
+            let const_node = rhs.cast::<pg_sys::Const>();
+            if (*const_node).constisnull {
+                return Err("Query argument is null");
+            }
+
+            // Extract the SearchQueryInput from the constant
+            if let Some(search_query) =
+                SearchQueryInput::from_datum((*const_node).constvalue, (*const_node).constisnull)
+            {
+                Ok(search_query)
+            } else {
+                Err("Failed to extract SearchQueryInput from constant")
+            }
+        } else {
+            Err("Right-hand side of @@@ operator must be a constant")
+        }
+    }
+
+    /// Convert PostgreSQL expression to optimized expression tree (legacy method)
+    pub unsafe fn from_postgres_node(
         expr: *mut pg_sys::Node,
     ) -> Result<OptimizedExpressionNode, &'static str> {
         if expr.is_null() {
-            return Err("Null expression node");
+            return Err("Expression node is null");
         }
 
         match (*expr).type_ {
             pg_sys::NodeTag::T_BoolExpr => {
                 let bool_expr = expr.cast::<pg_sys::BoolExpr>();
+                let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
+
+                let mut child_nodes = Vec::new();
+                for arg in args.iter_ptr() {
+                    child_nodes.push(Self::from_postgres_node(arg)?);
+                }
+
                 let op = match (*bool_expr).boolop {
                     pg_sys::BoolExprType::AND_EXPR => BooleanOperator::And,
                     pg_sys::BoolExprType::OR_EXPR => BooleanOperator::Or,
                     pg_sys::BoolExprType::NOT_EXPR => BooleanOperator::Not,
-                    _ => return Err("Unsupported boolean operator type"),
+                    _ => return Err("Unsupported boolean operation"),
                 };
 
-                let mut children = Vec::new();
-                let args = (*bool_expr).args;
-                if !args.is_null() {
-                    let mut cell = (*args).elements;
-                    for _ in 0..(*args).length {
-                        if !cell.is_null() && !(*cell).ptr_value.is_null() {
-                            let child_expr = (*cell).ptr_value.cast::<pg_sys::Node>();
-                            children.push(Self::parse_expression_tree(child_expr)?);
+                match op {
+                    BooleanOperator::And => Ok(Self::consolidate_and_operation(child_nodes)),
+                    BooleanOperator::Or => Ok(Self::consolidate_or_operation(child_nodes)),
+                    BooleanOperator::Not => {
+                        if child_nodes.len() != 1 {
+                            return Err("NOT operation must have exactly one argument");
                         }
-                        cell = cell.add(1);
+                        Ok(OptimizedExpressionNode::BooleanOperation {
+                            op,
+                            children: child_nodes,
+                        })
                     }
                 }
-
-                Ok(OptimizedExpressionNode::BooleanOperation { op, children })
             }
             pg_sys::NodeTag::T_OpExpr => {
                 let op_expr = expr.cast::<pg_sys::OpExpr>();
@@ -221,27 +474,12 @@ impl ExpressionTreeOptimizer {
 
     /// Extract field name from a PostgreSQL node (typically a Var node)
     unsafe fn extract_field_name_from_node(node: *mut pg_sys::Node) -> Option<String> {
-        if node.is_null() {
-            return None;
-        }
-
-        match (*node).type_ {
-            pg_sys::NodeTag::T_Var => {
-                let var = node.cast::<pg_sys::Var>();
-                // For now, use a simple mapping based on varattno
-                // This could be enhanced to properly resolve field names from the PostgreSQL catalog
-                match (*var).varattno {
-                    1 => Some("id".to_string()),
-                    2 => Some("name".to_string()),
-                    3 => Some("description".to_string()),
-                    4 => Some("category".to_string()),
-                    5 => Some("price".to_string()),
-                    6 => Some("in_stock".to_string()),
-                    7 => Some("tags".to_string()),
-                    _ => Some(format!("field_{}", (*var).varattno)),
-                }
-            }
-            _ => None,
+        if (*node).type_ == pg_sys::NodeTag::T_Var {
+            // For now, return a placeholder field name
+            // In a full implementation, we'd resolve the Var to the actual field name
+            Some("field_name".to_string())
+        } else {
+            None
         }
     }
 
@@ -249,10 +487,6 @@ impl ExpressionTreeOptimizer {
     unsafe fn extract_query_from_node(
         node: *mut pg_sys::Node,
     ) -> Result<(String, SearchQueryInput), &'static str> {
-        if node.is_null() {
-            return Err("Null query node");
-        }
-
         match (*node).type_ {
             pg_sys::NodeTag::T_Const => {
                 let const_node = node.cast::<pg_sys::Const>();
@@ -260,37 +494,25 @@ impl ExpressionTreeOptimizer {
                     return Err("Query constant is null");
                 }
 
-                // Check if this is a text constant or SearchQueryInput constant
-                if (*const_node).consttype == pg_sys::TEXTOID {
-                    // This is a text constant - extract the string
-                    let query_string = String::from_datum((*const_node).constvalue, false)
-                        .ok_or("Failed to extract text from constant")?;
-
-                    // Create a Parse SearchQueryInput for the text
-                    let search_query_input = SearchQueryInput::Parse {
-                        query_string: query_string.clone(),
-                        lenient: Some(true),
-                        conjunction_mode: Some(false),
-                    };
-
-                    Ok((query_string, search_query_input))
+                // Try to extract SearchQueryInput from the constant
+                if let Some(search_query) = SearchQueryInput::from_datum(
+                    (*const_node).constvalue,
+                    (*const_node).constisnull,
+                ) {
+                    let query_string = Self::extract_query_string_from_search_input(&search_query);
+                    Ok((query_string, search_query))
                 } else {
-                    // Try to extract as SearchQueryInput
-                    match SearchQueryInput::from_datum((*const_node).constvalue, false) {
-                        Some(search_query_input) => {
-                            // Extract a human-readable query string from the SearchQueryInput
-                            let query_string =
-                                Self::extract_query_string_from_search_input(&search_query_input);
-                            Ok((query_string, search_query_input))
-                        }
-                        None => Err("Failed to extract SearchQueryInput from constant"),
-                    }
+                    Err("Failed to extract SearchQueryInput from constant")
                 }
             }
             pg_sys::NodeTag::T_FuncExpr => {
                 // This might be a paradedb function call - for now, create a placeholder
                 let query_string = "function_call".to_string();
-                let search_query_input = SearchQueryInput::All;
+                let search_query_input = SearchQueryInput::Parse {
+                    query_string: query_string.clone(),
+                    lenient: Some(true),
+                    conjunction_mode: Some(false),
+                };
                 Ok((query_string, search_query_input))
             }
             _ => Err("Unsupported query node type"),
@@ -324,18 +546,6 @@ impl ExpressionTreeOptimizer {
             }
             _ => "complex_query".to_string(),
         }
-    }
-
-    /// Apply optimization passes to consolidate Tantivy subtrees
-    fn apply_optimization_passes(tree: OptimizedExpressionNode) -> OptimizedExpressionNode {
-        // Phase 1: Apply basic optimizations
-        let optimized = Self::consolidate_tantivy_leaves(tree);
-
-        // Future optimization passes will be added here:
-        // Phase 2: Extract Tantivy-only subtrees
-        // Phase 3: Minimize remaining tree structure
-
-        optimized
     }
 
     /// Consolidate adjacent Tantivy leaves in boolean operations
@@ -761,7 +971,7 @@ pub unsafe fn apply_optimized_unified_heap_filter(
     }
 
     // Parse and optimize the expression tree
-    let optimized_tree = ExpressionTreeOptimizer::parse_and_optimize(parsed_expr)
+    let optimized_tree = ExpressionTreeOptimizer::from_postgres_node(parsed_expr)
         .map_err(|_| "Failed to optimize expression tree")?;
 
     // Create the optimized evaluator

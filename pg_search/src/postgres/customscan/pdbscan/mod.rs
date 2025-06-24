@@ -49,7 +49,7 @@ use crate::postgres::customscan::pdbscan::exec_methods::{
     fast_fields, normal::NormalScanExecState, ExecState,
 };
 use crate::postgres::customscan::pdbscan::optimized_unified_evaluator::{
-    apply_optimized_unified_heap_filter, OptimizedEvaluationResult,
+    apply_optimized_unified_heap_filter, ExpressionTreeOptimizer, OptimizedEvaluationResult,
 };
 use crate::postgres::customscan::pdbscan::parallel::{compute_nworkers, list_segment_ids};
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
@@ -73,6 +73,7 @@ use crate::postgres::customscan::{self, CustomScan, CustomScanState};
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::var::find_var_relation;
 use crate::postgres::visibility_checker::VisibilityChecker;
+use crate::query::AsHumanReadable;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
@@ -285,6 +286,7 @@ impl PdbScan {
                 pdbopoid,
                 ri_type,
                 schema,
+                builder, // Pass the builder so we can directly set the optimized SearchQueryInput
             );
 
             debug_log!(
@@ -2560,15 +2562,76 @@ unsafe fn optimize_base_query_for_unified_evaluation(
     pdbopoid: pg_sys::Oid,
     ri_type: RestrictInfoType,
     schema: &SearchIndexSchema,
+    builder: &mut CustomPathBuilder<PrivateData>,
 ) -> Option<Qual> {
     debug_log!(
         "🔧 [OPTIMIZE] Starting base query optimization with indexed_quals: {:?}",
         indexed_quals
     );
 
-    // CRITICAL FIX: For expressions like NOT (search_pred OR non_search_pred),
-    // we need to extract only the search predicates for the Tantivy base query
-    // and let the heap filter handle the complete expression logic.
+    // NEW UNIFIED EXECUTION APPROACH: Build SearchQueryInput directly from expressions
+    // This maximizes what gets pushed to Tantivy and only breaks down when hitting non-indexed fields
+
+    // Check if any of the restrict_info expressions contain search operators
+    for ri in restrict_info.iter_ptr() {
+        let clause = if !(*ri).orclause.is_null() {
+            (*ri).orclause
+        } else {
+            (*ri).clause
+        };
+
+        // Clean any nested RestrictInfo nodes recursively
+        let cleaned_clause = clean_restrictinfo_recursively(clause.cast());
+
+        // Check if this expression contains search operators
+        if expression_contains_search_operators(cleaned_clause, pdbopoid) {
+            debug_log!("🔧 [OPTIMIZE] Found expression with search operators, building optimal SearchQueryInput");
+
+            // NEW APPROACH: Use the optimized unified evaluator to build SearchQueryInput directly
+            // This follows the unified execution principle: maximize what goes to Tantivy
+            match ExpressionTreeOptimizer::build_search_query_from_expression(
+                cleaned_clause,
+                schema,
+            ) {
+                Ok(search_query_input) => {
+                    debug_log!(
+                        "🔧 [OPTIMIZE] Successfully built SearchQueryInput: {:?}",
+                        search_query_input.as_human_readable()
+                    );
+
+                    // CRITICAL FIX: For Test 2.2 and unified execution approach
+                    // For Test 2.2: NOT ((name @@@ 'Apple' AND category = 'Electronics') OR (category = 'Furniture'))
+                    // This should create NOT(name @@@ 'Apple') as the Tantivy query
+                    // and let the heap filter handle the complete expression
+                    match search_query_input {
+                        SearchQueryInput::All => {
+                            // Expression contains only non-indexed fields, fall back to old approach
+                            debug_log!("🔧 [OPTIMIZE] Expression contains only non-indexed fields, falling back");
+                        }
+                        _ => {
+                            // We have a proper Tantivy query - set it directly in the builder
+                            debug_log!(
+                                "🔧 [OPTIMIZE] Setting optimized SearchQueryInput directly: {:?}",
+                                search_query_input.as_human_readable()
+                            );
+
+                            // Set the optimized SearchQueryInput directly in the PrivateData
+                            // This bypasses the Qual -> SearchQueryInput conversion that defaults to All
+                            builder.custom_private().set_query(search_query_input);
+
+                            // Return a synthetic Qual to indicate we handled the optimization
+                            return Some(Qual::All);
+                        }
+                    }
+                }
+                Err(e) => {
+                    debug_log!("🔧 [OPTIMIZE] Failed to build SearchQueryInput: {}", e);
+                }
+            }
+        }
+    }
+
+    // FALLBACK: Use the original approach if the new method didn't work
 
     // First, check if we have direct indexed predicates
     if let Some(ref indexed_qual) = indexed_quals {
@@ -2596,8 +2659,6 @@ unsafe fn optimize_base_query_for_unified_evaluation(
 
     // No direct indexed predicates found, but we might have complex expressions
     // containing search operators that should be handled entirely by Tantivy
-
-    // Check if any of the restrict_info expressions contain search operators
     for ri in restrict_info.iter_ptr() {
         let clause = if !(*ri).orclause.is_null() {
             (*ri).orclause
@@ -2610,7 +2671,9 @@ unsafe fn optimize_base_query_for_unified_evaluation(
 
         // Check if this expression contains search operators
         if expression_contains_search_operators(cleaned_clause, pdbopoid) {
-            debug_log!("🔧 [OPTIMIZE] Found expression with search operators, trying to convert");
+            debug_log!(
+                "🔧 [OPTIMIZE] Found expression with search operators, trying fallback conversion"
+            );
 
             // This expression contains search operators - it should be handled entirely by Tantivy
             // Try to convert it to a Qual for the base query

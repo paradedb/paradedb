@@ -67,7 +67,7 @@ use crate::postgres::customscan::pdbscan::qual_inspect::{
 };
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::customscan::pdbscan::unified_evaluator::{
-    apply_complete_unified_heap_filter, apply_unified_heap_filter, UnifiedEvaluationResult,
+    apply_complete_unified_heap_filter, UnifiedEvaluationResult,
 };
 use crate::postgres::customscan::{self, CustomScan, CustomScanState};
 use crate::postgres::rel_get_bm25_index;

@@ -15,9 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::operator::{anyelement_query_input_opoid, anyelement_text_opoid};
+use crate::debug_log;
 use crate::index::reader::index::SearchIndexReader;
 use crate::schema::SearchIndexSchema;
-use pgrx::{pg_sys, FromDatum, PgList};
+use pgrx::*;
 use std::collections::HashMap;
 use tantivy::{DocAddress, DocId};
 
@@ -158,7 +160,7 @@ impl<'a> UnifiedExpressionEvaluator<'a> {
         expr_context: *mut pg_sys::ExprContext,
         current_score: f32,
     ) -> Self {
-        pgrx::warning!(
+        debug_log!(
             "🔧 [DEBUG] Creating UnifiedExpressionEvaluator with current_score: {}",
             current_score
         );
@@ -191,7 +193,7 @@ impl<'a> UnifiedExpressionEvaluator<'a> {
         }
 
         let node_tag = (*expr).type_;
-        pgrx::warning!(
+        debug_log!(
             "🔧 [DEBUG] Evaluating expression with node tag: {}",
             node_tag as i32
         );
@@ -210,7 +212,7 @@ impl<'a> UnifiedExpressionEvaluator<'a> {
                 self.evaluate_postgres_predicate(expr as *mut pg_sys::Expr, slot)
             }
             _ => {
-                pgrx::warning!(
+                debug_log!(
                     "⚠️ [DEBUG] Unsupported expression type: {}",
                     node_tag as i32
                 );
@@ -304,7 +306,6 @@ impl<'a> UnifiedExpressionEvaluator<'a> {
 
     /// Check if the operator is a search operator (@@@)
     fn is_search_operator(&self, op_oid: pg_sys::Oid) -> bool {
-        use crate::api::operator::{anyelement_query_input_opoid, anyelement_text_opoid};
         op_oid == anyelement_query_input_opoid() || op_oid == anyelement_text_opoid()
     }
 
@@ -535,7 +536,7 @@ impl<'a> UnifiedExpressionEvaluator<'a> {
             }
             // For all other expression types (including T_Var), use PostgreSQL's generic evaluation
             _ => {
-                pgrx::warning!(
+                debug_log!(
                     "🔧 [DEBUG] Using generic PostgreSQL evaluation for node type: {}",
                     (*expr).type_ as i32
                 );
@@ -545,7 +546,7 @@ impl<'a> UnifiedExpressionEvaluator<'a> {
                     pg_sys::ExecInitExpr(expr.cast::<pg_sys::Expr>(), std::ptr::null_mut());
 
                 if expr_state.is_null() {
-                    pgrx::warning!(
+                    debug_log!(
                         "❌ [DEBUG] Failed to initialize expression state for node type {}",
                         (*expr).type_ as i32
                     );
@@ -568,7 +569,7 @@ impl<'a> UnifiedExpressionEvaluator<'a> {
                 pg_sys::pfree(expr_state.cast());
 
                 if is_null {
-                    pgrx::warning!(
+                    debug_log!(
                         "🔧 [DEBUG] Expression evaluated to NULL for node type {}",
                         (*expr).type_ as i32
                     );
@@ -576,7 +577,7 @@ impl<'a> UnifiedExpressionEvaluator<'a> {
                 } else {
                     // Convert the result datum to a boolean
                     let result_bool = pg_sys::DatumGetBool(result_datum);
-                    pgrx::warning!(
+                    debug_log!(
                         "🔧 [DEBUG] Node type {} evaluated to: {}",
                         (*expr).type_ as i32,
                         result_bool
@@ -600,7 +601,7 @@ impl<'a> UnifiedExpressionEvaluator<'a> {
     ) -> Result<UnifiedEvaluationResult, &'static str> {
         let op_oid = (*op_expr).opno;
 
-        pgrx::warning!(
+        debug_log!(
             "🔧 [DEBUG] Evaluating operator OID: {} using generic PostgreSQL evaluation",
             op_oid
         );
@@ -609,7 +610,7 @@ impl<'a> UnifiedExpressionEvaluator<'a> {
         let expr_state = pg_sys::ExecInitExpr(op_expr.cast::<pg_sys::Expr>(), std::ptr::null_mut());
 
         if expr_state.is_null() {
-            pgrx::warning!(
+            debug_log!(
                 "❌ [DEBUG] Failed to initialize expression state for operator {}",
                 op_oid
             );
@@ -632,7 +633,7 @@ impl<'a> UnifiedExpressionEvaluator<'a> {
         pg_sys::pfree(expr_state.cast());
 
         if is_null {
-            pgrx::warning!(
+            debug_log!(
                 "🔧 [DEBUG] Expression evaluated to NULL for operator {}",
                 op_oid
             );
@@ -640,7 +641,7 @@ impl<'a> UnifiedExpressionEvaluator<'a> {
         } else {
             // Convert the result datum to a boolean
             let result_bool = pg_sys::DatumGetBool(result_datum);
-            pgrx::warning!(
+            debug_log!(
                 "🔧 [DEBUG] Operator {} evaluated to: {}",
                 op_oid,
                 result_bool
@@ -695,7 +696,7 @@ impl<'a> UnifiedExpressionEvaluator<'a> {
         &self,
         expression_string: &str,
     ) -> Result<UnifiedEvaluationResult, &'static str> {
-        pgrx::warning!(
+        debug_log!(
             "🔧 [DEBUG] Parsing expression string: '{}'",
             expression_string
         );
@@ -703,7 +704,7 @@ impl<'a> UnifiedExpressionEvaluator<'a> {
         // Parse the expression string
         let expr = parse_heap_filter_expression_preserving_search_ops(expression_string);
         if expr.is_null() {
-            pgrx::warning!("❌ [DEBUG] Failed to parse expression string");
+            debug_log!("❌ [DEBUG] Failed to parse expression string");
             return Ok(UnifiedEvaluationResult::no_match());
         }
 
@@ -804,28 +805,28 @@ pub unsafe fn apply_complete_unified_heap_filter(
     doc_address: DocAddress,
     current_score: f32,
 ) -> Result<UnifiedEvaluationResult, &'static str> {
-    pgrx::warning!("🚀 [DEBUG] === UNIFIED HEAP FILTER ENTRY ===");
-    pgrx::warning!("🚀 [DEBUG] Doc ID: {}", doc_id);
-    pgrx::warning!("🚀 [DEBUG] Current score: {}", current_score);
-    pgrx::warning!(
+    debug_log!("🚀 [DEBUG] === UNIFIED HEAP FILTER ENTRY ===");
+    debug_log!("🚀 [DEBUG] Doc ID: {}", doc_id);
+    debug_log!("🚀 [DEBUG] Current score: {}", current_score);
+    debug_log!(
         "🚀 [DEBUG] Heap filter node string: '{}'",
         heap_filter_node_string
     );
-    pgrx::warning!("🚀 [DEBUG] ==========================================");
+    debug_log!("🚀 [DEBUG] ==========================================");
 
     // Parse the heap filter expression into a PostgreSQL node tree
     let parsed_expr = parse_heap_filter_expression(heap_filter_node_string);
     if parsed_expr.is_null() {
-        pgrx::warning!("❌ [DEBUG] Failed to parse heap filter expression");
+        debug_log!("❌ [DEBUG] Failed to parse heap filter expression");
         return Err("Failed to parse heap filter expression");
     }
 
-    pgrx::warning!("✅ [DEBUG] Successfully parsed heap filter expression");
+    debug_log!("✅ [DEBUG] Successfully parsed heap filter expression");
 
     // Create the unified expression evaluator
     let mut evaluator =
         UnifiedExpressionEvaluator::new(search_reader, schema, expr_context, current_score);
-    pgrx::warning!(
+    debug_log!(
         "🔧 [DEBUG] Creating UnifiedExpressionEvaluator with current_score: {}",
         current_score
     );
@@ -835,10 +836,10 @@ pub unsafe fn apply_complete_unified_heap_filter(
         || heap_filter_node_string.contains("|||OR_CLAUSE_SEPARATOR|||")
         || heap_filter_node_string.contains("|||CLAUSE_SEPARATOR|||")
     {
-        pgrx::warning!(
+        debug_log!(
             "⚠️ [DEBUG] CLAUSE SEPARATOR DETECTED! PostgreSQL has decomposed the expression."
         );
-        pgrx::warning!("⚠️ [DEBUG] This is actually logically equivalent - we can handle this!");
+        debug_log!("⚠️ [DEBUG] This is actually logically equivalent - we can handle this!");
 
         // Determine the boolean operation type and split accordingly
         let (clauses, is_and_operation) =
@@ -865,17 +866,17 @@ pub unsafe fn apply_complete_unified_heap_filter(
                     true,
                 )
             };
-        pgrx::warning!(
+        debug_log!(
             "⚠️ [DEBUG] Number of clauses after decomposition: {}",
             clauses.len()
         );
 
         for (i, clause) in clauses.iter().enumerate() {
-            pgrx::warning!("⚠️ [DEBUG] Clause {}: '{}'", i + 1, clause);
+            debug_log!("⚠️ [DEBUG] Clause {}: '{}'", i + 1, clause);
         }
 
         // Evaluate each clause and combine with the appropriate boolean logic
-        pgrx::warning!(
+        debug_log!(
             "🔧 [DEBUG] Boolean operation type: {}",
             if is_and_operation { "AND" } else { "OR" }
         );
@@ -885,12 +886,12 @@ pub unsafe fn apply_complete_unified_heap_filter(
         let mut clause_scores = Vec::new();
 
         for (i, clause) in clauses.iter().enumerate() {
-            pgrx::warning!("🔧 [DEBUG] Evaluating clause {}: '{}'", i + 1, clause);
+            debug_log!("🔧 [DEBUG] Evaluating clause {}: '{}'", i + 1, clause);
 
             // Parse the clause expression
             let clause_expr = parse_heap_filter_expression_preserving_search_ops(clause);
             if clause_expr.is_null() {
-                pgrx::warning!("❌ [DEBUG] Failed to parse clause {}", i + 1);
+                debug_log!("❌ [DEBUG] Failed to parse clause {}", i + 1);
                 if is_and_operation {
                     final_matches = false;
                     final_score = 0.0;
@@ -906,7 +907,7 @@ pub unsafe fn apply_complete_unified_heap_filter(
             // Evaluate the clause
             let clause_result =
                 evaluator.evaluate_expression(clause_expr, doc_id, doc_address, slot)?;
-            pgrx::warning!(
+            debug_log!(
                 "🔧 [DEBUG] Clause {} result: matches={}, score={}",
                 i + 1,
                 clause_result.matches,
@@ -940,20 +941,20 @@ pub unsafe fn apply_complete_unified_heap_filter(
                 if final_score == f32::INFINITY {
                     final_score = 1.0; // Fallback if no clauses
                 }
-                pgrx::warning!(
+                debug_log!(
                     "🔧 [DEBUG] All AND clauses matched - using minimum score: {}",
                     final_score
                 );
             } else {
                 // For OR operation, final_score is already set to the maximum
-                pgrx::warning!(
+                debug_log!(
                     "🔧 [DEBUG] At least one OR clause matched - using maximum score: {}",
                     final_score
                 );
             }
         }
 
-        pgrx::warning!(
+        debug_log!(
             "🔧 [DEBUG] Final {} operation result: matches={}, score={}",
             if is_and_operation { "AND" } else { "OR" },
             final_matches,
@@ -963,13 +964,13 @@ pub unsafe fn apply_complete_unified_heap_filter(
     }
 
     // No clause separator - handle as single expression
-    pgrx::warning!("🔧 [DEBUG] Single expression - parsing normally");
+    debug_log!("🔧 [DEBUG] Single expression - parsing normally");
 
     // Parse the heap filter node string back into a PostgreSQL expression tree
     let expr = parse_heap_filter_expression_preserving_search_ops(heap_filter_node_string);
 
     if expr.is_null() {
-        pgrx::warning!("🚀 [DEBUG] Expression parsing failed - returning no match");
+        debug_log!("🚀 [DEBUG] Expression parsing failed - returning no match");
         return Ok(UnifiedEvaluationResult::no_match());
     }
 
@@ -980,14 +981,14 @@ pub unsafe fn apply_complete_unified_heap_filter(
     // Evaluate the complete expression tree
     let result = evaluator.evaluate_expression(expr, doc_id, doc_address, slot)?;
 
-    pgrx::warning!("🚀 [DEBUG] === UNIFIED HEAP FILTER RESULT ===");
-    pgrx::warning!(
+    debug_log!("🚀 [DEBUG] === UNIFIED HEAP FILTER RESULT ===");
+    debug_log!(
         "🚀 [DEBUG] Doc ID: {} - Final result: matches={}, score={}",
         doc_id,
         result.matches,
         result.score
     );
-    pgrx::warning!("🚀 [DEBUG] ====================================");
+    debug_log!("🚀 [DEBUG] ====================================");
 
     Ok(result)
 }
@@ -997,25 +998,25 @@ pub unsafe fn apply_complete_unified_heap_filter(
 unsafe fn parse_heap_filter_expression_preserving_search_ops(
     heap_filter_node_string: &str,
 ) -> *mut pg_sys::Node {
-    pgrx::warning!(
+    debug_log!(
         "🔧 [DEBUG] Parsing expression: '{}'",
         heap_filter_node_string
     );
 
     // Safety check: Don't try to parse empty or very short strings
     if heap_filter_node_string.len() < 10 {
-        pgrx::warning!("❌ [DEBUG] Expression too short to parse safely");
+        debug_log!("❌ [DEBUG] Expression too short to parse safely");
         return std::ptr::null_mut();
     }
 
     // Safety check: Basic validation that this looks like a PostgreSQL node string
     if !heap_filter_node_string.starts_with('{') || !heap_filter_node_string.ends_with('}') {
-        pgrx::warning!("❌ [DEBUG] Expression doesn't look like a valid PostgreSQL node string");
+        debug_log!("❌ [DEBUG] Expression doesn't look like a valid PostgreSQL node string");
         return std::ptr::null_mut();
     }
 
     if heap_filter_node_string.contains("|||CLAUSE_SEPARATOR|||") {
-        pgrx::warning!("🔧 [DEBUG] Handling multiple clauses with separator");
+        debug_log!("🔧 [DEBUG] Handling multiple clauses with separator");
         // Multiple clauses - combine them into a single AND expression
         let clause_strings: Vec<&str> = heap_filter_node_string
             .split("|||CLAUSE_SEPARATOR|||")
@@ -1023,7 +1024,7 @@ unsafe fn parse_heap_filter_expression_preserving_search_ops(
 
         let mut args_list = std::ptr::null_mut();
         for (i, clause_str) in clause_strings.iter().enumerate() {
-            pgrx::warning!("🔧 [DEBUG] Processing clause {}: '{}'", i + 1, clause_str);
+            debug_log!("🔧 [DEBUG] Processing clause {}: '{}'", i + 1, clause_str);
 
             // Skip empty clauses
             if clause_str.trim().is_empty() {
@@ -1034,7 +1035,7 @@ unsafe fn parse_heap_filter_expression_preserving_search_ops(
             let clause_cstr = match std::ffi::CString::new(*clause_str) {
                 Ok(cstr) => cstr,
                 Err(e) => {
-                    pgrx::warning!(
+                    debug_log!(
                         "❌ [DEBUG] Failed to create CString for clause {}: {:?}",
                         i + 1,
                         e
@@ -1048,9 +1049,9 @@ unsafe fn parse_heap_filter_expression_preserving_search_ops(
             if !clause_node.is_null() {
                 // DON'T replace @@@ operators - preserve them for unified evaluation
                 args_list = pg_sys::lappend(args_list, clause_node.cast::<core::ffi::c_void>());
-                pgrx::warning!("✅ [DEBUG] Successfully parsed clause {}", i + 1);
+                debug_log!("✅ [DEBUG] Successfully parsed clause {}", i + 1);
             } else {
-                pgrx::warning!("❌ [DEBUG] Failed to parse clause {}", i + 1);
+                debug_log!("❌ [DEBUG] Failed to parse clause {}", i + 1);
             }
         }
 
@@ -1063,19 +1064,19 @@ unsafe fn parse_heap_filter_expression_preserving_search_ops(
             (*bool_expr).args = args_list;
             (*bool_expr).location = -1;
 
-            pgrx::warning!("✅ [DEBUG] Created combined AND expression for multiple clauses");
+            debug_log!("✅ [DEBUG] Created combined AND expression for multiple clauses");
             bool_expr.cast()
         } else {
-            pgrx::warning!("❌ [DEBUG] No valid clauses found");
+            debug_log!("❌ [DEBUG] No valid clauses found");
             std::ptr::null_mut()
         }
     } else {
-        pgrx::warning!("🔧 [DEBUG] Handling single clause");
+        debug_log!("🔧 [DEBUG] Handling single clause");
         // Single clause - simple stringToNode preserving @@@ operators
         let node_cstr = match std::ffi::CString::new(heap_filter_node_string) {
             Ok(cstr) => cstr,
             Err(e) => {
-                pgrx::warning!(
+                debug_log!(
                     "❌ [DEBUG] Failed to create CString for single expression: {:?}",
                     e
                 );
@@ -1085,9 +1086,9 @@ unsafe fn parse_heap_filter_expression_preserving_search_ops(
 
         let result = pg_sys::stringToNode(node_cstr.as_ptr()).cast::<pg_sys::Node>();
         if result.is_null() {
-            pgrx::warning!("❌ [DEBUG] stringToNode returned null for single expression");
+            debug_log!("❌ [DEBUG] stringToNode returned null for single expression");
         } else {
-            pgrx::warning!("✅ [DEBUG] Successfully parsed single expression");
+            debug_log!("✅ [DEBUG] Successfully parsed single expression");
         }
         result
     }
@@ -1146,27 +1147,27 @@ pub unsafe fn apply_unified_heap_filter(
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_extern]
 pub fn test_unified_evaluator_debug() -> String {
-    pgrx::warning!("🧪 [TEST] Testing unified evaluator debug logging");
+    debug_log!("🧪 [TEST] Testing unified evaluator debug logging");
 
     // Test the basic structure
     let test_expr =
         "NOT ((name @@@ 'Apple' AND category = 'Electronics') OR (category = 'Furniture'))";
-    pgrx::warning!("🧪 [TEST] Test expression: '{}'", test_expr);
+    debug_log!("🧪 [TEST] Test expression: '{}'", test_expr);
 
     // Test clause separation parsing
     if test_expr.contains("|||CLAUSE_SEPARATOR|||") {
-        pgrx::warning!("🧪 [TEST] Expression contains clause separator");
+        debug_log!("🧪 [TEST] Expression contains clause separator");
     } else {
-        pgrx::warning!("🧪 [TEST] Expression does NOT contain clause separator");
+        debug_log!("🧪 [TEST] Expression does NOT contain clause separator");
     }
 
     // Test NOT detection
     if test_expr.trim().starts_with("NOT ") {
-        pgrx::warning!("🧪 [TEST] Expression starts with NOT");
+        debug_log!("🧪 [TEST] Expression starts with NOT");
         let content = test_expr.trim()[4..].trim();
-        pgrx::warning!("🧪 [TEST] NOT content: '{}'", content);
+        debug_log!("🧪 [TEST] NOT content: '{}'", content);
     } else {
-        pgrx::warning!("🧪 [TEST] Expression does NOT start with NOT");
+        debug_log!("🧪 [TEST] Expression does NOT start with NOT");
     }
 
     "Unified evaluator debug test completed - check logs".to_string()

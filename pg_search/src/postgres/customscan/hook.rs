@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::HashMap;
+use crate::debug_log;
 use crate::gucs;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::postgres::customscan::CustomScan;
@@ -70,16 +71,16 @@ pub extern "C-unwind" fn paradedb_rel_pathlist_callback<CS: CustomScan>(
 ) {
     unsafe {
         if !gucs::enable_custom_scan() {
-            pgrx::warning!("🔗 [HOOK] Custom scan disabled via GUC for rti={}", rti);
+            debug_log!("🔗 [HOOK] Custom scan disabled via GUC for rti={}", rti);
             return;
         }
 
-        pgrx::warning!("🔗 [HOOK] rel_pathlist_callback called for rti={}", rti);
+        debug_log!("🔗 [HOOK] rel_pathlist_callback called for rti={}", rti);
 
         if let Some(mut path) =
             CS::rel_pathlist_callback(CustomPathBuilder::new::<CS>(root, rel, rti, rte))
         {
-            pgrx::warning!(
+            debug_log!(
                 "🔗 [HOOK] Custom path created successfully for rti={}, {:?}",
                 rti,
                 path
@@ -119,7 +120,7 @@ pub extern "C-unwind" fn paradedb_rel_pathlist_callback<CS: CustomScan>(
             // add this path for consideration
             pg_sys::add_path(rel, custom_path.cast());
         } else {
-            pgrx::warning!("🔗 [HOOK] No custom path created for rti={}", rti);
+            debug_log!("🔗 [HOOK] No custom path created for rti={}", rti);
         }
     }
 }

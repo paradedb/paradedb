@@ -31,6 +31,7 @@ use crate::api::operator::{
 };
 use crate::api::Cardinality;
 use crate::api::{HashMap, HashSet};
+use crate::debug_log;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::reader::index::SearchIndexReader;
@@ -223,7 +224,7 @@ impl PdbScan {
         // Instead of using All query, we extract indexed predicates to create a more efficient base query
         // that reduces the document set before unified evaluation
 
-        pgrx::warning!(
+        debug_log!(
             "🔍 [EXTRACT_QUALS] Starting qual extraction for rti={}, restrict_info count={}",
             rti,
             restrict_info.len()
@@ -232,7 +233,7 @@ impl PdbScan {
         let mut uses_tantivy_to_query = false;
 
         // First, try to extract any search operators (@@@ operators) from the expressions
-        pgrx::warning!(
+        debug_log!(
             "🔍 [EXTRACT_QUALS] Calling extract_quals_with_non_indexed for base restrictions"
         );
         let (indexed_quals, _all_quals) = extract_quals_with_non_indexed(
@@ -246,19 +247,19 @@ impl PdbScan {
             &mut uses_tantivy_to_query,
         );
 
-        pgrx::warning!("🔍 [EXTRACT_QUALS] Base extraction result: uses_tantivy_to_query={}, indexed_quals={:?}", 
+        debug_log!("🔍 [EXTRACT_QUALS] Base extraction result: uses_tantivy_to_query={}, indexed_quals={:?}", 
                    uses_tantivy_to_query, indexed_quals);
 
         // If we found any search operators, we proceed with the unified approach
         if uses_tantivy_to_query {
-            pgrx::warning!(
+            debug_log!(
                 "🔍 [EXTRACT_QUALS] Found search operators, proceeding with unified approach"
             );
 
             // Extract the entire expression as a node string for heap filtering
             // This ensures we preserve the complete boolean logic
             if let Some(node_string) = extract_restrictinfo_string(&restrict_info, rti, root) {
-                pgrx::warning!(
+                debug_log!(
                     "🔍 [EXTRACT_QUALS] Extracted node string for heap filter: {}",
                     node_string
                 );
@@ -266,12 +267,12 @@ impl PdbScan {
                     .custom_private()
                     .set_heap_filter_node_string(Some(node_string));
             } else {
-                pgrx::warning!("🔍 [EXTRACT_QUALS] Failed to extract node string for heap filter");
+                debug_log!("🔍 [EXTRACT_QUALS] Failed to extract node string for heap filter");
             }
 
             // Phase 4: Smart base query optimization
             // Create an optimized base query that reduces the document set
-            pgrx::warning!("🔍 [EXTRACT_QUALS] Calling optimize_base_query_for_unified_evaluation");
+            debug_log!("🔍 [EXTRACT_QUALS] Calling optimize_base_query_for_unified_evaluation");
             let optimized_base_qual = optimize_base_query_for_unified_evaluation(
                 &indexed_quals,
                 &restrict_info,
@@ -282,20 +283,20 @@ impl PdbScan {
                 schema,
             );
 
-            pgrx::warning!(
+            debug_log!(
                 "🔍 [EXTRACT_QUALS] Optimized base qual: {:?}",
                 optimized_base_qual
             );
             return (optimized_base_qual, ri_type, restrict_info);
         }
 
-        pgrx::warning!(
+        debug_log!(
             "🔍 [EXTRACT_QUALS] No search operators in base restrictions, checking join clauses"
         );
 
         // If we have no search operators, try to extract from join clauses
         let joinri: PgList<pg_sys::RestrictInfo> = PgList::from_pg(builder.args().rel().joininfo);
-        pgrx::warning!("🔍 [EXTRACT_QUALS] Join clauses count: {}", joinri.len());
+        debug_log!("🔍 [EXTRACT_QUALS] Join clauses count: {}", joinri.len());
 
         let mut join_uses_tantivy_to_query = false;
         let (join_indexed_quals, _join_all_quals) = extract_quals_with_non_indexed(
@@ -309,18 +310,18 @@ impl PdbScan {
             &mut join_uses_tantivy_to_query,
         );
 
-        pgrx::warning!("🔍 [EXTRACT_QUALS] Join extraction result: uses_tantivy_to_query={}, indexed_quals={:?}", 
+        debug_log!("🔍 [EXTRACT_QUALS] Join extraction result: uses_tantivy_to_query={}, indexed_quals={:?}", 
                    join_uses_tantivy_to_query, join_indexed_quals);
 
         if join_uses_tantivy_to_query {
-            pgrx::warning!(
+            debug_log!(
                 "🔍 [EXTRACT_QUALS] Found search operators in join clauses, using join quals"
             );
             return (join_indexed_quals, RestrictInfoType::Join, joinri);
         }
 
         // No search operators found anywhere, can't use custom scan
-        pgrx::warning!("🔍 [EXTRACT_QUALS] No search operators found anywhere, returning None");
+        debug_log!("🔍 [EXTRACT_QUALS] No search operators found anywhere, returning None");
         (None, ri_type, restrict_info)
     }
 
@@ -381,12 +382,12 @@ impl CustomScan for PdbScan {
         let restrict_info = unsafe {
             PgList::<pg_sys::RestrictInfo>::from_pg((*builder.args().rel).baserestrictinfo)
         };
-        pgrx::warning!("🎯 [PDBSCAN] rel_pathlist_callback called for table={}, rti={}, {} restriction clauses", 
+        debug_log!("🎯 [PDBSCAN] rel_pathlist_callback called for table={}, rti={}, {} restriction clauses", 
                    table_name, builder.args().rti, restrict_info.len());
 
         unsafe {
             let (restrict_info, ri_type) = builder.restrict_info();
-            pgrx::warning!(
+            debug_log!(
                 "🎯 [PDBSCAN] restrict_info type: {:?}, count: {}",
                 ri_type,
                 restrict_info.len()
@@ -395,7 +396,7 @@ impl CustomScan for PdbScan {
             if matches!(ri_type, RestrictInfoType::None) {
                 // this relation has no restrictions (WHERE clause predicates), so there's no need
                 // for us to do anything
-                pgrx::warning!("🎯 [PDBSCAN] No restrictions found, returning None");
+                debug_log!("🎯 [PDBSCAN] No restrictions found, returning None");
                 return None;
             }
 
@@ -407,7 +408,7 @@ impl CustomScan for PdbScan {
                 if rte.rtekind != pg_sys::RTEKind::RTE_RELATION
                     && rte.rtekind != pg_sys::RTEKind::RTE_JOIN
                 {
-                    pgrx::warning!(
+                    debug_log!(
                         "🎯 [PDBSCAN] Unsupported RTE kind: {:?}, returning None",
                         rte.rtekind
                     );
@@ -417,7 +418,7 @@ impl CustomScan for PdbScan {
                 // and we only work on plain relations
                 let relkind = pg_sys::get_rel_relkind(rte.relid) as u8;
                 if relkind != pg_sys::RELKIND_RELATION && relkind != pg_sys::RELKIND_MATVIEW {
-                    pgrx::warning!(
+                    debug_log!(
                         "🎯 [PDBSCAN] Unsupported relation kind: {}, returning None",
                         relkind
                     );
@@ -427,11 +428,11 @@ impl CustomScan for PdbScan {
                 // and that relation must have a `USING bm25` index
                 let (table, bm25_index) = match rel_get_bm25_index(rte.relid) {
                     Some(result) => {
-                        pgrx::warning!("🎯 [PDBSCAN] Found BM25 index for table {}", table_name);
+                        debug_log!("🎯 [PDBSCAN] Found BM25 index for table {}", table_name);
                         result
                     }
                     None => {
-                        pgrx::warning!(
+                        debug_log!(
                             "🎯 [PDBSCAN] No BM25 index found for table {}, returning None",
                             table_name
                         );
@@ -508,7 +509,7 @@ impl CustomScan for PdbScan {
             //
             // look for quals we can support
             //
-            pgrx::warning!(
+            debug_log!(
                 "🎯 [PDBSCAN] About to extract quals for table {}",
                 table_name
             );
@@ -526,20 +527,20 @@ impl CustomScan for PdbScan {
                 // if we are not able to push down all of the quals, then do not propose the custom
                 // scan, as that would mean executing filtering against heap tuples (which amounts
                 // to a join, and would require more planning).
-                pgrx::warning!(
+                debug_log!(
                     "🎯 [PDBSCAN] No quals extracted for table={}, returning None (no custom scan)",
                     table_name
                 );
                 return None;
             };
 
-            pgrx::warning!(
+            debug_log!(
                 "🎯 [PDBSCAN] Successfully extracted quals for table {}: {:?}",
                 table_name,
                 quals
             );
             let query = SearchQueryInput::from(&quals);
-            pgrx::warning!(
+            debug_log!(
                 "🎯 [PDBSCAN] Generated SearchQueryInput for table {}: {:?}",
                 table_name,
                 query
@@ -550,7 +551,7 @@ impl CustomScan for PdbScan {
             } else {
                 UNASSIGNED_SELECTIVITY
             };
-            pgrx::warning!(
+            debug_log!(
                 "🎯 [PDBSCAN] norm_selec for table {}: {}",
                 table_name,
                 norm_selec
@@ -563,7 +564,7 @@ impl CustomScan for PdbScan {
                         .reltuples()
                         .map(|n| n as Cardinality)
                         .unwrap_or(UNKNOWN_SELECTIVITY);
-                pgrx::warning!(
+                debug_log!(
                     "🎯 [PDBSCAN] Using limit-based selectivity for table {}: {}",
                     table_name,
                     sel
@@ -571,7 +572,7 @@ impl CustomScan for PdbScan {
                 sel
             } else if norm_selec != UNASSIGNED_SELECTIVITY {
                 // we can use the norm_selec that already happened
-                pgrx::warning!(
+                debug_log!(
                     "🎯 [PDBSCAN] Using norm_selec for table {}: {}",
                     table_name,
                     norm_selec
@@ -580,14 +581,14 @@ impl CustomScan for PdbScan {
             } else if quals.contains_external_var() {
                 // if the query has external vars (references to other relations which decide whether the rows in this
                 // relation are visible) then we end up returning *everything* from _this_ relation
-                pgrx::warning!(
+                debug_log!(
                     "🎯 [PDBSCAN] Using full relation selectivity for table {} (external vars)",
                     table_name
                 );
                 FULL_RELATION_SELECTIVITY
             } else if quals.contains_exprs() {
                 // if the query has expressions then it's parameterized and we have to guess something
-                pgrx::warning!(
+                debug_log!(
                     "🎯 [PDBSCAN] Using parameterized selectivity for table {} (expressions)",
                     table_name
                 );
@@ -595,7 +596,7 @@ impl CustomScan for PdbScan {
             } else {
                 // ask the index
                 let sel = estimate_selectivity(&bm25_index, &query).unwrap_or(UNKNOWN_SELECTIVITY);
-                pgrx::warning!(
+                debug_log!(
                     "🎯 [PDBSCAN] Using index-estimated selectivity for table {}: {}",
                     table_name,
                     sel
@@ -605,7 +606,7 @@ impl CustomScan for PdbScan {
 
             // we must use this path if we need to do const projections for scores or snippets
             let force_path = maybe_needs_const_projections || is_topn || quals.contains_all();
-            pgrx::warning!("🎯 [PDBSCAN] Force path decision for table {}: {} (const_proj={}, is_topn={}, contains_all={})", 
+            debug_log!("🎯 [PDBSCAN] Force path decision for table {}: {} (const_proj={}, is_topn={}, contains_all={})", 
                        table_name, force_path, maybe_needs_const_projections, is_topn, quals.contains_all());
             builder = builder.set_force_path(force_path);
 
@@ -746,7 +747,7 @@ impl CustomScan for PdbScan {
             let startup_cost = DEFAULT_STARTUP_COST;
             let total_cost = startup_cost + (rows * per_tuple_cost);
 
-            pgrx::warning!("🎯 [PDBSCAN] Path costs for table {}: startup={}, total={}, rows={}, per_tuple={}, selectivity={}", 
+            debug_log!("🎯 [PDBSCAN] Path costs for table {}: startup={}, total={}, rows={}, per_tuple={}, selectivity={}", 
                        table_name, startup_cost, total_cost, rows, per_tuple_cost, selectivity);
 
             builder = builder.set_rows(rows);
@@ -757,7 +758,7 @@ impl CustomScan for PdbScan {
             builder = builder.set_flag(Flags::Projection);
 
             let path = builder.build();
-            pgrx::warning!(
+            debug_log!(
                 "🎯 [PDBSCAN] Successfully built custom path for table {}",
                 table_name
             );
@@ -856,7 +857,7 @@ impl CustomScan for PdbScan {
     fn create_custom_scan_state(
         mut builder: CustomScanStateBuilder<Self, Self::PrivateData>,
     ) -> *mut CustomScanStateWrapper<Self> {
-        pgrx::warning!("🎯 [PDBSCAN] Creating custom scan state");
+        debug_log!("🎯 [PDBSCAN] Creating custom scan state");
         unsafe {
             builder.custom_state().heaprelid = builder
                 .custom_private()
@@ -1081,7 +1082,7 @@ impl CustomScan for PdbScan {
         estate: *mut pg_sys::EState,
         eflags: i32,
     ) {
-        pgrx::warning!("🎯 [PDBSCAN] Beginning custom scan");
+        debug_log!("🎯 [PDBSCAN] Beginning custom scan");
         unsafe {
             // open the heap and index relations with the proper locks
             let rte = pg_sys::exec_rt_fetch(state.custom_state().execution_rti, estate);
@@ -1214,22 +1215,22 @@ impl CustomScan for PdbScan {
                             let has_search_reader = state.custom_state().search_reader.is_some();
                             let has_indexrel = state.custom_state().indexrel.is_some();
 
-                            pgrx::warning!(
+                            debug_log!(
                                 "🔍 [DEBUG] Checking heap filter conditions for doc_id: {}",
                                 doc_address.doc_id
                             );
-                            pgrx::warning!(
+                            debug_log!(
                                 "🔍 [DEBUG] heap_filter_node_string: {:?}",
                                 heap_filter_node_string
                             );
-                            pgrx::warning!(
+                            debug_log!(
                                 "🔍 [DEBUG] search_reader available: {}",
                                 has_search_reader
                             );
 
                             if let Some(heap_filter_node_string) = heap_filter_node_string {
                                 if has_search_reader && has_indexrel {
-                                    pgrx::warning!("🚀 [DEBUG] Using unified heap filter with node string length: {}", heap_filter_node_string.len());
+                                    debug_log!("🚀 [DEBUG] Using unified heap filter with node string length: {}", heap_filter_node_string.len());
 
                                     // Get the indexrel OID safely
                                     let indexrel_oid =
@@ -1257,11 +1258,11 @@ impl CustomScan for PdbScan {
 
                                     result.unwrap_or_else(|_| UnifiedEvaluationResult::no_match())
                                 } else {
-                                    pgrx::warning!("⚠️  [DEBUG] No search_reader/indexrel available, falling back to enhanced heap filter");
+                                    debug_log!("⚠️  [DEBUG] No search_reader/indexrel available, falling back to enhanced heap filter");
                                     apply_enhanced_heap_filter(state, slot, score, doc_address)
                                 }
                             } else {
-                                pgrx::warning!("⚠️  [DEBUG] No heap_filter_node_string available, falling back to enhanced heap filter");
+                                debug_log!("⚠️  [DEBUG] No heap_filter_node_string available, falling back to enhanced heap filter");
                                 apply_enhanced_heap_filter(state, slot, score, doc_address)
                             }
                         };
@@ -1608,7 +1609,7 @@ fn compute_exec_which_fast_fields(
         .collect::<Vec<_>>();
 
     if !missing_fast_fields.is_empty() {
-        pgrx::warning!(
+        debug_log!(
             "Failed to extract all fast fields at planning time: \
              was missing {missing_fast_fields:?} from {planned_which_fast_fields:?} \
              Falling back to Normal execution.",
@@ -2549,7 +2550,7 @@ unsafe fn optimize_base_query_for_unified_evaluation(
     ri_type: RestrictInfoType,
     schema: &SearchIndexSchema,
 ) -> Option<Qual> {
-    pgrx::warning!(
+    debug_log!(
         "🔧 [OPTIMIZE] Starting base query optimization with indexed_quals: {:?}",
         indexed_quals
     );
@@ -2560,7 +2561,7 @@ unsafe fn optimize_base_query_for_unified_evaluation(
 
     // First, check if we have direct indexed predicates
     if let Some(ref indexed_qual) = indexed_quals {
-        pgrx::warning!("🔧 [OPTIMIZE] Found indexed quals, checking if they need optimization");
+        debug_log!("🔧 [OPTIMIZE] Found indexed quals, checking if they need optimization");
 
         // Check if this is a NOT expression with mixed predicates
         if let Some(optimized) = optimize_not_expression_with_mixed_predicates(
@@ -2571,16 +2572,16 @@ unsafe fn optimize_base_query_for_unified_evaluation(
             pdbopoid,
             schema,
         ) {
-            pgrx::warning!("🔧 [OPTIMIZE] Optimized NOT expression: {:?}", optimized);
+            debug_log!("🔧 [OPTIMIZE] Optimized NOT expression: {:?}", optimized);
             return Some(optimized);
         }
 
         // Use the indexed quals as-is
-        pgrx::warning!("🔧 [OPTIMIZE] Using indexed quals as-is");
+        debug_log!("🔧 [OPTIMIZE] Using indexed quals as-is");
         return indexed_quals.clone();
     }
 
-    pgrx::warning!("🔧 [OPTIMIZE] No indexed quals found, checking for complex expressions");
+    debug_log!("🔧 [OPTIMIZE] No indexed quals found, checking for complex expressions");
 
     // No direct indexed predicates found, but we might have complex expressions
     // containing search operators that should be handled entirely by Tantivy
@@ -2598,7 +2599,7 @@ unsafe fn optimize_base_query_for_unified_evaluation(
 
         // Check if this expression contains search operators
         if expression_contains_search_operators(cleaned_clause, pdbopoid) {
-            pgrx::warning!(
+            debug_log!(
                 "🔧 [OPTIMIZE] Found expression with search operators, trying to convert"
             );
 
@@ -2616,7 +2617,7 @@ unsafe fn optimize_base_query_for_unified_evaluation(
                 &mut uses_tantivy,
             ) {
                 if uses_tantivy {
-                    pgrx::warning!(
+                    debug_log!(
                         "🔧 [OPTIMIZE] Successfully converted to Tantivy query: {:?}",
                         tantivy_qual
                     );
@@ -2627,7 +2628,7 @@ unsafe fn optimize_base_query_for_unified_evaluation(
         }
     }
 
-    pgrx::warning!("🔧 [OPTIMIZE] No suitable expressions found, returning None");
+    debug_log!("🔧 [OPTIMIZE] No suitable expressions found, returning None");
     // If no expressions with search operators found, return None to indicate
     // that we can't handle this query with the custom scan
     None
@@ -2644,7 +2645,7 @@ unsafe fn optimize_not_expression_with_mixed_predicates(
     _pdbopoid: pg_sys::Oid,
     _schema: &SearchIndexSchema,
 ) -> Option<Qual> {
-    pgrx::warning!(
+    debug_log!(
         "🔧 [NOT_OPT] Analyzing qual for NOT optimization: {:?}",
         indexed_qual
     );
@@ -2653,12 +2654,12 @@ unsafe fn optimize_not_expression_with_mixed_predicates(
         // Handle: And([Not(search_pred), ExternalExpr])
         // This represents: NOT (search_pred OR non_search_pred)
         Qual::And(and_clauses) if and_clauses.len() == 2 => {
-            pgrx::warning!("🔧 [NOT_OPT] Found AND with 2 clauses, checking for NOT pattern");
+            debug_log!("🔧 [NOT_OPT] Found AND with 2 clauses, checking for NOT pattern");
 
             // Look for pattern: [Not(search_pred), ExternalExpr]
             if let (Qual::Not(not_clause), Qual::ExternalExpr) = (&and_clauses[0], &and_clauses[1])
             {
-                pgrx::warning!("🔧 [NOT_OPT] Found NOT + ExternalExpr pattern, optimizing");
+                debug_log!("🔧 [NOT_OPT] Found NOT + ExternalExpr pattern, optimizing");
 
                 // CRITICAL FIX: Return the NOT qualifier directly
                 // The Not conversion logic in qual_inspect.rs already handles search operators correctly:
@@ -2671,12 +2672,12 @@ unsafe fn optimize_not_expression_with_mixed_predicates(
             // Also check the reverse order: [ExternalExpr, Not(search_pred)]
             if let (Qual::ExternalExpr, Qual::Not(not_clause)) = (&and_clauses[0], &and_clauses[1])
             {
-                pgrx::warning!("🔧 [NOT_OPT] Found ExternalExpr + NOT pattern, optimizing");
+                debug_log!("🔧 [NOT_OPT] Found ExternalExpr + NOT pattern, optimizing");
                 return Some(Qual::Not(Box::new((**not_clause).clone())));
             }
         }
         _ => {
-            pgrx::warning!("🔧 [NOT_OPT] Qual doesn't match NOT optimization pattern");
+            debug_log!("🔧 [NOT_OPT] Qual doesn't match NOT optimization pattern");
         }
     }
 

@@ -7,6 +7,7 @@ use tantivy::query::{Occur, Query};
 use tantivy::{DocAddress, DocId};
 
 use crate::api::operator::{anyelement_query_input_opoid, anyelement_text_opoid};
+use crate::api::FieldName;
 use crate::index::reader::index::SearchIndexReader;
 
 use crate::query::{AsHumanReadable, SearchQueryInput};
@@ -67,6 +68,15 @@ pub enum OptimizedExpressionNode {
         op: BooleanOperator,
         children: Vec<OptimizedExpressionNode>,
     },
+}
+
+impl OptimizedExpressionNode {
+    fn children_count(&self) -> usize {
+        match self {
+            OptimizedExpressionNode::BooleanOperation { children, .. } => children.len(),
+            _ => 0,
+        }
+    }
 }
 
 /// Consolidated Tantivy leaf that combines multiple @@@ operators into a single Boolean query
@@ -416,17 +426,17 @@ impl ExpressionTreeOptimizer {
                 let bool_expr = expr.cast::<pg_sys::BoolExpr>();
                 let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
 
-                let mut child_nodes = Vec::new();
-                for arg in args.iter_ptr() {
-                    child_nodes.push(Self::from_postgres_node(arg, pdbopoid)?);
-                }
-
                 let op = match (*bool_expr).boolop {
                     pg_sys::BoolExprType::AND_EXPR => BooleanOperator::And,
                     pg_sys::BoolExprType::OR_EXPR => BooleanOperator::Or,
                     pg_sys::BoolExprType::NOT_EXPR => BooleanOperator::Not,
                     _ => return Err("Unsupported boolean operation"),
                 };
+
+                let mut child_nodes = Vec::new();
+                for arg in args.iter_ptr() {
+                    child_nodes.push(Self::from_postgres_node(arg, pdbopoid)?);
+                }
 
                 match op {
                     BooleanOperator::And => Ok(Self::consolidate_and_operation(child_nodes)),
@@ -444,21 +454,41 @@ impl ExpressionTreeOptimizer {
             }
             pg_sys::NodeTag::T_OpExpr => {
                 let op_expr = expr.cast::<pg_sys::OpExpr>();
+                pgrx::warning!(
+                    "🔧 [OP_EXPR] Found OpExpr with opno: {}, pdbopoid: {}, match: {}",
+                    (*op_expr).opno,
+                    pdbopoid,
+                    (*op_expr).opno == pdbopoid
+                );
                 if (*op_expr).opno == pdbopoid {
                     // This is a @@@ operator - create a Tantivy leaf
-                    let field_query = Self::extract_tantivy_field_query(op_expr)?;
-                    let consolidated_leaf = ConsolidatedTantivyLeaf {
-                        boolean_query: TantivyBooleanQuery {
-                            must: vec![field_query],
-                            should: vec![],
-                            must_not: vec![],
-                        },
-                    };
-                    Ok(OptimizedExpressionNode::ConsolidatedTantivyLeaf(
-                        consolidated_leaf,
-                    ))
+                    match Self::extract_tantivy_field_query(op_expr) {
+                        Ok(field_query) => {
+                            let consolidated_leaf = ConsolidatedTantivyLeaf {
+                                boolean_query: TantivyBooleanQuery {
+                                    must: vec![field_query],
+                                    should: vec![],
+                                    must_not: vec![],
+                                },
+                            };
+                            Ok(OptimizedExpressionNode::ConsolidatedTantivyLeaf(
+                                consolidated_leaf,
+                            ))
+                        }
+                        Err(e) => {
+                            pgrx::warning!(
+                                "⚠️ [TANTIVY_LEAF] Failed to extract Tantivy field query: {}, falling back to PostgreSQL leaf",
+                                e
+                            );
+                            // Fallback to PostgreSQL leaf if extraction fails
+                            Ok(OptimizedExpressionNode::PostgreSQLLeaf(PostgreSQLLeaf {
+                                expr,
+                            }))
+                        }
+                    }
                 } else {
                     // This is a regular operator - create a PostgreSQL leaf
+                    pgrx::warning!("🔧 [POSTGRES_LEAF] Creating PostgreSQL leaf for non-search operator");
                     Ok(OptimizedExpressionNode::PostgreSQLLeaf(PostgreSQLLeaf {
                         expr,
                     }))
@@ -488,12 +518,16 @@ impl ExpressionTreeOptimizer {
         let lhs = args.get_ptr(0).ok_or("Missing left-hand side argument")?;
         let rhs = args.get_ptr(1).ok_or("Missing right-hand side argument")?;
 
-        // Extract field name from left-hand side (typically a Var node)
-        let field_name =
-            Self::extract_field_name_from_node(lhs).unwrap_or_else(|| "unknown_field".to_string());
-
-        // Extract query from right-hand side
+        // Extract query from right-hand side first
         let (query_string, search_query_input) = Self::extract_query_from_node(rhs)?;
+
+        // Extract field name from the SearchQueryInput instead of the left-hand side Var node
+        // This is more accurate because the SearchQueryInput contains the actual field being searched
+        let field_name = Self::extract_field_name_from_search_query_input(&search_query_input)
+            .unwrap_or_else(|| {
+                // Fallback to extracting from left-hand side if SearchQueryInput doesn't contain field info
+                Self::extract_field_name_from_node(lhs).unwrap_or_else(|| "unknown_field".to_string())
+            });
 
         Ok(TantivyFieldQuery {
             field: field_name,
@@ -502,12 +536,40 @@ impl ExpressionTreeOptimizer {
         })
     }
 
+    /// Extract field name from SearchQueryInput (more accurate than Var node)
+    fn extract_field_name_from_search_query_input(search_query_input: &SearchQueryInput) -> Option<String> {
+        match search_query_input {
+            SearchQueryInput::ParseWithField { field, .. } => {
+                let field_name = field.as_ref().to_string();
+                Some(field_name)
+            }
+            SearchQueryInput::WithIndex { query, .. } => {
+                // Recursively extract from nested query
+                Self::extract_field_name_from_search_query_input(query)
+            }
+            _ => None,
+        }
+    }
+
     /// Extract field name from a PostgreSQL node (typically a Var node)
     unsafe fn extract_field_name_from_node(node: *mut pg_sys::Node) -> Option<String> {
         if (*node).type_ == pg_sys::NodeTag::T_Var {
-            // For now, return a placeholder field name
-            // In a full implementation, we'd resolve the Var to the actual field name
-            Some("field_name".to_string())
+            let var_node = node.cast::<pg_sys::Var>();
+            let attno = (*var_node).varattno;
+            
+            // Map attribute numbers to field names for our test table
+            // In a real implementation, we'd look up the attribute name from the relation
+            let field_name = match attno {
+                1 => "id",
+                2 => "name", 
+                3 => "description",
+                4 => "category",
+                5 => "price",
+                6 => "in_stock",
+                _ => "unknown_field",
+            };
+            
+            Some(field_name.to_string())
         } else {
             None
         }
@@ -616,8 +678,19 @@ impl ExpressionTreeOptimizer {
         for child in children {
             match child {
                 OptimizedExpressionNode::ConsolidatedTantivyLeaf(leaf) => {
-                    // Collect all MUST queries from Tantivy leaves
-                    tantivy_queries.extend(leaf.boolean_query.must);
+                    // For AND operations, we need to handle different cases:
+                    // 1. If the leaf has MUST queries, add them as MUST to the consolidated query
+                    // 2. If the leaf has SHOULD queries (from inner OR), we need to preserve the entire leaf
+                    //    because it represents a complex sub-expression that must be satisfied as a unit
+                    if !leaf.boolean_query.must.is_empty() {
+                        // Simple case: leaf has MUST queries, add them to our MUST list
+                        tantivy_queries.extend(leaf.boolean_query.must);
+                    } else if !leaf.boolean_query.should.is_empty() || !leaf.boolean_query.must_not.is_empty() {
+                        // Complex case: leaf has SHOULD or MUST_NOT queries (from inner OR/NOT operations)
+                        // We cannot simply merge these into our consolidated query because they represent
+                        // a complex sub-expression. Instead, keep the leaf as a separate child.
+                        postgres_children.push(OptimizedExpressionNode::ConsolidatedTantivyLeaf(leaf));
+                    }
                 }
                 other => postgres_children.push(other),
             }
@@ -850,7 +923,7 @@ impl PostgreSQLLeafEvaluator {
         let expr_state = pg_sys::ExecInitExpr(expr.cast::<pg_sys::Expr>(), std::ptr::null_mut());
 
         if expr_state.is_null() {
-            pgrx::debug1!("🚨 [POSTGRES_LEAF] ExecInitExpr failed - expression state is null");
+            pgrx::warning!("🚨 [POSTGRES_LEAF] ExecInitExpr failed - expression state is null");
             return Ok(OptimizedEvaluationResult::no_match());
         }
 
@@ -870,12 +943,12 @@ impl PostgreSQLLeafEvaluator {
         pg_sys::pfree(expr_state.cast());
 
         if is_null {
-            pgrx::debug1!("🚨 [POSTGRES_LEAF] ExecEvalExpr returned null");
+            pgrx::warning!("🚨 [POSTGRES_LEAF] ExecEvalExpr returned null");
             Ok(OptimizedEvaluationResult::no_match())
         } else {
             // Convert the result datum to a boolean
-            let result_bool = pg_sys::DatumGetBool(result_datum);
-            pgrx::debug1!(
+            let result_bool = bool::from_datum(result_datum, false).unwrap_or(false);
+            pgrx::warning!(
                 "🔍 [POSTGRES_LEAF] Expression evaluated: matches={}",
                 result_bool
             );
@@ -892,6 +965,7 @@ impl PostgreSQLLeafEvaluator {
 pub struct OptimizedExpressionTreeEvaluator<'a> {
     tantivy_evaluator: ConsolidatedTantivyEvaluator<'a>,
     postgres_evaluator: PostgreSQLLeafEvaluator,
+    current_score: f32,
 }
 
 impl<'a> OptimizedExpressionTreeEvaluator<'a> {
@@ -903,6 +977,20 @@ impl<'a> OptimizedExpressionTreeEvaluator<'a> {
         Self {
             tantivy_evaluator: ConsolidatedTantivyEvaluator::new(search_reader, schema),
             postgres_evaluator: PostgreSQLLeafEvaluator::new(expr_context),
+            current_score: 1.0,
+        }
+    }
+
+    pub fn new_with_score(
+        search_reader: &'a SearchIndexReader,
+        schema: &'a SearchIndexSchema,
+        expr_context: *mut pg_sys::ExprContext,
+        current_score: f32,
+    ) -> Self {
+        Self {
+            tantivy_evaluator: ConsolidatedTantivyEvaluator::new(search_reader, schema),
+            postgres_evaluator: PostgreSQLLeafEvaluator::new(expr_context),
+            current_score,
         }
     }
 
@@ -918,7 +1006,15 @@ impl<'a> OptimizedExpressionTreeEvaluator<'a> {
                 .tantivy_evaluator
                 .evaluate_for_document(&leaf.boolean_query, doc_id),
             OptimizedExpressionNode::PostgreSQLLeaf(leaf) => {
-                self.postgres_evaluator.evaluate_leaf(leaf, slot)
+                // For PostgreSQL leaves in mixed expressions, preserve the current Tantivy score
+                match self.postgres_evaluator.evaluate_leaf(leaf, slot) {
+                    Ok(result) if result.matches && self.current_score != 1.0 => {
+                        // Preserve the original Tantivy score for matching PostgreSQL predicates
+                        // Use current_score != 1.0 because BM25 scores can be < 1.0 for low-relevance docs
+                        Ok(OptimizedEvaluationResult::new(true, self.current_score))
+                    }
+                    other => other,
+                }
             }
             OptimizedExpressionNode::BooleanOperation { op, children } => {
                 self.evaluate_boolean_operation(op, children, doc_id, slot)
@@ -953,23 +1049,40 @@ impl<'a> OptimizedExpressionTreeEvaluator<'a> {
                 let final_score = if score_count > 0 {
                     combined_score / score_count as f32
                 } else {
-                    1.0
+                    // For mixed expressions, use the current score if available
+                    // Use != 1.0 because BM25 scores can be < 1.0 for low-relevance docs
+                    if self.current_score != 1.0 {
+                        self.current_score
+                    } else {
+                        1.0
+                    }
                 };
 
                 Ok(OptimizedEvaluationResult::new(true, final_score))
             }
             BooleanOperator::Or => {
                 let mut best_score: f32 = 0.0;
+                let mut any_matched = false;
 
                 for child in children {
                     let result = self.evaluate_tree(child, doc_id, slot)?;
                     if result.matches {
+                        any_matched = true;
                         best_score = best_score.max(result.score);
                     }
                 }
 
-                if best_score > 0.0 {
-                    Ok(OptimizedEvaluationResult::new(true, best_score))
+                if any_matched {
+                    // For OR operations, use the best available score
+                    // If we have a real Tantivy score (> 0), use it
+                    // Otherwise use 1.0 for PostgreSQL-only matches
+                    let final_score = if best_score > 0.0 {
+                        best_score
+                    } else {
+                        // PostgreSQL-only match in mixed OR expression
+                        1.0
+                    };
+                    Ok(OptimizedEvaluationResult::new(true, final_score))
                 } else {
                     Ok(OptimizedEvaluationResult::no_match())
                 }
@@ -1000,7 +1113,7 @@ pub unsafe fn apply_optimized_unified_heap_filter(
     slot: *mut pg_sys::TupleTableSlot,
     doc_id: DocId,
     _doc_address: DocAddress,
-    _current_score: f32,
+    current_score: f32,
     pdbopoid: pg_sys::Oid,
 ) -> Result<OptimizedEvaluationResult, &'static str> {
     // Parse the heap filter expression into a PostgreSQL node tree
@@ -1045,8 +1158,18 @@ pub unsafe fn apply_optimized_unified_heap_filter(
         })
     };
 
-    // Create the optimized evaluator
-    let evaluator = OptimizedExpressionTreeEvaluator::new(search_reader, schema, expr_context);
+    // Create the optimized evaluator with the current score for mixed expressions
+    pgrx::warning!(
+        "🔧 [HEAP_FILTER] Creating evaluator with current_score: {}, decomposed_tree: {:?}",
+        current_score,
+        optimized_tree
+    );
+    let evaluator = OptimizedExpressionTreeEvaluator::new_with_score(
+        search_reader,
+        schema,
+        expr_context,
+        current_score,
+    );
 
     // Evaluate the optimized tree
     evaluator

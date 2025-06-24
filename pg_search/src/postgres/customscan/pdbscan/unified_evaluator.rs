@@ -19,7 +19,7 @@ use crate::api::operator::{anyelement_query_input_opoid, anyelement_text_opoid};
 use crate::debug_log;
 use crate::index::reader::index::SearchIndexReader;
 use crate::schema::SearchIndexSchema;
-use pgrx::*;
+use pgrx::{FromDatum, *};
 use std::collections::HashMap;
 use tantivy::{DocAddress, DocId};
 
@@ -528,7 +528,8 @@ impl<'a> UnifiedExpressionEvaluator<'a> {
                     // For now, assume non-null constants are true
                     // In practice, we'd need to properly evaluate the constant's value
                     if (*const_node).consttype == pg_sys::BOOLOID {
-                        let bool_val = pg_sys::DatumGetBool((*const_node).constvalue);
+                        let bool_val =
+                            bool::from_datum((*const_node).constvalue, false).unwrap_or(false);
                         if bool_val {
                             Ok(UnifiedEvaluationResult::non_indexed_match_with_score(
                                 self.current_score,
@@ -583,7 +584,7 @@ impl<'a> UnifiedExpressionEvaluator<'a> {
                     Ok(UnifiedEvaluationResult::no_match())
                 } else {
                     // Convert the result datum to a boolean
-                    let result_bool = pg_sys::DatumGetBool(result_datum);
+                    let result_bool = bool::from_datum(result_datum, false).unwrap_or(false);
                     debug_log!(
                         "🔧 [DEBUG] Node type {} evaluated to: {}",
                         (*expr).type_ as i32,
@@ -649,7 +650,7 @@ impl<'a> UnifiedExpressionEvaluator<'a> {
             Ok(UnifiedEvaluationResult::no_match())
         } else {
             // Convert the result datum to a boolean
-            let result_bool = pg_sys::DatumGetBool(result_datum);
+            let result_bool = bool::from_datum(result_datum, false).unwrap_or(false);
             debug_log!(
                 "🔧 [DEBUG] Operator {} evaluated to: {}",
                 op_oid,

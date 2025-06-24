@@ -1223,10 +1223,10 @@ impl CustomScan for PdbScan {
                                 "🔍 [DEBUG] Checking heap filter conditions for doc_id: {}",
                                 doc_address.doc_id
                             );
-                            debug_log!(
-                                "🔍 [DEBUG] heap_filter_node_string: {:?}",
-                                heap_filter_node_string
-                            );
+                            // debug_log!(
+                            //     "🔍 [DEBUG] heap_filter_node_string: {:?}",
+                            //     heap_filter_node_string
+                            // );
                             debug_log!("🔍 [DEBUG] search_reader available: {}", has_search_reader);
 
                             if let Some(heap_filter_node_string) = heap_filter_node_string {

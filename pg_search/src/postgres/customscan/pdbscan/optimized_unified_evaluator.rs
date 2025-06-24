@@ -405,6 +405,7 @@ impl ExpressionTreeOptimizer {
     /// Convert PostgreSQL expression to optimized expression tree (legacy method)
     pub unsafe fn from_postgres_node(
         expr: *mut pg_sys::Node,
+        pdbopoid: pg_sys::Oid,
     ) -> Result<OptimizedExpressionNode, &'static str> {
         if expr.is_null() {
             return Err("Expression node is null");
@@ -417,7 +418,7 @@ impl ExpressionTreeOptimizer {
 
                 let mut child_nodes = Vec::new();
                 for arg in args.iter_ptr() {
-                    child_nodes.push(Self::from_postgres_node(arg)?);
+                    child_nodes.push(Self::from_postgres_node(arg, pdbopoid)?);
                 }
 
                 let op = match (*bool_expr).boolop {
@@ -443,7 +444,7 @@ impl ExpressionTreeOptimizer {
             }
             pg_sys::NodeTag::T_OpExpr => {
                 let op_expr = expr.cast::<pg_sys::OpExpr>();
-                if Self::is_search_operator((*op_expr).opno) {
+                if (*op_expr).opno == pdbopoid {
                     // This is a @@@ operator - create a Tantivy leaf
                     let field_query = Self::extract_tantivy_field_query(op_expr)?;
                     let consolidated_leaf = ConsolidatedTantivyLeaf {
@@ -472,10 +473,7 @@ impl ExpressionTreeOptimizer {
         }
     }
 
-    /// Check if an operator OID represents a search operator (@@@)
-    fn is_search_operator(op_oid: pg_sys::Oid) -> bool {
-        op_oid == anyelement_query_input_opoid() || op_oid == anyelement_text_opoid()
-    }
+    // Note: is_search_operator method removed since we now use the proper pdbopoid parameter
 
     /// Extract a TantivyFieldQuery from a search operator expression
     unsafe fn extract_tantivy_field_query(
@@ -1008,13 +1006,21 @@ pub unsafe fn apply_optimized_unified_heap_filter(
         ExpressionTreeOptimizer::build_search_query_from_expression(parsed_expr, schema, pdbopoid)
             .map_err(|_| "Failed to build search query from expression")?;
 
-    // For now, create a simple optimized tree from the search query result
-    // This provides the correct operator detection while maintaining the interface
+    // CRITICAL FIX: Instead of treating SearchQueryInput::All as pure PostgreSQL,
+    // we need to properly decompose mixed expressions to preserve Tantivy scores.
+    // This is the core of the Universal Reader approach!
     let optimized_tree = if matches!(search_query, SearchQueryInput::All) {
-        // If we get ALL, it means no search operators were found, treat as PostgreSQL expression
-        OptimizedExpressionNode::PostgreSQLLeaf(PostgreSQLLeaf { expr: parsed_expr })
+        // SearchQueryInput::All means we have mixed indexed/non-indexed expressions
+        // We need to decompose the expression tree to extract Tantivy parts
+        match ExpressionTreeOptimizer::from_postgres_node(parsed_expr, pdbopoid) {
+            Ok(decomposed_tree) => decomposed_tree,
+            Err(_) => {
+                // Fallback: if decomposition fails, treat as pure PostgreSQL
+                OptimizedExpressionNode::PostgreSQLLeaf(PostgreSQLLeaf { expr: parsed_expr })
+            }
+        }
     } else {
-        // If we got a real search query, create a Tantivy leaf
+        // Pure Tantivy query - create a Tantivy leaf
         OptimizedExpressionNode::ConsolidatedTantivyLeaf(ConsolidatedTantivyLeaf {
             boolean_query: TantivyBooleanQuery {
                 must: vec![TantivyFieldQuery {

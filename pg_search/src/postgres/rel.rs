@@ -54,15 +54,17 @@ impl Debug for PgSearchRelation {
 
 impl Drop for PgSearchRelation {
     fn drop(&mut self) {
-        if let Some(rc) = self.0.take() {
-            if let Some((relation, need_close, lockmode)) = Rc::into_inner(rc) {
-                unsafe {
-                    if need_close && pg_sys::IsTransactionState() {
-                        match lockmode {
-                            Some(lockmode) => pg_sys::relation_close(relation.as_ptr(), lockmode),
-                            None => pg_sys::RelationClose(relation.as_ptr()),
-                        }
-                    }
+        let Some(rc) = self.0.take() else {
+            return;
+        };
+        let Some((relation, need_close, lockmode)) = Rc::into_inner(rc) else {
+            return;
+        };
+        unsafe {
+            if need_close && pg_sys::IsTransactionState() {
+                match lockmode {
+                    Some(lockmode) => pg_sys::relation_close(relation.as_ptr(), lockmode),
+                    None => pg_sys::RelationClose(relation.as_ptr()),
                 }
             }
         }

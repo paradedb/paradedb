@@ -31,7 +31,7 @@ use pgrx::pg_sys;
 use std::any::Any;
 use std::collections::hash_map::Entry;
 use std::error::Error;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Debug, Display};
 use std::panic::panic_any;
 use std::path::Path;
 use std::path::PathBuf;
@@ -78,7 +78,7 @@ type AtomicFileEntry = (FileEntry, Arc<AtomicUsize>);
 /// Tantivy Directory trait implementation over block storage
 /// This Directory implementation respects Postgres MVCC visibility rules
 /// and should back all Tantivy Indexes used in insert and scan operations
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct MVCCDirectory {
     indexrel: PgSearchRelation,
     mvcc_style: MvccSatisfies,
@@ -95,20 +95,6 @@ pub struct MVCCDirectory {
     loaded_metas: OnceLock<Arc<tantivy::Result<IndexMeta>>>,
     all_entries: Arc<Mutex<HashMap<SegmentId, SegmentMetaEntry>>>,
     pin_cushion: Arc<Mutex<Option<PinCushion>>>,
-}
-
-impl Debug for MVCCDirectory {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MVCCDirectory")
-            .field("indexrel", &self.indexrel.oid())
-            .field("mvcc_style", &self.mvcc_style)
-            .field("readers", &self.readers)
-            .field("new_files", &self.new_files)
-            .field("loaded_metas", &self.loaded_metas)
-            .field("all_entries", &self.all_entries)
-            .field("pin_cushion", &self.pin_cushion)
-            .finish()
-    }
 }
 
 unsafe impl Send for MVCCDirectory {}

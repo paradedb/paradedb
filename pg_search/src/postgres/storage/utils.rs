@@ -21,7 +21,7 @@ use crate::postgres::storage::block::{bm25_max_free_space, BM25PageSpecialData, 
 use parking_lot::Mutex;
 use pgrx::pg_sys::OffsetNumber;
 use pgrx::{check_for_interrupts, pg_sys, PgMemoryContexts};
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
 
 /// Matches Postgres's [`MAX_BUFFERS_TO_EXTEND_BY`]
 pub const MAX_BUFFERS_TO_EXTEND_BY: usize = 64;
@@ -81,18 +81,11 @@ impl BM25Page for pg_sys::Page {
     }
 }
 
+#[derive(Debug)]
 pub struct BM25BufferCache {
     rel: PgSearchRelation,
     cache: Mutex<HashMap<pg_sys::BlockNumber, Vec<u8>>>,
     bulkwrite_bas: pg_sys::BufferAccessStrategy,
-}
-
-impl Debug for BM25BufferCache {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("BM25BufferCache")
-            .field("indexrel", &self.rel.oid())
-            .finish()
-    }
 }
 
 unsafe impl Send for BM25BufferCache {}

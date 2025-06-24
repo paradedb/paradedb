@@ -32,7 +32,7 @@ use tantivy::indexer::delete_queue::DeleteQueue;
 use tantivy::indexer::{advance_deletes, DeleteOperation, SegmentEntry};
 use tantivy::{Directory, DocId, Index, IndexMeta, Opstamp};
 
-// #[pg_guard]
+#[pg_guard]
 pub unsafe extern "C-unwind" fn ambulkdelete(
     info: *mut pg_sys::IndexVacuumInfo,
     stats: *mut pg_sys::IndexBulkDeleteResult,

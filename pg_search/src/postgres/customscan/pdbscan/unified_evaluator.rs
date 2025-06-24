@@ -215,21 +215,12 @@ impl<'a> UnifiedExpressionEvaluator<'a> {
                 let op_expr = expr as *mut pg_sys::OpExpr;
                 self.evaluate_op_expr(op_expr, doc_id, doc_address, slot)
             }
-            pg_sys::NodeTag::T_Var => {
-                // Simple variable reference - evaluate as PostgreSQL predicate
-                self.evaluate_postgres_predicate(expr as *mut pg_sys::Expr, slot)
-            }
-            pg_sys::NodeTag::T_NullTest => {
-                // Handle NULL tests (e.g., "tags IS NULL", "tags IS NOT NULL")
-                debug_log!("🔧 [DEBUG] Handling NullTest expression");
-                self.evaluate_null_test(expr as *mut pg_sys::NullTest, slot)
-            }
             _ => {
                 debug_log!(
-                    "⚠️ [DEBUG] Unsupported expression type: {}",
+                    "🔧 [DEBUG] Using generic PostgreSQL evaluation for node type: {}",
                     node_tag as i32
                 );
-                // For unsupported types, fall back to PostgreSQL evaluation
+                // For all other types (including T_Var, T_NullTest, etc.), use generic PostgreSQL evaluation
                 self.evaluate_postgres_predicate(expr as *mut pg_sys::Expr, slot)
             }
         }
@@ -489,63 +480,6 @@ impl<'a> UnifiedExpressionEvaluator<'a> {
         slot: *mut pg_sys::TupleTableSlot,
     ) -> Result<UnifiedEvaluationResult, &'static str> {
         self.evaluate_with_postgres_cached(expr as *mut pg_sys::Node, slot)
-    }
-
-    /// Evaluate NULL test expressions (e.g., "tags IS NULL", "tags IS NOT NULL")
-    unsafe fn evaluate_null_test(
-        &mut self,
-        null_test: *mut pg_sys::NullTest,
-        slot: *mut pg_sys::TupleTableSlot,
-    ) -> Result<UnifiedEvaluationResult, &'static str> {
-        debug_log!("🔧 [DEBUG] Evaluating NullTest expression");
-
-        let arg = (*null_test).arg;
-        let null_test_type = (*null_test).nulltesttype;
-
-        debug_log!(
-            "🔧 [DEBUG] NullTest type: {} (0=IS_NULL, 1=IS_NOT_NULL)",
-            null_test_type as i32
-        );
-
-        // Evaluate the argument to get its value
-        if (*arg).type_ == pg_sys::NodeTag::T_Var {
-            let var_node = arg as *mut pg_sys::Var;
-            let attno = (*var_node).varattno;
-
-            debug_log!("🔧 [DEBUG] Getting attribute {} from slot", attno);
-
-            let mut isnull = false;
-            let _datum = pg_sys::slot_getattr(slot, attno.into(), &mut isnull);
-
-            debug_log!("🔧 [DEBUG] Attribute {} is_null: {}", attno, isnull);
-
-            let result = match null_test_type {
-                pg_sys::NullTestType::IS_NULL => isnull, // IS NULL - true if value is null
-                pg_sys::NullTestType::IS_NOT_NULL => !isnull, // IS NOT NULL - true if value is not null
-                _ => false, // Handle any other unknown null test types
-            };
-
-            debug_log!(
-                "🔧 [DEBUG] NullTest result: {} (value is_null={}, test_type={:?})",
-                result,
-                isnull,
-                null_test_type
-            );
-
-            if result {
-                Ok(UnifiedEvaluationResult::non_indexed_match_with_score(
-                    self.current_score,
-                ))
-            } else {
-                Ok(UnifiedEvaluationResult::no_match())
-            }
-        } else {
-            // For non-Var arguments, fall back to PostgreSQL evaluation
-            debug_log!(
-                "🔧 [DEBUG] NullTest with non-Var argument, falling back to PostgreSQL evaluation"
-            );
-            self.evaluate_with_postgres_cached(null_test as *mut pg_sys::Node, slot)
-        }
     }
 
     /// Evaluate PostgreSQL predicates with caching

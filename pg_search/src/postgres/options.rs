@@ -729,7 +729,11 @@ fn get_attribute_oid(field_name: &str, indexrel: &PgSearchRelation) -> Option<Pg
 
 fn get_field_type(field_name: &str, indexrel: &PgSearchRelation) -> SearchFieldType {
     let attribute_oid = get_attribute_oid(field_name, indexrel)
+<<<<<<< HEAD
         .unwrap_or_else(|| panic!("field type should have been set for `{field_name}`"));
+=======
+        .unwrap_or_else(|| panic!("field type should have been set for `{}`", field_name));
+>>>>>>> d33aa0c0 (perf: reference count open relations (#2716))
     (&attribute_oid).try_into().unwrap()
 }
 

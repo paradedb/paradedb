@@ -395,7 +395,6 @@ mod tests {
     use super::*;
     use crate::api::HashSet;
     use crate::postgres::rel::PgSearchRelation;
-    use crate::schema::SearchIndexSchema;
     use pgrx::prelude::*;
     use std::num::NonZeroUsize;
 

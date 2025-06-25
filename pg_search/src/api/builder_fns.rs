@@ -610,13 +610,14 @@ pub unsafe fn terms_with_operator(
     }
 
     let array = pgrx::datum::Array::<pg_sys::Datum>::from_datum(value.datum(), false).unwrap();
-    let quals = array.into_iter().map(|val| {
-        let element = if let Some(val) = val {
-            AnyElement::from_polymorphic_datum(val, false, array_type).expect("datum should be a valid AnyElement")
+    let quals = array.into_iter().map(|datum| {
+        let (datum, is_null) = if let Some(datum) = datum {
+            (datum, false)
         } else {
-            AnyElement::from_polymorphic_datum(pg_sys::Datum::null(), true, array_type).expect("datum should be a valid AnyElement")
+            (pg_sys::Datum::null(), true)
         };
-        term_with_operator(field.clone(), operator.clone(), element).expect("term_with_operator should return a valid SearchQueryInput")
+        let anyelement = AnyElement::from_polymorphic_datum(datum, is_null, array_type).expect("datum should be a valid AnyElement");
+        term_with_operator(field.clone(), operator.clone(), anyelement).expect("term_with_operator should return a valid SearchQueryInput")
     }).collect::<Vec<_>>();
 
     if use_or {

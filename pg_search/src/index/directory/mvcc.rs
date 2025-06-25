@@ -53,7 +53,11 @@ use tantivy::{index::SegmentMetaInventory, Directory, IndexMeta, TantivyError};
 /// which creates less lock contention than allocating one block at a time.
 pub const BUFWRITER_CAPACITY: usize = bm25_max_free_space() * MAX_BUFFERS_TO_EXTEND_BY;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// Describes how a [`MvccDirectory`] should resolve segment visibility.  Note that
+/// this enum is purposely non-cloneable.  Wrap it with an [`Arc`] if you need that.  Because of
+/// the [`MvccSatisfies::ParallelWorker`] variant, cloning could be incredibly expensive when
+/// an index has many (thousands!) of segments.
+#[derive(Debug, PartialEq, Eq)]
 pub enum MvccSatisfies {
     ParallelWorker(HashSet<SegmentId>),
     Snapshot,
@@ -80,8 +84,12 @@ type AtomicFileEntry = (FileEntry, Arc<AtomicUsize>);
 /// and should back all Tantivy Indexes used in insert and scan operations
 #[derive(Debug, Clone)]
 pub struct MVCCDirectory {
+    //
+    // NB:  Directories get cloned, **A LOT**, by tantivy.  As such, it should be cheap, especially
+    // in terms of memory usage, to clone this struct.
+    //
     indexrel: PgSearchRelation,
-    mvcc_style: MvccSatisfies,
+    mvcc_style: Arc<MvccSatisfies>,
 
     // keep a cache of readers behind an Arc<Mutex<_>> so that if/when this MVCCDirectory is
     // cloned, we don't lose all the work we did originally creating the FileHandler impls.  And
@@ -123,7 +131,7 @@ impl MVCCDirectory {
     fn with_mvcc_style(index_relation: &PgSearchRelation, mvcc_style: MvccSatisfies) -> Self {
         Self {
             indexrel: Clone::clone(index_relation),
-            mvcc_style,
+            mvcc_style: Arc::new(mvcc_style),
             readers: Default::default(),
             new_files: Default::default(),
             loaded_metas: Default::default(),

@@ -328,13 +328,13 @@ async fn test_scalar_array_pushdown_basic(database: Db) {
 
         let array_condition = expr.to_sql(&selected_values);
 
-        // Test COUNT queries
+        // Test result sets ordered by id
         let pg_query = format!(
-            "SELECT COUNT(*) FROM scalar_array_test WHERE {}",
+            "SELECT id FROM scalar_array_test WHERE {} ORDER BY id",
             array_condition
         );
         let bm25_query = format!(
-            "SELECT COUNT(*) FROM scalar_array_test WHERE {}",
+            "SELECT id FROM scalar_array_test WHERE {} ORDER BY id",
             array_condition
         );
 
@@ -346,7 +346,7 @@ async fn test_scalar_array_pushdown_basic(database: Db) {
             pg_query,
             bm25_query,
             &mut pool.pull(),
-            |query, conn| query.fetch_one::<(i64,)>(conn).0,
+            |query, conn| query.fetch::<(i64,)>(conn),
         )?;
     });
 }

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fmt;
 
+use crate::debug_log;
 use pgrx::{pg_sys, FromDatum, PgList};
 use tantivy::collector::TopDocs;
 use tantivy::query::{Occur, Query};
@@ -890,7 +891,7 @@ impl PostgreSQLLeafEvaluator {
         let expr_state = pg_sys::ExecInitExpr(expr.cast::<pg_sys::Expr>(), std::ptr::null_mut());
 
         if expr_state.is_null() {
-            pgrx::warning!("🚨 [POSTGRES_LEAF] ExecInitExpr failed - expression state is null");
+            debug_log!("🚨 [POSTGRES_LEAF] ExecInitExpr failed - expression state is null");
             return Ok(OptimizedEvaluationResult::no_match());
         }
 
@@ -910,12 +911,12 @@ impl PostgreSQLLeafEvaluator {
         pg_sys::pfree(expr_state.cast());
 
         if is_null {
-            pgrx::warning!("🚨 [POSTGRES_LEAF] ExecEvalExpr returned null");
+            debug_log!("🚨 [POSTGRES_LEAF] ExecEvalExpr returned null");
             Ok(OptimizedEvaluationResult::no_match())
         } else {
             // Convert the result datum to a boolean
             let result_bool = bool::from_datum(result_datum, false).unwrap_or(false);
-            pgrx::warning!(
+            debug_log!(
                 "🔍 [POSTGRES_LEAF] Expression evaluated: matches={}",
                 result_bool
             );

@@ -17,7 +17,7 @@
 
 /// Debug logging configuration for the custom scan system
 /// Set to true to enable debug logging, false to disable
-pub const ENABLE_DEBUG_LOGGING: bool = true;
+pub const ENABLE_DEBUG_LOGGING: bool = false;
 
 /// Wrapper macro for debug logging that can be easily enabled/disabled
 /// Usage: debug_log!("Message with {} formatting", value);

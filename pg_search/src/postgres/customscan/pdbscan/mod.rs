@@ -17,6 +17,7 @@
 
 #![allow(clippy::unnecessary_cast)] // helps with integer casting differences between postgres versions
 mod exec_methods;
+mod opexpr;
 pub mod parallel;
 mod privdat;
 mod projections;

@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use super::opexpr::OpExpr;
 use crate::api::operator::searchqueryinput_typoid;
 use crate::api::{fieldname_typoid, FieldName, HashMap};
 use crate::nodecast;
@@ -65,7 +66,10 @@ impl PushdownField {
 
 macro_rules! pushdown {
     ($attname:expr, $opexpr:expr, $operator:expr, $rhs:ident) => {{
-        let funcexpr = make_opexpr($attname, $opexpr, $operator, $rhs);
+        let funcexpr = match $opexpr {
+            OpExpr::Array(_) => make_scalar_array_opexpr($attname, $opexpr, $operator, $rhs),
+            OpExpr::Single(_) => make_opexpr($attname, $opexpr, $operator, $rhs),
+        };
 
         if !is_complex(funcexpr.cast()) {
             Some(Qual::PushdownExpr { funcexpr })
@@ -132,10 +136,10 @@ unsafe fn initialize_equality_operator_lookup() -> HashMap<PostgresOperatorOid, 
 pub unsafe fn try_pushdown(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
-    opexpr: *mut pg_sys::OpExpr,
+    opexpr: OpExpr,
     schema: &SearchIndexSchema
 ) -> Option<Qual> {
-    let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
+    let args = opexpr.args();
     let var = {
         // inspect the left-hand-side of the operator expression...
         let mut lhs = args.get_ptr(0)?;
@@ -156,9 +160,9 @@ pub unsafe fn try_pushdown(
     }
 
     static EQUALITY_OPERATOR_LOOKUP: OnceLock<HashMap<pg_sys::Oid, &str>> = OnceLock::new();
-    match EQUALITY_OPERATOR_LOOKUP.get_or_init(|| initialize_equality_operator_lookup()).get(&(*opexpr).opno) {
-        Some(pgsearch_operator) => { 
-            if let Some(pushed_down_qual) =  pushdown!(&pushdown.attname(), opexpr, pgsearch_operator, rhs) {
+    match EQUALITY_OPERATOR_LOOKUP.get_or_init(|| initialize_equality_operator_lookup()).get(&opexpr.opno()) {
+        Some(pgsearch_operator) => {
+            if let Some(pushed_down_qual) = pushdown!(&pushdown.attname(), opexpr, pgsearch_operator, rhs) {
                 // the `opexpr` is one we can pushdown
                 if (*var).varno as pg_sys::Index == rti {
                     // and it's in this RTI, so we can use it directly
@@ -188,9 +192,18 @@ unsafe fn term_with_operator_procid() -> pg_sys::Oid {
             .expect("the `paradedb.term_with_operator(paradedb.fieldname, text, anyelement)` function should exist")
 }
 
+unsafe fn terms_with_operator_procid() -> pg_sys::Oid {
+    direct_function_call::<pg_sys::Oid>(
+            pg_sys::regprocedurein,
+            // NB:  the SQL signature here needs to match our Rust implementation
+            &[c"paradedb.terms_with_operator(paradedb.fieldname, text, anyelement, bool)".into_datum()],
+        )
+            .expect("the `paradedb.terms_with_operator(paradedb.fieldname, text, anyelement, bool)` function should exist")
+}
+
 unsafe fn make_opexpr(
     field: &FieldName,
-    orig_opexor: *mut pg_sys::OpExpr,
+    orig_opexor: OpExpr,
     operator: &str,
     value: *mut pg_sys::Node,
 ) -> *mut pg_sys::FuncExpr {
@@ -203,8 +216,8 @@ unsafe fn make_opexpr(
     (*paradedb_funcexpr).funcvariadic = false;
     (*paradedb_funcexpr).funcformat = pg_sys::CoercionForm::COERCE_EXPLICIT_CALL;
     (*paradedb_funcexpr).funccollid = pg_sys::InvalidOid;
-    (*paradedb_funcexpr).inputcollid = (*orig_opexor).inputcollid;
-    (*paradedb_funcexpr).location = (*orig_opexor).location;
+    (*paradedb_funcexpr).inputcollid = orig_opexor.inputcollid();
+    (*paradedb_funcexpr).location = orig_opexor.location();
     (*paradedb_funcexpr).args = {
         let fieldname = pg_sys::makeConst(
             fieldname_typoid(),
@@ -230,6 +243,55 @@ unsafe fn make_opexpr(
         args.push(operator.cast());
         args.push(value.cast());
 
+        args.into_pg()
+    };
+
+    paradedb_funcexpr
+}
+
+unsafe fn make_scalar_array_opexpr(
+    field: &FieldName,
+    orig_opexor: OpExpr,
+    operator: &str,
+    value: *mut pg_sys::Node,
+) -> *mut pg_sys::FuncExpr {
+    let paradedb_funcexpr: *mut pg_sys::FuncExpr =
+        pg_sys::palloc0(size_of::<pg_sys::FuncExpr>()).cast();
+    (*paradedb_funcexpr).xpr.type_ = pg_sys::NodeTag::T_FuncExpr;
+    (*paradedb_funcexpr).funcid = terms_with_operator_procid();
+    (*paradedb_funcexpr).funcresulttype = searchqueryinput_typoid();
+    (*paradedb_funcexpr).funcretset = false;
+    (*paradedb_funcexpr).funcvariadic = false;
+    (*paradedb_funcexpr).funcformat = pg_sys::CoercionForm::COERCE_EXPLICIT_CALL;
+    (*paradedb_funcexpr).funccollid = pg_sys::InvalidOid;
+    (*paradedb_funcexpr).inputcollid = orig_opexor.inputcollid();
+    (*paradedb_funcexpr).location = orig_opexor.location();
+    (*paradedb_funcexpr).args = {
+        let fieldname = pg_sys::makeConst(
+            fieldname_typoid(),
+            -1,
+            pg_sys::InvalidOid,
+            -1,
+            field.clone().into_datum().unwrap(),
+            false,
+            false,
+        );
+        let operator = pg_sys::makeConst(
+            pg_sys::TEXTOID,
+            -1,
+            pg_sys::DEFAULT_COLLATION_OID,
+            -1,
+            operator.into_datum().unwrap(),
+            false,
+            false,
+        );
+        let use_or = pg_sys::makeBoolConst(orig_opexor.use_or().unwrap(), false);
+
+        let mut args = PgList::<pg_sys::Node>::new();
+        args.push(fieldname.cast());
+        args.push(operator.cast());
+        args.push(value.cast());
+        args.push(use_or.cast());
         args.into_pg()
     };
 

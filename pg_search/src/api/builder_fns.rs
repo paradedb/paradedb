@@ -592,8 +592,45 @@ pub unsafe fn term_with_operator(
         pg_sys::TIMESTAMPOID => make_query!(operator, field, timestamp, pgrx::datum::Timestamp, value, true),
         pg_sys::TIMESTAMPTZOID => make_query!(operator, field, timestamp_with_time_zone, pgrx::datum::TimestampWithTimeZone, value, true),
 
-
         other => panic!("unsupported type: {other:?}"),
+    }
+}
+
+#[rustfmt::skip]
+#[pg_extern(immutable, parallel_safe)]
+pub unsafe fn terms_with_operator(
+    field: FieldName,
+    operator: String,
+    value: AnyElement,
+    use_or: bool
+) -> anyhow::Result<SearchQueryInput> {
+    let array_type = unsafe { pg_sys::get_element_type(value.oid()) };
+    if array_type == pg_sys::InvalidOid {
+        panic!("terms_with_operator: value is not an array");
+    }
+
+    let array = pgrx::datum::Array::<pg_sys::Datum>::from_datum(value.datum(), false).unwrap();
+    let quals = array.into_iter().map(|val| {
+        let element = if let Some(val) = val {
+            AnyElement::from_polymorphic_datum(val, false, array_type).expect("datum should be a valid AnyElement")
+        } else {
+            AnyElement::from_polymorphic_datum(pg_sys::Datum::null(), true, array_type).expect("datum should be a valid AnyElement")
+        };
+        term_with_operator(field.clone(), operator.clone(), element).expect("term_with_operator should return a valid SearchQueryInput")
+    }).collect::<Vec<_>>();
+
+    if use_or {
+        Ok(SearchQueryInput::Boolean {
+            must: vec![],
+            should: quals,
+            must_not: vec![],
+        })
+    } else {
+        Ok(SearchQueryInput::Boolean {
+            must: quals,
+            should: vec![],
+            must_not: vec![],
+        })
     }
 }
 

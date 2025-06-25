@@ -15,15 +15,19 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::{FieldName, HashMap};
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::operator_oid;
 use crate::postgres::customscan::pdbscan::projections::score::score_funcoid;
-use crate::postgres::customscan::pdbscan::pushdown::{is_complex, try_pushdown, PushdownField};
+use crate::postgres::customscan::pdbscan::pushdown::{
+    is_complex, try_external_filter, try_pushdown, PushdownField,
+};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 use pg_sys::BoolExprType;
-use pgrx::{pg_sys, FromDatum, IntoDatum, PgList};
+use pgrx::{datum::FromDatum, pg_sys, IntoDatum, PgList};
+
 use std::ops::Bound;
 use tantivy::schema::OwnedValue;
 
@@ -32,6 +36,7 @@ pub enum Qual {
     All,
     ExternalVar,
     ExternalExpr,
+    NonIndexedExpr,
     OpExpr {
         lhs: *mut pg_sys::Node,
         opno: pg_sys::Oid,
@@ -43,6 +48,11 @@ pub enum Qual {
     },
     PushdownExpr {
         funcexpr: *mut pg_sys::FuncExpr,
+    },
+    /// Non-indexed expression that will be evaluated via callback during Tantivy search
+    FilterExpression {
+        expr: *mut pg_sys::Expr,
+        attno_map: HashMap<pg_sys::AttrNumber, FieldName>,
     },
     /// Represents a SQL equality comparison: `bool_field = TRUE`
     /// - NULL values are excluded (NULL is not equal to TRUE)
@@ -90,9 +100,11 @@ impl Qual {
             Qual::All => true,
             Qual::ExternalVar => false,
             Qual::ExternalExpr => false,
+            Qual::NonIndexedExpr => false,
             Qual::OpExpr { .. } => false,
             Qual::Expr { .. } => false,
             Qual::PushdownExpr { .. } => false,
+            Qual::FilterExpression { .. } => false,
             Qual::PushdownVarEqTrue { .. } => false,
             Qual::PushdownVarEqFalse { .. } => false,
             Qual::PushdownVarIsTrue { .. } => false,
@@ -110,9 +122,11 @@ impl Qual {
             Qual::All => false,
             Qual::ExternalVar => true,
             Qual::ExternalExpr => true,
+            Qual::NonIndexedExpr => true,
             Qual::OpExpr { .. } => false,
             Qual::Expr { .. } => false,
             Qual::PushdownExpr { .. } => false,
+            Qual::FilterExpression { .. } => false,
             Qual::PushdownVarEqTrue { .. } => false,
             Qual::PushdownVarEqFalse { .. } => false,
             Qual::PushdownVarIsTrue { .. } => false,
@@ -130,9 +144,11 @@ impl Qual {
             Qual::All => false,
             Qual::ExternalVar => false,
             Qual::ExternalExpr => false,
+            Qual::NonIndexedExpr => false,
             Qual::OpExpr { .. } => false,
             Qual::Expr { node, .. } => contains_exec_param(*node),
             Qual::PushdownExpr { .. } => false,
+            Qual::FilterExpression { expr, .. } => contains_exec_param((*expr).cast()),
             Qual::PushdownVarEqTrue { .. } => false,
             Qual::PushdownVarEqFalse { .. } => false,
             Qual::PushdownVarIsTrue { .. } => false,
@@ -150,9 +166,11 @@ impl Qual {
             Qual::All => false,
             Qual::ExternalVar => false,
             Qual::ExternalExpr => false,
+            Qual::NonIndexedExpr => false,
             Qual::OpExpr { .. } => false,
             Qual::Expr { .. } => true,
             Qual::PushdownExpr { .. } => false,
+            Qual::FilterExpression { .. } => true,
             Qual::PushdownVarEqTrue { .. } => true,
             Qual::PushdownVarEqFalse { .. } => true,
             Qual::PushdownVarIsTrue { .. } => true,
@@ -170,9 +188,11 @@ impl Qual {
             Qual::All => false,
             Qual::ExternalVar => false,
             Qual::ExternalExpr => false,
+            Qual::NonIndexedExpr => false,
             Qual::OpExpr { .. } => false,
             Qual::Expr { .. } => false,
             Qual::PushdownExpr { .. } => false,
+            Qual::FilterExpression { .. } => false,
             Qual::PushdownVarEqTrue { .. } => false,
             Qual::PushdownVarEqFalse { .. } => false,
             Qual::PushdownVarIsTrue { .. } => false,
@@ -188,11 +208,296 @@ impl Qual {
     pub fn collect_exprs<'a>(&'a mut self, exprs: &mut Vec<&'a mut Qual>) {
         match self {
             Qual::Expr { .. } => exprs.push(self),
+            Qual::FilterExpression { .. } => exprs.push(self),
             Qual::And(quals) => quals.iter_mut().for_each(|q| q.collect_exprs(exprs)),
             Qual::Or(quals) => quals.iter_mut().for_each(|q| q.collect_exprs(exprs)),
             Qual::Not(qual) => qual.collect_exprs(exprs),
             _ => {}
         }
+    }
+}
+
+/// Parse a mixed expression tree containing both indexed and non-indexed predicates
+/// This function recursively walks the PostgreSQL expression tree and builds the appropriate
+/// SearchQueryInput structure that preserves boolean logic while separating indexed and non-indexed parts
+unsafe fn parse_mixed_expression_tree(
+    expr: *mut pg_sys::Expr,
+    attno_map: &HashMap<pg_sys::AttrNumber, FieldName>,
+) -> Option<SearchQueryInput> {
+    if expr.is_null() {
+        return None;
+    }
+
+    match (*expr).type_ {
+        pg_sys::NodeTag::T_BoolExpr => {
+            let bool_expr = expr.cast::<pg_sys::BoolExpr>();
+            let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
+            let args_vec: Vec<_> = args.iter_ptr().collect();
+
+            match (*bool_expr).boolop {
+                pg_sys::BoolExprType::OR_EXPR => {
+                    // For OR expressions with mixed indexed/non-indexed predicates,
+                    // we need to create a single IndexedWithFilter that evaluates the entire OR expression
+
+                    // First, collect all indexed parts from the OR expression
+                    let mut indexed_parts = Vec::new();
+                    let mut has_non_indexed = false;
+
+                    for arg in args_vec {
+                        if let Some(indexed_part) = extract_indexed_parts_recursive(arg.cast()) {
+                            indexed_parts.push(indexed_part);
+                        } else {
+                            has_non_indexed = true;
+                        }
+                    }
+
+                    if indexed_parts.is_empty() {
+                        // Pure non-indexed OR - return None so parent can handle it
+                        None
+                    } else if !has_non_indexed {
+                        // Pure indexed OR - return the indexed query directly
+                        if indexed_parts.len() == 1 {
+                            Some(indexed_parts.into_iter().next().unwrap())
+                        } else {
+                            Some(SearchQueryInput::Boolean {
+                                must: Default::default(),
+                                should: indexed_parts,
+                                must_not: Default::default(),
+                            })
+                        }
+                    } else {
+                        // Mixed OR - create IndexedWithFilter with the entire OR expression as the filter
+                        let indexed_query = if indexed_parts.len() == 1 {
+                            indexed_parts.into_iter().next().unwrap()
+                        } else {
+                            SearchQueryInput::Boolean {
+                                must: Default::default(),
+                                should: indexed_parts,
+                                must_not: Default::default(),
+                            }
+                        };
+
+                        // Use the entire OR expression as the filter
+                        let full_expr = pg_sys::nodeToString(expr.cast::<core::ffi::c_void>());
+                        let full_expr_string = std::ffi::CStr::from_ptr(full_expr)
+                            .to_string_lossy()
+                            .into_owned();
+                        pg_sys::pfree(full_expr.cast());
+
+                        Some(SearchQueryInput::IndexedWithFilter {
+                            indexed_query: Box::new(indexed_query),
+                            filter_expression: full_expr_string,
+                            referenced_fields: attno_map.values().cloned().collect(),
+                        })
+                    }
+                }
+                pg_sys::BoolExprType::AND_EXPR => {
+                    // For AND expressions, we need to separate indexed and non-indexed parts
+                    let mut indexed_parts = Vec::new();
+                    let mut non_indexed_exprs = Vec::new();
+
+                    for arg in args_vec {
+                        if let Some(indexed_query) = extract_indexed_parts_recursive(arg.cast()) {
+                            indexed_parts.push(indexed_query);
+                        } else {
+                            // This is a non-indexed predicate
+                            let arg_expr = pg_sys::nodeToString(arg.cast::<core::ffi::c_void>());
+                            let arg_string = std::ffi::CStr::from_ptr(arg_expr)
+                                .to_string_lossy()
+                                .into_owned();
+                            pg_sys::pfree(arg_expr.cast());
+                            non_indexed_exprs.push(arg_string);
+                        }
+                    }
+
+                    // Build the result based on what we found
+                    if indexed_parts.is_empty() {
+                        // Pure non-indexed AND - return None so parent can handle it
+                        None
+                    } else if non_indexed_exprs.is_empty() {
+                        // Pure indexed AND - return the indexed query directly
+                        if indexed_parts.len() == 1 {
+                            Some(indexed_parts.into_iter().next().unwrap())
+                        } else {
+                            Some(SearchQueryInput::Boolean {
+                                must: indexed_parts,
+                                should: Default::default(),
+                                must_not: Default::default(),
+                            })
+                        }
+                    } else {
+                        // Mixed AND - create IndexedWithFilter
+                        let indexed_query = if indexed_parts.len() == 1 {
+                            indexed_parts.into_iter().next().unwrap()
+                        } else {
+                            SearchQueryInput::Boolean {
+                                must: indexed_parts,
+                                should: Default::default(),
+                                must_not: Default::default(),
+                            }
+                        };
+
+                        let filter_expression = if non_indexed_exprs.len() == 1 {
+                            non_indexed_exprs.into_iter().next().unwrap()
+                        } else {
+                            // Combine non-indexed expressions with AND - but we need proper PostgreSQL syntax
+                            format!("({})", non_indexed_exprs.join(") AND ("))
+                        };
+
+                        Some(SearchQueryInput::IndexedWithFilter {
+                            indexed_query: Box::new(indexed_query),
+                            filter_expression,
+                            referenced_fields: attno_map.values().cloned().collect(),
+                        })
+                    }
+                }
+                pg_sys::BoolExprType::NOT_EXPR => {
+                    // For NOT expressions, we need to be careful about the logic
+                    if let Some(arg) = args_vec.get(0) {
+                        if let Some(indexed_query) = extract_indexed_parts_recursive(arg.cast()) {
+                            // This is a NOT of an indexed predicate
+                            Some(SearchQueryInput::Boolean {
+                                must: Default::default(),
+                                should: Default::default(),
+                                must_not: vec![indexed_query],
+                            })
+                        } else {
+                            // This is a NOT of a non-indexed predicate - handle as external filter
+                            let arg_expr = pg_sys::nodeToString(arg.cast::<core::ffi::c_void>());
+                            let arg_string = std::ffi::CStr::from_ptr(arg_expr)
+                                .to_string_lossy()
+                                .into_owned();
+                            pg_sys::pfree(arg_expr.cast());
+
+                            Some(SearchQueryInput::IndexedWithFilter {
+                                indexed_query: Box::new(SearchQueryInput::All),
+                                filter_expression: format!("NOT ({})", arg_string),
+                                referenced_fields: attno_map.values().cloned().collect(),
+                            })
+                        }
+                    } else {
+                        None
+                    }
+                }
+                _ => {
+                    // Unknown boolean expression type
+                    None
+                }
+            }
+        }
+        pg_sys::NodeTag::T_OpExpr => {
+            // Check if this is an indexed predicate
+            extract_indexed_parts_recursive(expr)
+        }
+        _ => {
+            // Other expression types - treat as non-indexed
+            None
+        }
+    }
+}
+
+/// Recursively walk the PostgreSQL expression tree and extract indexed predicates
+unsafe fn extract_indexed_parts_recursive(node: *mut pg_sys::Expr) -> Option<SearchQueryInput> {
+    if node.is_null() {
+        return None;
+    }
+
+    match (*node).type_ {
+        pg_sys::NodeTag::T_BoolExpr => {
+            let bool_expr = node.cast::<pg_sys::BoolExpr>();
+            let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
+
+            match (*bool_expr).boolop {
+                pg_sys::BoolExprType::OR_EXPR => {
+                    // For OR expressions, collect all indexed parts
+                    let mut indexed_parts = Vec::new();
+
+                    for arg in args.iter_ptr() {
+                        if let Some(indexed_part) = extract_indexed_parts_recursive(arg.cast()) {
+                            indexed_parts.push(indexed_part);
+                        }
+                    }
+
+                    if indexed_parts.is_empty() {
+                        None
+                    } else if indexed_parts.len() == 1 {
+                        Some(indexed_parts.into_iter().next().unwrap())
+                    } else {
+                        Some(SearchQueryInput::Boolean {
+                            must: Default::default(),
+                            should: indexed_parts,
+                            must_not: Default::default(),
+                        })
+                    }
+                }
+                pg_sys::BoolExprType::AND_EXPR => {
+                    // For AND expressions, collect all indexed parts
+                    let mut indexed_parts = Vec::new();
+
+                    for arg in args.iter_ptr() {
+                        if let Some(indexed_part) = extract_indexed_parts_recursive(arg.cast()) {
+                            indexed_parts.push(indexed_part);
+                        }
+                    }
+
+                    if indexed_parts.is_empty() {
+                        None
+                    } else if indexed_parts.len() == 1 {
+                        Some(indexed_parts.into_iter().next().unwrap())
+                    } else {
+                        Some(SearchQueryInput::Boolean {
+                            must: indexed_parts,
+                            should: Default::default(),
+                            must_not: Default::default(),
+                        })
+                    }
+                }
+                pg_sys::BoolExprType::NOT_EXPR => {
+                    // For NOT expressions, extract the inner part
+                    if let Some(arg) = args.iter_ptr().next() {
+                        if let Some(indexed_part) = extract_indexed_parts_recursive(arg.cast()) {
+                            Some(SearchQueryInput::Boolean {
+                                must: Default::default(),
+                                should: Default::default(),
+                                must_not: vec![indexed_part],
+                            })
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                }
+                _ => {
+                    // Unknown boolean expression type
+                    None
+                }
+            }
+        }
+        pg_sys::NodeTag::T_OpExpr => {
+            let op_expr = node.cast::<pg_sys::OpExpr>();
+            let query_opoid = crate::api::operator::anyelement_query_input_opoid();
+
+            // Check if this is our @@@ operator
+            if (*op_expr).opno == query_opoid {
+                // This is an indexed predicate - extract the query
+                let args = PgList::<pg_sys::Node>::from_pg((*op_expr).args);
+                let args_vec: Vec<_> = args.iter_ptr().collect();
+                if let Some(rhs) = args_vec.get(1) {
+                    if let Some(const_node) = nodecast!(Const, T_Const, *rhs) {
+                        // Extract the SearchQueryInput from the constant
+                        if let Some(search_query) = SearchQueryInput::from_datum(
+                            (*const_node).constvalue,
+                            (*const_node).constisnull,
+                        ) {
+                            return Some(search_query);
+                        }
+                    }
+                }
+            }
+            None
+        }
+        _ => None,
     }
 }
 
@@ -203,11 +508,36 @@ impl From<&Qual> for SearchQueryInput {
             Qual::All => SearchQueryInput::All,
             Qual::ExternalVar => SearchQueryInput::All,
             Qual::ExternalExpr => SearchQueryInput::All,
+            Qual::NonIndexedExpr => SearchQueryInput::All,
             Qual::OpExpr { val, .. } => unsafe {
                 SearchQueryInput::from_datum((**val).constvalue, (**val).constisnull)
                     .expect("rhs of @@@ operator Qual must not be null")
             },
             Qual::Expr { node, expr_state } => SearchQueryInput::postgres_expression(*node),
+            Qual::FilterExpression { expr, attno_map } => {
+                // For complex expressions that couldn't be parsed normally, we need to
+                // recursively parse the expression tree and separate indexed from non-indexed predicates
+                let expression = unsafe {
+                    let node_string = pg_sys::nodeToString((*expr).cast::<core::ffi::c_void>());
+                    let rust_string = std::ffi::CStr::from_ptr(node_string)
+                        .to_string_lossy()
+                        .into_owned();
+                    pg_sys::pfree(node_string.cast());
+                    rust_string
+                };
+
+                let referenced_fields = attno_map.values().cloned().collect();
+
+                // Parse the expression tree to build the correct SearchQueryInput structure
+                unsafe { parse_mixed_expression_tree(*expr, attno_map) }.unwrap_or_else(|| {
+                    // Fallback: treat as pure external filter
+                    SearchQueryInput::IndexedWithFilter {
+                        indexed_query: Box::new(SearchQueryInput::All),
+                        filter_expression: expression,
+                        referenced_fields,
+                    }
+                })
+            }
             Qual::PushdownExpr { funcexpr } => unsafe {
                 let expr_state = pg_sys::ExecInitExpr((*funcexpr).cast(), std::ptr::null_mut());
                 let expr_context = pg_sys::CreateStandaloneExprContext();
@@ -286,60 +616,300 @@ impl From<&Qual> for SearchQueryInput {
                 }
             },
             Qual::And(quals) => {
-                let mut must = quals.iter().map(SearchQueryInput::from).collect::<Vec<_>>();
-                let popscore = |vec: &mut Vec<SearchQueryInput>| -> Option<SearchQueryInput> {
-                    for i in 0..vec.len() {
-                        if matches!(vec[i], SearchQueryInput::ScoreFilter { .. }) {
-                            return Some(vec.remove(i));
+                // Check if we have a mix of indexed and non-indexed predicates
+                let has_indexed = quals
+                    .iter()
+                    .any(|q| !matches!(q, Qual::NonIndexedExpr | Qual::FilterExpression { .. }));
+                let has_non_indexed = quals
+                    .iter()
+                    .any(|q| matches!(q, Qual::NonIndexedExpr | Qual::FilterExpression { .. }));
+
+                pgrx::warning!(
+                    "Qual::And processing: has_indexed={}, has_non_indexed={}, total_quals={}",
+                    has_indexed,
+                    has_non_indexed,
+                    quals.len()
+                );
+
+                if has_non_indexed {
+                    // Mixed predicates - create IndexedWithFilter query
+                    pgrx::warning!("Creating IndexedWithFilter query for mixed predicates");
+
+                    // Separate indexed and non-indexed predicates
+                    let indexed_quals: Vec<_> = quals
+                        .iter()
+                        .filter(|q| {
+                            !matches!(q, Qual::NonIndexedExpr | Qual::FilterExpression { .. })
+                        })
+                        .collect();
+                    let non_indexed_quals: Vec<_> = quals
+                        .iter()
+                        .filter(|q| {
+                            matches!(q, Qual::NonIndexedExpr | Qual::FilterExpression { .. })
+                        })
+                        .collect();
+
+                    pgrx::warning!(
+                        "Indexed quals: {}, Non-indexed quals: {}",
+                        indexed_quals.len(),
+                        non_indexed_quals.len()
+                    );
+
+                    // Create the indexed query part
+                    let indexed_query = if indexed_quals.is_empty() {
+                        // No indexed predicates - use All to search all documents
+                        SearchQueryInput::All
+                    } else if indexed_quals.len() == 1 {
+                        SearchQueryInput::from(indexed_quals[0])
+                    } else {
+                        let must = indexed_quals
+                            .iter()
+                            .map(|q| SearchQueryInput::from(*q))
+                            .collect::<Vec<_>>();
+                        SearchQueryInput::Boolean {
+                            must,
+                            should: vec![],
+                            must_not: vec![],
+                        }
+                    };
+
+                    // Extract the actual filter expressions and referenced fields
+                    let mut all_referenced_fields = std::collections::HashSet::new();
+                    let mut filter_expressions = Vec::new();
+
+                    for qual in &non_indexed_quals {
+                        match qual {
+                            Qual::FilterExpression { expr, attno_map } => {
+                                // Extract the expression string
+                                let expression = unsafe {
+                                    let node_string =
+                                        pg_sys::nodeToString((*expr).cast::<core::ffi::c_void>());
+                                    let rust_string = std::ffi::CStr::from_ptr(node_string)
+                                        .to_string_lossy()
+                                        .into_owned();
+                                    pg_sys::pfree(node_string.cast());
+                                    rust_string
+                                };
+                                filter_expressions.push(expression);
+
+                                // Collect referenced fields
+                                for field_name in attno_map.values() {
+                                    all_referenced_fields.insert(field_name.clone());
+                                }
+                            }
+                            Qual::NonIndexedExpr => {
+                                // For now, treat NonIndexedExpr as a placeholder
+                                filter_expressions.push("TRUE".to_string());
+                            }
+                            _ => {
+                                // This shouldn't happen for non-indexed predicates, but handle it gracefully
+                                filter_expressions.push("TRUE".to_string());
+                            }
                         }
                     }
-                    None
-                };
 
-                // pull out any ScoreFilters from the `must` clauses
-                let mut must_scores = vec![];
-                while let Some(score_filter) = popscore(&mut must) {
-                    must_scores.push(score_filter);
-                }
+                    // Combine multiple filter expressions with AND
+                    let combined_filter_expression = if filter_expressions.len() == 1 {
+                        filter_expressions.into_iter().next().unwrap()
+                    } else if filter_expressions.is_empty() {
+                        "TRUE".to_string()
+                    } else {
+                        // Create an AND expression combining all filter expressions using the clause separator
+                        filter_expressions.join("|||CLAUSE_SEPARATOR|||")
+                    };
 
-                // make the Boolean clause we intend to return (or wrap)
-                let mut boolean = SearchQueryInput::Boolean {
-                    must,
-                    should: vec![],
-                    must_not: vec![],
-                };
+                    let referenced_fields: Vec<_> = all_referenced_fields.into_iter().collect();
 
-                // wrap the basic boolean query, iteratively, in each of the extracted ScoreFilters
-                while let Some(SearchQueryInput::ScoreFilter { bounds, query }) = must_scores.pop()
-                {
-                    boolean = SearchQueryInput::ScoreFilter {
-                        bounds,
-                        query: Some(Box::new(boolean)),
+                    let result = SearchQueryInput::IndexedWithFilter {
+                        indexed_query: Box::new(indexed_query),
+                        filter_expression: combined_filter_expression,
+                        referenced_fields,
+                    };
+
+                    pgrx::warning!("Created IndexedWithFilter query: {:?}", result);
+                    result
+                // } else if has_non_indexed {
+                //     // Only non-indexed predicates
+                //     pgrx::warning!("Creating ExternalFilter query for non-indexed predicates only");
+
+                //     // Extract the actual filter expressions and referenced fields
+                //     let mut all_referenced_fields = std::collections::HashSet::new();
+                //     let mut filter_expressions = Vec::new();
+
+                //     for qual in quals {
+                //         match qual {
+                //             Qual::FilterExpression { expr, attno_map } => {
+                //                 // Extract the expression string
+                //                 let expression = unsafe {
+                //                     let node_string =
+                //                         pg_sys::nodeToString((*expr).cast::<core::ffi::c_void>());
+                //                     let rust_string = std::ffi::CStr::from_ptr(node_string)
+                //                         .to_string_lossy()
+                //                         .into_owned();
+                //                     pg_sys::pfree(node_string.cast());
+                //                     rust_string
+                //                 };
+                //                 filter_expressions.push(expression);
+
+                //                 // Collect referenced fields
+                //                 for field_name in attno_map.values() {
+                //                     all_referenced_fields.insert(field_name.clone());
+                //                 }
+                //             }
+                //             Qual::NonIndexedExpr => {
+                //                 // For now, treat NonIndexedExpr as a placeholder
+                //                 filter_expressions.push("TRUE".to_string());
+                //             }
+                //             _ => {
+                //                 // This shouldn't happen for non-indexed predicates, but handle it gracefully
+                //                 filter_expressions.push("TRUE".to_string());
+                //             }
+                //         }
+                //     }
+
+                //     // Combine multiple filter expressions with AND
+                //     let combined_filter_expression = if filter_expressions.len() == 1 {
+                //         filter_expressions.into_iter().next().unwrap()
+                //     } else if filter_expressions.is_empty() {
+                //         "TRUE".to_string()
+                //     } else {
+                //         // Create an AND expression combining all filter expressions
+                //         format!("({})", filter_expressions.join(" AND "))
+                //     };
+
+                //     let referenced_fields: Vec<_> = all_referenced_fields.into_iter().collect();
+
+                //     SearchQueryInput::ExternalFilter {
+                //         expression: combined_filter_expression,
+                //         referenced_fields,
+                //     }
+                } else {
+                    // Regular boolean AND logic for indexed predicates
+                    pgrx::warning!("Creating regular Boolean query for indexed predicates only");
+                    let mut must = quals.iter().map(SearchQueryInput::from).collect::<Vec<_>>();
+                    let popscore = |vec: &mut Vec<SearchQueryInput>| -> Option<SearchQueryInput> {
+                        for i in 0..vec.len() {
+                            if matches!(vec[i], SearchQueryInput::ScoreFilter { .. }) {
+                                return Some(vec.remove(i));
+                            }
+                        }
+                        None
+                    };
+
+                    // pull out any ScoreFilters from the `must` clauses
+                    let mut must_scores = vec![];
+                    while let Some(score_filter) = popscore(&mut must) {
+                        must_scores.push(score_filter);
                     }
-                }
 
-                boolean
+                    // make the Boolean clause we intend to return (or wrap)
+                    let mut boolean = SearchQueryInput::Boolean {
+                        must,
+                        should: vec![],
+                        must_not: vec![],
+                    };
+
+                    // wrap the basic boolean query, iteratively, in each of the extracted ScoreFilters
+                    while let Some(SearchQueryInput::ScoreFilter { bounds, query }) =
+                        must_scores.pop()
+                    {
+                        boolean = SearchQueryInput::ScoreFilter {
+                            bounds,
+                            query: Some(Box::new(boolean)),
+                        }
+                    }
+
+                    boolean
+                }
             }
 
             Qual::Or(quals) => {
-                let should = quals
+                // Check if we have any non-indexed expressions in the OR
+                let has_non_indexed = quals
                     .iter()
-                    .map(SearchQueryInput::from)
-                    // any dangling ScoreFilter clauses are non-sensical, so we'll just pretend they don't exist
-                    .filter(|query| !matches!(query, SearchQueryInput::ScoreFilter { .. }))
-                    .collect::<Vec<_>>();
+                    .any(|q| matches!(q, Qual::NonIndexedExpr | Qual::FilterExpression { .. }));
 
-                match should.len() {
-                    0 => SearchQueryInput::Boolean {
+                if has_non_indexed {
+                    // For OR with mixed indexed/non-indexed predicates, we create a Boolean OR query
+                    // where each branch is either:
+                    // 1. A pure indexed query (for indexed predicates)
+                    // 2. An IndexedWithFilter(All, non_indexed_filter) (for non-indexed predicates)
+
+                    let mut or_branches = Vec::new();
+
+                    for qual in quals {
+                        match qual {
+                            Qual::FilterExpression { expr, attno_map } => {
+                                // Extract the expression string for non-indexed filtering
+                                let expression = unsafe {
+                                    let node_string =
+                                        pg_sys::nodeToString((*expr).cast::<core::ffi::c_void>());
+                                    let rust_string = std::ffi::CStr::from_ptr(node_string)
+                                        .to_string_lossy()
+                                        .into_owned();
+                                    pg_sys::pfree(node_string.cast());
+                                    rust_string
+                                };
+
+                                let referenced_fields: Vec<_> =
+                                    attno_map.values().cloned().collect();
+
+                                // Try to parse this filter expression as a mixed expression tree
+                                let indexed_query = unsafe {
+                                    parse_mixed_expression_tree(*expr, attno_map)
+                                        .unwrap_or(SearchQueryInput::All)
+                                };
+
+                                // Create an IndexedWithFilter branch for this FilterExpression
+                                or_branches.push(SearchQueryInput::IndexedWithFilter {
+                                    indexed_query: Box::new(indexed_query),
+                                    filter_expression: expression,
+                                    referenced_fields,
+                                });
+                            }
+                            Qual::NonIndexedExpr => {
+                                // For non-indexed expressions, create an IndexedWithFilter with All
+                                or_branches.push(SearchQueryInput::IndexedWithFilter {
+                                    indexed_query: Box::new(SearchQueryInput::All),
+                                    filter_expression: "TRUE".to_string(),
+                                    referenced_fields: vec![],
+                                });
+                            }
+                            _ => {
+                                // For pure indexed expressions, add them directly as Tantivy queries
+                                let indexed_query = SearchQueryInput::from(qual);
+                                or_branches.push(indexed_query);
+                            }
+                        }
+                    }
+
+                    // Create a Boolean OR query with all branches
+                    SearchQueryInput::Boolean {
                         must: Default::default(),
-                        should: Default::default(),
+                        should: or_branches,
                         must_not: Default::default(),
-                    },
-                    _ => SearchQueryInput::Boolean {
-                        must: Default::default(),
-                        should,
-                        must_not: Default::default(),
-                    },
+                    }
+                } else {
+                    // Regular OR logic for indexed predicates only
+                    let should = quals
+                        .iter()
+                        .map(SearchQueryInput::from)
+                        // any dangling ScoreFilter clauses are non-sensical, so we'll just pretend they don't exist
+                        .filter(|query| !matches!(query, SearchQueryInput::ScoreFilter { .. }))
+                        .collect::<Vec<_>>();
+
+                    match should.len() {
+                        0 => SearchQueryInput::Boolean {
+                            must: Default::default(),
+                            should: Default::default(),
+                            must_not: Default::default(),
+                        },
+                        _ => SearchQueryInput::Boolean {
+                            must: Default::default(),
+                            should,
+                            must_not: Default::default(),
+                        },
+                    }
                 }
             }
             Qual::Not(qual) => {
@@ -369,6 +939,11 @@ impl From<&Qual> for SearchQueryInput {
                     // is "all" rather than "NOT all"
                     Qual::ExternalExpr => SearchQueryInput::All,
 
+                    // If the Qual represents a non-indexed expression, we should return "all"
+                    // This is because we will be using tantivy to query, and we want to be able to
+                    // use the non-indexed expression to filter the results
+                    Qual::NonIndexedExpr => SearchQueryInput::All,
+
                     // For other types of negation, use the standard Boolean query with must_not
                     // Note that when negating an IS operator (e.g., IS NOT TRUE), PostgreSQL handles
                     // NULL values differently than when negating equality operators
@@ -387,6 +962,9 @@ impl From<&Qual> for SearchQueryInput {
     }
 }
 
+/// Extract quals from a node, returning the indexed quals if available
+/// If `convert_external_to_special_qual` is true, then unpushable predicates will be converted to Qual::ExternalExpr
+/// `uses_tantivy_to_query` will be set to true if we decide to use tantivy to query
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn extract_quals(
     root: *mut pg_sys::PlannerInfo,
@@ -398,163 +976,25 @@ pub unsafe fn extract_quals(
     convert_external_to_special_qual: bool,
     uses_tantivy_to_query: &mut bool,
 ) -> Option<Qual> {
-    if node.is_null() {
-        return None;
-    }
-
-    match (*node).type_ {
-        pg_sys::NodeTag::T_List => {
-            let mut quals = list(
-                root,
-                rti,
-                node.cast(),
-                pdbopoid,
-                ri_type,
-                schema,
-                convert_external_to_special_qual,
-                uses_tantivy_to_query,
-            )?;
-            if quals.len() == 1 {
-                quals.pop()
-            } else {
-                Some(Qual::And(quals))
-            }
-        }
-
-        pg_sys::NodeTag::T_RestrictInfo => {
-            let ri = nodecast!(RestrictInfo, T_RestrictInfo, node)?;
-            let clause = if !(*ri).orclause.is_null() {
-                (*ri).orclause
-            } else {
-                (*ri).clause
-            };
-            extract_quals(
-                root,
-                rti,
-                clause.cast(),
-                pdbopoid,
-                ri_type,
-                schema,
-                convert_external_to_special_qual,
-                uses_tantivy_to_query,
-            )
-        }
-
-        pg_sys::NodeTag::T_OpExpr => opexpr(
-            root,
-            rti,
-            node,
-            pdbopoid,
-            ri_type,
-            schema,
-            convert_external_to_special_qual,
-            uses_tantivy_to_query,
-        ),
-
-        pg_sys::NodeTag::T_BoolExpr => {
-            let boolexpr = nodecast!(BoolExpr, T_BoolExpr, node)?;
-            let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
-            let mut quals = list(
-                root,
-                rti,
-                (*boolexpr).args,
-                pdbopoid,
-                ri_type,
-                schema,
-                convert_external_to_special_qual,
-                uses_tantivy_to_query,
-            )?;
-
-            match (*boolexpr).boolop {
-                pg_sys::BoolExprType::AND_EXPR => Some(Qual::And(quals)),
-                pg_sys::BoolExprType::OR_EXPR => Some(Qual::Or(quals)),
-                pg_sys::BoolExprType::NOT_EXPR => Some(Qual::Not(Box::new(quals.pop()?))),
-                _ => panic!("unexpected `BoolExprType`: {}", (*boolexpr).boolop),
-            }
-        }
-
-        pg_sys::NodeTag::T_Var if (*(node as *mut pg_sys::Var)).vartype == pg_sys::BOOLOID => {
-            PushdownField::try_new(root, node.cast(), schema)
-                .map(|field| Qual::PushdownVarEqTrue { field })
-        }
-
-        pg_sys::NodeTag::T_NullTest => {
-            let nulltest = nodecast!(NullTest, T_NullTest, node)?;
-            if let Some(field) = PushdownField::try_new(root, (*nulltest).arg.cast(), schema) {
-                if let Some(search_field) = schema.search_field(field.attname()) {
-                    if search_field.is_fast() {
-                        if (*nulltest).nulltesttype == pg_sys::NullTestType::IS_NOT_NULL {
-                            return Some(Qual::PushdownIsNotNull { field });
-                        } else {
-                            return Some(Qual::Not(Box::new(Qual::PushdownIsNotNull { field })));
-                        }
-                    }
-                }
-            }
-            None
-        }
-
-        pg_sys::NodeTag::T_BooleanTest => booltest(
-            root,
-            rti,
-            node,
-            pdbopoid,
-            ri_type,
-            schema,
-            convert_external_to_special_qual,
-            uses_tantivy_to_query,
-        ),
-
-        pg_sys::NodeTag::T_Const => {
-            // Handle constants that result from join clause simplification
-            let const_node = nodecast!(Const, T_Const, node)?;
-            if (*const_node).consttype == pg_sys::BOOLOID && !(*const_node).constisnull {
-                let bool_value = bool::from_datum((*const_node).constvalue, false).unwrap_or(false);
-                if bool_value {
-                    Some(Qual::All)
-                } else {
-                    Some(Qual::Not(Box::new(Qual::All)))
-                }
-            } else {
-                None
-            }
-        }
-
-        // we don't understand this clause so we can't do anything
-        _ => None,
-    }
+    extract_quals_internal(
+        root,
+        rti,
+        node,
+        pdbopoid,
+        ri_type,
+        schema,
+        convert_external_to_special_qual,
+        false, // extract_all_quals_even_non_indexed
+        uses_tantivy_to_query,
+    )
+    .0
 }
 
+/// Extract quals from a node, returning the all quals (indexed and non-indexed) if available
+/// If `convert_external_to_special_qual` is true, then unpushable predicates will be converted to Qual::ExternalExpr
+/// `uses_tantivy_to_query` will be set to true if we decide to use tantivy to query
 #[allow(clippy::too_many_arguments)]
-unsafe fn list(
-    root: *mut pg_sys::PlannerInfo,
-    rti: pg_sys::Index,
-    list: *mut pg_sys::List,
-    pdbopoid: pg_sys::Oid,
-    ri_type: RestrictInfoType,
-    schema: &SearchIndexSchema,
-    convert_external_to_special_qual: bool,
-    uses_tantivy_to_query: &mut bool,
-) -> Option<Vec<Qual>> {
-    let args = PgList::<pg_sys::Node>::from_pg(list);
-    let mut quals = Vec::new();
-    for child in args.iter_ptr() {
-        quals.push(extract_quals(
-            root,
-            rti,
-            child,
-            pdbopoid,
-            ri_type,
-            schema,
-            convert_external_to_special_qual,
-            uses_tantivy_to_query,
-        )?)
-    }
-    Some(quals)
-}
-
-#[allow(clippy::too_many_arguments)]
-unsafe fn opexpr(
+pub unsafe fn extract_quals_with_non_indexed(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
     node: *mut pg_sys::Node,
@@ -562,6 +1002,499 @@ unsafe fn opexpr(
     ri_type: RestrictInfoType,
     schema: &SearchIndexSchema,
     convert_external_to_special_qual: bool,
+    uses_tantivy_to_query: &mut bool,
+) -> (Option<Qual>, Option<Qual>) {
+    extract_quals_internal(
+        root,
+        rti,
+        node,
+        pdbopoid,
+        ri_type,
+        schema,
+        convert_external_to_special_qual,
+        true, // extract_all_quals_even_non_indexed
+        uses_tantivy_to_query,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+unsafe fn extract_quals_internal(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+    node: *mut pg_sys::Node,
+    pdbopoid: pg_sys::Oid,
+    ri_type: RestrictInfoType,
+    schema: &SearchIndexSchema,
+    convert_external_to_special_qual: bool,
+    extract_all_quals_even_non_indexed: bool,
+    uses_tantivy_to_query: &mut bool,
+) -> (Option<Qual>, Option<Qual>) {
+    if node.is_null() {
+        return (None, None);
+    }
+
+    match (*node).type_ {
+        pg_sys::NodeTag::T_List => {
+            let indexed_quals = list_internal(
+                root,
+                rti,
+                node.cast(),
+                pdbopoid,
+                ri_type,
+                schema,
+                convert_external_to_special_qual,
+                false, // Don't extract non-indexed for indexed quals
+                uses_tantivy_to_query,
+            );
+
+            let all_quals = if extract_all_quals_even_non_indexed {
+                list_internal(
+                    root,
+                    rti,
+                    node.cast(),
+                    pdbopoid,
+                    ri_type,
+                    schema,
+                    convert_external_to_special_qual,
+                    true, // Extract all quals including non-indexed
+                    uses_tantivy_to_query,
+                )
+            } else {
+                None
+            };
+
+            let indexed_result = if let Some(mut quals) = indexed_quals {
+                if quals.is_empty() {
+                    None
+                } else if quals.len() == 1 {
+                    quals.pop()
+                } else {
+                    Some(Qual::And(quals))
+                }
+            } else {
+                None
+            };
+
+            let all_result = if let Some(mut quals) = all_quals {
+                if quals.is_empty() {
+                    None
+                } else if quals.len() == 1 {
+                    quals.pop()
+                } else {
+                    Some(Qual::And(quals))
+                }
+            } else {
+                None
+            };
+
+            (indexed_result, all_result)
+        }
+
+        pg_sys::NodeTag::T_RestrictInfo => {
+            let ri = if let Some(ri) = nodecast!(RestrictInfo, T_RestrictInfo, node) {
+                ri
+            } else {
+                return (None, None);
+            };
+            let clause = if !(*ri).orclause.is_null() {
+                (*ri).orclause
+            } else {
+                (*ri).clause
+            };
+            extract_quals_internal(
+                root,
+                rti,
+                clause.cast(),
+                pdbopoid,
+                ri_type,
+                schema,
+                convert_external_to_special_qual,
+                extract_all_quals_even_non_indexed,
+                uses_tantivy_to_query,
+            )
+        }
+
+        pg_sys::NodeTag::T_OpExpr => {
+            let indexed_qual = opexpr_internal(
+                root,
+                rti,
+                node,
+                pdbopoid,
+                ri_type,
+                schema,
+                convert_external_to_special_qual,
+                false, // Don't extract non-indexed for indexed quals
+                uses_tantivy_to_query,
+            );
+
+            let all_qual = if extract_all_quals_even_non_indexed {
+                opexpr_internal(
+                    root,
+                    rti,
+                    node,
+                    pdbopoid,
+                    ri_type,
+                    schema,
+                    convert_external_to_special_qual,
+                    true, // Extract all quals including non-indexed
+                    uses_tantivy_to_query,
+                )
+            } else {
+                None
+            };
+
+            (indexed_qual, all_qual)
+        }
+
+        pg_sys::NodeTag::T_BoolExpr => {
+            let boolexpr = if let Some(boolexpr) = nodecast!(BoolExpr, T_BoolExpr, node) {
+                boolexpr
+            } else {
+                return (None, None);
+            };
+
+            // Debug: log what BoolExpr we're processing
+            let node_string = pg_sys::nodeToString(node.cast::<core::ffi::c_void>());
+            let rust_string = std::ffi::CStr::from_ptr(node_string)
+                .to_string_lossy()
+                .into_owned();
+            pg_sys::pfree(node_string.cast());
+            pgrx::warning!(
+                "🔥 Processing BoolExpr: {} (op: {:?})",
+                rust_string,
+                (*boolexpr).boolop
+            );
+
+            // For OR expressions with mixed indexed/non-indexed predicates, we need special handling
+            if (*boolexpr).boolop == pg_sys::BoolExprType::OR_EXPR
+                && extract_all_quals_even_non_indexed
+            {
+                // Check if this is a mixed OR expression that should be handled by parse_mixed_expression_tree
+                let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
+                let mut has_indexed = false;
+                let mut has_non_indexed = false;
+
+                for arg in args.iter_ptr() {
+                    let (indexed_qual, _) = extract_quals_internal(
+                        root,
+                        rti,
+                        arg,
+                        pdbopoid,
+                        ri_type,
+                        schema,
+                        convert_external_to_special_qual,
+                        false, // Don't recurse
+                        uses_tantivy_to_query,
+                    );
+
+                    if indexed_qual.is_some() {
+                        has_indexed = true;
+                    } else {
+                        has_non_indexed = true;
+                    }
+                }
+
+                if has_indexed && has_non_indexed {
+                    // This is a mixed OR expression - create a FilterExpression for proper parsing
+                    if let Some(filter_qual) = try_create_filter_expression(root, rti, node) {
+                        return (None, Some(filter_qual));
+                    }
+                }
+            }
+
+            let indexed_quals = list_internal(
+                root,
+                rti,
+                (*boolexpr).args,
+                pdbopoid,
+                ri_type,
+                schema,
+                convert_external_to_special_qual,
+                false, // Don't extract non-indexed for indexed quals
+                uses_tantivy_to_query,
+            );
+
+            let all_quals = if extract_all_quals_even_non_indexed {
+                list_internal(
+                    root,
+                    rti,
+                    (*boolexpr).args,
+                    pdbopoid,
+                    ri_type,
+                    schema,
+                    convert_external_to_special_qual,
+                    true, // Extract all quals including non-indexed
+                    uses_tantivy_to_query,
+                )
+            } else {
+                None
+            };
+
+            let indexed_result = if let Some(mut quals) = indexed_quals {
+                if quals.is_empty() {
+                    None
+                } else {
+                    match (*boolexpr).boolop {
+                        pg_sys::BoolExprType::AND_EXPR => Some(Qual::And(quals)),
+                        pg_sys::BoolExprType::OR_EXPR => Some(Qual::Or(quals)),
+                        pg_sys::BoolExprType::NOT_EXPR => {
+                            quals.pop().map(|qual| Qual::Not(Box::new(qual)))
+                        }
+                        _ => panic!("unexpected `BoolExprType`: {}", (*boolexpr).boolop),
+                    }
+                }
+            } else {
+                None
+            };
+
+            let all_result = if let Some(mut quals) = all_quals {
+                match (*boolexpr).boolop {
+                    pg_sys::BoolExprType::AND_EXPR => Some(Qual::And(quals)),
+                    pg_sys::BoolExprType::OR_EXPR => Some(Qual::Or(quals)),
+                    pg_sys::BoolExprType::NOT_EXPR => {
+                        quals.pop().map(|qual| Qual::Not(Box::new(qual)))
+                    }
+                    _ => panic!("unexpected `BoolExprType`: {}", (*boolexpr).boolop),
+                }
+            } else {
+                None
+            };
+
+            (indexed_result, all_result)
+        }
+
+        // For all other node types, handle them the same way as before
+        _ => {
+            let single_qual = extract_quals_original(
+                root,
+                rti,
+                node,
+                pdbopoid,
+                ri_type,
+                schema,
+                convert_external_to_special_qual,
+                extract_all_quals_even_non_indexed,
+                uses_tantivy_to_query,
+            );
+            (single_qual.clone(), single_qual)
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+unsafe fn list_internal(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+    list: *mut pg_sys::List,
+    pdbopoid: pg_sys::Oid,
+    ri_type: RestrictInfoType,
+    schema: &SearchIndexSchema,
+    convert_external_to_special_qual: bool,
+    extract_all_quals_even_non_indexed: bool,
+    uses_tantivy_to_query: &mut bool,
+) -> Option<Vec<Qual>> {
+    let args = PgList::<pg_sys::Node>::from_pg(list);
+    let mut quals = Vec::new();
+
+    for child in args.iter_ptr() {
+        if extract_all_quals_even_non_indexed {
+            // When extracting all quals, try both indexed and non-indexed approaches
+            let (indexed_qual, all_qual) = extract_quals_internal(
+                root,
+                rti,
+                child,
+                pdbopoid,
+                ri_type,
+                schema,
+                convert_external_to_special_qual,
+                false, // Don't recurse the all_quals flag
+                uses_tantivy_to_query,
+            );
+
+            // Use the indexed qual if available, otherwise use the all_qual (which includes non-indexed)
+            if let Some(qual) = indexed_qual.or(all_qual) {
+                quals.push(qual);
+            } else {
+                // If we can't extract this qual, try to create a FilterExpression
+                if let Some(filter_qual) = try_create_filter_expression(root, rti, child) {
+                    quals.push(filter_qual);
+                } else {
+                    // If we can't create a filter expression either, use NonIndexedExpr as fallback
+                    quals.push(Qual::NonIndexedExpr);
+                }
+            }
+        } else {
+            // Regular extraction for indexed quals only
+            if let Some(qual) = extract_quals_internal(
+                root,
+                rti,
+                child,
+                pdbopoid,
+                ri_type,
+                schema,
+                convert_external_to_special_qual,
+                false,
+                uses_tantivy_to_query,
+            )
+            .0
+            {
+                quals.push(qual);
+            } else if convert_external_to_special_qual {
+                // During partial extraction, convert unpushable predicates to Qual::ExternalExpr
+                // This allows us to proceed with the custom scan even if some predicates can't be pushed down
+                quals.push(Qual::ExternalExpr);
+            } else {
+                // Normal extraction failed and we're not doing partial extraction
+                return None;
+            }
+        }
+    }
+
+    Some(quals)
+}
+
+/// Try to create a FilterExpression qual from a PostgreSQL node
+/// This extracts the actual expression and referenced fields for external evaluation
+unsafe fn try_create_filter_expression(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+    node: *mut pg_sys::Node,
+) -> Option<Qual> {
+    use crate::postgres::var::{fieldname_from_var, find_var_relation};
+
+    if node.is_null() {
+        return None;
+    }
+
+    // Debug: log what expression we're trying to create a filter for
+    let node_string = pg_sys::nodeToString(node.cast::<core::ffi::c_void>());
+    let rust_string = std::ffi::CStr::from_ptr(node_string)
+        .to_string_lossy()
+        .into_owned();
+    pg_sys::pfree(node_string.cast());
+    pgrx::warning!(
+        "🔥 try_create_filter_expression called with: {}",
+        rust_string
+    );
+
+    // Clean any RestrictInfo wrappers first
+    let cleaned_node = clean_restrictinfo_recursively(node);
+
+    // Walk the expression tree to find all Var nodes
+    unsafe extern "C-unwind" fn var_walker(
+        node: *mut pg_sys::Node,
+        original_context: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+
+        let context = &mut *(original_context as *mut VarWalkerContext);
+
+        if let Some(var) = nodecast!(Var, T_Var, node) {
+            if (*var).varno as pg_sys::Index == context.rti {
+                context.has_our_relation = true;
+                let (heaprelid, varattno, _) = find_var_relation(var, context.root);
+                if heaprelid != pg_sys::Oid::INVALID {
+                    if let Some(field) = fieldname_from_var(heaprelid, var, varattno) {
+                        context.attno_map.insert((*var).varattno, field);
+                    }
+                }
+            }
+        }
+
+        pg_sys::expression_tree_walker(node, Some(var_walker), original_context)
+    }
+
+    struct VarWalkerContext {
+        root: *mut pg_sys::PlannerInfo,
+        rti: pg_sys::Index,
+        attno_map: HashMap<pg_sys::AttrNumber, FieldName>,
+        has_our_relation: bool,
+    }
+
+    let mut context = VarWalkerContext {
+        root,
+        rti,
+        attno_map: HashMap::default(),
+        has_our_relation: false,
+    };
+
+    var_walker(
+        cleaned_node,
+        (&mut context as *mut VarWalkerContext) as *mut core::ffi::c_void,
+    );
+
+    // Only create external filter if this expression involves our relation
+    if context.has_our_relation && !context.attno_map.is_empty() {
+        Some(Qual::FilterExpression {
+            expr: cleaned_node.cast(),
+            attno_map: context.attno_map,
+        })
+    } else {
+        None
+    }
+}
+
+/// Recursively clean RestrictInfo wrappers from any PostgreSQL node
+/// This handles nested RestrictInfo nodes in complex expressions like BoolExpr
+unsafe fn clean_restrictinfo_recursively(node: *mut pg_sys::Node) -> *mut pg_sys::Node {
+    if node.is_null() {
+        return node;
+    }
+
+    match (*node).type_ {
+        pg_sys::NodeTag::T_RestrictInfo => {
+            // Unwrap RestrictInfo and recursively clean the inner clause
+            let restrict_info = node.cast::<pg_sys::RestrictInfo>();
+            let inner_clause = if !(*restrict_info).orclause.is_null() {
+                (*restrict_info).orclause
+            } else {
+                (*restrict_info).clause
+            };
+            clean_restrictinfo_recursively(inner_clause.cast())
+        }
+        pg_sys::NodeTag::T_BoolExpr => {
+            // For BoolExpr, clean all arguments
+            let bool_expr = node.cast::<pg_sys::BoolExpr>();
+            let args_list = (*bool_expr).args;
+
+            if !args_list.is_null() {
+                let mut new_args = std::ptr::null_mut();
+                let old_args = PgList::<pg_sys::Node>::from_pg(args_list);
+
+                for arg in old_args.iter_ptr() {
+                    let cleaned_arg = clean_restrictinfo_recursively(arg);
+                    new_args = pg_sys::lappend(new_args, cleaned_arg.cast::<core::ffi::c_void>());
+                }
+
+                // Create a new BoolExpr with cleaned arguments
+                let new_bool_expr = pg_sys::palloc0(std::mem::size_of::<pg_sys::BoolExpr>())
+                    .cast::<pg_sys::BoolExpr>();
+                *new_bool_expr = *bool_expr; // Copy the original
+                (*new_bool_expr).args = new_args;
+                new_bool_expr.cast()
+            } else {
+                node
+            }
+        }
+        _ => {
+            // For other node types, return as-is (we could extend this for other complex types)
+            node
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+unsafe fn opexpr_internal(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+    node: *mut pg_sys::Node,
+    pdbopoid: pg_sys::Oid,
+    ri_type: RestrictInfoType,
+    schema: &SearchIndexSchema,
+    convert_external_to_special_qual: bool,
+    extract_all_quals_even_non_indexed: bool,
     uses_tantivy_to_query: &mut bool,
 ) -> Option<Qual> {
     let opexpr = nodecast!(OpExpr, T_OpExpr, node)?;
@@ -590,6 +1523,7 @@ unsafe fn opexpr(
             lhs,
             rhs,
             convert_external_to_special_qual,
+            extract_all_quals_even_non_indexed,
         ),
 
         pg_sys::NodeTag::T_FuncExpr => {
@@ -607,10 +1541,12 @@ unsafe fn opexpr(
                     lhs,
                     rhs,
                     convert_external_to_special_qual,
+                    extract_all_quals_even_non_indexed,
                 );
             }
 
             if is_complex(rhs) {
+                // Complex expressions on RHS are not supported
                 return None;
             }
 
@@ -630,9 +1566,13 @@ unsafe fn opexpr(
             lhs,
             rhs,
             convert_external_to_special_qual,
+            extract_all_quals_even_non_indexed,
         ),
 
-        _ => None,
+        _ => {
+            // Unhandled expression types are not supported
+            None
+        }
     }
 }
 
@@ -648,6 +1588,7 @@ unsafe fn node_opexpr(
     lhs: *mut pg_sys::Node,
     mut rhs: *mut pg_sys::Node,
     convert_external_to_special_qual: bool,
+    extract_all_quals_even_non_indexed: bool,
 ) -> Option<Qual> {
     while let Some(relabel_target) = nodecast!(RelabelType, T_RelabelType, rhs) {
         rhs = (*relabel_target).arg.cast();
@@ -687,6 +1628,12 @@ unsafe fn node_opexpr(
                 // we'll try to convert it into a pushdown
                 let result = try_pushdown(root, rti, opexpr, schema);
                 if result.is_none() {
+                    if extract_all_quals_even_non_indexed {
+                        // Try to create an external filter for this non-indexed predicate
+                        if let Some(external_filter) = try_external_filter(root, rti, opexpr) {
+                            return Some(external_filter);
+                        }
+                    }
                     if convert_external_to_special_qual {
                         return Some(Qual::ExternalExpr);
                     } else {
@@ -726,15 +1673,86 @@ unsafe fn node_opexpr(
         // we'll try to convert it into a pushdown
         let result = try_pushdown(root, rti, opexpr, schema);
         if result.is_none() {
+            if extract_all_quals_even_non_indexed {
+                // Try to create an external filter for this non-indexed predicate
+                if let Some(external_filter) = try_external_filter(root, rti, opexpr) {
+                    return Some(external_filter);
+                }
+            }
             if convert_external_to_special_qual {
-                Some(Qual::ExternalExpr)
+                return Some(Qual::ExternalExpr);
+            } else {
+                return None;
+            }
+        }
+        *uses_tantivy_to_query = true;
+        result
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+unsafe fn extract_quals_original(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+    node: *mut pg_sys::Node,
+    pdbopoid: pg_sys::Oid,
+    ri_type: RestrictInfoType,
+    schema: &SearchIndexSchema,
+    convert_external_to_special_qual: bool,
+    extract_all_quals_even_non_indexed: bool,
+    uses_tantivy_to_query: &mut bool,
+) -> Option<Qual> {
+    match (*node).type_ {
+        pg_sys::NodeTag::T_Var if (*(node as *mut pg_sys::Var)).vartype == pg_sys::BOOLOID => {
+            PushdownField::try_new(root, node.cast(), schema)
+                .map(|field| Qual::PushdownVarEqTrue { field })
+        }
+
+        pg_sys::NodeTag::T_NullTest => {
+            let nulltest = nodecast!(NullTest, T_NullTest, node)?;
+            if let Some(field) = PushdownField::try_new(root, (*nulltest).arg.cast(), schema) {
+                if let Some(search_field) = schema.search_field(field.attname()) {
+                    if search_field.is_fast() {
+                        if (*nulltest).nulltesttype == pg_sys::NullTestType::IS_NOT_NULL {
+                            return Some(Qual::PushdownIsNotNull { field });
+                        } else {
+                            return Some(Qual::Not(Box::new(Qual::PushdownIsNotNull { field })));
+                        }
+                    }
+                }
+            }
+
+            None
+        }
+
+        pg_sys::NodeTag::T_BooleanTest => booltest(
+            root,
+            rti,
+            node,
+            pdbopoid,
+            ri_type,
+            schema,
+            convert_external_to_special_qual,
+            uses_tantivy_to_query,
+        ),
+
+        pg_sys::NodeTag::T_Const => {
+            // Handle constants that result from join clause simplification
+            let const_node = nodecast!(Const, T_Const, node)?;
+            if (*const_node).consttype == pg_sys::BOOLOID && !(*const_node).constisnull {
+                let bool_value = bool::from_datum((*const_node).constvalue, false).unwrap_or(false);
+                if bool_value {
+                    Some(Qual::All)
+                } else {
+                    Some(Qual::Not(Box::new(Qual::All)))
+                }
             } else {
                 None
             }
-        } else {
-            *uses_tantivy_to_query = true;
-            result
         }
+
+        // we don't understand this clause so we can't do anything
+        _ => None,
     }
 }
 

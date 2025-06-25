@@ -374,6 +374,11 @@ impl SearchIndexReader {
             .iter()
             .enumerate()
             .map(move |(segment_ord, segment_reader)| {
+                pgrx::warning!(
+                    "🔥 Creating ScorerIter for segment {} (ID: {:?})",
+                    segment_ord,
+                    segment_reader.segment_id()
+                );
                 scorer_iter::ScorerIter::new(
                     DeferredScorer::new(
                         query.box_clone(),
@@ -857,6 +862,10 @@ mod scorer_iter {
                 }
 
                 // this doc isn't alive, move to the next doc and loop around
+                pgrx::warning!(
+                    "🔥 ScorerIter::next - doc_id {} is not alive, advancing",
+                    doc_id
+                );
                 self.deferred.advance();
             }
         }

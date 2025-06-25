@@ -55,7 +55,7 @@ use crate::postgres::customscan::pdbscan::projections::{
     inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
 };
 use crate::postgres::customscan::pdbscan::qual_inspect::{
-    extract_join_predicates, extract_quals, Qual,
+    extract_join_predicates, extract_quals_with_non_indexed, Qual,
 };
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::customscan::{self, CustomScan, CustomScanState};
@@ -68,7 +68,9 @@ use crate::schema::SearchIndexSchema;
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
 use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 use pgrx::pg_sys::CustomExecMethods;
-use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts, PgRelation};
+use pgrx::{
+    direct_function_call, pg_sys, FromDatum, IntoDatum, PgList, PgMemoryContexts, PgRelation,
+};
 use std::ffi::CStr;
 use std::ptr::addr_of_mut;
 use tantivy::snippet::SnippetGenerator;
@@ -85,6 +87,11 @@ impl PdbScan {
         state
             .custom_state_mut()
             .prepare_query_for_execution(planstate, expr_context);
+
+        // Set up external filter callbacks if needed
+        unsafe {
+            Self::setup_external_filter_callbacks(state);
+        }
 
         // Open the index
         let indexrel = state
@@ -171,6 +178,135 @@ impl PdbScan {
         }
     }
 
+    /// Set up external filter callbacks for queries that need them
+    unsafe fn setup_external_filter_callbacks(state: &mut CustomScanStateWrapper<Self>) {
+        let planstate = state.planstate();
+        let expr_context = state.runtime_context;
+
+        // Check if the search query contains external filters that need callbacks
+        let search_query = state.custom_state().search_query_input().clone();
+        Self::setup_callbacks_recursive(&search_query, planstate, expr_context, state);
+    }
+
+    /// Recursively set up callbacks for external filter queries
+    unsafe fn setup_callbacks_recursive(
+        query: &SearchQueryInput,
+        planstate: *mut pg_sys::PlanState,
+        expr_context: *mut pg_sys::ExprContext,
+        state: &mut CustomScanStateWrapper<Self>,
+    ) {
+        match query {
+            SearchQueryInput::IndexedWithFilter {
+                indexed_query,
+                filter_expression,
+                referenced_fields,
+            } => {
+                // Set up callback for the filter part
+                Self::create_external_filter_callback(
+                    filter_expression,
+                    referenced_fields,
+                    planstate,
+                    expr_context,
+                    state,
+                );
+
+                // Recursively handle the indexed query part
+                Self::setup_callbacks_recursive(indexed_query, planstate, expr_context, state);
+            }
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+            } => {
+                // Recursively handle all sub-queries
+                for sub_query in must.iter().chain(should.iter()).chain(must_not.iter()) {
+                    Self::setup_callbacks_recursive(sub_query, planstate, expr_context, state);
+                }
+            }
+            SearchQueryInput::Boost { query, .. } => {
+                Self::setup_callbacks_recursive(query, planstate, expr_context, state);
+            }
+            SearchQueryInput::ConstScore { query, .. } => {
+                Self::setup_callbacks_recursive(query, planstate, expr_context, state);
+            }
+            SearchQueryInput::ScoreFilter {
+                query: Some(query), ..
+            } => {
+                Self::setup_callbacks_recursive(query, planstate, expr_context, state);
+            }
+            SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
+                for sub_query in disjuncts {
+                    Self::setup_callbacks_recursive(sub_query, planstate, expr_context, state);
+                }
+            }
+            SearchQueryInput::WithIndex { query, .. } => {
+                Self::setup_callbacks_recursive(query, planstate, expr_context, state);
+            }
+            _ => {
+                // Other query types don't need callback setup
+            }
+        }
+    }
+
+    /// Create an external filter callback for a specific expression
+    unsafe fn create_external_filter_callback(
+        expression: &str,
+        referenced_fields: &[crate::api::FieldName],
+        planstate: *mut pg_sys::PlanState,
+        expr_context: *mut pg_sys::ExprContext,
+        state: &mut CustomScanStateWrapper<Self>,
+    ) {
+        use crate::query::external_filter::{
+            create_postgres_callback, register_callback, ExternalFilterConfig,
+        };
+
+        // Parse the expression back to a PostgreSQL node
+        let expression_cstr =
+            std::ffi::CString::new(expression).expect("Failed to create CString from expression");
+        let expr_node = pg_sys::stringToNode(expression_cstr.as_ptr());
+
+        if expr_node.is_null() {
+            pgrx::warning!("Failed to parse external filter expression: {}", expression);
+            return;
+        }
+
+        // Create attribute mapping for referenced fields
+        let mut attno_map = crate::api::HashMap::default();
+        let heaprel = PgRelation::from_pg(state.custom_state().heaprel().as_ptr());
+        let tupdesc = heaprel.tuple_desc();
+
+        for field in referenced_fields {
+            // Find the attribute number for this field
+            for (i, att) in tupdesc.iter().enumerate() {
+                if att.name() == field.root() {
+                    attno_map.insert((i + 1) as pg_sys::AttrNumber, field.clone());
+                    break;
+                }
+            }
+        }
+
+        // Create the external filter configuration
+        let config = ExternalFilterConfig {
+            expression: expression.to_string(),
+            referenced_fields: referenced_fields.to_vec(),
+        };
+
+        // Create the callback
+        let callback = create_postgres_callback(expression.to_string(), attno_map);
+
+        // Register the callback in the global registry so it can be retrieved during query creation
+        register_callback(expression, callback);
+
+        // Store the callback in the search reader for use during query execution
+        // For now, we'll store it in a way that the Tantivy queries can access it
+        // This is a placeholder - in a full implementation, we'd need a proper
+        // callback registry or storage mechanism
+        pgrx::debug1!(
+            "Created external filter callback for expression: {}",
+            expression
+        );
+    }
+
     fn cleanup_varibilities_from_tantivy_query(json_value: &mut serde_json::Value) {
         match json_value {
             serde_json::Value::Object(obj) => {
@@ -212,7 +348,9 @@ impl PdbScan {
         schema: &SearchIndexSchema,
     ) -> (Option<Qual>, RestrictInfoType, PgList<pg_sys::RestrictInfo>) {
         let mut uses_tantivy_to_query = false;
-        let quals = extract_quals(
+
+        // Try extracting quals with separation of indexed and non-indexed predicates
+        let (indexed_quals, all_quals) = extract_quals_with_non_indexed(
             root,
             rti,
             restrict_info.as_ptr().cast(),
@@ -223,31 +361,64 @@ impl PdbScan {
             &mut uses_tantivy_to_query,
         );
 
-        // If we couldn't push down quals, try to push down quals from the join
-        // This is only done if we have a join predicate, and only if we have used our operator
-        if quals.is_none() {
-            let joinri: PgList<pg_sys::RestrictInfo> =
-                PgList::from_pg(builder.args().rel().joininfo);
-            let mut join_uses_tantivy_to_query = false;
-            let quals = extract_quals(
+        pgrx::warning!("DEBUG: indexed_quals = {:?}", indexed_quals);
+        pgrx::warning!("DEBUG: all_quals = {:?}", all_quals);
+
+        if indexed_quals.is_some() {
+            // All predicates can be indexed, no external filtering needed
+            pgrx::warning!("DEBUG: Using indexed quals");
+            return (indexed_quals, ri_type, restrict_info);
+        }
+
+        // If we have non-indexed quals, use our new external filter approach
+        if all_quals.is_some() {
+            // We have some indexed and some non-indexed predicates
+            // Use the external filter approach which handles both indexed and non-indexed predicates
+            pgrx::warning!("DEBUG: Using all quals (including external filters)");
+            return (all_quals, ri_type, restrict_info);
+        }
+
+        // If we have search operators but couldn't extract indexed quals, try partial extraction
+        if uses_tantivy_to_query {
+            // Try to extract just the search operators by being more permissive
+            let mut partial_uses_tantivy_to_query = false;
+            let (partial_quals, partial_non_indexed) = extract_quals_with_non_indexed(
                 root,
                 rti,
-                joinri.as_ptr().cast(),
-                anyelement_query_input_opoid(),
-                RestrictInfoType::Join,
+                restrict_info.as_ptr().cast(),
+                pdbopoid,
+                ri_type,
                 schema,
-                true, // Join quals should convert external to all
-                &mut join_uses_tantivy_to_query,
+                true, // Convert external predicates to "All" to allow partial extraction
+                &mut partial_uses_tantivy_to_query,
             );
-            // If we have used our operator in the join, or if we have used our operator in the
-            // base relation, then we can use the join quals
-            if uses_tantivy_to_query || join_uses_tantivy_to_query {
-                (quals, RestrictInfoType::Join, joinri)
-            } else {
-                (quals, ri_type, restrict_info)
+
+            if partial_quals.is_some() && partial_uses_tantivy_to_query {
+                return (partial_quals, ri_type, restrict_info);
             }
+        }
+
+        // If we couldn't push down quals, try to push down quals from the join
+        // This is only done if we have a join predicate, and only if we have used our operator
+        let joinri: PgList<pg_sys::RestrictInfo> = PgList::from_pg(builder.args().rel().joininfo);
+        let mut join_uses_tantivy_to_query = false;
+        let (join_indexed_quals, join_all_quals) = extract_quals_with_non_indexed(
+            root,
+            rti,
+            joinri.as_ptr().cast(),
+            anyelement_query_input_opoid(),
+            RestrictInfoType::Join,
+            schema,
+            true, // Join quals should convert external to all
+            &mut join_uses_tantivy_to_query,
+        );
+
+        // If we have used our operator in the join, or if we have used our operator in the
+        // base relation, then we can use the join quals
+        if uses_tantivy_to_query || join_uses_tantivy_to_query {
+            (join_indexed_quals, RestrictInfoType::Join, joinri)
         } else {
-            (quals, ri_type, restrict_info)
+            (join_indexed_quals, ri_type, restrict_info)
         }
     }
 }
@@ -657,6 +828,10 @@ impl CustomScan for PdbScan {
                 .custom_private()
                 .heaprelid()
                 .expect("heaprelid should have a value");
+
+            // Set the global heap relation context for external filter queries
+            crate::query::external_filter::set_heap_relation_oid(builder.custom_state().heaprelid);
+
             builder.custom_state().indexrelid = builder
                 .custom_private()
                 .indexrelid()
@@ -937,6 +1112,7 @@ impl CustomScan for PdbScan {
             let exec_method = state.custom_state_mut().exec_method_mut();
 
             // get the next matching document from our search results and look for it in the heap
+            pgrx::warning!("🔥 exec_custom_scan: calling exec_method.next()");
             match exec_method.next(state.custom_state_mut()) {
                 // reached the end of the SearchResults
                 ExecState::Eof => {
@@ -949,6 +1125,10 @@ impl CustomScan for PdbScan {
                     score,
                     doc_address,
                 } => {
+                    pgrx::warning!(
+                        "🔥 exec_custom_scan: RequiresVisibilityCheck for ctid={}",
+                        ctid
+                    );
                     unsafe {
                         let slot = match check_visibility(state, ctid, state.scanslot().cast()) {
                             // the ctid is visible
@@ -1071,10 +1251,11 @@ impl CustomScan for PdbScan {
                     }
                 }
 
-                ExecState::Virtual { slot } => {
+                ExecState::Virtual { slot } => unsafe {
                     state.custom_state_mut().virtual_tuple_count += 1;
+                    pgrx::warning!("🔥 exec_custom_scan: Virtual tuple returned");
                     return slot;
-                }
+                },
             }
         }
     }
@@ -1621,6 +1802,13 @@ fn base_query_has_search_predicates(
 
         // Postgres expressions are unknown, assume they could be search predicates
         SearchQueryInput::PostgresExpression { .. } => true,
+
+        // External filters are not search predicates themselves
+
+        // IndexedWithFilter: check the indexed query part
+        SearchQueryInput::IndexedWithFilter { indexed_query, .. } => {
+            base_query_has_search_predicates(indexed_query, current_index_oid)
+        }
     }
 }
 
@@ -1633,4 +1821,239 @@ fn is_range_query_string(query_string: &str) -> bool {
         || query_string.trim_start().starts_with("<=")
         || query_string.contains("..")  // Range syntax like "1..10"
         || query_string.contains(" TO ") // Range syntax like "1 TO 10"
+}
+
+/// Recursively clean RestrictInfo wrappers from any PostgreSQL node
+/// This handles nested RestrictInfo nodes in complex expressions like BoolExpr
+unsafe fn clean_restrictinfo_recursively(node: *mut pg_sys::Node) -> *mut pg_sys::Node {
+    if node.is_null() {
+        return node;
+    }
+
+    match (*node).type_ {
+        pg_sys::NodeTag::T_RestrictInfo => {
+            // Unwrap RestrictInfo and recursively clean the inner clause
+            let restrict_info = node.cast::<pg_sys::RestrictInfo>();
+            let inner_clause = if !(*restrict_info).orclause.is_null() {
+                (*restrict_info).orclause
+            } else {
+                (*restrict_info).clause
+            };
+            clean_restrictinfo_recursively(inner_clause.cast())
+        }
+        pg_sys::NodeTag::T_BoolExpr => {
+            // For BoolExpr, clean all arguments
+            let bool_expr = node.cast::<pg_sys::BoolExpr>();
+            let args_list = (*bool_expr).args;
+
+            if !args_list.is_null() {
+                let mut new_args = std::ptr::null_mut();
+                let old_args = PgList::<pg_sys::Node>::from_pg(args_list);
+
+                for arg in old_args.iter_ptr() {
+                    let cleaned_arg = clean_restrictinfo_recursively(arg);
+                    new_args = pg_sys::lappend(new_args, cleaned_arg.cast::<core::ffi::c_void>());
+                }
+
+                // Create a new BoolExpr with cleaned arguments
+                let new_bool_expr = pg_sys::palloc0(std::mem::size_of::<pg_sys::BoolExpr>())
+                    .cast::<pg_sys::BoolExpr>();
+                *new_bool_expr = *bool_expr; // Copy the original
+                (*new_bool_expr).args = new_args;
+                new_bool_expr.cast()
+            } else {
+                node
+            }
+        }
+        _ => {
+            // For other node types, return as-is (we could extend this for other complex types)
+            node
+        }
+    }
+}
+
+/// Replace sub-expressions that reference other relations with TRUE constants
+/// This preserves the logical structure while ensuring cross-relation predicates don't cause evaluation errors
+unsafe fn replace_cross_relation_expressions_with_true(
+    node: *mut pg_sys::Node,
+    target_rti: pg_sys::Index,
+) -> *mut pg_sys::Node {
+    if node.is_null() {
+        return node;
+    }
+
+    // Check if this entire expression references only the target relation
+    if expression_references_only_relation(node, target_rti) {
+        return node; // Keep as-is
+    }
+
+    // If this expression references other relations, check if we can replace parts of it
+    match (*node).type_ {
+        pg_sys::NodeTag::T_BoolExpr => {
+            // For BoolExpr, recursively process arguments
+            let bool_expr = node.cast::<pg_sys::BoolExpr>();
+            let args_list = (*bool_expr).args;
+
+            if !args_list.is_null() {
+                let mut new_args = std::ptr::null_mut();
+                let old_args = PgList::<pg_sys::Node>::from_pg(args_list);
+
+                for arg in old_args.iter_ptr() {
+                    let processed_arg =
+                        replace_cross_relation_expressions_with_true(arg, target_rti);
+                    new_args = pg_sys::lappend(new_args, processed_arg.cast::<core::ffi::c_void>());
+                }
+
+                // Create a new BoolExpr with processed arguments
+                let new_bool_expr = pg_sys::palloc0(std::mem::size_of::<pg_sys::BoolExpr>())
+                    .cast::<pg_sys::BoolExpr>();
+                *new_bool_expr = *bool_expr; // Copy the original
+                (*new_bool_expr).args = new_args;
+                new_bool_expr.cast()
+            } else {
+                node
+            }
+        }
+        _ => {
+            // For leaf expressions that reference other relations, replace with TRUE
+            create_bool_const_true().unwrap_or(node)
+        }
+    }
+}
+
+/// Check if a PostgreSQL expression node references only the specified relation
+unsafe fn expression_references_only_relation(
+    node: *mut pg_sys::Node,
+    target_rti: pg_sys::Index,
+) -> bool {
+    if node.is_null() {
+        return true;
+    }
+
+    extern "C-unwind" fn walker(node: *mut pg_sys::Node, context: *mut core::ffi::c_void) -> bool {
+        unsafe {
+            if node.is_null() {
+                return false;
+            }
+
+            let target_rti = context.cast::<pg_sys::Index>().read();
+
+            if let Some(var) = nodecast!(Var, T_Var, node) {
+                // If this variable references a different relation, return true to stop walking
+                // and indicate the expression is not suitable for this relation
+                return (*var).varno as pg_sys::Index != target_rti;
+            }
+
+            // Continue walking the expression tree
+            pg_sys::expression_tree_walker(node, Some(walker), context)
+        }
+    }
+
+    let mut target_rti_copy = target_rti;
+    !pg_sys::expression_tree_walker(
+        node,
+        Some(walker),
+        (&mut target_rti_copy as *mut pg_sys::Index).cast(),
+    )
+}
+
+/// Create a TRUE constant node
+unsafe fn create_bool_const_true() -> Option<*mut pg_sys::Node> {
+    let const_node = pg_sys::palloc0(std::mem::size_of::<pg_sys::Const>()).cast::<pg_sys::Const>();
+    (*const_node).xpr.type_ = pg_sys::NodeTag::T_Const;
+    (*const_node).consttype = pg_sys::BOOLOID;
+    (*const_node).consttypmod = -1;
+    (*const_node).constcollid = pg_sys::InvalidOid;
+    (*const_node).constlen = 1;
+    (*const_node).constvalue = true.into_datum().unwrap();
+    (*const_node).constisnull = false;
+    (*const_node).constbyval = true;
+    (*const_node).location = -1;
+    Some(const_node.cast())
+}
+
+/// Safe wrapper for replace_operator_with_true that ensures we never return null at the top level
+unsafe fn remove_operator_safe(
+    node: *mut pg_sys::Node,
+    operator_oid: pg_sys::Oid,
+) -> *mut pg_sys::Node {
+    let result = remove_operator(node, operator_oid);
+    if result.is_null() {
+        // If the entire expression was filtered out, return TRUE
+        create_bool_const_true().unwrap_or(node)
+    } else {
+        result
+    }
+}
+
+/// Filter out occurrences of our specific operator (e.g., @@@) from heap filter expressions
+/// This completely removes them from boolean expressions rather than replacing with TRUE
+/// For OR expressions with our operator, retain the other side; for AND expressions, remove our operator
+/// Returns TRUE constant if the entire expression would be filtered out
+unsafe fn remove_operator(node: *mut pg_sys::Node, operator_oid: pg_sys::Oid) -> *mut pg_sys::Node {
+    if node.is_null() {
+        return node;
+    }
+
+    match (*node).type_ {
+        pg_sys::NodeTag::T_OpExpr => {
+            let opexpr = node.cast::<pg_sys::OpExpr>();
+            if (*opexpr).opno == operator_oid {
+                // If this is a top-level OpExpr with our operator, return TRUE
+                // If it's nested in a BoolExpr, return NULL to indicate removal
+                return std::ptr::null_mut();
+            }
+            // Otherwise, recurse into args to handle nested expressions
+            let args_list = (*opexpr).args;
+            if args_list.is_null() {
+                return node;
+            }
+            let old_args = PgList::<pg_sys::Node>::from_pg(args_list);
+            let mut new_args = std::ptr::null_mut();
+            for arg in old_args.iter_ptr() {
+                let processed = remove_operator(arg, operator_oid);
+                if !processed.is_null() {
+                    new_args = pg_sys::lappend(new_args, processed.cast::<core::ffi::c_void>());
+                }
+            }
+            // Build a shallow copy with replaced args
+            let new_opexpr = pg_sys::copyObjectImpl(node.cast()).cast::<pg_sys::OpExpr>();
+            (*new_opexpr).args = new_args;
+            new_opexpr.cast()
+        }
+        pg_sys::NodeTag::T_BoolExpr => {
+            let boolexpr = node.cast::<pg_sys::BoolExpr>();
+            if (*boolexpr).args.is_null() {
+                return node;
+            }
+
+            // Process all arguments to filter out our operator
+            let old_args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
+            let mut new_args = std::ptr::null_mut();
+            for arg in old_args.iter_ptr() {
+                let processed = remove_operator(arg, operator_oid);
+                if !processed.is_null() {
+                    new_args = pg_sys::lappend(new_args, processed.cast::<core::ffi::c_void>());
+                }
+            }
+
+            // Handle special cases based on boolean operation type
+            if pg_sys::list_length(new_args) == 0 {
+                // All args were filtered out - return TRUE constant instead of null
+                return create_bool_const_true().unwrap_or(node);
+            } else if pg_sys::list_length(new_args) == 1
+                && ((*boolexpr).boolop == pg_sys::BoolExprType::AND_EXPR
+                    || (*boolexpr).boolop == pg_sys::BoolExprType::OR_EXPR)
+            {
+                // If we have AND(x) or OR(x), just return x directly
+                return (*pg_sys::list_head(new_args)).ptr_value.cast();
+            }
+
+            // Create new boolean expression with filtered arguments
+            let new_bool_expr = pg_sys::copyObjectImpl(node.cast()).cast::<pg_sys::BoolExpr>();
+            (*new_bool_expr).args = new_args;
+            new_bool_expr.cast()
+        }
+        _ => node, // For other node types, return as-is
+    }
 }

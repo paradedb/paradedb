@@ -50,6 +50,8 @@ pub struct PrivateData {
     // Additional search predicates from join filters that are relevant for snippet/score generation
     // Stores the entire simplified Boolean expression to preserve OR structures like (TRUE OR name:"Rowling")
     join_predicates: Option<SearchQueryInput>,
+    // Store external filter expressions for Tantivy callback evaluation
+    external_filter_expressions: Vec<String>,
 }
 
 mod var_attname_lookup_serializer {
@@ -223,6 +225,10 @@ impl PrivateData {
     pub fn set_join_predicates(&mut self, predicates: Option<SearchQueryInput>) {
         self.join_predicates = predicates;
     }
+
+    pub fn set_external_filter_expressions(&mut self, expressions: Vec<String>) {
+        self.external_filter_expressions = expressions;
+    }
 }
 
 //
@@ -297,5 +303,9 @@ impl PrivateData {
 
     pub fn join_predicates(&self) -> &Option<SearchQueryInput> {
         &self.join_predicates
+    }
+
+    pub fn external_filter_expressions(&self) -> &Vec<String> {
+        &self.external_filter_expressions
     }
 }
